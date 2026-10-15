@@ -62,7 +62,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     // and marshals it back, so the round-trip proves the arbitrary-precision
     // Integer (ADR-0049) against live Goblins in both directions.
     const big_digits = "1267650600228229401496703205376";
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = echo,
         .args = &.{
             .{ .bytes = "glowcap-ping" },
@@ -77,8 +77,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch |err| return err;
-            if (body == .resolve and body.resolve.answer.int() == echo_answer) {
+            const body = event.view();
+            if (body.* == .resolve and body.resolve.answer.int() == echo_answer) {
                 switch (body.resolve.resolution) {
                     // The echo actor is `(lambda args args)`: it returns its
                     // argument list. Assert the content survived the
@@ -122,7 +122,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     //    Goblins fires it and the projected resolution surfaces back here as an
     //    ordinary resolve event, exactly as the bindings see it.
     const index_answer: u64 = 4343;
-    try peer.sendCopying(.{ .index = .{
+    try peer.sendBorrowed(.{ .index = .{
         .receiver = .{ .promise = .{ .answer_position = model.AnswerPosition.from(echo_answer) } },
         .index = .{ .integer = 0 },
         .answer = model.AnswerPosition.from(index_answer),
@@ -134,8 +134,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch |err| return err;
-            if (body == .resolve and body.resolve.answer.int() == index_answer) {
+            const body = event.view();
+            if (body.* == .resolve and body.resolve.answer.int() == index_answer) {
                 switch (body.resolve.resolution) {
                     .fulfill => |payload| {
                         const text: []const u8 = switch (payload) {
@@ -165,13 +165,13 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     std.debug.print("goblins-interop: fetched goblins record cap, pipelining op:get against its answer\n", .{});
 
     const record_answer: u64 = 4444;
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = record,
         .args = &.{.{ .string = "glowcap-get" }},
         .answer = model.AnswerPosition.from(record_answer),
     } });
     const get_answer: u64 = 4545;
-    try peer.sendCopying(.{ .get = .{
+    try peer.sendBorrowed(.{ .get = .{
         .receiver = .{ .promise = .{ .answer_position = model.AnswerPosition.from(record_answer) } },
         .field = "name",
         .answer = model.AnswerPosition.from(get_answer),
@@ -183,8 +183,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch |err| return err;
-            if (body == .resolve and body.resolve.answer.int() == get_answer) {
+            const body = event.view();
+            if (body.* == .resolve and body.resolve.answer.int() == get_answer) {
                 switch (body.resolve.resolution) {
                     .fulfill => |payload| {
                         const text: []const u8 = switch (payload) {
@@ -213,12 +213,12 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     defer model.freeReference(allocator, tally);
     std.debug.print("goblins-interop: fetched goblins tally cap, sending two one-way delivers\n", .{});
 
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = tally,
         .args = &.{.{ .symbol = "bump" }},
         .answer = null,
     } });
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = tally,
         .args = &.{.{ .symbol = "bump" }},
         .answer = null,
@@ -227,7 +227,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     // Distinct from every other answer this conversation opens: the driver
     // numbers them by hand, so a reused position is a collision, not a reuse.
     const tally_answer: u64 = 4747;
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = tally,
         .args = &.{.{ .symbol = "read" }},
         .answer = model.AnswerPosition.from(tally_answer),
@@ -239,8 +239,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch |err| return err;
-            if (body == .resolve and body.resolve.answer.int() == tally_answer) {
+            const body = event.view();
+            if (body.* == .resolve and body.resolve.answer.int() == tally_answer) {
                 switch (body.resolve.resolution) {
                     .fulfill => |payload| {
                         const count = switch (payload) {
@@ -278,7 +278,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     std.debug.print("goblins-interop: enlivened goblins echo cap via the dedup-cache API, calling it\n", .{});
 
     const enliven_answer: u64 = 4646;
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = enlivened,
         .args = &.{.{ .bytes = "glowcap-enliven" }},
         .answer = model.AnswerPosition.from(enliven_answer),
@@ -289,8 +289,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch |err| return err;
-            if (body == .resolve and body.resolve.answer.int() == enliven_answer) {
+            const body = event.view();
+            if (body.* == .resolve and body.resolve.answer.int() == enliven_answer) {
                 switch (body.resolve.resolution) {
                     .fulfill => |payload| {
                         if (payload != .list or (try payload.list.len()) != 1) return error.EnlivenWrongPayload;
@@ -329,8 +329,8 @@ fn verifyGoblinsStartSession(allocator: std.mem.Allocator, peer: *engine.Peer) !
     while (peer.pollEvent()) |event| {
         var e = event;
         defer e.deinit();
-        const view = try e.view();
-        switch (view) {
+        const view = e.view();
+        switch (view.*) {
             .start_session => |ss| {
                 const pubkey = crypto.PeerKey.fromSlice(ss.session_pubkey) catch return error.BadGoblinsKey;
                 const sig = switch (ss.acceptable_location_sig) {

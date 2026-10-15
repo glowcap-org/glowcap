@@ -54,6 +54,12 @@ pub const Frame = struct {
         /// because a `byte` frame might be over-aligned, and it should still
         /// free with the alignment it was really allocated under.
         storage_alignment: std.mem.Alignment,
+        /// Bytes of private head in front of `storage` in the same block. See
+        /// `initHeaded`. Zero for a frame adopted through `initOwned`.
+        head_len: u16 = 0,
+        /// The head's type, folded to a tag, so a reader asking for another
+        /// type of the same size gets nothing rather than the wrong head.
+        head_tag: u16 = 0,
     };
 
     const ExternalOwner = struct {
@@ -89,6 +95,84 @@ pub const Frame = struct {
         };
     }
 
+    /// Copy `wire` into a fresh block that also holds one `Head` in front of
+    /// it, so what a layer learns about the bytes (the engine keeps the parse
+    /// there) lives and dies with them in one allocation. `head` reads it
+    /// back. The block is aligned for both the head and the shape, and the
+    /// wire bytes start at a shape-aligned offset. Ownership is the frame's
+    /// from the first byte: a shape refusal frees the block before returning.
+    pub fn initHeaded(
+        allocator: std.mem.Allocator,
+        comptime Head: type,
+        comptime Tail: type,
+        tail_len: usize,
+        wire: []const u8,
+        shape: FrameShape,
+    ) (Error || std.mem.Allocator.Error)!Frame {
+        // One block holds the head slot first, then `tail_len` values of
+        // `Tail`, then the wire bytes. A layer that learns something about the
+        // bytes, such as the decoded parse and its argument views, stores it
+        // there, and it is freed with the bytes. The head is padded so the
+        // bytes still start at an aligned offset.
+        comptime std.debug.assert(@sizeOf(Head) <= std.math.maxInt(u16));
+        const head_len = headLen(Head, Tail, tail_len, shape);
+        if (head_len > std.math.maxInt(u16)) return error.OutOfMemory;
+        const alignment = headAlignment(Head, Tail, shape);
+        const block = allocator.rawAlloc(headedBlockLen(Head, Tail, tail_len, wire.len, shape), alignment, @returnAddress()) orelse
+            return error.OutOfMemory;
+        const storage = block[head_len..][0..wire.len];
+        @memcpy(storage, wire);
+        validateShape(storage, shape) catch |err| {
+            freeStorage(allocator, block[0 .. head_len + wire.len], alignment);
+            return err;
+        };
+        return .{
+            .storage = storage,
+            .shape = shape,
+            .owner = .{
+                .allocator = .{
+                    .allocator = allocator,
+                    .storage_alignment = alignment,
+                    .head_len = @intCast(head_len),
+                    .head_tag = headTag(Head),
+                },
+            },
+        };
+    }
+
+    /// The `Head` this frame was allocated with through `initHeaded`, or null
+    /// for a frame that carries none or one of another size. The pointer is
+    /// good for as long as the frame is.
+    /// The one block `initHeaded` allocates: the head, its tail, the shape
+    /// padding, and the wire bytes.
+    pub fn headedBlockLen(comptime Head: type, comptime Tail: type, tail_len: usize, wire_len: usize, shape: FrameShape) usize {
+        return headLen(Head, Tail, tail_len, shape) + wire_len;
+    }
+
+    pub fn head(self: *const Frame, comptime Head: type) ?*Head {
+        const owner = switch (self.owner) {
+            .allocator => |owner| owner,
+            .external => return null,
+        };
+        if (owner.head_tag != headTag(Head)) return null;
+        std.debug.assert(owner.head_len >= @sizeOf(Head));
+        return @ptrCast(@alignCast(self.storage.ptr - owner.head_len));
+    }
+
+    /// The tail of `Tail` values behind the head, empty for a frame built
+    /// without one or for another head type. A tail element is at least a
+    /// word, so the shape padding after the tail is never mistaken for one.
+    pub fn headTail(self: *const Frame, comptime Head: type, comptime Tail: type) []Tail {
+        comptime std.debug.assert(@sizeOf(Tail) >= 8);
+        const head_ptr = self.head(Head) orelse return &.{};
+        const owner = self.owner.allocator;
+        const offset = tailOffset(Head, Tail);
+        if (owner.head_len < offset) return &.{};
+        const len = (owner.head_len - offset) / @sizeOf(Tail);
+        const base: [*]u8 = @ptrCast(head_ptr);
+        return @as([*]Tail, @ptrCast(@alignCast(base + offset)))[0..len];
+    }
+
     /// Wrap storage that something else owns, like a host buffer, an mmap, or
     /// another runtime, without copying it. Instead of freeing, `deinit` calls
     /// your `release` with `context`, and what that means is up to you.
@@ -118,7 +202,11 @@ pub const Frame = struct {
     /// debug-mode poison instead of quietly using freed bytes.
     pub fn deinit(self: *Frame) void {
         switch (self.owner) {
-            .allocator => |owner| freeStorage(owner.allocator, self.storage, owner.storage_alignment),
+            .allocator => |owner| freeStorage(
+                owner.allocator,
+                (self.storage.ptr - owner.head_len)[0 .. owner.head_len + self.storage.len],
+                owner.storage_alignment,
+            ),
             .external => |owner| owner.release(owner.context),
         }
         self.* = undefined;
@@ -139,6 +227,34 @@ pub const Frame = struct {
         };
     }
 };
+
+/// The head's size padded so the wire bytes behind it keep the shape's
+/// alignment.
+fn tailOffset(comptime Head: type, comptime Tail: type) usize {
+    return std.mem.alignForward(usize, @sizeOf(Head), @alignOf(Tail));
+}
+
+fn headLen(comptime Head: type, comptime Tail: type, tail_len: usize, shape: FrameShape) usize {
+    return shapeAlignment(shape).forward(tailOffset(Head, Tail) + tail_len * @sizeOf(Tail));
+}
+
+/// The tag a head type carries in its frame: a fold of the type's name,
+/// never zero, which is the no-head mark.
+fn headTag(comptime Head: type) u16 {
+    const folded: u16 = @truncate(std.hash.Fnv1a_32.hash(@typeName(Head)));
+    return if (folded == 0) 1 else folded;
+}
+
+fn headAlignment(comptime Head: type, comptime Tail: type, shape: FrameShape) std.mem.Alignment {
+    return shapeAlignment(shape).max(.of(Head)).max(.of(Tail));
+}
+
+fn shapeAlignment(shape: FrameShape) std.mem.Alignment {
+    return switch (shape) {
+        .byte => .fromByteUnits(1),
+        .word => .fromByteUnits(8),
+    };
+}
 
 fn freeStorage(allocator: std.mem.Allocator, storage: []u8, alignment: std.mem.Alignment) void {
     if (storage.len == 0) {

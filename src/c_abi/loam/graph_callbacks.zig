@@ -32,19 +32,19 @@ pub fn projectionAllocationBound(pages: usize) !common.hosting.references.Alloca
 }
 
 pub fn copySpec(gpa: std.mem.Allocator, raw: c.GlowcapLoamGraph) !graph.Spec {
-    if (raw.schema_count == 0 or raw.schema_count > 128 or raw.max_pages == 0 or raw.max_payload_bytes == 0 or raw.max_edges == 0) return error.InvalidGraphLimits;
+    if (raw.schema_count == 0 or raw.schema_count > graph.Spec.max_schemas or raw.max_pages == 0 or raw.max_payload_bytes == 0 or raw.max_edges == 0) return error.InvalidGraphLimits;
     const input = try common.slice(c.GlowcapLoamGraphSchema, raw.schemas, raw.schema_count);
     const schemas = try gpa.alloc(graph.Schema, input.len);
     errdefer gpa.free(schemas);
     for (input, schemas) |schema, *target| target.* = .{ .id = schema.id, .version = schema.version };
-    if (raw.requirement_verb_count > 128) return error.InvalidGraphLimits;
+    if (raw.requirement_verb_count > graph.Spec.max_requirement_verbs) return error.InvalidGraphLimits;
     const declared = try common.slice(c.GlowcapLoamGraphVerb, raw.requirement_verbs, raw.requirement_verb_count);
     const verbs = try gpa.alloc([]const u8, declared.len);
     errdefer gpa.free(verbs);
     var copied: usize = 0;
     errdefer for (verbs[0..copied]) |verb| gpa.free(verb);
     for (declared, verbs) |source, *target| {
-        if (source.verb_len == 0 or source.verb_len > 256) return error.InvalidGraphMethod;
+        if (source.verb_len == 0 or source.verb_len > graph.Spec.max_requirement_verb_bytes) return error.InvalidGraphMethod;
         target.* = try gpa.dupe(u8, try common.slice(u8, source.verb, source.verb_len));
         copied += 1;
     }

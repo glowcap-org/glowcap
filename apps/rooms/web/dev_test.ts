@@ -2,7 +2,7 @@ import { assertEquals, assertThrows } from "@std/assert";
 import { backendFromOutput, parseDevelopmentLaunch } from "./dev.ts";
 import { backendProxy, developmentAllowedHosts, developmentListen, developmentPort } from "./vite.config.ts";
 
-Deno.test("the development launch keeps native arguments separate from its public port", () => {
+Deno.test("the development launch keeps server arguments separate from its public port", () => {
 	assertEquals(parseDevelopmentLaunch(["/tmp/rooms-web", "8123", "--transport=tcp"]), {
 		web: "/tmp/rooms-web",
 		port: 8123,
@@ -12,7 +12,7 @@ Deno.test("the development launch keeps native arguments separate from its publi
 	assertThrows(() => parseDevelopmentLaunch(["rooms-web", "0"]), Error, "integer from 1 through 65535");
 });
 
-Deno.test("the native readiness report yields only a loopback backend", () => {
+Deno.test("the readiness report yields only a loopback backend", () => {
 	assertEquals(
 		backendFromOutput("rooms: serving\n\n  web ui           http://localhost:43129\n"),
 		"http://127.0.0.1:43129",

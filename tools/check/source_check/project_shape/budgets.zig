@@ -37,58 +37,13 @@ const budget_facts = [_]BudgetFact{
         .source_path = "src/net/completion/loop/state.zig",
         .decl = "pub const conn_slot_overhead_bytes: usize = ",
         .quotes = &.{
-            .{ .path = "docs/ladder.md", .anchor = "| Completion-loop slot beyond its embedded peer | exactly " },
             .{ .path = "bench/peer_scaling_bench.zig", .anchor = "(`Conn`) adds " },
-        },
-    },
-    .{
-        .label = "Host-session budget",
-        .source_path = "src/driver/core/host/session.zig",
-        .decl = "pub const host_session_struct_budget_bytes = ",
-        .quotes = &.{
-            .{ .path = "docs/ladder.md", .anchor = "| Host session shell | at most " },
-            .{ .path = "docs/decisions/adr/ADR-0096-host-scoped-capability-identity.md", .anchor = "`HostSession` ceiling is " },
-            .{ .path = "docs/decisions/adr/ADR-0098-sturdyref-peer-authority.md", .anchor = "the `HostSession` shell is " },
-            .{ .path = "docs/decisions/adr/ADR-0099-shared-vat-scheduling.md", .anchor = "per-session `HostSession` ceiling is " },
-        },
-    },
-    .{
-        .label = "peer session struct budget",
-        .source_path = "src/ocapn/engine/mod.zig",
-        .decl = "pub const peer_session_struct_budget_bytes = ",
-        .quotes = &.{
-            .{ .path = "docs/ladder.md", .anchor = "| `engine.Peer` inline state | at most ", .suffix = " bytes |" },
-        },
-    },
-    .{
-        .label = "keyed-relay adapter state",
-        .source_path = "test/net/keyed_relay_completion_test.zig",
-        .decl = "const keyed_relay_connection_state_bytes: usize = ",
-        .quotes = &.{
-            .{ .path = "docs/ladder.md", .anchor = "| Completion-backed keyed-relay adapter state | exactly ", .suffix = " bytes per relay leg |" },
-        },
-    },
-    .{
-        .label = "iroh completion-adapter row",
-        .source_path = "test/net/iroh_resident_internal_test.zig",
-        .decl = "const iroh_connection_state_bytes: usize = ",
-        .quotes = &.{
-            .{ .path = "docs/ladder.md", .anchor = "| iroh completion-adapter row | exactly ", .suffix = " bytes per loop connection |" },
-        },
-    },
-    .{
-        .label = "WebRTC completion-adapter row",
-        .source_path = "test/net/webrtc_internal_test.zig",
-        .decl = "const webrtc_connection_state_bytes: usize = ",
-        .quotes = &.{
-            .{ .path = "docs/ladder.md", .anchor = "| WebRTC completion-adapter row | exactly ", .suffix = " bytes per open DataChannel |" },
         },
     },
 };
 
 /// Each footprint budget is one number with one authoritative declaration,
-/// quoted by the docs a reader actually opens (`docs/ladder.md` step 2 and the
-/// deciding ADRs). A constant moved once while its quotes did
+/// quoted where a reader needs the number itself. A constant moved once while its quotes did
 /// not, so the prose said 112 while the build asserted 128 and nothing
 /// noticed. Every quote in `budget_facts` is therefore derived from the source
 /// declaration rather than written down again.

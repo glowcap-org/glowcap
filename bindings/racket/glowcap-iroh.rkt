@@ -17,13 +17,13 @@
 ;;
 ;; Below that sits the raw byte surface: an `iroh-endpoint` accepts and dials
 ;; connections with no CapTP over them, and a `byte-channel` moves their bytes.
-;; The native iroh server owns CapTP admission through the driver, while a
+;; The FFI iroh server owns CapTP admission through the driver, while a
 ;; consumer with a protocol of its own (a byte-transparent relay, or a
 ;; netlayer written for a foreign CapTP) takes the raw endpoint alone.
 ;;
 ;; This file is the application surface and nothing else. `private/iroh.rkt` is
 ;; the stable facade; its `iroh/runtime.rkt` and `iroh/surface.rkt` subjects own
-;; the native resident/raw endpoint and application composition respectively.
+;; the FFI resident/raw endpoint and application composition respectively.
 (require "private/iroh.rkt")
 
 (provide iroh-locator iroh-provider iroh-connector listen-iroh

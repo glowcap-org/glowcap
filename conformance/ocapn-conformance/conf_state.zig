@@ -42,19 +42,22 @@ pub const AddrTable = struct {
     allocator: std.mem.Allocator,
     entries: std.StringHashMapUnmanaged([]u8) = .{},
 
-    pub fn put(self: *AddrTable, uuid: []const u8, hostport: []const u8) void {
-        const gop = self.entries.getOrPut(self.allocator, uuid) catch return;
+    /// Record or replace `uuid`'s address. On failure the table is as it was.
+    pub fn put(self: *AddrTable, uuid: []const u8, hostport: []const u8) !void {
+        const value = try self.allocator.dupe(u8, hostport);
+        errdefer self.allocator.free(value);
+        const gop = try self.entries.getOrPut(self.allocator, uuid);
         if (gop.found_existing) {
             self.allocator.free(gop.value_ptr.*);
         } else {
-            gop.key_ptr.* = self.allocator.dupe(u8, uuid) catch {
+            gop.key_ptr.* = self.allocator.dupe(u8, uuid) catch |err| {
                 // By slot, not by key: the slot's key is still undefined, and a
                 // keyed remove would read it to compare.
                 self.entries.removeByPtr(gop.key_ptr);
-                return;
+                return err;
             };
         }
-        gop.value_ptr.* = self.allocator.dupe(u8, hostport) catch "";
+        gop.value_ptr.* = value;
     }
 
     fn get(self: *const AddrTable, uuid: []const u8) ?[]const u8 {

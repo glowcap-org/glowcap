@@ -47,7 +47,7 @@ fn relayHarnessSpec(kind: RelayHarness) RelayHarnessSpec {
             .needs_iroh_abi = false,
         },
         // The probe is bundled to a temp file (`--allow-write`) and run against a
-        // native iroh host, so the relay's iroh leg needs the iroh ABI companion.
+        // Zig iroh host, so the relay's iroh leg needs the iroh ABI companion.
         .iroh => .{
             .script = "bindings/ts/web/test/relay_iroh_harness.ts",
             .perms = &.{ "--allow-read", "--allow-write", "--allow-net", "--allow-run", "--allow-env" },
@@ -261,7 +261,7 @@ pub fn register(
 
     // Both shipped IRC application edges against the outside protocol
     // authority. The bridge phase drives a local TLS/SASL IRC fixture in both
-    // directions; the front phase adds a native room, an ordinary IRC socket,
+    // directions; the server phase adds a Rooms room, an ordinary IRC socket,
     // and a real Goblins vat, including reply on the IRC-initiated DM session.
     // They are serialized so logs and resource ownership name one edge at a
     // time, and both fit the ordinary deterministic ceiling without a browser.
@@ -272,16 +272,16 @@ pub fn register(
     const goblins_rooms_irc_bridge_step = b.step("goblins-rooms-irc-bridge", "Live Goblins through the IRC bridge: fixture IRC and a real vat exchange room lines both ways (needs deno + racket + goblins)");
     goblins_rooms_irc_bridge_step.dependOn(&goblins_rooms_irc_bridge.step);
 
-    const goblins_rooms_irc_front = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
-    goblins_rooms_irc_front.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
-    goblins_rooms_irc_front.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-front" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_FRONT_BIN=", .make_absolute = true });
-    goblins_rooms_irc_front.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=front" });
-    goblins_rooms_irc_front.step.dependOn(&goblins_rooms_irc_bridge.step);
-    const goblins_rooms_irc_front_step = b.step("goblins-rooms-irc-front", "Live Goblins through the IRC front: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs deno + racket + goblins)");
-    goblins_rooms_irc_front_step.dependOn(&goblins_rooms_irc_front.step);
+    const goblins_rooms_irc_server = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
+    goblins_rooms_irc_server.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_irc_server.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-server" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_SERVER_BIN=", .make_absolute = true });
+    goblins_rooms_irc_server.addArgs(&.{ "deno", "run", "--allow-all", "interop/goblins_rooms_irc/harness.ts", "--phase=server" });
+    goblins_rooms_irc_server.step.dependOn(&goblins_rooms_irc_bridge.step);
+    const goblins_rooms_irc_server_step = b.step("goblins-rooms-irc-server", "Live Goblins through the IRC server: channel traffic both ways, then IRC initiates a DM and Goblins replies on that session (needs deno + racket + goblins)");
+    goblins_rooms_irc_server_step.dependOn(&goblins_rooms_irc_server.step);
 
-    const goblins_rooms_irc_step = b.step("goblins-rooms-irc", "Run both live Goblins compositions for the shipped IRC bridge and front (needs deno + racket + goblins)");
-    goblins_rooms_irc_step.dependOn(&goblins_rooms_irc_front.step);
+    const goblins_rooms_irc_step = b.step("goblins-rooms-irc", "Run both live Goblins compositions for the shipped IRC bridge and IRC server (needs deno + racket + goblins)");
+    goblins_rooms_irc_step.dependOn(&goblins_rooms_irc_server.step);
 
     // The same room over encrypted QUIC. The accepting side records the
     // endpoint key QUIC authenticated. The room server's iroh listener does that
@@ -321,12 +321,12 @@ pub fn register(
     goblins_rooms_dm.step.dependOn(browser_preflight_step);
     goblins_rooms_dm.step.dependOn(wasm_driver_install_step);
     goblins_rooms_dm.step.dependOn(b.getInstallStep());
-    const goblins_rooms_dm_step = b.step("goblins-rooms-dm", "Live Goblins direct message, both directions: a browser tab redeems a room introduction and reaches a real Goblins vat off-room over cleartext TCP, the vat answers over that same connection, and the vat starts a direct message of its own by redeeming a give that names a native glowcap member as its exporter (needs deno + racket + goblins + a Playwright Chromium)");
+    const goblins_rooms_dm_step = b.step("goblins-rooms-dm", "Live Goblins direct message, both directions: a browser tab redeems a room introduction and reaches a real Goblins vat off-room over cleartext TCP, the vat answers over that same connection, and the vat starts a direct message of its own by redeeming a give that names a Rooms session process member as its exporter (needs deno + racket + goblins + a Playwright Chromium)");
     goblins_rooms_dm_step.dependOn(&goblins_rooms_dm.step);
 
     // The same conversation over encrypted QUIC. Both Goblins-facing direct
     // lines use iroh: the browser redeems the vat's introduction, then the vat
-    // redeems the native member's. Each accepting endpoint records the key
+    // redeems the glowcap member's. Each accepting endpoint records the key
     // QUIC authenticated as its channel testimony.
     const goblins_rooms_dm_iroh = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{"env"});
     goblins_rooms_dm_iroh.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
@@ -341,7 +341,7 @@ pub fn register(
     goblins_rooms_dm_iroh.step.dependOn(wasm_driver_install_step);
     goblins_rooms_dm_iroh.step.dependOn(iroh_abi_step);
     goblins_rooms_dm_iroh.step.dependOn(b.getInstallStep());
-    const goblins_rooms_dm_iroh_step = b.step("goblins-rooms-dm-iroh", "Live Goblins direct messages both ways over encrypted iroh QUIC: the browser redeems the vat's introduction, then the vat redeems a native member's, with authenticated endpoint testimony (needs cargo + deno + racket + goblins + a Playwright Chromium)");
+    const goblins_rooms_dm_iroh_step = b.step("goblins-rooms-dm-iroh", "Live Goblins direct messages both ways over encrypted iroh QUIC: the browser redeems the vat's introduction, then the vat redeems a session process member's, with authenticated endpoint testimony (needs cargo + deno + racket + goblins + a Playwright Chromium)");
     goblins_rooms_dm_iroh_step.dependOn(&goblins_rooms_dm_iroh.step);
 
     const goblins_rooms_matrix_phases = [_][]const u8{

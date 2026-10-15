@@ -1,23 +1,33 @@
+---
+type: static
+description: How Loam is built as a persistence foundation with a managed access module on top of the Vat and Host.
+audience: human
+sources:
+  - resource: /src/loam/
+  - resource: /src/c_abi/loam/
+  - resource: /bindings/rust/src/loam/
+---
+
 # Loam: durable capability applications
 
-Loam is glowcap's persistence foundation, and its access module manages who can
-use which resources.
-[ADR-0161](../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
-records the architecture. The [usage guide](../loam.md) covers the Zig APIs, and
-the [API contract](api.md) specifies operations and lifetimes.
+Loam is glowcap's storage layer, and its access module manages who can use
+which resources. This page shows how the parts fit and which part owns each
+job. [ADR-0161](../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
+records the design, the [Loam guide](../loam.md) covers the Zig API, and the
+[API page](api.md) covers operations and lifetimes.
 
-## Product and ownership
+## Who owns what
 
 glowcap supplies capability networking, actors, a Vat, a Host, and optional
-persistence. Applications can use those mechanisms directly or use Loam's access
-module for resources with managed grants. Rooms supplies directories, rooms,
-conversations, messages, memberships, and the interfaces for working with them.
+storage. Applications can use those directly, or use Loam's access module for
+resources with managed grants. Rooms builds directories, rooms,
+conversations, messages, and memberships on top of them.
 
-Loam makes a durable graph of ordinary records and capability-bearing objects
-usable with bounded resident memory. Its access module adds resource scopes,
-permission algebra, managed facets, delegation, and mutable grant lifecycle.
-Creating a store or an ordinary actor allocates no resource owner and runs no
-grant evaluation.
+Loam stores a graph of ordinary records and of objects that hold
+capabilities, and keeps only a bounded part of it in memory. The access module
+adds resource scopes, permission rules, managed facets, delegation, and grants
+that can be edited, paused, and revoked. Creating a store or an ordinary actor
+creates no resource owner and checks no grants.
 
 ```mermaid
 flowchart TB
@@ -26,84 +36,65 @@ flowchart TB
     Other --> Durable
     Access[Managed resource access] --> Durable
     Access --> Hosting
-    Durable[Loam: durable graph and bounded residency] --> Backend
-    Hosting[Existing Host and Vat with persistence integration] --> Durable
+    Durable[Loam: stored graph, bounded memory] --> Engine
+    Hosting[Existing Host and Vat, with Loam attached] --> Durable
     Hosting --> Network[Existing OCapN engine and transports]
-    Backend[Storage adapters] --> StorageEngine[Embedded storage engine]
-    Backend --> Browser[Browser persistence]
+    Engine[Storage engines] --> StorageEngine[SQLite, LMDB, or in memory]
+    Engine --> Browser[IndexedDB in the browser]
 ```
 
-These arrows describe responsibility flow. Persistence roots keep objects
-retained. They differ from the access module's authority roots and from a
-directory displayed at the top of a user interface.
+The arrows show which part relies on which. A storage root keeps objects
+alive. It is different from the access module's owner of a resource tree, and
+from whatever directory an interface shows at the top.
 
-| Owner | Responsibility |
+| Part | What it owns |
 | --- | --- |
-| Loam core | Stored identity, schemas, versions, reference edges, retention, bounded record leases, prepared batches, and recovery state. |
-| Loam record codecs | Encode and validate storage records using explicit format versions and bounded buffers. |
-| Existing actors/Vat persistence integration | Dormant actor identity, activation, eviction eligibility, and coordination of turns with commits. |
-| Existing Host persistence integration | Capability custody, exact restoration, durable publications, and externally visible completion. |
-| Loam storage adapters | Execute reads and atomic writes through the existing embedding executor. Report exact completion classes. |
-| Managed access | Resource relationships, scopes, grants, ceilings, lifecycle, operation admission, and authorized observation. |
-| Application | Domain schemas, method meanings, declared effects, content facts, and presentation. |
+| Loam core | Stored identities, schemas, versions, reference edges, what stays alive, record leases, prepared batches, and recovery. |
+| Loam record encoding | Encoding and checking records, with explicit format versions and bounded buffers. |
+| Actors on the Vat | Sleeping actors' identities, waking them, deciding when they may sleep, and lining up their turns with commits. |
+| Host attachment | Held capabilities, restoring them exactly, durable names, and when a peer sees a result. |
+| Storage workers | Running reads and atomic writes on your program's executor, and reporting exactly how each one ended. |
+| Managed access | Resource relationships, scopes, grants, their limits and lifecycle, checking each operation, and change feeds. |
+| Application | Its schemas, what its methods mean, the effects they declare, content facts, and presentation. |
 
-An application can mix managed resources and ordinary stored objects in one
-transaction. Managed access is a transaction participant and not a second database. It
-decides the authority conditions for its changes, and Loam supplies their
-common atomic persistence and recovery mechanism.
+An application can change managed resources and ordinary stored objects in
+one transaction. Managed access takes part in Loam's transactions rather than
+keeping a second database. It decides whether a change is allowed, and Loam
+saves it atomically and recovers it.
 
-## Design acceptance
+## Design rules
 
-Each record, capability hold, transaction, and recovery effect traces to one
-owner. Immutable bytes are validated when their owner admits them, and current
-authority is checked when they are used. A responsibility lives in the one layer
-that can enforce it. A faster path that weakens a refusal or pushes bookkeeping
-onto callers is not acceptable, and neither is a simpler interface that hides
-repeated work.
+Each record, held capability, transaction, and recovery step has one owner.
+Bytes are checked once when they enter, and permissions are checked each time
+they are used. Each job lives in the one layer that can enforce it. A faster
+path that weakens a refusal or hands bookkeeping to callers is not
+acceptable, and neither is a simpler API that hides repeated work.
 
-## Modules and distribution
+## Modules and archives
 
 The public namespace is `glowcap.loam`, including `glowcap.loam.access`.
-The access module's resource and grant model is under `access.core`. Owner,
-directory, resource, grant, capability, and event codecs are under
-`access.records`. `access.storage` supplies bounded reads, opaque capability
-operations, and transaction staging. The layout below is the target structure,
-and `shipped.md` lists what exists:
+The access module's resource and grant model is in `access.core`, and its
+record encodings for owners, directories, resources, grants, capabilities,
+and events are in `access.records`. `access.storage` supplies bounded reads,
+capability operations, and transaction staging. The C API lives in
+`src/c_abi/loam/`, and the Rust binding in `bindings/rust/src/loam/`.
 
-```text
-src/loam/
-  mod.zig                 Public Loam surface, including the managed access extension
-  collections/            Dependency-free immutable data structures
-  core/                   Graph transactions, retention, residency
-  records/                Storage format and schema-driven encoding
-  hosting/                Integration using public Host and actor interfaces
-  backends/               Optional storage backends
-  access/
-    core/                 Resource graph, policy, grants, admission
-    records/              Owner, directory, resource, grant, capability, and event encoding
-    storage/              Bounded loading, opaque capabilities, and shared-transaction staging
-    hosting/              Guarded behaviors and management interfaces
-src/c_abi/loam/            Foreign projection of the same implementation
-bindings/rust/src/loam/    Typed fixed-resource lifecycle binding
-```
+`libglowcap_loam` exports the `glowcap_loam_` functions for shared storage and
+the single-resource lifecycle. The optional `libglowcap_loam_sqlite` and
+`libglowcap_loam_lmdb` archives run blocking storage work, and Rust enables
+the `loam` feature. The [C and Rust guide](c-and-rust.md) covers that API and
+its limits, and the [browser guide](browser.md) covers running the same
+archive over IndexedDB.
 
-The `libglowcap_loam` companion uses the `glowcap_loam_` symbol family for
-shared storage and fixed-resource lifecycle operations. The optional
-`libglowcap_loam_lmdb` companion owns blocking LMDB execution. Rust enables the
-`loam` feature. The [C/Rust guide](c-and-rust.md) owns the projected lifecycle
-and its bounds, and the [browser guide](browser.md) owns IndexedDB execution of
-the same portable companion. General owner and graph editing are not projected
-to C or Rust.
-
-The facade can export both concerns while their cores remain independent:
+The `loam` module exports both parts while their cores stay separate:
 
 ```mermaid
 flowchart TD
-    Public[loam facade] --> RC[access core]
+    Public[glowcap.loam] --> RC[access core]
     Public --> LC[loam core]
-    Public --> Integration[Optional hosting integration]
+    Public --> Integration[Optional Host attachment]
     RR[access records] --> RC
-    RR --> Records[loam records and encoding primitives]
+    RR --> Records[loam records and encoding]
     Public --> Storage[access storage]
     Storage --> RC
     Storage --> RR
@@ -111,60 +102,59 @@ flowchart TD
     Integration --> RC
     Integration --> LC
     Integration --> Host[Existing Host and actors]
-    Adapter[Storage adapter] --> LC
-    Adapter --> Engine[Embedded database or browser executor]
+    Adapter[Storage worker] --> LC
+    Adapter --> Engine[Database or browser storage]
     LC --> Records
-    Public --> Collections[Immutable collections: dependency-free]
+    Public --> Collections[Immutable collections, no dependencies]
 ```
 
-The access module's policy algebra is usable without I/O. Its persistence
-binding uses Loam's public record and transaction contracts. Loam core imports
-no access module, Host, actor implementation, CapTP session, transport, or
-backend. Hosting integration depends on both sides and binds callbacks through
-supported APIs. The Host does not import the Loam facade.
+The access module's permission rules work without any I/O, and its storage
+uses Loam's public record and transaction API. Loam core imports no access
+module, Host, actor, CapTP session, transport, or storage engine. The Host
+attachment depends on both sides and connects them through public APIs. The
+Host does not import Loam.
 
-The namespace owns no process state. Plain networking works without a store, and
-local persistence works without a network connection. Loam and managed access add
-no engine, driver, Host, Vat, worker pool, or independent turn queue.
+Loam keeps no global state. Networking works without a store, and local
+storage works without a network. Loam and managed access add no engine,
+driver, Host, Vat, thread pool, or run queue of their own.
 
-## Schemas, codecs, and protocol independence
+## Schemas, storage format, and wire format
 
-Three contracts have separate versions and owners:
+Three formats have separate versions and owners:
 
-| Contract | Meaning |
+| Format | What it covers |
 | --- | --- |
-| Application schema | Typed data, reference fields, reconstruction rules, and domain invariants. |
-| Storage format | Record envelopes, field encodings, durable reference descriptors, and indexes. |
-| Wire codec | Encoding of calls and values for the connection's protocol profile. |
+| Application schema | Typed data, reference fields, how to rebuild the object, and the application's own rules. |
+| Storage format | Record headers, field encodings, saved references, and indexes. |
+| Wire codec | How calls and values are encoded for the connection's protocol. |
 
-One schema description drives field encoding and edge enumeration. Reference
-fields cannot hide in opaque payload bytes, and payload and reference metadata
-commit together. Generated bindings keep no parallel lists of capability fields.
-Opaque byte fields remain valid data.
+One schema description drives both field encoding and the list of edges.
+Reference fields cannot hide inside opaque payload bytes, and the payload and
+its references commit together. Generated bindings keep no separate list of
+capability fields. Opaque byte fields are still allowed as plain data.
 
-The structural storage codec uses Syrup primitives and reuses bounded borrowing
-and encoding support without importing session tables. A packed layout or blob
-representation can later implement the same logical record contract when
-measurements justify it. Changing a connection's wire codec does not change
-durable object identity or require a database rewrite.
+The storage encoding uses Syrup and shares glowcap's bounded encoding code
+without touching session tables. Changing a connection's wire codec does not
+change any stored object's identity or require rewriting the database.
 
-Loam understands retention and reference descriptor types. Host integration
-understands how a capability is saved and restored, and supplies local
-publication recipes or established foreign sturdyrefs that preserve source
-authority. Codecs serialize those descriptors. They never select a stronger
-reference, mint authority, or reinterpret import and export positions as
-identity.
+Loam knows what keeps a record alive and how references are stored. The Host
+attachment knows how to save and restore a capability, and supplies either a
+local recipe or an established sturdyref on another peer that keeps the
+original authority. Encoding writes those down. It never picks a stronger
+reference, creates authority, or treats CapTP import and export positions as
+identities.
 
-Storing a live-only capability in durable content fails. An asynchronous foreign
-save is a prerequisite resolved through Host calls before local commit, and it
-is not a distributed transaction. Its retained result and any abandoned save
-need a release and cleanup owner.
+Saving a capability that cannot outlive the process into durable content
+fails. Saving a reference to another peer may need a call to that peer before
+the local commit, and that is not a distributed transaction. The result it
+keeps, and any save that is abandoned, each need an owner that releases and
+cleans them up.
 
 ## Transactions and protected calls
 
-One persistence domain has one writer, serialized by its Vat or embedding
-owner. The domain is a transaction boundary and not an actor runtime or network
-identity. Several domains sharing an engine do not gain cross-domain atomicity.
+Each store has one writer at a time, ordered by its Vat or by your program.
+A store is a transaction boundary, not an actor runtime or a network
+identity. Several stores in one engine do not commit atomically together.
 
 ```mermaid
 sequenceDiagram
@@ -172,109 +162,94 @@ sequenceDiagram
     participant Host as Existing Host/Vat
     participant Access as Managed resource access
     participant Loam
-    participant IO as Storage adapter
-    Caller->>Host: Invoke held facet
-    Host->>Loam: Acquire required records
-    Loam->>IO: Bounded read effects if cold
-    IO-->>Loam: Revision-tagged records
-    Host->>Access: Admit operation against current facts
-    Access-->>Host: Bound admission and staged authority changes
-    Host->>Loam: Prepare content, grants, references, and event intentions
-    Loam->>IO: Atomic write batch
-    IO-->>Loam: Exact commit outcome
-    Loam-->>Host: Install committed revision or fence for recovery
-    Host-->>Caller: Complete after installation
-    Host->>Caller: Deliver authorized committed change event
+    participant IO as Storage worker
+    Caller->>Host: Call a held facet
+    Host->>Loam: Get the records the call needs
+    Loam->>IO: Bounded reads, if not in memory
+    IO-->>Loam: Records tagged with their revision
+    Host->>Access: Check the call against current facts
+    Access-->>Host: Allowed, with any grant changes
+    Host->>Loam: Prepare content, grants, references, and change events
+    Loam->>IO: One atomic write batch
+    IO-->>Loam: Exactly how the commit ended
+    Loam-->>Host: Take in the new revision, or stop for recovery
+    Host-->>Caller: Reply once the Store has the commit
+    Host->>Caller: Send the change event to whoever may see it
 ```
 
-The final event is illustrative, since recipients may differ from the mutating
-caller. Event delivery has its own current-authority check, and a missed event
-cannot permit stale access on the next protected call.
+The last step is a sketch, since an event's recipients may differ from the
+caller. Each event delivery checks permissions again, and a missed event can
+never let someone use access they have lost on their next call.
 
-The application declares all effects, and managed access admits them against the
-invoked capability. Admission is bound to resource and policy revisions and
-cannot survive a yield. Loading and other prerequisites finish before final
-admission, and changed facts require re-evaluation. Conflicting mutations
-serialize or return a bounded busy or conflict result.
+The application declares every effect, and managed access checks each one
+against the capability that was called. That check is tied to the resource
+and policy revisions and is redone after any wait. Loading and other
+preparation finish before the final check, and anything that changed in the
+meantime is checked again. Conflicting changes run one at a time or return a
+busy or conflict result.
 
-Loam coordinates one batch containing content, managed access state, reference
-edges, receipts, and durable event intentions. Prepared state cannot leak callable
-facets before commitment. Installation after success is allocation-free because
-preparation reserved its necessary memory and publication capacity.
+Loam commits content, managed access state, reference edges, receipts, and
+change events in one batch. Nothing prepared can hand out a callable facet
+before the commit. Taking in a successful commit allocates nothing, because
+preparation already reserved the memory and the room for new durable names.
 
-Known-unchanged failure discards staging. Indeterminate completion fences the
-domain until recovery determines the committed state. The adapter reports what
-happened, and shared Zig logic owns the phase transition. Recovery never
-replays an operation that may already have committed. External calls require
-their own retry contract, and local transactions cannot promise exactly-once
-remote effects or roll back a delivered reply.
+A failure that is known to have changed nothing discards the prepared batch.
+An unknown outcome stops the store until recovery learns what was committed.
+The worker reports what happened, and Loam's shared Zig code decides what
+comes next. Recovery never runs an operation again if it may already have
+committed. Calls to other peers need their own retry rules: a local
+transaction cannot make a remote effect happen exactly once or take back a
+reply already sent.
 
-## Residency, retention, and the scale target
+## Memory, what stays alive, and scale
 
-The 500,000-session target is a networking measurement. Persistence adds
-independent budgets for resident records, active endpoints, dirty state, leases,
-operation scratch, retained history, and queued completions. A session reserves
-no application graph or database snapshot.
+glowcap's 500,000-session target is a networking measurement. Storage adds its
+own limits for cached records, active endpoints, uncommitted state, leases,
+scratch space, kept history, and queued completions. A session reserves no
+part of an application graph or database snapshot.
 
-Sleepy actors retain identity and live reference custody while eligible behavior
-leaves memory. The first eventual delivery coalesces activation with other calls
-to that target. The Vat preserves admission limits and ordering while the
-embedding executes cold I/O. Synchronous near calls require a resident target or
-prior acquisition and never block on disk. The [sleepy-actor contract](actors.md)
-owns the activation and eviction rules.
+A sleeping actor keeps its identity and the references it holds while its
+state leaves memory. The first eventual call wakes it, together with any other
+calls to it, and the Vat keeps its limits and call order while your program
+reads from disk. A near call needs the target in memory already and never
+blocks on disk. The [actor guide](actors.md) covers waking and sleeping.
 
-Graph retention is independent of residency. Durable roots, typed strong edges,
-live custody, leases, and retained versions keep objects alive, and weak edges
-do not. Collection uses stored edge metadata without waking actor behavior.
-Cycles need tracing, because reference counting alone cannot collect them.
-Reclamation runs incrementally against a consistent version, validates against
-current roots and writes before deletion, and never reuses a live identity.
+What stays alive is separate from what is in memory. Roots, strong edges,
+held capabilities, leases, and kept versions keep objects alive, and weak
+edges do not. Collection reads stored edges without waking actors. Cycles need
+tracing, because reference counting alone cannot free them. Collection works
+in small steps against a consistent version, checks current roots and writes
+before deleting anything, and never reuses an identity that is still live.
 
-The [collection contract](collection.md) owns how tracing works and what it
-costs. Local tracing never collects another peer's heap, and
-[reference preparation](references.md) retains recipes before loading or
-waiting for another owner.
+The [collection guide](collection.md) covers how tracing works and what it
+costs. Collection never reaches into another peer's objects, and
+[stored references](references.md) are saved before Loam loads or waits for
+another owner.
 
-Containment, capability dependency, retention, and UI placement stay distinct.
-Shared and cyclic graphs cannot obtain reachable sizes by adding child totals.
-Report stored bytes, owner-charged bytes, resident bytes, and retained snapshot
-bytes separately. Exact reachable-size queries budget traversal or maintain
-costed indexes.
+Containment, capability dependency, what keeps an object alive, and where the
+interface shows it are four separate things. In a graph with sharing and
+cycles you cannot get a total size by adding up children, so Loam reports
+stored bytes, bytes charged to an owner, bytes in memory, and bytes held by
+old versions separately. An exact reachable-size query needs a traversal
+budget or an index that tracks the cost.
 
-Memory-mapped reads can page fault, so cold mapped access runs outside the Host
-turn and read transaction lifetimes are bounded. A held remote capability does
-not hold an LMDB reader for its lifetime. Browser transactions cannot span
-awaited work, so the validated write batch is assembled before the backend
-transaction opens.
+Storage reads can block, so storage work runs outside the Host's message
+processing and read transactions stay short. Holding a remote capability does
+not hold an engine read transaction open. A browser transaction cannot span
+an `await`, so Loam assembles and checks the whole write batch before it opens
+the IndexedDB transaction.
 
-Opening a store allocates no actor cell or resident descriptor per stored
-object. Durable indexes answer publication and object lookups on demand. Only
-active custody, in-flight work, and the configured working set have resident
-entries. Startup metadata is measured independently of graph size.
+Opening a store creates no actor or in-memory entry per stored object.
+Indexes on disk answer durable name and object lookups when they are asked.
+Only active holds, work in flight, and the configured cache take memory, and
+startup cost does not grow with the graph.
 
-## Implementation order and acceptance
+## Order of work
 
-### Readiness before the C ABI
-
-A Loam contract lands in Zig and its storage adapters first, with lifetime and
-cost documentation and failure evidence. C and Rust then project it without an
-authority engine of their own. The [access storage contract](access-storage.md)
-and [actor contract](actors.md) own the detailed acceptance cases. The LMDB
-profile is not claimed on macOS until the maintainer's macOS run in the
-[open obligations](../roadmap.md#open-obligations-from-retired-plans)
-passes.
-
-### Implementation sequence
-
-Failure and measurement evidence land with each feature. The open work is:
-
-1. Establish supported power-loss assumptions for LMDB before claiming them.
-2. Exercise Rooms and an independent non-chat application, with plain records
-   beside managed resources, returned facets, ancestor edits, reorganization,
-   and restored subscriptions.
-3. Compare backend and layout costs under matching durability before choosing
-   the production profile. Consider SQLite or a custom pager only when
-   measurements locate a limit in the storage engine itself.
-
-The [research workload](research/memory-persistence.md#experiment-sequence-and-decision-points)
-owns measurements and fault injection.
+A Loam feature lands first in Zig and its storage engines, with its lifetimes,
+costs, and failure tests written down. C and Rust then expose it without
+deciding any permissions themselves. The
+[access storage guide](access-storage.md) and [actor guide](actors.md) hold
+the detailed cases, and the
+[research plan](research/memory-persistence.md#experiment-sequence-and-decision-points)
+holds the measurements and fault injection.

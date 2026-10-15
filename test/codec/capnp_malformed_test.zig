@@ -42,24 +42,24 @@ test "a promise reference with derived data is refused instead of flattened" {
     try std.testing.expectError(error.UnsupportedReference, capnp.decodeOwned(allocator, malformed));
 }
 
-test "Cap'n Proto rejects invalid UTF-8 String and Symbol values without allocating" {
+test "Cap'n Proto refuses invalid UTF-8 String and Symbol values where it writes them" {
     const invalid = &.{@as(u8, 0xff)};
     const invalid_arguments = [_]model.Argument{
         .{ .string = invalid },
         .{ .symbol = invalid },
     };
 
+    // The text is validated as it is written, one pass over it, and the
+    // refusal commits nothing: the builder is the only effect and the testing
+    // allocator would report it if it leaked.
     for (invalid_arguments) |argument| {
         const args = [_]model.Argument{argument};
-        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
-        const before = failing.alloc_index;
-        try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(failing.allocator(), .{
+        try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(std.testing.allocator, .{
             .deliver = .{
                 .target = .{ .far = model.FarRef.object(7) },
                 .args = &args,
             },
         }));
-        try std.testing.expectEqual(before, failing.alloc_index);
     }
 
     const valid_args = [_]model.Argument{
@@ -117,12 +117,12 @@ test "a Struct with duplicate keys is refused on the live view path" {
     @memcpy(buf[second_key .. second_key + 2], "k1");
     const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
-    // `decodeBody` runs the eager traversal-budget charge pass (the remote-DoS
-    // bound), which walks every argument once to spend the per-frame budget,
-    // and that walk reads each struct through the same `neutralStructBacking`
-    // the lazy path uses, so the ascending-key rule is enforced at the parse
-    // boundary. A duplicate key is thus refused the instant the frame decodes,
-    // before any borrowed view escapes, not only on a later owned re-walk.
+    // `decodeBody` is one metered walk over every argument (the remote-DoS
+    // bound), and that walk reads each struct through the same
+    // `neutralStructBacking` the lazy path uses, so the ascending-key rule is
+    // enforced at the parse boundary. A duplicate key is thus refused the
+    // instant the frame decodes, before any borrowed view escapes, not only
+    // on a later owned re-walk.
     try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(view));
     try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, view));
 }
@@ -189,7 +189,7 @@ test "a Struct with descending keys is refused: decode requires the encoder's as
     @memcpy(buf[first_key .. first_key + 2], "k3");
     const view = glowcap.foundation.FrameView{ .bytes = buf, .shape = .word };
 
-    // As with the duplicate-key case, the eager charge pass in `decodeBody`
+    // As with the duplicate-key case, the metered walk in `decodeBody`
     // enforces the strictly-ascending-key rule at the parse boundary, so a
     // descending pair is refused the moment the frame decodes.
     try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(view));
@@ -424,12 +424,19 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     // walk performs ~2^31 element resolutions.
     try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(frame.view()));
     try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, frame.view()));
+
+    // With room lent for views, the walk parses the first levels into the
+    // slab and leaves the rest wire-backed once the room runs out. The same
+    // budget bounds both halves, so the frame is refused the same way.
+    var views: [128]model.view.Argument = undefined;
+    var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(&views));
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeBodyInto(.v1_0, frame.view(), &slab));
 }
 
 test "an aliasing hint list is charged against the traversal budget" {
     const allocator = std.testing.allocator;
 
-    // The hint list was once the one composite list the charge pass never
+    // The hint list was once the one composite list the metered walk never
     // enumerated. The locator projector in `decode/values.zig` packs a lazy
     // view, so without the parent decoder's hint-list observer N entries cost
     // O(1) to charge; the later materializer then builds its own unmetered

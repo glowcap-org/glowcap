@@ -97,7 +97,7 @@ signaling).
 ### Every CapTP session has a fresh key
 
 Each `HostSession` receives a fresh Ed25519 signing seed from the adapter entropy
-boundary. The sync no-I/O core generates no entropy. Native drivers draw the
+boundary. The sync no-I/O core generates no entropy. Zig drivers draw the
 seed while opening a connection. Byte-fed C and Wasm Hosts receive it through
 an explicit entropy action or caller-provided bytes. Tests use deterministic
 seeds.

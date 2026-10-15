@@ -13,10 +13,10 @@ any of them.
 
 If you have used an IRC client connected to several networks, this will
 feel familiar. The directories do not know about each other, and your
-session connects to each one on its own. The differences show up in what
-you can do with it. Your direct messages do not go through any directory.
-You can share your whole session, with limits you set. And a directory can
-point people at a room on another server without trusting that server.
+session connects to each one on its own. Unlike IRC, your direct messages do
+not go through any directory. You can share your whole session with limits you
+set, and a directory can point people at a room on another server without
+trusting that server.
 
 [One session, three directories. The sidebar holds a room on the directory that served the page and a room on each of two others, each named by the directory it is on, and a direct conversation with a member of each. The open conversation is with lu, who lives on the third directory.]($image.siteAsset('rooms-directories-dark.webp'))
 
@@ -31,12 +31,13 @@ direct messages.
 
 # Join a room on another directory
 
-In the sidebar, press **+** beside **Your rooms** and type the room's name.
-The line under it says which directory the room will be on. Press
-**Change** there, and the join card comes up with the name already filled
-in. Paste the other directory's address into its directory field and join.
-You can get a directory's address from `/locator` on its page, and Settings
-copies it for any directory you already hold.
+1. In the sidebar, press **+** beside **Your rooms** and type the room's name.
+   The line under it says which directory the room will be on.
+2. Press **Change** there. The join card comes up with the name filled in.
+3. Paste the other directory's address into its address field and join.
+
+A directory's address is at `/locator` on its page, and Settings copies it for
+any directory you already hold.
 
 The rooms you already had stay put. Once you hold more than one directory,
 each row in the sidebar says which one it is on, and the one that served your
@@ -98,10 +99,12 @@ messages included.
 In Rooms, the directory you share with someone introduces the two of you,
 and from then on your messages go straight between you. If your network
 will not allow that, you can choose a relay instead, and it only ever sees
-encrypted bytes. A directory carries its own rooms and nothing else. There is no server-to-server protocol, nothing is copied
-between directories, and no directory has any say over another directory's
-rooms. If a directory goes away, its rooms go with it and everything else
-keeps working.
+encrypted bytes.
+
+A directory carries its own rooms and nothing else. There is no
+server-to-server protocol, nothing is copied between directories, and no
+directory has any say over another's rooms. If a directory goes away, its
+rooms go with it and everything else keeps working.
 
 The tradeoff is names. A nickname only means something on the directory
 that gave it out, so `lu` on one directory is not known to be the same
@@ -109,11 +112,11 @@ person as `lu` on another.
 
 # A directory can list a room hosted elsewhere
 
-A host can also put another directory's room in its own list. Someone
-holding the peering link joins a room on another directory, and the
-**Peering** section of their admin page lists it on theirs. A member who picks it from that list
-gets the room itself and connects straight to the server that hosts it.
-The directory that listed it only made the introduction.
+A host can also put another directory's room in its own list. The host
+opens the **Peering** section of their admin page, uses their peering link
+to join the other room, and the room shows up in their directory's list. A member who picks
+it from that list connects straight to the server that hosts the room. The
+directory that listed it only made the introduction.
 
 Whoever published a listing holds the one way to take it down, and the
 listing also ends when their session disconnects. Either way, new members

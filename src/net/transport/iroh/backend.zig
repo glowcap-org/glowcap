@@ -598,6 +598,16 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
+            return collect(self, out, timeout_ms);
+        }
+
+        pub fn peek(self: *Self, out: []completion.Completion) !usize {
+            return collect(self, out, null);
+        }
+
+        /// `wait_ms` null reaps what the platform already completed and
+        /// submits nothing.
+        fn collect(self: *Self, out: []completion.Completion, wait_ms: ?i32) !usize {
             try self.wake_failure.check();
             try self.armSignals();
 
@@ -606,8 +616,10 @@ pub fn CompletionBackend(comptime Platform: type) type {
             // so make room for the whole batch without spending the seats each
             // pending iroh operation already owns.
             try self.ensureTransientReady(platform_completions.len);
-            const wait_ms: i32 = if (self.ready.len() > 0) 0 else timeout_ms;
-            const count = try self.platform.poll(&platform_completions, wait_ms);
+            const count = if (wait_ms) |timeout_ms|
+                try self.platform.poll(&platform_completions, if (self.ready.len() > 0) 0 else timeout_ms)
+            else
+                try self.platform.peek(&platform_completions);
             for (platform_completions[0..count]) |comp| {
                 try self.dispatchPlatform(comp);
             }

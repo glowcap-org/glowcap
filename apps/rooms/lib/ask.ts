@@ -10,7 +10,7 @@ import { REQUEST_TIMEOUT_MS } from "./limits.ts";
 
 /** One request to a room or directory, with a deadline on the answer.
  *
- * Every verb below goes through this and not through `send` directly. A
+ * Every Rooms verb goes through this and not through `send` directly. A
  * partner that accepts a request and never answers leaves nothing an ordinary
  * failure path can see: the send is in flight, the session is open, and the
  * promise is pending. So the wait is what has to end. The two verbs that

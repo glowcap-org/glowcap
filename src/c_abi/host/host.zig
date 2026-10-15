@@ -474,9 +474,9 @@ pub fn retryBorrowedAction(host: ?*GlowcapHost) bool {
     return host_actions.retryBorrowed(host);
 }
 
-/// Report a DIAL action's success: `session` is an `open_dialed_locator` against
-/// the pending dial for that ticket and route (`glowcap_host_pending_dial`), driven to an
-/// open session. The node adopts it for every give waiting on the ticket.
+/// Report a DIAL action's success: `session` is opened by
+/// `glowcap_host_session_open_dialed_locator` against the pending dial for that
+/// ticket and route (`glowcap_host_pending_dial`), driven to an open session. The node adopts it for every give waiting on the ticket.
 /// The bounded Host pump advances resulting work before return, with pressure
 /// retained for the next action drain. A stale or non-running attempt is a
 /// no-op success with `out_adopted` set to zero.

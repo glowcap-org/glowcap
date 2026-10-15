@@ -37,7 +37,6 @@ pub const HostFailure = struct {
             => .not_found,
 
             error.InvalidArgument,
-            error.DurableBootstrapUnavailable,
             error.InvalidHostWorkQuantum,
             error.ReservedDurableNamespace,
             error.NotDurableName,

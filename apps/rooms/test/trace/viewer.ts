@@ -1,6 +1,6 @@
 // The capability viewer the browser proofs watch the live timeline with.
 //
-// The native Rooms server hands records to an OCapN viewer:
+// The Rooms server hands records to an OCapN viewer:
 // the WebSocket is only the byte channel, and records arrive through an inbox
 // capability after enlivening the `ROOMS-TRACE-LISTENING` sturdyref the server
 // announces on stderr. Raw JSON text frames stopped being the viewer contract

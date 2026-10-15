@@ -3,7 +3,7 @@
 use super::*;
 
 #[tokio::test(flavor = "current_thread")]
-async fn native_trace_discovers_private_authority_and_follows_the_carried_feed() {
+async fn host_trace_discovers_private_authority_and_follows_the_carried_feed() {
 	tokio::time::timeout(Duration::from_secs(25), async {
         let state = startup::Fixture::new();
         let mut command = Web::endpoint_command(0);
@@ -43,16 +43,16 @@ async fn native_trace_discovers_private_authority_and_follows_the_carried_feed()
         assert_eq!(serde_json::from_str::<serde_json::Value>(&replay).unwrap()["kind"], "trace.replay-end");
         let (mut producer, _) = tokio_tungstenite::connect_async(web.url(&format!("/publish?cap={swiss}"))).await.unwrap();
         assert!(producer.next().await.unwrap().unwrap().to_text().unwrap().contains("trace.publish-ready"));
-        producer.send(Message::Text(r#"{"v":1,"sim_t_ns":3,"kind":"ocapn.session-opened","session":"native-proof","a":"alpha","b":"beta","transport":"tcp"}"#.into())).await.unwrap();
+        producer.send(Message::Text(r#"{"v":1,"sim_t_ns":3,"kind":"ocapn.session-opened","session":"host-proof","a":"alpha","b":"beta","transport":"tcp"}"#.into())).await.unwrap();
         let line = tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap();
         let record: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(record["kind"], "ocapn.session-opened");
-        assert!(record["session"].as_str().unwrap().ends_with("/native-proof"));
+        assert!(record["session"].as_str().unwrap().ends_with("/host-proof"));
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(tail.id().unwrap() as i32), nix::sys::signal::Signal::SIGTERM).unwrap();
         assert!(tokio::time::timeout(Duration::from_secs(5), tail.wait()).await.unwrap().unwrap().success());
         producer.close(None).await.unwrap();
         web.stop().await;
-    }).await.expect("native trace process deadline");
+    }).await.expect("host trace process deadline");
 }
 
 #[tokio::test(flavor = "current_thread")]

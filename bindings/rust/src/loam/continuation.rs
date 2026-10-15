@@ -26,7 +26,6 @@ impl ContinuationReservation<'_> {
 			// `'call` lifetime ties it to the receipt callback, which keeps the reservation live until it returns;
 			// `raw` is an out-parameter the callee fills.
 			unsafe { ffi::glowcap_loam_continuation_reservation_source(self.raw, &mut raw) },
-			false,
 		)?;
 		Ok(owned_reference(self.owner, raw))
 	}
@@ -40,7 +39,6 @@ impl ContinuationReservation<'_> {
 			// `'call` lifetime ties it to the receipt callback, which keeps the reservation live until it returns;
 			// `index` is a plain integer and `raw` is an out-parameter the callee fills.
 			unsafe { ffi::glowcap_loam_continuation_reservation_target(self.raw, index, &mut raw) },
-			false,
 		)?;
 		Ok(owned_reference(self.owner, raw))
 	}
@@ -76,7 +74,6 @@ impl<'call> Call<'call> {
 					&mut pending,
 				)
 			},
-			false,
 		)?;
 		Ok((
 			ContinuationReservation {
@@ -112,7 +109,7 @@ impl PendingContinuation {
 		if code == crate::sys::WOULD_BLOCK {
 			return Ok(None);
 		}
-		check(code, false)?;
+		check(code)?;
 		self.raw = core::ptr::null_mut();
 		Ok(Some(Continuation {
 			raw,
@@ -145,7 +142,7 @@ impl Drop for PendingContinuation {
 			// SAFETY: `self.raw` is this `PendingContinuation`'s non-null handle (checked above), not yet consumed by
 			// `try_take`, and released exactly once here; its `owner` `Rc<AttachmentInner>` keeps the attachment alive.
 			let code = unsafe { ffi::glowcap_loam_pending_continuation_release(self.raw) };
-			if let Err(error) = check(code, false) {
+			if let Err(error) = check(code) {
 				self.owner.host.record_background_failure(error);
 			}
 		}
@@ -166,7 +163,6 @@ impl Continuation {
 			// and the callee only reads it; `verb_bytes` and `targets` are plain integers and `raw` is an out-parameter
 			// the callee fills; no handle is involved.
 			unsafe { ffi::glowcap_loam_continuation_size_bound(&arguments.raw(), verb_bytes, targets, &mut raw) },
-			false,
 		)?;
 		Ok(ContinuationBounds {
 			custody_bytes: raw.custody_bytes,
@@ -184,7 +180,6 @@ impl Continuation {
 			// its `Drop`; its `owner` `Rc<AttachmentInner>` keeps the attachment alive; `index` is a plain integer and
 			// `raw` is an out-parameter the callee fills.
 			unsafe { ffi::glowcap_loam_continuation_project(self.raw, index, &mut raw) },
-			false,
 		)?;
 		Ok(owned_reference(&self.owner, raw))
 	}
@@ -204,7 +199,7 @@ impl Drop for Continuation {
 		// `Drop`; its `owner` `Rc<AttachmentInner>` keeps the attachment alive, so the consuming release runs once
 		// after the borrows of it end.
 		let code = unsafe { ffi::glowcap_loam_continuation_release(self.raw) };
-		if let Err(error) = check(code, false) {
+		if let Err(error) = check(code) {
 			self.owner.host.record_background_failure(error);
 		}
 	}

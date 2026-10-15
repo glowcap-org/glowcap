@@ -6,7 +6,7 @@
 
 import type { Argument } from "@glowcap/runtime";
 import * as z from "zod/mini";
-import { MAX_DIRECTORY_DISCOVERY_ROWS, MAX_NICK, MAX_ROOM } from "./limits.ts";
+import { MAX_DIRECTORY_CURSOR, MAX_DIRECTORY_DISCOVERY_ROWS, MAX_NICK, MAX_ROOM } from "./limits.ts";
 import { boundedText, naturalWireNumber, nonemptyText, nonnegativeSafeInteger } from "./schema.ts";
 import { isRoomMembershipKind } from "./room/membership.ts";
 
@@ -77,8 +77,10 @@ const DirectoryWatchSnapshotWireSchema = z.tuple([
  * is the room and `count` is how many are in it. Other changes are about
  * people: a member became `registered` or `unregistered` for direct messages.
  * There `name` is the member's nick, `registrationId` identifies that
- * registration, and `count` is 1 or 0. Both kinds arrive on one observer, so
- * switch on `kind` to tell them apart. */
+ * registration, and `count` is 1 or 0. A `truncated` event says the directory
+ * left `count` changes out of what this observer sees, so its view is partial.
+ * All kinds arrive on one observer, so switch on `kind` to
+ * tell them apart. */
 export type RoomEvent =
 	| {
 		kind: "opened" | "closed" | "count";
@@ -190,6 +192,29 @@ export function parseRooms(raw: Argument): RoomInfo[] {
 		out.push(room);
 	}
 	return out;
+}
+
+/** One page of the live room list, and the cursor that asks for the page
+ * after it when more remain. The cursor is the directory's own word: pass it
+ * back exactly. */
+export type RoomPage = { rooms: RoomInfo[]; next: string | null };
+
+const RoomPageWireSchema = z.tuple([
+	z.custom<Argument>(() => true),
+	z.nullable(nonemptyText(MAX_DIRECTORY_CURSOR)),
+]);
+
+/** Parse one `listPublications` answer: `[rows, next]`. A continuation after
+ * an empty page is refused, so a directory cannot keep a reader paging. */
+export function parseRoomPage(raw: Argument): RoomPage {
+	const parsed = z.safeParse(RoomPageWireSchema, raw);
+	if (!parsed.success) throw new Error("the directory answered an invalid room page");
+	const [rows, next] = parsed.data;
+	const rooms = parseRooms(rows);
+	if (next !== null && rooms.length === 0) {
+		throw new Error("the directory answered an empty page with a continuation");
+	}
+	return { rooms, next };
 }
 
 export function parseDirectoryWatchSnapshot(raw: Argument): {

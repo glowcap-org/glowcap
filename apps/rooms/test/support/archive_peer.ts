@@ -1,4 +1,4 @@
-// Every archive process proof exercises the installed native service.
+// Every archive process proof exercises the installed service.
 import { spawnOwned } from "./children.ts";
 import { ARCHIVE, ROOT } from "./paths.ts";
 

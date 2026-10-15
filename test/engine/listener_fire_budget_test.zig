@@ -58,12 +58,12 @@ test "an outbound release cannot spend the retain a pending listener keeps" {
 
     // The listener's retain is the session's own, released beside its fire,
     // so an application release addressing it is refused rather than spent.
-    try std.testing.expectError(error.GcUnderflow, peer.sendCopying(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{1} } }));
+    try std.testing.expectError(error.GcUnderflow, peer.sendBorrowed(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{1} } }));
     // A retain the application holds on the same import is releasable, and
     // only that one.
     try peer.session_state.registerImport(.from(9));
-    try std.testing.expectError(error.GcUnderflow, peer.sendCopying(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{2} } }));
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{1} } });
+    try std.testing.expectError(error.GcUnderflow, peer.sendBorrowed(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{2} } }));
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &.{9}, .deltas = &.{1} } });
     try std.testing.expectEqual(@as(u64, 1), peer.session_state.importRefcount(.from(9)));
 
     // The fire still addresses its row, and its paired release retires it.
@@ -151,7 +151,7 @@ test "a bootstrap listener fires without import accounting or wire release" {
     }
     try std.testing.expect(!peer.session_state.hasImport(.from(session.BOOTSTRAP_POSITION)));
 
-    try peer.sendCopying(.{ .resolve = .{
+    try peer.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .integer = 7 } },
     } });
@@ -190,7 +190,7 @@ test "answer listener preparation restores after OOM and retries from the settle
         var event = event_in;
         event.deinit();
     }
-    try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(43) } },
     } } } });
 
@@ -249,7 +249,7 @@ test "listener promise chains borrow the terminal answer store" {
         var event = event_in;
         event.deinit();
     }
-    try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(7) } },
     } } } });
 
@@ -283,11 +283,11 @@ test "a late listener on a stored promise cycle receives one terminal break" {
         event.deinit();
     }
 
-    try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(43) } },
     } } } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    try peer.sendCopying(.{ .resolve = .{ .answer = .from(43), .resolution = .{ .fulfill = .{
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(43), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(42) } },
     } } } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
@@ -330,7 +330,7 @@ test "a late listener cannot follow a stored promise into a reused answer positi
         var event = event_in;
         event.deinit();
     }
-    try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(43) } },
     } } } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
@@ -341,7 +341,7 @@ test "a late listener cannot follow a stored promise into a reused answer positi
         var event = event_in;
         event.deinit();
     }
-    try peer.sendCopying(.{ .resolve = .{ .answer = .from(43), .resolution = .{
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(43), .resolution = .{
         .fulfill = .{ .bytes = "replacement" },
     } } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());

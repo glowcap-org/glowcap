@@ -1,16 +1,16 @@
-// Native relay provider composition for the generic driver loop.
+// Relay archive provider composition for the generic driver loop.
 //
 // One configured archive runtime installs one provider package advertising both
 // keyed-relay and noise-relay. Multiplexed execution, readiness, Host sealing, and
-// lifetime remain in the native archive and generic driver.
+// lifetime remain in the FFI archive and generic driver.
 
 import {
 	abiLayout,
 	abortable,
 	Connector,
 	ffi,
+	FfiDiagnostic,
 	GlowcapError,
-	NativeDiagnostic,
 	openWebSocketChannel,
 	outPointer,
 	readErrorSlot,
@@ -50,11 +50,11 @@ export interface RelayOptions {
 	readonly relayAliasUrl?: string;
 	/** Registration URL used by listeners; omit for a dial-only provider. */
 	readonly registerUrl?: string;
-	/** Immutable trust snapshot used by native WSS opens. */
-	readonly trust?: NativeTrust;
+	/** Immutable trust snapshot used by WSS opens. */
+	readonly trust?: TlsTrust;
 }
 
-export type NativeTrust =
+export type TlsTrust =
 	| { readonly kind: "system" }
 	| { readonly kind: "copied-pem"; readonly pem: Uint8Array };
 
@@ -98,7 +98,7 @@ function encodeConfig(options: RelayOptions): { struct: Uint8Array; keepAlive: U
 }
 
 function openRuntime(options: RelayOptions): Ptr {
-	requireOffThreadFfi("relay", "native provider lifecycle");
+	requireOffThreadFfi("relay", "FFI provider lifecycle");
 	const { struct, keepAlive } = encodeConfig(options);
 	const out = new Uint8Array(abiLayout.ptrSize);
 	checkRelay(relayS.glowcap_relay_runtime_new(struct, out));
@@ -106,7 +106,7 @@ function openRuntime(options: RelayOptions): Ptr {
 	return outPointer(out);
 }
 
-/** Install one shared keyed-relay/noise-relay package into a native loop. */
+/** Install one shared keyed-relay/noise-relay package into a driver loop. */
 export async function installProvider(
 	loop: ProviderTarget,
 	options: RelayOptions,
@@ -119,14 +119,14 @@ export async function installProvider(
 	} catch (primary) {
 		throw await retainCleanupFailures(primary, [
 			() =>
-				new NativeDiagnostic("relay").check(
+				new FfiDiagnostic("relay").check(
 					"runtime release after refused installation",
 					(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
 				),
 		]);
 	}
 	// Registration retained the runtime; this drops only the constructor lease.
-	await new NativeDiagnostic("relay").check(
+	await new FfiDiagnostic("relay").check(
 		"runtime release",
 		(error, cap, errorLen) => relayS.glowcap_relay_runtime_release(raw, error, cap, errorLen),
 	);

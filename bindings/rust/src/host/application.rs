@@ -1,4 +1,4 @@
-//! Host-scoped Rust application data, separate from native protocol state.
+//! Host-scoped Rust application data, separate from FFI protocol state.
 use super::*;
 use std::any::{Any, TypeId};
 #[derive(Default)]
@@ -23,7 +23,7 @@ impl Host {
 	/// Share one Rust application value of T across every clone of this Host.
 	/// The Host retains it until its Rust wrapper is dropped. Store application
 	/// data here, not a Host/session owner that would form a reference cycle.
-	/// No protocol state or native lifecycle hook is created. Initializers may
+	/// No protocol state or FFI lifecycle hook is created. Initializers may
 	/// initialize other types. Recursive initialization of T returns an error.
 	pub fn application_state<T: 'static>(&self, make: impl FnOnce() -> T) -> Result<Rc<T>> {
 		self.shared.guard_handle()?;

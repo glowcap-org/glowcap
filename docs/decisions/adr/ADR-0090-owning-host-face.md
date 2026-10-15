@@ -30,20 +30,20 @@ This ADR builds on the sans-io serve core and byte-fed Host
 ([ADR-0072](ADR-0072-driver-tier-over-c-abi.md)), the loop-fed bridge
 ([ADR-0076](ADR-0076-loop-fed-host-bridge.md)), the CapTP vocabulary alignment
 ([ADR-0079](ADR-0079-captp-vocabulary.md)), and the crossed-hello resolution the
-host core owns ([ADR-0068](ADR-0068-native-host-tier.md)).
+host core owns ([ADR-0068](ADR-0068-zig-host-tier.md)).
 
 ## Problem
 
 In every binding, `Session` is a view onto a multi-session Host: when a reply
 introduces a capability on a third machine, the Host dials that machine and the
-call settles with a live reference. Native Zig's `glowcap.Session` once owned
+call settles with a live reference. Zig's `glowcap.Session` once owned
 one connection and no router, so the same reply handed the caller a `.give`
 value that tier could not redeem.
 
 `driver_core.Host` carries identity, crossed hellos, auto-redeem, vows, and both
 handoff halves, and every binding drives it byte-fed through `libglowcap_host`.
-Native Zig needs a blocking face over that machinery, since the bindings block
-on their languages' event loops and native Zig has none.
+Zig needs a blocking face over that machinery, since the bindings block
+on their languages' event loops and Zig has none.
 
 ## Architecture
 
@@ -182,7 +182,7 @@ matter which vocabulary the caller speaks.
 - **One thread drives one `driver.HostRuntime`**. This is inherited from the core's
   unsynchronized contract and its debug owner assert.
 - Redeem connect inherits its provider. Driver providers begin connects
-  nonblocking. A native Zig stream netlayer may instead declare the blocking
+  nonblocking. A Zig stream netlayer may instead declare the blocking
   arm of its one tagged dial operation, whose connect syscall is outside the
   handshake budget. The handshake itself remains bounded either way.
 - No 500k claim: the owning face is the application tier. Its per-session

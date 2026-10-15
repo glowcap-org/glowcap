@@ -113,7 +113,7 @@ def check_web(root, scratch, transport="iroh", executable=None):
                 assert called.returncode == 0, (called.returncode, called.stdout, called.stderr)
                 assert json.loads(called.stdout) == {"ok": True, "value_kind": "list"}, called.stdout
             else:
-                assert called.returncode == 4 and "transport 'iroh' is not registered" in called.stderr, called.stderr
+                assert called.returncode == 4 and "transport 'iroh' is not available here" in called.stderr, called.stderr
             revision = subprocess.check_output([*front, "revision", "--url", url], text=True, timeout=6).strip()
             assets_root = root / "share/glowcap/rooms"
             assert revision == (assets_root / "revision").read_text().strip()
@@ -181,7 +181,7 @@ def check_command_refusal(root, scratch):
         (["directory", "serve", "--state", state, "--transport", "invalid"], "transport must be"),
         (["archive", "serve", "--state", state, "--transport", "invalid"], "transport must be"),
         (["session", "serve", "--dir", state, "--transport", "invalid"], "transport must be"),
-        (["irc", "front", "--directory", "not-a-locator"], "--directory must name"),
+        (["irc", "serve", "--directory", "not-a-locator"], "--directory must name"),
         (["irc", "bridge", "--irc-realname", "bridge bot; admin: alice", "--mode", "invalid"], "--mode must be"),
     ):
         result = subprocess.run([*front, *args], capture_output=True, text=True, timeout=5)
@@ -222,7 +222,7 @@ def main():
         glowcap_host.deployment(installed, root, Path(scratch))
         root = installed.resolve().parent.parent
         assert sorted(path.name for path in (root / "bin").iterdir()) == ["glowcap"]
-        for name in ("rooms-server", "rooms-session", "rooms-web", "rooms-chat", "rooms-archive", "rooms-irc-front", "rooms-irc-bridge"):
+        for name in ("rooms-server", "rooms-session", "rooms-web", "rooms-chat", "rooms-archive", "rooms-irc-server", "rooms-irc-bridge"):
             assert os.access(root / "libexec" / name, os.X_OK), f"missing private executable {name}"
         for name in ("README.md", "PROVENANCE.md", "LICENSE-APACHE", "LICENSE-THIRD-PARTY"):
             assert (root / name).is_file(), f"missing {name}"
@@ -239,7 +239,7 @@ def main():
         check_completion(root)
         check_command_refusal(root, scratch)
         for command in ([], ["apps", "rooms"], ["apps", "rooms", "session"], ["apps", "rooms", "team"],
-                        ["apps", "rooms", "irc", "bridge"], ["apps", "rooms", "irc", "front"]):
+                        ["apps", "rooms", "irc", "bridge"], ["apps", "rooms", "irc", "serve"]):
             subprocess.run([str(root / "bin/glowcap"), *command, "--help"], check=True,
                            capture_output=True, timeout=5)
         check_web(root, scratch)

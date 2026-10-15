@@ -354,7 +354,7 @@ fn generateRelay(gpa: std.mem.Allocator) ![]u8 {
         \\;; The raw `ffi/unsafe` table of libglowcap_net_transport_relay. The
         \\;; hand-written sibling (`ffi-relay.rkt`) owns the config mirror and
         \\;; re-provides this module. One package owns both keyed-relay and
-        \\;; noise-relay; profile policy remains in the native driver.
+        \\;; noise-relay; profile policy remains in the FFI driver.
         \\
         ,
         .header_path = "include/glowcap_net_transport_relay.h",

@@ -1,4 +1,4 @@
-"""Driver-loop native failure projection."""
+"""Driver-loop FFI failure projection."""
 
 import ctypes
 from typing import Optional

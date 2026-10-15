@@ -42,16 +42,6 @@ test "Loop.Options fan_in_throttle and park_kill_ms default off" {
 }
 
 test "Host initialization returns invalid option failures before publication" {
-    const o = Host.Options{};
-    try std.testing.expectEqual(Host.BootstrapDurability.ephemeral, o.bootstrap_durability);
-    // `.durable_bootstrap` remains a named arm for the embedder-store contract;
-    // initialization refuses it until that store lands (no silent ephemeral twin).
-    var durable = Host.Options{};
-    durable.bootstrap_durability = .durable_bootstrap;
-    try std.testing.expectError(
-        error.DurableBootstrapUnavailable,
-        Host.init(std.testing.allocator, @as([32]u8, @splat(0x31)), @as([32]u8, @splat(0x32)), durable),
-    );
     try std.testing.expectError(
         error.InvalidHostWorkQuantum,
         Host.init(std.testing.allocator, @as([32]u8, @splat(0x33)), @as([32]u8, @splat(0x34)), .{

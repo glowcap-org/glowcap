@@ -1,11 +1,15 @@
+---
+type: static
+description: The smallest Goblins accountability loop, with one vat, one actor, one capability and one episode.
+sources:
+  - resource: /conformance/accountability-on-goblins/racket/
+---
+
 # KERNEL.md: what the kernel demonstrates
 
-> The smallest Goblins-side accountability loop: one Vat, one Actor, one
-> capability, and one Episode. Multi-Actor and cross-Vat use build on this
-> primitive.
-
-If this loop is correct at single-Actor scope, later layers have something
-sound to compose. If it is wrong here, every later layer inherits the mistake.
+The kernel is the smallest Goblins accountability loop: one Vat, one Actor, one
+capability, and one Episode. It shows each primitive working at single-Actor
+scope, which is what multi-Actor and cross-Vat use compose.
 
 ## The eight steps
 
@@ -39,43 +43,46 @@ Kernel loop closed. Run audit.rkt to print the full trace.
 
 ### Step 1: Vat hosts an Actor
 
-A Goblins Vat is instantiated, and an Actor (a capability-disciplined object)
-is spawned inside it. Spritely Goblins enforces capability discipline at the
-language level, so the example does not simulate the object-capability part in
-user code.
+A Goblins Vat is instantiated and an Actor is spawned inside it. Goblins
+enforces capability discipline at the language level, so the example does not
+simulate it in user code.
 
 ### Step 2: Actor has KERI-anchored DID
 
 A KERI Autonomic Identifier (AID) is created with an inception event. The AID is
-`E`-prefixed, using CESR Blake3-256 SAID encoding, and is 44 characters long.
-The Key Event Log (KEL) is persisted at `.data/kel/<aid>.kel.jsonl`. The
-inception event commits to two things:
+a 44-character `E`-prefixed CESR Blake3-256 SAID. The Key Event Log (KEL) is
+persisted at `.data/kel/<aid>.kel.jsonl`. The inception event commits to two
+things:
 
 - the current verkey, a `D`-prefixed Ed25519 transferable verkey
 - the digest of the next verkey, so the next key is committed before it is
-  exposed. This pre-rotation property is the central KERI piece.
+  exposed (pre-rotation, the central KERI piece)
 
 ### Step 3: Actor holds capability
 
-In Goblins, the actor reference is the capability. Possession is authorization.
-There is no separate permission check, and the only way to invoke the
-Affordance is through the reference. The policy is a literal Racket data
-structure: `((default-grant (actor any) (right access) (affordance demo)))`.
+In Goblins, the actor reference is the capability. Possession is authorization,
+with no separate permission check, and the only way to invoke the Affordance is
+through the reference. The policy is a literal Racket data structure:
+`((default-grant (actor any) (right access) (affordance demo)))`.
 
 ### Step 4: Capability invocation
 
-The actor receives an eventual-send message. The actor loop processes it. The
-Affordance method runs and returns a structured result. The Affordance is a
-built-in Goblins method. WASM Components and sandbox tiers are outside this
-demonstration.
+The actor receives an eventual-send message, and its loop runs the Affordance
+method, which returns a structured result. The Affordance is a built-in Goblins
+method.
 
 ### Step 5: Invocation produces an Episode
 
-A bitemporal RDF-Star quad is built. The subject is the Actor. The predicate is
-`goblins:invoked`. The object is the Affordance plus its result. The named graph
-is `goblins:vat/<aid>`, and the bitemporal columns are `valid_time_start` and
-`tx_time_start`. The shape is TerminusDB-importable, so a TerminusDB store could
-replace the JSON-LD file without changing the Episode shape.
+A bitemporal RDF-Star quad is built:
+
+- subject: the Actor
+- predicate: `goblins:invoked`
+- object: the Affordance plus its result
+- named graph: `goblins:vat/<aid>`
+- bitemporal columns: `valid_time_start` and `tx_time_start`
+
+The shape is TerminusDB-importable, so a TerminusDB store could replace the
+JSON-LD file without changing the Episode.
 
 ### Step 6: Episode signed by ephemeral key from KERI rotation chain
 
@@ -90,12 +97,11 @@ Four linked actions make up the signature chain:
 4. The ephemeral public key is countersigned by the AID's current post-rotation
    verkey, anchoring that ephemeral identity to the KEL.
 
-Every Episode is signed by an ephemeral key anchored to the KERI rotation
-chain. The ephemeral key is not derived from the KERI key. The KERI key signs
-the ephemeral public key. If the AID is
-revoked, past ephemeral signatures verify only for the time window before
-revocation. If one ephemeral key is compromised, only one Episode is at risk.
-This is the atomic accountability property the kernel demonstrates.
+The ephemeral key is not derived from the KERI key. The KERI key signs the
+ephemeral public key. After the AID is revoked, past ephemeral signatures verify
+only for the time window before revocation. A compromised ephemeral key puts one
+Episode at risk. This is the atomic accountability property the kernel
+demonstrates.
 
 ### Step 7: Episode persisted
 
@@ -106,48 +112,42 @@ stored at `.data/transparency.root`.
 
 ### Step 8: Episode auditable
 
-A separate `audit.rkt` command, driven from outside via
+A separate `audit.rkt`, run through
 [`../../../episode-audit/run.sh`](../../../episode-audit/run.sh), re-reads the
-Episode and verifies the full chain. It checks the ephemeral public key
-signature against the AID verkey at that sequence number, then checks the
-Episode signature against the ephemeral public key. The verification
-round-trips, so auditability is part of the structure.
+Episode and verifies the chain. It checks the ephemeral public key signature
+against the AID verkey at that sequence number, then checks the Episode
+signature against the ephemeral public key.
 
 ## What the kernel does not cover
 
-The kernel covers the atomic loop. Anything that appears only after several
-loops compose is out of scope:
-
-| Concern                                               | Why deferred                                                                                                                                                                            |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Multiple Actors, capabilities, and Episodes           | The kernel is single-Actor. Multi-Actor coordination is separate work.                                                                                      |
-| Network code, including Iroh and cross-Vat federation | Cross-Vat federation is post-kernel work.                                                                                                                                               |
-| TerminusDB store                                      | The Episode shape is TerminusDB-portable, so a real store can replace the JSON-LD file later.                                                                |
-| WASM Component Model                                  | The kernel uses a built-in Goblins method as the Affordance. WASM-hosted Affordances are post-kernel.                                                                                   |
-| Sandbox tiers                                         | A tier system belongs to the Affordance runtime. The built-in method already runs under Goblins's capability discipline, which is the security foundation a tier system would build on. |
-| Policy governance UI                                  | The kernel's policy is a literal Racket data structure in `kernel.rkt`. Rich authoring belongs with a more developed authority surface.                                                 |
-| Real Sigstore service integration                     | The kernel uses the Sigstore shape (a transparency log plus ephemeral signing). Upstream integration is deferred.                                                                 |
+| Concern                                               | Boundary                                                                                                                              |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Multiple Actors, capabilities, and Episodes           | The kernel is single-Actor and coordinates none.                                                                                      |
+| Network code, including Iroh and cross-Vat federation | None. Everything runs in one Vat.                                                                                                     |
+| TerminusDB store                                      | The Episode shape is TerminusDB-portable, but the kernel writes the JSON-LD file.                                                     |
+| WASM Component Model                                  | The Affordance is a built-in Goblins method, and the kernel hosts no WASM Affordances.                                                |
+| Sandbox tiers                                         | A tier system belongs to the Affordance runtime. The built-in method runs under Goblins's capability discipline, which tiers build on. |
+| Policy governance UI                                  | The policy is a literal Racket data structure in `kernel.rkt`.                                                                        |
+| Real Sigstore service integration                     | The kernel uses the Sigstore shape (a transparency log plus ephemeral signing) and does not call the upstream service.                |
 
 ## What the kernel shows about the substrate
 
-- **The accountability loop works at the smallest scale.** Each primitive in
-  the loop is implemented, not stubbed: Invocation, Decision, Effect, and
-  Episode. Goblins enforces capability discipline at the language level.
-  Episodes are signed and queryable.
-- **The capability shape holds end to end.** Goblins forces capability-shaped
-  code, and no out-of-band path bypasses authority. Episode emission, signing,
-  and transparency-log registration stay inside the Vat process, so the
-  cryptographic chain is local and auditable.
-- **The bitemporal, signed shape composes.** The Episode shape is meant to
-  carry over to multi-Actor and cross-Vat use unchanged.
+- **The accountability loop works at the smallest scale.** Invocation, Decision,
+  Effect, and Episode are each implemented, not stubbed. Episodes are signed and
+  queryable.
+- **The capability shape holds end to end.** No out-of-band path bypasses
+  authority. Episode emission, signing, and transparency-log registration stay
+  inside the Vat process, so the cryptographic chain is local and auditable.
+- **The bitemporal, signed shape is meant to carry over** to multi-Actor and
+  cross-Vat use unchanged.
 - **Conformance is checked at a named boundary.** The Python verifier checks
   SAIDs, signatures, and pre-rotation discipline against the KEL. Witness
-  receipts and full keripy `Serder` ingestion are not covered. Within that
-  boundary, "KERI in Racket" is checked, and the same harness is the
-  regression check for these primitives in any other language implementation.
+  receipts and full keripy `Serder` ingestion are not covered. The same harness
+  is the regression check for these primitives in any other language
+  implementation.
 
 ## See also
 
-- [`../../README.md`](../../README.md): build/run and file map
+- [`../../README.md`](../../README.md): build, run, and file map
 - [Spritely Goblins](https://spritely.institute/goblins/): the upstream OCapN
   reference implementation this Vat builds on

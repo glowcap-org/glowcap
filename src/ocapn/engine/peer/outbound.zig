@@ -70,6 +70,10 @@ pub fn reservePending(self: *Peer, item: semantic.Outbound) !PendingReservation 
     return budget.reservePending(self, item, PendingReservation);
 }
 
+pub fn reservePendingCharged(self: *Peer, charge: usize, handshake: bool) !PendingReservation {
+    return budget.reservePendingCharged(self, charge, handshake, PendingReservation);
+}
+
 /// Reserve the POD carrier that will relinquish one application answer after
 /// its caller releases it or an in-process observer fires. Commit supplies the
 /// answer. This preparation owns its fixed charge and queue seat.
@@ -310,6 +314,12 @@ pub fn checkOutboundWaterline(self: *const Peer) !void {
     return budget.checkWaterline(self);
 }
 
+/// Refuse a producer the budget cannot hold or that arrives at the
+/// waterline, before it allocates.
+pub fn admitOutboundProducer(self: *const Peer, charge: usize) !void {
+    return budget.admitProducer(self, charge);
+}
+
 pub fn ensureOutboundCapacity(self: *Peer, count: usize) !void {
     try self.outbound.ensureUnusedCapacity(self.allocator, count);
 }
@@ -341,5 +351,3 @@ pub fn encodedOutboundBytes(self: *const Peer) usize {
 pub fn hasOutbound(self: *const Peer) bool {
     return !self.outbound.isEmpty();
 }
-
-pub const measureAnswerSettlementCharge = budget.measureAnswerSettlementCharge;

@@ -298,7 +298,7 @@ async fn probe(endpoint: &Endpoint, mut stop: watch::Receiver<bool>) -> Result<S
 		let directory = Directory::fetch(Client::new(session, HostPlatform))
 			.await
 			.map_err(|e| e.to_string())?;
-		directory.list().await.map_err(|e| e.to_string())?;
+		directory.list(None).await.map_err(|e| e.to_string())?;
 		let advertised = directory.advertised_location().await.map_err(|e| e.to_string())?;
 		let locator = rooms_glowcap::routes::locator(&advertised).ok_or("directory advertised an invalid location")?;
 		glowcap::format_locator_uri(&locator).map_err(|e| e.to_string())

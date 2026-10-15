@@ -62,7 +62,11 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_new(
 				closed: false,
 				failed: false,
 			})),
-			local_candidates: Arc::new(Mutex::new(LocalCandidates::new())),
+			local_candidates: Arc::new(Mutex::new(CandidateQueue::new())),
+			remote_candidates: Mutex::new(RemoteCandidates {
+				description_set: false,
+				early: CandidateQueue::new(),
+			}),
 		});
 		let handler = Arc::new(PeerEvents {
 			shared: shared.clone(),
@@ -181,7 +185,7 @@ pub(crate) unsafe fn candidate_text<'a>(ptr: *const u8, len: usize) -> Option<&'
 	std::str::from_utf8(unsafe { std::slice::from_raw_parts(ptr, len) }).ok()
 }
 
-pub(crate) fn write_local_candidate(queue: &mut LocalCandidates, out: &OutText) -> i32 {
+pub(crate) fn write_local_candidate(queue: &mut CandidateQueue, out: &OutText) -> i32 {
 	let text = match queue.items.front() {
 		Some(text) => text.as_str(),
 		None => return WOULD_BLOCK,
@@ -270,7 +274,9 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_create_answer(
 
 /// Set the remote peer's SDP. `is_offer` picks the description type: nonzero for
 /// the offerer's offer (set by the answerer), zero for the answerer's answer
-/// (set by the offerer).
+/// (set by the offerer). Far candidates that arrived first are added right
+/// after, in arrival order, and the first one the connection refuses makes this
+/// call return `ERR`.
 ///
 /// # Safety
 /// `peer` live. `sdp` points to `sdp_len` readable bytes of UTF-8, with
@@ -306,14 +312,42 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_set_remote(
 		{
 			return ERR;
 		}
+		let early = {
+			let mut remote = peer.shared.remote_candidates.lock().unwrap();
+			remote.description_set = true;
+			remote.early.take_all()
+		};
+		for text in early {
+			let Ok(init) = serde_json::from_str::<RTCIceCandidateInit>(&text) else {
+				return ERR;
+			};
+			if add_remote_candidate_now(peer, init) != OK {
+				return ERR;
+			}
+		}
 		OK
 	};
 	// SAFETY: the handle contract `borrowed` states.
 	unsafe { borrowed(peer, ERR, set_remote) }
 }
 
+fn add_remote_candidate_now(peer: &GlowcapWebrtcPeer, init: RTCIceCandidateInit) -> i32 {
+	if peer
+		.shared
+		.endpoint
+		.runtime()
+		.block_on(peer.pc.add_ice_candidate(init))
+		.is_err()
+	{
+		return ERR;
+	}
+	OK
+}
+
 /// Add one remote ICE candidate, as the JSON the far peer's
-/// `peer_next_local_candidate` produced.
+/// `peer_next_local_candidate` produced. Before `peer_set_remote` the candidate
+/// is held, under the pending-candidate bound, and added once the description
+/// is set.
 ///
 /// # Safety
 /// `peer` live. `cand` points to `cand_len` readable bytes of UTF-8 JSON, with
@@ -334,16 +368,13 @@ pub unsafe extern "C" fn glowcap_webrtc_sidecar_peer_add_remote_candidate(
 			Ok(init) => init,
 			Err(_) => return ERR,
 		};
-		if peer
-			.shared
-			.endpoint
-			.runtime()
-			.block_on(peer.pc.add_ice_candidate(init))
-			.is_err()
 		{
-			return ERR;
+			let mut remote = peer.shared.remote_candidates.lock().unwrap();
+			if !remote.description_set {
+				return if remote.early.admit(text.to_string()) { OK } else { ERR };
+			}
 		}
-		OK
+		add_remote_candidate_now(peer, init)
 	};
 	// SAFETY: the handle contract `borrowed` states.
 	unsafe { borrowed(peer, ERR, add_candidate) }

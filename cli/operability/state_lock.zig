@@ -92,7 +92,7 @@ pub fn mapError(err: anyerror) u8 {
 /// so a bare exit code and no output leaves a new user with nothing to go on.
 pub fn refuseLockFailure(io: Io, err: anyerror, identity_path: []const u8) u8 {
     if (err == error.Busy) {
-        log.err(io, "identity is locked by another glowcap process", .{});
+        log.err(io, "identity is locked by another glowcap process. Wait for it to finish, or use a different GLOWCAP_STATE", .{});
         return exit_codes.busy;
     }
     log.err(io, "cannot lock the state directory for identity {s}: {s}", .{ identity_path, @errorName(err) });

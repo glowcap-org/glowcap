@@ -1,7 +1,7 @@
-//! The native relay archive's multiplexed runtime adapter.
+//! The relay archive's multiplexed runtime adapter.
 //!
 //! This module owns readiness, cancellation, and teardown while adapting the
-//! native blocking relay carrier to the generic C multiplexed-provider table.
+//! blocking Mbed TLS relay carrier to the generic C multiplexed-provider table.
 //! It moves opaque WebSocket bytes only. The archive facade owns exported C
 //! handles. CapTP framing and Noise_XK remain Host policy.
 
@@ -12,7 +12,7 @@ const crypto = foundation.crypto;
 const model = @import("model");
 const net = @import("net");
 const c = @import("c_abi_shared");
-const native_relay = @import("native_relay");
+const relay_tls = @import("relay_tls");
 const connection_state = @import("../connection/state.zig");
 const contract = @import("../contract.zig");
 const dial_lifecycle = @import("../dial/lifecycle.zig");
@@ -45,7 +45,7 @@ pub const Payload = struct {
     threaded: std.Io.Threaded,
     allocator: std.mem.Allocator,
     references: std.atomic.Value(usize),
-    native: native_relay.Provider,
+    relay: relay_tls.Provider,
     runtime: MultiplexedRuntime,
     profile_abi: [profile_count]c.GlowcapTransportProfile,
     entries: [profile_count]c.GlowcapTransportProviderEntry,
@@ -254,7 +254,7 @@ const MultiplexedRuntime = struct {
     }
 
     pub fn resident(self: *MultiplexedRuntime, profile: Profile) *net.relay.Resident {
-        return self.payload.native.resident(profile);
+        return self.payload.relay.resident(profile);
     }
 
     pub fn signalControl(self: *MultiplexedRuntime) void {
@@ -490,7 +490,7 @@ fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) cal
 fn providerSameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(.c) u8 {
     const left: *Payload = @ptrCast(@alignCast(ctx orelse return 0));
     const right: *Payload = @ptrCast(@alignCast(other_ctx orelse return 0));
-    return @intFromBool(left.native.sameConfiguration(&right.native));
+    return @intFromBool(left.relay.sameConfiguration(&right.relay));
 }
 
 fn providerRelease(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {

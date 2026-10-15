@@ -18,20 +18,33 @@
   },
   "nodeModulesDir": "auto",
   "imports": {
+    // dep react: The UI library for ocapnviz.
     "react": "npm:react@19.3.0",
     "react/jsx-runtime": "npm:react@19.3.0/jsx-runtime",
+    // dep react-dom: Renders ocapnviz in the browser.
     "react-dom": "npm:react-dom@19.3.0",
     "react-dom/client": "npm:react-dom@19.3.0/client",
+    // dep @types/react: React's types for the type checker.
     "@types/react": "npm:@types/react@19.3.0",
+    // dep @types/react-dom: React DOM's types for the type checker.
     "@types/react-dom": "npm:@types/react-dom@19.3.0",
+    // dep zod: Validates data at ocapnviz's boundaries.
     "zod": "npm:zod@4.6.5",
+    // dep pixi.js: Draws the session graph on the GPU.
     "pixi.js": "npm:pixi.js@8.22.0",
+    // dep pixi-viewport: Pan and zoom for the graph.
     "pixi-viewport": "npm:pixi-viewport@6.0.3",
+    // dep miniplex: The entity store behind the graph.
     "miniplex": "npm:miniplex@2.0.0",
+    // dep d3-force: Lays out the graph.
     "d3-force": "npm:d3-force@3.0.0",
+    // dep @types/d3-force: d3-force's types for the type checker.
     "@types/d3-force": "npm:@types/d3-force@3.0.10",
+    // dep vite: Builds and serves ocapnviz.
     "vite": "npm:vite@8.3.4",
+    // dep @vitejs/plugin-react: Vite's React support.
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@6.1.2",
+    // dep @deno/vite-plugin: Lets Vite resolve Deno imports.
     "@deno/vite-plugin": "npm:@deno/vite-plugin@2.0.4",
     "@glowcap/abi": "../../bindings/ts/abi/constants.ts",
     "@glowcap/runtime": "../../bindings/ts/runtime/mod.ts",
@@ -45,6 +58,7 @@
     "@glowcap/iroh/internal": "../../bindings/ts/web/browser_iroh_stub.ts",
     "@glowcap/webrtc": "../../bindings/ts/webrtc/mod.ts",
     "@glowcap/webrtc/channel": "../../bindings/ts/webrtc/channel.ts",
+    // dep @std/assert: Test assertions.
     "@std/assert": "jsr:@std/assert@1.0.19",
     // The one place this scope's Playwright version is written, for every
     // script under scripts/. Pinned exactly rather than by range: Playwright
@@ -52,6 +66,7 @@
     // devcontainer image installs the browser .devcontainer/pins.sh names, and
     // a range here would let the library drift off the browser on disk.
     // `zig build source-check` holds the two together.
+    // dep playwright: Drives ocapnviz's browser scripts.
     "playwright": "npm:playwright@1.64.0"
   },
   "lock": {

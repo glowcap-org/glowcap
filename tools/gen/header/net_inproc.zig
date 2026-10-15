@@ -106,8 +106,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\two peers in one process wired by in-process pipes and no kernel transport.
         \\The listener exposes a wake descriptor for foreign reactors. The same
         \\host-owns-the-peer frame shuttle and
-        \\netlayer lifecycle — create the netlayer, make connections/listeners from
-        \\it, release them, then release it — but a listener binds to a string
+        \\netlayer lifecycle (create the netlayer, make connections/listeners from
+        \\it, release them, then release it), but a listener binds to a string
         \\designator (any opaque token, not a host:port) and a dialer names that
         \\designator. This is the path a binding's smoke test dials to run a full
         \\OCapN conversation without touching a socket. Blocking; in-process only.
@@ -144,9 +144,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_inproc_accept", &.{ "listener", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, "Block until a dialer connects, returning an owned connection framing on\n`codec`. Same argument and release contract as glowcap_inproc_connect.\n\n" ++ optional_diagnostic_doc);
     try emitFn(&b, gpa, "glowcap_inproc_conn_read_frame", &.{ "conn", "out_frame", "out_error", "error_cap", "out_error_len" }, "Block for one whole frame as an owned managed frame. Returns\nGLOWCAP_ERR_CLOSED on graceful EOF.\n\n" ++ optional_diagnostic_doc);
     try emitFn(&b, gpa, "glowcap_inproc_conn_write_frame", &.{ "conn", "frame", "out_error", "error_cap", "out_error_len" }, "Write one frame's borrowed bytes into the partner's pipe. Returns\nGLOWCAP_ERR_CLOSED after shutdown begins.\n\n" ++ optional_diagnostic_doc);
-    try emitFn(&b, gpa, "glowcap_inproc_conn_shutdown", &.{"conn"}, "Seal native admission and interrupt blocked reads and writes without freeing\nthe connection. May race operations; join the embedding's leases before release.\nIdempotent.");
+    try emitFn(&b, gpa, "glowcap_inproc_conn_shutdown", &.{"conn"}, "Seal admission and interrupt blocked reads and writes without freeing\nthe connection. May race operations; join the embedding's leases before release.\nIdempotent.");
     try emitFn(&b, gpa, "glowcap_inproc_conn_release", &.{"conn"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the handle. Release must not race call initiation.");
-    try emitFn(&b, gpa, "glowcap_inproc_listener_shutdown", &.{"listener"}, "Seal native accept admission and wake a blocked accept without freeing the\nlistener. May race operations; join the embedding's leases before release. Idempotent.");
+    try emitFn(&b, gpa, "glowcap_inproc_listener_shutdown", &.{"listener"}, "Seal accept admission and wake a blocked accept without freeing the\nlistener. May race operations; join the embedding's leases before release. Idempotent.");
     try emitFn(&b, gpa, "glowcap_inproc_listener_release", &.{ "listener", "out_error", "error_cap", "out_error_len" }, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the listener. Release must not race call\ninitiation.\n\n" ++ optional_diagnostic_doc);
 
     try emitFn(&b, gpa, "glowcap_inproc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last in-process-transport error into out_buf, the\ninproc sibling of glowcap_last_error, reading this archive's own per-thread\nslot. A glowcap_inproc_* call that returns a cause-bearing code records it\nhere. Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or\ncap 0 queries the length. Returns the full message length, or 0 when none is\nset." ++ header_emit.last_error_freshness_doc);

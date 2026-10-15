@@ -87,6 +87,9 @@ pub const HostSession = struct {
     /// The core queues a FLUSH wake. Once the embedder has drained outbound,
     /// `takeStreamOutbound` resumes this tail under the ordinary Host latch.
     feed_resume_pending: bool = false,
+    /// Intrusive membership in `Host.held_releases`: the peer holds answer
+    /// releases at its queue tail for the next message or the embedder's park.
+    releases_held: bool = false,
 
     /// Which half of the handshake this session is, carrying the one datum
     /// only the dialing half has: the partner designator it dialed, which is the key
@@ -307,6 +310,15 @@ pub const HostSession = struct {
         return crypto.SecretKey.fromSeed(self.session_seed);
     }
 
+    /// The session's public identity, through a keypair wiped before this
+    /// returns. The standard library's own temporaries inside the derivation
+    /// are outside that wipe.
+    pub fn sessionPublicKey(self: *const HostSession) crypto.PeerKey {
+        var secret = self.sessionSecret();
+        defer std.crypto.secureZero(u8, std.mem.asBytes(&secret));
+        return secret.publicKey();
+    }
+
     /// Whether inbound bytes are parked where no readiness wait can see them:
     /// paused outer frames in `feed_tail`, or a sealed session's staged
     /// channel bytes (ADR-0107). An embedder resumes them through
@@ -410,14 +422,13 @@ pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []
 
 /// Per-session static-footprint ceiling for the byte-fed host shell. It is
 /// the third per-session static allocation on the 500k `HostRuntime` path (ADR-0076),
-/// beside `engine.Peer` (gated at 1 KiB in `engine`) and the completion loop's
-/// `Conn` wrapper (gated at 128 bytes of overhead in `net.completion`). One
+/// beside `engine.Peer` (gated by `peer_session_struct_budget_bytes`) and the
+/// completion loop's `Conn` wrapper (gated by `conn_slot_overhead_bytes`). One
 /// `HostSession`, and therefore one inline `Served` Port, is minted per adopted
 /// session in `mintShell`. The Vat is Host-wide and charged once per Host.
 /// `engine.Peer` itself lives behind a pointer here, gated on its own. Crossing
-/// this ceiling is a design event that raises the budget here and in
-/// `docs/ladder.md` step 2 together, with the bytes justified, never a check to
-/// route around.
+/// this ceiling is a design event that raises the budget here
+/// with the bytes justified, never a check to route around.
 /// The shell holds per-session identity, lifecycle, and Port state. Answer
 /// notification consumption lives on existing Session rows. The Port keeps
 /// one answer cutoff for bulk breaks. Its indexed listener map costs 16 bytes
@@ -426,8 +437,8 @@ pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []
 pub const host_session_struct_budget_bytes = 528;
 comptime {
     if (@sizeOf(HostSession) > host_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
-        "driver_core.HostSession is {d} bytes, over the {d}-byte per-session shell budget (docs/ladder.md step 2). " ++
-            "A larger shell is a withdrawal from the 500k footprint budget; raise the source constant and documented budget together.",
+        "driver_core.HostSession is {d} bytes, over the {d}-byte per-session shell budget. " ++
+            "A larger shell is a withdrawal from the 500k footprint budget. Raise the constant deliberately, with the bytes justified.",
         .{ @sizeOf(HostSession), host_session_struct_budget_bytes },
     ));
 }

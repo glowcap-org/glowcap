@@ -69,7 +69,7 @@ const bobStdout = bob.stdout.getReader();
 const bobStderrChunks: Uint8Array[] = [];
 const bobStderrDrain = (async () => {
 	for await (const chunk of bob.stderr) bobStderrChunks.push(chunk);
-})().catch(() => {});
+})().catch(() => {}); // tolerant: the capture ends when the child's pipe closes, and the text is only printed on a failure that has its own cause.
 
 let ok = false;
 let carol: Deno.ChildProcess | null = null;
@@ -91,6 +91,7 @@ try {
 	// reply ref's home is the gifter↔Bob connection, so glowcap can re-gift
 	// it across to the recipient without an enrollment verb.
 	const toBob = await runtime.connect(tcp.locator(HOST, PORT));
+	// tolerant: serve rejects when Bob hangs up, which ends this session normally, and the script's own calls report real failures.
 	toBob.serve().catch(() => {});
 	const vendor = await toBob.fetch(VENDOR_SWISS);
 	const greeter = await toBob.send(vendor, "", []);

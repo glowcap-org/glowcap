@@ -38,8 +38,16 @@ pub const Mutation = struct {
     lease: ?loam.Lease = null,
     pending: ?loam.Ticket = null,
     checked: usize = 0,
+    /// The persisted receipt's facet mask, read with its result.
+    facets: u64 = 0,
     bindings: std.ArrayList(Binding) = .empty,
-    pub const Binding = struct { ref: driver.Capability, edge: loam.Edge };
+    /// What a receipt edge restores. A durable edge restores its own saved
+    /// authority. A designated edge names the endpoint a dependent facet
+    /// argument pointed at: it identifies the intent and never restores
+    /// authority. A facet edge names the endpoint a dependent facet result
+    /// pointed at, and replay projects that facet again.
+    pub const Binding = struct { ref: driver.Capability, edge: loam.Edge, role: Role = .durable };
+    pub const Role = enum { durable, designated, facet };
     pub const Step = union(enum) { ready, read: loam.Read, waiting };
 
     pub fn init(call: *hosting.Call, endpoint: *const records.EndpointRecord, sequence: u64, verb: []const u8, args: []const driver.Value, dependent: ?loam.ObjectId) !Mutation {
@@ -49,7 +57,7 @@ pub const Mutation = struct {
         items[1] = .{ .bytes = if (dependent) |target| try call.arena().dupe(u8, &target.key()) else &.{} };
         @memcpy(items[2..], args);
         const request: driver.Value = .{ .list = items };
-        try request.forEachCapability(&self, capture);
+        try request.forEachCapability(&self, captureArgument);
         self.intent = try records.ValueRecord.encode(call.arena(), request, &self);
         return self;
     }
@@ -99,6 +107,7 @@ pub const Mutation = struct {
             self.checked += 1;
         }
         self.result = receipt.result;
+        self.facets = receipt.facets;
         return .ready;
     }
 
@@ -125,12 +134,25 @@ pub const Mutation = struct {
         self.result = try records.ValueRecord.encode(self.call.arena(), value, self);
     }
 
+    /// Retain a reply that is one dependent facet of endpoint `target`, which
+    /// this call's own staging created. Replay projects the same facet again.
+    pub fn retainFacetResult(self: *Mutation, facet: driver.Capability, target: loam.ObjectId) !void {
+        const value: driver.Value = .{ .capability = facet };
+        _ = try self.call.prepareReply(value, .validate_only);
+        try self.bind(.{ .ref = facet, .edge = .{ .target = target }, .role = .facet });
+        self.result = try records.ValueRecord.encode(self.call.arena(), value, self);
+    }
+
     pub fn stage(self: *Mutation, store: *loam.Store) !void {
         if (store != self.call.attachment.store) return error.ForeignStore;
         const receipt = try store.allocateId();
-        const bytes = try (records.MutationRecord{ .intent = self.intent, .result = self.result }).encodeAlloc(self.call.arena());
         var edges: [records.MutationRecord.max_edges]loam.Edge = undefined;
-        for (self.bindings.items, edges[0..self.bindings.items.len]) |binding, *edge| edge.* = binding.edge;
+        var facets: u64 = 0;
+        for (self.bindings.items, edges[0..self.bindings.items.len], 0..) |binding, *edge, index| {
+            edge.* = binding.edge;
+            if (binding.role == .facet) facets |= @as(u64, 1) << @intCast(index);
+        }
+        const bytes = try (records.MutationRecord{ .intent = self.intent, .result = self.result, .facets = facets }).encodeAlloc(self.call.arena());
         try store.putCopying(.{ .id = receipt, .revision = 0, .schema = records.profile.mutation, .payload = bytes, .edges = edges[0..self.bindings.items.len] }, null);
         var endpoint = self.endpoint.*;
         try endpoint.mutations.append(receipt);
@@ -146,14 +168,35 @@ pub const Mutation = struct {
         const view = try self.call.attachment.store.currentView(self.lease.?);
         var edges = view.edges();
         var index: usize = 0;
-        while (edges.next()) |edge| : (index += 1) if (edge.target.eql(object)) return self.call.discloseHeld(try self.call.storedEdge(view, index));
+        while (edges.next()) |edge| : (index += 1) if (edge.target.eql(object)) {
+            const stored = try self.call.storedEdge(view, index);
+            const facet = index < 64 and self.facets >> @intCast(index) & 1 != 0;
+            return self.call.discloseHeld(if (facet) try self.call.projectDependent(stored) else stored);
+        };
         return error.InvalidRecord;
     }
 
+    /// A reply capability must be durable itself, so replay can restore it.
     fn capture(self: *Mutation, ref: driver.Capability) !void {
+        for (self.bindings.items) |binding| if (binding.ref.eql(ref)) {
+            if (binding.role == .designated) return error.NotDurable;
+            return;
+        };
+        try self.bind(.{ .ref = ref, .edge = try self.call.capture(ref) });
+    }
+
+    /// An argument may also be a dependent facet, recorded by what it names.
+    fn captureArgument(self: *Mutation, ref: driver.Capability) !void {
         for (self.bindings.items) |binding| if (binding.ref.eql(ref)) return;
+        const edge = self.call.capture(ref) catch |err| {
+            if (err != error.NotDurable) return err;
+            return self.bind(.{ .ref = ref, .edge = .{ .target = try self.call.attachment.designated(ref) }, .role = .designated });
+        };
+        try self.bind(.{ .ref = ref, .edge = edge });
+    }
+
+    fn bind(self: *Mutation, binding: Binding) !void {
         if (self.bindings.items.len == records.MutationRecord.max_edges) return error.ReceiptCapacity;
-        try self.bindings.ensureUnusedCapacity(self.call.arena(), 1);
-        self.bindings.appendAssumeCapacity(.{ .ref = ref, .edge = try self.call.capture(ref) });
+        try self.bindings.append(self.call.arena(), binding);
     }
 };

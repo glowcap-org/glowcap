@@ -22,6 +22,7 @@
 // stands back up.
 
 import type { Locator, Page } from "playwright";
+import { waitForFiniteAnimations } from "../support/animations.ts";
 import { fail, openDirectoryCardFromCaption, ROOT, SERVER, waitForPostedLine } from "./harness.ts";
 import { proveRecoveryDialogLayout } from "./recovery_layout.ts";
 import { inkContrast } from "../ink_contrast.ts";
@@ -253,7 +254,7 @@ export async function run(
 		const tooFaint: string[] = [];
 		for (const appearance of ["light", "dark"] as const) {
 			await tab.evaluate((t) => document.documentElement.setAttribute("data-theme", t), appearance);
-			await tab.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+			await waitForFiniteAnimations(tab);
 			const measured = await inkContrast(tab, "#roomList li:not(.here) .rwhere-how");
 			if (measured === null) tooFaint.push(`how a directory is doing could not be measured in ${appearance}`);
 			else if (measured.ratio < 4.5) {

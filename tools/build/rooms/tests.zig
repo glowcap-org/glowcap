@@ -142,7 +142,7 @@ const batches: []const []const []const u8 = &.{
     &.{
         "apps/rooms/test/irc/protocol_test.ts",
         "apps/rooms/test/irc/bridge_process_test.ts",
-        "apps/rooms/test/irc/front_test.ts",
+        "apps/rooms/test/irc/server_test.ts",
     },
 };
 
@@ -197,7 +197,7 @@ pub fn register(ctx: Context) *std.Build.Step {
         const batch = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{"env"});
         batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });
         batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-bridge" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_BRIDGE_BIN=", .make_absolute = true });
-        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-front" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_FRONT_BIN=", .make_absolute = true });
+        batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-server" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_SERVER_BIN=", .make_absolute = true });
         batch.step.dependOn(ctx.archive_install);
         batch.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_BIN=", .make_absolute = true });
         for (files) |file| {

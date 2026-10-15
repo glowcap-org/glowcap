@@ -2,7 +2,6 @@
 const std = @import("std");
 const common = @import("common.zig");
 const callbacks = @import("callbacks.zig");
-const vocabulary = @import("vocabulary.zig");
 const c = common.c;
 const access = common.access;
 const core = common.core;
@@ -27,13 +26,15 @@ pub const Attachment = struct {
     /// One C handle per worker slot, at the same index.
     work_slots: []@import("work.zig").Work,
     live_scope: ?*common.hosting.LiveScope = null,
+    pub const max_contents = 128;
     /// Startup reserves declaration/behavior arrays and cache_slots + 1 worker
-    /// slots. Their independent admission limit bounds executor custody.
+    /// slots. Their independent admission limit bounds executor custody, and
+    /// the store's reader count bounds the reads among them.
     /// The pool refuses pressure rather than allocating handles in a turn.
     /// Both inventories survive suspended calls and are freed only after detach.
     pub fn create(store: *common.Store, host: ?*common.host.GlowcapHost, contents: []const c.GlowcapLoamContent, entropy: c.GlowcapLoamEntropyFn, ctx: ?*anyopaque) !*Attachment {
         const gpa = store.allocator;
-        if (contents.len == 0 or contents.len > 128) return error.InvalidArgument;
+        if (contents.len == 0 or contents.len > max_contents) return error.InvalidArgument;
         const borrow = try common.host.embedding.borrowForAttachment(host);
         errdefer borrow.release();
         const owner = try gpa.create(Attachment);
@@ -73,12 +74,12 @@ pub const Attachment = struct {
         errdefer gpa.free(worker_slots);
         const work_slots = try gpa.alloc(@import("work.zig").Work, slot_count);
         errdefer gpa.free(work_slots);
-        owner.worker = .init(worker_slots);
+        owner.worker = .init(worker_slots, store.readers);
         for (work_slots, worker_slots) |*work, *slot| work.* = .{ .owner = owner, .slot = slot };
         owner.work_slots = work_slots;
         owner.caps = try access.storage.Capabilities.init(gpa, &store.value, .{ .max_references = store.limits.max_references, .max_operations = store.limits.max_operations });
         errdefer owner.caps.deinit() catch unreachable;
-        owner.service = .{ .capabilities = &owner.caps, .contents = content_behaviors, .record_capacity = store.limits.record_capacity, .context = owner, .decode_control = vocabulary.edit, .decode_control_revision = vocabulary.revision, .decode_derive = vocabulary.derive, .decode_managed_derive = vocabulary.managed, .decode_attenuation = vocabulary.attenuate, .entropy = .{ .context = owner, .fill = fillEntropy } };
+        owner.service = .{ .capabilities = &owner.caps, .contents = content_behaviors, .record_capacity = store.limits.record_capacity, .context = owner, .decode_control = access.hosting.vocabulary.edit, .decode_control_revision = access.hosting.vocabulary.revision, .decode_derive = access.hosting.vocabulary.derive, .decode_managed_derive = access.hosting.vocabulary.managed, .decode_attenuation = access.hosting.vocabulary.attenuate, .entropy = .{ .context = owner, .fill = fillEntropy } };
         owner.behaviors = owner.service.behaviors();
         owner.value = try common.hosting.Attachment.create(gpa, borrow.core(), &store.value, &owner.behaviors, common.Store.hostingOptions(store.limits));
         errdefer owner.value.destroy() catch unreachable;

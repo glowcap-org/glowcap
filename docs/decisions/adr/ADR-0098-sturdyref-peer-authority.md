@@ -116,7 +116,7 @@ Acceptance requires:
    select the same peer identity and session-local dedup row.
 3. Enliven locators that differ in transport or designator and prove they do not
    share a session or cache row.
-4. Run complete-sturdyref enlivenment through native Zig, C, Wasm, and every
+4. Run complete-sturdyref enlivenment through Zig, C, Wasm, and every
    binding, including the mismatch refusal.
 5. Refuse a mutable alias under the reserved durable prefix. Mint a durable
    swiss, remove it, simulate restart with an empty durable registry, and prove
@@ -186,9 +186,10 @@ fetch, removal miss, and surviving-ref scenes over the C ABI.
 Retaining the transport adds no identity allocation: a dialed session stores
 transport and selected designator in the block it already requires.
 An accepted session owns one transport block. With the Vat owned by the Host,
-the `HostSession` shell is 528 bytes at its ceiling. The Vat and its queue
-chunks are charged once per Host. [The footprint table](../../ladder.md#2-performance-at-scale)
-records the current costs.
+the `HostSession` shell stays within `host_session_struct_budget_bytes`. The Vat and its queue
+chunks are charged once per Host. The
+[performance page](../../../site/content/performance.smd) charts the current
+costs.
 
 ## Scope (what this does not decide)
 

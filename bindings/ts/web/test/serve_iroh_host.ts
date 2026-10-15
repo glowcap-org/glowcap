@@ -1,7 +1,7 @@
-// The iroh half of the browser-relay proof's native side: bind a real iroh
+// The iroh half of the browser-relay proof's FFI side: bind a real iroh
 // endpoint (relay-less Direct on loopback), publish a greeter, print the
 // dialable `ocapn://` URI, and serve every accepted session until killed.
-// Runs in its own process so this native dlopen graph never shares a module
+// Runs in its own process so this FFI dlopen graph never shares a module
 // graph with the wasm browser peer under test.
 
 import { listen, Reachability } from "@glowcap/iroh";

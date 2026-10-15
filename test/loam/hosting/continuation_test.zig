@@ -169,12 +169,13 @@ const Selection = struct {
 
 const ExactRequest = struct {
     calls: *usize,
-    pub fn handle(self: *ExactRequest, turn: *f.driver.HostTurn, verb: []const u8, args: []const f.driver.Value) !f.driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *ExactRequest, turn: *f.driver.HostTurn, verb: []const u8, args: f.driver.Args) !f.driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
         try std.testing.expectEqualStrings("target", verb);
-        try std.testing.expectEqualStrings("original", args[0].string);
-        return args[0];
+        try std.testing.expectEqualStrings("original", arg_values[0].string);
+        return arg_values[0];
     }
 };
 
@@ -223,8 +224,9 @@ const ReadAdmission = struct {
 const ReadTarget = struct {
     calls: *usize,
     target: *f.driver.Capability,
-    pub fn handle(self: *ReadTarget, turn: *f.driver.HostTurn, verb: []const u8, args: []const f.driver.Value) !f.driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *ReadTarget, turn: *f.driver.HostTurn, verb: []const u8, args: f.driver.Args) !f.driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
         return if (std.mem.eql(u8, verb, "read")) .{ .string = "chunk" } else .{ .capability = self.target.* };
     }

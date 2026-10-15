@@ -1,4 +1,4 @@
-//! Live WebRTC signaling mesh: two native glowcap peers bring up a DataChannel
+//! Live WebRTC signaling mesh: two Zig glowcap peers bring up a DataChannel
 //! through an OCapN-shaped signaling object, then hold a keyed OCapN session
 //! over it (ADR-0089).
 //!
@@ -8,7 +8,7 @@
 //! ICE candidates between the two peers. The hub holds no WebRTC state and
 //! parses no payload. It moves opaque strings between the two designators it was
 //! given references to, the same byte-transparency a room or the relay holds.
-//! That is the ADR-0089 signaling-capability shape, proven natively before the
+//! That is the ADR-0089 signaling-capability shape, proven in Zig before the
 //! browser arm drives the same verbs over the wire.
 //!
 //! The delta from `webrtc-interop` is exactly the signaling path: there the
@@ -38,7 +38,7 @@ const greeting = "hello over webrtc mesh";
 const Greeter = struct {
     done: *std.atomic.Value(bool),
 
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
         self.done.store(true, .release);
@@ -50,7 +50,7 @@ const Greeter = struct {
 /// designator that routes the offer, the answer, and the ICE candidates between
 /// two webrtc peers. It holds references to the two peers it introduces and
 /// forwards opaque strings between them, the same way a room routes a chat line.
-/// It parses no SDP and no candidate. This native proof calls it directly. The
+/// It parses no SDP and no candidate. This Zig proof calls it directly. The
 /// capability version hosts the same two verbs on a Host and routes
 /// them over CapTP.
 const SignalingHub = struct {
@@ -167,10 +167,12 @@ fn exporterHalf(
     var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
     defer pump.deinit();
 
-    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    // Publish before the handshake settles: the dialer's fetch can arrive in
+    // the same pump round that opens the session.
     var served = std.atomic.Value(bool).init(false);
-    _ = try host.sessionPublish(session, "greeter", Greeter, .{ .done = &served });
-    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 30_000);
+    _ = try host.publish("greeter", Greeter, .{ .done = &served });
+    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 10_000);
 }
 
 /// The recipient half: the offerer completes the keyed handshake, pins the

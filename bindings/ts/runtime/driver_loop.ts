@@ -29,7 +29,7 @@ import { type Codec, DEFAULT_CODEC } from "./value.ts";
 export { DriverListener } from "./driver_loop/listener.ts";
 export type { DriverLoopOptions } from "./driver_loop/options.ts";
 
-/** Whether this runtime can drive a native loop at all: the park is an
+/** Whether this runtime can drive a driver loop at all: the park is an
  * off-thread nonblocking FFI `poll(2)`, so a runtime whose FFI executes on the
  * JavaScript thread (Bun, the wasm browser adapter) keeps the byte-fed pump. */
 export function loopTierAvailable(): boolean {
@@ -49,7 +49,7 @@ export interface ProviderTarget {
 
 import { DriverLoopConnections } from "./driver_loop/connections.ts";
 
-/** One stepping native loop over one multi-session host (ADR-0112).
+/** One stepping driver loop over one multi-session host (ADR-0112).
  *
  * Construct with `open` on the thread that will drive it, `start()` to park on
  * the readiness descriptor, and `close()` before dropping it. One thread
@@ -79,10 +79,10 @@ export class DriverLoop extends DriverLoopConnections {
 		}
 	}
 
-	/** Transfer an existing quiescent Host to a native loop. The native claim is
+	/** Transfer an existing quiescent Host to a driver loop. The FFI claim is
 	 * transactional: a refused claim leaves the Host byte-fed and usable. Once
 	 * it succeeds, the original wrapper remains attached to the loop and the
-	 * loop owns the only native release path. */
+	 * loop owns the only FFI release path. */
 	static takeHost(
 		host: Host,
 		opts: DriverLoopOptions = {},

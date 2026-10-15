@@ -90,7 +90,7 @@ bounded observation operations and own their storage executor.
 ## Evidence obligations
 
 [Native proofs](../../../test/loam/access/observation_test.zig),
-[LMDB proofs](../../../test/loam/lmdb/observation_test.zig),
+[Engine proofs](../../../test/loam/engines/observation_test.zig),
 [CapTP proofs](../../../test/loam/access/observation_hosted_test.zig) and the
 [managed process-loss proof](../../../test/loam_managed_crash.zig) cover live
 delivery, replay, overflow, slow receivers, cancellation, ancestor revocation,

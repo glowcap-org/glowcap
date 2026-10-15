@@ -4,6 +4,9 @@ import { RoomsError, roomsErrorInMessage } from "../../lib/error_codes.ts";
 import { refusalText } from "../../lib/text/failure.ts";
 import type { PageProjection } from "./store/core.ts";
 
+/** Refusals one page keeps, oldest dropped first. */
+const MAX_ACTION_REFUSALS = 512;
+
 export interface ActionRefusal {
 	readonly text: string;
 	readonly failure: RoomsError;
@@ -33,7 +36,7 @@ export function rememberRefusal(
 	if (remaining(before.get(action)) !== 0) return true;
 	const delay = typed.retryAfterMs;
 	const next = new Map(before);
-	if (!next.has(action) && next.size >= 512) next.delete(next.keys().next().value!);
+	if (!next.has(action) && next.size >= MAX_ACTION_REFUSALS) next.delete(next.keys().next().value!);
 	next.set(action, {
 		text: refusalText(error),
 		failure: typed,

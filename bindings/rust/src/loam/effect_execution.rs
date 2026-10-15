@@ -49,7 +49,6 @@ impl EffectExecution {
 					&mut raw,
 				)
 			},
-			false,
 		)?;
 		Ok(Self {
 			raw,
@@ -66,7 +65,6 @@ impl EffectExecution {
 			// SAFETY: `raw` is a local out-parameter the callee writes; `reply_bytes` is a plain integer and no pointer
 			// is passed in.
 			unsafe { ffi::glowcap_loam_effect_execution_result_size_bound(reply_bytes, &mut raw) },
-			false,
 		)?;
 		Ok(EffectExecutionBounds {
 			caller_bytes: raw.caller_bytes,
@@ -84,7 +82,6 @@ impl EffectExecution {
 			// SAFETY: `self.raw` is this `EffectExecution`'s handle from `glowcap_loam_continuation_execute_copying`,
 			// released only by its `Drop`; `raw` is a local out-parameter the callee fills.
 			unsafe { ffi::glowcap_loam_effect_execution_result(self.raw, &mut raw) },
-			false,
 		)?;
 		match raw.state {
 			0 => Ok(EffectResult::Pending),
@@ -143,7 +140,7 @@ impl Drop for EffectExecution {
 		// SAFETY: `self.raw` is this `EffectExecution`'s handle from `glowcap_loam_continuation_execute_copying`;
 		// `Drop` runs once, and a refusal parks the handle for a later release rather than reusing it.
 		let code = unsafe { ffi::glowcap_loam_effect_execution_release(self.raw) };
-		if let Err(error) = check(code, false) {
+		if let Err(error) = check(code) {
 			if code != crate::sys::WOULD_BLOCK {
 				self.owner.host.record_background_failure(error);
 			}

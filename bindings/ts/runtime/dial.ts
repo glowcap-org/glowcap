@@ -1,4 +1,4 @@
-// Transport-neutral connection and handoff dialing. Native I/O enters through
+// Transport-neutral connection and handoff dialing. FFI I/O enters through
 // an explicitly selected DriverProvider; an embedder that owns channel
 // establishment supplies a Connector. Transport packages construct both and
 // own locator interpretation.
@@ -33,7 +33,7 @@ export async function dialWithConnector(
 	if (host.driverLoop != null) {
 		throw new GlowcapError(
 			INVALID_ARGUMENT,
-			"a native-loop Host cannot open an embedder-owned byte channel",
+			"a driver-loop Host cannot open an embedder-owned byte channel",
 		);
 	}
 	return await connector.connect(host, locator, {
@@ -52,7 +52,7 @@ export async function dialExporter(
 	if (host.driverLoop != null) {
 		throw new GlowcapError(
 			INVALID_ARGUMENT,
-			"native-loop handoff dials are owned by the driver",
+			"driver-loop handoff dials are owned by the driver",
 		);
 	}
 	const connector = host.connectorFor(locator.transport);

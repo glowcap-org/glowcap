@@ -6,7 +6,7 @@
 //! answered `op:deliver` also mints a resolver export: an export allocation,
 //! the answer-to-resolver link insert, and the wire-delta retain), then encode,
 //! then outbound push, then `takeOutbound`. Scenario (a) measures that full path
-//! per answered deliver. The application boundary clone (`sendCopying`) is timed
+//! per answered deliver. The application boundary clone (`sendBorrowed`) is timed
 //! separately so the engine-path figure reads net of it.
 //!
 //! Scenario (b) is the release wave: open Q answered delivers, then send one
@@ -28,6 +28,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
+const profile = @import("support/profile.zig");
 
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
@@ -45,8 +46,8 @@ const bench_args = [_]model.Argument{
 
 const target_import: u64 = 5;
 
-/// The enforced ceilings under `--gate` (ReleaseFast). docs/ladder.md step 2
-/// owns these numbers. Both are tripwires, not precision instruments: the
+/// The enforced ceilings under `--gate` (ReleaseFast). These constants own the
+/// numbers. Both are tripwires, not precision instruments: the
 /// send ceiling sits roughly an order of magnitude over the measured figure
 /// so only a structural regression crosses it, and the growth ceiling is
 /// dimensionless (the same code at two sizes), so machine speed cancels out
@@ -80,7 +81,7 @@ fn runGate(io: std.Io, allocator: std.mem.Allocator) !void {
     if (min_send_ns > gate_outbound_send_ceiling_ns) {
         failed = true;
         std.debug.print(
-            "perf_gate FAIL outbound_send min_ns={d:.1} ceiling_ns={d:.1} — docs/ladder.md step 2\n",
+            "perf_gate FAIL outbound_send min_ns={d:.1} ceiling_ns={d:.1} — bench/outbound_bench.zig\n",
             .{ min_send_ns, gate_outbound_send_ceiling_ns },
         );
     } else {
@@ -92,7 +93,7 @@ fn runGate(io: std.Io, allocator: std.mem.Allocator) !void {
     if (growth > gate_storm_growth_ceiling) {
         failed = true;
         std.debug.print(
-            "perf_gate FAIL gc_storm_growth q{d}_ns_per={d:.1} q{d}_ns_per={d:.1} growth={d:.2} ceiling={d:.1} — docs/ladder.md step 2\n",
+            "perf_gate FAIL gc_storm_growth q{d}_ns_per={d:.1} q{d}_ns_per={d:.1} growth={d:.2} ceiling={d:.1} — bench/outbound_bench.zig\n",
             .{ gate_storm_small_q, small.ns_per_answer, gate_storm_big_q, big.ns_per_answer, growth, gate_storm_growth_ceiling },
         );
     } else {
@@ -130,12 +131,12 @@ fn benchPeer(allocator: std.mem.Allocator) !engine.Peer {
 }
 
 /// One answered deliver through the whole outbound path: boundary clone
-/// (`sendCopying`), record + queue, `step` (resolver mint + encode + push),
+/// (`sendBorrowed`), record + queue, `step` (resolver mint + encode + push),
 /// and `takeOutbound`. The caller owns the peer so table state accumulates
 /// across messages, exactly as a long-lived session's does.
 fn sendOneAnswered(peer: *engine.Peer) !void {
     const answer = try peer.allocateAnswer();
-    try peer.sendCopying(benchMessage(answer));
+    try peer.sendBorrowed(benchMessage(answer));
     _ = try peer.step();
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -151,7 +152,7 @@ const SendMeasurement = struct {
     clone_ns: f64,
 };
 
-/// Scenario (a): ns per answered deliver through `sendCopying`+`step`+
+/// Scenario (a): ns per answered deliver through `sendBorrowed`+`step`+
 /// `takeOutbound`, plus a clone-only calibration so the engine-path share
 /// (total - clone) is readable.
 fn measureAnsweredSend(io: std.Io, allocator: std.mem.Allocator, iters: usize) !SendMeasurement {
@@ -160,18 +161,22 @@ fn measureAnsweredSend(io: std.Io, allocator: std.mem.Allocator, iters: usize) !
 
     for (0..64) |_| try sendOneAnswered(&peer);
 
+    profile.begin();
     const start = nowNs(io);
     for (0..iters) |_| try sendOneAnswered(&peer);
+    profile.end("answered-send");
     const total_ns = @as(f64, @floatFromInt(elapsed(start, nowNs(io)))) / @as(f64, @floatFromInt(iters));
 
-    // Clone-only calibration: what `sendCopying`'s boundary copy costs by
+    // Clone-only calibration: what `sendBorrowed`'s boundary copy costs by
     // itself, measured with the same message shape.
+    profile.begin();
     const clone_start = nowNs(io);
     for (0..iters) |_| {
         const owned = try model.cloneMessage(allocator, benchMessage(1));
         std.mem.doNotOptimizeAway(&owned);
         model.freeMessage(allocator, owned);
     }
+    profile.end("clone-only");
     const clone_ns = @as(f64, @floatFromInt(elapsed(clone_start, nowNs(io)))) / @as(f64, @floatFromInt(iters));
 
     return .{ .iters = iters, .total_ns = total_ns, .clone_ns = clone_ns };
@@ -206,7 +211,7 @@ fn measureGcStorm(io: std.Io, allocator: std.mem.Allocator, q: usize, samples: u
         for (positions) |*pos| {
             const answer = try peer.allocateAnswer();
             pos.* = answer;
-            try peer.sendCopying(benchMessage(answer));
+            try peer.sendBorrowed(benchMessage(answer));
             _ = try peer.step();
             while (peer.takeOutbound()) |frame_in| {
                 var frame = frame_in;
@@ -306,7 +311,7 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, send: SendMeasurement, storms
         \\
         \\## One answered deliver, end to end
         \\
-        \\`sendCopying` -> record (validate + retain walks) -> queue -> `step`
+        \\`sendBorrowed` -> record (validate + retain walks) -> queue -> `step`
         \\(v1.0 resolver mint: export allocation + link insert + retain) ->
         \\encode -> outbound push -> `takeOutbound`. `bench-codec` times the
         \\encode share of this alone.
@@ -333,6 +338,6 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, send: SendMeasurement, storms
     try b.appendSlice(gpa, "\n");
 
     var dir = std.Io.Dir.cwd();
-    dir.createDirPath(io, "zig-out/bench-reports") catch {};
+    try dir.createDirPath(io, "zig-out/bench-reports");
     try dir.writeFile(io, .{ .sub_path = "zig-out/bench-reports/outbound.md", .data = b.items });
 }

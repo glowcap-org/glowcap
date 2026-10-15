@@ -21,7 +21,7 @@ use rooms_application::{
 pub fn host_options() -> glowcap::HostOptions {
 	glowcap::HostOptions {
 		features: glowcap::FeatureSet::FULL,
-		..glowcap::HostOptions::with_profile(glowcap::HostProfile::Native)
+		..glowcap::HostOptions::with_profile(glowcap::HostProfile::Glowcap)
 	}
 }
 

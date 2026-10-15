@@ -1,5 +1,5 @@
 //! The recording policy replayed from `fixtures/archive-recording.json` on
-//! native and Wasm: which messages become records, and their standings.
+//! the host and Wasm: which messages become records, and their standings.
 use rooms_application::{
 	archive::{
 		Body, ConversationKind, Record,

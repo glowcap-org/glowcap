@@ -51,6 +51,8 @@ const LiveDriver = struct {
     step_name: []const u8,
     description: []const u8,
     pin_port: bool = true,
+    /// Forward `zig build <step> -- <args>` to the driver.
+    passthru: bool = false,
     posture: execution.Posture,
 };
 
@@ -73,6 +75,7 @@ fn liveDriver(ctx: Context, row: LiveDriver) Driven {
     if (row.pin_port) {
         if (ctx.pin_port) |p| run.addArg(b.fmt("--port={d}", .{p}));
     }
+    if (row.passthru) run.addPassthruArgs();
     const step = b.step(row.step_name, row.description);
     step.dependOn(&run.step);
     return .{ .exe = exe, .step = step };
@@ -89,6 +92,11 @@ pub fn register(ctx: Context) Registered {
     // `goblins` collection on PATH (like the binding dogfoods). The driver
     // spawns and tears down the Goblins vat itself.
     const goblins_interop = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-interop", .source = "interop/goblins_interop/driver.zig", .step_name = "goblins-interop", .description = "Live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)", .posture = .{ .deterministic = 30 } });
+
+    // Differential probe: the same mutated frames fed to a live Goblins vat and
+    // to a glowcap listener, printing accept, refuse, or silent per side. It
+    // never judges, a person triages differences against the OCapN draft.
+    _ = liveDriver(ctx, .{ .exe_name = "glowcap-goblins-differential", .source = "interop/goblins_interop/differential_driver.zig", .step_name = "goblins-differential", .description = "Compare accept or refuse per mutated frame between glowcap and a live Goblins vat (needs racket + goblins)", .passthru = true, .posture = .child_bounded });
 
     // Live TCP scale: one `driver.Server` thread serves many concurrent
     // Session clients across two waves. Binds real loopback sockets at scale,
@@ -116,19 +124,19 @@ pub fn register(ctx: Context) Registered {
 
     // The exporter is its own process, like every Goblins peer here: one
     // completion loop per process, and the driver's own loop is the gifter's.
-    const native_pair_exporter_exe = common.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-native-pair-exporter", "interop/goblins_interop/native_pair_exporter.zig");
-    native_pair_exporter_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
-    b.installArtifact(native_pair_exporter_exe);
-    check_step.dependOn(&native_pair_exporter_exe.step);
-    const goblins_native_pair_gift_exe = common.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-goblins-native-pair-gift", "interop/goblins_interop/native_pair_gift_driver.zig");
-    goblins_native_pair_gift_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
-    check_step.dependOn(&goblins_native_pair_gift_exe.step);
-    const run_goblins_native_pair_gift = execution.addArtifact(b, .{ .deterministic = 30 }, goblins_native_pair_gift_exe);
-    run_goblins_native_pair_gift.step.dependOn(b.getInstallStep());
-    run_goblins_native_pair_gift.setCwd(b.path("."));
-    run_goblins_native_pair_gift.has_side_effects = true;
-    const goblins_native_pair_gift_step = b.step("goblins-native-pair-gift", "Live three-party handoff with two glowcap vats and one Goblins vat: the glowcap pair holds a glowcap-next Cap'n Proto session while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)");
-    goblins_native_pair_gift_step.dependOn(&run_goblins_native_pair_gift.step);
+    const glowcap_pair_exporter_exe = common.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-pair-exporter", "interop/goblins_interop/glowcap_pair_exporter.zig");
+    glowcap_pair_exporter_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
+    b.installArtifact(glowcap_pair_exporter_exe);
+    check_step.dependOn(&glowcap_pair_exporter_exe.step);
+    const goblins_glowcap_pair_gift_exe = common.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-goblins-pair-gift", "interop/goblins_interop/glowcap_pair_gift_driver.zig");
+    goblins_glowcap_pair_gift_exe.root_module.addImport("interop_harness", ctx.interop_harness_mod);
+    check_step.dependOn(&goblins_glowcap_pair_gift_exe.step);
+    const run_goblins_glowcap_pair_gift = execution.addArtifact(b, .{ .deterministic = 30 }, goblins_glowcap_pair_gift_exe);
+    run_goblins_glowcap_pair_gift.step.dependOn(b.getInstallStep());
+    run_goblins_glowcap_pair_gift.setCwd(b.path("."));
+    run_goblins_glowcap_pair_gift.has_side_effects = true;
+    const goblins_glowcap_pair_gift_step = b.step("goblins-glowcap-pair-gift", "Live three-party handoff with two glowcap vats and one Goblins vat: the glowcap pair holds a glowcap-next Cap'n Proto session while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)");
+    goblins_glowcap_pair_gift_step.dependOn(&run_goblins_glowcap_pair_gift.step);
 
     // The same topology with an opaque route hint. Both live Goblins peers
     // must decode and re-encode the mapping-shaped locator byte-exactly.
@@ -180,7 +188,7 @@ pub fn register(ctx: Context) Registered {
     b.step("bench-goblins", "Cross-implementation benchmark: glowcap's Racket binding vs Spritely Goblins (needs racket + goblins)")
         .dependOn(&run_bench_goblins.step);
 
-    // Per-language consumer-cost benchmark: one fixed native Zig taskboard host,
+    // Per-language consumer-cost benchmark: one fixed Zig taskboard host,
     // the client language swapped per row (Zig, Rust, Deno, Python, the Racket
     // binding, and Goblins as the reference CapTP peer). It answers "what does a
     // consumer in language X pay to run this app over the same glowcap host and
@@ -190,7 +198,7 @@ pub fn register(ctx: Context) Registered {
     // run in whatever `-Doptimize` mode is passed, like the other benches);
     // other rows join when their runtimes are on PATH. Forward `-- <args>`
     // (e.g. `--smoke`, `--client=zig`); `-Dport=N` pins the host port. The
-    // orchestrator is itself a native glowcap executable, no Racket on the
+    // orchestrator is itself a Zig glowcap executable, no Racket on the
     // driving path, so the Zig-only smoke runs with nothing else installed.
     // Racket joins only as two client rows (the binding and the Goblins
     // reference), each skipped with a note when its runtime is absent.
@@ -219,7 +227,7 @@ pub fn register(ctx: Context) Registered {
 
     // Every language client otherwise compiles only under the opt-in benchmark,
     // where a missing runtime looks like a routine skip. Compile all of them
-    // under `check`; the native host/client remain compile-only, and each binding
+    // under `check`; the Zig host/client remain compile-only, and each binding
     // client goes through its standard compiler without running the benchmark.
     check_step.dependOn(&langs_host_exe.step);
     check_step.dependOn(&langs_zig_client_exe.step);
@@ -265,14 +273,15 @@ pub fn register(ctx: Context) Registered {
     site_report_test.has_side_effects = true;
     check_step.dependOn(&site_report_test.step);
 
-    // Regenerate the performance page's charts and tables from live ReleaseFast
-    // runs of every bench (codec, peer-scaling, frame-view) plus the Goblins
-    // comparison, splicing the results into site/content/performance.smd between
-    // `<!-- bench:<name> -->` markers, the gen-header pattern, applied to docs.
+    // Regenerate the performance pages' charts and tables from live ReleaseFast
+    // runs of every bench (codec, peer-scaling, frame-view) plus the Cap'n Proto
+    // and Goblins comparisons, splicing the results into site/content/performance.smd
+    // and site/content/performance/compared.smd between `<!-- bench:<name> -->`
+    // markers, the gen-header pattern, applied to docs.
     // Needs `racket` + `goblins`, and bench numbers are a dated snapshot of one
     // machine, not an invariant.
     const run_site_report = common.addInstalledSystemRun(b, .benchmark, &.{ "racket", "-y", "bench/site_report.rkt" });
-    b.step("bench-site-report", "Regenerate the performance page's benchmark reports from live runs (needs racket + goblins)")
+    b.step("bench-site-report", "Regenerate the performance pages' benchmark reports from live runs (needs racket + goblins)")
         .dependOn(&run_site_report.step);
 
     return .{

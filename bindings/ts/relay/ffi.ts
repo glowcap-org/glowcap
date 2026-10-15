@@ -5,7 +5,7 @@
 //
 // Internal: the FFI mirror of `libglowcap_net_transport_relay`'s C ABI.
 // The archive owns one provider package for keyed-relay and noise-relay;
-// profile policy remains in the native driver.
+// profile policy remains in the driver.
 //
 // Nothing here is public; `transport/relay.ts` is the ergonomic surface.
 

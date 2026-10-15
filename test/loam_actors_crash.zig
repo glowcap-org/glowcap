@@ -1,10 +1,10 @@
 //! Process-boundary proof: reopen a publication and cyclic actor capabilities,
-//! then kill a CapTP-invoked writer before/after LMDB's native commit.
+//! then kill a CapTP-invoked writer before/after the engine commit.
 const std = @import("std");
 const glowcap = @import("glowcap");
 const core = glowcap.loam.core;
 const hosting = glowcap.loam.hosting;
-const Lmdb = @import("loam_lmdb").Lmdb;
+const fixture = @import("engine_fixture");
 const f = @import("loam/core/fixture.zig");
 const actors = @import("loam/hosting/fixture.zig");
 const hosts = @import("support/core_host.zig");
@@ -18,7 +18,7 @@ pub fn main(init: std.process.Init) !void {
     if (args.len != 3) return error.InvalidArguments;
     const mode = std.mem.span(args[1]);
     const creating = std.mem.eql(u8, mode, "create");
-    var db = try Lmdb.open(std.mem.span(args[2]), .{ .mode = if (creating) .{ .create = f.id } else .{ .open = f.id } });
+    var db = try fixture.open(std.mem.span(args[2]), if (creating) .create else .open, f.id);
     defer db.close() catch unreachable;
     var store = try core.Store.init(init.gpa, db.metadata, &actors.schemas, f.limits);
     defer store.deinit() catch unreachable;
@@ -80,7 +80,7 @@ pub fn main(init: std.process.Init) !void {
     if (attachment.stats.loads != 4 or store.cache.allocated_bytes != 0) return error.InvalidResidency;
 }
 
-fn create(attachment: *hosting.Attachment, db: *Lmdb) !void {
+fn create(attachment: *hosting.Attachment, db: *fixture.Engine) !void {
     const store = attachment.store;
     try store.begin();
     var ids: [2]core.ObjectId = undefined;
@@ -109,9 +109,9 @@ fn create(attachment: *hosting.Attachment, db: *Lmdb) !void {
     try f.commit(store, db);
 }
 
-fn drain(attachment: *hosting.Attachment, db: *Lmdb, boundary: ?[]const u8, answer: *actors.Capture) !void {
+fn drain(attachment: *hosting.Attachment, db: *fixture.Engine, boundary: ?[]const u8, answer: *actors.Capture) !void {
     var slot: [1]hosting.Worker.Slot = undefined;
-    var worker: hosting.Worker = .init(&slot);
+    var worker: hosting.Worker = .init(&slot, db.readerCapacity());
     for (0..64) |_| {
         try attachment.advance();
         while (try worker.next(attachment, false)) |work| {
@@ -119,13 +119,17 @@ fn drain(attachment: *hosting.Attachment, db: *Lmdb, boundary: ?[]const u8, answ
                 // The kill boundary sits inside the commit, so this probe
                 // executes the write itself instead of calling `run`.
                 if (answer.value != null) return error.PrematureReply;
-                var pending = try db.beginCommit(work.request.write);
+                var pending = try db.beginWrite();
+                const next = try work.request.write.apply(&pending);
                 if (boundary) |mode| {
-                    if (std.mem.eql(u8, mode, "after") and pending.finish() != .committed) return error.CommitFailed;
+                    if (std.mem.eql(u8, mode, "after") and try pending.commit() != .committed) return error.CommitFailed;
                     std.debug.print("READY\n", .{});
                     while (true) _ = pause();
                 }
-                work.result = .{ .write = pending.finish() };
+                work.result = .{ .write = switch (try pending.commit()) {
+                    .committed => .{ .committed = next },
+                    .unknown => .unknown,
+                } };
             } else try hosting.Worker.run(work, db);
             try worker.complete(work, attachment);
             try worker.release(work);

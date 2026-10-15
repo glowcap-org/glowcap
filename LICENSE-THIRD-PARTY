@@ -63,9 +63,9 @@ Departure Mono is the typeface used by the OCapN visualizer. The vendored
 licensed under the SIL Open Font License, Version 1.1. The complete license
 travels beside the font as `DepartureMono-OFL.txt`.
 
-## Optional native secure-relay build
+## Optional Mbed TLS relay build
 
-`zig build native-tls-build` downloads the official Mbed TLS 4.2.0 release
+`zig build relay-tls-build` downloads the official Mbed TLS 4.2.0 release
 archive from the Mbed TLS project, verifies the SHA-256 digest recorded in
 `tools/deps/fetch-mbedtls.sh`, and compiles only the private TLS/X.509/crypto
 source subset. The downloaded source is not committed to this repository or
@@ -298,3 +298,17 @@ OpenLDAP is a registered trademark of the OpenLDAP Foundation.
 Copyright 1999-2003 The OpenLDAP Foundation, Redwood City,
 California, USA.  All Rights Reserved.  Permission to copy and
 distribute verbatim copies of this document is granted.
+
+## SQLite
+
+Loam's optional SQLite engine compiles SQLite 3.54.0 from the amalgamation
+that `build.zig.zon` fetches from sqlite.org unmodified. glowcap's engine
+lives under `src/loam/engines/sqlite/`. SQLite's authors have dedicated the
+code to the public domain, and the blessing from its source follows.
+
+The author disclaims copyright to this source code.  In place of
+a legal notice, here is a blessing:
+
+   May you do good and not evil.
+   May you find forgiveness for yourself and forgive others.
+   May you share freely, never taking more than you give.

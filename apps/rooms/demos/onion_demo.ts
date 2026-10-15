@@ -11,7 +11,7 @@ import { provider } from "@glowcap/onion";
 import { runClient } from "../clients/deno/client.ts";
 import type { RoomsDial } from "../lib/locator.ts";
 import { roomsHost } from "../lib/locator.ts";
-import { startServer } from "../test/support/native_server.ts";
+import { startServer } from "../test/support/installed_server.ts";
 
 const DIRECTORY_PUBLISH_BUDGET_MS = 240_000;
 const HANDSHAKE_BUDGET_MS = 120_000;

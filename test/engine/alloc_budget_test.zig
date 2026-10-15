@@ -98,13 +98,13 @@ test "steady-state capability-carrying deliver holds its allocation budget" {
     try std.testing.expectEqual(@as(usize, 0), counter.allocs % turns);
     const per_turn = counter.allocs / turns;
 
-    // Three allocations for a capability-carrying deliver, above the one-arg
-    // floor: the owned frame the retained event requires, the gpa-backed
-    // introduced-mention list that rides the event for post-dispatch stateless
-    // GC (`inbound.zig`, on `self.allocator` so it outlives the turn), and the
-    // owned handoff of that list onto the event. Import 99 is already held, so
-    // there is no per-turn registration. This is an exact contract, not an
-    // upper bound; a fourth allocation here is a regression.
-    const budget = 3;
+    // Two allocations for a capability-carrying deliver, above the one-arg
+    // floor: the owned frame the retained event requires, and the gpa-backed
+    // copy of the introduced mentions that rides the event for post-dispatch
+    // stateless GC (`inbound.zig`, on `self.allocator` so it outlives the
+    // turn). The record's own mention list holds its rows in place. Import 99
+    // is already held, so there is no per-turn registration. This is an exact
+    // contract, not an upper bound; a third allocation here is a regression.
+    const budget = 2;
     try std.testing.expectEqual(@as(usize, budget), per_turn);
 }

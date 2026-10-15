@@ -26,7 +26,7 @@ import { type AbiLayout, layout64, setActiveLayout } from "../layout.ts";
 // browser bundle's static graph.
 import { adapter as denoAdapter } from "./adapters/deno.ts";
 
-/** A native pointer as a `bigint` address. `0n` is the null pointer. */
+/** An FFI pointer as a `bigint` address. `0n` is the null pointer. */
 export type Ptr = bigint;
 
 /** The null pointer. */
@@ -36,7 +36,7 @@ export const NULL: Ptr = 0n;
  * runtime's own FFI type names. `usize` is pointer-width; `pointer` is an opaque
  * handle passed as a `bigint`; `buffer` is a JS byte buffer whose backing memory
  * the call borrows. */
-export type NativeType =
+export type FfiType =
 	| "void"
 	| "bool"
 	| "u8"
@@ -60,8 +60,8 @@ export type NativeType =
  * copy-back. Undefined means every buffer is copied back, the safe default
  * for an unannotated table. */
 export interface SymbolDef {
-	parameters: readonly NativeType[];
-	result: NativeType;
+	parameters: readonly FfiType[];
+	result: FfiType;
 	nonblocking?: boolean;
 	outBuffers?: readonly number[];
 }
@@ -78,31 +78,31 @@ export interface ArchiveFingerprint {
 	readonly archive: string;
 }
 
-/** A native callback backed by a JS function: its address and a release. The
+/** An FFI callback backed by a JS function: its address and a release. The
  * function receives `bigint` for every pointer and 64-bit argument and returns a
  * `bigint` for a pointer result (or nothing for `void`). */
-export interface NativeCallback {
+export interface FfiCallback {
 	readonly pointer: Ptr;
 	close(): void;
 }
 
-/** The FFI seam: load an archive, mint a native callback, take the address of a
- * JS buffer, read and write native memory, and name the platform's
+/** The FFI seam: load an archive, mint an FFI callback, take the address of a
+ * JS buffer, read and write FFI memory, and name the platform's
  * shared-library suffix. */
 export interface RuntimeFfi {
 	/** Whether a `SymbolDef.nonblocking` call leaves this JavaScript
 	 * event-loop thread. A promise-shaped wrapper is not enough: transports use
-	 * this capability before entering a native call that may wait on I/O. */
+	 * this capability before entering an FFI call that may wait on I/O. */
 	offloadsBlockingCalls(): boolean;
 	/** Load the shared library at `path`, resolving `defs` into callable symbols.
 	 * Throws if the library or a symbol is missing. */
 	dlopen(path: string, defs: Record<string, SymbolDef>): Symbols;
-	/** A native callback over `fn` with signature `def`. Deno and Bun both
+	/** An FFI callback over `fn` with signature `def`. Deno and Bun both
 	 * register callbacks globally (a callback pointer is callable from any
 	 * loaded archive), so one runtime-level factory serves every library. Keep
-	 * the handle alive while native code may invoke it; `close` releases it. */
+	 * the handle alive while FFI code may invoke it; `close` releases it. */
 	// deno-lint-ignore no-explicit-any
-	makeCallback(def: SymbolDef, fn: (...args: any[]) => any): NativeCallback;
+	makeCallback(def: SymbolDef, fn: (...args: any[]) => any): FfiCallback;
 	/** The address of `buf`'s backing memory, stable only for the synchronous
 	 * window in which it is used. Concretely: valid across at most one
 	 * subsequent outermost symbol call (the wasm adapter stages a copy and
@@ -112,7 +112,7 @@ export interface RuntimeFfi {
 	/** A freshly-owned copy of `len` bytes at `ptr`. Empty for a null pointer or
 	 * zero length. */
 	readMemory(ptr: Ptr, len: number): ArrayBuffer;
-	/** Write `bytes` into native memory at `ptr` (the inverse of `readMemory`),
+	/** Write `bytes` into FFI memory at `ptr` (the inverse of `readMemory`),
 	 * for filling a C out-parameter a callback is handed by pointer. No-op for a
 	 * null pointer. */
 	writeMemory(ptr: Ptr, bytes: Uint8Array): void;
@@ -213,7 +213,7 @@ let readying: Promise<RuntimeAdapter> | undefined;
 // browser binding, ADR-0070) is authoritative: it overrides an adapter
 // auto-resolved from the host runtime, so a Deno or Bun process that
 // instantiates a wasm peer (a browser peer under test, or a relay harness)
-// runs on the injected adapter instead of its own native FFI. The override is
+// runs on the injected adapter instead of its own FFI. The override is
 // safe only before the auto-resolved adapter is committed to real work; after
 // that its symbol tables are live, so a committed adapter is never swapped.
 // Both the synchronous `active()` and the async `ensureRuntimeReady()` resolve
@@ -293,7 +293,7 @@ export function requireArchiveFingerprint(symbols: Symbols, contract: ArchiveFin
 	const read = symbols[contract.symbol];
 	if (typeof read !== "function") {
 		throw new Error(
-			`${contract.archive}: missing archive fingerprint; rebuild the native libraries from this checkout`,
+			`${contract.archive}: missing archive fingerprint; rebuild the FFI libraries from this checkout`,
 		);
 	}
 	// The wasm boundary hands i64 back signed; normalize both sides to the
@@ -304,7 +304,7 @@ export function requireArchiveFingerprint(symbols: Symbols, contract: ArchiveFin
 	if (actual !== expected) {
 		throw new Error(
 			`${contract.archive}: callable surface does not match this binding ` +
-				`(expected ${expected.toString(16)}, got ${actual.toString(16)}); rebuild the native libraries`,
+				`(expected ${expected.toString(16)}, got ${actual.toString(16)}); rebuild the FFI libraries`,
 		);
 	}
 }

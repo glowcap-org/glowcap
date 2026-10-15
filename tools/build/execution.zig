@@ -23,6 +23,19 @@ pub const Posture = union(enum) {
     /// it, set to that deadline plus scheduling headroom. Bounded 31..900,
     /// a proof that fits 30 seconds is deterministic.
     browser_proof: u16,
+    /// A Zig test artifact run under valgrind's memcheck, built for the
+    /// baseline CPU so the checker can execute it. The checker multiplies
+    /// the suite's own time, so the ceiling is minutes: bounded 31..1800.
+    /// Success is quiet. Suppressions live in `tools/memcheck.supp`, each
+    /// naming a false positive outside glowcap's code.
+    memcheck: u16,
+    /// A benchmark executable run under valgrind's callgrind, built
+    /// ReleaseFast for the baseline CPU with client requests on, so the
+    /// bench's phase marks (`bench/support/profile.zig`) choose what is
+    /// collected and each marked phase lands as its own part under
+    /// `report_dir`. Bounded 31..1800 like memcheck. A person reads the
+    /// result, so output stays visible.
+    profile: u16,
     /// Intentional unbounded postures. These are names, not escape hatches:
     /// the source gate inventories which artifact owns each one.
     benchmark,
@@ -50,8 +63,22 @@ pub fn addZigTest(
             run.setEnvironmentVariable("GLOWCAP_TEST_IRC_LOOPBACK_ONLY", "1");
             return run;
         },
+        .memcheck => |seconds| {
+            if (seconds <= 30 or seconds > 1800) {
+                @panic("memcheck deadline must be 31..1800 seconds");
+            }
+            const run = wrappedCommand(b, &.{
+                "valgrind",
+                "--leak-check=full",
+                "--error-exitcode=1",
+                "--num-callers=50",
+                b.fmt("--suppressions={s}", .{repoPath(b, "tools/memcheck.supp")}),
+            }, seconds, true);
+            run.addArtifactArg(compile);
+            return run;
+        },
         .search => {},
-        .benchmark, .browser_proof, .build_tool, .child_bounded, .deterministic, .real_internet, .service => @panic("Zig tests may be unit tests or explicit searches only"),
+        .benchmark, .browser_proof, .build_tool, .child_bounded, .deterministic, .profile, .real_internet, .service => @panic("Zig tests may be unit tests, memcheck runs, or explicit searches only"),
     }
     return b.addRunArtifact(compile);
 }
@@ -66,7 +93,8 @@ pub fn addSystemCommand(
         .deterministic => |seconds| boundedCommand(b, argv, seconds),
         .browser_proof => |seconds| browserBoundedCommand(b, argv, seconds),
         .benchmark, .build_tool, .child_bounded, .search, .real_internet, .service => b.addSystemCommand(argv),
-        .unit_test => @panic("system commands cannot use the Zig unit-test posture"),
+        .profile => @panic("profile runs a compiled bench, never a system command"),
+        .unit_test, .memcheck => @panic("system commands cannot use a Zig test posture"),
     };
 }
 
@@ -87,9 +115,38 @@ pub fn addArtifact(
             run.addArtifactArg(compile);
             break :blk run;
         },
+        .profile => |seconds| blk: {
+            if (seconds <= 30 or seconds > 1800) {
+                @panic("profile deadline must be 31..1800 seconds");
+            }
+            // Instrumentation and collection both start off: the bench's
+            // marks turn them on for each measured phase and dump it.
+            const run = wrappedCommand(b, &.{
+                "valgrind",
+                "--tool=callgrind",
+                "--instr-atstart=no",
+                "--collect-atstart=no",
+                b.fmt("--callgrind-out-file={s}", .{profileOutput(b, compile.name)}),
+            }, seconds, false);
+            // On 64-bit hosts, leave room below the first client mapping for
+            // Zig's descending allocation hints. A large allocation after a
+            // low mapping can wrap the hint, which Valgrind refuses as OOM.
+            if (@sizeOf(usize) == 8) run.addArg("--aspace-minaddr=0x100000000");
+            run.addArtifactArg(compile);
+            break :blk run;
+        },
         .benchmark, .build_tool, .child_bounded, .search, .real_internet, .service => b.addRunArtifact(compile),
-        .unit_test => @panic("ordinary artifacts cannot use the Zig unit-test posture"),
+        .unit_test, .memcheck => @panic("ordinary artifacts cannot use a Zig test posture"),
     };
+}
+
+/// Where benchmarks and profiles write, relative to the build root.
+pub const report_dir = "zig-out/bench-reports";
+
+/// The callgrind base file a profiled `name` writes. Each marked phase is a
+/// numbered part beside it, and the report tool reads the set.
+pub fn profileOutput(b: *std.Build, name: []const u8) []const u8 {
+    return b.fmt("{s}/{s}.callgrind", .{ report_dir, name });
 }
 
 /// The aggregate for checks that own processes, ports, or shared language

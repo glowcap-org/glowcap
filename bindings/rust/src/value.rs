@@ -114,6 +114,10 @@ pub enum Argument {
 		negative: bool,
 		digits: String,
 	},
+	/// A list of `i64` integers sent as one run (ADR-0247). It is the same OCapN value as a `List` of `Integer`s and
+	/// encodes to the same bytes, but the library reads the words where they lie. A list of integers from a peer
+	/// arrives as `List`.
+	Integers(Vec<i64>),
 	/// An OCapN Struct: unordered, uniquely named String fields. The vector
 	/// preserves received order for inspection. OCapN equality ignores it.
 	Struct(Vec<(String, Argument)>),
@@ -175,7 +179,7 @@ impl Argument {
 	}
 }
 
-// Native-value conversions so an argument list reads as plain Rust values:
+// Plain-value conversions so an argument list reads as plain Rust values:
 // `&[42.into(), "hi".into(), (&cap).into()]`. Integers and floats each take a
 // single concrete impl (`i64`, `f64`) so a bare literal still infers, `5.into()`
 // is unambiguous. `Ref` already converts in `session.rs`.
@@ -319,6 +323,13 @@ impl SendArena {
 				set_bytes(&mut c, sys::ARG_BIG_INTEGER, digits.as_bytes());
 				c.boolean = u32::from(*negative);
 			}
+			Argument::Integers(words) => {
+				c.kind = sys::ARG_INTEGERS;
+				if !words.is_empty() {
+					c.bytes = words.as_ptr().cast::<u8>();
+					c.bytes_len = core::mem::size_of_val(words.as_slice());
+				}
+			}
 			Argument::Struct(entries) => {
 				c.kind = sys::ARG_STRUCT;
 				let mut flat = Vec::with_capacity(entries.len() * 2);
@@ -383,6 +394,7 @@ pub(crate) unsafe fn arg_from_sys(c: &sys::GlowcapArgument) -> Result<Argument> 
 				negative: c.boolean != 0,
 				digits: text_from_sys(c),
 			},
+			sys::ARG_INTEGERS => Argument::Integers(integers_from_sys(c)?),
 			sys::ARG_STRUCT => Argument::Struct(struct_from_sys(c.items, c.items_len)?),
 			other => {
 				return Err(Error::with_detail(
@@ -392,6 +404,25 @@ pub(crate) unsafe fn arg_from_sys(c: &sys::GlowcapArgument) -> Result<Argument> 
 			}
 		}
 	})
+}
+
+/// Copy an Integers run out of the C view. A null pointer reads as empty.
+///
+/// # Safety
+/// `c.bytes` must be valid for `c.bytes_len` bytes when non-null.
+#[cfg(feature = "async")]
+unsafe fn integers_from_sys(c: &sys::GlowcapArgument) -> Result<Vec<i64>> {
+	if c.bytes.is_null() && c.bytes_len == 0 {
+		return Ok(Vec::new());
+	}
+	if c.bytes.is_null() || !c.bytes.cast::<i64>().is_aligned() || !c.bytes_len.is_multiple_of(8) {
+		return Err(Error::with_detail(
+			sys::ERR_INTERNAL,
+			"glowcap ABI returned a malformed Integers run".into(),
+		));
+	}
+	// SAFETY: the pointer is non-null and 8-aligned, and the caller declares `bytes_len` readable bytes there.
+	Ok(unsafe { core::slice::from_raw_parts(c.bytes.cast::<i64>(), c.bytes_len / 8) }.to_vec())
 }
 
 #[cfg(feature = "async")]

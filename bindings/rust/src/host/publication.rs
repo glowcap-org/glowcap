@@ -211,7 +211,7 @@ impl Host {
 	/// misses on every session, while capabilities already issued and deposited
 	/// gifts keep the exact actor, whose behavior stays hosted for the Host's
 	/// life. Returns `false` when no such alias exists. Every other refusal is
-	/// returned with its native diagnostic.
+	/// returned with its FFI diagnostic.
 	pub fn unpublish(&self, name: &str) -> Result<bool> {
 		self.shared.guard_handle()?;
 		// SAFETY: as `remove_durable` above for the handle; `name` borrows the caller's `&str` for the call, and the
@@ -230,8 +230,8 @@ impl Host {
 /// minted while [`Host::defer_turn`] atomically defers a behavior's answer.
 /// The behavior hands the resolver to whatever completes the work, and the
 /// completion settles it from the host's thread.
-/// A successful settle consumes its native authority. A refused conversion or
-/// native call leaves the resolver retryable. `fulfill` carries plain data.
+/// A successful settle consumes its FFI authority. A refused conversion or
+/// FFI call leaves the resolver retryable. `fulfill` carries plain data.
 /// `fulfill_value` projects owning-thread capabilities in the original caller
 /// session. Owning values use ordinary handoff staging. Dropping an unsettled resolver
 /// schedules a broken answer through the Host, including drops inside callbacks.
@@ -249,7 +249,7 @@ impl Resolver {
 
 	/// Settle the deferred answer fulfilled with a capability-free `value`.
 	/// Top-level: refused inside a behavior callback. The settle pumps the
-	/// sessions the deferred answers dirtied. A refused conversion or native
+	/// sessions the deferred answers dirtied. A refused conversion or FFI
 	/// settle leaves this resolver live so the caller can retry or break it.
 	pub fn fulfill(&mut self, value: &Argument) -> Result<()> {
 		let id = self.live_id()?;
@@ -301,7 +301,7 @@ impl Resolver {
 }
 
 // A resolver may be dropped from a behavior callback. Like capability/vow
-// finalizers, park its native operation for the Host's safe progress boundary.
+// finalizers, park its FFI operation for the Host's safe progress boundary.
 impl Drop for Resolver {
 	fn drop(&mut self) {
 		if let Some(id) = self.id.take()

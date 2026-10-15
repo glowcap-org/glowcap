@@ -3,7 +3,7 @@
 
 /** Why a command could not enter a room on this tab, when the missing handle
  * is a directory. */
-export const notOnADirectory = "This browser is not on a directory yet.";
+export const notOnADirectory = "This browser is not on a directory.";
 /** Why `/quit` could not give a directory back. */
 export const noDirectoryToGiveBack = "There is no directory to give back.";
 /** Why a direct line cannot open to this reader. */

@@ -131,7 +131,7 @@ pub struct ListenOptions {
 /// sibling of the TCP `Netlayer`.
 ///
 /// This wrapper is move-only. `connect_owned` and `release` consume the public
-/// owner because both cross the native endpoint's release boundary. Internal
+/// owner because both cross the FFI endpoint's release boundary. Internal
 /// `Arc` clones keep the endpoint alive while a readiness task, stream, or
 /// provider lease still needs it, but application code cannot mint a second
 /// release owner.
@@ -273,7 +273,7 @@ impl Netlayer {
 		direct_addresses(self.raw.raw)
 	}
 
-	/// Close and release this endpoint, joining the one native release task.
+	/// Close and release this endpoint, joining the one FFI release task.
 	///
 	/// This consumes the netlayer so no caller can use its raw handle after the
 	/// release barrier completes. Call it after every connection and readiness
@@ -332,7 +332,7 @@ impl Netlayer {
 	}
 }
 
-// The native endpoint reports no addresses as a zero-length answer; that is
+// The FFI endpoint reports no addresses as a zero-length answer; that is
 // `None` here rather than an empty string, so no caller acts on an empty
 // stand-in.
 fn direct_addresses(raw: *mut GlowcapIrohNetlayer) -> Result<Option<String>> {
@@ -364,8 +364,8 @@ fn direct_addresses(raw: *mut GlowcapIrohNetlayer) -> Result<Option<String>> {
 	}
 }
 
-/// Attach the Host's one configured iroh endpoint to its native loop. The
-/// endpoint identity comes from the Host, while the native driver decides
+/// Attach the Host's one configured iroh endpoint to its driver loop. The
+/// endpoint identity comes from the Host, while the FFI driver decides
 /// whether the provider name is already occupied.
 pub(crate) async fn ensure_loop_provider(
 	host: &Rc<crate::host::HostShared>,
@@ -444,7 +444,7 @@ pub struct Stream {
 mod stream;
 
 /// A listening iroh endpoint: the iroh sibling of [`crate::tcp::Server`].
-/// The native driver loop owns the multiplexed resident, listener, accept
+/// The FFI driver loop owns the multiplexed resident, listener, accept
 /// handshake, and every accepted session. This type is only the public
 /// listener view over that generic lifecycle.
 pub struct Server {

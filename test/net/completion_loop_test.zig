@@ -289,7 +289,7 @@ const actors = glowcap.actors;
 /// the turn arena. This is an ordinary `actors` behavior, the same kind the
 /// blocking driver runs, hosted on the completion loop.
 const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
         return .{ .string = try std.fmt.allocPrint(turn.arena, "hi from the loop", .{}) };
@@ -343,7 +343,7 @@ fn makeVatHostPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engi
     var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
-    try peer.sendCopying(startSession("server"));
+    try peer.sendBorrowed(startSession("server"));
     return peer;
 }
 

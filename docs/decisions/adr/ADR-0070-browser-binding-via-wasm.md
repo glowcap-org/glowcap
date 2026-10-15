@@ -20,7 +20,7 @@ superseded_by: []
 
 A browser cannot open a raw TCP socket or speak iroh's QUIC, so a browser tab
 without a peer of its own is not an OCapN peer. A per-tab bridge (the rooms web
-demo's `apps/rooms/web/serve.ts`) has the browser talk JSON over a WebSocket to
+demo's server) has the browser talk JSON over a WebSocket to
 a Deno process that holds the real glowcap connection through the C ABI and
 relays between the two. The browser then holds no capability, runs no session,
 and cannot be introduced to another browser directly. That is a gap in reach,
@@ -49,7 +49,7 @@ The browser also needs a transport, added in two milestones:
 - **Milestone 1. WebSocket.** The browser holds a peer and moves OCapN frames
   over a WebSocket to a peer that accepts WebSocket connections. This makes the
   browser a first-class OCapN peer and retires the per-tab bridge: the rooms
-  `serve.ts` is a static file server plus a WebSocket-accepting netlayer in
+  web server is a static file server plus a WebSocket-accepting netlayer in
   front of the room server, with no protocol translation.
 - **Milestone 2. WebRTC DataChannel.** Two browsers speak OCapN directly over a
   reliable, ordered WebRTC DataChannel. The room introduces them and relays the
@@ -107,7 +107,7 @@ boundary swapped for a WebAssembly instance.
   (Milestone 1), and a WebRTC DataChannel netlayer with room-relayed signaling
   (Milestone 2), added as `net.netlayer.Netlayer` residents the way iroh was
   (ADR-0055), with no core or session edit.
-- Milestone 1 retires the rooms `serve.ts` bridge. Milestone 2 supplies the
+- Milestone 1 retires the rooms per-tab bridge. Milestone 2 supplies the
   direct keyed browser-to-browser session, signaling capability, and generic
   Host handoff redemption (ADR-0089).
 

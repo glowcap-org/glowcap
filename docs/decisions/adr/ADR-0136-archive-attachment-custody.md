@@ -64,7 +64,7 @@ images still load on arrival.
 ## Evidence
 
 `apps/rooms/test/archive/protocol_test.ts` holds memory custody, exact wire bounds, and
-withdrawal erasure. `apps/rooms/test/archive/storage_test.ts` proves bytes
+withdrawal erasure. `apps/rooms/rust/services/src/archive/file/tests.rs` proves bytes
 survive file-archive restart and obey the byte ceiling. The baseline archive
 wire and standalone peer tests fetch retained blob capabilities across OCapN
 and process restart. The whole-page and shared-session browser checks recover

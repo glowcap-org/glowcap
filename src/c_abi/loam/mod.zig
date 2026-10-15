@@ -43,6 +43,13 @@ pub const GlowcapLoamGraph = t.GlowcapLoamGraph;
 pub const GlowcapLoamPage = t.GlowcapLoamPage;
 pub const GlowcapLoamGraphField = t.GlowcapLoamGraphField;
 pub const GlowcapLoamPageReplacement = t.GlowcapLoamPageReplacement;
+/// Limits the header prose quotes, read from their owners.
+pub const prose_limits = struct {
+    pub const max_graph_verbs = common.access.hosting.graph.Spec.max_requirement_verbs;
+    pub const max_graph_verb_bytes = common.access.hosting.graph.Spec.max_requirement_verb_bytes;
+    pub const max_accounting_path = @import("graph_abi.zig").max_accounting_path;
+    pub const max_refusal_bytes = common.hosting.Call.max_refusal_bytes;
+};
 pub const glowcap_loam_call_replace_graph_copying = @import("graph_abi.zig").glowcap_loam_call_replace_graph_copying;
 pub const glowcap_loam_call_page_reference = @import("graph_abi.zig").glowcap_loam_call_page_reference;
 pub const glowcap_loam_references_save_live_dependent = @import("live_dependent.zig").glowcap_loam_references_save_live_dependent;
@@ -99,6 +106,8 @@ pub const GlowcapLoamKvFn = @import("execution.zig").GlowcapLoamKvFn;
 pub const glowcap_loam_metadata_claim = @import("execution_abi.zig").glowcap_loam_metadata_claim;
 pub const glowcap_loam_store_plan = @import("execution_abi.zig").glowcap_loam_store_plan;
 pub const glowcap_loam_store_finish = @import("execution_abi.zig").glowcap_loam_store_finish;
+pub const glowcap_loam_store_collect_plan = @import("execution_abi.zig").glowcap_loam_store_collect_plan;
+pub const glowcap_loam_store_collecting = @import("execution_abi.zig").glowcap_loam_store_collecting;
 pub const glowcap_loam_work_kind = @import("execution_abi.zig").glowcap_loam_work_kind;
 pub const glowcap_loam_work_plan = @import("execution_abi.zig").glowcap_loam_work_plan;
 pub const glowcap_loam_work_finish = @import("execution_abi.zig").glowcap_loam_work_finish;
@@ -107,6 +116,7 @@ pub const symbols = @import("symbols.zig");
 /// Zig-only bridge for a companion. Importing it does not root these exports.
 pub const embedding = struct {
     pub const effect_execution = @import("effect_execution.zig");
+    pub const executor = @import("executor.zig");
     pub const graph_projection = @import("graph_callbacks.zig");
     pub const Store = common.Store;
     pub const Attachment = attached.Attachment;
@@ -327,12 +337,20 @@ pub fn glowcap_loam_archive_fingerprint() callconv(.c) u64 {
 }
 
 pub const GLOWCAP_LOAM_METADATA_SIZE: usize = common.core.Metadata.encoded_size;
+/// The longest key Loam writes.
+pub const GLOWCAP_LOAM_MAX_KEY_BYTES: usize = common.core.max_key_bytes;
 pub const GLOWCAP_LOAM_MAX_URI_BYTES: usize = common.hosting.references.max_uri_bytes;
 pub const GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED: i32 = -40;
 pub const GLOWCAP_LOAM_ERR_STALE_COMPLETION: i32 = -41;
 pub const GLOWCAP_LOAM_ERR_DENIED: i32 = -42;
 pub const GLOWCAP_LOAM_ERR_UNCHANGED: i32 = -43;
 pub const GLOWCAP_LOAM_ERR_APPLICATION: i32 = -44;
+/// Stored bytes failed their checks: the store's metadata or a record read
+/// back damaged. Retrying cannot repair it.
+pub const GLOWCAP_LOAM_ERR_CORRUPT: i32 = -45;
+/// Every Loam-specific return code, which the header and binding generators
+/// both emit.
+pub const error_code_names = [_][]const u8{ "GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED", "GLOWCAP_LOAM_ERR_STALE_COMPLETION", "GLOWCAP_LOAM_ERR_DENIED", "GLOWCAP_LOAM_ERR_UNCHANGED", "GLOWCAP_LOAM_ERR_APPLICATION", "GLOWCAP_LOAM_ERR_CORRUPT" };
 /// Report an indeterminate write only after the original worker has terminated.
 /// No other effect can be relabeled as an unknown commit.
 pub fn glowcap_loam_work_report_unknown(raw: ?*GlowcapLoamWork) callconv(.c) i32 {
@@ -375,10 +393,8 @@ fn policyValue(policy: ?*const GlowcapLoamPolicy, requirement: ?*const GlowcapLo
     var result: GlowcapLoamPolicyValue = std.mem.zeroes(GlowcapLoamPolicyValue);
     result.identity = schema.identity;
     result.permissions = value.permissions;
-    for (value.bounds, 0..) |bound, i| if (bound) |limit| {
-        result.bounds[i] = limit;
-        result.bound_mask |= @as(u16, 1) << @intCast(i);
-    };
+    result.bounds = value.bounds;
+    result.bound_mask = value.bound_mask;
     target.* = result;
     return shared.GLOWCAP_OK;
 }

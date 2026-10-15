@@ -326,3 +326,89 @@ test "Syrup round-trips float64 through decode, including NaN and signed zero" {
         try std.testing.expectEqual(@as(u64, @bitCast(value)), @as(u64, @bitCast(decoded.float64)));
     }
 }
+
+test "a decimal run at each length class parses to the same value as the checked path" {
+    // A u64 holds every run shorter than its 20-digit maximum, so those runs
+    // skip the per-digit overflow check. The 20-digit run is the one class
+    // that can overflow: the maximum itself is a position, one past it is not.
+    const Case = struct { frame: []const u8, want: ?u64 };
+    const cases = [_]Case{
+        .{ .frame = "<10'op:deliver<11'desc:export9+>[]ff>", .want = 9 },
+        .{ .frame = "<10'op:deliver<11'desc:export9999999999999999999+>[]ff>", .want = 9999999999999999999 },
+        .{ .frame = "<10'op:deliver<11'desc:export18446744073709551615+>[]ff>", .want = std.math.maxInt(u64) },
+        .{ .frame = "<10'op:deliver<11'desc:export18446744073709551616+>[]ff>", .want = null },
+        .{ .frame = "<10'op:deliver<11'desc:export100000000000000000000+>[]ff>", .want = null },
+    };
+    for (cases) |case| {
+        const result = syrup.decodeBody(.{ .bytes = case.frame, .shape = .byte });
+        if (case.want) |want| {
+            try std.testing.expectEqual(want, (try result).deliver.target.near.export_position.int());
+        } else {
+            try std.testing.expectError(syrup.Error.MalformedFrame, result);
+        }
+    }
+}
+
+test "wire text is accepted as UTF-8 whether the non-ASCII byte sits in a word or the tail" {
+    const Case = struct { frame: []const u8, valid: bool };
+    const cases = [_]Case{
+        // Pure ASCII longer than one word.
+        .{ .frame = "<10'op:deliver<11'desc:export7+>[17\"seventeen bytes!!]ff>", .valid = true },
+        // A two-byte sequence inside the first word, then in the tail.
+        .{ .frame = "<10'op:deliver<11'desc:export7+>[9\"caf\xc3\xa9 bar]ff>", .valid = true },
+        .{ .frame = "<10'op:deliver<11'desc:export7+>[11\"abcdefgh \xc3\xa9]ff>", .valid = true },
+        // A sequence split across the word boundary is still one sequence.
+        .{ .frame = "<10'op:deliver<11'desc:export7+>[9\"abcdefg\xc3\xa9]ff>", .valid = true },
+        // A bare continuation byte is refused in the word and in the tail.
+        .{ .frame = "<10'op:deliver<11'desc:export7+>[9\"abc\xa9defgh]ff>", .valid = false },
+        .{ .frame = "<10'op:deliver<11'desc:export7+>[9\"abcdefgh\xa9]ff>", .valid = false },
+        .{ .frame = "<10'op:deliver<11'desc:export7+>[9'abcdefgh\xa9]ff>", .valid = false },
+    };
+    for (cases) |case| {
+        const result = syrup.decodeBody(.{ .bytes = case.frame, .shape = .byte });
+        if (case.valid) {
+            _ = try (try result).deliver.args.at(0);
+        } else {
+            try std.testing.expectError(syrup.Error.MalformedFrame, result);
+        }
+    }
+}
+
+test "decimal word scans agree with scalar parsing at every byte and word boundary" {
+    const syntax = syrup.RecordSyntax;
+    var storage: [64]u8 align(8) = undefined;
+    // Offset one also exercises unaligned word loads. A short tail cannot
+    // be read as a whole word, even when the allocation behind it is larger.
+    const bytes = storage[1..];
+    for ([_]usize{ 0, 1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 19, 20, 21, 24 }) |width| {
+        @memset(bytes, '1');
+        var cursor: usize = 0;
+        try std.testing.expectError(error.Incomplete, syntax.readPositiveInt(bytes[0..width], &cursor));
+        for ([_]usize{ 0, 8 }) |tail| {
+            for (0..width + 1) |position| {
+                for (0..256) |byte| {
+                    @memset(bytes, '1');
+                    bytes[width] = '+';
+                    bytes[position] = @intCast(byte);
+                    const input = bytes[0 .. width + 1 + tail];
+                    const want = scalarDecimal(input);
+                    cursor = 0;
+                    const got = syntax.readPositiveInt(input, &cursor);
+                    if (want) |value| {
+                        try std.testing.expectEqual(value, try got);
+                    } else |err| {
+                        try std.testing.expectError(err, got);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn scalarDecimal(bytes: []const u8) error{ Incomplete, MalformedFrame }!u64 {
+    var end: usize = 0;
+    while (end < bytes.len and std.ascii.isDigit(bytes[end])) : (end += 1) {}
+    if (end == bytes.len) return error.Incomplete;
+    if (end == 0 or bytes[end] != '+' or (end > 1 and bytes[0] == '0')) return error.MalformedFrame;
+    return std.fmt.parseInt(u64, bytes[0..end], 10) catch error.MalformedFrame;
+}

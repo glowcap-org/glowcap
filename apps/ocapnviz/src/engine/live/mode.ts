@@ -13,7 +13,7 @@
  * the Play/Build source at Stop. Before the press, Live renders
  * nothing, no engine, no feed.
  *
- * **Limitations** (per live-mode's deferred-work scope):
+ * **Limitations**:
  *
  * - `seekTo` past the current live cursor isn't possible. Events
  *   only arrive in real wall-clock time. Scrubbing back into

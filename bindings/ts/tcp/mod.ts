@@ -1,6 +1,6 @@
-// The TCP provider package owns locator construction and native listening for
+// The TCP provider package owns locator construction and FFI listening for
 // all three profiles it advertises. Importing the package remains safe before a
-// browser installs its wasm runtime adapter: native code loads only when a
+// browser installs its wasm runtime adapter: FFI code loads only when a
 // listener or `@glowcap/tcp/transport` operation is used.
 
 import { TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_TCP, TRANSPORT_TCP } from "@glowcap/abi";
@@ -12,7 +12,7 @@ export type { KeyedListenOptions, ListenOptions, Server } from "./listen.ts";
 export type { Config, Keepalive, OperationOptions, StreamOptions } from "./transport.ts";
 export { options, provider } from "./transport.ts";
 
-/** Bind the plain profile through this package's native provider. */
+/** Bind the plain profile through this package's FFI provider. */
 export async function listen(
 	hostname: string,
 	port: number,

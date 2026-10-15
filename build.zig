@@ -26,6 +26,7 @@ const toolchain_build = @import("tools/build/toolchain.zig");
 const gen_build = @import("tools/build/gen.zig");
 const examples_build = @import("tools/build/examples.zig");
 const bench_build = @import("tools/build/bench.zig");
+const profile_build = @import("tools/build/profile.zig");
 const conformance_build = @import("tools/build/conformance.zig");
 const apps_demos_build = @import("tools/build/apps_demos.zig");
 const ocapnviz_steps_build = @import("tools/build/ocapnviz_steps.zig");
@@ -54,27 +55,28 @@ const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "foundation", .prefix = "foundation/", .imports = &.{}, .core = true },
     .{ .name = "model", .prefix = "ocapn/model/", .imports = &.{}, .core = true },
-    .{ .name = "framing", .prefix = "ocapn/codec/framing.zig", .imports = &.{"model"}, .core = true },
     .{ .name = "codec_order", .prefix = "ocapn/codec/order.zig", .imports = &.{}, .core = true },
     .{ .name = "codec_limits", .prefix = "ocapn/codec/limits.zig", .imports = &.{"model"}, .core = true },
-    .{ .name = "syrup", .prefix = "ocapn/codec/syrup/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits" }, .core = true },
-    .{ .name = "capnp", .prefix = "ocapn/codec/capnp/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits" }, .core = true },
-    .{ .name = "codec", .prefix = "ocapn/codec/", .imports = &.{ "foundation", "model", "framing", "codec_order", "codec_limits", "syrup", "capnp" }, .core = true },
+    .{ .name = "syrup", .prefix = "ocapn/codec/syrup/", .imports = &.{ "foundation", "model", "codec_order", "codec_limits" }, .core = true },
+    .{ .name = "capnp", .prefix = "ocapn/codec/capnp/", .imports = &.{ "foundation", "model", "codec_order", "codec_limits" }, .core = true },
+    .{ .name = "codec", .prefix = "ocapn/codec/", .imports = &.{ "foundation", "model", "codec_order", "codec_limits", "syrup", "capnp" }, .core = true },
     .{ .name = "session", .prefix = "ocapn/session/", .imports = &.{ "foundation", "model" }, .core = true },
     .{ .name = "engine", .prefix = "ocapn/engine/", .imports = &.{ "foundation", "model", "codec", "session" }, .core = true },
     .{ .name = "loam_collections", .prefix = "loam/collections/", .imports = &.{}, .core = true },
-    .{ .name = "actors", .prefix = "actors/", .imports = &.{ "model", "engine" }, .core = true },
+    .{ .name = "actors", .prefix = "actors/", .imports = &.{ "foundation", "model", "engine" }, .core = true },
     .{ .name = "loam_records", .prefix = "loam/records/", .imports = &.{"syrup"}, .core = true },
     .{ .name = "loam_core", .prefix = "loam/core/", .imports = &.{"loam_records"}, .core = true },
-    .{ .name = "loam_volatile", .prefix = "loam/backends/volatile.zig", .imports = &.{"loam_core"}, .core = true },
-    .{ .name = "loam_lmdb", .prefix = "loam/backends/lmdb/", .imports = &.{"loam_core"}, .core = false, .graph = false },
+    .{ .name = "loam_volatile", .prefix = "loam/engines/volatile/", .imports = &.{"loam_core"}, .core = true },
+    .{ .name = "loam_owner_lock", .prefix = "loam/engines/owner_lock/", .imports = &.{}, .core = false, .graph = false },
+    .{ .name = "loam_lmdb", .prefix = "loam/engines/lmdb/", .imports = &.{ "loam_core", "loam_owner_lock" }, .core = false, .graph = false },
+    .{ .name = "loam_sqlite", .prefix = "loam/engines/sqlite/", .imports = &.{ "loam_core", "loam_owner_lock" }, .core = false, .graph = false },
     .{ .name = "loam_access_core", .prefix = "loam/access/core/", .imports = &.{}, .core = true },
     .{ .name = "loam_access_records", .prefix = "loam/access/records/", .imports = &.{ "loam_access_core", "loam_records", "syrup" }, .core = true },
     .{ .name = "loam_access_storage", .prefix = "loam/access/storage/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_core" }, .core = true },
     .{ .name = "net", .prefix = "net/", .imports = &.{ "foundation", "model", "codec", "engine" }, .core = false },
     .{ .name = "oracle", .prefix = "oracle/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
     .{ .name = "driver_core", .prefix = "driver/core/", .imports = &.{ "foundation", "model", "engine", "actors" }, .core = true },
-    .{ .name = "loam_hosting", .prefix = "loam/hosting/", .imports = &.{ "loam_core", "actors", "driver_core", "model" }, .core = true },
+    .{ .name = "loam_hosting", .prefix = "loam/hosting/", .imports = &.{ "foundation", "loam_core", "actors", "driver_core", "model" }, .core = true },
     .{ .name = "loam_access_hosting", .prefix = "loam/access/hosting/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_access_storage", "loam_core", "loam_hosting", "driver_core" }, .core = true },
     .{ .name = "loam_access", .prefix = "loam/access/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_access_storage", "loam_access_hosting" }, .core = true },
     .{ .name = "loam", .prefix = "loam/", .imports = &.{ "loam_collections", "loam_records", "loam_core", "loam_volatile", "loam_access", "loam_hosting" }, .core = true },
@@ -90,7 +92,9 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "c_abi_net_transport_onion", .prefix = "c_abi/net_transport/onion/", .imports = &.{ "model", "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_host", .prefix = "c_abi/host/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_loam", .prefix = "c_abi/loam/", .imports = &.{ "loam_core", "loam_access", "loam_hosting", "driver_core", "c_abi_shared", "c_abi_host" }, .core = false, .graph = false },
-    .{ .name = "c_abi_loam_lmdb", .prefix = "c_abi/loam_lmdb/", .imports = &.{ "loam_core", "loam_lmdb", "c_abi_loam", "c_abi_shared" }, .core = false, .graph = false },
+    .{ .name = "c_abi_loam_lmdb", .prefix = "c_abi/loam_lmdb/", .imports = &.{ "loam_lmdb", "c_abi_loam", "c_abi_shared" }, .core = false, .graph = false },
+    .{ .name = "c_abi_loam_sqlite", .prefix = "c_abi/loam_sqlite/", .imports = &.{ "loam_sqlite", "c_abi_loam", "c_abi_shared" }, .core = false, .graph = false },
+    .{ .name = "c_abi_loam_volatile", .prefix = "c_abi/loam_volatile/", .imports = &.{ "loam_core", "loam_volatile", "net", "c_abi_loam", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_driver", .prefix = "c_abi/driver/", .imports = &.{ "foundation", "model", "engine", "net", "driver_core", "driver", "c_abi_shared", "c_abi_host" }, .core = false, .graph = false },
     .{ .name = "c_abi_wasm", .prefix = "c_abi/wasm/", .imports = &.{ "c_abi_shared", "c_abi", "c_abi_host", "c_abi_loam" }, .core = false, .graph = false },
     .{ .name = "glowcap", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "loam", "net", "driver", "c_abi" }, .core = false },
@@ -131,6 +135,8 @@ const archive_table = [_]ArchiveSpec{
     .{ .artifact = "glowcap_host", .layer = "c_abi_host", .header = "glowcap_host.h" },
     .{ .artifact = "glowcap_loam", .layer = "c_abi_loam", .header = "glowcap_loam.h" },
     .{ .artifact = "glowcap_loam_lmdb", .layer = "c_abi_loam_lmdb", .header = "glowcap_loam_lmdb.h" },
+    .{ .artifact = "glowcap_loam_sqlite", .layer = "c_abi_loam_sqlite", .header = "glowcap_loam_sqlite.h" },
+    .{ .artifact = "glowcap_loam_volatile", .layer = "c_abi_loam_volatile", .header = "glowcap_loam_volatile.h" },
     .{ .artifact = "glowcap_driver", .layer = "c_abi_driver", .header = "glowcap_driver.h" },
     .{ .artifact = "glowcap_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "glowcap_net_transport_iroh.h", .default_install = false },
     .{ .artifact = "glowcap_net_transport_webrtc", .layer = "c_abi_net_transport_webrtc", .header = "glowcap_net_transport_webrtc.h", .default_install = false, .release_install = false },
@@ -144,6 +150,7 @@ const shared_header_table = [_][]const u8{
 comptime {
     // Check `archive_table` against `layer_table`: every archive's root
     // layer must name a real row, so a typo or a removed layer fails the build.
+    @setEvalBranchQuota(4000);
     for (archive_table) |arch| _ = layerIndex(arch.layer);
 }
 
@@ -215,7 +222,7 @@ pub fn build(b: *std.Build) void {
     // The secure relay dependency is an explicit, networked sibling step. The
     // ordinary core library graph never fetches or links it; the secure relay
     // consumer makes this compile step part of its own graph.
-    const native_relay = mbedtls_build.addFamily(b, target, optimize, host_mods[layerIndex("foundation")], host_mods[layerIndex("net")]);
+    const relay_tls = mbedtls_build.addFamily(b, target, optimize, host_mods[layerIndex("foundation")], host_mods[layerIndex("net")]);
 
     // ── Composable C ABI archives (ADR-0059) ─────────────────────────────────
     // The single umbrella artifact is dropped: each family
@@ -240,7 +247,7 @@ pub fn build(b: *std.Build) void {
         b,
         target,
         optimize,
-        native_relay,
+        relay_tls,
         host_mods[layerIndex("foundation")],
         host_mods[layerIndex("model")],
         host_mods[layerIndex("net")],
@@ -303,7 +310,7 @@ pub fn build(b: *std.Build) void {
     const ocapn_static = ocapn_archive.static;
     const tcp_archive = installArchive(b, "glowcap_net_transport_tcp", tcp_abi_mod, abi_version);
     const relay_archive = mbedtls_build.installArchive(b, target, relay_abi_mod, abi_version);
-    mbedtls_build.addArchiveChecks(b, target, optimize, native_relay.secure_check, relay_archive.static, relay_archive.dynamic);
+    mbedtls_build.addArchiveChecks(b, target, optimize, relay_tls.secure_check, relay_archive.static, relay_archive.dynamic);
     const inproc_archive = installArchive(b, "glowcap_net_transport_inproc", inproc_abi_mod, abi_version);
     const onion_archive = installArchive(b, "glowcap_net_transport_onion", onion_abi_mod, abi_version);
     const host_archive = installArchive(b, "glowcap_host", host_archive_mod, abi_version);
@@ -345,19 +352,14 @@ pub fn build(b: *std.Build) void {
     const runtime_gate = gates.runtime_gate;
     const test_filter = gates.test_filter;
     const wasm_driver_install_step = gates.wasm_install;
-    const loam_lmdb_mod = @import("tools/build/loam.zig").register(b, target, optimize, host_mods[layerIndex("loam_core")], gates);
-    const loam_abi = @import("tools/build/loam_abi.zig").register(b, target, optimize, abi_version, host_mods, host_abi_mod, loam_lmdb_mod, gates);
+    const profiles = profile_build.register(b, gates.check_step);
+    const loam_engines = @import("tools/build/loam.zig").register(b, target, optimize, host_mods[layerIndex("loam_core")], gates, profiles);
+    const loam_abi = @import("tools/build/loam_abi.zig").register(b, target, optimize, abi_version, host_mods, host_abi_mod, loam_engines.lmdb, loam_engines.sqlite, gates);
 
     // The generated headers and binding mirrors register from
     // tools/build/gen.zig; the resident-dependent rows join below once the
     // iroh and WebRTC residents exist.
     const gen_support = gen_build.createSupport(b, target, optimize, host_mods);
-    const gen_reflected_archives = gen_build.ReflectedArchives{
-        .tcp = tcp_abi_mod,
-        .inproc = inproc_abi_mod,
-        .relay = relay_check_abi_mod,
-        .onion = onion_abi_mod,
-    };
     const gen_ctx = gen_build.Context{
         .b = b,
         .target = target,
@@ -366,9 +368,8 @@ pub fn build(b: *std.Build) void {
         .host_mods = host_mods,
         .host_abi_mod = host_abi_mod,
         .driver_abi_mod = driver_abi_mod,
-        .loam_abi_mod = loam_abi.portable,
-        .loam_lmdb_abi_mod = loam_abi.storage,
-        .reflected_archives = gen_reflected_archives,
+        .loam = loam_abi,
+        .reflected_archives = .{ .tcp = tcp_abi_mod, .inproc = inproc_abi_mod, .relay = relay_check_abi_mod, .onion = onion_abi_mod },
         .support = gen_support,
     };
     gen_build.register(gen_ctx);
@@ -411,20 +412,20 @@ pub fn build(b: *std.Build) void {
         target,
         optimize,
         lib_mod,
-        native_relay.check_relay,
+        relay_tls.check_relay,
         site_reg.zig_examples_check,
     );
 
     // The examples register from tools/build/examples.zig; all of them ride
     // `check`.
-    examples_build.register(b, target, optimize, lib_mod, check_step, ocapn_static, host_static, loam_lmdb_mod);
+    examples_build.register(b, target, optimize, lib_mod, check_step, ocapn_static, host_static, loam_engines.sqlite);
     // Optimize mode is per-module: every consumer that claims optimized
     // glowcap figures imports this dedicated ReleaseFast graph, never
     // `lib_mod`. The benches and their `perf-check` tripwire register from
     // tools/build/bench.zig; the Cap'n Proto fixture generator joins the gen
     // family it belongs to.
     const fast_lib_mod = graphFromTable(b, target, .ReleaseFast, &layer_table, false)[layerIndex("glowcap")];
-    bench_build.register(b, target, optimize, lib_mod, fast_lib_mod, host_mods, check_step, runtime_gate);
+    bench_build.register(b, target, optimize, lib_mod, fast_lib_mod, host_mods, check_step, runtime_gate, profiles);
     gen_build.registerCapnpFixtures(b, target, optimize, lib_mod, check_step);
 
     // The per-language dogfoods and their aggregates register from
@@ -502,6 +503,7 @@ pub fn build(b: *std.Build) void {
         .driver_abi_mod = driver_abi_mod,
         .interop_harness_mod = interop_harness_mod,
         .check_step = check_step,
+        .site_zig_examples_check = site_reg.zig_examples_check,
         .browser_preflight = &browser_preflight.step,
         .wasm_driver_install = wasm_driver_install_step,
     });
@@ -523,7 +525,11 @@ pub fn build(b: *std.Build) void {
 
     // The per-binding client families (the `bindings-*` aggregates and their
     // per-language rows) register from tools/build/binding_families.zig.
-    binding_families_build.register(b, pin_port, iroh_abi_step);
+    binding_families_build.register(b, pin_port, iroh_abi_step, .{
+        .abi_step = webrtc_reg.abi_step,
+        .answerer_step = webrtc_reg.answerer_install_step,
+        .offerer_step = webrtc_reg.offerer_install_step,
+    });
 
     // Release packaging consumes the archive table directly. The stage copies
     // only these names, so a dirty zig-out cannot leak another target or an
@@ -547,7 +553,7 @@ pub fn build(b: *std.Build) void {
     const demo_usage_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/usage.zig"), .target = target, .optimize = optimize });
     const demo_tools_check_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/tools_check.zig"), .target = target, .optimize = optimize });
 
-    // The rooms application family (native clients, its process suites, the
+    // The rooms application family (language clients, its process suites, the
     // demos, the browser UI serves, the rooms-web proofs, and deploy prep)
     // registers as one subject from tools/build/rooms.zig.
     // The product CLI below stays here as its own subject.
@@ -567,7 +573,7 @@ pub fn build(b: *std.Build) void {
         .wasm_archives = gates.wasm_archives,
         .iroh_abi_step = iroh_abi_step,
         .iroh_sidecar_archive = iroh_sidecar_archive,
-        .native_archives = &.{
+        .zig_archives = &.{
             &ocapn_archive.static_install.step,
             &host_archive.static_install.step,
             &driver_archive.static_install.step,
@@ -575,9 +581,12 @@ pub fn build(b: *std.Build) void {
             &relay_archive.static_install.step,
             &inproc_archive.static_install.step,
             &onion_archive.static_install.step,
-            loam_abi.native_installs[0],
-            loam_abi.native_installs[1],
+            loam_abi.zig_installs[0],
+            loam_abi.zig_installs[1],
+            loam_abi.zig_installs[2],
+            loam_abi.zig_installs[3],
             iroh_abi_step,
+            webrtc_reg.abi_step,
         },
         .ocapn_install = &ocapn_archive.dynamic_install.step,
         .host_install = &host_archive.dynamic_install.step,
@@ -607,8 +616,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .glowcap = lib_mod,
         .iroh = iroh_resident_mod,
-        .native_relay = native_relay.relay,
-        .check_relay = native_relay.check_relay,
+        .relay_tls = relay_tls.relay,
+        .check_relay = relay_tls.check_relay,
         .version = abi_version,
         .iroh_sidecar_archive = iroh_sidecar_archive,
         .check = check_step,
@@ -617,7 +626,7 @@ pub fn build(b: *std.Build) void {
 
     // The tasks, tools, and accountability applications register from
     // tools/build/apps_demos.zig.
-    apps_demos_build.register(b, target, optimize, lib_mod, check_step, runtime_gate, pin_port, attach, demo_usage_mod, demo_tools_check_mod);
+    apps_demos_build.register(b, target, optimize, lib_mod, loam_engines.sqlite, check_step, runtime_gate, pin_port, attach, demo_usage_mod, demo_tools_check_mod);
 
     // The formatting and per-scope checks register from
     // tools/build/bindings_steps.zig, over the archives and dogfood runs.

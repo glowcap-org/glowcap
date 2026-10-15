@@ -14,7 +14,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // marker anywhere. The old registration makes the composer unavailable,
 // while an explicit new conversation receives a separate registration ID.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives,
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives,
 // and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/dm_retarget_test.ts`.
 

@@ -19,6 +19,13 @@ const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
 
+test "a released host wipes its session seed root" {
+    var host = test_host.initWithRoot(std.testing.allocator, @splat(0x51), @splat(0x52), .{});
+    host.deinit();
+    const wiped: [glowcap.foundation.crypto.SEED_BYTES]u8 = @splat(0);
+    try std.testing.expectEqualSlices(u8, &wiped, &host.session_seed_root);
+}
+
 test "core host retained work refuses completed and cancelled leases before effects" {
     const allocator = std.testing.allocator;
     var host = test_host.init(allocator, @splat(0x76), .{});
@@ -130,7 +137,7 @@ test "Host action failure detail carries allocation ownership in its tag" {
 
 test "Host admission frame cap defaults to the canonical session limit" {
     // Single-source lock: a default-constructed Host admits the same frame size
-    // the driver C ABI publishes as GLOWCAP_DEFAULT_FRAME_CAP, so a native Zig
+    // the driver C ABI publishes as GLOWCAP_DEFAULT_FRAME_CAP, so a Zig
     // embedder and a C embedder agree on the default admission cap. If someone
     // re-hardcodes this default to a bare literal, this fails instead of
     // silently shrinking a Zig host's admissible frame below the advertised C
@@ -164,7 +171,7 @@ test "core host close initiation cannot fail after committing its barrier" {
         var frame = frame_value;
         frame.deinit();
     }
-    try session.served.port.peer.sendCopying(.{ .abort = .{
+    try session.served.port.peer.sendBorrowed(.{ .abort = .{
         .kind = .graceful_shutdown,
         .message = "queued before finish",
     } });
@@ -399,7 +406,7 @@ test "driver and Host failure tables agree on every name both classify" {
 
 test "hosted Host-wide publication consumes its context on preflight failure" {
     const Hosted = struct {
-        fn handle(_: *anyopaque, _: *actors.Turn, _: actors.Message) actors.HostedActor.Result {
+        fn handle(_: *anyopaque, _: *actors.Turn, _: actors.Delivery) actors.HostedActor.Result {
             unreachable;
         }
 

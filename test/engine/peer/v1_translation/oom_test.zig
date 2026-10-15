@@ -1,6 +1,6 @@
-//! Encode-OOM rollback for V1.0 translation: a failed encode leaves no
-//! published frame and no resolver authority, and a retry publishes exactly
-//! once.
+//! Allocation-failure rollback for V1.0 translation: a failed admission or
+//! encode leaves no published frame and no resolver authority, and a retry
+//! publishes exactly once.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -42,7 +42,7 @@ test "settled-answer encode OOM leaves its carrier queued and emits exactly once
         try peer.recvBorrowed(.{ .bytes = wire, .shape = .byte });
         var event = peer.pollEvent().?;
         event.deinit();
-        try peer.sendCopying(.{ .resolve = .{
+        try peer.sendBorrowed(.{ .resolve = .{
             .answer = .from(answer),
             .resolution = .{ .fulfill = .{ .integer = @intCast(offset) } },
         } });
@@ -71,7 +71,7 @@ test "settled-answer encode OOM leaves its carrier queued and emits exactly once
     try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
 }
 
-test "V1.0 answered-deliver encode OOM rolls back resolver authority and retries" {
+test "V1.0 answered-deliver admission OOM rolls back resolver authority and retries" {
     var saw_post_mint_oom = false;
     var saw_success = false;
 
@@ -84,22 +84,24 @@ test "V1.0 answered-deliver encode OOM rolls back resolver authority and retries
 
         const answer = model.AnswerPosition.from(42);
         const first_resolver = peer.session_state.next_export_position;
-        try peer.sendCopying(.{ .deliver = .{
+        const deliver: model.Message = .{ .deliver = .{
             .target = .{ .far = model.FarRef.object(7) },
             .args = &.{.{ .bytes = "payload" }},
             .answer = answer,
-        } });
+        } };
 
+        // Admission mints the resolver and encodes the frame, so an
+        // allocation failure lands on the send and leaves nothing behind.
         failing.fail_index = failing.alloc_index + offset;
-        const attempt = peer.step();
+        const attempt = peer.sendBorrowed(deliver);
         failing.fail_index = std.math.maxInt(usize);
 
-        if (attempt) |outcome| {
+        if (attempt) |_| {
             saw_success = true;
-            try std.testing.expectEqual(engine.StepOutcome.progress, outcome);
         } else |err| {
             try std.testing.expectEqual(error.OutOfMemory, err);
-            try std.testing.expect(peer.takeOutbound() == null);
+            try std.testing.expect(peer.pending_send.isEmpty());
+            try std.testing.expect(peer.session_state.outboundAnswer(answer) == null);
             try std.testing.expectEqual(
                 @as(?model.ExportPosition, null),
                 peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }),
@@ -107,11 +109,12 @@ test "V1.0 answered-deliver encode OOM rolls back resolver authority and retries
             if (peer.session_state.next_export_position > first_resolver)
                 saw_post_mint_oom = true;
 
-            // The same staged carrier remains authoritative. Retrying mints one
-            // fresh resolver and publishes exactly one answered deliver.
-            try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+            // The refusal committed nothing, so the same send retries,
+            // mints one fresh resolver, and queues exactly one answered deliver.
+            try peer.sendBorrowed(deliver);
         }
 
+        try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
         const resolver = peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }) orelse
             return error.MissingRetriedResolver;
         try std.testing.expect(peer.session_state.exportRefcount(resolver) != 0);
@@ -138,7 +141,7 @@ test "V1.0 projection encode OOM publishes neither half and retries atomically" 
 
         const answer = model.AnswerPosition.from(5);
         const first_resolver = peer.session_state.next_export_position;
-        try peer.sendCopying(.{ .get = .{
+        try peer.sendBorrowed(.{ .get = .{
             .receiver = .{ .far = model.FarRef.object(9) },
             .field = "name",
             .answer = answer,
@@ -369,19 +372,22 @@ test "a next answered operation publishes no partial pair on OOM" {
     defer failing.fail_index = std.math.maxInt(usize);
     try peer.session_state.registerImport(.from(7));
 
-    try peer.sendCopying(.{ .deliver = .{
+    const deliver: model.Message = .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{.{ .bytes = "answer me" }},
         .answer = .from(42),
-    } });
+    } };
 
-    // Let the operation frame allocate, then fail before the pair can be
-    // published. The retry must still own and emit both messages.
+    // Let the operation frame allocate, then fail before the listener's can.
+    // Admission refuses the send whole: no row, no answer, no resolver.
     failing.fail_index = failing.alloc_index + 1;
-    try std.testing.expectError(error.OutOfMemory, peer.step());
+    try std.testing.expectError(error.OutOfMemory, peer.sendBorrowed(deliver));
+    try std.testing.expect(peer.pending_send.isEmpty());
+    try std.testing.expect(peer.session_state.outboundAnswer(.from(42)) == null);
     try std.testing.expect(peer.takeOutbound() == null);
 
     failing.fail_index = std.math.maxInt(usize);
+    try peer.sendBorrowed(deliver);
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     var operation = peer.takeOutbound().?;
     defer operation.deinit();

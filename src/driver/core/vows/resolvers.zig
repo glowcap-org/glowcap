@@ -106,11 +106,9 @@ pub fn fulfillValue(self: *Host, resolver_id: u64, value: @import("../value.zig"
     const local_answer = row.forwarded.session.local_answer;
     var prepared = try self.prepareValues(session, arena, &.{value});
     defer prepared.deinit();
-    const retained = try self.retainValueCapabilities(arena, &.{value});
-    defer lower.releaseUntransferredCapabilityRetains(self, retained);
     // Only the served wire answer produces outbound occurrences. Local
     // listeners may enqueue their own sends, each with its own staging scope.
-    const staging: ?Staging = if (local_answer) null else .{ .arena = arena, .args = prepared.values, .retained = retained };
+    const staging: ?*lower.PreparedValues = if (local_answer) null else &prepared;
     try settle(self, resolver_id, .{ .fulfilled = prepared.values[0] }, staging);
     // Local listeners have acquired their own canonical retains synchronously.
     // Only a wire answer transfers a projection into session-owned authority.
@@ -150,9 +148,7 @@ pub fn abandon(self: *Host, resolver_id: u64, reason: []const u8) !void {
     };
 }
 
-const Staging = struct { arena: std.mem.Allocator, args: []const model.Argument, retained: []lower.StagedCapabilityRetain };
-
-fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution, staging: ?Staging) !void {
+fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution, staging: ?*lower.PreparedValues) !void {
     // An id this Host never minted is a caller defect, distinct from a
     // consumed settle authority.
     if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
@@ -162,9 +158,9 @@ fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution, staging:
     const forwarded = row.forwarded;
     switch (resolution) {
         .fulfilled => |value| {
-            if (staging) |context| {
-                const leases = try lower.beginOutboundStagingLeases(self, context.arena, context.args, context.retained);
-                defer lower.finishOutboundStagingLeases(self, context.retained, leases);
+            if (staging) |prepared| {
+                prepared.beginStaging();
+                defer prepared.endStaging();
                 try self.vat.fulfillVow(entry.vat_resolver, value);
             } else try self.vat.fulfillVow(entry.vat_resolver, value);
         },

@@ -1,14 +1,18 @@
+---
+type: static
+description: How an entity's placement in time is stored, inherited and clamped.
+sources:
+  - resource: /apps/ocapnviz/src/engine/temporal/
+---
+
 # Time spans
 
-An entity's placement in time is stored, inherited, and clamped as follows.
-This is one part of layer 2 in `data-model.md`, which covers the document as a
-whole.
-
-The code is the specification. `src/engine/temporal/time-span.ts` holds the
-storage shape and the gesture rewrites, `doc-resolver.ts` holds the table of
-which reader reads which layer, and `authoring/moves.ts::moveEvent` pairs an
-observation move with its entity patch. This file is kept for the reasoning the
-type signatures do not carry.
+An entity's placement in time is stored, inherited, and clamped. This is the
+behavior layer of [`data-model.md`](data-model.md). The code is the
+specification: `src/engine/temporal/time-span.ts` holds the storage shape and the
+gesture rewrites, `doc-resolver.ts` holds the table of which reader reads which
+layer, and `authoring/moves.ts::moveEvent` pairs an observation move with its
+entity patch. This page carries the reasoning the type signatures do not.
 
 ## Three layers
 
@@ -29,12 +33,8 @@ inherited bound got clamped." Three can. A message stored with a 2000 ms
 duration inside a session that ends 1s after it starts has an intrinsic duration
 of 2000 ms, which is the user's intent, and an effective duration of 1000 ms.
 The Inspector can then say "stored 2000 ms, clamped to 1000 ms by session end,"
-and name which ancestor did the work.
-
-This is why the earlier model, which stored raw `start` and `end` and resolved a
-single effective range, could not surface an override or let a value come back
-when the constraint relaxed. There was only one coordinate, and the constraint
-overwrote it.
+and name which ancestor did the work. A value also comes back when the
+constraint relaxes, because the constraint never overwrote it.
 
 ## The span
 
@@ -52,12 +52,11 @@ End is always derived as `start + duration`. It is never stored and never an
 input to an authoring intent.
 
 Start is a placement coordinate and duration is a property of the thing itself,
-which is why they are stored rather than `(start, end)`. Rigid move falls out
-for free: drag the middle of a bar and start changes while duration stays.
-Setting start past end stops being a coordinate problem and becomes a gesture
-question, answered at the intent layer. For a message the semantic property
-really is flight time, and for peers and sessions the user thinks in end time,
-which the Inspector round-trips through duration.
+so the document stores both rather than `(start, end)`. Rigid move falls out:
+drag the middle of a bar and start changes while duration stays. Setting start
+past end becomes a gesture question, answered at the intent layer. For a message
+the semantic property is flight time. For peers and sessions the user thinks in
+end time, which the Inspector round-trips through duration.
 
 ## Inheritance
 
@@ -72,8 +71,7 @@ An implicit axis asks its parent.
 
 A message's duration is always explicit. Flight time is a property of the
 network hop, not something to inherit, and the engine mints
-`{ value: 500, explicit:
-true }` when a message is created without one. Peers
+`{ value: 500, explicit: true }` when a message is created without one. Peers
 and sessions can carry an explicit duration ("Alice lives exactly 30s regardless
 of when she joins"), but usually do not.
 
@@ -103,13 +101,13 @@ Three rules produce the gap between intrinsic and effective.
    is running with one end unattributed, so that end constrains nothing and the
    attached end decides.
 
-Constraints never mutate the document. When a parent moves, nothing fans out.
-Every descendant's effective value recomputes on the next read. So document
+Constraints never mutate the document. When a parent moves, nothing fans out and
+every descendant's effective value recomputes on the next read. Document
 mutations stay one entity at a time, undo records the user's authored change
 rather than a cascaded clamp, and growing a parent back restores what it had
-clamped with no redo. The schema cascade in `engine/schema/cascade.ts` still
-walks the edge map for delete and rename, but temporal cascade is a read-time
-recompute and needs no policy of its own.
+clamped. The schema cascade in `engine/schema/cascade.ts` walks the edge map for
+delete and rename. Temporal cascade is a read-time recompute and needs no policy
+of its own.
 
 ## Intents
 
@@ -123,9 +121,8 @@ into the Inspector into `duration = typedEnd - intrinsic.start` at dispatch, and
 from there the document only sees start and duration. `moveBy` is the rigid-move
 primitive drag gestures use: it changes start and leaves duration alone.
 
-Two invariants remain. A duration is never negative, and authoring intents
-enforce that rather than letting the document reach one. A zero duration is
-allowed, and renders as a tick rather than a bar.
+A duration is never negative, and authoring intents enforce that. A zero
+duration is allowed and renders as a tick rather than a bar.
 
 Which gesture does what is a gesture decision, not a data-model one. Dragging a
 bar's middle calls `moveBy`, dragging its right edge calls `setDuration`, and
@@ -148,5 +145,5 @@ and flight. It reads stored values, and when a stored value differs from the
 effective one it renders an indicator beside the field naming the reason, such
 as "stored 10s, effective 8s, session ends at 8s." When they agree it stays
 quiet. Clearing a field sets `explicit: false` and shows the inherited value as
-a placeholder. Setting it explicit again snapshots the currently inherited value
+a placeholder. Setting it explicit again snapshots the inherited value
 so nothing jumps.

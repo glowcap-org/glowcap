@@ -1,4 +1,4 @@
-//! Session admission over embedder-owned channels. Native provider admission
+//! Session admission over embedder-owned channels. FFI provider admission
 //! remains in the driver. This module owns channel transfer and handshake.
 use super::*;
 use crate::host::HostShared;

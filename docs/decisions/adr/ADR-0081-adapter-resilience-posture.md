@@ -19,7 +19,7 @@ reason on every transport: `socket_tcp` returns a single `SyscallFailed` for
 bind, listen, and setsockopt (the kqueue sibling names each), and `tcp`,
 `tcp_keyed`, `inproc`, and the iroh sidecar flatten refused, unreachable,
 timeout, and a syntactically invalid address into one `ConnectionLost`. The
-keyed handshake pump (`src/driver/blocking_session.zig`) and its
+keyed handshake pump (`src/driver/session/connect.zig`) and its
 `net.connection.runUntil` read with no deadline, so a peer that finishes
 connect and then goes silent parks the calling thread for the connection's
 life, a slowloris stall of a one-connection-per-thread `Server.accept` on

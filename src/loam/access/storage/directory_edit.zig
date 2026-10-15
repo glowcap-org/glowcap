@@ -39,7 +39,7 @@ pub const DirectoryEdit = struct {
         if (self.staged) return error.WrongPhase;
         while (self.count < 4) {
             const level: u2 = @intCast(self.count);
-            var frame: Frame = .{ .object = self.cursor, .revision = null, .page = .{ .owner = self.view.header.owner, .family = self.family, .level = level, .prefix = Page.prefixFor(self.slot, level) } };
+            var frame: Frame = .{ .object = self.cursor, .revision = null, .page = .{ .header = .{ .owner = self.view.header.owner, .family = self.family, .level = level, .prefix = Page.prefixFor(self.slot, level) } } };
             if (self.cursor) |object| {
                 if (try self.view.store.proposed(object)) |staged| {
                     // A composed transaction may have staged this page already:
@@ -58,7 +58,7 @@ pub const DirectoryEdit = struct {
                     frame.revision = row.revision;
                     frame.page = try Page.decode(row);
                 }
-                if (frame.page.owner != self.view.header.owner or frame.page.family != self.family or frame.page.level != level or frame.page.prefix != Page.prefixFor(self.slot, level)) return error.InvalidRecord;
+                try frame.page.header.expect(self.view.header.owner, self.family, level, Page.prefixFor(self.slot, level));
             }
             self.frames[self.count] = frame;
             self.cursor = frame.page.get(Page.digit(self.slot, level));
@@ -81,8 +81,8 @@ pub const DirectoryEdit = struct {
                 if (try self.view.store.proposed(object)) |proposal| {
                     frame.* = .{ .object = object, .revision = proposal.expected, .page = try Page.decode(proposal.view) };
                 } else if (frame.object == null or !frame.object.?.eql(object)) return error.RevisionConflict;
-            } else frame.* = .{ .object = null, .revision = null, .page = .{ .owner = self.view.header.owner, .family = self.family, .level = level, .prefix = Page.prefixFor(self.slot, level) } };
-            if (frame.page.owner != self.view.header.owner or frame.page.family != self.family or frame.page.level != level or frame.page.prefix != Page.prefixFor(self.slot, level)) return error.InvalidRecord;
+            } else frame.* = .{ .object = null, .revision = null, .page = .{ .header = .{ .owner = self.view.header.owner, .family = self.family, .level = level, .prefix = Page.prefixFor(self.slot, level) } } };
+            try frame.page.header.expect(self.view.header.owner, self.family, level, Page.prefixFor(self.slot, level));
             cursor = frame.page.get(Page.digit(self.slot, level));
         }
         self.cursor = cursor;

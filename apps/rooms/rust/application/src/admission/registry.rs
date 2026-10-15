@@ -1,8 +1,14 @@
 //! One fixed-size row per retained key. Fully refilled rows may retire without
-//! changing allowance. Maintenance visits at most eight rows per step.
+//! changing allowance. Maintenance visits at most `MAINTENANCE_ROWS` rows per
+//! step.
 use super::{Bucket, CLASS_COUNT, CLASSES, Class, CleanupReserve, Profile, Refusal};
 use alloc::collections::BTreeMap;
 use core::ops::Bound::{Excluded, Unbounded};
+
+/// Calls between maintenance steps while the registry is below capacity.
+const MAINTENANCE_PERIOD: u64 = 64;
+/// Rows one maintenance step visits.
+const MAINTENANCE_ROWS: usize = 8;
 
 #[derive(Clone, Copy)]
 pub struct Charge<K> {
@@ -78,7 +84,7 @@ impl<K: Copy + Ord, P: Policy<K>> Registry<K, P> {
 		self.maintain_excluding(now, &[]);
 	}
 	fn maintain_excluding(&mut self, now: u64, active: &[Charge<K>]) {
-		for _ in 0..8 {
+		for _ in 0..MAINTENANCE_ROWS {
 			let next = match self.cursor {
 				Some(key) => self.rows.range((Excluded(key), Unbounded)).next(),
 				None => self.rows.first_key_value(),
@@ -169,7 +175,7 @@ impl<K: Copy + Ord, P: Policy<K>> Registry<K, P> {
 	}
 	fn check(&mut self, charges: &[Charge<K>], now: u64) -> Result<(), Refusal> {
 		self.calls = self.calls.wrapping_add(1);
-		if self.calls.is_multiple_of(64) || self.at_capacity(charges) {
+		if self.calls.is_multiple_of(MAINTENANCE_PERIOD) || self.at_capacity(charges) {
 			self.maintain_excluding(now, charges);
 		}
 		let mut refusal = None;

@@ -151,7 +151,7 @@ pub fn shown(row: &StewardshipRow) -> &str {
 	if row.label.is_empty() { &row.name } else { &row.label }
 }
 
-/// Shared ordering for native and bridged stewardship rows. Compute each
+/// Shared ordering for Rooms and bridged stewardship rows. Compute each
 /// Unicode-folded key once, rather than allocating during every comparison.
 pub fn stewardship_order(row: &StewardshipRow) -> (String, String) {
 	(shown(row).to_lowercase(), row.name.clone())

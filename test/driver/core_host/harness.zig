@@ -29,7 +29,7 @@ pub fn nextRouteOptions() Host.Options {
 
 /// The gifted object, published by the exporter.
 pub const Widget = struct {
-    pub fn handle(self: *Widget, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Widget, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "poke")) return error.NoSuchMethod;
@@ -40,7 +40,7 @@ pub const Widget = struct {
 pub const FairCounter = struct {
     hits: *usize,
 
-    pub fn handle(self: *FairCounter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *FairCounter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
         self.hits.* += 1;
@@ -54,7 +54,7 @@ pub const FairCounter = struct {
 /// own, so this is how a test gets a capability that has no routing token yet.
 pub const Vendor = struct {
     widget: model.Reference,
-    pub fn handle(self: *Vendor, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Vendor, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
         return .{ .reference = self.widget };
@@ -65,7 +65,7 @@ pub const Vendor = struct {
 /// The host's own origination interceptor turns that reply into a give.
 pub const Introducer = struct {
     widget: model.Reference,
-    pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "introduce")) return error.NoSuchMethod;
         return .{ .reference = self.widget };
@@ -118,10 +118,18 @@ pub const ParkedDial = struct {
 /// deterministic bytes (entropy is the embedder's job), flush notices are
 /// no-ops here (the shuttle polls every queue anyway), and dial requests park
 /// on `dials` for the test to execute explicitly.
+/// The embedder's drain: pop until the queue runs dry, then flush the held
+/// answer releases a park would send and pop whatever that queued.
+pub fn popAction(host: *Host) !?driver.core.HostAction {
+    if (try host.nextAction()) |action| return action;
+    if (!try host.flushHeldReleases()) return null;
+    return host.nextAction();
+}
+
 pub fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *std.ArrayList(ParkedDial)) !bool {
     var did_work = false;
     for (hosts) |host| {
-        while (try host.nextAction()) |action| {
+        while (try popAction(host)) |action| {
             // `nextAction` drives dirty Host work before returning an effect.
             // Consuming even a no-op test effect can therefore make fresh wire
             // output visible for the next shuttle round.
@@ -269,7 +277,7 @@ pub const Tagged = struct {
         return .{ .row = self.row };
     }
 
-    pub fn handle(self: *Tagged, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Tagged, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "mutate")) {
             self.row.tag = "mutated-original";
@@ -441,7 +449,7 @@ pub const PublicationProbe = struct {
     host: *Host,
     refused: *bool,
 
-    pub fn handle(self: *PublicationProbe, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *PublicationProbe, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "publish")) return error.NoSuchMethod;
         _ = self.host.publish("nested", Widget, .{}) catch |err| {

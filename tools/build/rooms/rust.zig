@@ -1,11 +1,11 @@
-//! Rust application contracts share their test body between native
+//! Rust application contracts share their test body between host
 //! and browser Wasm. Browser execution remains opt-in like the Rooms page tests.
 const std = @import("std");
 const builtin = @import("builtin");
 const common = @import("../common.zig");
 const execution = @import("../execution.zig");
 
-pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execution.RuntimeGate, wasm_archives: *std.Build.Step, wasm_driver: *std.Build.Step, peers: *std.Build.Step, native_archives: []const *std.Build.Step) *std.Build.Step {
+pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execution.RuntimeGate, wasm_archives: *std.Build.Step, wasm_driver: *std.Build.Step, peers: *std.Build.Step, zig_archives: []const *std.Build.Step) *std.Build.Step {
     const layouts = execution.addSystemCommand(b, .build_tool, &.{
         "deno", "run", "--allow-read", "--allow-write", "tools/wasm/rust_layouts.ts",
     });
@@ -36,7 +36,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     compile.setCwd(b.path("."));
     // Native proofs do not consume shared core libraries, headers or the CLI.
     // Keep archive freshness without rebuilding the full default installation.
-    for (native_archives) |archive| compile.step.dependOn(archive);
+    for (zig_archives) |archive| compile.step.dependOn(archive);
     const maximum_foreign_prefix = "session_foreign::maximum_session_foreign_";
     const maximum_step = b.step("rooms-session-foreign-test", "Run maximum foreign session admission, capacity refusal and cold-source replacement traces (needs cargo)");
     // Each independent scenario owns a 30-second process budget. Chain them
@@ -56,11 +56,11 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
         previous = &maximum.step;
     }
     maximum_step.dependOn(previous);
-    const native = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+    const workspace_tests = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "--", "--skip", maximum_foreign_prefix, "--skip", "session_executor::",
     });
-    native.setCwd(b.path("."));
-    native.step.dependOn(maximum_step);
+    workspace_tests.setCwd(b.path("."));
+    workspace_tests.step.dependOn(maximum_step);
     // Executor scenarios own their process window separately from the other
     // workspace and documentation tests. Both commands select the same Cargo
     // workspace, preserving feature unification and the complete test set.
@@ -68,7 +68,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
         "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "--lib", "--", "session_executor::",
     });
     executor_tests.setCwd(b.path("."));
-    executor_tests.step.dependOn(&native.step);
+    executor_tests.step.dependOn(&workspace_tests.step);
     // Where the test executables find glowcap's installed shared libraries at
     // load time, the way `rust-dogfood` already binds its own.
     //
@@ -79,9 +79,10 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     // need `libglowcap_net_transport_iroh`, and without this resolved they fail
     // to start rather than to assert, a loader error with no test name in it.
     const rooms_lib_dir = common.rootPath(b, "zig-out/lib");
-    for ([_]*std.Build.Step.Run{ compile, native, executor_tests }) |run| setLibraryEnvironment(run, b);
-    const native_step = b.step("rooms-rust-test", "Run portable Rooms application and Rust/Zig static linking contracts natively (needs cargo)");
-    native_step.dependOn(&executor_tests.step);
+    for ([_]*std.Build.Step.Run{ compile, workspace_tests, executor_tests }) |run| setLibraryEnvironment(run, b);
+    const rust_test_step = b.step("rooms-rust-test", "Run portable Rooms application and Rust/Zig static linking contracts on the host (needs cargo)");
+    rust_test_step.dependOn(&executor_tests.step);
+    rust_test_step.dependOn(&common.rustFmtCheck(b, "apps/rooms/rust/Cargo.toml").step);
     const admission_cost = execution.addSystemCommand(b, .benchmark, &.{
         "cargo", "run",                   "--quiet",   "--locked",       "--release", "--manifest-path", "apps/rooms/rust/Cargo.toml",
         "-p",    "rooms-contract-proofs", "--example", "admission_cost",
@@ -90,10 +91,10 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     setLibraryEnvironment(admission_cost, b);
     admission_cost.step.dependOn(&compile.step);
     b.step("bench-rooms-admission", "Measure admission cost and enforce zero steady policy allocations").dependOn(&admission_cost.step);
-    native_step.dependOn(&admission_cost.step);
-    runtime_gate.add(native_step);
+    rust_test_step.dependOn(&admission_cost.step);
+    runtime_gate.add(rust_test_step);
 
-    // Clippy over every crate and target, so the Rust that ships the native
+    // Clippy over every crate and target, so the Rust that ships the host
     // peers holds the same floor the Zig does.
     //
     // The clippy half of that floor is declared in `[workspace.lints]` rather
@@ -154,7 +155,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     glue.setCwd(b.path("."));
     glue.step.dependOn(&host_wasm.step);
     // Executor scenarios run in their own bounded processes before this Host
-    // journey. Deno, Chromium and native-front teardown retain this budget.
+    // journey. Deno, Chromium and web-server teardown retain this budget.
     const host_browser = execution.addSystemCommand(b, .{ .browser_proof = 90 }, &.{"env"});
     host_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-web-proof" } }, .{ .prefix = "GLOWCAP_ROOMS_WEB_TEST_BIN=", .make_absolute = true });
     host_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server-proof" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_TEST_BIN=", .make_absolute = true });

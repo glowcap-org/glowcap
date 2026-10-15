@@ -151,6 +151,16 @@ fn checkSiteContentLinksInFile(
     }
 }
 
+/// The id a heading names for itself, as in `[Title]($section.id('the-id'))`,
+/// or null when it is linked by a slug of its text.
+fn namedId(title: []const u8) ?[]const u8 {
+    const named = "$section.id('";
+    const at = std.mem.indexOf(u8, title, named) orelse return null;
+    const id = title[at + named.len ..];
+    const end = std.mem.indexOfScalar(u8, id, '\'') orelse return null;
+    return id[0..end];
+}
+
 /// Match the heading ids minted by `base.shtml`'s table-of-contents script.
 /// The site sets `supermd.headings_h2`, so authored `#` and `##` headings
 /// render as the h2/h3 entries included in the table of contents.
@@ -171,6 +181,12 @@ fn siteHeadingHasFragment(contents: []const u8, fragment: []const u8) bool {
             line[3..]
         else
             continue;
+
+        // A named id replaces the slug, so the heading's text is not tried.
+        if (namedId(title)) |id| {
+            if (std.mem.eql(u8, id, fragment)) return true;
+            continue;
+        }
 
         var slug: [60]u8 = undefined;
         var len: usize = 0;
@@ -204,11 +220,15 @@ test "site heading fragments follow the browser slug rule" {
         \\# old-name
         \\```
         \\## The `Host` API
+        \\# [Codec throughput]($section.id('codec-speed'))
     ;
     try std.testing.expect(siteHeadingHasFragment(page, "in-zig"));
     try std.testing.expect(siteHeadingHasFragment(page, "time-travel-snapshot-and-restore"));
     try std.testing.expect(siteHeadingHasFragment(page, "the-host-api"));
     try std.testing.expect(!siteHeadingHasFragment(page, "old-name"));
+    // A named id is the anchor, and the title's slug is not.
+    try std.testing.expect(siteHeadingHasFragment(page, "codec-speed"));
+    try std.testing.expect(!siteHeadingHasFragment(page, "codec-throughput"));
 }
 
 /// Every SuperMD page under `site/content/**` must be reachable from the site

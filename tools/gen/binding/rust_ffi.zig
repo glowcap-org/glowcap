@@ -14,6 +14,8 @@
 const std = @import("std");
 const cl = @import("c_abi_loam");
 const cln = @import("c_abi_loam_lmdb");
+const cls = @import("c_abi_loam_sqlite");
+const clv = @import("c_abi_loam_volatile");
 
 const c = @import("c_abi");
 const cd = @import("c_abi_host");
@@ -32,6 +34,8 @@ const Output = @import("output").Output;
 pub const outputs = [_]Output{
     .{ .path = "bindings/rust/src/sys/loam_fns_gen.rs", .generate = generateLoam },
     .{ .path = "bindings/rust/src/sys/loam_lmdb_fns_gen.rs", .generate = generateLoamLmdb },
+    .{ .path = "bindings/rust/src/sys/loam_sqlite_fns_gen.rs", .generate = generateLoamSqlite },
+    .{ .path = "bindings/rust/src/sys/loam_volatile_fns_gen.rs", .generate = generateLoamVolatile },
     .{ .path = "bindings/rust/src/sys/ocapn_fns_gen.rs", .generate = generateOcapn },
     .{ .path = "bindings/rust/src/sys/host_fns_gen.rs", .generate = generateHost },
     .{ .path = "bindings/rust/src/sys/driver_fns_gen.rs", .generate = generateLoop },
@@ -387,4 +391,10 @@ fn generateLoam(gpa: std.mem.Allocator) ![]u8 {
 }
 fn generateLoamLmdb(gpa: std.mem.Allocator) ![]u8 {
     return renderArchive(gpa, cln, "include/glowcap_loam_lmdb.h", "// LMDB Loam extern projection.\n", "use super::layouts::*;\nuse crate::sys::GlowcapReference;\nuse core::ffi::{c_int, c_uchar, c_uint};\n", &.{});
+}
+fn generateLoamSqlite(gpa: std.mem.Allocator) ![]u8 {
+    return renderArchive(gpa, cls, "include/glowcap_loam_sqlite.h", "// SQLite Loam extern projection.\n", "use super::layouts::*;\nuse crate::sys::GlowcapReference;\nuse core::ffi::{c_int, c_uchar, c_uint};\n", &.{});
+}
+fn generateLoamVolatile(gpa: std.mem.Allocator) ![]u8 {
+    return renderArchive(gpa, clv, "include/glowcap_loam_volatile.h", "// In-memory Loam extern projection.\n", "use super::layouts::*;\nuse crate::sys::GlowcapReference;\nuse core::ffi::{c_int, c_uchar, c_uint};\n", &.{});
 }

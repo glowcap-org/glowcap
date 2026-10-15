@@ -8,7 +8,7 @@ not choose or load a concrete transport. The raw ``ctypes``
 FFI lives in the internal ``_ffi_*`` modules. This package is the public
 surface over it. What you hold is a :class:`Session`: compose a :class:`Runtime`,
 dial with its ``connect`` method, accept through a transport module's
-``listen``, and speak native Python values:
+``listen``, and speak plain Python values:
 ``int``/``float``/``bool``/``bytes``/``str``/``list``, plus :class:`Symbol`,
 :class:`Keyword`, :class:`Set`, :class:`Tagged`, :class:`Struct`, and the capability
 :class:`Ref`:
@@ -39,11 +39,10 @@ or ``connector(...)`` with :class:`Runtime`. No locator-shape dispatch or byte
 fallback occurs in this module. A ``tcp``, ``keyed-tcp``, ``noise-tcp``,
 ``iroh``, or routed relay connection runs on the driver archive: one stepping
 loop owns the provider, pumping, and session release, parked on the asyncio
-reactor. A plain TCP application needs this core plus :mod:`glowcap.tcp`. The blocking
-``glowcap_tcp_*`` frame shuttle
-lives in :mod:`glowcap.tcp`. The socket-free in-process transport in
-:mod:`glowcap.inproc`. The encrypted-QUIC transport in :mod:`glowcap.iroh`.
-The core never imports one of those modules based on locator shape.
+reactor. A plain TCP application needs this core plus :mod:`glowcap.tcp`, which also
+holds the blocking ``glowcap_tcp_*`` frame shuttle. The socket-free in-process
+transport lives in :mod:`glowcap.inproc`, the encrypted-QUIC transport in
+:mod:`glowcap.iroh`, and the WebRTC dial in :mod:`glowcap.webrtc`. The core never imports one of those modules based on locator shape.
 
 The implementation is split by responsibility across ``_``-private submodules
 (``_errors``, ``_value``, ``_abi_value``, ``_context``, ``_locator``,

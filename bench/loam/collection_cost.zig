@@ -10,7 +10,7 @@ const record_bytes = 1024;
 const cache_slots = 2;
 
 pub fn run(init: std.process.Init, report: *std.ArrayList(u8), smoke: bool) !void {
-    try r.emit(init.gpa, report, "Loam collection counts mode={s} arch={s} os={s} backend=volatile cache_slots={d} max_record_bytes={d} durability=none\n", .{
+    try r.emit(init.gpa, report, "Loam collection counts mode={s} arch={s} os={s} engine=volatile cache_slots={d} max_record_bytes={d} durability=none\n", .{
         @tagName(builtin.mode), @tagName(builtin.cpu.arch), @tagName(builtin.os.tag), cache_slots, record_bytes,
     });
     const chain: usize = if (smoke) 128 else 1024;
@@ -22,10 +22,10 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), smoke: bool) !voi
 }
 
 fn measure(init: std.process.Init, report: *std.ArrayList(u8), chain: usize, garbage: usize, held: usize, work: usize) !void {
-    var backend = try g.loam.Volatile.init(init.gpa, @fromBackingInt(75), 16 * 1024 * 1024);
-    defer backend.deinit();
+    var engine = try g.loam.Volatile.init(init.gpa, @fromBackingInt(75), 16 * 1024 * 1024);
+    defer engine.deinit();
     var allocator: Counter = .{ .backing = init.gpa };
-    var store = try core.Store.init(allocator.allocator(), try backend.open(), &schemas, .{
+    var store = try core.Store.init(allocator.allocator(), try engine.open(), &schemas, .{
         .records = .{ .max_record_bytes = record_bytes, .max_edges = 1 },
         .cache_slots = cache_slots,
         .max_leases = 2,
@@ -49,7 +49,7 @@ fn measure(init: std.process.Init, report: *std.ArrayList(u8), chain: usize, gar
             .rooted = index == 0,
             .edges = if (index + 1 == chain) &.{} else &.{.{ .target = ids[index + 1] }},
         }, null);
-        try finish(&store, &backend, try store.prepare());
+        try finish(&store, &engine, try store.prepare());
     }
     for (0..garbage / 2) |_| {
         try store.begin();
@@ -57,7 +57,7 @@ fn measure(init: std.process.Init, report: *std.ArrayList(u8), chain: usize, gar
         const b = try store.allocateId();
         try store.putCopying(.{ .id = a, .revision = 0, .schema = 1, .payload = "x", .edges = &.{.{ .target = b }} }, null);
         try store.putCopying(.{ .id = b, .revision = 0, .schema = 1, .payload = "x", .edges = &.{.{ .target = a }} }, null);
-        try finish(&store, &backend, try store.prepare());
+        try finish(&store, &engine, try store.prepare());
     }
     var tokens: [128]core.Retention = undefined;
     var admitted: usize = 0;
@@ -80,17 +80,17 @@ fn measure(init: std.process.Init, report: *std.ArrayList(u8), chain: usize, gar
         preparation_allocs += allocator.allocs - allocations;
         const batch = try store.beginWrite(ticket);
         root_ids += batch.collection.?.roots.len;
-        // Count predicted root-origin lookups, not all backend reads. The
+        // Count predicted root-origin lookups, not all engine reads. The
         // baseline crossed clearing within its first batch; a clean custody
         // cycle begins directly in roots. Restart clearing is a separate barrier.
         const seeds = before.tracing() or before.phase == .idle;
         if (seeds) for (batch.collection.?.roots) |id| {
             seed_lookups += 1;
             const key = "gm".* ++ id.key();
-            if (backend.rows.get(.{ .bytes = key, .length = key.len }) != null) already_marked += 1;
+            if (engine.rows.get(.{ .bytes = key, .length = key.len }) != null) already_marked += 1;
         };
         try std.testing.expectError(error.Busy, store.acquire(ids[0]));
-        const outcome = backend.commit(batch);
+        const outcome = engine.commit(batch);
         try store.completeWrite(ticket, outcome);
         if (outcome != .committed) return error.CollectionFailed;
         trace_steps += store.metadata.collection.head - before.head;
@@ -100,13 +100,13 @@ fn measure(init: std.process.Init, report: *std.ArrayList(u8), chain: usize, gar
     }
     if (store.metadata.objects != chain or store.metadata.collection.reclaimed_objects != garbage or trace_steps != chain) return error.InvalidCollection;
     if (root_ids != held or seed_lookups != held or already_marked != 0 or allocator.scratch_allocs - scratch_before != 1) return error.RepeatedCollectionCustody;
-    try r.emit(init.gpa, report, "collection_cost backend=volatile chain={d} garbage={d} held={d} work_limit={d} batches={d} commits={d} submitted_root_ids={d} root_key_bytes_hashed={d} predicted_seed_mark_lookups={d} pre_batch_marked_seeds={d} traced_records={d} reclaimed={d} prepare_allocs={d} scratch_allocs={d} foreground_fences={d}\n", .{
+    try r.emit(init.gpa, report, "collection_cost engine=volatile chain={d} garbage={d} held={d} work_limit={d} batches={d} commits={d} submitted_root_ids={d} root_key_bytes_hashed={d} predicted_seed_mark_lookups={d} pre_batch_marked_seeds={d} traced_records={d} reclaimed={d} prepare_allocs={d} scratch_allocs={d} foreground_fences={d}\n", .{
         chain, garbage, held, work, batches, batches, root_ids, root_ids * 33 * 2, seed_lookups, already_marked, trace_steps, garbage, preparation_allocs, allocator.scratch_allocs - scratch_before, batches,
     });
 }
 
-fn finish(store: *core.Store, backend: *g.loam.Volatile, ticket: core.Ticket) !void {
-    const outcome = backend.commit(try store.beginWrite(ticket));
+fn finish(store: *core.Store, engine: *g.loam.Volatile, ticket: core.Ticket) !void {
+    const outcome = engine.commit(try store.beginWrite(ticket));
     try store.completeWrite(ticket, outcome);
     if (outcome != .committed) return error.CommitFailed;
 }

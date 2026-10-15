@@ -1,52 +1,57 @@
 #lang racket/base
-;; A one-shot tasks client for the cross-language demo, in native Racket:
-;; connect, add a task, list, mark it done, list again, confirm, and exit. The
-;; same sequence every other language's one-shot client runs, on one OCapN wire.
+;; A one-shot tasks client for the cross-language demo, in native Racket: join
+;; the board and watch it, add a task, mark it done, print both lists, and exit 0
+;; once the task shows up under "Done" and the watcher saw the board change.
 ;;
-;;   racket client.rkt 127.0.0.1 9099 rkt-alan "buy groceries"
+;;   racket client.rkt 127.0.0.1 9099 <board-name> rkt-alan "buy groceries"
 
-(require "task-client.rkt")
+(require racket/list
+         "task-client.rkt")
 
-(define (run-client host port nick text)
-  (define b (board-join host port))
-  (define id (board-add b (format "[~a] ~a" nick text)))
-  (printf "~a: added task #~a\n" nick id)
+(define (run-client host port name nick task)
+  (define b (board-join host port name))
+  (define text (format "[~a] ~a" nick task))
+  (define w (board-watch b))
+  (define t (board-add b text))
+  (printf "~a: added a task\n" nick)
+  (board-done b t)
+  (printf "~a: marked it done\n" nick)
+
+  (define lists (board-lists b))
+  (for ([l (in-list lists)])
+    (printf "~a: ~a: ~a task(s)\n" nick (task-list-name l) (length (task-list-tasks l)))
+    (for ([t (in-list (task-list-tasks l))])
+      (printf "  ~a\n" t)))
   (flush-output)
+  (define watched? (watcher-changed? w))
+  (watcher-stop w)
+  (board-leave b)
 
-  (define before (board-list b))
-  (printf "~a: ~a task(s) on the board\n" nick (length before))
-  (for ([t (in-list before)])
-    (printf "  ~a #~a ~a\n" (if (task-completed? t) "[x]" "[ ]") (task-id t) (task-text t)))
-  (flush-output)
-
-  (board-done b id)
-  (printf "~a: completed task #~a\n" nick id)
-  (flush-output)
-
-  (define after (board-list b))
-  (define ours (findf (lambda (t) (= (task-id t) id)) after))
   (cond
-    [(and ours (task-completed? ours))
-     (printf "~a: confirmed task #~a is done\n" nick id)
-     (flush-output)]
+    [(member text (task-list-tasks (second lists)))
+     (printf "~a: confirmed the task is done\n" nick)
+     (cond
+       [watched? (printf "~a: the watcher saw the board change\n" nick)]
+       [else
+        (eprintf "~a: FAIL, the watcher saw no change\n" nick)
+        (exit 1)])]
     [else
-     (eprintf "~a: FAIL, task #~a not marked completed\n" nick id)
-     (board-leave b)
-     (exit 1)])
-  (board-leave b))
+     (eprintf "~a: FAIL, the task is not in the done list\n" nick)
+     (exit 1)]))
 
 (module+ main
   (define args (current-command-line-arguments))
-  (when (< (vector-length args) 4)
-    (eprintf "usage: client.rkt <host> <port> <nick> <task-text>\n")
+  (when (< (vector-length args) 5)
+    (eprintf "usage: client.rkt <host> <port> <board-name> <nick> <task-text>\n")
     (exit 2))
-  (define host (vector-ref args 0))
-  (define port (string->number (vector-ref args 1)))
-  (define nick (vector-ref args 2))
-  (define text (vector-ref args 3))
+  (define nick (vector-ref args 3))
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
                      (eprintf "client ~a failed: ~a\n" nick (if (exn? e) (exn-message e) e))
                      (exit 1))])
-    (run-client host port nick text)
+    (run-client (vector-ref args 0)
+                (string->number (vector-ref args 1))
+                (vector-ref args 2)
+                nick
+                (vector-ref args 4))
     (exit 0)))

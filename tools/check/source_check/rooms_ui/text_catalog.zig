@@ -52,7 +52,14 @@ fn looksSpoken(value: []const u8) bool {
     // `ArrowLeft ArrowRight`, where every word carries a capital inside it.
     if (std.mem.indexOfAny(u8, value, "=[") != null) return false;
     if (isPascalList(value)) return false;
+    if (isNameList(value)) return false;
     if (isPathData(value)) return false;
+    // A call, as in a CSS value like `rgb(0 0 0 / 0.5)`. Prose puts a space
+    // before an opening parenthesis.
+    for (value[1..], 1..) |c, i| {
+        const before = value[i - 1];
+        if (c == '(' and (std.ascii.isAlphanumeric(before) or before == '-')) return false;
+    }
     // A selector or a media query starts with its own punctuation, and no
     // selector has a space right after its opening mark. A sentence that
     // opens with a rendered mark does: `#${room} is already live here.`
@@ -101,6 +108,22 @@ fn isPascalList(value: []const u8) bool {
     return true;
 }
 
+/// A list of three or more names, `img, svg, video`: lowercase single words
+/// between commas. Prose has two words side by side, a capital, or an end
+/// mark.
+fn isNameList(value: []const u8) bool {
+    var items = std.mem.splitSequence(u8, std.mem.trimEnd(u8, value, ", "), ", ");
+    var count: usize = 0;
+    while (items.next()) |item| {
+        if (item.len == 0) return false;
+        for (item) |c| {
+            if (!std.ascii.isLower(c) and !std.ascii.isDigit(c) and c != '-') return false;
+        }
+        count += 1;
+    }
+    return count >= 3;
+}
+
 /// An SVG path: every letter in it is a drawing command standing alone
 /// between numbers, which no sentence is.
 fn isPathData(value: []const u8) bool {
@@ -129,6 +152,40 @@ fn withoutHoles(gpa: std.mem.Allocator, value: []const u8) ![]u8 {
         at += 1;
     }
     return out.toOwnedSlice(gpa);
+}
+
+/// JSX text with its `{…}` expressions cut out, so `Message {name} directly`
+/// is judged on the words around the expression. Null when a brace is left
+/// unpaired or nested, which is code (an opening block, an object) rather
+/// than text.
+fn withoutJsxHoles(gpa: std.mem.Allocator, value: []const u8) !?[]u8 {
+    var out = try std.ArrayList(u8).initCapacity(gpa, value.len);
+    errdefer out.deinit(gpa);
+    var at: usize = 0;
+    while (at < value.len) {
+        switch (value[at]) {
+            '{' => {
+                const close = std.mem.indexOfAnyPos(u8, value, at + 1, "{}") orelse {
+                    out.deinit(gpa);
+                    return null;
+                };
+                if (value[close] == '{') {
+                    out.deinit(gpa);
+                    return null;
+                }
+                at = close + 1;
+                continue;
+            },
+            '}' => {
+                out.deinit(gpa);
+                return null;
+            },
+            else => {},
+        }
+        out.appendAssumeCapacity(value[at]);
+        at += 1;
+    }
+    return try out.toOwnedSlice(gpa);
 }
 
 /// Lines the check does not read: comments, imports, what goes to the log or
@@ -211,7 +268,8 @@ fn quotedLabelArm(report: *Report, line: []const u8) !void {
 }
 
 /// JSX text that opens after a tag on this line: the run from a `>` to the
-/// next `<` or `{`, or to the end of the line when the text carries on below.
+/// next `<`, or to the end of the line when the text carries on below, with
+/// its `{…}` expressions cut out.
 fn inlineTextArm(report: *Report, line: []const u8) !void {
     var at: usize = 0;
     while (std.mem.indexOfScalarPos(u8, line, at, '>')) |gt| {
@@ -221,18 +279,20 @@ fn inlineTextArm(report: *Report, line: []const u8) !void {
         const rest = line[gt + 1 ..];
         var end = rest.len;
         for (rest, 0..) |c, i| {
-            if (c == '<' or c == '{') {
+            if (c == '<') {
                 end = i;
                 break;
             }
         }
-        const segment = std.mem.trim(u8, rest[0..end], " \t\r");
+        at = gt + 1 + end;
+        const words = try withoutJsxHoles(report.gpa, rest[0..end]) orelse continue;
+        defer report.gpa.free(words);
+        const segment = std.mem.trim(u8, words, " \t\r");
         if (std.mem.indexOfAny(u8, segment, "=;()\"`") != null) continue;
         // What follows a generic's closing angle is code: a comma, a colon,
         // a paren, a bar.
         if (segment.len > 0 and std.mem.indexOfScalar(u8, ",:)|&]}", segment[0]) != null) continue;
         if (looksSpoken(segment) or looksLabel(segment)) try report.say("JSX text", segment);
-        at = gt + 1 + end;
     }
 }
 
@@ -240,12 +300,21 @@ fn inlineTextArm(report: *Report, line: []const u8) !void {
 /// opened it. The lines of an object literal, a type, or a ternary wrapped
 /// over several lines look like text to a character count and are told
 /// apart by their shape: a leading operator or keyword, a key followed by
-/// its colon, or a member access with no space around the dot.
-fn textLineArm(report: *Report, line: []const u8) !void {
-    if (std.mem.indexOfAny(u8, line, "<>{}=;()\"`|&+[]") != null) return;
+/// its colon, or a member access with no space around the dot. A `{…}`
+/// expression in the text is cut out first, as on the screen it is a value.
+fn textLineArm(report: *Report, raw: []const u8) !void {
+    const words = try withoutJsxHoles(report.gpa, raw) orelse return;
+    defer report.gpa.free(words);
+    const line = std.mem.trim(u8, words, " \t\r");
+    if (std.mem.indexOfAny(u8, line, "<>=;()\"`|&+[]*") != null) return;
+    // Arithmetic in an argument list wrapped over several lines, `x - REACH,`.
+    // A sentence here has no dash at all.
+    if (std.mem.indexOf(u8, line, " - ") != null) return;
     if (line.len == 0) return;
     if (line[0] == '?' or line[0] == ':' or line[0] == '.') return;
     if (std.mem.indexOf(u8, line, "??") != null or std.mem.indexOf(u8, line, "?.") != null) return;
+    // A ternary, `local ? { … } : { … },`, which no sentence spells.
+    if (std.mem.indexOf(u8, line, " ? ") != null) return;
     // `name as OTHER_NAME,` inside an import or export list.
     if (std.mem.indexOf(u8, line, " as ") != null and std.mem.count(u8, line, " ") == 2) return;
     for ([_][]const u8{
@@ -371,4 +440,27 @@ test "a sentence that opens with a rendered mark is prose; selector shapes are n
     try std.testing.expect(!looksSpoken("#boot .boot-mark"));
     // The ordinary sentence verdict is unchanged.
     try std.testing.expect(looksSpoken("Something went wrong. Try again later."));
+}
+
+test "a CSS value is not prose, and a sentence with an aside is" {
+    try std.testing.expect(!looksSpoken("radial-gradient(ellipse 62% 56% at 50% 44%, rgb(0 0 0 / ), "));
+    try std.testing.expect(!looksSpoken("rgb(0 0 0 / ) 55%, #000 96%)"));
+    try std.testing.expect(looksSpoken("Paste the link (the one it printed) here."));
+}
+
+test "a list of names is not prose, and a list in a sentence is" {
+    try std.testing.expect(!looksSpoken("img, svg, video, canvas, iframe, audio, object, embed"));
+    try std.testing.expect(!looksSpoken("a, button, input, textarea, "));
+    try std.testing.expect(looksSpoken("Rooms, members, and messages stay here."));
+    try std.testing.expect(looksSpoken("rooms, members and messages"));
+}
+
+test "JSX text is judged with its expressions cut out, and a lone brace is code" {
+    const gpa = std.testing.allocator;
+    const words = (try withoutJsxHoles(gpa, "Message {view.name} directly")).?;
+    defer gpa.free(words);
+    try std.testing.expectEqualStrings("Message  directly", words);
+    try std.testing.expect(looksSpoken(words));
+    try std.testing.expect(try withoutJsxHoles(gpa, "} else {") == null);
+    try std.testing.expect(try withoutJsxHoles(gpa, "{ a: { b } }") == null);
 }

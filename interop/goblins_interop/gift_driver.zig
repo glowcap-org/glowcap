@@ -59,7 +59,7 @@ const route_hint_bytes = @as([64]u8, @splat(0xa5));
 const Introducer = struct {
     greeter: driver.Capability,
 
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = ht;
         _ = args;
         if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
@@ -213,6 +213,7 @@ fn gifterStep(
     var serving_joined = false;
     defer if (!serving_joined) {
         done.store(true, .release);
+        // best-effort: this unwind already returns the run's own error, and the serving thread's failure would only repeat it.
         serving.await(io) catch {};
     };
 

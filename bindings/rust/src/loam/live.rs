@@ -35,7 +35,6 @@ impl Attachment {
 					capacity,
 				)
 			},
-			false,
 		)?;
 		owner.host.schedule_kick_or_record();
 		Ok(())
@@ -54,7 +53,7 @@ impl Attachment {
 		if status == crate::sys::WOULD_BLOCK {
 			return Ok(None);
 		}
-		check(status, false)?;
+		check(status)?;
 		Ok(Some(LiveMarker(marker.key)))
 	}
 }
@@ -88,7 +87,6 @@ impl Attachment {
 			// SAFETY: as `start_live` above, for `owner.raw.get()`; `generation` is a local out-parameter the callee
 			// writes.
 			unsafe { ffi::glowcap_loam_live_generation(owner.raw.get(), &mut generation) },
-			false,
 		)?;
 		let generation = core::num::NonZeroU64::new(generation)
 			.ok_or_else(|| super::refusal("invalid confirmed live generation"))?;

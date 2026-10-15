@@ -306,11 +306,8 @@ pub const Served = struct {
     /// A message longer than the buffer is truncated. A malformed abort view is
     /// ignored, leaving any earlier retention in place.
     fn retainAbort(self: *Served, event: *const engine.Event) void {
-        const body = event.view() catch |err| {
-            self.port.peer.recordFailure(err);
-            return;
-        };
-        const abort = switch (body) {
+        const body = event.view();
+        const abort = switch (body.*) {
             .abort => |abort| abort,
             else => return,
         };
@@ -450,6 +447,18 @@ pub const Served = struct {
     /// Fire-and-forget eventual-send (`<-np`): enqueue a deliver with no answer.
     pub fn tell(self: *Served, vat: *actors.Vat, target: actors.Ref, msg: actors.Message) !void {
         return self.port.tell(vat, target, msg);
+    }
+
+    /// `send` for a delivery whose arguments may be lent as views
+    /// (`Port.sendDelivery`).
+    pub fn sendDelivery(self: *Served, vat: *actors.Vat, target: actors.Ref, delivery: actors.Delivery) !actors.Vow {
+        return self.port.sendDelivery(vat, target, delivery);
+    }
+
+    /// `tell` for a delivery whose arguments may be lent as views
+    /// (`Port.tellDelivery`).
+    pub fn tellDelivery(self: *Served, vat: *actors.Vat, target: actors.Ref, delivery: actors.Delivery) !void {
+        return self.port.tellDelivery(vat, target, delivery);
     }
 
     /// Register a one-shot listener on `vow`.

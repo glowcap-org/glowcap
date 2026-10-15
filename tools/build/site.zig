@@ -32,9 +32,9 @@ pub const Context = struct {
 /// The step handles the root's `bindings` aggregate wires: the site example
 /// checks whose language runtime the binding dogfoods already require.
 pub const Registered = struct {
-    /// The Zig snippet check, returned because the root's iroh section
-    /// attaches its two iroh snippet compiles to it (the one named exception
-    /// to in-module discovery).
+    /// The Zig snippet check, returned because the root's iroh and WebRTC
+    /// sections attach their resident-backed snippet compiles to it (the
+    /// named exceptions to in-module discovery).
     zig_examples_check: *std.Build.Step,
     python_examples_check: *std.Build.Step,
     rust_examples_check: *std.Build.Step,
@@ -95,10 +95,10 @@ pub fn register(ctx: Context) Registered {
     // list beside the generator's matrix, so a snippet the matrix gains
     // cannot ship unchecked. A `PLANNED:` marker excludes a snippet exactly
     // as `tools/check/site_binding_examples.py` excludes it, and that checker
-    // holds planned snippets to comment-only bodies. The iroh Zig tabs are
-    // compiled beside the iroh resident module, and the relay Zig tabs beside
-    // the native relay module, because those modules stay outside the default
-    // glowcap graph.
+    // holds planned snippets to comment-only bodies. The iroh and WebRTC Zig
+    // tabs are compiled beside their resident modules, and the relay Zig tabs
+    // beside the relay TLS module, because those modules stay outside the
+    // default glowcap graph.
     // Walk the snippet dirs from the build root, not process cwd. `zig build`
     // from a subdirectory still loads this `build.zig`, and `Dir.cwd()` would
     // miss `site/examples/` and panic before any step ran. Later compile
@@ -124,6 +124,7 @@ pub fn register(ctx: Context) Registered {
             const is_zig = std.mem.endsWith(u8, entry.name, ".zig");
             if (!is_zig and !std.mem.endsWith(u8, entry.name, ".ts")) continue;
             if (is_zig and (std.mem.eql(u8, entry.name, "iroh.zig") or
+                std.mem.eql(u8, entry.name, "webrtc.zig") or
                 std.mem.endsWith(u8, entry.name, "-relay.zig"))) continue;
             const path = b.fmt("{s}/{s}", .{ dir_path, entry.name });
             const body = snippets_root.readFileAlloc(snippets_io, path, b.allocator, .limited(1 << 20)) catch |err|

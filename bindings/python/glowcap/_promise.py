@@ -74,7 +74,7 @@ async def _fetch_like(session, swiss: bytes, label: str, mint, track: bool) -> R
 
 def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromise:
     # Adopt a freshly minted Host vow into one public wrapper. Every fallible
-    # setup step either acquires its owner or parks native release.
+    # setup step either acquires its owner or parks FFI release.
     async def begin():
         session.serve()  # the settle's bytes arrive on the inbound loop
         settled = session.host.await_vow(vow)
@@ -122,7 +122,7 @@ def _promise_for(session, vow: int, *, pipelineable: bool = True) -> RemotePromi
         session.serve()
         session.host.schedule_kick()
         # Last fallible adoption step: after this succeeds, returning the
-        # wrapper transfers the native vow to its finalizer.
+        # wrapper transfers the FFI vow to its finalizer.
         session.gc.track_vow(promise, vow)
         return promise
     except BaseException as failure:
@@ -264,7 +264,7 @@ class RemotePromise(asyncio.Future):
 
     @property
     def vow(self) -> Optional[int]:
-        """Native Host vow when present (convenience, not the discriminant)."""
+        """FFI Host vow when present (convenience, not the discriminant)."""
         if isinstance(self._kind, (PromiseState.Far, PromiseState.Observer)):
             return self._kind.vow
         return None

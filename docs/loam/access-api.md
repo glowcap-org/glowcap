@@ -1,36 +1,44 @@
+---
+type: static
+description: The model and API sketch for managed access, covering resource definitions, scope and policy rules, held access, and management operations.
+audience: human
+sources:
+  - resource: /src/loam/access/
+  - resource: /bindings/rust/src/loam/
+---
+
 # Managed access model and API sketch
 
-This contract specifies resource definitions, scope and policy algebra, held
-access, and management operations for `glowcap.loam.access`. The notation is
-illustrative, and Rust examples describe a consumer of the shared Zig
-implementation. For the APIs you can call today, use the
-[managed access guide](access.md) and the [C/Rust guide](c-and-rust.md).
+This page sketches how an application defines resources, scopes, policies,
+held access, and management calls in `glowcap.loam.access`. The notation is
+illustrative, and the Rust examples show code that uses the shared Zig
+implementation. For the calls you can make, see the
+[managed access guide](access.md) and the [C and Rust guide](c-and-rust.md).
 
-## The product an application imports
+## What an application gets
 
-Managed access provides a resource graph, scoped access grants, and the
-machinery that keeps held facets subject to those grants. An application
-supplies content, operation meanings, and policy definitions. Host integration
-binds those decisions to local or remote capabilities. Loam supplies shared
-persistence and residency, and scheduling stays in the Host, Vat, and embedding
-executor. The Rust notation below illustrates the wider model and hosting
-contract. The implemented [Rust profile](c-and-rust.md) exposes fixed-resource
-lifecycle operations under `glowcap::loam` and does not project every API in
-this sketch.
+Managed access gives an application a tree of resources, grants that cover
+parts of it, and the machinery that keeps every held facet within its grant.
+The application supplies the content, what each operation means, and its
+policies. The Host turns those decisions into local or remote capabilities.
+Loam stores everything and decides what stays in memory, and the Host, Vat,
+and your program's executor do the scheduling. The
+[Rust API](c-and-rust.md) covers creating, using, and retiring fixed
+resources under `glowcap::loam` and does not offer everything sketched here.
 
-There are three API surfaces, with distinct callers:
+Three kinds of code call into it:
 
-| Surface | Caller | Purpose |
+| Part | Caller | What it does |
 | --- | --- | --- |
-| Model | Application author | Define resources, typed policies, content effects, and persistence transactions without network I/O. |
-| Hosting | Application host | Serve the model through real capabilities, enforce calls, and retain or restore publications. |
-| Use and management | Local or remote recipient | Call a resource, inspect held access, create permitted shares, and control grants it holds. |
+| Model | Application author | Defines resources, typed policies, content changes, and transactions, with no network I/O. |
+| Hosting | Application host | Serves the model as real capabilities, checks calls, and keeps or restores durable names. |
+| Use and management | Local or remote holder | Calls a resource, inspects its own access, makes permitted shares, and controls the grants it holds. |
 
-The portable model has no socket, task executor, browser dependency, or global
-grant registry. The hosting surface uses glowcap's public reference and actor
-interfaces. Sharing an ordinary reference remains an ordinary capability
-handoff, and managed access does not replace CapTP identity, retain/release, or
-handoff tables.
+The model has no socket, task executor, browser dependency, or global list
+of grants. Hosting uses glowcap's public reference and actor interfaces.
+Passing an ordinary reference is still an ordinary capability handoff, and
+managed access leaves CapTP's identities, reference counts, and handoff
+tables alone.
 
 ## Identities, references, and relationships
 
@@ -59,18 +67,21 @@ enum Entry<C> {
 }
 ```
 
-An owned child belongs to the same authority store. A linked entry retains a
-capability and may point to another owner. Moving a link changes its
-placement. Reparenting owned content is a separate authority-sensitive change.
-Resource IDs survive renaming and restart with the same state. Recreating a
-destroyed resource uses a fresh generation. A display path never selects an
-authority source or reconstructs a capability.
+- An owned child belongs to the same owner.
+- A linked entry holds a capability and may point to another owner. Moving a
+  link changes only where it sits.
+- Moving owned content to a new parent is a separate change that needs its own
+  permission.
+- Resource IDs survive renames and restarts. A resource created again after
+  it was destroyed gets a new generation.
+- A display path never picks where authority comes from or rebuilds a
+  capability.
 
-`Resource<I>` is a typed client view over a real reference. Its common resource
-operations and application operations are served through that reference, with
-generated method namespaces preventing collisions. Types check local API use,
-and remote values and replies still require validation. Decoding an ID or
-trusting a remote type label does not construct a resource.
+`Resource<I>` is a typed client view over a real reference. Common resource
+calls and application calls both go through that reference, and generated
+method namespaces keep their names apart. Types check local use of the API,
+but remote values and replies still need checking. Decoding an ID, or
+trusting a type label a remote peer sent, never produces a resource.
 
 ## Scope and policy
 
@@ -104,24 +115,26 @@ enum SourceAuthority {
 }
 ```
 
-`Objects` is bounded and canonical. `OwnedSubtree` follows owned containment and
-not arbitrary links. It includes future owned descendants, and that continuing
-authority is disclosed when issued. A fixed selection uses `Objects` instead.
-Reparenting can change subtree coverage, so it requires authorized graph and
-audience changes in the same transaction. Scope checks use the committed graph
-revision, and no tree move retargets an exact-object grant.
+`Objects` is a bounded set kept in a fixed order. `OwnedSubtree` follows owned
+children, not links. It also covers children added later, and the issuer is
+told so when the grant is made. Use `Objects` for a fixed set. Moving a
+resource can change which subtrees cover it, so a move needs permission for
+both the tree change and the change in who can see it, in the same
+transaction. Scope checks use the committed tree, and moving a resource never
+redirects a grant for one exact object.
 
-`Projection` represents an application-declared part of an operation, such as
-reading an attachment through a message. Its relation is schema-defined and
-validated against committed facts, and it is not a traversal from an ID. The
-projection retains its anchor's grant dependency and the underlying target
-capability. Scope containment alone cannot authorize following a link.
+`Projection` covers a relation the application declares between two
+resources, such as reading a file attached to a message. The schema defines
+the relation and checks it against committed facts, so it is never a walk
+from a raw ID. A projection keeps its anchor's grant and the capability to
+the target. Being inside a scope is never enough to follow a link.
 
-A policy belongs to an authority domain and keeps the same permission keys
-across resource kinds. A room grant can therefore derive message-scoped access.
-The [implemented kind contract](access.md#policy-and-interface-support) defines support
-for exact objects, mixed selections and future owned descendants. Application
-projections still require their declared relations and exact content facts.
+A policy belongs to one owner and keeps the same permission keys across
+resource kinds, so a room grant can create access to one message.
+[Policy and interface support](access.md#policy-and-interface-support) says
+how a grant covers one object, a chosen set, and children added later.
+Application projections still need their declared relations and the exact
+content facts.
 
 ```rust
 trait Policy {
@@ -134,28 +147,28 @@ trait Policy {
 }
 ```
 
-Descriptors register bounded permission sets, constraint operators, and fact
-relations with the Zig model. Requirement encoding maps application operations
-to that vocabulary. Zig owns validation, scope containment, narrowing,
-intersection, dependency traversal, and effective-authority evaluation.
-Applications do not implement those algorithms through policy callbacks.
+A descriptor registers the permissions, constraint operators, and fact
+relations a policy uses with the Zig model, and requirement encoding maps
+application operations onto them. Zig owns checking, scope containment,
+narrowing, intersection, walking dependencies, and working out the access in
+effect. Applications never implement those through policy callbacks.
 
-Facts provide validated resource metadata under the owner's current
-transaction. They are not a network client or an unrestricted mutable store.
-Application hooks may supply committed facts or a bounded domain predicate but
-cannot override graph scope, grant ceilings, or lifecycle. Unknown schema values
-and unsupported combinations fail closed. The shared algebra needs fixtures and
-property tests, and each application proves its requirement and fact mappings.
+Facts are checked resource metadata read inside the owner's current
+transaction. They are not a network client or a store anyone can write.
+Application hooks can supply committed facts or a bounded check of their own,
+but cannot override the tree scope, a grant's limits, or its status. Unknown
+schema values and unsupported combinations are refused.
 
-Permissions need not all be Boolean. Constraint intersection chooses the
-stricter history boundary or smaller quota. Presets are application-defined
-values over this policy. The library owns their descriptor shape and scoped
-application rules, and the application owns the meaning of a name such as
-Observer.
+Permissions need not all be on or off. Intersecting two constraints keeps the
+stricter history limit or the smaller quota. Presets are values the
+application defines over its policy. The library owns their shape and how
+they apply to a scope, and the application decides what a name such as
+Observer means.
 
-Effective access is computed from configured terms, issuance ceiling, current
-local ancestors, and lifecycle. Remote dependency enforcement stays at the
-retained upstream capability. A cached descriptor cannot authorize an act.
+The access in effect comes from the grant's own terms, the limit it was
+issued with, the local grants above it as they are now, and its status. A
+grant that depends on a remote one is enforced by the remote capability it
+holds, not locally. A cached description never authorizes anything.
 
 ## A concrete Rooms definition
 
@@ -199,17 +212,16 @@ struct MessageData {
 }
 ```
 
-Rooms supplies `RoomsPolicy` and the operation-to-requirement mapping. An edit
-checks author facts against the admitted membership relationship, and a
-nickname or caller-provided author field is insufficient. `Attachments` checks
-the message scope and returns file facets derived through that access, never
-raw stored file references that escape the message grant.
+Rooms supplies `RoomsPolicy` and the mapping from each operation to its
+requirement. An edit checks the author against the caller's membership, so a
+nickname or an author field from the caller is not enough. `Attachments`
+checks the message scope and returns file facets made through that access,
+never raw stored file references that would escape the message grant.
 
-A message share narrows its parent's scope while preserving the applicable
-history constraint. The policy evaluates the target message's creation facts.
-Creating a new share cannot reclassify an old message as newly posted content.
-Passing an independently handed-out reference is a separate operation under the
-resource model's direct-sharing contract.
+Sharing one message narrows the parent's scope and keeps its history limit.
+The policy checks when the message was created, so a new share cannot make an
+old message count as newly posted. Passing on a reference handed out some
+other way is a separate operation under the rules for direct sharing.
 
 ## Consumer and management API
 
@@ -238,20 +250,20 @@ let room: Resource<Room> = access::hosting::publish_original(
 )?;
 ```
 
-`bootstrap` is a trusted local operation available only on an empty owner.
-The publication ticket is created by that transaction and cannot be constructed
-from the returned message ID. Later creation and publication require admitted
-capabilities. `create_owned` changes both graph and content under one owner.
-`link` retains exact existing access and adds placement without reparenting
-the target. `RoomsContent` supplies storage for the concrete payload types.
+`bootstrap` is trusted local code that runs only on an empty owner. The
+transaction creates the durable name's ticket, which cannot be built from the
+returned message ID. Later creates and publications need capabilities that
+allow them. `create_owned` changes both the tree and the content under one
+owner. `link` keeps the exact access it was given and adds a placement
+without moving the target. `RoomsContent` stores the concrete payload types.
 
-`hosting::register` installs behavior on the existing Host. Its registration
-handle owns no Host, Vat, driver, scheduler, or event loop and cannot close the
-Host. Publication uses Host machinery. Restored owners use their retained
-identity, publication records, and content instead of `bootstrap`. The typed
-resource API also supplies scoped collection listing, opening entries,
-insertion, unlinking, and authorized reparenting. Each operation declares
-target requirements and bounded cursor and output behavior.
+`hosting::register` installs behavior on the existing Host. The registration
+handle owns no Host, Vat, driver, scheduler, or event loop and cannot close
+the Host. Durable names use the Host's own machinery. A restored owner uses
+its saved identity, durable names, and content instead of `bootstrap`. The
+typed resource API also lists a collection within scope, opens entries,
+inserts, unlinks, and moves resources where allowed. Each call declares what
+it needs on its target and bounds its cursor and output.
 
 ### Using and managing held access
 
@@ -293,31 +305,36 @@ impl<P: Policy> GrantControl<P> {
 }
 ```
 
-Holding the invoked reference conveys authority to exercise its grant, with no
-additional credential. The internal record ID is how the owner locates the grant
-behind that reference. The Zig `GrantUse` and `GrantControl` supply this
-binding. The hosted API above remains proposed.
+Holding the reference you call is the permission to use its grant, with no
+other credential. The owner finds the grant behind that reference by its
+internal record ID. Zig's `GrantUse` and `GrantControl` make this link, and
+the hosted API above is still a proposal.
 
-`derive` requires delegation authority on the held source. A resource with use
-authority alone refuses it. `Issued.control` is bounded to the branch created.
-The recipient receives it only if the issuer shares it. A resource
-administrator has a separately held control over the authorized inventory.
-`children` and `watch` expose only that control's scope and bounded data.
-Changes are committed events. An opaque scoped cursor resumes observation.
-Missing retained history requires an authorized snapshot and matching cursor.
-The [observation contract](access-architecture.md#observable-access-changes)
-defines branch changes, use-facet notices, terminal delivery, and recovery.
+- `derive` needs permission to share on the held source. A resource with use
+  permission alone refuses it.
+- `Issued.control` covers only the branch it created. The recipient gets it
+  only if the issuer passes it on.
+- A resource administrator holds a separate control over the grants it may
+  see. `children` and `watch` show only that control's scope and bounded
+  data.
+- Changes are committed events. An opaque cursor scoped to the holder resumes
+  watching, and if the history it needs has expired, the holder gets a fresh
+  snapshot and a matching cursor.
+  [Observable access changes](access-architecture.md#observable-access-changes)
+  covers branch changes, notices to use facets, the final notice, and
+  recovery.
+- `make_durable` needs permission to publish and an owner that can restore
+  the reference. It publishes the same access without creating a child grant
+  or adding owner powers. A volatile owner returns `DurabilityUnavailable`.
+- A persistent share records the grant and its durable name before returning
+  `Issued`.
+- Publishing a control durably is a separate step. Copying the use link never
+  includes it, so a control can stay live-only while its use facet is durable.
 
-`make_durable` requires publication authority and a capable restoration owner.
-It publishes the same authority without minting a child grant or adding owner
-powers. A volatile owner returns `DurabilityUnavailable`. Persistent issuance
-records the grant and publication identity before returning `Issued`.
-Durable control publication is an explicit separate action. Copying the use
-link never includes it. A control can remain live while its use facet is durable.
-
-Application interfaces supply typed convenience methods such as `message.read()`
-over `call`. Only methods a peer implements are usable. An unknown interface or
-access method produces typed unavailability and no broader fallback.
+Application interfaces add typed helpers such as `message.read()` over
+`call`. Only methods a peer implements can be used. An unknown interface or
+access method returns a typed error and never falls back to something
+broader.
 
 ## Sharing and editing a message
 
@@ -350,22 +367,23 @@ issued.control.revoke(new_operation(), resumed.revision).await?;
 // Enlivening durable_link cannot recreate working access to this revoked grant.
 ```
 
-Choosing equal permission sets instead of read-only still creates a separately
-managed facet. Its administration can derive only within its dependency and
-cannot mint an original reference. Copying that facet keeps the same grant, and
-the recipient's knowledge of the source identity does not allow fetching the
-source's stronger reference.
+Choosing the same permissions instead of read-only still creates a separately
+managed facet. Its control can share only within its own grant and cannot
+create an original reference. Copying that facet keeps the same grant, and
+knowing the source's identity does not let the recipient fetch the source's
+stronger reference.
 
-The session editor uses `set_policy`, preserving scope when a permission preset
-changes. Editing a paused grant keeps it paused. A stale revision returns
-`Conflict` with a fresh scoped view. The UI retains the draft. Labels and preset
-names never enter publication identity or independently authorize an operation.
+The session editor calls `set_policy`, which keeps the scope when a
+permission preset changes. Editing a paused grant leaves it paused. A stale
+revision returns `Conflict` with a fresh view, and the UI keeps the draft.
+Labels and preset names never become part of a durable name or allow
+anything on their own.
 
 ## Serving a call and committing its effects
 
-The host adapter obtains a private `Invocation` from the actual called facet.
-It contains the local owner binding and source authority. Network input cannot
-supply a replacement invocation by serializing a resource or grant ID.
+The host code gets a private `Invocation` from the facet that was actually
+called. It carries the local owner and the grant behind the call. Network
+input cannot swap in another invocation by sending a resource or grant ID.
 
 ```rust
 // Preparation and commit within an owner are serialized; no user callback yields.
@@ -382,54 +400,53 @@ let effects = installed.result(staged)?;
 access::hosting::deliver(&existing_host, &registration, effects).await?;
 ```
 
-`stage` produces a bounded proposed change without modifying committed state
-or exposing new capabilities. The private admission is bound to the
-invocation, target, requirements, and graph and policy revisions. The
-transaction API accepts it only for the prepared operation, and it cannot be
-cached as a future permission. Application code is trusted to classify all of
-its effects.
+`stage` produces a bounded proposed change without changing committed state
+or handing out new capabilities. The private permission result is tied to the
+invocation, the target, the requirements, and the tree and policy revisions.
+The transaction accepts it only for the operation it was prepared for, and it
+cannot be cached as permission for later. Application code is trusted to
+declare all of its effects.
 
-Storage executes outside the synchronous model. While a prepared durable
-mutation is pending, that owner's conflicting mutations return busy or wait
-in the application's bounded command queue. Managed access owns no work queue.
-The Loam transaction consumes the successful storage receipt. An uncertain
-write fences the owner for recovery, and a known-unchanged failure keeps prior
-committed state. Cancellation cannot release a store while it is still writing.
+Storage runs outside the synchronous model. While a durable change is
+pending, other conflicting changes to that owner return busy or wait in the
+application's bounded command queue. Managed access owns no work queue. The
+Loam transaction takes the storage result when it succeeds. An unknown write
+stops the owner until recovery, and a write known to have changed nothing
+keeps the earlier committed state. Canceling cannot release a store while it
+is still writing.
 
-The store commits the content, graph, and grant changes that must be atomic as
-one recoverable unit. Several managed changes may join that one unit: each
-stage validates against the transaction's current composed owner state, and
-every participating change's deltas compose into one owner header mutation.
-Prepare each change against the state the previous stages left. A change
-prepared against an older revision refuses and the caller aborts, leaving no
-partial changes. Two unrelated stores do not satisfy this API, so applications
-choose a common transactional store or an explicit coordinator with
-demonstrated recovery. There is no distributed transaction across resource
-owners.
+The store commits content, tree, and grant changes that must happen together
+as one recoverable unit. Several managed changes can join that unit. Each
+one checks against the owner state the earlier ones left in the transaction,
+and all of them merge into one update to the owner's header. A change
+prepared against an older revision is refused, and the caller aborts with
+nothing written. Two unrelated stores cannot do this, so an application uses
+one shared store or its own coordinator with proven recovery. There is no
+distributed transaction across owners.
 
-Ordinary reads require no disk write. Content mutation durability follows the
-content owner's declared contract, and a grant check alone does not serialize
-the ledger. Live owners use an in-memory commit path with the same validation.
-Network publication happens after commit, and a failed publication can be
-retried using the committed identity. Revocation is enforced before cleanup
-completes.
+Ordinary reads write nothing to disk. How durable a content change is follows
+the content's declared rules, and a permission check alone writes nothing. A
+live-only owner commits in memory with the same checks. Durable names are
+published after the commit, and a failed publication can be retried with the
+committed identity.
 
-An asynchronous prerequisite, such as receiving file bytes, is staged first.
-The protected effect is admitted afterward against current authority. Delivery
-of a queued notification is also checked at delivery. Revocation does not
-recall bytes already delivered or reverse an earlier committed content change.
+Work that must wait on something first, such as receiving a file's bytes, is
+written first. The protected change is then checked against current
+permissions. A queued notification is also checked when it is delivered.
+Revoking a grant does not take back bytes already delivered or undo an
+earlier committed change.
 
-## Returned references and cross-owner operations
+## Returned references and calls across owners
 
-`ContentCall.discloseExact` implements the `existing` shape below for a bound
-prepared strong edge and refuses undeclared capabilities under
-[ADR-0172](../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md).
-`ContentCall.discloseDependent` implements the runtime `derived` shape. It keeps
-both the invoking endpoint and the stored target as live authority under
-[ADR-0173](../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md).
-Typed local and foreign fields are implemented through the
-[reference preparation API](references.md). The broader typed
-transaction output below remains proposed.
+`ContentCall.discloseExact` implements the `existing` form below for a strong
+field the call declared, and refuses capabilities it did not declare
+([ADR-0172](../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)).
+`ContentCall.discloseDependent` implements the `derived` form at run time. It
+keeps both the endpoint that was called and the stored target live
+([ADR-0173](../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)).
+Typed local and remote fields work through the
+[stored capability field API](references.md). The broader typed transaction
+output below is still a proposal.
 
 ```rust
 // During an authorized Attachments response, produce a limited output reference.
@@ -444,37 +461,39 @@ tx.output().derived::<File>(
 tx.output().existing(held_file_capability)?;
 ```
 
-The reply encoder accepts bound output references, not arbitrary resource IDs.
-The implemented local `derived` path creates a transient projection endpoint
-sharing the existing grant dependency without minting a new editable grant or
-writing storage. It propagates the calling facet's lifecycle and validates the
-declared projection from message access to attachment access, so an arbitrary
-file ID never belongs to an exact-message scope. Underlying file access stays
-bounded by the retained file capability. `existing` requires the handler's
-declared independent-handoff effect and does not unwrap a capability hidden
-behind the caller's facet. The schema and effect tests must cover every
-returned-reference path, including nested lists, subscriptions, and saved
-continuation objects.
+The reply encoder accepts these output references, never arbitrary resource
+IDs. The local `derived` path creates a short-lived endpoint that shares the
+existing grant, without creating a new editable grant or writing storage. It
+follows the calling facet's status and checks the declared relation from
+message access to file access, so an arbitrary file ID never falls inside a
+one-message scope. Access to the file stays within the stored file
+capability. `existing` needs the handler to declare a direct handoff and
+never unwraps a capability hidden behind the caller's facet. Schema and
+effect tests must cover every way a reference can come back, including
+nested lists, subscriptions, and saved continuations.
 
-A mediator on another peer holds an upstream capability and forwards allowed
-acts through it. Local restrictions can narrow or stop forwarding. Upstream
-restrictions remain enforced upstream. A local policy read does not certify
-remote availability. Revocation reports success at the owner that
-commits it, and a partition is never reported as successful remote revocation.
+A go-between on another peer holds a capability from upstream and forwards
+the calls it allows. Local limits can narrow or stop forwarding, and limits
+upstream stay enforced upstream. Reading a local policy says nothing about
+whether the remote side is available. A revoke reports success at the owner
+that commits it, and a network split is never reported as a successful
+remote revoke.
 
-Provenance consists of disclosed source identity, owner-recorded derivation, and
-placement context. Its inspection path returns data or limited navigation
-capabilities, and never control over its ancestors.
+Where a share came from is made of the source identity it reveals, the
+sharing the owner recorded, and where it was placed. Inspecting it returns
+data or limited navigation capabilities, never control over the grants above
+it.
 
-## Persistence and observable failure
+## Storage and the errors callers see
 
-The [resource storage contract](access-storage.md) specifies managed access
-record families and the authority requirements on Loam atomicity, bounded
-residency, restoration, and reclamation. Capability-valued content fields use the shared
-[stored-reference contract](access-storage.md#references-embedded-in-application-content),
-so payload, exact authority, and retention edges change atomically.
-`OwnerImage` below describes a logical recovery unit. It does not load every
-record into RAM or encode a whole-owner snapshot on each write.
+[Resource storage](access-storage.md) describes the managed access records
+and what they need from Loam's transactions, memory limits, restoring, and
+collection. Capability fields in content use the shared
+[stored reference rules](access-storage.md#references-embedded-in-application-content),
+so the payload, the exact access, and the edges that keep things alive
+change together. `OwnerImage` below describes one logical unit that recovers
+together. It never loads every record into memory or writes a snapshot of the
+whole owner on each change.
 
 ```rust
 struct OwnerImage<D, P: Policy> {
@@ -495,24 +514,25 @@ enum AccessError {
 }
 ```
 
-This is the embedding's typed view of one logical restoration unit. Loam stores
-resource and access records alongside application-owned `D`, whose contents are
-opaque to the managed access evaluator. The storage implementation can use
-pages, a journal, or database transactions, and must preserve the unit's
-identity and authority relationships. Retained external dependencies are
-restored through their sturdyrefs where available. Recording a live-only
-reference does not make it durable.
+This is your program's typed view of one unit that restores together. Loam
+stores resource and access records beside the application's own `D`, which
+the access checks never look inside. The storage can use pages, a write-ahead log,
+or database transactions, as long as it keeps the unit's identity and
+permission links. Outside dependencies are restored through their sturdyrefs
+where they have one. Recording a live-only reference does not make it
+durable.
 
-Operation receipts make issuance and policy changes retryable without minting
-extra authority. A retry with changed intent refuses. Quotas bound receipts,
-tombstones, graph size, recursion, child grants, pending effects, and inventory
-pages. A grant or owner generation is never reused to revive a revoked link.
-Error details are scoped so a denied lookup cannot reveal private siblings.
+Receipts make sharing and policy changes safe to retry without creating
+extra access. A retry with different arguments is refused. Quotas limit
+receipts, removed-record markers, tree size, nesting, child grants, pending
+changes, and listing pages. A grant or owner generation is never reused to
+bring back a revoked link. Error details are scoped, so a refused lookup
+cannot reveal private siblings.
 
 ## How this looks in Zig
 
-The policy and interface extension points have direct Zig counterparts, using
-compile-time policy parameters and explicit allocators:
+The policy and interface extension points have direct Zig counterparts, with
+policies as compile-time parameters and explicit allocators:
 
 ```zig
 const RoomsPolicy = struct {
@@ -533,9 +553,9 @@ const MessageRef = access.Resource(Message);
 const MessageControl = access.GrantControl(RoomsPolicy);
 ```
 
-`MessageRef` is the typed capability view and not a resource ID. Integration
-functions use the Host for derive, invoke, publish, and control operations over
-it. The portable model underneath still exposes explicit effect preparation:
+`MessageRef` is the typed capability view, not a resource ID. Hosting
+functions use the Host to derive, invoke, publish, and control through it.
+The model underneath still prepares each change explicitly:
 
 ```zig
 const RoomsModel = access.core.Owner(RoomsPolicy, RoomsContent);
@@ -558,73 +578,55 @@ const effects = try installed.result(change);
 try access.hosting.applyEffects(&existing_host, &registration, effects);
 ```
 
-Neither Rust nor Zig proves the application's requirement mapping, scope laws,
-durable commit ordering, or complete mediation of returned capabilities.
-
 ## The foreign-language boundary
 
-Rust embeds the Zig implementation through a C ABI. Zig helpers and
-foreign typed wrappers use the same runtime registration and access model.
-The ABI adds marshaling and ownership work and keeps grant decisions out of the
-binding.
+Rust uses the Zig implementation through a C ABI. Zig helpers and typed
+wrappers in other languages share one registration and access model. The ABI
+adds data conversion and ownership handling and leaves every permission
+decision out of the binding.
 
-The first implemented profile is specified by
 [ADR-0185](../decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)
-and the [consumer guide](c-and-rust.md).
-`libglowcap_loam` owns portable Store, Attachment, synchronous Call and submitted
-Work handles. The optional `libglowcap_loam_lmdb` supplies LMDB startup and
-worker execution. Rust exposes `loam::{Store, Attachment, Content, Policy}` and
-uses the existing `Host`, `Ref` and Session types.
+and the [C and Rust guide](c-and-rust.md) define what you can call.
+`libglowcap_loam` owns the Store, Attachment, synchronous Call, and submitted
+Work handles. The optional `libglowcap_loam_lmdb` and `libglowcap_loam_sqlite`
+open storage and run the worker. Rust offers
+`loam::{Store, Attachment, Content, Policy}` and uses the existing `Host`,
+`Ref`, and Session types.
 
-| Boundary | Implemented contract |
+| Part | What exists |
 | --- | --- |
-| Policy | Bounded identity, permission keys and lower/upper bounds evaluated by Zig. Callbacks supply content requirements and facts. |
-| Callbacks | Copied method tables and trusted bound-resource context. Borrowed synchronous invocations cannot unwind or reenter Host driving. Registration contexts survive until successful detach. |
-| Storage | Opaque content replacement joins the shared managed transaction and receipt. Startup creation commits before returning usable metadata. |
-| Memory | Input borrows end at callback return. Reply and replacement bytes copy into the bounded retained arena. Fixed Work slots retain submitted buffers until physical retirement, completion and release. |
-| Capabilities | Restored endpoints acquire ordinary held Host references. Serialized object names are trusted metadata and never network invocation authority. |
-| Completion | Core tickets retain generation and phase checks. Completion reports consumption explicitly. Refusal preserves ownership. Unknown writes select recovery only after the original worker retires. |
+| Policy | A bounded identity, permission keys, and lower and upper bounds, checked by Zig. Callbacks supply content requirements and facts. |
+| Callbacks | Copied method tables and a trusted context for the bound resource. Borrowed synchronous calls cannot unwind or drive the Host again. Registration contexts stay alive until detach succeeds. |
+| Storage | Replacing opaque content joins the shared managed transaction and receipt. Creating a store at startup commits before any metadata is usable. |
+| Memory | Borrowed inputs end when the callback returns. Reply and replacement bytes are copied into the bounded call memory. Fixed Work slots keep submitted buffers until the worker is done, the result is delivered, and the slot is released. |
+| Capabilities | Restored endpoints get ordinary held Host references. Serialized object names are trusted metadata and never permission to call over the network. |
+| Completion | Tickets keep their generation and phase checks. Delivering a result says whether it was taken. A refusal leaves ownership with the caller. An unknown write moves to recovery only after the original worker finishes. |
 
-The tested consumer lifecycle includes delegated sharing, narrowed admission,
-content edits and durable mutation replay, ancestor pause/resume, restart and
-cold fetching the original derived publication. C tests exercise release
-refusal, duplicate completion and the indeterminate-write recovery barrier.
+The C and Rust API can also write strong reference fields and restore them
+as exact or dependent references through the Host. The
+[C and Rust guide](c-and-rust.md) gives the limits and what it leaves out,
+and the [browser guide](browser.md) runs the same lifecycle.
 
-The fixed-resource profile also projects strong reference authoring and exact
-or dependent restoration through shared Host preparation. Its
-[consumer guide](c-and-rust.md) owns bounds and scope. General object and graph
-transactions, application-specific derivation decoders, privileged owner
-lifecycle, and the broader hosted sketches above are not projected. Each is
-added for an exercised consumer path, with the shared storage and authority
-contracts intact. The [browser profile](browser.md) exercises the same
-fixed-resource lifecycle. These consumer proofs do not freeze the broader
-interfaces.
+Rust traits and Zig compile-time types give typed views over registered
+schemas and build requirements for the same model. The vocabulary covers
+constraint bounds and fact relations as well as permissions. New general
+operators belong in Zig with shared tests, and nothing unsupported falls back
+to a Rust implementation.
 
-Rust traits and Zig compile-time types provide typed views over registered
-schemas and construct requirements for the same runtime model. The vocabulary
-includes constraint bounds and fact relations as well as permission sets.
-New general operators belong in Zig with shared tests. Unsupported semantics
-do not fall back to a Rust evaluator.
+Calling from another peer is a different boundary. A Goblins or Python peer
+can call published managed access interfaces over OCapN without running this
+model or its C ABI. Those wire interfaces still need documented schemas and
+tests against outside peers, whatever language implements them.
 
-Remote use is a different boundary. A Goblins or Python peer can call the
-published managed access application interfaces over OCapN without embedding
-this model or its C ABI. Those wire interfaces still need documented schemas
-and outside-peer evidence independent of the implementation language.
+## What is decided and what is tested
 
-## Decision and implementation evidence
+[Managed access architecture](access-architecture.md) places one Zig
+implementation inside Loam, with Rust bindings and Host integration.
+Applications supply content and what operations mean, and Zig owns the
+general resource and access decisions.
 
-The [access architecture](access-architecture.md) specifies one Zig implementation
-within Loam, with Rust bindings and Host integration. Applications supply
-content and operation meanings, and Zig owns generic resource and access
-decisions.
-
-Review complete paths through issuance, restoration, ancestor edits, returned
-attachments, reorganization, and lost storage acknowledgements. Measure ABI
-calls, copying, allocation ownership, and Linux/Wasm behavior. Verify that
-Rust wrappers execute selected effects without reconstructing the grant model.
-
-The broader illustrative APIs above have not been compiled or benchmarked. Their
-implementation must validate policy laws, capability custody, transaction
-boundaries, and failure paths against the [access evidence
-matrix](access-architecture.md#implementation-evidence) and [Rooms integration
-scenarios](../planning/rooms.md#verification-matrix) before claiming guarantees.
+The broader APIs sketched above have not been compiled or measured. Neither
+Rust nor Zig proves an application's requirement mapping, its scope rules,
+the order of durable commits, or that every returned capability is checked.
+Check them against the [managed access tests](access-architecture.md#tests)
+before relying on them.

@@ -251,7 +251,7 @@ impl Listener<'_> {
 		})
 	}
 
-	/// Close explicitly and return the native teardown failure, if any.
+	/// Close explicitly and return the FFI teardown failure, if any.
 	pub fn close(mut self) -> Result<()> {
 		self.release()
 	}
@@ -286,7 +286,7 @@ impl Connection<'_> {
 		check_onion(unsafe { ffi::glowcap_onion_conn_shutdown(self.raw) })
 	}
 
-	/// Close explicitly, reporting a shutdown failure to the caller. Native
+	/// Close explicitly, reporting a shutdown failure to the caller. FFI
 	/// storage is released as this value is consumed. A release-only refusal is
 	/// retained by the process diagnostic fallback because `Drop` has no caller.
 	pub fn close(self) -> Result<()> {

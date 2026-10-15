@@ -97,7 +97,7 @@ externally usable only after confirmed settlement.
 storage and LMDB. Native tests cover reopen, scope changes, stale calls, filtered
 children, rollback and lost replies. [Management proofs](../../../test/loam/access/management_cases.zig)
 and [CapTP tests](../../../test/loam/access/management_test.zig) cover separate
-custody, narrowing and independent revocation. [LMDB recovery](../../../test/loam/lmdb/management_test.zig)
+custody, narrowing and independent revocation. [Recovery](../../../test/loam/engines/management_test.zig)
 restores exact issuer controls after both committed and absent uncertain writes.
 The [process proof](../../../test/loam_managed_crash.zig) kills operations before
 commit, after commit, after installation and before reply delivery.

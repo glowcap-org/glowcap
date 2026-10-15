@@ -11,9 +11,9 @@ pub enum Invalid {
 	NetworkName,
 	/// The channel is not a well-formed IRC channel.
 	Channel,
-	/// The publication identity is empty or over 128 bytes.
+	/// The publication identity is empty or over `MAX_PUBLICATION_ID` bytes.
 	PublicationIdentity,
-	/// The origin is empty or over 256 bytes.
+	/// The origin is empty or over `MAX_ORIGIN` bytes.
 	Origin,
 	/// The room name `network/channel` is over the room name limit.
 	RoomNameLength,

@@ -33,8 +33,8 @@ const model = @import("model");
 
 const v1_0_syrup_versions = [_]model.CaptpVersion{.v1_0};
 const v1_0_syrup_codecs = [_]model.CodecId{.syrup};
-const native_versions = [_]model.CaptpVersion{ model.Preference.native.captp_version, .v1_0 };
-const native_codecs = [_]model.CodecId{ model.Preference.native.codec, .syrup };
+const glowcap_versions = [_]model.CaptpVersion{ model.Preference.glowcap.captp_version, .v1_0 };
+const glowcap_codecs = [_]model.CodecId{ model.Preference.glowcap.codec, .syrup };
 
 /// What a peer offers at handshake: the CapTP versions and codecs it can speak
 /// (index 0 most preferred) and the semantic feature set it supports.
@@ -55,10 +55,10 @@ pub const Offer = struct {
 
     /// Glowcap-forward job: prefer `next` and Cap'n Proto, fall back to
     /// `"1.0"` / Syrup when the partner only offers those.
-    pub fn native(features: model.FeatureSet) Offer {
+    pub fn glowcap(features: model.FeatureSet) Offer {
         return .{
-            .captp_versions = native_versions[0..],
-            .codecs = native_codecs[0..],
+            .captp_versions = glowcap_versions[0..],
+            .codecs = glowcap_codecs[0..],
             .features = features,
         };
     }

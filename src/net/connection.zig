@@ -158,10 +158,6 @@ pub const Connection = struct {
     /// Bounded overflow for an admissible frame larger than the read buffer
     /// (see `frame_stream.Spill`). Inactive and allocation-free while frames
     /// fit the buffer. Allocates from the peer's allocator.
-    ///
-    /// The scan that walks this spill's frame is not here: it rides on the peer
-    /// (`engine.Peer.stream_scan`), which documents why. One connection pumps
-    /// one peer, so the two still name one stream.
     spill: frame_stream.Spill = .{},
 
     /// The close/readiness handle behind this connection's reader and writer.

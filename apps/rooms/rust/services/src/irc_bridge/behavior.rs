@@ -32,9 +32,41 @@ pub(super) fn directory(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Repl
 		let rich = matches!(verb, directory::LIST | directory::WATCH);
 		let shape = if rich { Shape::Publication } else { Shape::Baseline };
 		match verb {
-			protocol_data::LIST | directory::LIST => {
+			protocol_data::LIST => {
 				empty(verb, args)?;
 				Ok(wire::rooms::<Arguments>(&[state.room.info()], shape))
+			}
+			directory::LIST => {
+				let after = match args {
+					[] => None,
+					[Argument::String(cursor)] => Some(
+						directory::Cursor::parse(cursor)
+							.ok_or("listPublications takes nothing or a page cursor it answered")?,
+					),
+					_ => return Err("listPublications takes nothing or a page cursor it answered".into()),
+				};
+				// The bridge lists one channel, held under its publication id.
+				let row = state.room.info();
+				let key = state.room.publication_id().to_owned();
+				let walk = after
+					.is_none_or(|cursor| cursor.precedes(row.kind, &key))
+					.then_some((key, row));
+				Ok(wire::page::<Arguments>(&directory::Page::cut(walk)))
+			}
+			directory::NAMED => {
+				let [Argument::String(name)] = args else {
+					return Err("namedPublications takes one public room name".into());
+				};
+				let row = state.room.info();
+				let rows: Vec<_> = row
+					.name
+					.text()
+					.as_str()
+					.is_some_and(|listed| listed.to_lowercase() == name.to_lowercase())
+					.then_some(row)
+					.into_iter()
+					.collect();
+				Ok(wire::rooms::<Arguments>(&rows, Shape::Publication))
 			}
 			protocol_data::WATCH | directory::WATCH => {
 				let [Argument::Reference(inbox)] = args else {

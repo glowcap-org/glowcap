@@ -11,21 +11,22 @@ const metrics = @import("../../support/alloc_metrics.zig");
 const Child = struct {
     calls: *usize,
     resolver: ?*u64 = null,
-    pub fn handle(self: *@This(), turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *@This(), turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
         if (self.resolver) |slot| {
             slot.* = try turn.deferAnswer();
             return .{ .void = {} };
         }
-        return args[0];
+        return arg_values[0];
     }
 };
 const WireChild = struct {
     calls: *usize,
-    pub fn handle(self: *@This(), _: *glowcap.actors.Turn, msg: glowcap.actors.Message) !glowcap.ocapn.model.Argument {
+    pub fn handle(self: *@This(), turn: *glowcap.actors.Turn, msg: glowcap.actors.Delivery) !glowcap.ocapn.model.Argument {
         self.calls.* += 1;
-        return msg.args[0];
+        return (try msg.arg(0)).toOwned(turn.arena);
     }
 };
 const Parent = struct {
@@ -33,18 +34,20 @@ const Parent = struct {
     vow: *u64,
     tell: bool,
     fail: bool = false,
-    pub fn handle(self: *@This(), turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
-        if (self.tell) try turn.tell(self.target, "echo", args) else self.vow.* = try turn.send(self.target, "echo", args);
+    pub fn handle(self: *@This(), turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
+        if (self.tell) try turn.tell(self.target, "echo", arg_values) else self.vow.* = try turn.send(self.target, "echo", arg_values);
         if (self.fail) return error.Refused;
         return .{ .void = {} };
     }
 };
 const Hop = struct {
     target: driver.Capability,
-    pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
-        return turn.forward(self.target, verb, args);
+    pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
+        return turn.forward(self.target, verb, arg_values);
     }
 };
 fn spawn(host: *driver.Host, comptime B: type, initial: B) !driver.Capability {

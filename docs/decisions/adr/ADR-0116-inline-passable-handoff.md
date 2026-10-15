@@ -7,7 +7,7 @@ decision: "A signed handoff give may occur recursively in Passable data. Inbound
 supersedes: []
 superseded_by: []
 amends: [ADR-0009, ADR-0066, ADR-0069, ADR-0090, ADR-0100]
-amended_by: [ADR-0121]
+amended_by: [ADR-0121, ADR-0235]
 ---
 
 # ADR-0116 Inline Passable handoff

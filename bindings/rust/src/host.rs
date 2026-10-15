@@ -80,7 +80,7 @@ pub(crate) fn close_result(code: i32) -> Result<()> {
 			"finish close exhausted its grace period".into(),
 		))
 	} else {
-		Err(Error::with_detail(code, "native host close failed".into()))
+		Err(Error::with_detail(code, "FFI host close failed".into()))
 	}
 }
 
@@ -132,7 +132,7 @@ pub(crate) struct HostShared {
 	pub(crate) loam: crate::loam::Registry,
 	applications: application::States,
 	raw: Cell<*mut ffi::GlowcapHost>,
-	/// Binding-local close barrier coordination. Native Host lifecycle remains
+	/// Binding-local close barrier coordination. FFI Host lifecycle remains
 	/// authoritative. `Failed` retains the raw handle for diagnosis and a final
 	/// Drop attempt rather than pretending release succeeded.
 	close_barrier: Cell<CloseBarrierState>,
@@ -145,13 +145,13 @@ pub(crate) struct HostShared {
 	// what breaks the Rc cycle between host and session state. `action::run`
 	// reads it for FLUSH / CLOSE.
 	pub(crate) sessions: RefCell<HashMap<usize, Rc<SessionShared>>>,
-	// Host-owned async tasks whose futures may still hold native Session state.
+	// Host-owned async tasks whose futures may still hold FFI Session state.
 	// Cancellation is only a request; the count falls from each future's RAII
 	// registration when its complete state has been dropped.
 	owned_tasks: Cell<usize>,
 	release_notify: Notify,
 	// The host-activity signal the event-driven close waits park on. Every
-	// binding path whose native verb can advance close-relevant state (a byte
+	// binding path whose FFI verb can advance close-relevant state (a byte
 	// feed, a productive action drain, a resolver settle, a close request or
 	// escalation, a session release, a reported dial outcome) wakes all parked
 	// close drivers here. Signaling is wake-all against re-checking waiters,
@@ -159,7 +159,7 @@ pub(crate) struct HostShared {
 	activity: Notify,
 	// Detached DIAL actions may await sockets, discovery, or relay setup after
 	// the action drain returns. The Host owns their cancellation until terminal
-	// reporting; no task may resume against a released native Host.
+	// reporting; no task may resume against a released FFI Host.
 	dial_tasks: RefCell<HashMap<(u64, usize), JoinHandle<()>>>,
 	close_task_started: Cell<bool>,
 	// The binding-side table the drain's SETTLE/FAIL arms settle.
@@ -168,7 +168,7 @@ pub(crate) struct HostShared {
 	// sibling session and outlive the session that delivered it.
 	pub(crate) gc_pending: RefCell<VecDeque<u64>>,
 	// Finalizer-reclaimed public Host-vow ids. Separate from capability ids:
-	// both are opaque u64 values in distinct native namespaces.
+	// both are opaque u64 values in distinct FFI namespaces.
 	pub(crate) vow_gc_pending: RefCell<VecDeque<u64>>,
 	// Deferred replies abandoned by their sole Rust owner. Drained off-turn.
 	pub(crate) resolver_abandon_pending: RefCell<VecDeque<u64>>,
@@ -182,20 +182,20 @@ pub(crate) struct HostShared {
 	/// so a keyed-tcp listener can derive its public designator without a
 	/// second identity (ADR-0075).
 	seed: [u8; 32],
-	// A Host allocated in a caller Context borrows that native policy. Rc makes
+	// A Host allocated in a caller Context borrows that FFI policy. Rc makes
 	// the order structural, including teardown parked from a callback.
 	context: Option<Rc<ContextInner>>,
 	/// Stable identity in the retained Context's diagnostic namespace.
 	diagnostic_id: u64,
-	// The native loop this Host was adopted over (ADR-0112), or `None` for a
+	// The driver loop this Host was adopted over (ADR-0112), or `None` for a
 	// byte-fed Host this binding pumps itself. On a loop-adopted Host the loop
 	// is the one action drain and the one release authority: kicks become loop
 	// steps, no `glowcap_host_pump_drain` runs here, and teardown routes
-	// through `LoopShared::close` (which releases the wrapped native Host).
+	// through `LoopShared::close` (which releases the wrapped FFI Host).
 	#[cfg(not(target_arch = "wasm32"))]
 	driver_loop: RefCell<Option<Rc<crate::driver_loop::LoopShared>>>,
 	// Explicit byte-fed connectors, indexed by the transport symbols their
-	// owning package advertises. Native provider composition lives in the
+	// owning package advertises. FFI provider composition lives in the
 	// driver loop instead; this registry is only for embedder-owned channels.
 	connectors: RefCell<HashMap<&'static str, crate::Connector>>,
 }
@@ -242,7 +242,7 @@ impl HostShared {
 				format!("drawing the per-process session-key root failed: {error}"),
 			)
 		})?;
-		// Compute every fallible wrapper-side value before native Host
+		// Compute every fallible wrapper-side value before FFI Host
 		// construction, so `?` cannot leak a raw Host during setup.
 		let mut designator = [0u8; 64];
 		// SAFETY: `seed` is a borrowed `[u8; 32]` and `designator` a local `[u8; 64]`, both live for the call; the
@@ -321,7 +321,7 @@ impl HostShared {
 		}))
 	}
 
-	/// Adopt the native Host a `DriverLoop` minted (ADR-0112): the wrapper
+	/// Adopt the FFI Host a `DriverLoop` minted (ADR-0112): the wrapper
 	/// every application verb, publish trampoline, and vow settle works on,
 	/// while the loop stays the one action drain and the one release
 	/// authority. `seed` is the identity half of the loop's 64-byte seed, so
@@ -423,7 +423,7 @@ impl HostShared {
 		self.connectors.borrow().get(transport).cloned()
 	}
 
-	/// The native loop this Host is adopted over, or `None` for a byte-fed
+	/// The driver loop this Host is adopted over, or `None` for a byte-fed
 	/// Host. The dial and listen routers read it to stage on the owning loop
 	/// instead of opening a byte channel on a host the loop drains.
 	#[cfg(not(target_arch = "wasm32"))]
@@ -431,7 +431,7 @@ impl HostShared {
 		self.driver_loop.borrow().clone()
 	}
 
-	/// Establish this Host's one native runtime owner before its first network
+	/// Establish this Host's one FFI runtime owner before its first network
 	/// operation. Existing loop-backed Hosts reuse their loop. A byte-fed Host
 	/// transfers transactionally through the C ABI.
 	#[cfg(not(target_arch = "wasm32"))]
@@ -449,12 +449,12 @@ impl HostShared {
 		Ok(lp)
 	}
 
-	/// Release one native session handle through the verb that owns it: the
+	/// Release one FFI session handle through the verb that owns it: the
 	/// loop's own `glowcap_driver_session_release` for a loop-minted session
 	/// (which also drops queued events naming it), `glowcap_host_session_release`
 	/// for a byte-fed one. A loop already released frees its sessions itself,
 	/// so the loop arm is a no-op then.
-	pub(crate) fn release_native_session(&self, session: *mut ffi::GlowcapHostSession) -> Result<()> {
+	pub(crate) fn release_ffi_session(&self, session: *mut ffi::GlowcapHostSession) -> Result<()> {
 		self.release_session_handle(session)?;
 		// A released session retires its pending close work, so a driver
 		// parked on host activity must re-check progress.
@@ -465,7 +465,7 @@ impl HostShared {
 	fn release_session_handle(&self, session: *mut ffi::GlowcapHostSession) -> Result<()> {
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
-			return lp.native_session_release(session);
+			return lp.ffi_session_release(session);
 		}
 		// SAFETY: `session` is a byte-fed session handle this Host minted and its owner hands over for its one release,
 		// which runs before the Host's own.
@@ -615,7 +615,7 @@ impl HostShared {
 		// the same one), the way the byte-fed drain's redeem registers its own.
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
-			// Loam callbacks supply borrowed exporter metadata. Claim the native
+			// Loam callbacks supply borrowed exporter metadata. Claim the FFI
 			// handle before installing its one Host-owned shell; otherwise loop
 			// teardown could outlive the binding's release authority.
 			lp.claim_exporter_session(out)?;

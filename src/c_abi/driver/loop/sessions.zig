@@ -51,7 +51,7 @@ pub export fn glowcap_driver_claim_exporter_session(
     return GLOWCAP_OK;
 }
 
-/// Seal one loop-owned session's admission and begin or escalate its native
+/// Seal one loop-owned session's admission and begin or escalate its Zig
 /// close barrier without releasing the handle.
 pub export fn glowcap_driver_session_close(
     raw: ?*c.GlowcapDriverLoop,
@@ -69,7 +69,7 @@ pub export fn glowcap_driver_session_close(
     return GLOWCAP_OK;
 }
 
-/// Observe one loop-owned session's native close barrier. CLOSED means its
+/// Observe one loop-owned session's Zig close barrier. CLOSED means its
 /// transport is closed, while the handle remains valid for explicit release.
 pub export fn glowcap_driver_session_lifecycle_state(
     raw: ?*c.GlowcapDriverLoop,

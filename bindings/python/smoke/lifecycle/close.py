@@ -312,7 +312,7 @@ async def _loop_finish_close_reports_finite_grace_timeout() -> None:
         silent.close()
 
 
-async def _silent_loop_dial_reaches_native_handshake_deadline() -> None:
+async def _silent_loop_dial_reaches_ffi_handshake_deadline() -> None:
     """An ordinary dial has no close driver to wake it. The loop's one
     asyncio progress clock must therefore step when glowcap's handshake
     deadline expires, even though the accepted socket produces no fd edge."""

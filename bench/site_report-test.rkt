@@ -3,7 +3,7 @@
 ;;   racket bench/site_report-test.rkt
 ;; No benches run here, the fixtures are captured ReleaseFast output, so the
 ;; parsers work without a build. Exit code is nonzero on any failure.
-(require rackunit rackunit/text-ui (file "site_report.rkt"))
+(require rackunit rackunit/text-ui racket/file (file "site_report.rkt"))
 
 (define codec-out
   (string-append
@@ -66,11 +66,24 @@
    "roundtrip transport=tcp calls=3000 warmup=300 p50_ns=43750 p99_ns=79084 mean_ns=44977 rps=22234 mode=ReleaseFast\n"
    "roundtrip transport=iroh calls=3000 warmup=300 p50_ns=155209 p99_ns=251958 mean_ns=158251 rps=6319 mode=ReleaseFast\n"))
 
+;; Every implementation prints a greet line and a report line; the report
+;; figures sit 5 µs above greet here so each cell is distinguishable.
+(define (capnp-out cpp tcp rust)
+  (define (lines transport codec p50)
+    (format (string-append
+             "roundtrip transport=~a~a call=greet calls=3000 warmup=300 p50_ns=~a p99_ns=30000 mean_ns=19500 rps=51000 mode=release busy_poll_us=0 pin=yes\n"
+             "roundtrip transport=~a~a call=report calls=3000 warmup=300 p50_ns=~a p99_ns=30000 mean_ns=19500 rps=51000 mode=release busy_poll_us=0 pin=yes\n")
+            transport codec p50 transport codec (+ p50 5000)))
+  (string-append (lines "capnp-rust" "" rust)
+                 (lines "capnp-cpp" "" cpp)
+                 (lines "tcp" " codec=syrup" tcp)
+                 (lines "tcp" " codec=capnp" (+ tcp 100))))
+
 (define langs-md
   (string-append
    "| client | runtime | p50 ms | p99 ms | p999 ms | mean ms | req/s | setup ms/conn | mem kB/conn | cold ms |\n"
    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n"
-   "| zig | native-zig | 0.76 | 0.91 | 0.91 | 0.80 | 1262 | 4.91 | 144.0 | 15.47 |\n"
+   "| zig | zig | 0.76 | 0.91 | 0.91 | 0.80 | 1262 | 4.91 | 144.0 | 15.47 |\n"
    "| python | cpython/3.13.5 | 0.69 | 1.09 | 1.09 | 0.71 | 1513 | 7.09 | 6.0 | 45.40 |\n"
    "| goblins-ref | racket-cs/goblins | 1.33 | 2.56 | 2.56 | 1.48 | 768 | 8.93 | 34.0 | 394.88 |\n"))
 
@@ -132,6 +145,31 @@
       (check-true (regexp-match? #px"round-trips / s" region))
       ;; latency renders in µs: 155209 ns -> 155.2 µs.
       (check-true (regexp-match? #px"155.2" region)))
+    (test-case "capnp-rpc"
+      (define one (parse-iroh (capnp-out 10700 10000 19100)))
+      (define two (parse-iroh (capnp-out 14700 14200 19500)))
+      (check-equal? (hash-ref (hash-ref one "capnp-cpp") 'p50) 10700)
+      ;; The default codec and the greet call key by transport alone; the
+      ;; other codec adds +codec and the report call adds :report.
+      (check-equal? (hash-ref (hash-ref one "tcp") 'p50) 10000)
+      (check-equal? (hash-ref (hash-ref one "tcp+capnp") 'p50) 10100)
+      (check-equal? (hash-ref (hash-ref one "tcp:report") 'p50) 15000)
+      (check-equal? (hash-ref (hash-ref one "capnp-cpp:report") 'p50) 15700)
+      (define region (capnp-rpc-region one two))
+      (check-true (regexp-match? #px"Cap'n Proto Rust" region))
+      ;; One table row per implementation and codec, one column per call and pinning.
+      (check-true (regexp-match? #px"<td>glowcap, Syrup</td><td>10.0 µs</td><td>14.2 µs</td><td>15.0 µs</td><td>19.2 µs</td>" region))
+      (check-true (regexp-match? #px"<td>glowcap, Cap'n Proto codec</td><td>10.1 µs</td><td>14.3 µs</td><td>15.1 µs</td><td>19.3 µs</td>" region))
+      (check-true (regexp-match? #px"class=\"bench-charts\"" region)))
+    (test-case "glance"
+      (define iroh (parse-iroh (string-append iroh-out "loop transport=iroh conns=16 calls_each=1000 aggregate_rps=54365 mode=ReleaseFast\n")))
+      (define region (glance-region (parse-codec codec-out) (parse-frameview fv-out) (parse-peer peer-out)
+                                    iroh (parse-langs-md langs-md) (parse-loam loam-out)))
+      ;; One allocation reads singular, and large counts carry separators.
+      (check-true (regexp-match? #px"<strong>1</strong><span>allocation per delivered message" region))
+      (check-true (regexp-match? #px"<strong>54,365</strong>" region))
+      (check-true (regexp-match? #px"<strong>728 B</strong>" region))
+      (check-true (regexp-match? #px"href=\"#persistent-actors-in-loam\"" region)))
     (test-case "loam"
       (define rows (parse-loam loam-out))
       ;; The 256-byte footprint and the edit-unrelated-read row must not parse.
@@ -143,11 +181,21 @@
       (check-true (regexp-match? #px"<td>6.8</td>" region))
       ;; Per-conversation memory at the largest population, in KiB.
       (check-true (regexp-match? #px"holds 1 KiB per conversation, against 16.8 KiB" region)))
+    (test-case "markers"
+      ;; Every region main splices has its marker on the page it names, and
+      ;; a page carries no marker main would leave stale.
+      (define own '("stamp" "glance" "codec" "peer-scaling" "frame-view" "langs" "iroh" "loam"))
+      (define compared '("stamp" "capnp-rpc" "goblins" "snapshot"))
+      (for ([page (list PERF COMPARED)] [names (list own compared)])
+        (define text (file->string page))
+        (for ([name (in-list names)])
+          (check-true (string? (splice page text name "x")) (format "~a lacks bench:~a" page name)))
+        (check-equal? (length (regexp-match* #px"<!-- bench:" text)) (length names) page)))
     (test-case "langs"
       (define rows (parse-langs-md langs-md))
       ;; Three data rows; the header separator (`| --- | ...`) must not parse.
       (check-equal? (length rows) 3)
-      (check-equal? (car rows) (list "zig" "native-zig" 0.76 1262 "4.91" "144.0" 15.47))
+      (check-equal? (car rows) (list "zig" "zig" 0.76 1262 "4.91" "144.0" 15.47))
       (check-equal? (list-ref (caddr rows) 0) "goblins-ref")
       (check-equal? (list-ref (caddr rows) 6) 394.88)
       (define region (langs-region rows))

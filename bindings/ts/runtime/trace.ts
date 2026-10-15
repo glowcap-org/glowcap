@@ -1,4 +1,4 @@
-/** The live timeline producer: a veneer over the native tap. The core is the
+/** The live timeline producer: a veneer over the FFI tap. The core is the
  * one owner of the facts: the host reports every session's open (with the
  * partner's locator as its designator plus its transport, the OCapN Session ID
  * both peers of the session derive, what proved the partner's durable name,
@@ -15,7 +15,7 @@
  * queue. That is the seam a browser can reach: the wasm module admits only
  * its fixed behavior and hosted-retirement callbacks, so the trace callback
  * beside them has no wasm form. Using the one seam everywhere means a
- * browser peer and a native one produce the same stream through the same code.
+ * browser peer and an FFI one produce the same stream through the same code.
  *
  * Off by default and zero-cost when off: with no sink installed no ring is
  * allocated and the core's emit sites are one null check.
@@ -456,7 +456,7 @@ export function traceAttachHost(raw: Ptr, designator: string, context: Context, 
 }
 
 /** Binding-internal: a released Host leaves the registry. The core dropped
- * its own ring with the host, so no native call is needed. */
+ * its own ring with the host, so no FFI call is needed. */
 export function traceDetachHost(raw: Ptr): void {
 	hosts.delete(raw);
 }

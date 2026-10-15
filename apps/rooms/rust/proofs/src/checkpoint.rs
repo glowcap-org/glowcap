@@ -89,7 +89,7 @@ pub fn run() {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
-fn native_checkpoint_uses_the_existing_locator_grammar() {
+fn host_checkpoint_uses_the_existing_locator_grammar() {
 	let fixture = fixtures();
 	let routes = rooms_glowcap::routes::CheckpointRoutes;
 	for (input, expected) in fixture["locatorAuthorities"].as_object().unwrap() {

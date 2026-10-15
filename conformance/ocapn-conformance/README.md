@@ -1,23 +1,22 @@
 # conformance/ocapn-conformance
 
-Wrapper for the upstream
-[OCapN test suite](https://github.com/ocapn/ocapn-test-suite). The suite lives
-in the `upstream/` submodule. This directory holds only the invocation wrapper.
+Runs the upstream [OCapN test suite](https://github.com/ocapn/ocapn-test-suite)
+against a Goblins peer or against glowcap. The suite lives in the `upstream/`
+submodule, and this directory holds the wrappers that invoke it.
 
 ## Setup
 
-Initialize submodules once:
+Initialize submodules once. The wrappers run through `uv`, which the
+devcontainer provides.
 
 ```sh
 bash conformance/bootstrap-submodules.sh
 ```
 
-The wrapper runs through `uv`, which the devcontainer provides.
-
 ## Running
 
-Start a target peer, then point the suite at the OCapN URL it prints. For the
-bundled Goblins target:
+Start a target peer, then point the suite at the OCapN URL it prints. This is
+the bundled Goblins target:
 
 ```sh
 # Terminal 1
@@ -37,14 +36,12 @@ bash conformance/ocapn-conformance/run.sh shell
 
 ## Running Against glowcap
 
-The suite can also be pointed at a glowcap peer.
 `glowcap_peer.zig` serves the canonical conformance swiss-nums over the
 `tcp-testing-only` netlayer, and `run-against-glowcap.sh` starts it and runs the
-suite against it. The peer is the production Host stack plus what the Host
-cannot know: the conformance actors and three suite-required interceptors on
-the serve path (a promise-resolver bootstrap object, the recipient's give
-redeem, and the gifter's enliven claim), each driving library seams. The
-file's header inventories them.
+suite against it. The peer is the production Host stack plus the conformance
+actors and three suite-required interceptors on the serve path: a
+promise-resolver bootstrap object, the recipient's give redeem, and the
+gifter's enliven claim. The file's header inventories them.
 
 ```sh
 zig build ocapn-conformance              # default: every upstream test module
@@ -52,13 +49,19 @@ zig build ocapn-conformance -Dport=23055 # move the peer off 22055 when that por
 bash conformance/ocapn-conformance/run-against-glowcap.sh tests.op_deliver  # one module
 ```
 
-The wrapper derives its module list from the upstream tree itself
-(`upstream/tests/*.py`), so a submodule bump that adds a module fails the run
-until glowcap targets it. It runs every upstream module except `tests.op_abort`:
-that test does not accept Linux's TCP-reset form of teardown. The wrapper's
-abort probe uses the suite's netlayer and message types for the same case and
-requires observable EOF, reset, or broken pipe. A timeout fails. The raw
-upstream module remains available as a diagnostic.
+`zig build ocapn-conformance-onion` runs the same suite over onion. It needs
+an operator-supplied Tor (`GLOWCAP_OCAPN_TOR_SOCKS` and
+`GLOWCAP_OCAPN_TOR_CONTROL`, both `host:port`) and network access.
+`run-against-glowcap-onion.sh` starts the onion peer, and the suite dials it
+through its own pinned onion netlayer.
+
+The wrapper reads its module list from `upstream/tests/*.py`, so a submodule
+bump that adds a module fails the run until glowcap targets it. It runs every
+upstream module except `tests.op_abort`, which does not accept Linux's
+TCP-reset form of teardown. A local abort probe covers the same case with the
+suite's netlayer and message types. It requires observable EOF, reset, or
+broken pipe, and a timeout fails. The raw upstream module stays available as a
+diagnostic.
 
 | Module                       | What it exercises                                                                        |
 | ---------------------------- | ---------------------------------------------------------------------------------------- |
@@ -71,11 +74,11 @@ upstream module remains available as a diagnostic.
 
 Crossed-hellos cases in `op_start_session` can use most of a module's time
 budget, so a slow machine can hit the 5s per-module cap on a module that would
-have passed. Raise it with `OCAPN_MODULE_TIMEOUT` (and the probe's with
+have passed. Raise it with `OCAPN_MODULE_TIMEOUT` (the probe's 10s cap uses
 `OCAPN_PROBE_TIMEOUT`) before reading a timeout as a protocol failure.
+
 `handshake_abort_probe.py` covers invalid signature, invalid version, and
-pre-setup abort teardown alone. The default
-`zig build ocapn-conformance` wrapper runs that probe (10s cap) before the suite
+pre-setup abort teardown. `zig build ocapn-conformance` runs it before the suite
 modules. Pass `--port=N` or set `GLOWCAP_OCAPN_CONFORMANCE_PORT` to match the
 peer. To run one module or the probe alone:
 
@@ -86,13 +89,14 @@ uv run --project conformance/ocapn-conformance --locked \
   python conformance/ocapn-conformance/handshake_abort_probe.py --port=22055
 ```
 
-Two details keep the suite's verdict valid. The Syrup codec consumes a
-non-empty hints map, because the suite's `tcp-testing-only` netlayer carries the
-address in the locator hints (`{host …, port …}`). A peer that rejected
-non-empty hints would abort the handshake before any signature was checked,
-and would pass the invalid-version and invalid-signature tests for the wrong
-reason. Signature verification also reads the captured raw locator bytes, not
-a re-encode of them.
+Two details keep the suite's verdict valid:
+
+- The Syrup codec accepts a non-empty hints map, because the `tcp-testing-only`
+  netlayer carries the address in the locator hints (`{host …, port …}`). A peer
+  that rejected them would abort before checking any signature and pass the
+  invalid-version and invalid-signature tests for the wrong reason.
+- Signature verification reads the captured raw locator bytes, not a re-encode
+  of them.
 
 ## What a green run shows
 
@@ -100,11 +104,8 @@ A green run against `goblins-peer/` shows that the upstream suite, the wrapper,
 the slim Goblins target, and its testing TCP netlayer work together. A run
 against `glowcap_peer.zig` applies the same suite to glowcap itself. Neither is
 part of `zig build check`, and neither alone is the semantic authority for Zig
-code.
-
-The in-tree checks are `zig build oracle-check` and `zig build check`. They
-cover the protocol scenarios and the Syrup fixtures the Zig implementation
-consumes.
+code. `zig build oracle-check` and `zig build check` cover the protocol
+scenarios and Syrup fixtures the Zig implementation consumes.
 
 ## Posture
 

@@ -27,15 +27,13 @@ const std = @import("std");
 /// it. A caller holding its own borrowed bytes uses the spill only while a frame
 /// straddles: `isActive` is how it decides which of the two is the prefix to
 /// parse, and the spill absorbs the borrowed bytes when it takes over, so the
-/// prefix stays contiguous and any resumable scan over it stays valid (moving
-/// the bytes does not move the front of the frame).
+/// prefix stays contiguous (moving the bytes does not move the front of the
+/// frame).
 ///
 /// Boundedness is not this type's to enforce. It grows to hold what it is
-/// given, and the caller bounds that: the codec refuses a frame whose scanned
-/// length crosses `max_frame_bytes` while it is still arriving (ADR-0029), so a
-/// prefix that is still incomplete is under the cap. `codec.dispatch.framePrefix`
-/// keeps a defensive mirror of that contract for every stream consumer, which is
-/// what stops a codec regression from growing a spill without end.
+/// given, and the caller bounds that: the envelope's declared length is
+/// checked against `max_frame_bytes` before its body is allowed to accumulate
+/// (ADR-0110), so a prefix that is still incomplete is under the cap.
 pub const Spill = struct {
     buf: []u8 = &.{},
     len: usize = 0,
@@ -101,7 +99,7 @@ pub const Spill = struct {
 
     /// Drop `n` consumed bytes (one decoded frame) off the front. Leftover bytes
     /// (the start of the next frame), compact forward and keep the spill
-    /// active.
+    /// active. Consuming zero bytes from an active spill leaves it untouched.
     ///
     /// `retain` is how much capacity a fully drained spill keeps, and it is the
     /// one place the two tiers legitimately differ. A reader whose spill
@@ -116,6 +114,9 @@ pub const Spill = struct {
         std.debug.assert(n <= self.len);
         const remaining = self.len - n;
         if (remaining > 0) {
+            // An incomplete frame consumes nothing. Copying that prefix onto
+            // itself on every fragment makes assembly quadratic in its size.
+            if (n == 0) return;
             std.mem.copyForwards(u8, self.buf[0..remaining], self.buf[n..][0..remaining]);
             self.len = remaining;
             return;
@@ -127,11 +128,11 @@ pub const Spill = struct {
             self.buf = &.{};
             return;
         }
-        // A failed shrink is not a failure: the larger buffer stays valid and
-        // the next full drain tries again.
         if (allocator.realloc(self.buf, retain)) |shrunk| {
             self.buf = shrunk;
-        } else |_| {}
+        } else |_| {
+            // tolerant: the larger buffer stays valid, so the failed shrink loses only memory the next full drain returns.
+        }
     }
 
     pub fn deinit(self: *Spill, allocator: std.mem.Allocator) void {

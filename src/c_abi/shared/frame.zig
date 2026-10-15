@@ -35,7 +35,7 @@ pub const ReleaseFn = *const fn (*GlowcapManagedFrame) callconv(.c) void;
 
 /// Private descriptor words reserved for glowcap's owned-frame metadata. The
 /// count is target-independent so the public C declaration has one shape.
-/// Comptime assertions below prove that the native `foundation.Frame` fits on
+/// Comptime assertions below prove that the Zig `foundation.Frame` fits on
 /// each compiled target.
 pub const managed_frame_private_word_count = 8;
 

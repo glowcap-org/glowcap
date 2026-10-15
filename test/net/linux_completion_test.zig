@@ -27,7 +27,7 @@ test "Linux completion selection reports implementation and fallback reason" {
     }
 }
 
-test "Linux completion status survives native loop adapter stacks" {
+test "Linux completion status survives Zig loop adapter stacks" {
     const expected = blk: {
         var loop = try net.TcpLoop.initWithBackendOptions(
             std.testing.allocator,

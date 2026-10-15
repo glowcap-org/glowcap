@@ -57,7 +57,7 @@ impl Graph {
 	}
 	pub fn version(&self) -> Result<String, String> {
 		let mut hash = Sha256::new();
-		// Compiler flags and inputs are hashed above. Bump only when the native
+		// Compiler flags and inputs are hashed above. Bump only when the host
 		// packaging contract changes.
 		hash.update(b"rooms-browser-assets/5");
 		for (name, path) in &self.entries {

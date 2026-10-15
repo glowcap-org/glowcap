@@ -5,12 +5,12 @@
 // `node_net` and `bun` adapters are never selected in a browser. But a
 // browser bundler may still discover them through the runtime selector's
 // dynamic import. Their `node:net` / `bun:ffi` imports would then fail to
-// resolve. `browser-bundle.json` maps only those two specifiers here. Native
+// resolve. `browser-bundle.json` maps only those two specifiers here. FFI
 // archive resolution has a separate compile-time browser seam and needs no
 // stubs. None of these exports is callable after the web adapter is injected.
 
 const unavailable = (): never => {
-	throw new Error("glowcap web: a native FFI adapter is not available in the browser");
+	throw new Error("glowcap web: an FFI adapter is not available in the browser");
 };
 
 // node:net (the node/bun socket adapter, and the iroh binding's node path)

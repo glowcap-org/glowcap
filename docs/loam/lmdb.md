@@ -1,9 +1,21 @@
+---
+type: static
+description: How to add and operate Loam's LMDB engine, including capacity and maintenance.
+audience: human
+sources:
+  - resource: /src/loam/engines/lmdb/
+  - resource: /test/loam/lmdb/
+  - resource: /tools/gen/checked_lmdb.zig
+  - resource: /tools/build/loam/lmdb.zig
+---
+
 # LMDB operations
 
-LMDB is Loam's on-disk backend for Zig, C and Rust. [Stores, transactions and
-reads](store.md) covers the Store contract that every backend shares.
+LMDB is one of Loam's on-disk engines for Zig, C and Rust, beside the default,
+[SQLite](sqlite.md). [Stores, transactions and reads](store.md) covers the
+Store contract that every engine shares.
 
-## Adding the backend
+## Adding the engine
 
 The LMDB module comes from the same build dependency as glowcap:
 
@@ -13,119 +25,138 @@ exe.root_module.addImport("glowcap_loam_lmdb", dependency.module("glowcap_loam_l
 ```
 
 The module exposes `Lmdb`, which runs blocking storage work on the
-thread that calls it. The backend uses LMDB 1.0.2 and requires the LMDB 1.x
-disk format.
+thread that calls it. The engine uses the LMDB commit pinned in
+`build.zig.zon` and requires the LMDB 1.x disk format.
 
-## Commit ownership
+## Commits
 
-`beginCommit` returns a handle that owns one LMDB transaction. Finish or abort
-it on the worker that opened it. `finish` commits once and retains its outcome,
-so calling it again returns the same result. `abort` affects only an active
-transaction. It cannot undo a commit or turn an unknown outcome into absence.
-The handle releases backend custody once, when it finishes or aborts.
+`beginWrite` returns a write transaction that owns one LMDB transaction.
+Commit or abort it on the worker that opened it. `commit` runs once and keeps
+its result, so calling it again returns the same result. A commit after abort
+is refused as closed. `abort` cannot undo a commit or turn an unknown outcome
+into absence.
+
+A second writer is refused as `Busy` at once instead of waiting inside LMDB,
+so it never starts after another writer's outcome became unknown.
+
+A failed commit is refused with nothing changed only when an LMDB error proves
+the write never reached the metadata page. OS errors, including a full disk,
+do not say which stage failed, so they leave the outcome unknown. After an
+unknown outcome the engine refuses ordinary work with `ReopenRequired`. Join
+workers, finish existing readers, and follow the
+[Store recovery steps](store.md#when-a-writes-outcome-is-unknown). Recovery
+refreshes the LMDB environment under the existing directory lock and flushes it
+before it reports the result.
+
+## Read failures
+
+A disk error during a read comes back as an error, and the process keeps
+running. Stock LMDB reads its file through a memory map, where a failed read
+ends the process with `SIGBUS`. Loam's build reads each page with an ordinary
+system call into memory it owns. LMDB sees the page only after the whole read
+succeeds, so a short or failed read never reaches its parser.
+
+Those pages form a cache outside the Store's cache budget. Its limit counts
+entries, not bytes, and one large value can fill several pages in one entry.
+A cache miss allocates memory and copies the page from the OS page cache. A
+write also copies its bytes into any cached page it overlaps.
+
+A value you read borrows this memory until your next operation on that
+transaction. Reading the borrowed value never touches the disk. The
+[engine contract](store.md#adding-a-storage-engine) covers input borrows and
+transaction lifetimes.
+
+A commit updates cached pages before it becomes visible. Older readers keep
+their snapshots, and new readers see the committed pages. LMDB's reader table,
+the small lock file that processes share, is memory-mapped, and the read
+failure tests do not cover it.
+
+The build patches the pinned LMDB source and fails if an LMDB update no longer
+matches the patch. The file format is LMDB's own. [Stability](../stability.md)
+lists what the failure tests cover.
 
 ## How full a store is
 
-LMDB maps its file into memory up to a size you choose, so a store can fill.
+You choose the largest size the file may reach, so a store can fill. The
+setting keeps LMDB's name, `map_bytes`, though Loam maps nothing at that size.
 
-`Lmdb.inspect()` reports the map size, the allocated page high water, the
+`Lmdb.inspect()` reports that limit, the allocated page high water, the
 current tree pages, and the key count. Tree pages exclude the free-page
-database and metadata pages. High water includes pages LMDB can reuse, so map
-size minus high water does not tell you how much the next write can consume.
+database and metadata pages. High water includes pages LMDB can reuse, so the
+limit minus high water does not tell you how much the next write can consume.
 
-When the map is full, the whole transaction is refused and the store is
-unchanged.
+Reaching the limit refuses the whole transaction and leaves the store
+unchanged. A full disk is different: it leaves the outcome unknown, as
+[Commits](#commits) describes.
 
-## Growing the map
+## Growing the limit
 
-`Lmdb.grow(new_map_bytes)` enlarges the map between backend operations. It
-refuses while another backend operation is active, and blocks new operations
-while it remaps. A held Loam record lease stays usable because it owns copied
-bytes. Choose a larger page-aligned size and commit normally. The next
-successful write persists the new map setting. The size comes from your storage
-budget, and Loam never retries with an unbounded map.
+Recover any write whose outcome is unknown before you grow or compact a store.
 
-Settle outstanding write outcomes before any maintenance. If remapping fails,
-`ReopenRequired` fences the backend, because the old mapping may be gone.
-Close and reopen the backend and its Store through the normal opening path,
-because the mapped memory may be invalid.
+`Lmdb.grow(new_map_bytes)` raises the limit between engine operations. It
+refuses while another engine operation is active and holds new ones back until
+it finishes. A lease you hold on a record stays usable because it owns copied
+bytes. Choose a larger page-aligned size from your storage budget, then commit
+as usual: the next successful write saves the new limit. `grow` refuses a size
+larger than the OS allows for a file. Loam never grows the limit on its own.
 
 ## Shrinking the file
 
 [Collection](collection.md) frees database pages for reuse, but the file keeps
-its size. Offline compaction writes a compact copy and swaps it in, while the
-configured map limit stays as it was.
+its size. Offline compaction writes a compact copy and swaps it in. The
+`map_bytes` limit stays as it was.
 
 Before compacting, join storage workers, settle outstanding writes, and retire
-the attached Host work and the Store. The backend holds writer custody through
-copying, validation, installation and synchronization:
+the attached Host work and the Store. The engine holds the writer lock while
+it copies, checks, installs, and syncs the copy:
 
 ```zig
-try backend.compact();
-try backend.close();
-backend = try Lmdb.open(path, .{ .mode = .{ .open = expected_store_id } });
+try engine.compact();
+try engine.close();
+engine = try Lmdb.open(path, .{ .mode = .{ .open = expected_store_id } });
 ```
 
-Installation leaves the old backend fenced, even when the rename fails.
-Reopening opens the installed file and claims a new incarnation.
+After installation the old engine refuses all work, even when the rename
+fails, so close it and reopen.
 
 `beginCompaction` returns an owned operation with `prepare`, `install`,
-`finish` and `deinit`, for callers that need each phase separately. If
-`finish` reports `InstallOutcomeUnknown`, retry the sync without repeating
-installation. Canceling before installation leaves the source usable, unless a
-concurrent close has already fenced it.
+`finish` and `deinit` for callers that need each phase separately. If
+`finish` reports `InstallOutcomeUnknown`, retry the sync without installing
+again. Canceling before installation leaves the source usable unless a
+concurrent close has already shut it.
 
-Only `data.mdb` counts on reopen. An incomplete `loam-compact.mdb` is ignored,
-and the next operation deletes it under the same owner lock. Compaction needs
-disk space for both files. It compares by streaming through bounded engine
-copy buffers and allocates no Zig row copies. The directory must stay at its
-opened path during validation.
+Compaction needs disk space for both files, and the directory must stay at
+its opened path while the copy is checked. The check streams both files
+through fixed-size buffers. Reopening reads only `data.mdb`. An incomplete
+`loam-compact.mdb` is ignored, and the next operation deletes it.
 
 The [replacement decision](../decisions/adr/ADR-0181-offline-lmdb-replacement.md)
 states the filesystem, synchronization and failure assumptions.
-`zig build loam-compaction-crash-test` exercises process loss and refused copy
-capacity. Linux results and the macOS CI configuration do not establish macOS
-execution or real power-loss behavior.
+`zig build loam-lmdb-compaction-crash-test` exercises process loss and refused copy
+capacity. [Stability](../stability.md) says which platforms and failures it
+covers.
 
 ## Closing
 
-`Lmdb.close` stops new work and reports `Busy` while a backend operation still
+`Lmdb.close` stops new work and reports `Busy` while an engine operation still
 holds the environment. Finish or abort that operation, join its worker, and
 close again.
 
-The lifetime lock file stays in the directory after close, so two processes
-cannot lock different files at the same path. This advisory lock, BSD `flock` on
-macOS and Linux, coordinates cooperating Loam adapters for the whole time a
-store is open. Close explicitly releases the lock even while a spawned child
-retains inherited descriptors before exec. Storage handles belong to their
-creating process and cannot be used in a forked child. LMDB separately
-serializes write transactions. Every writer must go through the adapter so
-Loam's cached state stays current. Writing to the LMDB file directly is outside
-this profile.
+An open store holds an advisory `flock` on its lock file, so another process
+that opens it through Loam is refused until it closes. The lock file stays in the
+directory after close, so two processes never lock different files at the
+same path. Close releases the lock even while a spawned child still holds
+inherited descriptors before exec.
+
+- Storage handles belong to the process that created them and cannot be used
+  in a forked child.
+- Every writer must go through Loam so its page cache stays current. Writing
+  to the LMDB file directly is unsupported.
 
 ## Measuring a workload
 
-`zig build bench-loam -Doptimize=ReleaseFast` runs ordinary actors and managed
-resources through the shipped Host, Vat and LMDB interfaces. It measures:
-
-- hot and cold calls, and unchanged records after edits
-- wakeup bursts, and collection beside queued reads
-- managed resource creation, use and control issuance, control chains, moves,
-  child iteration, receipt-backed content edits and grant revocation, at
-  shallow and deep ancestry
-- sustained ordinary and managed calls on a shared four-worker executor, with
-  deterministic admission refusal and unrelated actor progress
-- foreign restoration through byte-fed sessions, larger held-facet working
-  sets, and offline compaction
-
-Its smoke run, part of `zig build check`, validates replies, warm-record
-reuse, commit counts, revocation refusal and complete Zig memory release.
-
-The [workload method](../../bench/loam/README.md) owns populations, limits,
-sampling and how to read a report. It separates Loam residency, tracked Zig
-allocations, physical page geometry, and process memory it does not measure.
-The [recorded results](../../bench/loam/results.md) keep the revision,
-durability setting, read and allocation counts, and latency distributions. OS
-snapshots report whole-process memory apart from the tracked Zig heap and LMDB
-page geometry. Offered load uses a bounded closed-loop window. LMDB is the
-first backend, so no comparison with other storage engines has been measured.
+Follow the [workload guide](../../bench/loam/README.md) to measure actors,
+managed resources, collection, and Tasks on the relevant engine. The
+[recorded results](../../bench/loam/results.md) name each revision, workload,
+durability setting, and measurement limit. A result from stock LMDB, which
+reads through a memory map, does not measure this build's page cache.

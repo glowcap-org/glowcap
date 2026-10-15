@@ -189,7 +189,7 @@ pub fn Machine(
                 .byte_stream => stream: {
                     // Apply every whole frame in this completion's bytes,
                     // carrying a partial tail into the connection's spill.
-                    // recvStreamPrefix projects an op:abort for a malformed or
+                    // recvOuterPrefix projects an op:abort for a malformed or
                     // oversize frame before erroring; the .fail verdict flushes
                     // it, then closes. The drain, its cap mirror, and the
                     // tail-to-spill copy are shared with the iroh loop in
@@ -513,9 +513,8 @@ pub fn Machine(
             // capacity is retained so ordinary reply traffic never reallocates.
             frame_stream.reclaimBurst(&c.front, self.allocator, state.steady_outbound_bytes);
             // A drained connection never pins burst capacity: this is the
-            // 500k-footprint invariant a slow-drain episode must not break. The
-            // live-socket measurement is step 5 work (docs/ladder.md); this pins
-            // the bound loudly in every safe build, on every drain.
+            // 500k-footprint invariant a slow-drain episode must not break. This
+            // pins the bound loudly in every safe build, on every drain.
             std.debug.assert(c.front.capacity <= state.steady_outbound_bytes);
             c.front_off = 0;
             c.write_in_flight = false;

@@ -17,10 +17,11 @@ pub const Page = struct {
     result: ?driver.Value = null,
     pub const Step = union(enum) { ready, more, read: loam.Read, waiting };
     const cursor_bytes = 49;
+    pub const max_rows = 32;
     pub const max_page_bytes = 64 * 1024;
 
     pub fn init(call: *hosting.Call, args: []const driver.Value) !Page {
-        if (args.len != 2 or args[1] != .integer or args[1].integer < 1 or args[1].integer > 32) return error.InvalidArguments;
+        if (args.len != 2 or args[1] != .integer or args[1].integer < 1 or args[1].integer > max_rows) return error.InvalidArguments;
         var floor: u64 = 0;
         if (args[0] != .void) {
             if (args[0] != .bytes or args[0].bytes.len != cursor_bytes) return error.InvalidArguments;
@@ -49,7 +50,7 @@ pub const Page = struct {
             var full = false;
             if (try self.cursor.?.take()) |item| {
                 const schema = (try operation.describeControl()).policy;
-                const bytes = try rowSizeBound(item, &schema);
+                const bytes = try rowSizeBound(item);
                 if (self.byte_bound + bytes > max_page_bytes) {
                     if (self.count == 0) return error.RecordTooLarge;
                     // The next page must revisit this unprojected row.
@@ -92,16 +93,15 @@ pub const Page = struct {
 /// three bound scalars. Unsigned leaves use at most 39 decimal bytes. Labels
 /// and tags add their fixed UTF-8 allowance. The shared receipt writer derives
 /// scalar/container overhead. This bound admits pages before allocating rows.
-fn rowSizeBound(item: storage.GrantInventory.Item, schema: *const @import("loam_access_core").Policy) !usize {
+fn rowSizeBound(item: storage.GrantInventory.Item) !usize {
     var values: usize = 10;
     var bytes: usize = item.label.len + 2 * 39 + "access:grant".len + 2 * "revoked".len;
     for ([_]@import("loam_access_core").Policy.Value{ item.ceiling, item.configured }) |policy| {
         values += 5 + @popCount(policy.permissions);
         bytes += "access:policy".len;
-        for (policy.bounds[0..schema.constraint_count]) |limit| if (limit != null) {
-            values += 4;
-            bytes += "access:bound".len + "upper".len + 39;
-        };
+        const bounded: usize = @popCount(policy.bound_mask);
+        values += 4 * bounded;
+        bytes += ("access:bound".len + "upper".len + 39) * bounded;
     }
     return @import("loam_access_records").ValueRecord.encodedSizeBound(driver.Value, values, 0, bytes, 0);
 }

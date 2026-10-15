@@ -1,4 +1,4 @@
-//! Decode the one C provider teardown contract into native outcomes.
+//! Decode the one C provider teardown contract into Zig outcomes.
 //!
 //! Status controls progress. Structured failure data preserves identity. The
 //! registry decides how a contract violation affects its Runtime.

@@ -1,5 +1,5 @@
 #lang racket/base
-;; Goblins backend for the bench suite. Wraps the native `goblins` actor verbs and
+;; Goblins backend for the bench suite. Wraps the `goblins` actor verbs and
 ;; a TCP server/client lifecycle (via the conformance tcp-netlayer) behind the
 ;; suite's substrate-blind API. The server registers the app root under a fixed
 ;; swiss-num so a client in another process can reconstruct the sturdyref from the

@@ -6,8 +6,9 @@
 
 /// Default inbound frame cap (1 MiB). SessionLimits uses this for
 /// `max_frame_bytes`. The driver C ABI publishes the same value as
-/// `GLOWCAP_DEFAULT_FRAME_CAP` so bindings stop hardcoding the shift.
-const default_max_frame_bytes: usize = 1 << 20;
+/// `GLOWCAP_DEFAULT_FRAME_CAP`, and docs quote it through a value marker, so
+/// it stays a plain literal.
+const default_max_frame_bytes: usize = 1_048_576;
 
 pub const SessionLimits = struct {
     /// Max pipelined calls queued against a single pending answer.

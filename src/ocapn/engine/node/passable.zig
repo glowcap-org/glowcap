@@ -56,22 +56,18 @@ pub const Outbound = union(enum) {
         }
     }
 
-    pub fn retainedBytes(self: Outbound) model.view.ProjectError!usize {
-        return switch (self) {
-            .message => |message| model.measureMessageOwnedBytes(message),
-            .answer_settlement => |settlement| blk: {
-                const payload = try model.measureResolutionOwnedBytes(settlement.resolution);
-                break :blk std.math.add(
-                    usize,
-                    @sizeOf(AnswerSettlement),
-                    payload,
-                ) catch error.MalformedView;
-            },
+    /// The carrier's retained bytes, with the tree's share read from the
+    /// inventory its owner took.
+    pub fn retainedBytes(self: Outbound, inventory: session.Inventory) model.view.ProjectError!usize {
+        const envelope: usize = switch (self) {
+            .message => |message| try model.measureMessageEnvelopeBytes(message),
+            .answer_settlement => @sizeOf(AnswerSettlement),
         };
+        return std.math.add(usize, envelope, inventory.owned_bytes) catch error.MalformedView;
     }
 };
 
-fn answerProducedBy(message: model.Message) ?model.AnswerPosition {
+pub fn answerProducedBy(message: model.Message) ?model.AnswerPosition {
     return switch (message) {
         .deliver => |deliver| deliver.answer,
         .get => |get| get.answer,
@@ -94,17 +90,35 @@ pub const Payload = union(enum) {
         }
     }
 
-    pub fn retainedBytes(self: Payload) model.view.ProjectError!usize {
+    pub fn retainedBytes(self: Payload, inventory: session.Inventory) model.view.ProjectError!usize {
         return switch (self) {
-            .outbound => |value| value.retainedBytes(),
-            .relayed_resolution => |resolution| model.measureResolutionOwnedBytes(resolution),
+            .outbound => |value| value.retainedBytes(inventory),
+            .relayed_resolution => inventory.owned_bytes,
         };
+    }
+
+    /// The by-value root an inventory's `root` slot names: a settlement's
+    /// fulfillment. A deliver's roots are heap slots, so it has none.
+    pub fn resolutionRoot(self: *Payload) ?*model.Argument {
+        const resolution: *model.Resolution = switch (self.*) {
+            .outbound => |*value| switch (value.*) {
+                .message => return null,
+                .answer_settlement => |*settlement| &settlement.resolution,
+            },
+            .relayed_resolution => |*resolution| resolution,
+        };
+        return if (resolution.* == .fulfill) &resolution.fulfill else null;
     }
 };
 
 pub const Gift = struct {
     route_id: model.CapabilityRouteId,
     home: PeerHandle,
+    /// The exact tree slot this projection rewrites at commit preparation and
+    /// restores on rollback. Slot identity, rather than reference equality,
+    /// keeps rollback immune to another argument legitimately carrying the
+    /// same numeric position.
+    slot: session.inventory.Slot,
     original: model.Reference,
     gifted: model.Reference,
     capability_lease: ?u64 = null,
@@ -116,12 +130,11 @@ pub const Gift = struct {
 pub const PromiseProjection = struct {
     route_id: model.CapabilityRouteId,
     home: PeerHandle,
+    /// See `Gift.slot`.
+    slot: session.inventory.Slot,
     original: model.Reference,
     source: model.FarRef,
     capability_lease: ?u64 = null,
     projected: ?model.Reference = null,
-    /// Exact owned-tree leaf rewritten at commit preparation. Pointer identity,
-    /// rather than reference equality, makes rollback immune to another
-    /// argument legitimately carrying the same numeric position.
-    inserted_at: ?*model.Argument = null,
+    inserted: bool = false,
 };

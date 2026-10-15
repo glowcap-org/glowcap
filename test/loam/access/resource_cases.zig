@@ -72,8 +72,8 @@ pub fn independentPreparations(store: *r.h.loam.core.Store, backend: anytype) !v
         defer one.deinit() catch unreachable;
         const two = try use.begin(8);
         defer two.deinit() catch unreachable;
-        _ = try prepareNative(one, backend, seeded.leaf);
-        _ = try prepareNative(two, backend, sibling);
+        _ = try prepareZig(one, backend, seeded.leaf);
+        _ = try prepareZig(two, backend, sibling);
         try store.begin();
         try std.testing.expect(try one.stageResource());
         try std.testing.expectError(error.RevisionConflict, two.stageResource());
@@ -85,18 +85,18 @@ pub fn independentPreparations(store: *r.h.loam.core.Store, backend: anytype) !v
         try store.begin();
         const one = try use.begin(8);
         defer one.deinit() catch unreachable;
-        _ = try prepareNative(one, backend, seeded.leaf);
+        _ = try prepareZig(one, backend, seeded.leaf);
         try std.testing.expect(try one.stageResource());
         const two = try use.begin(8);
         defer two.deinit() catch unreachable;
-        _ = try prepareNative(two, backend, sibling);
+        _ = try prepareZig(two, backend, sibling);
         try std.testing.expect(try two.stageResource());
         try f.commit(store, backend);
     }
     try r.children(&caps, backend, descriptor, seeded.root, &.{});
 }
 
-fn prepareNative(operation: *r.storage.Operation, backend: anytype, target: r.core.ResourceId) !bool {
+fn prepareZig(operation: *r.storage.Operation, backend: anytype, target: r.core.ResourceId) !bool {
     for (0..128) |_| {
         const changed = operation.prepareResourceCopying(target, .delete_leaf, .{ .permissions = &.{f.vocabulary.read} }) catch |err| {
             if (err != error.RecordUnloaded) return err;

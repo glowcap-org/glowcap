@@ -11,6 +11,7 @@ and every protocol decision. Re-exported value types come from :mod:`glowcap`.
 
 from __future__ import annotations
 
+import array
 import ctypes
 
 from . import _constants as _abi
@@ -37,6 +38,7 @@ _ARG_STRING, _ARG_SYMBOL, _ARG_VOID, _ARG_REFERENCE, _ARG_LIST = (
 )
 _ARG_SET, _ARG_TAGGED, _ARG_KEYWORD = _abi.ARG_SET, _abi.ARG_TAGGED, _abi.ARG_KEYWORD
 _ARG_BIG_INTEGER = _abi.ARG_BIG_INTEGER
+_ARG_INTEGERS = _abi.ARG_INTEGERS
 _ARG_STRUCT = _abi.ARG_STRUCT
 _ARG_ERROR = _abi.ARG_ERROR
 _FEATURE_FULL = _abi.FEATURE_FULL
@@ -81,14 +83,14 @@ _DEFAULT_CAPTP_VERSION = _captp_version_name(_abi.DEFAULT_CAPTP_VERSION)
 _DEFAULT_FEATURES = _feature_name(_abi.DEFAULT_FEATURES)
 _INTEROP_CODEC = _codec_name(_abi.INTEROP_CODEC)
 _INTEROP_CAPTP_VERSION = _captp_version_name(_abi.INTEROP_CAPTP_VERSION)
-_NATIVE_CODEC = _codec_name(_abi.NATIVE_CODEC)
-_NATIVE_CAPTP_VERSION = _captp_version_name(_abi.NATIVE_CAPTP_VERSION)
+_OWN_CODEC = _codec_name(_abi.OWN_CODEC)
+_OWN_CAPTP_VERSION = _captp_version_name(_abi.OWN_CAPTP_VERSION)
 
 
 def _captp_version_id(version: str) -> int:
     """The ``GLOWCAP_CAPTP_*`` id for a CapTP profile name (ADR-0003).
     ``v1_0`` is the interop floor a Goblins vat speaks. ``next`` is the
-    glowcap-to-glowcap track ``Offer.native`` prefers with Cap'n Proto."""
+    glowcap-to-glowcap track ``Offer.glowcap`` prefers with Cap'n Proto."""
     if version == "v1_0":
         return _abi.CAPTP_V1_0
     if version == "next":
@@ -143,7 +145,17 @@ def _ref_to_c(ref: Ref) -> _Reference:
 
 def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
     a = _Argument()
-    if isinstance(value, bool):  # before int; bool is an int subclass
+    if isinstance(value, array.array) and value.typecode == "q":
+        # Export the buffer before reading its address: retaining the array
+        # alone permits another thread to resize it while CDLL releases the
+        # GIL. The export pins its storage for the call. Empty is NULL and 0.
+        a.kind = _ARG_INTEGERS
+        words = memoryview(value)
+        if words.nbytes:
+            keepalive.append(words)
+            a.bytes = value.buffer_info()[0]
+            a.bytes_len = words.nbytes
+    elif isinstance(value, bool):  # before int; bool is an int subclass
         a.kind, a.boolean = _ARG_BOOLEAN, 1 if value else 0
     elif isinstance(value, int):
         # ctypes silently wraps an out-of-range int mod 2**64; OCapN integers are
@@ -269,9 +281,14 @@ def _arg_from_c(a: _Argument) -> Argument:
     if a.kind == _ARG_VOID:
         return None
     if a.kind == _ARG_BIG_INTEGER:
-        # Canonical decimal digits + sign flag back to a native int (ADR-0049).
+        # Canonical decimal digits + sign flag back to a Python int (ADR-0049).
         magnitude = int(_bytes_from_c(a))
         return -magnitude if a.boolean != 0 else magnitude
+    if a.kind == _ARG_INTEGERS:
+        # Copied out because the C memory is released after projection.
+        run = array.array("q")
+        run.frombytes(_bytes_from_c(a))
+        return run
     if a.kind == _ARG_STRUCT:
         if a.items_len % 2:
             raise GlowcapError(_ERR_INTERNAL, "glowcap ABI returned an odd Struct item count")

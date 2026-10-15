@@ -1,4 +1,4 @@
-//! Loop and session close choreography over the native driver's authoritative
+//! Loop and session close choreography over the FFI driver's authoritative
 //! lifecycle and release barriers.
 
 use super::*;
@@ -42,7 +42,7 @@ impl LoopShared {
 		self.driver.begin_close(pending)?;
 		self.note_step_activity();
 		if let Some(host) = self.wrapper.borrow().as_ref().and_then(Weak::upgrade) {
-			host.native_close_committed();
+			host.ffi_close_committed();
 		}
 		if !self.close_task_started.get() {
 			let loop_ = Rc::clone(self);

@@ -1,5 +1,5 @@
-//! The agent scaffolding's indexes: AGENTS.md routing, the rule index in
-//! both directions, the skill catalog, and the persona lookup.
+//! The agent scaffolding's shape: AGENTS.md routing, skill frontmatter, and
+//! anonymous personas. `gen-agent-index` owns the index in `.agents/README.md`.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -24,70 +24,12 @@ pub fn checkAgentsRouting(
     });
 }
 
-pub fn checkRuleIndexAgreement(
-    io: std.Io,
-    gpa: std.mem.Allocator,
-    root: std.Io.Dir,
-    violations: *std.ArrayList([]const u8),
-) !void {
-    const readme = root.readFileAlloc(io, ".agents/README.md", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, ".agents/README.md: failed to read for rule-index check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(readme);
-
-    var rules = root.openDir(io, ".agents/rules", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, ".agents/rules: failed to open for rule-index check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer rules.close(io);
-
-    var walker = try rules.walk(gpa);
-    defer walker.deinit();
-    while (try walker.next(io)) |entry| {
-        if (entry.kind != .file) continue;
-        if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
-
-        const needle = try std.fmt.allocPrint(gpa, "(rules/{s})", .{entry.path});
-        defer gpa.free(needle);
-        if (std.mem.indexOf(u8, readme, needle) == null) {
-            try appendViolation(gpa, violations, ".agents/README.md: missing rules table entry for `{s}`", .{entry.path});
-        }
-    }
-
-    var rest = readme;
-    while (std.mem.indexOf(u8, rest, "(rules/")) |start| {
-        const after = rest[start + 1 ..];
-        const end = std.mem.indexOfScalar(u8, after, ')') orelse break;
-        var link = after[0..end];
-        rest = after[end + 1 ..];
-        if (std.mem.indexOfScalar(u8, link, '#')) |anchor| link = link[0..anchor];
-        if (!std.mem.endsWith(u8, link, ".md")) continue;
-
-        const canonical_path = try std.fmt.allocPrint(gpa, ".agents/{s}", .{link});
-        defer gpa.free(canonical_path);
-        root.access(io, canonical_path, .{}) catch |err| {
-            try appendViolation(gpa, violations, ".agents/README.md: rules table links to missing `{s}` ({s})", .{
-                canonical_path,
-                @errorName(err),
-            });
-        };
-    }
-}
-
 pub fn checkSkillCatalog(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const agents_readme = root.readFileAlloc(io, ".agents/README.md", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, ".agents/README.md: failed to read with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(agents_readme);
-
     var skills = root.openDir(io, ".agents/skills", .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, ".agents/skills: failed to open with {s}", .{@errorName(err)});
         return;
@@ -133,15 +75,6 @@ pub fn checkSkillCatalog(
         } else {
             try appendViolation(gpa, violations, ".agents/skills/{s}/SKILL.md: missing frontmatter — a skill without `name:`/`description:` is not discoverable", .{entry.path});
         }
-
-        var agents_buf: [128]u8 = undefined;
-        const agents_needle = std.fmt.bufPrint(&agents_buf, "skills/{s}/SKILL.md", .{entry.path}) catch {
-            try appendViolation(gpa, violations, ".agents/skills/{s}: the skill path overflows the catalog needle buffer; grow it", .{entry.path});
-            continue;
-        };
-        if (std.mem.indexOf(u8, agents_readme, agents_needle) == null) {
-            try appendViolation(gpa, violations, ".agents/README.md: missing skills table entry for `{s}`", .{entry.path});
-        }
     }
 }
 
@@ -162,12 +95,6 @@ pub fn checkAgentPersonas(
 
     try refuseBannedSubstrings(io, gpa, root, violations, ".agents/skills/smell-annihilation/SKILL.md", &banned);
     try refuseBannedSubstrings(io, gpa, root, violations, ".agents/skills/rooms-team/SKILL.md", &banned);
-
-    const agents_readme = root.readFileAlloc(io, ".agents/README.md", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, ".agents/README.md: failed to read for persona catalog with {s}", .{@errorName(err)});
-        return;
-    };
-    defer gpa.free(agents_readme);
 
     var personas = root.openDir(io, ".agents/personas", .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return,
@@ -216,15 +143,6 @@ pub fn checkAgentPersonas(
             if (std.mem.indexOf(u8, contents, needle) != null) {
                 try appendViolation(gpa, violations, "{s}: contains banned `{s}` — channeling language belongs in user XDG, not committed project lenses", .{ rel, needle });
             }
-        }
-
-        var catalog_buf: [128]u8 = undefined;
-        const catalog_needle = std.fmt.bufPrint(&catalog_buf, "personas/{s}.md", .{stem}) catch {
-            try appendViolation(gpa, violations, ".agents/personas/{s}.md: the persona path overflows the catalog needle buffer; grow it", .{stem});
-            continue;
-        };
-        if (std.mem.indexOf(u8, agents_readme, catalog_needle) == null) {
-            try appendViolation(gpa, violations, ".agents/README.md: missing Personas table entry for `{s}`", .{stem});
         }
     }
 }

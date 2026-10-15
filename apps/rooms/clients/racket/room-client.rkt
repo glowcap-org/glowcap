@@ -33,7 +33,7 @@
          racket/list
          racket/string)
 (provide room-connect directory-session dir-open dir-enter dir-list dir-watch
-         (struct-out room-info)
+         (struct-out room-info) (struct-out room-page)
          room-next/timeout
          room-subscribe room-say room-leave in-room room-next room-ended
          (struct-out message) (struct-out presence))
@@ -54,13 +54,13 @@
      (define runtime
        (open-runtime
         #:providers (list (iroh-provider (make-iroh-config reach)))
-        #:profile 'native))
+        #:profile 'glowcap))
      (values runtime (runtime-connect runtime loc))]
     [else
      (define-values (host port) (designator-host-port locator))
      (define runtime
        (open-runtime #:providers (list (tcp-provider))
-                     #:profile 'native))
+                     #:profile 'glowcap))
      (values runtime (runtime-connect runtime (tcp-locator host port)))]))
 
 ;; ── Reading the generated grammar ─────────────────────────────────────────────
@@ -276,6 +276,17 @@
   (for/list ([row (in-list raw)])
     (or (wire-room row) (error who "directory answered a malformed room publication"))))
 
+;; One page of the live room list. `next` is the cursor that asks for the
+;; page after it, or #f on the last page.
+(struct room-page (rooms next) #:transparent)
+
+(define (wire-room-page raw)
+  (unless (fields-fit? LIST-PAGE-FIELDS raw)
+    (error 'dir-list "directory answered a malformed room page"))
+  (define next (list-ref raw (field-at LIST-PAGE-FIELDS "next")))
+  (room-page (wire-rooms 'dir-list (list-ref raw (field-at LIST-PAGE-FIELDS "rooms")))
+             (if (void? next) #f next)))
+
 ;; The atomic rooms, registrations, and omission-count baseline a watcher folds
 ;; its deltas into.
 (define (wire-watch-rooms raw)
@@ -313,10 +324,12 @@
 (define (dir-enter d name)
   (session-send (directory-session d) (directory-far d) ENTER name))
 
-;; The exact live local and foreign room publications.
-(define (dir-list d)
-  (wire-rooms 'dir-list
-              (session-send (directory-session d) (directory-far d) LIST-PUBLICATIONS)))
+;; One page of the live local and foreign room publications. Pass the page's
+;; `next` to read the page after it.
+(define (dir-list d [cursor #f])
+  (wire-room-page
+   (apply session-send (directory-session d) (directory-far d) LIST-PUBLICATIONS
+          (if cursor (list cursor) '()))))
 
 ;; Follow the live room list: spawn an observer the directory calls back with
 ;; each change, register it, and return the current snapshot as a baseline.
@@ -482,6 +495,12 @@
                (lambda () (wire-watch-rooms (list '() '()))))
     (check-exn #rx"malformed registration rows"
                (lambda () (wire-watch-rooms (list '() (list (list "ada" "not-a-registration")) 0)))))
+
+  (test-case "a room page is the declared rows and cursor"
+    (check-equal? (wire-room-page (list '() (void))) (room-page '() #f))
+    (check-equal? (room-page-next (wire-room-page (list '() "local:#garden"))) "local:#garden")
+    (check-exn #rx"malformed room page" (lambda () (wire-room-page '())))
+    (check-exn #rx"malformed room page" (lambda () (wire-room-page (list '() 256)))))
 
   (test-case "a wire null is an unknown count and an absent offer, not a malformed record"
     (define foreign (wire-room (list "lobby" (void) "id-1" "foreign" "ocapn://x" "session" "participant")))

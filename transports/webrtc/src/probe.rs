@@ -1,9 +1,9 @@
-//! Phase-1 de-risk probe for the WebRTC DataChannel netlayer (ADR-0089).
+//! Browser-interop probe for the WebRTC DataChannel netlayer (ADR-0089).
 //!
-//! This is the native peer: an answerer over the `webrtc` crate that a browser
+//! This is the probe peer: an answerer over the `webrtc` crate that a browser
 //! offerer connects to over a reliable, ordered `RTCDataChannel`. It proves the
-//! four riskiest unknowns of the netlayer in this environment, before any engine
-//! integration exists:
+//! four riskiest unknowns of the netlayer in this environment, without any engine
+//! integration:
 //!
 //! * the `webrtc` crate builds and drives a peer connection here.
 //! * ICE gathers usable candidates on loopback inside a headless container
@@ -23,7 +23,7 @@
 //!   in   {"type":"candidate","candidate":{…}}           a trickled ICE candidate
 //!   out  {"type":"answer","sdp":"…"}                    this peer's SDP answer
 //!   out  {"type":"candidate","candidate":{…}}           a trickled ICE candidate
-//!   out  {"type":"native_recv","text":"…"}              a message reached this peer
+//!   out  {"type":"probe_recv","text":"…"}              a message reached this peer
 //!   out  {"type":"result","ok":true|false,"reason":"…"} terminal verdict
 
 use std::io::Write as _;
@@ -76,11 +76,11 @@ impl PeerConnectionEventHandler for ProbeHandler {
 				match event {
 					DataChannelEvent::OnMessage(msg) => {
 						let text = String::from_utf8_lossy(&msg.data).to_string();
-						emit(&json!({ "type": "native_recv", "text": text }));
+						emit(&json!({ "type": "probe_recv", "text": text }));
 						// Reply so the browser can prove the reverse direction. The
 						// reply names what we received, so a stray message cannot
 						// masquerade as the expected one.
-						let reply = format!("pong-from-native:{text}");
+						let reply = format!("pong-from-probe:{text}");
 						let ok = text == EXPECTED_FROM_BROWSER;
 						let _ = dc.send(BytesMut::from(reply.as_bytes())).await;
 						let _ = done_tx.send(ok).await;

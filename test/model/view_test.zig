@@ -27,6 +27,67 @@ fn expectRoundTrip(message: model.Message) !void {
     try std.testing.expect(messagesEqual(message, owned));
 }
 
+test "view-backed args read, checkpoint, and materialize like a slice" {
+    const allocator = std.testing.allocator;
+    const views = [_]view.Argument{ .{ .symbol = "greet" }, .{ .string = "world" }, .{ .integer = 3 } };
+    const args = view.Args.fromViews(&views);
+    try std.testing.expectEqual(@as(usize, 3), try args.len());
+    try std.testing.expectEqualStrings("world", (try args.at(1)).string);
+    try std.testing.expectError(error.MalformedView, args.at(3));
+
+    var it = args.iterator();
+    _ = try it.next();
+    const second = it.checkpoint();
+    try std.testing.expectEqualStrings("world", (try it.next()).?.string);
+    try std.testing.expectEqual(@as(i64, 3), (try it.next()).?.integer);
+    try std.testing.expectEqual(@as(?view.Argument, null), try it.next());
+    try std.testing.expectEqualStrings("world", (try args.atCheckpoint(second)).string);
+
+    const owned = try args.toOwnedSlice(allocator);
+    defer model.freeArgumentSlice(allocator, owned);
+    try std.testing.expectEqual(@as(usize, 3), owned.len);
+    try std.testing.expectEqualStrings("greet", owned[0].symbol);
+}
+
+test "run-backed args read the words in place and materialize like a slice" {
+    const allocator = std.testing.allocator;
+    const values = [_]i64{ 5, -7, 1 << 40 };
+    var words: [values.len * 8]u8 align(8) = undefined;
+    for (values, 0..) |value, i| std.mem.writeInt(i64, words[i * 8 ..][0..8], value, .little);
+    const args = view.Args.fromRun(&words);
+    try std.testing.expectEqual(@as(usize, 3), try args.len());
+    try std.testing.expectEqual(@as(i64, -7), (try args.at(1)).integer);
+    try std.testing.expectError(error.MalformedView, args.at(3));
+    try std.testing.expect(args.backingViews() == null);
+    try std.testing.expectEqualSlices(u8, &words, args.wordRun().?);
+    try std.testing.expectEqualSlices(i64, &values, args.typedRun().?);
+
+    var it = args.iterator();
+    _ = try it.next();
+    const second = it.checkpoint();
+    try std.testing.expectEqual(@as(i64, -7), (try it.next()).?.integer);
+    try std.testing.expectEqual(@as(i64, 1 << 40), (try it.next()).?.integer);
+    try std.testing.expectEqual(@as(?view.Argument, null), try it.next());
+    try std.testing.expectEqual(@as(i64, -7), (try args.atCheckpoint(second)).integer);
+
+    const owned = try args.toOwnedSlice(allocator);
+    defer model.freeArgumentSlice(allocator, owned);
+    try std.testing.expectEqual(@as(usize, 3), owned.len);
+    try std.testing.expectEqual(@as(i64, 1 << 40), owned[2].integer);
+
+    // A run the host cannot read as it lies (here, one off word alignment)
+    // still reads element by element, and no typed slice is lent.
+    var shifted: [values.len * 8 + 8]u8 align(8) = undefined;
+    @memcpy(shifted[1 .. words.len + 1], &words);
+    const unaligned = view.Args.fromRun(shifted[1 .. words.len + 1]);
+    try std.testing.expect(unaligned.typedRun() == null);
+    try std.testing.expectEqual(@as(i64, 5), (try unaligned.at(0)).integer);
+
+    const positions = view.PositionList.fromRun(words[0..16]);
+    try std.testing.expectEqual(@as(usize, 2), try positions.len());
+    try std.testing.expectEqual(@as(u64, 5), try positions.at(0));
+}
+
 test "deliver with nested args, promise target, and resolve_me_desc round-trips" {
     const inner = [_]model.Argument{ .{ .integer = 7 }, .{ .boolean = true } };
     const args = [_]model.Argument{
@@ -179,4 +240,56 @@ test "a Syrup sequence length is the count the framing walk recorded, not a seco
     try std.testing.expectEqual(@as(usize, inner.len), try nested.list.len());
     const tagged = try decoded.deliver.args.at(2);
     try std.testing.expectEqual(@as(usize, inner.len), try tagged.tagged.value.len());
+}
+
+test "a settle whose claim overlaps the stack keeps push order" {
+    var views: [10]model.view.Argument = undefined;
+    var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(&views));
+    const claimed = slab.claim(model.view.Argument, 3).?;
+    for (claimed, 0..) |*slot, i| slot.* = .{ .integer = @intCast(100 + i) };
+    // Five pushes land at 9 down to 5, and the claim at 3 to 8 overlaps the
+    // stack's three latest pushes.
+    for (0..5) |i| (slab.reserve(model.view.Argument) orelse return error.TestUnexpectedResult).* = .{ .integer = @intCast(i) };
+    try std.testing.expectEqual(@as(usize, 5) * @sizeOf(model.view.Argument), slab.open);
+    const settled = slab.settle(model.view.Argument, 5);
+    try std.testing.expectEqual(@as(usize, 8) * @sizeOf(model.view.Argument), slab.used);
+    try std.testing.expectEqual(@as(usize, 10) * @sizeOf(model.view.Argument), slab.open);
+    for (settled, 0..) |item, i| try std.testing.expectEqual(@as(i64, @intCast(i)), item.integer);
+    for (claimed, 0..) |item, i| try std.testing.expectEqual(@as(i64, @intCast(100 + i)), item.integer);
+    try std.testing.expect(slab.claim(model.view.Argument, 3) == null);
+    try std.testing.expect(slab.claim(model.view.Argument, 2) != null);
+}
+
+fn expectTail(args: view.Args) !void {
+    const rest = try args.from(1);
+    try std.testing.expectEqual(@as(usize, 2), try rest.len());
+    try std.testing.expectEqual(@as(i64, 2), (try rest.at(0)).integer);
+    var it = rest.iterator();
+    try std.testing.expectEqual(@as(i64, 2), (try it.next()).?.integer);
+    try std.testing.expectEqual(@as(i64, 3), (try it.next()).?.integer);
+    try std.testing.expect((try it.next()) == null);
+    // A tail of a tail skips from the new start, not the original one.
+    try std.testing.expectEqual(@as(i64, 3), (try (try rest.from(1)).at(0)).integer);
+    try std.testing.expectEqual(@as(usize, 0), try (try args.from(3)).len());
+    try std.testing.expectError(error.MalformedView, args.from(4));
+}
+
+test "from skips a prefix on slice, view, run, and both codec backings and refuses past the end" {
+    const elements = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } };
+    try expectTail(view.Args.fromOwnedSlice(&elements));
+    const views = [_]view.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } };
+    try expectTail(view.Args.fromViews(&views));
+    var words: [24]u8 align(8) = undefined;
+    for (elements, 0..) |element, i| std.mem.writeInt(i64, words[i * 8 ..][0..8], element.integer, .little);
+    try expectTail(view.Args.fromRun(&words));
+    for ([_]model.CodecId{ .syrup, .capnp }) |encoding| {
+        var frame = try codec.dispatch.encodeMessageForProfile(encoding, std.testing.allocator, .v1_0, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(7) },
+            .args = &.{ .{ .list = &elements }, .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } },
+        } });
+        defer frame.deinit();
+        const body = try codec.dispatch.decodeBodyForProfile(encoding, .v1_0, frame.view());
+        try expectTail(try body.deliver.args.from(1));
+        try expectTail((try body.deliver.args.at(0)).list);
+    }
 }

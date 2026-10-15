@@ -37,6 +37,7 @@ pub const cloneArgumentSlice = owned.cloneArgumentSlice;
 pub const measureArgumentSliceOwnedBytes = owned.measureArgumentSliceOwnedBytes;
 pub const measureReferenceOwnedBytes = owned.measureReferenceOwnedBytes;
 pub const measureMessageOwnedBytes = owned.measureMessageOwnedBytes;
+pub const measureMessageEnvelopeBytes = owned.measureMessageEnvelopeBytes;
 pub const measureResolutionOwnedBytes = owned.measureResolutionOwnedBytes;
 pub const freeArgumentSlice = owned.freeArgumentSlice;
 pub const freeResolution = owned.freeResolution;
@@ -284,7 +285,8 @@ pub const Argument = union(enum) {
     /// keeps its handoff inline, since it borrows wire bytes and never allocates.
     /// In an owned tree the box must live on the message's allocator, because
     /// `freeArgument` destroys it there. A stack-boxed handoff is legal only
-    /// behind `Peer.sendCopying`, whose clone re-boxes it onto the heap.
+    /// behind `Peer.sendBorrowed`, which re-boxes it onto the heap when it
+    /// keeps the tree.
     handoff: *Handoff,
     string: []const u8,
     integer: i64,
@@ -504,7 +506,7 @@ pub const Untag = struct {
 };
 
 /// If you hand this to an owning sink like `Peer.send`, every slice in it must
-/// be owned by that peer's allocator. Otherwise use `Peer.sendCopying`.
+/// be owned by that peer's allocator. Otherwise use `Peer.sendBorrowed`.
 pub const Message = union(enum) {
     deliver: Deliver,
     resolve: Resolve,
@@ -539,10 +541,9 @@ pub const message_kinds = [_]MessageKind{
 /// Bind a satellite kind registry to `Message` at compile time: assert that
 /// `Registry`'s fields mirror `Message`'s arms by name and order. Each registry
 /// that restates the message-kind set (the engine's `EventKind`, the Cap'n
-/// Proto wire `Kind`, the C `GLOWCAP_EVENT_*` block through its `EventKind`
-/// mirror) calls this so a new `Message` arm cannot land without its mirror.
-/// The wire ids and C discriminants stay explicit (they are external contracts,
-/// not derivations). This only forbids the set from drifting. `Registry` may be
+/// Proto wire `Kind`) calls this so a new `Message` arm cannot land without
+/// its mirror. The wire ids stay explicit (they are external contracts, not
+/// derivations). This only forbids the set from drifting. `Registry` may be
 /// an `enum` or a `union` so the same assert covers `view.Body` too.
 pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
     const arms = @typeInfo(Message).@"union".field_names;

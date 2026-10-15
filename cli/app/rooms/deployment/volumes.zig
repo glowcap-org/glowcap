@@ -6,13 +6,11 @@ const Docker = @import("docker.zig").Client;
 pub const Kind = enum {
     session,
     state,
-    storage,
 
     fn service(self: Kind) []const u8 {
         return switch (self) {
             .session => "session",
             .state => "directory",
-            .storage => "postgres",
         };
     }
 
@@ -20,7 +18,6 @@ pub const Kind = enum {
         return switch (self) {
             .session => "/session-state",
             .state => "/state",
-            .storage => "/var/lib/postgresql",
         };
     }
 };
@@ -50,7 +47,7 @@ pub const Selected = struct {
     }
 
     /// Return a copied Docker volume name, after checking its service mount.
-    /// External volumes may be inspected for credential protection, never reset.
+    /// External volumes may be inspected, never reset.
     pub fn name(self: Selected, kind: Kind, destructive: bool) ![]const u8 {
         const service = self.parsed.value.services.map.get(kind.service()) orelse return error.MissingDeploymentMount;
         var source: ?[]const u8 = null;

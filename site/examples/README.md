@@ -45,7 +45,7 @@ The available tabs are:
 
 | Tab | Why it earns a place |
 | --- | --- |
-| `iroh` | Managed native Zig, C and language-binding providers |
+| `iroh` | Managed Zig, C and language-binding providers |
 | `noise-tcp` | Same sockets as keyed. Noise_XK seals CapTP |
 | `keyed-tcp` | Key designator, cleartext. Restart-stable identity |
 | `tcp` | Cleartext address dial. Testing and the Goblins TCP suite |
@@ -59,8 +59,8 @@ raw frame-transport seam.
 Transport pages may also carry an explicitly marked `PLANNED` snippet for a
 language whose low-level transport exists but whose managed application adapter
 does not. Those planned snippets show the intended consumer shape, are excluded
-from binding-page tabs, and are not compile-checked, because the API they show
-is not yet public in that binding. The `PLANNED` marker is the distinction: an
+from binding-page tabs, and are not compile-checked, because that binding does
+not expose the API they show. The `PLANNED` marker is the distinction: an
 unmarked example is a shipped, checked claim.
 
 ## Editing
@@ -75,7 +75,7 @@ unmarked example is a shipped, checked claim.
    stale.
 5. The `site-*-examples-check` steps compile or type-check every shipped source
    file through the same public packages readers use. Explicit `PLANNED`
-   snippets are skipped, because the API they show is not yet public.
+   snippets are skipped, because no binding exposes the API they show.
 
 Do not hand-edit between the begin/end markers in `site/content/**/*.smd`.
 The gen step overwrites that span. Each marker is an HTML comment inside a

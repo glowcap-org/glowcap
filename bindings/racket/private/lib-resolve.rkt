@@ -20,7 +20,7 @@
   (define actual (read))
   (unless (= actual expected)
     (error who
-           "callable surface does not match this binding (expected ~x, got ~x); rebuild the native libraries"
+           "callable surface does not match this binding (expected ~x, got ~x); rebuild the FFI libraries"
            expected actual)))
 
 (module+ test
@@ -28,7 +28,7 @@
   (check-not-exn
    (lambda () (require-archive-fingerprint! 'test (lambda () #x1234) #x1234)))
   (check-exn
-   #rx"callable surface does not match.*rebuild the native libraries"
+   #rx"callable surface does not match.*rebuild the FFI libraries"
    (lambda () (require-archive-fingerprint! 'test (lambda () #x5678) #x1234))))
 
 ;; Package-local contract (ADR-0077). Ships with the binding; not the monorepo.

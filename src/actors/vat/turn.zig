@@ -119,6 +119,24 @@ pub const Turn = struct {
         if (self.port) |port| return port.tellFromIngress(self.vat, self.ingress, target, msg);
         return self.vat.tellFromIngress(self.ingress, target, msg);
     }
+    /// `send` for a delivery as a handler holds it. A far delivery is the
+    /// Port's to send as it is (`Port.sendDelivery`), and a local one
+    /// becomes a message in this turn's arena.
+    pub fn sendDelivery(self: *Turn, target: Ref, delivery: Delivery) Error!Vow {
+        if (target == .far) if (self.port) |port| return port.sendDeliveryFromIngress(self.vat, self.ingress, target, delivery);
+        return self.send(target, try self.messageOf(delivery));
+    }
+    /// `tell` for a delivery as a handler holds it, routed as `sendDelivery`.
+    pub fn tellDelivery(self: *Turn, target: Ref, delivery: Delivery) Error!void {
+        if (target == .far) if (self.port) |port| return port.tellDeliveryFromIngress(self.vat, self.ingress, target, delivery);
+        return self.tell(target, try self.messageOf(delivery));
+    }
+    fn messageOf(self: *Turn, delivery: Delivery) Error!Message {
+        return delivery.toMessage(self.arena) catch |err| switch (err) {
+            error.OutOfMemory => error.OutOfMemory,
+            error.MalformedView => Error.MalformedView,
+        };
+    }
     /// Functional "become" for a persistent actor (mirrors Goblins `bcom`): stage
     /// `next` as this actor's state. The new value is installed when this turn
     /// frame returns successfully and discarded if the handler errors, so a failed
@@ -209,7 +227,7 @@ pub const Turn = struct {
     /// partner pipelining on the proxy's answer queues on this side until the
     /// forwarded send settles (ADR-0064). Keeps `anyerror`: the
     /// local arm re-enters the near-call handler boundary.
-    pub fn forward(self: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
+    pub fn forward(self: *Turn, target: Ref, msg: Delivery) anyerror!model.Argument {
         return forwarding.forwardTurn(self.vat, self, target, msg);
     }
 
@@ -262,7 +280,7 @@ pub const Turn = struct {
     }
 
     /// Break this turn's own answer with `message`, the eventual-turn spelling
-    /// of a handler failure that must carry its diagnostic. A native handler
+    /// of a handler failure that must carry its diagnostic. A Zig handler
     /// breaks by returning an error, whose `@errorName` becomes the reason. A
     /// hosted behavior's return code carries no message at all, so this verb
     /// is how a caretaker's "Revoked" or an attenuator's "Attenuated" crosses
@@ -296,13 +314,28 @@ pub const Turn = struct {
 
 /// Stack-owned completion of one queued call. A deferral transfers settlement
 /// to its listener. Diagnostics borrow the turn arena or immutable archive text.
-const Delivery = @import("behavior.zig").Delivery;
+const Delivery = vat_mod.Delivery;
+const Queued = @import("behavior.zig").Queued;
+
+/// What one turn dispatches to its box: a delivery the handler reads, or an
+/// adapter-owned body for a box that accepts one.
+const Dispatch = union(enum) {
+    delivery: Delivery,
+    owned: vat_mod.OpaqueMessage,
+
+    fn fromQueued(msg: Queued) Dispatch {
+        return switch (msg) {
+            .message => |message| .{ .delivery = message.delivery() },
+            .owned => |body| .{ .owned = body },
+        };
+    }
+};
 
 const EventualOutcome = union(enum) { returned: ?[]const u8, deferred, discarded, broken: []const u8 };
 
-pub fn callQueued(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Delivery, answer: ?u64) ?vat_mod.Resolution {
+pub fn callQueued(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Queued, answer: ?u64) ?vat_mod.Resolution {
     var outcome: EventualOutcome = .{ .returned = null };
-    const result = callWithOrigin(self, port, ingress, id, msg, .{ .eventual = .{ .answer = answer, .outcome = &outcome } });
+    const result = callWithOrigin(self, port, ingress, id, Dispatch.fromQueued(msg), .{ .eventual = .{ .answer = answer, .outcome = &outcome } });
     return switch (outcome) {
         .returned => |refusal| if (result) |value| .{ .fulfilled = value } else |err| .{ .broken = refusal orelse @errorName(err) },
         .deferred => null,
@@ -367,6 +400,10 @@ fn beginTurn(self: *Vat, boundary: *TurnBoundary) std.mem.Allocator {
             self.retired_boxes = replacement;
             boundary.retired_replacement = null;
         }
+        // The turn arena is scratch space for one turn. Everything allocated
+        // in it is freed at once when the turn ends. The reset keeps up to a
+        // bounded amount of memory for the next turn, so steady traffic
+        // allocates nothing and one large turn cannot pin its peak.
         _ = self.turn_arena.reset(.{ .retain_with_limit = vat_mod.steady_turn_arena_bytes });
         // Moved replies share the arena's lifetime, so reclaim the previous
         // outermost turn's moved bytes at the same boundary its scratch
@@ -428,24 +465,31 @@ pub fn closeTurnFrame(self: *Vat, id: u64) void {
     endTurn(self);
 }
 
-pub fn callLocal(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Message) anyerror!model.Argument {
-    return callWithOrigin(self, port, ingress, id, .{ .message = msg }, .local);
+pub fn callLocal(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Delivery) anyerror!model.Argument {
+    return callWithOrigin(self, port, ingress, id, .{ .delivery = msg }, .local);
 }
 
-fn callWithOrigin(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Delivery, origin: @FieldType(Turn, "origin")) anyerror!model.Argument {
+fn callWithOrigin(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Dispatch, origin: @FieldType(Turn, "origin")) anyerror!model.Argument {
     const frame = try openTurnFrame(self, id);
     const box = frame.box;
     const arena = frame.arena;
     defer closeTurnFrame(self, id);
     var turn = Turn{ .vat = self, .port = port, .self_ref = .{ .local = id }, .ingress = ingress, .arena = arena, .origin = origin };
     turn.opaque_message = switch (msg) {
-        .message => null,
+        .delivery => null,
         .owned => |body| body,
     };
     var refusal: ?[]const u8 = null;
+    var reply_copied = false;
     const result: anyerror!model.Argument = switch (msg) {
-        .message => |message| switch (box.handle(box.ptr, &turn, message)) {
+        .delivery => |delivery| switch (box.handle(box.ptr, &turn, delivery)) {
             .returned => |value| value,
+            .viewed => |value| copied: {
+                if (turn.forwarded) break :copied .{ .void = {} };
+                const owned = value.toOwned(arena) catch |err| break :copied err;
+                reply_copied = true;
+                break :copied owned;
+            },
             .refused => |failure| refused: {
                 refusal = failure.name;
                 break :refused failure.localError();
@@ -476,7 +520,7 @@ fn callWithOrigin(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64,
             const cell_now = self.actors.getPtr(id).?; // a running actor is never removed
             const install_at_unwind = cell_now.running == 1 and
                 (turn.pending_become != null or cell_now.pending_become != null);
-            if (install_at_unwind and !replyOutlivesBox(self, value, turn.moves_begin)) {
+            if (install_at_unwind and !reply_copied and !replyOutlivesBox(self, value, turn.moves_begin)) {
                 reply = model.cloneArgument(arena, value) catch |err| {
                     if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
                     if (self.turn_depth == 1) self.turn_failure = @errorName(err);

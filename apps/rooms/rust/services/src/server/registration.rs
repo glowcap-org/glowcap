@@ -1,7 +1,10 @@
 //! `register`: reading the locator claim the binding can check, minting the
 //! registration's identity and its name capability, and filing it.
 use super::behavior::{Reply, Shared, capability, text};
-use glowcap::{Argument, Session, TRANSPORT_WEBRTC, current_session};
+use glowcap::{
+	Argument, Session, TRANSPORT_KEYED_RELAY, TRANSPORT_KEYED_TCP, TRANSPORT_NOISE_RELAY, TRANSPORT_NOISE_TCP,
+	TRANSPORT_WEBRTC, current_session,
+};
 use rooms_application::{
 	directory::registration::{Id, NicknameAllocation, VOUCHER},
 	room::ArgumentView,
@@ -16,8 +19,21 @@ struct Claim {
 	own: bool,
 	/// The durable peer this connection proved, when it proved one.
 	claimant: Option<String>,
-	/// The `webrtc` designator the locator routes signaling by, if any.
-	webrtc: Option<String>,
+	/// The member's Host key, when the locator's designator is that key.
+	host_key: Option<String>,
+}
+
+/// The transports whose designator is the peer's Host key. An iroh node id is
+/// iroh's own key, and an address names a socket, so neither is.
+fn names_host_key(transport: &str) -> bool {
+	[
+		TRANSPORT_WEBRTC,
+		TRANSPORT_KEYED_TCP,
+		TRANSPORT_NOISE_TCP,
+		TRANSPORT_KEYED_RELAY,
+		TRANSPORT_NOISE_RELAY,
+	]
+	.contains(&transport)
 }
 
 /// Read `locator` against `session`. A durable identity the partner proved
@@ -25,11 +41,11 @@ struct Claim {
 /// designator names a socket a key does not determine, so an unproved
 /// connection holds its own claim.
 fn claim(session: &Session, locator: &str) -> Result<Claim, String> {
-	let (designator, webrtc) = if locator.contains("://") {
+	let (designator, host_key) = if locator.contains("://") {
 		let parsed =
 			glowcap::parse_locator(locator).map_err(|_| "register locator must be hostname:port or an ocapn:// URI")?;
-		let webrtc = (parsed.transport == TRANSPORT_WEBRTC).then(|| parsed.designator.clone());
-		(parsed.designator, webrtc)
+		let host_key = names_host_key(&parsed.transport).then(|| parsed.designator.clone());
+		(parsed.designator, host_key)
 	} else {
 		glowcap::designator_host_port(locator)
 			.map_err(|_| "register locator must be hostname:port or an ocapn:// URI")?;
@@ -45,7 +61,7 @@ fn claim(session: &Session, locator: &str) -> Result<Claim, String> {
 	Ok(Claim {
 		own,
 		claimant: identity.map(|identity| identity.designator),
-		webrtc,
+		host_key,
 	})
 }
 
@@ -128,7 +144,7 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 					let mut held = state.borrow_mut();
 					let (caller, _) = super::rooms::caller(&mut held)?;
 					let class = match verb {
-						protocol_data::LEAVE | signaling::DONE => Class::Cleanup,
+						protocol_data::LEAVE | signaling::DONE | signaling::DECLINE => Class::Cleanup,
 						signaling::OFFER_INBOX | signaling::OFFER | signaling::ANSWER | signaling::CANDIDATE => {
 							Class::Signal
 						}
@@ -160,6 +176,7 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 						| rooms_application::signaling::ANSWER
 						| rooms_application::signaling::CANDIDATE
 						| rooms_application::signaling::DONE
+						| rooms_application::signaling::DECLINE
 				) {
 					let original = state
 						.borrow()
@@ -207,7 +224,7 @@ pub(super) fn register(state: &Shared, connection: u64, args: &[Argument]) -> Re
 				allocation,
 				locator: locator.into(),
 				own_locator: claim.own,
-				webrtc: claim.webrtc,
+				host_key: claim.host_key,
 				inbox: inbox.clone(),
 				voucher,
 				claimant: claim.claimant,
@@ -231,4 +248,29 @@ fn register_shape() -> String {
 	format!(
 		"register needs a nickname base, locator, inbox capability, optional allocation mode, and optional {NAME_VOUCHER_BYTES}-byte voucher"
 	)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::names_host_key;
+
+	#[test]
+	fn a_keyed_locator_names_the_host_key_and_iroh_or_an_address_does_not() {
+		for transport in [
+			glowcap::TRANSPORT_WEBRTC,
+			glowcap::TRANSPORT_KEYED_TCP,
+			glowcap::TRANSPORT_NOISE_TCP,
+			glowcap::TRANSPORT_KEYED_RELAY,
+			glowcap::TRANSPORT_NOISE_RELAY,
+		] {
+			assert!(names_host_key(transport), "{transport}");
+		}
+		for transport in [
+			glowcap::TRANSPORT_IROH,
+			glowcap::TRANSPORT_TCP,
+			glowcap::TRANSPORT_ONION,
+		] {
+			assert!(!names_host_key(transport), "{transport}");
+		}
+	}
 }

@@ -28,6 +28,7 @@ const served_mod = @import("served.zig");
 const vocab = @import("vocab.zig");
 const crossed_hellos = @import("crossed_hellos.zig");
 const directory = @import("sessions/directory.zig");
+const secrets = @import("sessions/secrets.zig");
 const vow_release = @import("vows/release.zig");
 const handoff_mod = @import("handoff.zig");
 
@@ -38,7 +39,6 @@ const SessionReleaseError = host_mod.SessionReleaseError;
 const DialTarget = host_mod.DialTarget;
 const Served = served_mod.Served;
 const crypto = foundation.crypto;
-const session_seed_domain = host_mod.session_seed_domain;
 const DialSource = union(enum) { mint: void, over: *engine.Peer };
 
 /// Mint the dialing half of a session to the peer `locator` names:
@@ -163,7 +163,7 @@ fn openDialedCommitted(
     // same value only when a host signs every session with its durable
     // key, and reading the wrong one would order the tiebreak by a
     // quantity both connection attempts to a peer share.
-    const our_session_id = crypto.derivePublicIdentifier(session.sessionSecret().publicKey());
+    const our_session_id = crypto.derivePublicIdentifier(session.sessionPublicKey());
     const dial_target = target(session.transport, session.role.dialed);
     self.hellos.registerOutbound(self.allocator, dial_target, our_session_id) catch |err| {
         failOpen(self, session);
@@ -256,11 +256,8 @@ pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []
 /// dialed. The caller unwinds a refusal with `failOpen`. The shell frees the
 /// channel in `freeSessionShell`.
 fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiator, responder }) !void {
-    var ephemeral_seed: [crypto.SEED_BYTES]u8 = undefined;
+    var ephemeral_seed = secrets.noiseEphemeralSeed(session.session_seed);
     defer std.crypto.secureZero(u8, &ephemeral_seed);
-    var hasher = std.crypto.hash.Blake3.initKdf("glowcap noise ephemeral v1", .{});
-    hasher.update(&session.session_seed);
-    hasher.final(&ephemeral_seed);
     var identity = self.node.secretKey();
     defer std.crypto.secureZero(u8, std.mem.asBytes(&identity));
     const channel = try self.allocator.create(foundation.sealed.SealedChannel);
@@ -305,24 +302,8 @@ pub const liveIndexedSession = directory.liveIndexedSession;
 pub const dialedSessionFor = directory.dialedSessionFor;
 const durablePeerKeyFor = directory.durablePeerKeyFor;
 const target = directory.target;
-
-/// Each call derives a distinct seed from the host's root and a
-/// monotonic counter, so two sessions never sign with the same key and a
-/// host restarted with a fresh root cannot recreate a prior session's
-/// handoff names. The derivation is keyed and domain-separated, so the
-/// root is not recoverable from a session key and these bytes cannot
-/// collide with another use of the same material.
-pub fn nextSessionSeed(self: *Host) [crypto.SEED_BYTES]u8 {
-    self.session_seed_counter += 1;
-    var counter_bytes: [8]u8 = undefined;
-    std.mem.writeInt(u64, &counter_bytes, self.session_seed_counter, .little);
-    var out: [crypto.SEED_BYTES]u8 = undefined;
-    var hasher = std.crypto.hash.Blake3.initKdf(session_seed_domain, .{});
-    hasher.update(&self.session_seed_root);
-    hasher.update(&counter_bytes);
-    hasher.final(&out);
-    return out;
-}
+pub const nextSessionSeed = secrets.nextSessionSeed;
+const wireHashSalt = secrets.wireHashSalt;
 
 pub fn resolveSessionSecret(ctx: ?*anyopaque, peer_handle: engine.PeerHandle) ?crypto.SecretKey {
     const self: *Host = @ptrCast(@alignCast(ctx orelse return null));
@@ -349,7 +330,9 @@ fn requireAcceptableLocator(self: *const Host) HostError!model.PeerLocator {
 /// session. `errdefer failOpen` unwinds a failed hello.
 pub fn helloAndEnroll(self: *Host, session: *HostSession, advertised: model.PeerLocator) !*HostSession {
     errdefer failOpen(self, session);
-    try session.served.port.peer.sendKeyedStartSessionAdvertised(advertised, session.sessionSecret());
+    var secret = session.sessionSecret();
+    defer std.crypto.secureZero(u8, std.mem.asBytes(&secret));
+    try session.served.port.peer.sendKeyedStartSessionAdvertised(advertised, secret);
     enroll(self, session);
     try host_pump.dirtyThenPump(self, session.peer_handle);
     return session;
@@ -443,11 +426,11 @@ pub const RoleSpec = union(enum) {
 
 /// One node-registered CapTP session shell over a node-owned peer: mint the
 /// peer, apply the host posture, and allocate the `HostSession`. The
-/// map slot is reserved here so `enroll` cannot fail. A caller that fails
-/// after this unwinds with `failOpen`.
+/// session's row is reserved here so `enroll` cannot fail. A caller that
+/// fails after this unwinds with `failOpen`.
 pub fn mint(self: *Host, spec: RoleSpec, transport: []const u8) !*HostSession {
-    try self.sessions.ensureUnusedCapacity(self.allocator, 1);
     try self.pending_flush.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
+    try self.held_releases.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
     // The session being minted owes a flush and a close of its own.
     try self.reserveActions(2);
     if (spec == .dialed) try self.dialed_by_target.ensureUnusedCapacity(self.allocator, 1);
@@ -455,6 +438,7 @@ pub fn mint(self: *Host, spec: RoleSpec, transport: []const u8) !*HostSession {
         self,
     ));
     errdefer self.node.removePeer(peer_handle);
+    try self.sessions.reserve(self.allocator, peer_handle);
     return mintShell(self, self.node.peer(peer_handle).?, peer_handle, spec, transport);
 }
 
@@ -465,13 +449,14 @@ pub fn mint(self: *Host, spec: RoleSpec, transport: []const u8) !*HostSession {
 /// after `releaseSession`. This is how a peer-owning loop, whose fixed slots
 /// hold each peer inline, puts its sessions under one host.
 pub fn mintOver(self: *Host, peer: *engine.Peer, spec: RoleSpec, transport: []const u8) !*HostSession {
-    try self.sessions.ensureUnusedCapacity(self.allocator, 1);
     try self.pending_flush.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
+    try self.held_releases.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
     // The session being minted owes a flush and a close of its own.
     try self.reserveActions(2);
     if (spec == .dialed) try self.dialed_by_target.ensureUnusedCapacity(self.allocator, 1);
     const peer_handle = try self.node.registerPeerOver(peer);
     errdefer self.node.removePeer(peer_handle);
+    try self.sessions.reserve(self.allocator, peer_handle);
     return mintShell(self, peer, peer_handle, spec, transport);
 }
 
@@ -497,9 +482,12 @@ pub fn negotiatingOptions(self: *const Host) engine.Peer.NegotiatingOptions {
 /// does not carry one.
 pub fn mintShell(self: *Host, peer: *engine.Peer, peer_handle: engine.PeerHandle, spec: RoleSpec, transport: []const u8) !*HostSession {
     const profile = try self.transportProfile(transport);
+    var session_seed = nextSessionSeed(self);
+    defer std.crypto.secureZero(u8, &session_seed);
     var options = negotiatingOptions(self);
     if (profile.max_packet_bytes != 0)
         options.limits.max_frame_bytes = @min(options.limits.max_frame_bytes, profile.max_packet_bytes);
+    options.wire_hash_salt = wireHashSalt(session_seed);
     peer.reposture(options);
     const session = try self.allocator.create(HostSession);
     errdefer self.allocator.destroy(session);
@@ -522,15 +510,16 @@ pub fn mintShell(self: *Host, peer: *engine.Peer, peer_handle: engine.PeerHandle
     session.* = .{
         .host = self,
         .peer_handle = peer_handle,
-        .session_seed = nextSessionSeed(
-            self,
-        ),
+        .session_seed = session_seed,
         .served = Served.over(self.allocator, peer),
         .transport = owned_transport,
         .role = role,
         .wire_framing = profile.wire_framing,
         .outbound_high_water_bytes = self.opts.outboundHighWaterBytes(),
     };
+    // A refused mint frees the shell, so its seed is wiped first, as
+    // `freeSessionShell` wipes a retired one.
+    errdefer std.crypto.secureZero(u8, &session.session_seed);
     // `Host.init` returns by value, so only a live Host method knows the
     // object's stable address. Store the seam once per Node (reassigning
     // the same value on later mints is harmless) rather than in each Peer.
@@ -563,7 +552,7 @@ const transport_resolver_vtable: engine.Node.RuntimeTransportResolver.VTable = .
 pub fn enroll(self: *Host, session: *HostSession) void {
     session.served.serve_options = .{ .hook_ctx = session, .before_serve = Host.hostBeforeServe };
     session.served.port.setResolveInterceptor(.{ .ctx = session, .func = Host.hostResolveInterceptor });
-    self.sessions.putAssumeCapacity(session.peer_handle, session);
+    self.sessions.placeReserved(session.peer_handle, session);
     std.debug.assert(!session.control.open_pending);
     session.control.open_pending = true;
     self.beginSessionOperation(session);
@@ -602,6 +591,7 @@ pub fn freeSessionShell(self: *Host, session: *HostSession) void {
     // reclaims it from the peer that held it, so the draw and the return
     // sit on the same side of the boundary.
     host_pump.removeDirtySession(self, session);
+    host_pump.removeHeldReleases(self, session);
     host_pump.requeueParkedNodeActions(self, session.peer_handle);
     session.served.deinit(&self.vat);
     session.feed_tail.deinit(self.allocator);

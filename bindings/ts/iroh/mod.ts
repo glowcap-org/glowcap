@@ -3,7 +3,7 @@
 // `@glowcap/iroh/internal` and is not part of the application contract.
 //
 // Relay support: `dialLocatorForRelay` provides a byte-fed dial API for
-// transparent relay implementations (e.g., browser peer → relay → native iroh).
+// transparent relay implementations (e.g., browser peer → relay → FFI iroh).
 
 export {
 	connector,

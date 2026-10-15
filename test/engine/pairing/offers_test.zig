@@ -169,7 +169,7 @@ test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
     var pair = try pairedWithOffers(allocator, capnpOffer(), capnpOffer());
     defer pair.deinit();
 
-    try pair.p1.sendCopying(.{
+    try pair.p1.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
             .args = &.{.{ .bytes = "ping" }},
@@ -189,7 +189,7 @@ test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
     // The borrowed neutral view projects the deliver over the capnp frame.
-    const view = try event.view();
+    const view = event.view();
     try std.testing.expectEqual(@as(usize, 1), try view.deliver.args.len());
     try std.testing.expectEqualSlices(u8, "ping", (try view.deliver.args.at(0)).bytes);
 }
@@ -204,7 +204,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
     var pair = try pairedWithOffers(allocator, v1_capnp, v1_capnp);
     defer pair.deinit();
 
-    try pair.p1.sendCopying(.{
+    try pair.p1.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
             .args = &.{.{ .bytes = "ping" }},
@@ -225,7 +225,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
     }
     try std.testing.expectEqual(@as(?model.ImportPosition, .from(resolver_export)), pair.p2.session_state.resolverForInboundAnswer(.fromWire(.from(42))));
 
-    try pair.p2.sendCopying(.{
+    try pair.p2.sendBorrowed(.{
         .resolve = .{
             .answer = .from(42),
             .resolution = .{ .fulfill = .{ .bytes = "pong" } },
@@ -243,7 +243,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
 
     // `view()` reprojects the resolver-callback deliver as the semantic Resolve,
     // proving the V1.0 translation is codec-blind: same SessionTrace as Syrup.
-    const view = try event.view();
+    const view = event.view();
     try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
     try std.testing.expectEqualSlices(u8, "pong", view.resolve.resolution.fulfill.bytes);
 }

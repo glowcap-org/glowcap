@@ -14,7 +14,8 @@ const StructLoc = shared.StructLoc;
 
 pub const ListContent = struct { data_idx: usize, elem: wire.ElementSize, count: usize };
 
-pub fn allocStruct(b: *wire.Builder, allocator: std.mem.Allocator, data_words: u16, ptr_words: u16) EncodeError!StructLoc {
+/// Schema dimensions are fixed by the writer, never by the input value.
+pub fn allocStruct(b: *wire.Builder, allocator: std.mem.Allocator, comptime data_words: u16, comptime ptr_words: u16) std.mem.Allocator.Error!StructLoc {
     const idx = try b.allocWords(allocator, @as(usize, data_words) + ptr_words);
     return .{ .data_idx = idx, .data_words = data_words, .ptr_words = ptr_words };
 }
@@ -33,12 +34,6 @@ pub fn setStructPtr(b: *wire.Builder, ptr_idx: usize, loc: StructLoc) void {
 pub fn setListPtr(b: *wire.Builder, ptr_idx: usize, content: ListContent) EncodeError!void {
     if (content.count > wire.max_list_elements) return Error.UnsupportedArgument;
     b.set(ptr_idx, wire.encodeListPointer(wire.Builder.offsetTo(ptr_idx, content.data_idx), content.elem, @intCast(content.count)));
-}
-
-pub fn setU64List(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLoc, i: u16, values: []const u64) EncodeError!void {
-    const start = try b.allocWords(allocator, values.len);
-    for (values, 0..) |value, idx| b.set(start + idx, value);
-    try setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .eight_bytes, .count = values.len });
 }
 
 pub fn setData(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLoc, i: u16, bytes: []const u8) EncodeError!void {

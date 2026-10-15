@@ -7,8 +7,8 @@
 //! functions over `*Peer` (the same shape `v1_0` and `pipeline` use), not
 //! methods, because the cluster is one cohesive responsibility, the inbound
 //! seam, and reads better named than scattered through the struct body. The
-//! public entry methods (`recvBorrowed`, `recvStreamPrefix`, `step`) stay on
-//! `Peer` and call in here.
+//! public entry methods (`recvBorrowed`, `step`) stay on `Peer` and call in
+//! here.
 
 const std = @import("std");
 
@@ -88,21 +88,6 @@ pub fn dispatchOwnedFrame(self: *Peer, frame_in: foundation.Frame) !void {
     };
 }
 
-/// Dispatch a frame the transport boundary already decoded. Packet and stream
-/// ingress use this to preserve one consumed-frame failure contract without
-/// decoding the same bytes again.
-pub fn dispatchDecodedOwnedFrame(
-    self: *Peer,
-    frame: foundation.Frame,
-    decoded: model.view.Body,
-    wire_profile: model.CaptpVersion,
-) !void {
-    return applyDecodedOwnedFrame(self, frame, decoded, wire_profile) catch |err| {
-        failOwnedDispatch(self, err);
-        return err;
-    };
-}
-
 fn failOwnedDispatch(self: *Peer, err: anyerror) void {
     emitAbortForError(self, err);
     // The owned frame is consumed on every outcome. If the error carries no
@@ -137,10 +122,13 @@ pub fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
         return err;
     };
     const wire_profile = self.inboundProfile();
-    const decoded_body = codec.dispatch.decodeBodyForProfile(
+    // The argument list is parsed once, into the frame's own head (ADR-0222).
+    var slab = events.Head.slabOf(&frame_in);
+    const decoded_body = codec.dispatch.decodeBodyInto(
         self.inboundCodec(),
         wire_profile,
         frame_in.view(),
+        &slab,
     ) catch |err| {
         var frame = frame_in;
         frame.deinit();
@@ -182,16 +170,44 @@ fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
 }
 
 /// Apply an already-decoded inbound frame: install listeners, enqueue a
-/// pipelined call, surface the event, and record authority. This is the
-/// shared tail of the owned-frame boundary (`dispatchOwnedFrameInner`) and the
-/// byte-stream framer (`recvStreamPrefix`), so an inbound frame is parsed
-/// exactly once regardless of how it arrived.
+/// pipelined call, surface the event, and record authority. Every door a
+/// frame enters by (`recvBorrowed`, `recvPacket`, `feedOwned`, the queued
+/// inbound row) reaches here through `dispatchOwnedFrameInner`, so an inbound
+/// frame is parsed exactly once regardless of how it arrived.
 ///
-/// `decoded_body` may borrow `frame_in`'s own bytes (frame boundary) or a
-/// separate stream buffer that outlives this call (`recvStreamPrefix`). It
-/// must stay valid until apply completes. Afterwards the queued row owns only
-/// `frame_in`, and `Peer.pollEvent` decodes it once more when it surfaces.
+/// `decoded_body` borrows `frame_in`'s own heap bytes and the views in its
+/// head. The queued row carries the frame and this parse together, so
+/// `Peer.pollEvent` surfaces the body without reading the bytes again.
+///
+/// A deliver takes one of four routes and may prepare resolver rows, queue
+/// slots, and GC annotations before it commits. Every other message records
+/// and surfaces, so it takes a path that holds none of that state.
 fn applyDecodedOwnedFrame(
+    self: *Peer,
+    frame_in: foundation.Frame,
+    decoded_body: model.view.Body,
+    wire_profile: model.CaptpVersion,
+) !void {
+    // Apply the session's state-admission gate before any authority mutation
+    // below. The pipelined-call enqueue, listener install, and V1.0 resolver
+    // registration all run ahead of `recordRecvView`/`recordRecv`, and the
+    // pipelined path returns without ever reaching them, so without this a
+    // closed (or negotiating) session would mutate authority for an inbound
+    // kind it must refuse. `recordRecv*` re-checks the gate; the check is pure.
+    self.session_state.admits(decoded_body) catch |err| {
+        var frame = frame_in;
+        frame.deinit();
+        return err;
+    };
+    return switch (decoded_body) {
+        .deliver => applyDeliverOwnedFrame(self, frame_in, decoded_body, wire_profile),
+        else => applyPlainOwnedFrame(self, frame_in, decoded_body, wire_profile),
+    };
+}
+
+/// Every message but a deliver: check a hello, install a listener, surface
+/// the event, record authority, and answer a projection.
+fn applyPlainOwnedFrame(
     self: *Peer,
     frame_in: foundation.Frame,
     decoded_body: model.view.Body,
@@ -201,23 +217,20 @@ fn applyDecodedOwnedFrame(
     var stored = false;
     errdefer if (!stored) frame.deinit();
 
-    // Apply the session's state-admission gate before any authority mutation
-    // below. The pipelined-call enqueue, listener install, and V1.0 resolver
-    // registration all run ahead of `recordRecvView`/`recordRecv`, and the
-    // pipelined path returns without ever reaching them, so without this a
-    // closed (or negotiating) session would mutate authority for an inbound
-    // kind it must refuse. `recordRecv*` re-checks the gate; the check is pure.
-    try self.session_state.admits(decoded_body);
-
+    // The body recorded is the decoded one, read in place, except a hello
+    // without captured location bytes, which records them canonicalized.
+    var recorded_body: *const model.view.Body = &decoded_body;
     var canonical_partner_location: ?[]u8 = null;
     defer if (canonical_partner_location) |bytes| self.allocator.free(bytes);
-    var recorded_body = decoded_body;
-    if (recorded_body == .start_session and recorded_body.start_session.acceptable_location_raw == null) {
+    var canonical_hello: model.view.Body = undefined;
+    if (decoded_body == .start_session and decoded_body.start_session.acceptable_location_raw == null) {
         canonical_partner_location = try engine.encodePeerLocatorViewRecord(
             self.allocator,
-            recorded_body.start_session.acceptable_location,
+            decoded_body.start_session.acceptable_location,
         );
-        recorded_body.start_session.acceptable_location_raw = canonical_partner_location.?;
+        canonical_hello = decoded_body;
+        canonical_hello.start_session.acceptable_location_raw = canonical_partner_location.?;
+        recorded_body = &canonical_hello;
     }
 
     // A verifying peer authenticates the partner's `op:start-session` before
@@ -254,68 +267,108 @@ fn applyDecodedOwnedFrame(
         try pipeline.maybeInstallInboundListener(self, decoded_body.listen);
     }
 
+    const parse = try events.Parse.store(self.allocator, &frame, decoded_body);
+    try pushAdmittedEvent(self, frame, parse, eventKindFromBody(decoded_body), .none, wire_profile);
+    stored = true;
+    // Until authority records the frame, a refusal takes the event back. After
+    // that the frame is applied and stays surfaced whatever follows.
+    var appended = true;
+    errdefer if (appended) abandonPushedEvent(self);
+
+    const was_closed = self.session_state.state == .closed;
+    try self.session_state.recordRecvView(recorded_body.*);
+    if (!was_closed and self.session_state.state == .closed) self.retireClosedSessionAuthority();
+    if (decoded_body == .start_session) self.settleNegotiatedProfile();
+    appended = false;
+
+    // op:get / op:index / op:untag responder (ADR-0050): apply above
+    // installed the projected answer; anchor the projection on the
+    // receiver. The view's field/tag bytes borrow the frame, so the owned
+    // dupe happens here, while the borrow is still valid.
+    switch (decoded_body) {
+        .get => |get| try pipeline.respondToProjection(self, get.receiver, .{ .field = get.field }, get.answer),
+        .index => |idx| try pipeline.respondToProjection(
+            self,
+            idx.receiver,
+            .{ .index = session.ProjectionIndex.fromInteger(idx.index) },
+            idx.answer,
+        ),
+        .untag => |untag| try pipeline.respondToProjection(self, untag.receiver, .{ .untag = untag.tag }, untag.answer),
+        else => {},
+    }
+}
+
+/// An inbound deliver: classify its route, prepare every row it needs,
+/// surface the event, apply authority, and answer a bootstrap request.
+fn applyDeliverOwnedFrame(
+    self: *Peer,
+    frame_in: foundation.Frame,
+    decoded_body: model.view.Body,
+    wire_profile: model.CaptpVersion,
+) !void {
+    var frame = frame_in;
+    var stored = false;
+    errdefer if (!stored) frame.deinit();
+
     // The introduced-import record is filled by deliver validation before any
     // deliver-specific authority mutation and consumed by ordinary/bootstrap
     // apply below. It also survives long enough to annotate the surfaced event
     // for stateless GC without walking the argument tree again.
-    var introduced: session.validate.IntroducedImports = .init(self.allocator, self.session_state.limits);
+    var introduced: session.validate.IntroducedImports = .init(self.allocator, &self.session_state);
     defer introduced.deinit();
 
     // An inbound deliver takes exactly one of four routes; the classifier
     // holds the probe order and the validate-before-mutate boundary.
-    var tag = eventKindFromBody(decoded_body);
+    var tag: events.EventKind = .deliver;
     var answer_override: events.AnswerOverride = .none;
     var resolver_callback_resolve: ?model.view.Resolve = null;
     var shortening_callback: ?ShorteningCallbackPlan = null;
     var retired_resolver_callback: ?model.ExportPosition = null;
     var node_resolver_callback: ?model.ExportPosition = null;
     var bootstrap_request: ?bootstrap.Request = null;
-    var classified_deliver: ?deliver_route.Classification = null;
+    var classified_deliver: ?deliver_route.Classification = try deliver_route.classify(self, decoded_body.deliver, &introduced);
     defer if (classified_deliver) |*classified| classified.abandon(self);
-    if (decoded_body == .deliver) {
-        classified_deliver = try deliver_route.classify(self, decoded_body.deliver, &introduced);
-        switch (classified_deliver.?.route) {
-            // Surfaces as a semantic `Resolve` (ADR-0010, ADR-0095). The resolution is
-            // a *borrowed* view over the deliver's args, applied through the
-            // session's resolver-callback seam below, no owned
-            // materialization. `recordResolverCallbackResolve` settles the
-            // outbound answer and installs any `far` the fulfill introduces,
-            // but does not store the resolution itself, the surfaced frame,
-            // kept alive on the event queue, carries the value to the
-            // application. The borrow stays valid because that frame outlives
-            // the apply call.
-            .resolver_callback_resolve => |answer| {
-                tag = .resolve;
-                answer_override = .{ .resolver_callback = answer };
-                resolver_callback_resolve = .{
-                    .answer = answer,
-                    .resolution = try events.resolutionFromResolverCallback(decoded_body.deliver.args),
-                };
-                try self.session_state.validateResolverCallbackResolve(resolver_callback_resolve.?, &introduced);
-                try self.session_state.validatePromiseSettlingFollowers(answer);
-            },
-            .shortening_callback => |resolver| shortening_callback = try ShorteningCallbackPlan.init(
-                self,
-                resolver,
-                decoded_body.deliver,
-                &introduced,
-            ),
-            .retired_resolver_callback => |resolver| retired_resolver_callback = resolver,
-            .node_resolver_callback => |resolver| node_resolver_callback = resolver,
-            // Queued or redirected against the answer it pipelined on
-            // (ADR-0007). Commit waits below for the same shortening and
-            // maintenance preparation every other accepted deliver receives.
-            .pipelined => {},
-            // Answered automatically once authority records the deliver
-            // (ADR-0006 responder half); the action applies below.
-            .bootstrap => |action| bootstrap_request = action,
-            // A resolver-only deliver carries the virtual answer the
-            // classifier allocated, so the surfaced deliver can be replied
-            // to; an answered deliver carries null (the frame has the answer).
-            .ordinary => |answer| {
-                if (answer) |a| answer_override = .{ .virtual_deliver = a };
-            },
-        }
+    switch (classified_deliver.?.route) {
+        // Surfaces as a semantic `Resolve` (ADR-0010, ADR-0095). The resolution is
+        // a *borrowed* view over the deliver's args, applied through the
+        // session's resolver-callback seam below, no owned
+        // materialization. `recordResolverCallbackResolve` settles the
+        // outbound answer and installs any `far` the fulfill introduces,
+        // but does not store the resolution itself, the surfaced frame,
+        // kept alive on the event queue, carries the value to the
+        // application. The borrow stays valid because that frame outlives
+        // the apply call.
+        .resolver_callback_resolve => |answer| {
+            tag = .resolve;
+            answer_override = .{ .resolver_callback = answer };
+            resolver_callback_resolve = .{
+                .answer = answer,
+                .resolution = try events.resolutionFromResolverCallback(decoded_body.deliver.args),
+            };
+            try self.session_state.validateResolverCallbackResolve(resolver_callback_resolve.?, &introduced);
+            try self.session_state.validatePromiseSettlingFollowers(answer);
+        },
+        .shortening_callback => |resolver| shortening_callback = try ShorteningCallbackPlan.init(
+            self,
+            resolver,
+            decoded_body.deliver,
+            &introduced,
+        ),
+        .retired_resolver_callback => |resolver| retired_resolver_callback = resolver,
+        .node_resolver_callback => |resolver| node_resolver_callback = resolver,
+        // Queued or redirected against the answer it pipelined on
+        // (ADR-0007). Commit waits below for the same shortening and
+        // maintenance preparation every other accepted deliver receives.
+        .pipelined => {},
+        // Answered automatically once authority records the deliver
+        // (ADR-0006 responder half); the action applies below.
+        .bootstrap => |action| bootstrap_request = action,
+        // A resolver-only deliver carries the virtual answer the
+        // classifier allocated, so the surfaced deliver can be replied
+        // to; an answered deliver carries null (the frame has the answer).
+        .ordinary => |answer| {
+            if (answer) |a| answer_override = .{ .virtual_deliver = a };
+        },
     }
 
     // Callback routes validate through specialized semantic views after
@@ -335,7 +388,7 @@ fn applyDecodedOwnedFrame(
     else if (shortening_callback) |callback|
         callback.pendingPreparationCount(&introduced)
     else
-        introduced.promise_mentions.items.len;
+        introduced.promise_mentions.count();
     var pending_batch = try self.beginPendingBatch(pending_preparation_count);
 
     // Acquire every resolver row, queue slot, and owned GC slice before apply.
@@ -348,7 +401,7 @@ fn applyDecodedOwnedFrame(
     var prepared_retired_release: ?PreparedOutboundMessage = null;
     if (retired_resolver_callback != null) {
         prepared_shortening = .{};
-        prepared_retired_release = try prepareIntroducedImportReleases(self, &pending_batch, introduced.mentions.items);
+        prepared_retired_release = try prepareIntroducedImportReleases(self, &pending_batch, introduced.mentions.items());
     } else if (shortening_callback) |callback| {
         prepared_shortening_callback = try callback.prepare(self, &pending_batch, &introduced);
     } else {
@@ -405,34 +458,25 @@ fn applyDecodedOwnedFrame(
     var prepared_far_imports = try introduced.dupeArgumentMentions(self.allocator);
     defer if (prepared_far_imports) |positions| self.allocator.free(positions);
 
-    try self.events.push(self.allocator, .{
-        .frame = frame,
-        .tag = tag,
-        .answer_override = answer_override,
-        // The codec this frame arrived in, not the session's. A handshake
-        // frame is Syrup on a session that settles on something else, and an
-        // event is decoded again by whoever drains it, after the settle. Ask
-        // the session for its codec there and a hello re-reads as the codec it
-        // just negotiated, which fails silently at the drain and skips
-        // everything the hello was supposed to trigger.
-        .codec = self.inboundCodec(),
-        .captp_version = wire_profile,
-        .allocator = self.allocator,
-    });
+    const parse = if (resolver_callback_resolve) |resolve|
+        try events.Parse.storeTranslated(self.allocator, decoded_body, .{ .resolve = resolve })
+    else
+        try events.Parse.store(self.allocator, &frame, decoded_body);
+    try pushAdmittedEvent(self, frame, parse, tag, answer_override, wire_profile);
     stored = true;
+    // Until authority applies the deliver, a refusal takes the event back.
+    // After that the frame is applied and stays surfaced whatever follows.
     var appended = true;
-    errdefer if (appended) {
-        var removed = self.events.popBack().?;
-        removed.frame.deinit();
-    };
+    errdefer if (appended) abandonPushedEvent(self);
 
     const was_closed = self.session_state.state == .closed;
     if (resolver_callback_resolve) |resolve| {
         try self.session_state.applyValidatedResolverCallbackResolve(resolve, &introduced);
         self.session_state.applyPromiseSettlingFollowers(resolve.answer, resolve.resolution);
         self.events.backPtr().?.resolve_aliases = self.session_state.takePromiseSettlingFollowers(resolve.answer);
-    } else if (tag == .deliver) {
+    } else {
         try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
+        self.events.backPtr().?.reference_slots = introduced.reference_slots;
         if (classified_deliver.?.resolver) |prepared|
             prepared.commit(&self.session_state);
         if (node_resolver_callback) |resolver|
@@ -447,11 +491,8 @@ fn applyDecodedOwnedFrame(
             self.session_state.answerTargetNamed(answer)
         else
             null;
-    } else {
-        try self.session_state.recordRecvView(recorded_body);
     }
     if (!was_closed and self.session_state.state == .closed) self.retireClosedSessionAuthority();
-    if (decoded_body == .start_session) self.settleNegotiatedProfile();
     appended = false;
 
     commitPreparedShortening(self, &prepared_shortening.?);
@@ -463,22 +504,6 @@ fn applyDecodedOwnedFrame(
     if (prepared_far_imports) |positions| {
         self.events.backPtr().?.introduced_far_imports = positions;
         prepared_far_imports = null;
-    }
-
-    // op:get / op:index / op:untag responder (ADR-0050): apply above
-    // installed the projected answer; anchor the projection on the
-    // receiver. The view's field/tag bytes borrow the frame, so the owned
-    // dupe happens here, while the borrow is still valid.
-    switch (decoded_body) {
-        .get => |get| try pipeline.respondToProjection(self, get.receiver, .{ .field = get.field }, get.answer),
-        .index => |idx| try pipeline.respondToProjection(
-            self,
-            idx.receiver,
-            .{ .index = session.ProjectionIndex.fromInteger(idx.index) },
-            idx.answer,
-        ),
-        .untag => |untag| try pipeline.respondToProjection(self, untag.receiver, .{ .untag = untag.tag }, untag.answer),
-        else => {},
     }
 
     if (bootstrap_request) |action| {
@@ -523,6 +548,41 @@ fn applyDecodedOwnedFrame(
             },
         }
     }
+}
+
+/// Queue the admitted frame and its parse as one event. From here the row
+/// owns both; a caller whose authority apply then fails takes the row back
+/// with `abandonPushedEvent`.
+fn pushAdmittedEvent(
+    self: *Peer,
+    frame: foundation.Frame,
+    parse: events.Parse,
+    tag: events.EventKind,
+    answer_override: events.AnswerOverride,
+    wire_profile: model.CaptpVersion,
+) !void {
+    self.events.push(self.allocator, .{
+        .frame = frame,
+        .parse = parse,
+        .tag = tag,
+        .answer_override = answer_override,
+        // The codec this frame arrived in, not the session's. A handshake
+        // frame is Syrup on a session that settles on something else, and the
+        // event reports the codec that carried its frame.
+        .codec = self.inboundCodec(),
+        .captp_version = wire_profile,
+        .allocator = self.allocator,
+    }) catch |err| {
+        parse.deinit(self.allocator);
+        return err;
+    };
+}
+
+/// Take back the event `pushAdmittedEvent` queued last, with its frame.
+fn abandonPushedEvent(self: *Peer) void {
+    var removed = self.events.popBack().?;
+    removed.parse.deinit(self.allocator);
+    removed.frame.deinit();
 }
 
 /// The `EventKind` a decoded body surfaces as, a 1:1 body-tag mapping. The one

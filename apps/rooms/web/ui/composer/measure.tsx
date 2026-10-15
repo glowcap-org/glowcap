@@ -1,9 +1,8 @@
 // How tall the message field is, and what the band's own box tells the page.
 //
 // One subject rather than two: the band's width is what re-wraps the field, and
-// fitting the field is what changes the band's height. Splitting them left the
-// fitting in two places, one of which had to be declared away from the other
-// because it reads a value derived later in the component.
+// fitting the field is what changes the band's height. Both live here so the
+// fitting has one owner.
 
 import { type RefObject, useCallback, useLayoutEffect, useRef } from "react";
 

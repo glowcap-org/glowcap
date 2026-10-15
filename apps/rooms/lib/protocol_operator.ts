@@ -12,16 +12,19 @@
  * Like inspect, it is not a directory method. It is a second Host publication
  * under an unguessable swiss, and holding that swiss is the authority to
  * administer this server's listeners. `list` (the same verb name the directory
- * uses, on a different object) answers the live listeners as
- * `[id, transport, locator, serving]` rows, where `serving` marks the listener
- * whose locator this server announced, the one the web relay dials.
- * `up(transport, port?)` brings a listener up on `tcp`, `iroh`, or `onion` and
- * answers its row. Only a `tcp` listener takes a port, and the runtime holds
- * one live listener per transport at a time. `down(id)` stops that listener
- * admitting connections, and sessions it already accepted stay live. An `up`
- * for a transport this process cannot realize, a second `up` on a transport
- * already up, and a `down` on the serving listener all refuse with the typed
- * codes in `errors.ts`. */
+ * uses, on a different object) answers one row per transport this server
+ * knows, live or not: the transport, its description and reference link, the
+ * knobs its `up` takes, why an `up` would refuse today, and, while the
+ * listener is up, its id and locator. `serving` marks the listener whose
+ * locator this server announced, the one the web relay dials.
+ * `up(transport, options?)` brings a listener up on a transport from the list
+ * and answers its refreshed row. `options` is a list of name and value pairs
+ * for the knobs that row declares. The runtime holds one live listener per
+ * transport at a time. `down(id)` stops that listener admitting connections,
+ * and sessions it already accepted stay live. An `up` for a transport this
+ * process cannot realize, a second `up` on a transport already up, and a
+ * `down` on the serving listener all refuse with the typed codes in
+ * `failure_data.ts`. */
 
 export const UP = "up";
 export const DOWN = "down";

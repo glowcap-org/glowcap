@@ -11,7 +11,7 @@
 //! drain the action queue, write what `take_packet` drains, feed-refusal /
 //! `last_abort`, EOF / `break_far_vows`, lives in [`crate::pump`]. This module
 //! keeps CapTP verbs and thin wrappers into that path. A loop-backed session
-//! (ADR-0112) carries the same verbs with no pump at all: the native loop owns
+//! (ADR-0112) carries the same verbs with no pump at all: the driver loop owns
 //! its wire ([`crate::driver_loop`]). The host owns everything
 //! else: routing, redemption, gift origination, far vows.
 //!
@@ -169,7 +169,7 @@ impl Session {
 	/// the actor onto the session and returns its Host identity. No enrollment
 	/// step exists.
 	///
-	/// Calls to the returned reference use the native Host's local eventual
+	/// Calls to the returned reference use the FFI Host's local eventual
 	/// dispatch with this session as their causal owner.
 	pub fn published_ref(&self, name: &str) -> Result<Option<Ref>> {
 		self.shared.guard_open()?;

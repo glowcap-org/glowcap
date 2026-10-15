@@ -4,6 +4,7 @@ const foundation = @import("foundation");
 const net = @import("net");
 const webrtc = @import("webrtc");
 const webrtc_archive = @import("c_abi_net_transport_webrtc");
+const stub = @import("webrtc_sidecar_stub.zig");
 
 /// One open DataChannel's adapter row: the 48-byte sidecar peer beside the
 /// hinted try-I/O seats, hints, and terminal cause every multiplexed sidecar
@@ -12,7 +13,7 @@ const webrtc_archive = @import("c_abi_net_transport_webrtc");
 const webrtc_connection_state_bytes: usize = 104;
 
 test "supported WebRTC type surfaces and footprints stay exact" {
-    const root_names = .{ "transport_name", "max_packet_bytes", "max_signal_bytes", "max_ice_candidate_bytes", "max_ice_servers", "max_ice_urls_per_server", "max_ice_url_bytes", "max_ice_credential_bytes", "max_pending_ice_candidates", "pending_ice_candidate_queue_bytes", "data_channel_queue_bytes", "sctp_receive_buffer_bytes", "designator_scheme", "designator_len", "locator", "ev_open", "ev_candidate", "ev_readable", "ev_writable", "ev_closed", "ReadyEvent", "PeerId", "StringView", "IceServerConfig", "SignalError", "Peer", "Resident", "DialResolver", "SignalingAuthority", "Backend", "ResidentPolicy" };
+    const root_names = .{ "transport_name", "max_packet_bytes", "max_signal_bytes", "max_ice_candidate_bytes", "max_ice_servers", "max_ice_urls_per_server", "max_ice_url_bytes", "max_ice_credential_bytes", "max_pending_ice_candidates", "max_accepts_in_flight", "pending_ice_candidate_queue_bytes", "data_channel_queue_bytes", "sctp_receive_buffer_bytes", "designator_scheme", "designator_len", "locator", "ev_open", "ev_candidate", "ev_readable", "ev_writable", "ev_closed", "ReadyEvent", "PeerId", "StringView", "IceServerConfig", "SignalError", "Peer", "Resident", "DialResolver", "SignalingAuthority", "Backend", "ResidentPolicy", "transport_profile", "CompletionResident" };
     try std.testing.expectEqual(root_names.len, @typeInfo(webrtc).@"struct".decl_names.len);
     inline for (root_names) |name| try std.testing.expect(@hasDecl(webrtc, name));
 
@@ -28,6 +29,7 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     try std.testing.expectEqual(@as(usize, 2 * 1024), webrtc.max_ice_url_bytes);
     try std.testing.expectEqual(@as(usize, 4 * 1024), webrtc.max_ice_credential_bytes);
     try std.testing.expectEqual(@as(usize, 256), webrtc.max_pending_ice_candidates);
+    try std.testing.expectEqual(@as(usize, 64), webrtc.max_accepts_in_flight);
     try std.testing.expectEqual(@as(usize, 64 * 1024), webrtc.pending_ice_candidate_queue_bytes);
     try std.testing.expectEqual(@as(usize, 1 * 1024 * 1024), webrtc.data_channel_queue_bytes);
     try std.testing.expectEqual(webrtc.data_channel_queue_bytes, webrtc.sctp_receive_buffer_bytes);
@@ -40,13 +42,14 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     try std.testing.expectEqual(resident_names.len, @typeInfo(webrtc.Resident).@"struct".decl_names.len);
     inline for (resident_names) |name| try std.testing.expect(@hasDecl(webrtc.Resident, name));
 
-    const backend_names = .{ "Fd", "ConnectTarget", "ListenerAddress", "ListenTarget", "loopListenTarget", "listen_fd", "connection_state_bytes", "initBound", "deinit", "openListener", "listenerAddress", "listenerPort", "startDial", "adoptAnswerer", "provideAnswer", "provideRemoteCandidate", "wake", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll", "readinessFd", "flush", "submitPoll", "waitBoundMs" };
+    const backend_names = .{ "Fd", "ConnectTarget", "ListenerAddress", "ListenTarget", "loopListenTarget", "listen_fd", "connection_state_bytes", "initBound", "deinit", "openListener", "listenerAddress", "listenerPort", "startDial", "startAnswer", "adoptAnswerer", "provideAnswer", "provideRemoteCandidate", "wake", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll", "peek", "readinessFd", "flush", "waitBoundMs", "submitPoll" };
     try std.testing.expectEqual(backend_names.len, @typeInfo(webrtc.Backend).@"struct".decl_names.len);
     inline for (backend_names) |name| try std.testing.expect(@hasDecl(webrtc.Backend, name));
 
     comptime {
         expectSignature(@TypeOf(webrtc.Backend.initBound), &.{ std.mem.Allocator, *webrtc.Resident, webrtc.SignalingAuthority, u16, u32 }, webrtc.Backend);
         expectSignature(@TypeOf(webrtc.Backend.startDial), &.{ *webrtc.Backend, u64, webrtc.Backend.ConnectTarget }, webrtc.Backend.Fd);
+        expectSignature(@TypeOf(webrtc.Backend.startAnswer), &.{ *webrtc.Backend, []const u8, []const u8 }, webrtc.Backend.Fd);
         expectSignature(@TypeOf(webrtc.Backend.adoptAnswerer), &.{ *webrtc.Backend, webrtc.Peer }, webrtc.Backend.Fd);
         expectSignature(@TypeOf(webrtc.Backend.provideAnswer), &.{ *webrtc.Backend, webrtc.Backend.Fd, []const u8 }, void);
         expectSignature(@TypeOf(webrtc.Backend.provideRemoteCandidate), &.{ *webrtc.Backend, webrtc.Backend.Fd, []const u8 }, void);
@@ -55,11 +58,13 @@ test "supported WebRTC type surfaces and footprints stay exact" {
 
     // The `Backend` footprint is stated under runtime safety, where each
     // embedded `std.ArrayList` header carries std's one-word
-    // `pointer_stability` lock: 48 of these bytes, one fixed charge per loop.
-    // The readiness set and the one foreign poll a resident's wake arms are
-    // another 40, the cost of presenting a single readiness descriptor.
+    // `pointer_stability` lock: 64 of these bytes, one fixed charge per loop.
+    // The readiness set is another 16, the cost of presenting a single
+    // readiness descriptor. The watch list and the park's poll set are 64,
+    // the cost of parking the runtime inside this backend. The signaling
+    // authority is 32: its context and the three send verbs.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 800), @sizeOf(webrtc.Backend));
+    try std.testing.expectEqual(@as(usize, 848), @sizeOf(webrtc.Backend));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Backend));
 }
 
@@ -77,89 +82,27 @@ fn expectSignature(comptime Function: type, comptime Params: []const type, compt
     if (payload != Payload) @compileError("WebRTC supported return shape drifted");
 }
 
-var freed_peers: usize = 0;
-var candidate_bytes_to_emit: usize = 0;
-var candidate_reads: usize = 0;
-var candidate_sent_bytes: usize = 0;
-var create_offer_result: i32 = -2;
-var create_answer_result: i32 = -2;
-var create_signal_len: usize = 0;
-var set_remote_calls: usize = 0;
-var add_remote_candidate_calls: usize = 0;
-var open_result: i32 = -2;
-var open_checks: usize = 0;
-var receive_result: isize = -2;
-
-export fn glowcap_webrtc_sidecar_endpoint_new(_: *const anyopaque) callconv(.c) ?*anyopaque {
-    return @ptrFromInt(1);
-}
-export fn glowcap_webrtc_sidecar_endpoint_readiness_fd(_: *const anyopaque) callconv(.c) i32 {
-    return 0;
-}
-export fn glowcap_webrtc_sidecar_endpoint_drain_ready(_: *const anyopaque, _: [*]webrtc.ReadyEvent, _: usize) callconv(.c) isize {
-    return 0;
-}
-export fn glowcap_webrtc_sidecar_endpoint_driver_readiness_fd(_: *const anyopaque) callconv(.c) i32 {
-    return 0;
-}
-export fn glowcap_webrtc_sidecar_endpoint_drain_driver_ready(_: *const anyopaque, _: [*]webrtc.ReadyEvent, _: usize) callconv(.c) isize {
-    return 0;
-}
-export fn glowcap_webrtc_sidecar_endpoint_free(_: *anyopaque) callconv(.c) i32 {
-    return 0;
-}
-export fn glowcap_webrtc_sidecar_peer_new(_: *anyopaque, _: i32) callconv(.c) ?*anyopaque {
-    return @ptrFromInt(2);
-}
-export fn glowcap_webrtc_sidecar_peer_id(peer: *const anyopaque) callconv(.c) usize {
-    return @intFromPtr(peer);
-}
-export fn glowcap_webrtc_sidecar_peer_create_offer(_: *anyopaque, _: [*]u8, _: usize, out_len: *usize) callconv(.c) i32 {
-    out_len.* = create_signal_len;
-    return create_offer_result;
-}
-export fn glowcap_webrtc_sidecar_peer_create_answer(_: *anyopaque, _: [*]u8, _: usize, out_len: *usize) callconv(.c) i32 {
-    out_len.* = create_signal_len;
-    return create_answer_result;
-}
-export fn glowcap_webrtc_sidecar_peer_add_remote_candidate(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) i32 {
-    add_remote_candidate_calls += 1;
-    return -1;
-}
-export fn glowcap_webrtc_sidecar_peer_set_remote(_: *anyopaque, _: [*]const u8, _: usize, _: i32) callconv(.c) i32 {
-    set_remote_calls += 1;
-    return -1;
-}
-export fn glowcap_webrtc_sidecar_peer_next_local_candidate(_: *anyopaque, out: [*]u8, cap: usize, out_len: *usize) callconv(.c) i32 {
-    candidate_reads += 1;
-    if (candidate_bytes_to_emit != 0) {
-        out_len.* = candidate_bytes_to_emit;
-        if (candidate_bytes_to_emit > cap) return -3;
-        @memset(out[0..candidate_bytes_to_emit], 'c');
-        candidate_bytes_to_emit = 0;
-        return 0;
-    }
-    return -2;
-}
-export fn glowcap_webrtc_sidecar_peer_is_open(_: *const anyopaque) callconv(.c) i32 {
-    open_checks += 1;
-    return open_result;
-}
-export fn glowcap_webrtc_sidecar_conn_try_receive_packet(_: *anyopaque, _: [*]u8, _: usize) callconv(.c) isize {
-    return receive_result;
-}
-export fn glowcap_webrtc_sidecar_conn_try_send_packet(_: *anyopaque, _: [*]const u8, _: usize) callconv(.c) isize {
-    return -2;
-}
-export fn glowcap_webrtc_sidecar_conn_close(_: *anyopaque) callconv(.c) void {}
-export fn glowcap_webrtc_sidecar_peer_free(_: *anyopaque) callconv(.c) void {
-    freed_peers += 1;
-}
-
 fn ignoreOffer(_: *anyopaque, _: i32, _: []const u8, _: []const u8) anyerror!void {}
+fn ignoreAnswer(_: *anyopaque, _: i32, _: []const u8, _: []const u8) anyerror!void {}
 fn ignoreCandidate(_: *anyopaque, _: i32, _: []const u8) anyerror!void {}
+
+/// What the authority's `sendAnswer` saw last, and whether it refuses.
+const Answered = struct {
+    fd: ?i32 = null,
+    designator: [foundation.crypto.PeerKey.designator_len]u8 = undefined,
+    sdp_len: usize = 0,
+    refuse: bool = false,
+};
+var answered: Answered = .{};
+
+fn observeAnswer(_: *anyopaque, fd: i32, designator: []const u8, sdp: []const u8) anyerror!void {
+    if (answered.refuse) return error.NoCarrier;
+    answered.fd = fd;
+    @memcpy(&answered.designator, designator);
+    answered.sdp_len = sdp.len;
+}
 fn observeCandidate(_: *anyopaque, _: i32, candidate: []const u8) anyerror!void {
-    candidate_sent_bytes = candidate.len;
+    stub.candidate_sent_bytes = candidate.len;
 }
 
 fn webrtcProviderTable(provider: c.GlowcapTransportProvider) *const c.GlowcapMultiplexedTransport {
@@ -173,19 +116,19 @@ fn webrtcProviderTable(provider: c.GlowcapTransportProvider) *const c.GlowcapMul
 }
 
 test "signaling inputs are bounded before entering the sidecar" {
-    set_remote_calls = 0;
-    add_remote_candidate_calls = 0;
+    stub.set_remote_calls = 0;
+    stub.add_remote_candidate_calls = 0;
     var peer: webrtc.Peer = .{ .peer = @ptrFromInt(104) };
     var oversized: [webrtc.max_signal_bytes + 1]u8 = undefined;
     try std.testing.expectError(error.SignalTooLarge, peer.setRemoteOffer(&oversized));
     try std.testing.expectError(error.SignalTooLarge, peer.addRemoteCandidate(&oversized));
-    try std.testing.expectEqual(@as(usize, 0), set_remote_calls);
-    try std.testing.expectEqual(@as(usize, 0), add_remote_candidate_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.set_remote_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.add_remote_candidate_calls);
 }
 
 test "public webrtc signaling inputs are bounded before entering the sidecar" {
-    set_remote_calls = 0;
-    add_remote_candidate_calls = 0;
+    stub.set_remote_calls = 0;
+    stub.add_remote_candidate_calls = 0;
     var oversized: [webrtc.max_signal_bytes + 1]u8 = undefined;
 
     var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
@@ -200,20 +143,20 @@ test "public webrtc signaling inputs are bounded before entering the sidecar" {
     try expectWebrtcSignalTooLarge(webrtc_archive.glowcap_webrtc_peer_set_remote_offer(peer, &oversized, oversized.len));
     try expectWebrtcSignalTooLarge(webrtc_archive.glowcap_webrtc_peer_set_remote_answer(peer, &oversized, oversized.len));
     try expectWebrtcCandidateTooLarge(webrtc_archive.glowcap_webrtc_peer_add_remote_candidate(peer, &oversized, oversized.len));
-    try std.testing.expectEqual(@as(usize, 0), set_remote_calls);
-    try std.testing.expectEqual(@as(usize, 0), add_remote_candidate_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.set_remote_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.add_remote_candidate_calls);
 }
 
 test "public webrtc generated signaling too large is not a retryable output buffer miss" {
-    create_offer_result = -4;
-    create_answer_result = -4;
-    create_signal_len = webrtc.max_signal_bytes + 1;
-    candidate_bytes_to_emit = webrtc.max_signal_bytes + 1;
+    stub.create_offer_result = -4;
+    stub.create_answer_result = -4;
+    stub.create_signal_len = webrtc.max_signal_bytes + 1;
+    stub.candidate_bytes_to_emit = webrtc.max_signal_bytes + 1;
     defer {
-        create_offer_result = -2;
-        create_answer_result = -2;
-        create_signal_len = 0;
-        candidate_bytes_to_emit = 0;
+        stub.create_offer_result = -2;
+        stub.create_answer_result = -2;
+        stub.create_signal_len = 0;
+        stub.candidate_bytes_to_emit = 0;
     }
 
     var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
@@ -236,11 +179,11 @@ test "public webrtc generated signaling too large is not a retryable output buff
 }
 
 test "public webrtc remote authorization validates key designator before sidecar state" {
-    open_result = 0;
-    open_checks = 0;
+    stub.open_result = 0;
+    stub.open_checks = 0;
     defer {
-        open_result = -2;
-        open_checks = 0;
+        stub.open_result = -2;
+        stub.open_checks = 0;
     }
 
     var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
@@ -255,26 +198,26 @@ test "public webrtc remote authorization validates key designator before sidecar
     const short = "not-a-key";
     try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, webrtc_archive.glowcap_webrtc_peer_authorize_remote(peer, short.ptr, short.len));
     try expectWebrtcLastErrorContains("lowercase hex designator");
-    try std.testing.expectEqual(@as(usize, 0), open_checks);
+    try std.testing.expectEqual(@as(usize, 0), stub.open_checks);
 
     try std.testing.expectEqual(c.GLOWCAP_ERR_NULL_POINTER, webrtc_archive.glowcap_webrtc_peer_authorize_remote(peer, null, foundation.crypto.PeerKey.designator_len));
-    try std.testing.expectEqual(@as(usize, 0), open_checks);
+    try std.testing.expectEqual(@as(usize, 0), stub.open_checks);
 }
 
 test "webrtc open failure stays distinct from clean close" {
     var peer: webrtc.Peer = .{ .peer = @ptrFromInt(104) };
 
-    open_result = -5;
-    open_checks = 0;
+    stub.open_result = -5;
+    stub.open_checks = 0;
     try std.testing.expectError(error.Closed, peer.checkOpen());
-    try std.testing.expectEqual(@as(usize, 1), open_checks);
+    try std.testing.expectEqual(@as(usize, 1), stub.open_checks);
 
-    open_result = -1;
+    stub.open_result = -1;
     try std.testing.expectError(error.Failed, peer.checkOpen());
 
     defer {
-        open_result = -2;
-        open_checks = 0;
+        stub.open_result = -2;
+        stub.open_checks = 0;
     }
 
     var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
@@ -289,7 +232,7 @@ test "webrtc open failure stays distinct from clean close" {
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, webrtc_archive.glowcap_webrtc_peer_is_open(public_peer));
     try expectWebrtcLastErrorContains("channel faulted");
 
-    open_result = -5;
+    stub.open_result = -5;
     try std.testing.expectEqual(c.GLOWCAP_ERR_CLOSED, webrtc_archive.glowcap_webrtc_peer_is_open(public_peer));
 }
 
@@ -367,11 +310,11 @@ fn expectWebrtcConfigRefusal(
 }
 
 test "provider maps a clean WebRTC close to EOF" {
-    open_result = -2;
-    receive_result = 0;
+    stub.open_result = -2;
+    stub.receive_result = 0;
     defer {
-        open_result = -2;
-        receive_result = -2;
+        stub.open_result = -2;
+        stub.receive_result = -2;
     }
 
     var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
@@ -387,7 +330,7 @@ test "provider maps a clean WebRTC close to EOF" {
     const designator = key.toDesignator();
     try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_peer_authorize_remote(peer, &designator, designator.len));
 
-    open_result = 0;
+    stub.open_result = 0;
     const subject = webrtc_archive.glowcap_webrtc_peer_id(peer);
     var package: c.GlowcapTransportProvider = undefined;
     try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_transport_provider(netlayer, &package));
@@ -405,9 +348,9 @@ test "provider maps a clean WebRTC close to EOF" {
 }
 
 test "provider maps failed WebRTC open to transport failure" {
-    open_result = -2;
+    stub.open_result = -2;
     defer {
-        open_result = -2;
+        stub.open_result = -2;
     }
 
     var config: webrtc_archive.GlowcapWebrtcConfig = std.mem.zeroes(webrtc_archive.GlowcapWebrtcConfig);
@@ -428,7 +371,7 @@ test "provider maps failed WebRTC open to transport failure" {
     try std.testing.expectEqual(c.GLOWCAP_OK, webrtc_archive.glowcap_webrtc_transport_provider(netlayer, &package));
     const transport = webrtcProviderTable(package);
 
-    open_result = -1;
+    stub.open_result = -1;
     var failure = c.transport_provider.emptyProviderFailure();
     var conn: u64 = 0;
     try std.testing.expectEqual(c.GLOWCAP_ERR_IO, transport.claim_external.?(transport.ctx, subject, &conn, &failure));
@@ -436,14 +379,14 @@ test "provider maps failed WebRTC open to transport failure" {
 }
 
 test "candidate pump carries one candidate above the former 4 KiB bound" {
-    candidate_bytes_to_emit = 5 * 1024;
-    candidate_reads = 0;
-    candidate_sent_bytes = 0;
+    stub.candidate_bytes_to_emit = 5 * 1024;
+    stub.candidate_reads = 0;
+    stub.candidate_sent_bytes = 0;
     var resident: webrtc.Resident = .{ .endpoint = @ptrFromInt(1) };
     var backend = try webrtc.Backend.initBound(
         std.testing.allocator,
         &resident,
-        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendCandidate = observeCandidate },
+        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendAnswer = ignoreAnswer, .sendCandidate = observeCandidate },
         1,
         64,
     );
@@ -454,29 +397,29 @@ test "candidate pump carries one candidate above the former 4 KiB bound" {
     var required: usize = 0;
     try std.testing.expectError(error.BufferTooSmall, peer.nextLocalCandidate(&short, &required));
     try std.testing.expectEqual(@as(usize, 5 * 1024), required);
-    try std.testing.expectEqual(@as(usize, 5 * 1024), candidate_bytes_to_emit);
+    try std.testing.expectEqual(@as(usize, 5 * 1024), stub.candidate_bytes_to_emit);
     _ = try backend.adoptAnswerer(peer);
     var completions: [1]net.completion.Completion = undefined;
     _ = try backend.poll(&completions, 0);
 
-    try std.testing.expectEqual(@as(usize, 5 * 1024), candidate_sent_bytes);
-    try std.testing.expectEqual(@as(usize, 3), candidate_reads);
+    try std.testing.expectEqual(@as(usize, 5 * 1024), stub.candidate_sent_bytes);
+    try std.testing.expectEqual(@as(usize, 3), stub.candidate_reads);
     try std.testing.expectEqual(@as(usize, 1), backend.adopting.count());
 }
 
 test "backend maps failed pre-open WebRTC peer distinctly from clean close" {
-    open_result = -1;
-    freed_peers = 0;
+    stub.open_result = -1;
+    stub.freed_peers = 0;
     defer {
-        open_result = -2;
-        freed_peers = 0;
+        stub.open_result = -2;
+        stub.freed_peers = 0;
     }
 
     var resident: webrtc.Resident = .{ .endpoint = @ptrFromInt(1) };
     var backend = try webrtc.Backend.initBound(
         std.testing.allocator,
         &resident,
-        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendCandidate = ignoreCandidate },
+        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendAnswer = ignoreAnswer, .sendCandidate = ignoreCandidate },
         1,
         64,
     );
@@ -487,10 +430,100 @@ test "backend maps failed pre-open WebRTC peer distinctly from clean close" {
     var completions: [1]net.completion.Completion = undefined;
     _ = try backend.poll(&completions, 0);
 
-    try std.testing.expectEqual(@as(usize, 1), freed_peers);
+    try std.testing.expectEqual(@as(usize, 1), stub.freed_peers);
     try std.testing.expectEqual(@as(usize, 0), backend.adopting.count());
     try std.testing.expectEqual(@as(usize, 1), backend.accept_stash.items.len);
     try std.testing.expectEqual(error.WebRtcChannelFailed, backend.accept_stash.items[0].failed);
+}
+
+test "the backend answers an offer, sends the answer under the exchange fd, and adopts the answerer" {
+    stub.set_remote_calls = 0;
+    stub.set_remote_result = 0;
+    stub.create_answer_result = 0;
+    stub.create_signal_len = 64;
+    stub.freed_peers = 0;
+    answered = .{};
+    defer {
+        stub.set_remote_calls = 0;
+        stub.set_remote_result = -1;
+        stub.create_answer_result = -2;
+        stub.create_signal_len = 0;
+        stub.freed_peers = 0;
+    }
+    var resident: webrtc.Resident = .{ .endpoint = @ptrFromInt(1) };
+    var backend = try webrtc.Backend.initBound(
+        std.testing.allocator,
+        &resident,
+        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendAnswer = observeAnswer, .sendCandidate = ignoreCandidate },
+        1,
+        64,
+    );
+    defer backend.deinit();
+
+    const key = foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x61))).publicKey();
+    const designator = key.toDesignator();
+    const fd = try backend.startAnswer(&designator, "v=0 offer");
+    try std.testing.expectEqual(@as(?i32, fd), answered.fd);
+    try std.testing.expectEqualSlices(u8, &designator, &answered.designator);
+    try std.testing.expectEqual(@as(usize, 64), answered.sdp_len);
+    try std.testing.expectEqual(@as(usize, 1), stub.set_remote_calls);
+
+    // The adoption is applied on the loop thread. The row carries the
+    // offerer's key as the channel's authorized remote (ADR-0105).
+    var completions: [1]net.completion.Completion = undefined;
+    _ = try backend.poll(&completions, 0);
+    try std.testing.expectEqual(@as(usize, 1), backend.adopting.count());
+    const row = backend.adopting.getPtr(fd) orelse return error.MissingAdoptRow;
+    try std.testing.expectEqualSlices(u8, key.asBytes(), (row.peer.authorized_remote orelse return error.MissingChannelKey).asBytes());
+    try std.testing.expectEqual(@as(usize, 0), stub.freed_peers);
+}
+
+test "an offer the backend cannot answer commits nothing" {
+    stub.set_remote_calls = 0;
+    stub.set_remote_result = -1;
+    stub.create_answer_result = 0;
+    stub.create_signal_len = 64;
+    stub.freed_peers = 0;
+    answered = .{};
+    defer {
+        stub.set_remote_calls = 0;
+        stub.set_remote_result = -1;
+        stub.create_answer_result = -2;
+        stub.create_signal_len = 0;
+        stub.freed_peers = 0;
+        answered = .{};
+    }
+    var resident: webrtc.Resident = .{ .endpoint = @ptrFromInt(1) };
+    var backend = try webrtc.Backend.initBound(
+        std.testing.allocator,
+        &resident,
+        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendAnswer = observeAnswer, .sendCandidate = ignoreCandidate },
+        1,
+        64,
+    );
+    defer backend.deinit();
+    const designator = foundation.crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x62))).publicKey().toDesignator();
+
+    // A designator that names no key creates no peer.
+    try std.testing.expectError(error.InvalidAddress, backend.startAnswer("nobody", "v=0 offer"));
+    try std.testing.expectEqual(@as(usize, 0), stub.set_remote_calls);
+    try std.testing.expectEqual(@as(usize, 0), stub.freed_peers);
+
+    // An offer the sidecar refuses closes the peer it was for.
+    try std.testing.expectError(error.SignalFailed, backend.startAnswer(&designator, "v=0 offer"));
+    try std.testing.expectEqual(@as(usize, 1), stub.freed_peers);
+    try std.testing.expectEqual(@as(?i32, null), answered.fd);
+
+    // An answer the authority cannot carry closes the peer, and the inbox
+    // seat it had reserved is free again.
+    stub.set_remote_result = 0;
+    answered.refuse = true;
+    try std.testing.expectError(error.NoCarrier, backend.startAnswer(&designator, "v=0 offer"));
+    try std.testing.expectEqual(@as(usize, 2), stub.freed_peers);
+    try std.testing.expectEqual(@as(usize, 0), backend.signal_reservations);
+    var completions: [1]net.completion.Completion = undefined;
+    _ = try backend.poll(&completions, 0);
+    try std.testing.expectEqual(@as(usize, 0), backend.adopting.count());
 }
 
 test "adopted peer reports the signaling-authorized channel key" {
@@ -498,7 +531,7 @@ test "adopted peer reports the signaling-authorized channel key" {
     var backend = try webrtc.Backend.initBound(
         std.testing.allocator,
         &resident,
-        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendCandidate = ignoreCandidate },
+        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendAnswer = ignoreAnswer, .sendCandidate = ignoreCandidate },
         1,
         64,
     );
@@ -516,12 +549,12 @@ test "adopted peer reports the signaling-authorized channel key" {
 }
 
 test "signal drain failure retires current row and retries the next exactly once" {
-    freed_peers = 0;
+    stub.freed_peers = 0;
     var resident: webrtc.Resident = .{ .endpoint = @ptrFromInt(1) };
     var backend = try webrtc.Backend.initBound(
         std.testing.allocator,
         &resident,
-        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendCandidate = ignoreCandidate },
+        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendAnswer = ignoreAnswer, .sendCandidate = ignoreCandidate },
         1,
         64,
     );
@@ -540,7 +573,7 @@ test "signal drain failure retires current row and retries the next exactly once
     var completions: [4]net.completion.Completion = undefined;
     try std.testing.expectError(error.AcceptBacklogFull, backend.poll(&completions, 0));
 
-    try std.testing.expectEqual(@as(usize, 1), freed_peers);
+    try std.testing.expectEqual(@as(usize, 1), stub.freed_peers);
     try std.testing.expectEqual(@as(usize, 0), backend.adopting.count());
     try std.testing.expectEqual(@as(usize, 1), backend.signal_work.items.len);
     try std.testing.expectEqual(@as(i32, 42), backend.signal_work.items[0].candidate.fd);
@@ -549,5 +582,38 @@ test "signal drain failure retires current row and retries the next exactly once
     _ = try backend.poll(&completions, 0);
     try std.testing.expectEqual(@as(usize, 0), backend.signal_work.items.len);
     try std.testing.expectEqual(@as(usize, 256), backend.signal_payloads.free_len);
-    try std.testing.expectEqual(@as(usize, 1), freed_peers);
+    try std.testing.expectEqual(@as(usize, 1), stub.freed_peers);
+}
+
+test "a watched descriptor completes once when it reads ready, and a cancel retires a watch" {
+    var resident: webrtc.Resident = .{ .endpoint = @ptrFromInt(1) };
+    var backend = try webrtc.Backend.initBound(
+        std.testing.allocator,
+        &resident,
+        .{ .ctx = undefined, .sendOffer = ignoreOffer, .sendAnswer = ignoreAnswer, .sendCandidate = observeCandidate },
+        1,
+        64,
+    );
+    defer backend.deinit();
+    const pipe = try net.wake_channel.WakeChannel.open();
+    defer pipe.deinit();
+
+    var out: [4]net.completion.Completion = undefined;
+    try backend.submitPoll(7, pipe.read, .readable);
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&out, 0));
+    _ = try pipe.nudge();
+    try std.testing.expectEqual(@as(usize, 1), try backend.poll(&out, 0));
+    try std.testing.expectEqual(@as(u64, 7), out[0].user_data);
+    try std.testing.expect(out[0].result >= 0);
+    // One-shot: the descriptor still reads ready, but the watch is spent.
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&out, 0));
+
+    try backend.submitPoll(8, pipe.read, .readable);
+    try backend.submitCancel(9, 8, pipe.read);
+    try std.testing.expectEqual(@as(usize, 2), try backend.poll(&out, 0));
+    try std.testing.expectEqual(@as(u64, 8), out[0].user_data);
+    try std.testing.expect(out[0].result < 0);
+    try std.testing.expectEqual(@as(u64, 9), out[1].user_data);
+    try std.testing.expectEqual(@as(i32, 0), out[1].result);
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&out, 0));
 }

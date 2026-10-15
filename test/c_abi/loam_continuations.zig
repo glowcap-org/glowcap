@@ -52,8 +52,9 @@ pub const Probe = struct {
 const Target = struct {
     probe: *Probe,
     source: driver.Capability,
-    pub fn handle(self: *Target, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Target, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.probe.target_count += 1;
         const nested = try turn.turn.arena.alloc(driver.Value, 2);
         nested[0] = .{ .capability = self.source };

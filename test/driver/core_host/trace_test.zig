@@ -171,7 +171,7 @@ test "core host: deinit closes every traced open exactly once" {
 }
 
 test "core host: a glowcap-to-glowcap pair holds the next profile over capnp" {
-    // The native glowcap job, `engine.negotiation.Offer.native` prefers
+    // The glowcap job, `engine.negotiation.Offer.glowcap` prefers
     // `next` and Cap'n Proto together, run at the Host tier for the first
     // time. Only `engine.pairing` (in-process, no Host) had ever exercised
     // `next`, because `Host.Options` carried no version and every socket
@@ -216,14 +216,14 @@ test "core host: one host holds a next capnp session and a baseline session at o
     // Neither side is told anything out of band. Each hello states what its
     // sender prefers, and each session settles its own pair from the two.
     const allocator = std.testing.allocator;
-    var native_opts = Host.Options.withFrameCap(frame_cap);
-    native_opts.codec = .capnp;
-    native_opts.captp_version = .next;
+    var glowcap_opts = Host.Options.withFrameCap(frame_cap);
+    glowcap_opts.codec = .capnp;
+    glowcap_opts.captp_version = .next;
 
-    var hub = test_host.init(allocator, @as([32]u8, @splat(0x5a)), native_opts);
+    var hub = test_host.init(allocator, @as([32]u8, @splat(0x5a)), glowcap_opts);
     defer hub.deinit();
-    var native_peer = test_host.init(allocator, @as([32]u8, @splat(0x5b)), native_opts);
-    defer native_peer.deinit();
+    var glowcap_peer = test_host.init(allocator, @as([32]u8, @splat(0x5b)), glowcap_opts);
+    defer glowcap_peer.deinit();
     // A peer that knows only the baseline: the profile a Goblins vat speaks.
     var baseline_peer = test_host.init(allocator, @as([32]u8, @splat(0x5c)), Host.Options.withFrameCap(frame_cap));
     defer baseline_peer.deinit();
@@ -231,16 +231,16 @@ test "core host: one host holds a next capnp session and a baseline session at o
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
-    const native = try openPair(allocator, &hub, &native_peer, "127.0.0.1:7011", &dials);
+    const glowcap_pair = try openPair(allocator, &hub, &glowcap_peer, "127.0.0.1:7011", &dials);
     const baseline = try openPair(allocator, &hub, &baseline_peer, "127.0.0.1:7012", &dials);
 
-    try std.testing.expect(native.a.sessionOpen());
+    try std.testing.expect(glowcap_pair.a.sessionOpen());
     try std.testing.expect(baseline.a.sessionOpen());
 
     // Two sessions on one host, each on the profile its pair reached.
-    const native_state = &native.a.served.port.peer.session_state;
-    try std.testing.expectEqual(model.CaptpVersion.next, native_state.captp_version);
-    try std.testing.expectEqual(model.CodecId.capnp, native_state.codec);
+    const glowcap_state = &glowcap_pair.a.served.port.peer.session_state;
+    try std.testing.expectEqual(model.CaptpVersion.next, glowcap_state.captp_version);
+    try std.testing.expectEqual(model.CodecId.capnp, glowcap_state.codec);
 
     const baseline_state = &baseline.a.served.port.peer.session_state;
     try std.testing.expectEqual(model.CaptpVersion.v1_0, baseline_state.captp_version);
@@ -284,14 +284,14 @@ test "core host: the live trace reports each session's settled profile, not the 
     // preference. Both sessions here are opened by one host that prefers
     // `next` over Cap'n Proto, and only one partner can follow it.
     const allocator = std.testing.allocator;
-    var native_opts = Host.Options.withFrameCap(frame_cap);
-    native_opts.codec = .capnp;
-    native_opts.captp_version = .next;
+    var glowcap_opts = Host.Options.withFrameCap(frame_cap);
+    glowcap_opts.codec = .capnp;
+    glowcap_opts.captp_version = .next;
 
-    var hub = test_host.init(allocator, @as([32]u8, @splat(0x6a)), native_opts);
+    var hub = test_host.init(allocator, @as([32]u8, @splat(0x6a)), glowcap_opts);
     defer hub.deinit();
-    var native_peer = test_host.init(allocator, @as([32]u8, @splat(0x6b)), native_opts);
-    defer native_peer.deinit();
+    var glowcap_peer = test_host.init(allocator, @as([32]u8, @splat(0x6b)), glowcap_opts);
+    defer glowcap_peer.deinit();
     var baseline_peer = test_host.init(allocator, @as([32]u8, @splat(0x6c)), Host.Options.withFrameCap(frame_cap));
     defer baseline_peer.deinit();
 
@@ -300,18 +300,18 @@ test "core host: the live trace reports each session's settled profile, not the 
 
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
-    const native = try openPair(allocator, &hub, &native_peer, "127.0.0.1:7013", &dials);
+    const glowcap_pair = try openPair(allocator, &hub, &glowcap_peer, "127.0.0.1:7013", &dials);
     const baseline = try openPair(allocator, &hub, &baseline_peer, "127.0.0.1:7014", &dials);
-    try pumpToQuiescence(allocator, &.{ &hub, &native_peer, &baseline_peer }, &.{ native, baseline }, &dials);
+    try pumpToQuiescence(allocator, &.{ &hub, &glowcap_peer, &baseline_peer }, &.{ glowcap_pair, baseline }, &dials);
 
     // The open fact is emitted the first time a session is *observed* open,
     // which is its first traffic rather than the handshake itself, so an idle
     // session contributes no row. One fetch each is enough to observe both.
-    _ = try native.b.served.publish(&native.b.host.vat, "widget", Widget, .{});
+    _ = try glowcap_pair.b.served.publish(&glowcap_pair.b.host.vat, "widget", Widget, .{});
     _ = try baseline.b.served.publish(&baseline.b.host.vat, "widget", Widget, .{});
-    _ = try hub.fetch(native.a, "widget");
+    _ = try hub.fetch(glowcap_pair.a, "widget");
     _ = try hub.fetch(baseline.a, "widget");
-    try pumpToQuiescence(allocator, &.{ &hub, &native_peer, &baseline_peer }, &.{ native, baseline }, &dials);
+    try pumpToQuiescence(allocator, &.{ &hub, &glowcap_peer, &baseline_peer }, &.{ glowcap_pair, baseline }, &dials);
 
     // One host, two opens, two different profiles on the wire.
     try std.testing.expect(hub_log.contains("open codec=capnp captp=next"));
@@ -364,12 +364,12 @@ test "core host: both peers of one session report the same wire name" {
     }
 }
 
-test "core host: a three-vat handoff holds native between the glowcap pair and baseline with the third" {
+test "core host: a three-vat handoff holds glowcap between the glowcap pair and baseline with the third" {
     // The cast `apps/ocapnviz/src/fixtures/three-vat-handoff-mixed.ts` draws:
     // a glowcap gifter introduces a peer that speaks only the v1.0 Syrup
     // baseline, a Goblins vat's profile, to a glowcap exporter. Three
     // sessions, and the profile each runs on is a property of its pair:
-    // gifter-to-exporter is native because both ends can be, and both of the
+    // gifter-to-exporter is glowcap because both ends can be, and both of the
     // recipient's sessions are the baseline because it cannot.
     //
     // The handoff itself has to survive that split, and this is the case
@@ -377,13 +377,13 @@ test "core host: a three-vat handoff holds native between the glowcap pair and b
     // on another that negotiated independently, so its signed envelope is
     // Syrup whatever each session settled.
     const allocator = std.testing.allocator;
-    var native_opts = Host.Options.withFrameCap(frame_cap);
-    native_opts.codec = .capnp;
-    native_opts.captp_version = .next;
+    var glowcap_opts = Host.Options.withFrameCap(frame_cap);
+    glowcap_opts.codec = .capnp;
+    glowcap_opts.captp_version = .next;
 
-    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x7e)), native_opts);
+    var exporter = test_host.init(allocator, @as([32]u8, @splat(0x7e)), glowcap_opts);
     defer exporter.deinit();
-    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x76)), native_opts);
+    var gifter = test_host.init(allocator, @as([32]u8, @splat(0x76)), glowcap_opts);
     defer gifter.deinit();
     // The Goblins-shaped peer: it knows only the baseline.
     var recipient = test_host.init(allocator, @as([32]u8, @splat(0x7c)), Host.Options.withFrameCap(frame_cap));
@@ -400,7 +400,7 @@ test "core host: a three-vat handoff holds native between the glowcap pair and b
     var row = TaggedRow{ .tag = "greeter", .freed = &row_freed };
     _ = try exporter.publish("widget", Tagged, .{ .row = &row });
 
-    // Gifter to exporter: both prefer native, so the session is native.
+    // Gifter to exporter: both prefer glowcap, so the session is glowcap.
     const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7021", &dials);
     var widget = CapturedRef{};
     try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &widget, .func = CapturedRef.record });
@@ -424,7 +424,7 @@ test "core host: a three-vat handoff holds native between the glowcap pair and b
     const parked = dials.items[0];
 
     // The redeem dial: two glowcap hosts on the wire, but the recipient still
-    // cannot do native, so this session settles on the baseline too.
+    // cannot do glowcap, so this session settles on the baseline too.
     const e_accepts_r = try publishAndOpenAccepted(&exporter, "tcp", "127.0.0.1:7021", &.{});
     const redeem_view = recipient.pendingDial(parked.ticket, 0) orelse return error.MissingPendingDial;
     const r_to_e = try recipient.openDialedLocator(.{
@@ -459,7 +459,7 @@ test "core host: a three-vat handoff holds native between the glowcap pair and b
         try std.testing.expectEqual(model.CodecId.syrup, state.codec);
     }
 
-    // The exporter asked for native on every session it holds and got it on
+    // The exporter asked for glowcap on every session it holds and got it on
     // one of the two. That difference is the point.
     try std.testing.expectEqual(
         model.CaptpVersion.next,

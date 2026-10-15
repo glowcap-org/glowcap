@@ -1,4 +1,4 @@
-//! Native composition of the keyed and Noise relay profiles.
+//! Composition of the keyed and Noise relay profiles.
 
 const std = @import("std");
 
@@ -8,7 +8,7 @@ const tls_runtime = @import("../../tls/runtime.zig");
 const resident = @import("resident.zig");
 const configuration = @import("configuration.zig");
 
-/// One native realization of both relay channel profiles over the same
+/// One realization of both relay channel profiles over the same
 /// deployment rendezvous. Initialize only after the containing owner reaches
 /// its final address: each netlayer context points at an inline resident.
 pub const Provider = struct {
@@ -27,8 +27,8 @@ pub const Provider = struct {
         self.finishInit();
     }
 
-    /// The TLS form with the default relay configuration. The native TLS
-    /// provider (`native_mbedtls`) reaches `initConfiguredWithTls` with its own
+    /// The TLS form with the default relay configuration. The Mbed TLS
+    /// provider (`wss_mbedtls`) reaches `initConfiguredWithTls` with its own
     /// configuration. This default form is reached only by tests.
     pub fn initWithTls(
         self: *Provider,

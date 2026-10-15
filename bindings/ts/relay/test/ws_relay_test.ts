@@ -5,9 +5,9 @@ import {
 	webSocketChannel,
 	webSocketRelay,
 } from "../ws_relay.ts";
-import { isRendezvousDesignator, Rendezvous } from "../rendezvous.ts";
+import { Rendezvous } from "../rendezvous.ts";
 import { relayBytes } from "../relay.ts";
-import { secondaryFailures } from "@glowcap/runtime";
+import { isKeyDesignator, secondaryFailures } from "@glowcap/runtime";
 import { assertEquals } from "../../dogfood/assert.ts";
 
 function assertIncludes(actual: string, expected: string): void {
@@ -379,9 +379,9 @@ Deno.test("rendezvous close is one physical-release barrier", async () => {
 });
 
 Deno.test("rendezvous accepts only canonical fixed-size key designators", () => {
-	assertEquals(isRendezvousDesignator("a".repeat(64)), true);
+	assertEquals(isKeyDesignator("a".repeat(64)), true);
 	for (const value of ["", "a".repeat(63), "a".repeat(65), "A".repeat(64), "g".repeat(64)]) {
-		assertEquals(isRendezvousDesignator(value), false);
+		assertEquals(isKeyDesignator(value), false);
 	}
 	const rendezvous = new Rendezvous();
 	assertEquals(

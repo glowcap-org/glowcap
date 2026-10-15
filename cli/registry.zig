@@ -40,7 +40,7 @@ pub const Command = struct {
 
 const listen_flags = [_]Flag{
     .{ .long = "bind", .help = "HOST:PORT to bind (default 127.0.0.1:0)", .kind = .string_flag },
-    .{ .long = "publish", .help = "Publish built-in NAME on first accept then exit (greeter|echo; implies --once)", .kind = .string_flag },
+    .{ .long = "publish", .help = "Publish built-in NAME on first accept then exit (greeter|echo, implies --once)", .kind = .string_flag },
     .{ .long = "once", .help = "Accept one partner then exit" },
     .{ .long = "rendezvous", .help = "Register at this relay (ws:// or wss://) instead of binding a socket", .kind = .string_flag },
     .{ .long = "rendezvous-relay", .help = "Advertise the ws:// or wss:// dial route for --rendezvous (defaults to GLOWCAP_RENDEZVOUS)", .kind = .string_flag },

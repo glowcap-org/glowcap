@@ -31,7 +31,7 @@ test "stateless GC releases a far introduced inside a nested argument" {
     // The deliver's args nest the introduction one level down, a list holding
     // p1's export 7, decoded by p2 (post perspective-flip) as the introduced
     // import 7.
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(1) } },
         .args = &.{
             .{ .list = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }} },
@@ -87,7 +87,7 @@ test "stateless GC's fallback walk matches the threaded record for the same nest
     try p2.session_state.registerExport(.from(1));
     try p1.session_state.reserveExport(.from(7));
 
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(1) } },
         .args = &.{
             .{ .list = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }} },
@@ -147,7 +147,7 @@ test "stateless GC skips a before-serve-claimed event" {
     try p2.session_state.registerExport(.from(1));
     try p1.session_state.reserveExport(.from(7));
 
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(1) } },
         .args = &.{
             .{ .reference = .{ .near = .{ .export_position = .from(7) } } },
@@ -183,10 +183,10 @@ fn resolverCallbackEvent(allocator: std.mem.Allocator, answer: model.AnswerPosit
         .args = &args,
     } });
     errdefer frame.deinit();
-    const body = try codec.syrup.decodeBodyForProfile(.next, frame.view());
+    const parse = try engine.events.Parse.store(allocator, &frame, try codec.syrup.decodeBodyForProfile(.next, frame.view()));
     return .{
         .frame = frame,
-        .body = body,
+        .parse = parse,
         .tag = .resolve,
         .codec = .syrup,
         .captp_version = .next,

@@ -6,28 +6,29 @@
 .draft = false,
 ---
 
-Each binding exposes the same application operations over the C ABI. Native
-bindings load the Host and the native loop, then add transport archives as
-needed. The browser package uses WebAssembly and drives the Host itself.
-[Choose an API]($link.page('surfaces')) compares
-these bindings with the Zig package, C ABI, CLI, and browser package.
-[Concepts]($link.page('concepts')) explains the capability model behind them.
+Pick a binding to use glowcap from your language. Each one exposes the same
+operations over the C ABI. The Rust, Python, TypeScript, and Racket bindings
+load the Host and the driver loop, then add transport archives as needed. The
+browser package runs the Host as WebAssembly. [Choose an API]($link.page('surfaces'))
+compares these bindings with the Zig package, C ABI, CLI, and browser package,
+and [Concepts]($link.page('concepts')) explains the capability model behind
+them.
 
-[All four bindings wrap the same C ABI, so the session operations and transport choices stay aligned across languages.]($image.siteAsset('diagram-bindings.svg'))
+[Every binding wraps the same C ABI, so the session operations and transport choices are the same in each language.]($image.siteAsset('diagram-bindings.svg'))
 
-# One contract, four idioms
+# One contract, each language's idioms
 
 A `Session` gives you the verbs in the
 [bindings contract](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md).
-A `Host` is the multi-session product behind introductions
-([modules]($link.page('modules'))). A `Ref` is a capability in hand. Pass it as
-an argument and authority moves.
+A `Host` manages many sessions and the introductions between them
+([modules]($link.page('modules'))). A `Ref` is a capability in hand: pass it as
+an argument and the access moves with it.
 
 | Binding | Entry point | Async idiom | Actor idiom |
 | --- | --- | --- | --- |
 | [Rust]($link.page('bindings/rust')) | `Runtime`, `Session`, typed enums | tokio (opt-in `async`) | `spawn` over closures |
-| [TypeScript]($link.page('bindings/ts')) | `Runtime`, `Session` class | native promises | `spawn` over callbacks |
-| [Python]($link.page('bindings/python')) | `Runtime`, `Session`, native values | `asyncio` | `spawn` over callables |
+| [TypeScript]($link.page('bindings/ts')) | `Runtime`, `Session` class | JavaScript promises | `spawn` over callbacks |
+| [Python]($link.page('bindings/python')) | `Runtime`, `Session`, Python values | `asyncio` | `spawn` over callables |
 | [Racket]($link.page('bindings/racket')) | `Runtime`, `session`, event structs | green threads + ports | Goblins-faithful |
 
 `Runtime.open(...)` installs transports once. `runtime.connect(locator)`
@@ -44,8 +45,10 @@ or the Goblins-shaped actor layer on top with near-call and eventual-send
 # Use a binding from a checkout
 
 The packages and archives live in a glowcap checkout. Pin a commit, run
-`zig build`, and use the binding in that tree. Bindings find
-`zig-out/lib` by default. Set `GLOWCAP_LIB_DIR` if the archives live elsewhere.
+`zig build`, and use the binding in that tree. Set `GLOWCAP_LIB_DIR` to load the
+archives from another directory. The
+[packaging notes](https://github.com/jimisaacs/glowcap/blob/main/bindings/PACKAGING.md)
+give the full search order.
 
 The [binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md)
 has the path for each language. Compose
@@ -53,4 +56,5 @@ has the path for each language. Compose
 [onion]($link.page('transports/onion')),
 [Noise]($link.page('transports/noise')), or
 [WebRTC]($link.page('transports/webrtc'))
-from their archives. The TCP archive also carries testing `tcp`.
+from their archives. The TCP archive carries Noise over TCP, plus the `tcp`
+and `inproc` transports used for testing.

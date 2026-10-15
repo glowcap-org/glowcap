@@ -29,7 +29,7 @@ const net = glowcap.net;
 /// assertion instead of passing on another scenario's greeting.
 pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8) type {
     return struct {
-        pub fn handle(self: *@This(), turn: *driver.HostTurn, called: []const u8, args: []const driver.Value) !driver.Value {
+        pub fn handle(self: *@This(), turn: *driver.HostTurn, called: []const u8, args: driver.Args) !driver.Value {
             _ = self;
             _ = turn;
             _ = args;
@@ -47,10 +47,11 @@ pub fn StaticReplyBehavior(comptime verb: []const u8, comptime reply: []const u8
 /// encoded. A partner that names a verb wants `StaticReplyBehavior` instead.
 pub fn PositionalReplyBehavior(comptime template: []const u8) type {
     return struct {
-        pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+        pub fn handle(self: *@This(), turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+            const arg_values = try args.values();
             _ = self;
             _ = verb;
-            const name: []const u8 = if (args.len == 0) "stranger" else switch (args[0]) {
+            const name: []const u8 = if (arg_values.len == 0) "stranger" else switch (arg_values[0]) {
                 .string => |s| s,
                 .bytes => |b| b,
                 else => "stranger",
@@ -64,7 +65,7 @@ pub fn PositionalReplyBehavior(comptime template: []const u8) type {
 /// the driver that binds its actor to an `engine.Peer` export by hand.
 pub fn PositionalReplyActor(comptime template: []const u8) type {
     return struct {
-        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
             _ = self;
             const name: []const u8 = switch (try msg.arg(0)) {
                 .string => |s| s,
@@ -99,7 +100,7 @@ pub fn tcpConnectRetry(
         return net.tcp.connect(io, peer, loc, read_buf, write_buf, .{}) catch |err| switch (err) {
             error.ConnectionRefused => {
                 if (expired(io, deadline)) return err;
-                std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
+                try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real);
                 continue;
             },
             else => return err,

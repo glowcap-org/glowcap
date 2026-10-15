@@ -1,38 +1,40 @@
 #lang racket/base
-;; Regenerate the benchmark reports on the performance page from live runs.
+;; Regenerate the benchmark reports on the performance pages from live runs.
 ;;
 ;;   zig build bench-site-report   (needs racket + goblins)
 ;;
-;; Runs every bench in ReleaseFast, parses its output, renders a compact
-;; grouped-bar SVG (codec, peer-scaling, goblins) and/or an HTML value table
-;; (all four), and splices each into site/content/performance.smd between
-;; `<!-- bench:<name> -->` markers, the same "tool writes into a committed
-;; file" pattern as gen-header. Surrounding prose is left untouched. There is no
-;; stale-check: bench numbers vary by machine, so the page is a dated snapshot
-;; you refresh, not a gated invariant.
+;; Runs every bench in ReleaseFast, parses its output, renders compact
+;; grouped-bar SVGs and HTML value tables, and splices each into its page
+;; between `<!-- bench:<name> -->` markers, the same "tool writes into a
+;; committed file" pattern as gen-header. glowcap's own costs go to
+;; site/content/performance.smd and the comparisons with Cap'n Proto RPC and
+;; Goblins to site/content/performance/compared.smd, both stamped with the
+;; same run. Surrounding prose is left untouched. There is no stale-check:
+;; bench numbers vary by machine, so the pages are a dated snapshot you
+;; refresh, not a gated invariant.
 ;;
 ;; Parsers and renderers are pure and exercised by site_report-test.rkt; only
 ;; `main` runs benches and writes the file.
-(require racket/string racket/list racket/format racket/system racket/port racket/file)
+(require racket/string racket/list racket/format racket/system racket/port racket/file "site_chart.rkt")
 
 (provide parse-codec parse-frameview parse-peer parse-goblins-md parse-snapshot parse-goblins-snapshot parse-iroh
          parse-langs-md parse-loam
-         svg-bars legend html-table
-         codec-region peer-region frameview-region goblins-region snapshot-region iroh-region langs-region loam-region)
+         svg-bars legend html-table thousands splice PERF COMPARED
+         codec-region peer-region frameview-region goblins-region snapshot-region iroh-region langs-region loam-region
+         capnp-rpc-region glance-region)
 
 ;; ── Palette (site assets/style.css) ──────────────────────────────────────────
-;; Each colour is written as a custom property with the literal it replaced as
-;; the fallback. The charts are emitted inline into the page, so they read the
-;; site's tokens directly and follow the theme; the fallback is what the light
-;; theme resolves to anyway, and it is also what renders if these are ever
-;; viewed outside the page.
-(define TEAL "var(--teal, #257f88)")           ; Goblins / Syrup
-(define AMBER "var(--accent, #c76f18)")        ; glowcap / Cap'n Proto
-(define GREEN "var(--dia-green, #4f8a5b)")     ; glowcap + time-travel (third goblins-compare series)
-(define INK "var(--ink, #3a3027)")
-(define SOFT "var(--ink-soft, #6b5d4d)")
+;; Each colour is a custom property with a literal fallback. The charts are
+;; emitted inline into the page, so they read the site's tokens directly and
+;; follow the theme. The fallback is what the light theme resolves to anyway,
+;; and it is also what renders if these are ever viewed outside the page.
+(define TEAL "var(--teal, #257f88)")           ; Goblins / Syrup / Cap'n Proto C++ RPC
+(define AMBER "var(--accent, #c76f18)")        ; glowcap / Cap'n Proto codec
+(define GREEN "var(--dia-green, #4f8a5b)")     ; glowcap + time-travel, Cap'n Proto Rust (third series)
+(define AMBER-DEEP "var(--dia-accent-deep, #a4560c)") ; glowcap under its Cap'n Proto codec, beside the AMBER Syrup bar
 
 (define PERF "site/content/performance.smd")
+(define COMPARED "site/content/performance/compared.smd")
 (define REPORTS "zig-out/bench-reports")
 
 ;; ── Parsers (pure) ───────────────────────────────────────────────────────────
@@ -71,18 +73,29 @@
                                out #:match-select values)])
     (list (list-ref m 1) (n (list-ref m 2)) (n (list-ref m 3)))))
 
-;; iroh round-trip (bench/iroh_bench.zig): one `roundtrip` line per transport.
-;; Returns transport -> (hash 'p50 'p99 'mean 'rps), all in the printed units
-;; (latency ns, throughput round-trips/s).
+;; iroh round-trip (bench/iroh_bench.zig): one `roundtrip` line per row,
+;; carrying `codec=` and `call=` after the transport. The key is the
+;; transport, then `+codec` for a codec other than the default Syrup, then
+;; `:call` for a call other than `greet`: `tcp`, `tcp+capnp`, `tcp:report`,
+;; `tcp+capnp:report`. So the plain greet rows stay addressable by transport.
+;; The Cap'n Proto echo benches (bench/capnp/) print the same line without a
+;; codec, with `transport=capnp-cpp` or `transport=capnp-rust`, so this parses
+;; them too. Returns key -> (hash 'p50 'p99 'mean 'rps), all in the printed
+;; units (latency ns, throughput round-trips/s).
 (define (parse-iroh out)
   (define h (make-hash))
-  (for ([m (regexp-match* #px"roundtrip transport=(\\S+) calls=\\d+ warmup=\\d+ p50_ns=(\\d+) p99_ns=(\\d+) mean_ns=(\\d+) rps=(\\d+)"
+  (for ([m (regexp-match* #px"roundtrip transport=(\\S+)(?: codec=(\\S+))?(?: call=(\\S+))? calls=\\d+ warmup=\\d+ p50_ns=(\\d+) p99_ns=(\\d+) mean_ns=(\\d+) rps=(\\d+)"
                           out #:match-select values)])
-    (hash-set! h (list-ref m 1)
-               (hash 'p50 (n (list-ref m 2)) 'p99 (n (list-ref m 3))
-                     'mean (n (list-ref m 4)) 'rps (n (list-ref m 5)))))
+    (define codec (list-ref m 2))
+    (define call (list-ref m 3))
+    (define key (string-append (list-ref m 1)
+                               (if (or (not codec) (equal? codec "syrup")) "" (string-append "+" codec))
+                               (if (or (not call) (equal? call "greet")) "" (string-append ":" call))))
+    (hash-set! h key
+               (hash 'p50 (n (list-ref m 4)) 'p99 (n (list-ref m 5))
+                     'mean (n (list-ref m 6)) 'rps (n (list-ref m 7)))))
   ;; The design-point line: aggregate round-trips/s with `conns` connections
-  ;; multiplexed on one readiness loop (ADR-0057), stored beside the per-transport
+  ;; multiplexed on one event loop (ADR-0057), stored beside the per-transport
   ;; serial entries.
   (let ([lm (regexp-match #px"loop transport=iroh conns=(\\d+) calls_each=\\d+ aggregate_rps=(\\d+)" out)])
     (when lm
@@ -167,45 +180,7 @@
           (list-ref m 5) (list-ref m 6) (n (list-ref m 7)))))
 
 ;; ── Rendering (pure) ─────────────────────────────────────────────────────────
-(define (r1 x) (~r (exact->inexact x) #:precision 1))
-(define (commas v) (~r v #:precision 0 #:groups '(3) #:group-sep ","))
-
-;; Compact grouped-bar SVG. groups: (listof string). series: (listof (list name
-;; color (listof real))), each values list aligned with groups. fmt: real->string
-;; for the per-bar label.
-;; bar-colors, when given, is a per-group color list that overrides the series
-;; color, used for single-series charts where each bar (not each series) needs
-;; its own hue, e.g. tinting the Goblins reference row apart from the languages.
-(define (svg-bars groups series fmt #:bar-colors [bar-colors #f])
-  (define W 380) (define H 210)
-  (define padL 6) (define padR 6) (define padT 18) (define padB 26)
-  (define base (- H padB)) (define top padT)
-  (define ph (- base top)) (define pw (- W padL padR))
-  (define ng (length groups)) (define k (length series))
-  (define gw (/ pw ng))
-  (define barw (/ (* gw 0.72) k))
-  (define gap 3)
-  (define clusterw (+ (* k barw) (* (- k 1) gap)))
-  (define maxv (apply max 0.0001 (append* (map caddr series))))
-  (define o (open-output-string))
-  (define (p . xs) (for ([x (in-list xs)]) (display x o)) (newline o))
-  (p "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " W " " H "\" font-family=\"var(--font-sans, system-ui, -apple-system, sans-serif)\" role=\"img\">")
-  (p "<line x1=\"" padL "\" y1=\"" base "\" x2=\"" (- W padR) "\" y2=\"" base "\" stroke=\"" INK "\" stroke-width=\"1.2\"/>")
-  (for ([g (in-list groups)] [i (in-naturals)])
-    (define cx (+ padL (* gw (+ i 0.5))))
-    (define startx (- cx (/ clusterw 2)))
-    (for ([s (in-list series)] [j (in-naturals)])
-      (define v (list-ref (caddr s) i))
-      (define bx (+ startx (* j (+ barw gap))))
-      (define bh (* (/ v maxv) ph))
-      (define by (- base bh))
-      (define fill (if bar-colors (list-ref bar-colors i) (cadr s)))
-      (p "<rect x=\"" (r1 bx) "\" y=\"" (r1 by) "\" width=\"" (r1 barw) "\" height=\"" (r1 bh) "\" fill=\"" fill "\" rx=\"2\"/>")
-      (p "<text x=\"" (r1 (+ bx (/ barw 2))) "\" y=\"" (r1 (- by 3)) "\" text-anchor=\"middle\" font-size=\"9.5\" fill=\"" INK "\">" (fmt v) "</text>"))
-    (p "<text x=\"" (r1 cx) "\" y=\"" (+ base 16) "\" text-anchor=\"middle\" font-size=\"11\" fill=\"" SOFT "\">" g "</text>"))
-  (p "</svg>")
-  (get-output-string o))
-
+;; Numbers and bar charts come from site_chart.rkt.
 (define (legend . pairs) ; pairs: (list name color) ...
   (string-append
    "<div class=\"bench-legend\">"
@@ -224,12 +199,48 @@
 ;; announced as nothing, so the figure lends its caption to the svg as the
 ;; aria-label. Captions here are plain sentences with no attribute-breaking
 ;; characters.
-(define (figure caption svg)
+(define (figure caption svg #:legend [pairs #f])
   (string-append "<figure>\n<figcaption><strong>" caption "</strong></figcaption>\n"
+                 (if pairs (string-append (apply legend pairs) "\n") "")
                  (string-replace svg "role=\"img\">"
                                  (string-append "role=\"img\" aria-label=\"" caption "\">"))
                  "\n</figure>"))
 (define (charts . figs) (string-append "<div class=\"bench-charts\">\n" (string-join figs "\n") "\n</div>"))
+
+;; One chart beside what reads with it, a table or a note, so a lone figure
+;; does not sit in the middle of an empty row. They stack on a narrow screen.
+(define (panel fig beside)
+  (string-append "<div class=\"bench-panel\">\n" fig "\n<div>\n" beside "\n</div>\n</div>"))
+
+;; The page's opening row: one figure per card, each linking to the section
+;; that measures it. Every figure is glowcap's own, so the comparisons stay
+;; with the charts that draw them.
+(define (glance-card anchor value label)
+  (format "<a class=\"card bench-glance-card\" href=\"#~a\"><strong>~a</strong><span>~a</span></a>" anchor value label))
+
+(define (glance-region codec fv peer iroh langs loam)
+  (define idle (findf (lambda (row) (string=? (car row) "idle")) peer))
+  (define zig (findf (lambda (row) (string=? (car row) "zig")) langs))
+  (define big (last loam))
+  (define per-turn (hash-ref fv 'per_turn))
+  (string-append
+   "<div class=\"bench-glance\">\n"
+   (string-join
+    (list
+     (glance-card "frame-ownership-and-dispatch" per-turn
+                  (format "allocation~a per delivered message" (if (= per-turn 1) "" "s")))
+     (glance-card "codec-throughput" (format "~aM" (~r (/ (hash-ref codec 'dispatch_tps) 1e6) #:precision 1))
+                  "messages a second through the protocol engine, without sockets")
+     (glance-card "per-connection-footprint" (format "~a B" (commas (cadr idle)))
+                  "of protocol state for each idle connection")
+     (glance-card "encrypted-transport-round-trip" (commas (hash-ref iroh 'loop_rps))
+                  (format "encrypted round trips a second over ~a iroh connections on one thread" (hash-ref iroh 'loop_conns)))
+     (glance-card "cost-through-each-language-binding" (format "~a ms" (r1 (list-ref zig 6)))
+                  "from starting the Zig client to its first finished task")
+     (glance-card "persistent-actors-in-loam" (format "~a µs" (r1 (/ (car (list-ref big 2)) 1000.0)))
+                  (format "to call an actor asleep in LMDB, among ~a" (commas (car big)))))
+    "\n")
+   "\n</div>"))
 
 ;; ── Per-bench regions (body inside the =html block) ──────────────────────────
 (define (codec-region c)
@@ -238,23 +249,26 @@
                         (list (list "Syrup" TEAL (list (cell "encode" "syrup" 'ns) (cell "decode" "syrup" 'ns)))
                               (list "Cap'n Proto" AMBER (list (cell "encode" "capnp" 'ns) (cell "decode" "capnp" 'ns))))
                         (lambda (v) (~r v #:precision 0))))
+  (define (row label op f fmt) (list label (fmt (cell op "syrup" f)) (fmt (cell op "capnp" f))))
   (string-append
-   (legend (list "Syrup" TEAL) (list "Cap'n Proto" AMBER))
-   (charts (figure "Encode / decode, nanoseconds per message, lower is better." svg))
-   (html-table '("codec" "encode ns/op" "decode ns/op" "encode MB/s" "decode MB/s" "frame bytes")
-               (list (list "Syrup" (r1 (cell "encode" "syrup" 'ns)) (r1 (cell "decode" "syrup" 'ns))
-                           (commas (cell "encode" "syrup" 'mbps)) (commas (cell "decode" "syrup" 'mbps)) (cell "encode" "syrup" 'frame))
-                     (list "Cap'n Proto" (r1 (cell "encode" "capnp" 'ns)) (r1 (cell "decode" "capnp" 'ns))
-                           (commas (cell "encode" "capnp" 'mbps)) (commas (cell "decode" "capnp" 'mbps)) (cell "encode" "capnp" 'frame))))
-   (format "\n<p class=\"bench-note\">Sans-io inbound dispatch, engine only with no sockets: ~a turns/s. Sparse export-table insert: ~a ns.</p>"
+   (panel
+    (figure "Nanoseconds per message, lower is better." svg
+            #:legend (list (list "Syrup" TEAL) (list "Cap'n Proto" AMBER)))
+    (html-table '("" "Syrup" "Cap'n Proto")
+                (list (row "encode ns" "encode" 'ns r1)
+                      (row "decode ns" "decode" 'ns r1)
+                      (row "encode MB/s" "encode" 'mbps commas)
+                      (row "decode MB/s" "decode" 'mbps commas)
+                      (row "frame bytes" "encode" 'frame commas))))
+   (format "\n<p class=\"bench-note\">The protocol engine alone, with no sockets, handles ~a inbound messages a second, and adds an entry to a sparse export table in ~a ns.</p>"
            (commas (hash-ref c 'dispatch_tps)) (r1 (hash-ref c 'sparse_ns)))))
 
 (define (peer-region rows)
   (define svg (svg-bars (map car rows)
                         (list (list "bytes / connection" TEAL (map cadr rows)))
-                        (lambda (v) (~r v #:precision 0))))
-  (string-append
-   (charts (figure "Protocol-core bytes per connection, inline state plus heap, lower is better." svg))
+                        commas))
+  (panel
+   (figure "Protocol-core bytes per connection, inline state plus heap, lower is better." svg)
    (html-table '("connection state" "bytes / connection" "at 500k connections")
                (for/list ([row (in-list rows)])
                  (list (car row) (commas (cadr row)) (format "~a GiB" (~r (caddr row) #:precision 2)))))))
@@ -273,7 +287,7 @@
   (define tput (svg-bars '("round-trips / s")
                          (list (list "TCP" TEAL (list (g "tcp" 'rps)))
                                (list "iroh" AMBER (list (g "iroh" 'rps))))
-                         (lambda (v) (~r v #:precision 0))))
+                         commas))
   ;; iroh against itself: the single-stream serial reciprocal vs the aggregate
   ;; throughput when one readiness loop multiplexes many connections (its design
   ;; point). Not a TCP comparison (the loop is iroh's serving model; the bars are
@@ -281,27 +295,71 @@
   (define loop-fig
     (and loop-rps
          (figure
-          (format "iroh throughput: one stream vs ~a connections on one readiness loop, round-trips/s, higher is better." loop-conns)
-          (svg-bars (list "single stream" (format "~a conns · one loop" loop-conns))
+          (format "iroh round trips a second, one stream against ~a connections on one thread, higher is better." loop-conns)
+          (svg-bars (list "one stream" (format "~a connections" loop-conns))
                     (list (list "iroh" AMBER (list (g "iroh" 'rps) loop-rps)))
-                    (lambda (v) (~r v #:precision 0))))))
+                    commas))))
+  (define table
+    (html-table '("transport" "p50 µs" "p99 µs" "round trips / s")
+                (append
+                 (list (list "TCP (cleartext)" (r1 (us (g "tcp" 'p50))) (r1 (us (g "tcp" 'p99))) (commas (g "tcp" 'rps)))
+                       (list "iroh, one stream" (r1 (us (g "iroh" 'p50))) (r1 (us (g "iroh" 'p99))) (commas (g "iroh" 'rps))))
+                 (if loop-rps
+                     (list (list (format "iroh, ~a connections on one thread" loop-conns) "—" "—" (commas loop-rps)))
+                     '()))))
   (string-append
    (legend (list "TCP (cleartext baseline)" TEAL) (list "iroh (encrypted QUIC)" AMBER))
    (charts
     (figure "Round-trip latency (µs, lower is better)." lat)
-    (figure "Throughput (round-trips/s, higher is better)." tput))
+    (figure "Throughput (round trips a second, higher is better)." tput))
    (if loop-fig
-       (string-append
-        "\n<p class=\"bench-note\">The chart below is iroh against itself, not the TCP baseline: the serial single stream above (one call in flight) beside iroh's own serving model, many connections multiplexed on one readiness loop. Both bars are iroh.</p>"
-        (charts loop-fig))
+       (panel loop-fig
+              (format "<p class=\"bench-note\">Both bars are iroh. One stream keeps one call in flight. Beside it, ~a connections share one thread, the way a server carries many peers at once.</p>" loop-conns))
        "")
-   (html-table '("transport" "p50 latency (µs)" "p99 latency (µs)" "round-trips / s")
-               (append
-                (list (list "TCP (cleartext)" (r1 (us (g "tcp" 'p50))) (r1 (us (g "tcp" 'p99))) (commas (g "tcp" 'rps)))
-                      (list "iroh (encrypted, single stream)" (r1 (us (g "iroh" 'p50))) (r1 (us (g "iroh" 'p99))) (commas (g "iroh" 'rps))))
-                (if loop-rps
-                    (list (list (format "iroh (encrypted, ~a conns / one loop)" loop-conns) "—" "—" (commas loop-rps)))
-                    '())))))
+   table))
+
+;; glowcap's `tcp` calls, under its Syrup codec and under its Cap'n Proto
+;; codec, beside the same calls in the Cap'n Proto C++ reference library and
+;; the Rust crate: `greet`, the smallest call, and `report`, one application
+;; batch. one-core and two-core are parse-iroh hashes from runs pinned both
+;; threads to one core, then each thread to its own core.
+(define (capnp-rpc-region one-core two-core)
+  (define (us h t) (/ (hash-ref (hash-ref h t) 'p50) 1000.0))
+  ;; A fixed tenth, so 10.0 does not print as 10 beside 10.7.
+  (define (tenth v) (~r v #:precision '(= 1)))
+  (define impls (list (list "Cap'n Proto C++" "capnp-cpp" TEAL)
+                      (list "glowcap, Syrup" "tcp" AMBER)
+                      (list "glowcap, Cap'n Proto codec" "tcp+capnp" AMBER-DEEP)
+                      (list "Cap'n Proto Rust" "capnp-rust" GREEN)))
+  (define (key i call) (if (equal? call "greet") (cadr i) (string-append (cadr i) ":" call)))
+  (define (bars call)
+    (svg-bars '("one core" "one core each")
+              (for/list ([i (in-list impls)])
+                (list (car i) (caddr i) (list (us one-core (key i call)) (us two-core (key i call)))))
+              tenth))
+  (define (cell h i call) (format "~a µs" (tenth (us h (key i call)))))
+  (define (legend* impls) (apply legend (for/list ([i (in-list impls)]) (list (car i) (caddr i)))))
+  (string-append
+   (legend* impls)
+   (charts
+    (figure "greet: one small call round trip over loopback TCP, p50 µs, lower is better." (bars "greet"))
+    (figure "report: one application batch (a name, eight tags, sixty-four readings) answered with its count and sum, p50 µs, lower is better." (bars "report")))
+   (html-table '("" "greet, one core" "greet, one core each" "report, one core" "report, one core each")
+               (for/list ([i (in-list impls)])
+                 (list (car i) (cell one-core i "greet") (cell two-core i "greet") (cell one-core i "report") (cell two-core i "report"))))))
+
+;; The two fastest cores by maximum clock, so a pinned run stays off the slow
+;; cluster on a mixed-core machine. Falls back to cores 0 and 1.
+(define (fast-cores)
+  (define cpus
+    (for*/list ([d (in-list (directory-list "/sys/devices/system/cpu"))]
+                [m (in-value (regexp-match #px"^cpu(\\d+)$" (path->string d)))]
+                #:when m
+                [f (in-value (build-path "/sys/devices/system/cpu" d "cpufreq/cpuinfo_max_freq"))]
+                #:when (file-exists? f))
+      (cons (n (cadr m)) (n (string-trim (file->string f))))))
+  (define fast (sort (sort cpus < #:key car) > #:key cdr))
+  (if (>= (length fast) 2) (list (car (car fast)) (car (cadr fast))) (list 0 1)))
 
 (define (frameview-region fv)
   (html-table '("metric" "value")
@@ -324,7 +382,7 @@
                          (list (list "Goblins" TEAL (for/list ([s suites]) (val s 'goblins cdr)))
                                (list "glowcap" AMBER (for/list ([s suites]) (val s 'glowcap cdr)))
                                (list "glowcap + time-travel" GREEN (for/list ([s suites]) (val s 'glowcap-tt cdr))))
-                         (lambda (v) (~r v #:precision 0))))
+                         thousands))
   (string-append
    (legend (list "Goblins" TEAL) (list "glowcap binding" AMBER) (list "glowcap binding + time-travel" GREEN))
    (charts (figure "Latency (p50 ms, lower is better)." lat)
@@ -339,7 +397,7 @@
 
 ;; snapshot / restore comparison. p = glowcap hash, g = goblins hash. Rows align
 ;; by index across both. Snapshot and restore are shown in microseconds by actor
-;; count. Measured natively (glowcap Zig, Goblins Racket), so absolute times are
+;; count. Measured in each runtime (glowcap in Zig, Goblins in Racket), so absolute times are
 ;; not directly comparable. Both runtimes snapshot in O(objects) and stay flat
 ;; as object size grows.
 (define (snapshot-region p g)
@@ -366,7 +424,7 @@
    (html-table '("actors" "glowcap snapshot µs" "Goblins snapshot µs" "glowcap restore µs" "Goblins restore µs")
                (for/list ([pr (in-list p-obj)] [gr (in-list g-obj)])
                  (list (car pr) (r1 (us (cadr pr))) (r1 (us (cadr gr))) (r1 (us (caddr pr))) (r1 (us (caddr gr))))))
-   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. The runtimes differ, so their absolute times are not directly comparable; the shared O(objects) trend is the result. On restore, glowcap frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
+   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. The runtimes differ, so their absolute times are not directly comparable. The shared O(objects) trend is the result. On restore, glowcap frees the rewound copies right away, and Goblins leaves that cleanup to its garbage collector.</p>"
            (r1 (us (cadr small))) (car small)
            (r1 (us (cadr big))) (car big))))
 
@@ -389,9 +447,10 @@
                     (list "Zig heap" AMBER (col (lambda (r) (mib (cadr (list-ref r 5)))))))
               (lambda (v) (~r v #:precision 1))))
   (string-append
-   (legend (list "awake" AMBER) (list "asleep" GREEN) (list "records on disk" TEAL))
-   (charts (figure "Call latency (p50 µs by conversation count)." latency-svg)
-           (figure "Memory (MiB by conversation count, all actors asleep)." memory-svg))
+   (charts (figure "Call latency (p50 µs by conversation count)." latency-svg
+                   #:legend (list (list "awake" AMBER) (list "asleep" GREEN)))
+           (figure "Memory (MiB by conversation count, all actors asleep)." memory-svg
+                   #:legend (list (list "records on disk" TEAL) (list "Zig heap" AMBER))))
    (html-table '("conversations" "awake call p50 µs" "asleep call p50 / p99 µs" "edit p50 / p99 ms" "restart to first call ms" "records read at restart")
                (for/list ([r (in-list rows)])
                  (define cold (list-ref r 2))
@@ -418,25 +477,36 @@
   (define bar-colors (map (lambda (c) (if (string=? c "goblins-ref") TEAL AMBER)) clients))
   (define (series sel) (list (list "value" AMBER (map sel rows))))
   (define p50-svg (svg-bars clients (series (lambda (r) (or (list-ref r 2) 0))) (lambda (v) (~r v #:precision 2)) #:bar-colors bar-colors))
-  (define rps-svg (svg-bars clients (series (lambda (r) (or (list-ref r 3) 0))) (lambda (v) (~r v #:precision 0)) #:bar-colors bar-colors))
+  (define rps-svg (svg-bars clients (series (lambda (r) (or (list-ref r 3) 0))) commas #:bar-colors bar-colors))
   (define cold-svg (svg-bars clients (series (lambda (r) (or (list-ref r 6) 0))) (lambda (v) (~r v #:precision 1)) #:bar-colors bar-colors))
   (string-append
    (legend (list "language client" AMBER) (list "Goblins reference (CapTP peer)" TEAL))
    (charts (figure "Latency (p50 ms, lower is better)." p50-svg)
-           (figure "Throughput (req/s, higher is better)." rps-svg)
-           (figure "Cold start (ms from spawn through one completed task-board unit, lower is better)." cold-svg))
+           (figure "Throughput (req/s, higher is better)." rps-svg))
+   (panel (figure "Cold start (ms from spawn through one completed task-board unit, lower is better)." cold-svg)
+          "<p class=\"bench-note\">Each row is a whole consumer stack (runtime, binding, the app rewritten in that language, and its garbage collector) over one Zig host. Read it as consumer cost. The Goblins row is the reference CapTP implementation dialing in.</p>")
    (html-table '("client" "runtime" "p50 (ms)" "req/s" "setup (ms/conn)" "mem (kB/conn)" "cold (ms)")
                (for/list ([r (in-list rows)])
                  (list (car r) (list-ref r 1)
                        (~r (or (list-ref r 2) 0) #:precision 2) (commas (or (list-ref r 3) 0))
-                       (list-ref r 4) (list-ref r 5) (~r (or (list-ref r 6) 0) #:precision 1))))
-   "\n<p class=\"bench-note\">Each row is a whole consumer stack (runtime, binding, the app rewritten in that language, and its garbage collector) over one native Zig host. Read it as consumer cost. The Goblins row is the reference CapTP implementation dialing in.</p>"))
+                       (list-ref r 4) (list-ref r 5) (~r (or (list-ref r 6) 0) #:precision 1))))))
 
 ;; ── Run + splice (effectful) ─────────────────────────────────────────────────
 ;; `system` returns #f on a non-zero exit without raising; check it so a failed
 ;; bench cannot leave the page half-freshened with a stale goblins/langs report.
 ;; CapTP flake retries live in `bench/goblins/bench.rkt`, not here.
+;; Start a bench only once the machine's one-minute load is under 2, the
+;; same gate the bench README's repeated runs use, so a build running in
+;; another checkout does not land in the page's figures. A machine without
+;; /proc/loadavg starts at once.
+(define (quiet)
+  (when (file-exists? "/proc/loadavg")
+    (let loop ()
+      (define load (string->number (car (string-split (file->string "/proc/loadavg")))))
+      (when (and load (>= load 2)) (sleep 20) (loop)))))
+
 (define (run cmd)
+  (quiet)
   (printf "  $ ~a\n" cmd) (flush-output)
   (define out (open-output-string))
   (define ok (parameterize ([current-output-port out]
@@ -470,18 +540,34 @@
   (define racket-v
     (let ([m (regexp-match #px"v([0-9.]+) \\[(\\w+)\\]" (sh1 "racket --version"))])
       (if m (format "Racket v~a ~a" (list-ref m 1) (string-upcase (list-ref m 2))) "Racket")))
-  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>glowcap</code> archives built by Zig ~a in ReleaseFast. The regeneration command is at the bottom of the page.</em></p>"
-          (sh1 "date +%Y-%m-%d") (sh1 "uname -sm") (sh1 "nproc") gib
+  (format "<p class=\"bench-stamp\">Every figure on this page comes from one run of commit <code>~a</code> on ~a: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, and the <code>glowcap</code> archives built by Zig ~a in ReleaseFast. <code>zig build bench-site-report</code> repeats it.</p>"
+          (sh1 "git rev-parse --short=9 HEAD") (sh1 "date +%Y-%m-%d") (sh1 "uname -sm") (sh1 "nproc") gib
           racket-v goblins-v (sh1 "zig version")))
 
-;; Replace the body of the `=html` block tagged with the bench marker.
-(define (splice text name body)
+;; Replace the body of the `=html` block tagged with the bench marker in
+;; `text`, read from `file`, which only the error names.
+(define (splice file text name body)
   (define pat (pregexp (string-append "(?s:```=html\n<!-- bench:" name " GENERATED[^\n]*-->.*?```)")))
   (define repl (string-append "```=html\n<!-- bench:" name " GENERATED by `zig build bench-site-report`; edits are overwritten -->\n" body "\n```"))
-  (unless (regexp-match? pat text) (error 'site-report "marker not found in ~a: bench:~a" PERF name))
+  (unless (regexp-match? pat text) (error 'site-report "marker not found in ~a: bench:~a" file name))
   (regexp-replace pat text (lambda _ repl)))
 
+;; Splice every (name . body) region into `file` and write it back.
+(define (splice-file file regions)
+  (define out
+    (for/fold ([t (file->string file)]) ([pair (in-list regions)])
+      (splice file t (car pair) (cdr pair))))
+  (call-with-output-file file (lambda (o) (display out o)) #:exists 'replace))
+
 (module+ main
+  ;; Every tool a bench needs, checked before the first bench, so a missing one
+  ;; fails in a second instead of after twenty minutes of runs. A container
+  ;; older than the Dockerfile is the usual cause, and rebuilding it is the fix.
+  (for ([tool '("cargo" "capnp" "g++" "pkg-config")])
+    (unless (find-executable-path tool)
+      (error 'site-report "~a is not on PATH; rebuild the devcontainer (.devcontainer/bin/up.sh --rebuild)" tool)))
+  (unless (system "pkg-config --exists capnp-rpc")
+    (error 'site-report "the capnp-rpc library is missing; rebuild the devcontainer (.devcontainer/bin/up.sh --rebuild)"))
   (printf "running benches in ReleaseFast (this takes a few minutes)...\n") (flush-output)
   ;; Goblins first: fail fast on the CapTP step before burning ReleaseFast
   ;; minutes on the Zig benches. Retries for CapTP flakes are inside bench-goblins.
@@ -494,20 +580,29 @@
   (define snap-g (parse-goblins-snapshot (run "racket bench/goblins/snapshot.rkt 2>&1")))
   (define iroh (parse-iroh (run "zig build bench-iroh -Doptimize=ReleaseFast 2>&1")))
   (define loam (parse-loam (run "zig build bench-loam -Doptimize=ReleaseFast -- --ordinary-only 2>&1")))
+  (define capnp
+    (let* ([cores (fast-cores)] [a (car cores)] [b (cadr cores)])
+      (for/list ([pin (list (format "~a,~a" a a) (format "~a,~a" a b))])
+        (parse-iroh (string-append
+                     (run (format "zig build bench-capnp -- --pin=~a 2>&1" pin))
+                     (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=greet --pin=~a 2>&1" pin))
+                     (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=report --pin=~a 2>&1" pin))
+                     (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=greet --codec=capnp --pin=~a 2>&1" pin))
+                     (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=report --codec=capnp --pin=~a 2>&1" pin)))))))
   (run "zig build bench-langs -Doptimize=ReleaseFast 2>&1")
   (define langs (parse-langs-md (latest-langs-md)))
-  (printf "rendering + splicing into ~a...\n" PERF) (flush-output)
-  (define text (file->string PERF))
-  (define out
-    (for/fold ([t text]) ([pair (in-list (list (cons "stamp" (stamp-region))
-                                                (cons "codec" (codec-region codec))
-                                                (cons "peer-scaling" (peer-region peer))
-                                                (cons "frame-view" (frameview-region fv))
-                                                (cons "goblins" (goblins-region goblins))
-                                                (cons "langs" (langs-region langs))
-                                                (cons "snapshot" (snapshot-region snap-p snap-g))
-                                                (cons "iroh" (iroh-region iroh))
-                                                (cons "loam" (loam-region loam))))])
-      (splice t (car pair) (cdr pair))))
-  (call-with-output-file PERF (lambda (o) (display out o)) #:exists 'replace)
+  (printf "rendering + splicing into ~a and ~a...\n" PERF COMPARED) (flush-output)
+  (define stamp (stamp-region))
+  (splice-file PERF (list (cons "stamp" stamp)
+                          (cons "glance" (glance-region codec fv peer iroh langs loam))
+                          (cons "codec" (codec-region codec))
+                          (cons "peer-scaling" (peer-region peer))
+                          (cons "frame-view" (frameview-region fv))
+                          (cons "langs" (langs-region langs))
+                          (cons "iroh" (iroh-region iroh))
+                          (cons "loam" (loam-region loam))))
+  (splice-file COMPARED (list (cons "stamp" stamp)
+                              (cons "capnp-rpc" (capnp-rpc-region (car capnp) (cadr capnp)))
+                              (cons "goblins" (goblins-region goblins))
+                              (cons "snapshot" (snapshot-region snap-p snap-g))))
   (printf "done. validate with: zig build site\n"))

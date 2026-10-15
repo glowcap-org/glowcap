@@ -79,10 +79,22 @@ const LoweredCapability = struct {
 /// One value lowering that has not yet crossed its semantic commit point.
 /// Public only for Host-core sibling modules. Adapters call the complete
 /// send/tell/vow operations instead of managing this transaction.
+///
+/// The walk that lowers the values also stages their leases: each capability
+/// that lowers to a routed reference takes one extra Host retain, listed in
+/// `leases` in lowering order. `beginStaging` lends that list to the Node for
+/// one synchronous send, and an inline-Passable batch claims exactly the
+/// leases it adopts, so the retain behind a claimed lease belongs to the
+/// staged Passable from then on and the Node releases it. Every unclaimed
+/// lease is released when the transaction ends, on commit or rollback alike.
+/// A near or far reference never needs a lease, because only a routed
+/// reference can stage a gift or a promise projection.
 pub const PreparedValues = struct {
     host: *Host,
-    values: []model.Argument,
-    receipts: CapabilityLoweringReceipts,
+    arena: std.mem.Allocator,
+    values: []model.Argument = &.{},
+    receipts: CapabilityLoweringReceipts = .{},
+    leases: std.ArrayListUnmanaged(engine.Node.OutboundStagingLease) = .empty,
     committed: bool = false,
     /// `holdForTurn` reserved room for these receipts in the running turn.
     turn_held: bool = false,
@@ -95,6 +107,7 @@ pub const PreparedValues = struct {
             self.host.turn_receipts.reserved -= receipts.len;
             self.turn_held = false;
         }
+        self.releaseUnclaimedLeases();
         return self.values;
     }
 
@@ -110,12 +123,46 @@ pub const PreparedValues = struct {
             .foreign, .deferred_projection => {},
         };
         self.committed = true;
+        self.releaseUnclaimedLeases();
     }
 
     pub fn deinit(self: *PreparedValues) void {
-        if (!self.committed) rollbackCapabilityLowerings(self.host, self.receipts.items());
+        if (!self.committed) {
+            rollbackCapabilityLowerings(self.host, self.receipts.items());
+            self.releaseUnclaimedLeases();
+        }
         if (self.turn_held) self.host.turn_receipts.reserved -= self.receipts.items().len;
         self.* = undefined;
+    }
+
+    /// Open the Node's lease window for the one synchronous send that carries
+    /// these values. The window is open until `endStaging`, and it is never
+    /// nested.
+    pub fn beginStaging(self: *PreparedValues) void {
+        self.host.node.beginOutboundStagingLeases(self.leases.items);
+    }
+
+    pub fn endStaging(self: *PreparedValues) void {
+        self.host.node.endOutboundStagingLeases();
+    }
+
+    fn stageLease(self: *PreparedValues, target: capability.Target, route_id: model.CapabilityRouteId) !void {
+        try self.leases.ensureUnusedCapacity(self.arena, 1);
+        const held = try self.host.capabilities.retain(self.host.allocator, target);
+        self.leases.appendAssumeCapacity(.{ .route_id = route_id, .capability = held.raw() });
+    }
+
+    fn releaseUnclaimedLeases(self: *PreparedValues) void {
+        for (self.leases.items) |lease| {
+            if (lease.claimed) continue;
+            // The lowering walk retained this unit after resolving a live
+            // target, and the application still holds its own, so releasing
+            // the unit cannot retire the row.
+            const ref = self.host.capabilities.refForRaw(lease.capability) orelse unreachable;
+            const retired = self.host.capabilities.release(ref, 1) catch unreachable;
+            std.debug.assert(retired == null);
+        }
+        self.leases = .empty;
     }
 };
 
@@ -179,24 +226,16 @@ fn unshared(session: *HostSession, position: u64) bool {
     return session.served.port.peer.session_state.exportRefcount(.from(position)) == 1;
 }
 
-/// One extra Host retain accompanying a capability occurrence while an
-/// owning-tier message crosses into the engine. An inline-Passable batch marks
-/// it transferred. Otherwise the caller rolls it back immediately after the
-/// synchronous enqueue.
-pub const StagedCapabilityRetain = struct {
-    ref: capability.Ref,
-    transferred: bool = false,
-};
-
 fn countValueCapabilitiesAt(
     values: []const value_mod.Value,
     depth: usize,
 ) error{ OutOfMemory, NestingTooDeep }!usize {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     var count: usize = 0;
-    for (values) |value| {
-        const added: usize = switch (value) {
+    for (values) |*value| {
+        const added: usize = switch (value.*) {
             .capability => 1,
+            .integers => if (depth == model.max_value_depth) return error.NestingTooDeep else 0,
             .list, .set => |items| try countValueCapabilitiesAt(items, depth + 1),
             .tagged => |tagged| try countValueCapabilitiesAt(tagged.value, depth + 1),
             .@"struct" => |entries| blk: {
@@ -222,15 +261,15 @@ fn countValueCapabilities(values: []const value_mod.Value) error{ OutOfMemory, N
 fn retainValueCapabilitiesInto(
     self: *Host,
     values: []const value_mod.Value,
-    out: []StagedCapabilityRetain,
+    out: []capability.Ref,
     index: *usize,
     depth: usize,
 ) !void {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
-    for (values) |value| switch (value) {
+    for (values) |*value| switch (value.*) {
         .capability => |ref| {
             const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
-            out[index.*] = .{ .ref = try self.capabilities.retain(self.allocator, target) };
+            out[index.*] = try self.capabilities.retain(self.allocator, target);
             index.* += 1;
         },
         .list, .set => |items| try retainValueCapabilitiesInto(self, items, out, index, depth + 1),
@@ -241,30 +280,29 @@ fn retainValueCapabilitiesInto(
     };
 }
 
+/// Take one Host retain on every capability in `values`, in walk order, for
+/// an owner that keeps the values past this call: a queued local message, a
+/// deferred send waiting on its promise, or a Loam call. The retains are
+/// custody only. A far send stages its transferable leases in
+/// `prepareValues` instead.
 pub fn retainValueCapabilities(
     self: *Host,
     arena: std.mem.Allocator,
     values: []const value_mod.Value,
-) ![]StagedCapabilityRetain {
-    const retained = try arena.alloc(StagedCapabilityRetain, try countValueCapabilities(values));
+) ![]capability.Ref {
+    const retained = try arena.alloc(capability.Ref, try countValueCapabilities(values));
     var index: usize = 0;
-    errdefer while (index != 0) {
-        index -= 1;
-        const retired = self.capabilities.release(retained[index].ref, 1) catch unreachable;
-        std.debug.assert(retired == null);
-    };
+    errdefer releaseCapabilityRetains(self, retained[0..index]);
     try retainValueCapabilitiesInto(self, values, retained, &index, 0);
     std.debug.assert(index == retained.len);
     return retained;
 }
 
-pub fn releaseUntransferredCapabilityRetains(
-    self: *Host,
-    retained: []StagedCapabilityRetain,
-) void {
-    for (retained) |item| {
-        if (item.transferred) continue;
-        const retired = self.capabilities.release(item.ref, 1) catch unreachable;
+/// Release retains `retainValueCapabilities` took, while their owner still
+/// holds the values that name them.
+pub fn releaseCapabilityRetains(self: *Host, retained: []const capability.Ref) void {
+    for (retained) |ref| {
+        const retired = self.capabilities.release(ref, 1) catch unreachable;
         std.debug.assert(retired == null);
     }
 }
@@ -274,7 +312,7 @@ pub fn releaseValueCapabilitiesTerminalAt(
     values: []const value_mod.Value,
     closing_peer: ?engine.PeerHandle,
 ) void {
-    for (values) |value| switch (value) {
+    for (values) |*value| switch (value.*) {
         .capability => |ref| identity.releaseCapabilityTerminal(self, ref, closing_peer),
         .list, .set => |items| releaseValueCapabilitiesTerminalAt(self, items, closing_peer),
         .tagged => |tagged| releaseValueCapabilitiesTerminalAt(self, tagged.value, closing_peer),
@@ -284,70 +322,18 @@ pub fn releaseValueCapabilitiesTerminalAt(
     };
 }
 
-fn bindOutboundStagingLeaseArgument(
-    arg: model.Argument,
-    retained: []StagedCapabilityRetain,
-    leases: []engine.Node.OutboundStagingLease,
-    index: *usize,
-) void {
-    switch (arg) {
-        .reference => |reference| {
-            const route_id: model.CapabilityRouteId = switch (reference) {
-                .routed => |routed| routed.id,
-                else => .from(0),
-            };
-            leases[index.*] = .{
-                .route_id = route_id,
-                .capability = retained[index.*].ref.raw(),
-            };
-            index.* += 1;
-        },
-        .list, .set => |items| for (items) |item|
-            bindOutboundStagingLeaseArgument(item, retained, leases, index),
-        .tagged => |tagged| for (tagged.value) |item|
-            bindOutboundStagingLeaseArgument(item, retained, leases, index),
-        .@"struct" => |entries| for (entries) |entry|
-            bindOutboundStagingLeaseArgument(entry.value, retained, leases, index),
-        else => {},
-    }
-}
-
-pub fn beginOutboundStagingLeases(
-    self: *Host,
-    arena: std.mem.Allocator,
-    args: []const model.Argument,
-    retained: []StagedCapabilityRetain,
-) ![]engine.Node.OutboundStagingLease {
-    const leases = try arena.alloc(engine.Node.OutboundStagingLease, retained.len);
-    var index: usize = 0;
-    for (args) |arg| bindOutboundStagingLeaseArgument(arg, retained, leases, &index);
-    std.debug.assert(index == retained.len);
-    self.node.beginOutboundStagingLeases(leases);
-    return leases;
-}
-
-pub fn finishOutboundStagingLeases(
-    self: *Host,
-    retained: []StagedCapabilityRetain,
-    leases: []const engine.Node.OutboundStagingLease,
-) void {
-    self.node.endOutboundStagingLeases();
-    for (retained, leases) |*item, lease| item.transferred = lease.claimed;
-}
-
+/// Send `msg` with `prepared`'s lease window open, so a cross-session
+/// capability the message names can stage inline with its retain.
 pub fn servedSendWithStaging(
     self: *Host,
     session: *HostSession,
     target: actors.Ref,
     msg: actors.Message,
-    arena: std.mem.Allocator,
-    retained: []StagedCapabilityRetain,
+    prepared: *PreparedValues,
 ) !actors.Vow {
-    const leases = try beginOutboundStagingLeases(self, arena, msg.args, retained);
-    errdefer finishOutboundStagingLeases(self, retained, leases);
-    const vow = try session.served.send(&self.vat, target, msg);
-    finishOutboundStagingLeases(self, retained, leases);
-    return vow;
+    prepared.beginStaging();
+    defer prepared.endStaging();
+    return session.served.send(&self.vat, target, msg);
 }
 
 pub fn servedTellWithStaging(
@@ -355,13 +341,11 @@ pub fn servedTellWithStaging(
     session: *HostSession,
     target: actors.Ref,
     msg: actors.Message,
-    arena: std.mem.Allocator,
-    retained: []StagedCapabilityRetain,
+    prepared: *PreparedValues,
 ) !void {
-    const leases = try beginOutboundStagingLeases(self, arena, msg.args, retained);
-    errdefer finishOutboundStagingLeases(self, retained, leases);
+    prepared.beginStaging();
+    defer prepared.endStaging();
     try session.served.tell(&self.vat, target, msg);
-    finishOutboundStagingLeases(self, retained, leases);
 }
 
 /// One capability lowering whose newly-created projection remains
@@ -416,9 +400,19 @@ fn rollbackCapabilityLowerings(self: *Host, receipts: []const CapabilityLowering
 /// returning rollback authority when this call minted an otherwise unseen
 /// Port projection or Node enrollment.
 fn lowerCapabilityTracked(self: *Host, session: *HostSession, ref: capability.Ref) !LoweredCapability {
+    const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+    return lowerTargetTracked(self, session, ref, target);
+}
+
+/// `lowerCapabilityTracked` for a `ref` the caller has already resolved.
+fn lowerTargetTracked(
+    self: *Host,
+    session: *HostSession,
+    ref: capability.Ref,
+    target: capability.Target,
+) !LoweredCapability {
     self.assertOwner();
     try self.checkSession(session);
-    const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
     return switch (target) {
         .local => |actor_id| blk: {
             if (!self.vat.hasActor(actor_id)) return actors.Error.NoSuchActor;
@@ -451,7 +445,10 @@ fn lowerCapabilityTracked(self: *Host, session: *HostSession, ref: capability.Re
         .deferred => |id| blk: {
             const row = self.capability_promises.get(id) orelse return error.UnknownCapability;
             switch (row.state) {
-                .fulfilled => |resolved| break :blk try lowerCapabilityTracked(self, session, resolved),
+                .fulfilled => |resolved| {
+                    const resolved_target = self.capabilities.resolve(resolved) orelse return error.UnknownCapability;
+                    break :blk try lowerTargetTracked(self, session, resolved, resolved_target);
+                },
                 .broken => return error.PromiseBroken,
                 .pending, .settling => {
                     const projection = try capability_promise.prepareProjection(self, id, session);
@@ -499,50 +496,68 @@ pub fn lowerValue(
     arena: std.mem.Allocator,
     value: value_mod.Value,
 ) anyerror!model.Argument {
-    var receipts = CapabilityLoweringReceipts{};
-    errdefer rollbackCapabilityLowerings(self, receipts.items());
-    return lowerValueInner(self, session, arena, value, &receipts, 0);
+    var prepared: PreparedValues = .{ .host = self, .arena = arena };
+    defer prepared.deinit();
+    var out: model.Argument = undefined;
+    try lowerValueInner(self, session, &prepared, &value, 0, &out);
+    _ = prepared.commit();
+    return out;
 }
 
+/// Writes the lowered argument into `out` so each arm lands in place: a
+/// result returned through an error union is copied out of it by the caller,
+/// and an argument is wide enough for that copy to be a call.
 fn lowerValueInner(
     self: *Host,
     session: *HostSession,
-    arena: std.mem.Allocator,
-    value: value_mod.Value,
-    receipts: *CapabilityLoweringReceipts,
+    prepared: *PreparedValues,
+    value: *const value_mod.Value,
     depth: usize,
-) anyerror!model.Argument {
+    out: *model.Argument,
+) anyerror!void {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
-    return switch (value) {
+    const arena = prepared.arena;
+    out.* = switch (value.*) {
         .bytes => |v| .{ .bytes = v },
         .symbol => |v| .{ .symbol = v },
         .capability => |ref| blk: {
-            try receipts.ensureOne(arena);
-            const lowered = try lowerCapabilityTracked(self, session, ref);
-            if (lowered.receipt) |receipt| receipts.appendAssumeCapacity(receipt);
+            try prepared.receipts.ensureOne(arena);
+            const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
+            const lowered = try lowerTargetTracked(self, session, ref, target);
+            if (lowered.receipt) |receipt| prepared.receipts.appendAssumeCapacity(receipt);
+            switch (lowered.reference) {
+                .routed => |routed| try prepared.stageLease(target, routed.id),
+                else => {},
+            }
             break :blk .{ .reference = lowered.reference };
         },
         .@"error" => |reason| .{ .@"error" = reason },
         .string => |v| .{ .string = v },
         .integer => |v| .{ .integer = v },
+        .integers => |words| blk: {
+            if (depth == model.max_value_depth) return error.NestingTooDeep;
+            const lowered = try arena.alloc(model.Argument, words.len);
+            for (words, lowered) |word, *item| item.* = .{ .integer = word };
+            break :blk .{ .list = lowered };
+        },
         .boolean => |v| .{ .boolean = v },
-        .list => |items| .{ .list = try lowerValuesInner(self, session, arena, items, receipts, depth + 1) },
+        .list => |items| .{ .list = try lowerValuesInner(self, session, prepared, items, depth + 1) },
         .void => .{ .void = {} },
         .float64 => |v| .{ .float64 = v },
-        .set => |items| .{ .set = try lowerValuesInner(self, session, arena, items, receipts, depth + 1) },
+        .set => |items| .{ .set = try lowerValuesInner(self, session, prepared, items, depth + 1) },
         .tagged => |tagged| .{ .tagged = .{
             .tag = tagged.tag,
-            .value = try lowerValuesInner(self, session, arena, tagged.value, receipts, depth + 1),
+            .value = try lowerValuesInner(self, session, prepared, tagged.value, depth + 1),
         } },
         .keyword => |v| .{ .keyword = v },
         .big_integer => |v| .{ .big_integer = v },
         .@"struct" => |entries| blk: {
-            const out = try arena.alloc(model.StructEntry, entries.len);
-            for (entries, 0..) |entry, i| out[i] = .{
-                .key = entry.key,
-                .value = try lowerValueInner(self, session, arena, entry.value, receipts, depth + 1),
-            };
-            break :blk .{ .@"struct" = out };
+            const lowered = try arena.alloc(model.StructEntry, entries.len);
+            for (entries, 0..) |*entry, i| {
+                lowered[i].key = entry.key;
+                try lowerValueInner(self, session, prepared, &entry.value, depth + 1, &lowered[i].value);
+            }
+            break :blk .{ .@"struct" = lowered };
         },
     };
 }
@@ -567,23 +582,22 @@ pub fn prepareValues(
     arena: std.mem.Allocator,
     values: []const value_mod.Value,
 ) anyerror!PreparedValues {
-    var receipts = CapabilityLoweringReceipts{};
-    errdefer rollbackCapabilityLowerings(self, receipts.items());
-    const lowered = try lowerValuesInner(self, session, arena, values, &receipts, 0);
-    return .{ .host = self, .values = lowered, .receipts = receipts };
+    var prepared: PreparedValues = .{ .host = self, .arena = arena };
+    errdefer prepared.deinit();
+    prepared.values = try lowerValuesInner(self, session, &prepared, values, 0);
+    return prepared;
 }
 
 fn lowerValuesInner(
     self: *Host,
     session: *HostSession,
-    arena: std.mem.Allocator,
+    prepared: *PreparedValues,
     values: []const value_mod.Value,
-    receipts: *CapabilityLoweringReceipts,
     depth: usize,
 ) anyerror![]model.Argument {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
-    const out = try arena.alloc(model.Argument, values.len);
-    for (values, 0..) |value, i|
-        out[i] = try lowerValueInner(self, session, arena, value, receipts, depth);
+    const out = try prepared.arena.alloc(model.Argument, values.len);
+    for (values, 0..) |*value, i|
+        try lowerValueInner(self, session, prepared, value, depth, &out[i]);
     return out;
 }

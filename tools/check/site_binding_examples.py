@@ -143,7 +143,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-glowcap = {{ package = "glowcap-rust-dogfood", path = "{binding.as_posix()}", features = ["async", "iroh", "onion", "relay"] }}
+glowcap = {{ package = "glowcap-rust-dogfood", path = "{binding.as_posix()}", features = ["async", "iroh", "onion", "relay", "webrtc"] }}
 """
         (work / "Cargo.toml").write_text(manifest)
         source = [

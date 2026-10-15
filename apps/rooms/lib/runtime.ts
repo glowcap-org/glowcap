@@ -15,7 +15,7 @@ export interface RoomsRuntimeOptions {
 	readonly relay?: relay.RelayOptions;
 }
 
-/** Open one native Rooms Runtime with explicit transport composition. */
+/** Open one Rooms Runtime with explicit transport composition. */
 export async function openRoomsRuntime(options: RoomsRuntimeOptions = {}): Promise<Runtime> {
 	const installed = options.installedTransport;
 	return await Runtime.open({

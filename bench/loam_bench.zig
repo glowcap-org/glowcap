@@ -8,6 +8,7 @@ const metrics = @import("alloc_metrics");
 
 const reporting = @import("loam/report.zig");
 const memory = @import("loam/process_memory.zig");
+const profile = @import("support/profile.zig");
 const sustained = @import("loam/sustained.zig");
 const managed = @import("loam/managed_run.zig");
 const Samples = reporting.Samples;
@@ -23,20 +24,48 @@ pub fn main(init: std.process.Init) !void {
     var foreign_only = false;
     var collection_only = false;
     var ordinary_only = false;
+    var tasks_only = false;
+    var scale_only = false;
+    const Engine = @import("loam/tasks.zig").Engine;
+    var engine: ?Engine = null;
+    var cpu: ?u32 = null;
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next();
     while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--smoke")) smoke = true else if (std.mem.eql(u8, arg, "--references-only")) references_only = true else if (std.mem.eql(u8, arg, "--managed-only")) managed_only = true else if (std.mem.eql(u8, arg, "--foreign-only")) foreign_only = true else if (std.mem.eql(u8, arg, "--collection-only")) collection_only = true else if (std.mem.eql(u8, arg, "--ordinary-only")) ordinary_only = true else return error.InvalidArguments;
+        if (std.mem.eql(u8, arg, "--smoke")) smoke = true else if (std.mem.eql(u8, arg, "--references-only")) references_only = true else if (std.mem.eql(u8, arg, "--managed-only")) managed_only = true else if (std.mem.eql(u8, arg, "--foreign-only")) foreign_only = true else if (std.mem.eql(u8, arg, "--collection-only")) collection_only = true else if (std.mem.eql(u8, arg, "--ordinary-only")) ordinary_only = true else if (std.mem.eql(u8, arg, "--tasks-only")) tasks_only = true else if (std.mem.eql(u8, arg, "--scale-only")) scale_only = true else if (std.mem.startsWith(u8, arg, "--engine=") and engine == null) {
+            engine = std.meta.stringToEnum(Engine, arg["--engine=".len..]) orelse return error.InvalidArguments;
+        } else if (std.mem.startsWith(u8, arg, "--cpu=") and cpu == null) {
+            cpu = try std.fmt.parseInt(u32, arg["--cpu=".len..], 10);
+        } else return error.InvalidArguments;
     }
     var report: std.ArrayList(u8) = .empty;
     defer report.deinit(init.gpa);
-    if (@as(u8, @intFromBool(references_only)) + @intFromBool(managed_only) + @intFromBool(foreign_only) + @intFromBool(collection_only) + @intFromBool(ordinary_only) > 1) return error.InvalidArguments;
+    if (@as(u8, @intFromBool(references_only)) + @intFromBool(managed_only) + @intFromBool(foreign_only) + @intFromBool(collection_only) + @intFromBool(ordinary_only) + @intFromBool(tasks_only) + @intFromBool(scale_only) > 1) return error.InvalidArguments;
+    // Only the Tasks workload runs on a chosen engine. The others measure
+    // LMDB's own pages and map.
+    if ((engine != null or cpu != null) and !tasks_only) return error.InvalidArguments;
+    if (cpu) |selected| {
+        try memory.pinCpu(selected);
+        try emit(init.gpa, &report, "tasks_cpu pinned={d}\n", .{selected});
+    } else if (tasks_only) try emit(init.gpa, &report, "tasks_cpu pinned=none\n", .{});
+    const chosen = [1]Engine{engine orelse .lmdb};
+    const engines: []const Engine = if (engine != null) &chosen else std.enums.values(Engine);
     if (collection_only) {
         try @import("loam/collection_cost.zig").run(init, &report, smoke);
         return;
     }
-    try emit(init.gpa, &report, "Loam LMDB workload mode={s} arch={s} os={s} cache_slots={d} cache_slot_bytes={d} max_record_bytes=8192 durability=LMDB-default-sync\n", .{
-        @tagName(builtin.mode), @tagName(builtin.cpu.arch), @tagName(builtin.os.tag), w.cache_slots, @sizeOf(std.meta.Child(@TypeOf(@as(w.Workload, undefined).store.cache.slots))),
+    try emit(init.gpa, &report, "Loam workload mode={s} arch={s} os={s} durability=engine-default-sync\n", .{ @tagName(builtin.mode), @tagName(builtin.cpu.arch), @tagName(builtin.os.tag) });
+    if (tasks_only) {
+        try @import("loam/tasks.zig").run(init, &report, smoke, engines);
+        return write(init, &report, smoke, "zig-out/bench-reports/loam-tasks.txt");
+    }
+    if (scale_only) {
+        try @import("loam/scale.zig").run(init, &report, smoke);
+        return write(init, &report, smoke, "zig-out/bench-reports/loam-scale.txt");
+    }
+    // Tasks and scale print their own limits. These describe the workloads below.
+    try emit(init.gpa, &report, "workload_limits cache_slots={d} cache_slot_bytes={d} max_record_bytes=8192\n", .{
+        w.cache_slots, @sizeOf(std.meta.Child(@TypeOf(@as(w.Workload, undefined).store.cache.slots))),
     });
     const counts: []const usize = if (smoke) &.{16} else &.{ 64, 512, 2048 };
     const sizes: []const usize = if (smoke) &.{256} else &.{ 256, 4096 };
@@ -46,7 +75,9 @@ pub fn main(init: std.process.Init) !void {
     if (!references_only and !foreign_only) for (counts) |count| for ([_]u16{ 0, 4 }) |depth| try @import("loam/managed_sustained.zig").run(init, &report, count, depth, smoke);
     if (!references_only) for (counts) |count| for ([_]u16{ 0, 4 }) |depth| try @import("loam/foreign_references.zig").run(init, &report, count, depth, smoke);
     if (!references_only and !managed_only and !foreign_only) for (counts) |count| try sustained.run(init, &report, count, smoke);
+    if (!references_only and !managed_only and !foreign_only) try @import("loam/tasks.zig").run(init, &report, smoke, engines);
     if (smoke and !references_only and !managed_only and !foreign_only) try @import("loam/collection_cost.zig").run(init, &report, true);
+    if (smoke and !references_only and !managed_only and !foreign_only) try @import("loam/scale.zig").run(init, &report, true);
     try write(init, &report, smoke, if (references_only) "zig-out/bench-reports/loam-references.txt" else if (managed_only) "zig-out/bench-reports/loam-managed.txt" else if (foreign_only) "zig-out/bench-reports/loam-foreign.txt" else "zig-out/bench-reports/loam.txt");
 }
 
@@ -83,13 +114,14 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
         try physical(gpa, report, &db, "populated", count, size);
         first = workload.ids[0];
         // `edit` runs last: the read phases expect every conversation unedited.
-        for ([_][]const u8{ "hot", "cold", "thrash", "edit-unrelated-read", "edit" }) |phase| {
+        for ([_][:0]const u8{ "hot", "cold", "thrash", "edit-unrelated-read", "edit" }) |phase| {
             // Warm a small set, independently of population size.
             for (0..8) |i| _ = try workload.call(i, "read");
             const reads = workload.reads;
             const writes = workload.writes;
             const allocs = allocations.allocs;
             var timings: Samples = .{};
+            profile.begin();
             const start = now(io);
             for (0..samples) |i| {
                 if (std.mem.eql(u8, phase, "cold")) try workload.attachment.sleep(workload.caps[i % 8]);
@@ -105,6 +137,7 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
                 }
                 timings.add(elapsed(io, sample));
             }
+            profile.end(phase);
             try row(gpa, report, .{ .phase = phase, .conversations = count, .message_bytes = size, .operations = samples, .reads = workload.reads - reads, .writes = workload.writes - writes, .elapsed_ns = elapsed(io, start), .latency = timings.summarize() });
             try emit(gpa, report, "allocation phase={s} allocs={d} live_zig_heap_bytes={d} resident_bytes={d}\n", .{ phase, allocations.allocs - allocs, bytes.liveBytes(), workload.store.cache.allocated_bytes });
             if (std.mem.eql(u8, phase, "hot") or std.mem.eql(u8, phase, "edit-unrelated-read") or std.mem.eql(u8, phase, "edit")) {

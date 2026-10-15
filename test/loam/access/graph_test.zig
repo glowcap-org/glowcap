@@ -80,7 +80,7 @@ test "access failed moves leave every edge and revision unchanged" {
     try std.testing.expectEqual(@as(u32, 4), graph.count());
 }
 
-test "access moves update all descendants and preserve resource identities" {
+test "access moves carry every descendant and preserve resource identities" {
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 8 });
     defer graph.deinit() catch unreachable;
     const root = try graph.create(graph.revision(), &structural_policy, kind, null);
@@ -108,7 +108,7 @@ test "access moves update all descendants and preserve resource identities" {
     try std.testing.expectEqual(@as(u32, 0), graph.count());
 }
 
-test "access subtree traversal checks and updates every sibling branch" {
+test "access subtree height checks every sibling branch" {
     var graph = try Graph.init(std.testing.allocator, owner, .{ .capacity = 7, .max_depth = 3 });
     defer graph.deinit() catch unreachable;
     const root = try graph.create(graph.revision(), &structural_policy, kind, null);

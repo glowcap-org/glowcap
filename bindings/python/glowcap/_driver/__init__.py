@@ -1,1 +1,1 @@
-"""Private native-driver ownership leaves."""
+"""Private FFI driver ownership leaves."""

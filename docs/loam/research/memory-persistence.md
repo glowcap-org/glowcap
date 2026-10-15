@@ -1,24 +1,22 @@
 # Memory and persistence for glowcap
 
 This study owns the prior-art survey, physical storage alternatives, and
-experiments for Loam. The [planning guide](../../planning/README.md) and the
-[roadmap](../../roadmap.md#durable-applications) own priority.
+experiments for Loam. The [roadmap](../../roadmap.md) owns priority.
 
 The [Loam architecture](../architecture.md) and
 [ADR-0161](../../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
 own the accepted layer boundaries. The [API contract](../api.md) and
 [sleepy-actor contract](../actors.md) specify the behavior candidates must
-support. Backend selection and measured costs remain open, and the experiments
-below test implementations against those contracts.
+support, and the experiments below test implementations against them. The
+[Zig Loam slice](../../loam.md) implements a local-record baseline with LMDB and
+volatile storage. Backend selection, measured costs, and the comparative
+experiments remain open.
 
-The [Zig Loam slice](../../loam.md) implements a local-record baseline with LMDB
-and volatile storage. The comparative experiments below remain open.
-
-Sources were reviewed on 2026-09-14. Candidate behavior below is attributed to
-primary documentation and papers. The [persistence reuse review](native-reuse.md)
-adds pinned source findings for Sandstorm's Blackrock, POST++, and Goblins.
-These findings support building the shared object and capability layer over an
-existing engine. They establish neither novelty nor a performance advantage.
+Sources were reviewed on 2026-09-14, and candidate behavior is attributed to
+primary documentation and papers. The [persistence reuse review](persistence-reuse.md)
+adds pinned source findings for Sandstorm's Blackrock, POST++, and Goblins. They
+support building the shared object and capability layer over an existing
+engine, and establish neither novelty nor a performance advantage.
 
 ## The question to answer
 
@@ -44,7 +42,7 @@ The product combines a capability-oriented application workspace with organized,
 branching conversation. Its foundation must also support another product with
 a different domain, and storage throughput alone cannot establish that fit.
 
-Keep the [Rooms content model](../../planning/rooms.md) as the domain authority:
+Keep the Rooms content model as the domain authority:
 directories organize rooms and other placements. Rooms provide shared context.
 Conversations organize an ongoing discussion. Each message has one canonical
 conversation. Documents, task boards, and embedded tools can be resources with
@@ -159,10 +157,10 @@ which owner it reuses, extends, or replaces before adding another mechanism.
 | --- | --- | --- |
 | [Actor snapshots](../../../src/actors/vat/boxed.zig) and [immutable collections](../../../src/loam/collections/mod.zig) | Local state sharing, copy-on-write, and restore without rewinding the network. | Reuse state ownership where appropriate. These in-memory mechanisms do not provide disk recovery. |
 | [Host durable publication contract](../../boundaries.md) | Stable publication names when the embedding preserves identity and publication entropy. | Connect restored objects to existing publication and custody machinery. |
-| [Session owner](../../../apps/rooms/rust/runtime/src/session/managed.rs) | Shared native/browser checkpoint and effect recovery, including persisted identity. | Preserve commit ordering and pending-operation ownership when extracting reusable execution support. |
+| [Session owner](../../../apps/rooms/rust/runtime/src/session/managed.rs) | Shared Rust-process and browser checkpoint and effect recovery, including persisted identity. | Preserve commit ordering and pending-operation ownership when extracting reusable execution support. |
 | [Grant owner](../../../apps/rooms/rust/runtime/src/session/managed/content.rs) | Prepare, persist, then install. Protected access is disabled after uncertain writes. | Keep one authority evaluator and one durable completion owner. |
 | [Filesystem storage](../../../apps/rooms/rust/platform/src/storage/atomic.rs) | Synced replacement and explicit unchanged versus indeterminate failure. | Carry these failure classes into the storage contract. Compare recovery guarantees as well as speed. |
-| [Archive storage](../../../apps/rooms/rust/archive.md) and [browser transactions](../../../apps/rooms/rust/browser/src/storage/transaction.rs) | Durable records, blobs, shares, bounded transfers, and retained asynchronous operations. | Preserve cancellation and reference-lifecycle behavior across native and browser adapters. |
+| [Archive storage](../../../apps/rooms/rust/archive.md) and [browser transactions](../../../apps/rooms/rust/browser/src/storage/transaction.rs) | Durable records, blobs, shares, bounded transfers, and retained asynchronous operations. | Preserve cancellation and reference-lifecycle behavior across filesystem and browser adapters. |
 
 Some reusable mechanisms live in Rooms' Rust packages. Moving their ownership
 into Zig requires equivalent recovery evidence and removal of the superseded
@@ -189,8 +187,8 @@ candidate.
 | [NV-Heaps](https://cseweb.ucsd.edu/~swanson/papers/Asplos2011NVHeaps.pdf) | Transactional persistent objects with explicit attention to pointer safety and persistent corruption. | A persistent allocator must prevent invalid lifetime edges and reuse errors as well as flush bytes. Published measurements concern that paper's hardware/model, not glowcap. |
 | [Mnemosyne](https://pages.cs.wisc.edu/~swift/papers/asplos11_mnemosyne.pdf) | Persistent regions and durable memory transactions. | Evidence that memory-like persistence has a separate consistency mechanism. Its storage-class-memory assumptions cannot be transferred to ordinary SSD mmap without analysis. |
 | [Twizzler](https://www.usenix.org/conference/atc20/presentation/bittman) | OS-supported persistent objects and object-relative cross-object pointers. | Close conceptual prior art for persistent identity and relocation. It is an operating-system design, not a portable C/Zig library to embed in Rooms. |
-| [Goblins portraits](https://files.spritely.institute/docs/guile-goblins/0.17.0/Persistence-capable-objects.html) | Rooted object graphs, cycles, and explicit descriptions containing data and references. | Reuse the separation of behavior reconstruction from storage representation. A lower-level implementation should improve native ownership and cost without losing the graph semantics. |
-| [Goblins sleepy actors, 0.18.0](https://spritely.institute/news/spritely-goblins-v0-18-0-sleepy-actors.html) | Actors retain live references while their state sleeps in storage, and wake on message delivery. The release includes least-recently-used and every-turn sleep strategies. | Direct precedent for required lazy actor residency. Measure glowcap's native ownership and integration against this behavior. Lazy activation itself is established prior art. |
+| [Goblins portraits](https://files.spritely.institute/docs/guile-goblins/0.17.0/Persistence-capable-objects.html) | Rooted object graphs, cycles, and explicit descriptions containing data and references. | Reuse the separation of behavior reconstruction from storage representation. A lower-level implementation should improve ownership and cost in Zig without losing the graph semantics. |
+| [Goblins sleepy actors, 0.18.0](https://spritely.institute/news/spritely-goblins-v0-18-0-sleepy-actors.html) | Actors retain live references while their state sleeps in storage, and wake on message delivery. The release includes least-recently-used and every-turn sleep strategies. | Direct precedent for required lazy actor residency. Measure glowcap's Zig ownership and integration against this behavior. Lazy activation itself is established prior art. |
 | [Cap'n Proto persistent interfaces](https://github.com/capnproto/capnproto/blob/master/c%2B%2B/src/capnp/persistent.capnp) | Saving a capability for later restoration, with persistence orthogonal to its application interface. | Reference restoration is an interface contract, not the serialization of a client pointer. Study the separation without importing a second RPC stack or its realm-specific conventions. |
 
 PMDK's old [pmem/pmdk repository](https://github.com/pmem/pmdk) is archived and
@@ -243,7 +241,7 @@ An old read transaction creates an important semantic fork:
 
 ## Ownership and integration
 
-The [Loam ownership contract](../architecture.md#product-and-ownership)
+The [Loam ownership contract](../architecture.md#who-owns-what)
 assigns graph persistence to Loam, resource authority to `loam.access`, and
 activation and capability custody to integration with the existing Vat and
 Host. Its acceptance test includes a second consumer using persistence without
@@ -399,7 +397,7 @@ No consumer can pin the entire store through unlimited lazy reads or snapshots.
 | One generic graph substrate serves actors and managed access. | Persist a plain actor graph and a resource/grant graph through the same record, edge, loading, and commit mechanisms. | The plain actor imports managed access or duplicates storage/restoration machinery. |
 | Schema descriptors remove application persistence plumbing. | Round-trip a cyclic graph containing originals, managed uses, bounded controls, and a foreign durable reference from Zig and a Rust consumer. | A consumer writes its own grant evaluator or maintains parallel reference indexes by hand. |
 | Region layout reduces meaningful cost. | Compare identical graph workloads using individual records and packed immutable extents over the same transaction engine. | Reduced lookup CPU is outweighed by write amplification, retained history, copying, or p99 pause time. |
-| LMDB is a better native physical fit than SQLite. | Use the same workload, hardware, durable acknowledgement contract, cache budget, and crash matrix. | Its whole-system memory, reader retention, operational complexity, or tail latency outweighs access savings. |
+| LMDB is a better physical fit than SQLite. | Use the same workload, hardware, durable acknowledgement contract, cache budget, and crash matrix. | Its whole-system memory, reader retention, operational complexity, or tail latency outweighs access savings. |
 | Authority can stay current without rewriting descendants. | Revoke an ancestor while cold descendants and a deferred reply are pending, then evict/restart and retry. | An old snapshot or cached verdict admits a later protected disclosure, or a parent edit requires rewriting the descendant population. |
 | Lazy persistence preserves networking progress. | Delay reads, exhaust pins, force major faults, and run compaction while unrelated actors exchange calls. | Storage blocks a Host turn, queue memory grows without bound, or ordinary actor cost grows with stored object count. |
 
@@ -414,7 +412,7 @@ complexity.
 ## Experiment sequence and decision points
 
 These experiments support the [implementation
-stages](../architecture.md#implementation-order-and-acceptance), and the
+stages](../architecture.md#order-of-work), and the
 architecture owns build order. The implemented LMDB path is the baseline. SQLite
 is an optional comparison when measurements locate a physical-engine constraint.
 Another backend is not a prerequisite for Rooms integration. Region layouts
@@ -446,11 +444,13 @@ remain an experiment until their whole-system costs justify adoption.
    Process kills alone are not power-loss proof. Test old-backup restoration:
    keeping a public identity requires authoritative recovery history that does
    not undo exposed revocations. Otherwise restore under a new identity.
-5. **Exercise real CapTP and bindings.** A saved facet survives process restart.
-   A control edit is a committed event. The next protected near or far call
-   observes it. Pipelined dependent calls wait for committed publication. Use
-   product fronts and outside peers, then the browser adapter. A mock
-   pointer-to-reference bridge proves none of these properties.
+5. **Exercise real CapTP and bindings.** Use product fronts and outside peers,
+   then the browser adapter. A mock pointer-to-reference bridge proves none of
+   these properties:
+   - A saved facet survives process restart.
+   - A control edit is a committed event. The next protected near or far call
+     observes it.
+   - Pipelined dependent calls wait for committed publication.
 6. **Select the production profile.** Use the evidence to select backend and
    layout defaults, supported limits, and any necessary API refinements. Record
    the measured decision in an ADR and update the owning contracts. Each

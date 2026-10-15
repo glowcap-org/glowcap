@@ -149,7 +149,7 @@ async def projections_reach_a_field() -> None:
     server = await tcp.listen(
         "127.0.0.1",
         0,
-        host=Host(profile="native", features="full"),
+        host=Host(profile="glowcap", features="full"),
     )
     published = asyncio.Event()
     release_make = asyncio.Event()
@@ -194,7 +194,7 @@ async def projections_reach_a_field() -> None:
         serve_task = asyncio.ensure_future(serve_one())
         session = await tcp_connect(
             tcp.locator("127.0.0.1", server.port),
-            host=Host(profile="native", features="full"),
+            host=Host(profile="glowcap", features="full"),
             codec="capnp",
         )
         assert session.profile.captp_version == "next"

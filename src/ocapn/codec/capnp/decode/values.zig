@@ -1,14 +1,23 @@
 //! Allocation-free Cap'n Proto projection of borrowed semantic values.
 //!
 //! This leaf owns the one Reference, Argument, collection-backing, locator,
-//! hint, handoff, Resolution, and StartSession vocabulary used by both body
-//! projection and the eager charge pass. It borrows directly from one bounded
-//! Reader and owns no session authority. The parent decoder optionally observes
-//! hint lists while projecting so traversal-budget spending stays in
-//! `decode.zig` without a second walk.
+//! hint, handoff, Resolution, and StartSession vocabulary used by the metered
+//! first walk over a frame and by the lazy re-walks a wire-backed sequence
+//! makes later. It borrows directly from one bounded Reader and owns no
+//! session authority.
+//!
+//! The first walk projects each value once, charging the frame's traversal
+//! budget as it reads, and parses every list, set, and tagged value it meets
+//! into the slab the frame's owner lends, so the views that escape are read
+//! from the slab and never from the wire again. A subtree the walk leaves
+//! wire-backed (a collection the slab cannot hold, a locator's
+//! hints) is descended before it escapes, so the later lazy re-walk is
+//! bounded by the same budget. The hint observer is what tells the two walks
+//! apart: the first walk passes `chargeHintList`, a lazy re-walk passes null.
 
 const std = @import("std");
 const model = @import("model");
+const limits = @import("codec_limits");
 const shared = @import("../shared.zig");
 
 const Error = shared.Error;
@@ -21,9 +30,28 @@ const CompositeList = shared.CompositeList;
 const followList = shared.followList;
 const enumFromWire = shared.enumFromWire;
 const compositeList = shared.compositeList;
+const compositeListAt = shared.compositeListAt;
+const ListLoc = shared.ListLoc;
+const wire = @import("../wire.zig");
 const Reader = shared.Reader;
 
 const HintListObserver = *const fn (reader: Reader, hints: CompositeList) Error!void;
+
+/// The nesting the metered walk descends before it refuses a frame, the
+/// shared codec decode recursion bound.
+pub const max_charge_depth: usize = limits.max_decode_nesting;
+
+/// Enumerate one locator's hint list on the metered walk. The value leaf
+/// discovers the list while projecting and calls this observer exactly once,
+/// so the budget covers every hint entry before the lazy projection escapes.
+pub fn chargeHintList(reader: Reader, hints: CompositeList) Error!void {
+    for (0..hints.element_count) |i| {
+        try reader.spend(1);
+        _ = try hintEntry(reader, hints.elem(i));
+    }
+}
+/// The one backing context every lazy record shares (`model.view.Lazy`).
+const RecordCtx = model.view.LazyHandoff.Ctx;
 
 // ── Decode: borrowed codec-neutral view projection (ADR-0026) ────────────────
 //
@@ -44,17 +72,14 @@ const HintListObserver = *const fn (reader: Reader, hints: CompositeList) Error!
 //   list (`PositionList`) packs `w0` = content word index, `w2` = count
 //   (one-word stride).
 
-const neutral_args_vtable = model.view.Args.VTable{ .len = neutralArgsLen, .at = neutralArgsAt, .next = neutralArgsNext };
-const neutral_positions_vtable = model.view.PositionList.VTable{ .len = neutralPositionsLen, .at = neutralPositionsAt, .next = neutralPositionsNext };
-
-/// Pack a composite (struct-list) pointer field into a backing `Ctx`. A null /
-/// empty list packs a zero count. Otherwise the composite tag word supplies the
-/// per-element section sizes and element count.
-fn compositeListCtx(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Args.Ctx {
-    const clist = (try compositeList(reader, loc, i)) orelse return .{ .bytes = reader.bytes };
-    return ctxFromComposite(reader, clist);
-}
-
+const neutral_args_vtable = model.view.Args.VTable{
+    .len = neutralArgsLen,
+    .at = neutralArgsAt,
+    .next = neutralArgsNext,
+    .tail = neutralArgsTail,
+};
+/// Pack a bounds-validated composite (struct) list into a backing `Ctx`: the
+/// tag word supplies the per-element section sizes and element count.
 fn ctxFromComposite(reader: Reader, clist: CompositeList) model.view.Args.Ctx {
     return .{
         .bytes = reader.bytes,
@@ -64,18 +89,16 @@ fn ctxFromComposite(reader: Reader, clist: CompositeList) model.view.Args.Ctx {
     };
 }
 
-fn primitiveListCtx(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Args.Ctx {
-    const list = try followList(reader, loc, i);
-    // Its one caller is the position list, whose elements are words read at
-    // `data_idx + index`, so the pointer must declare eight-byte elements;
-    // reject any other size (the encoder always writes `.eight_bytes`). `data_idx`
-    // and `count` are untrusted, so prove the run fits the segment up
-    // front, the same bound `ownedU64List` applies, so a consumer that trusts
-    // the projected `len()` to size an allocation cannot be amplified past it.
-    if (list.count != 0 and list.elem != .eight_bytes) return Error.InvalidPointer;
-    const end = std.math.add(usize, list.data_idx, list.count) catch return Error.Truncated;
-    if (end > reader.seg_words) return Error.Truncated;
-    return .{ .bytes = reader.bytes, .w0 = list.data_idx, .w2 = list.count };
+/// The words of a list the encoder wrote as eight-byte elements (a position
+/// list, or an integer list, ADR-0243), borrowed from the segment. `data_idx`
+/// and `count` are untrusted, so the run is proved to fit the segment and
+/// charged to the budget as the words it spans before a consumer can size
+/// anything from its `len`. A null pointer is an empty run.
+fn wordRun(reader: Reader, list: ListLoc) Error![]const u8 {
+    if (list.count == 0) return &.{};
+    if (list.elem != .eight_bytes) return Error.InvalidPointer;
+    const len = std.math.mul(usize, list.count, wire.WORD_BYTES) catch return Error.Truncated;
+    return reader.byteSlice(list.data_idx, len);
 }
 
 /// Reconstruct the `index`-th composite element's `StructLoc` from a `Ctx`.
@@ -97,42 +120,101 @@ fn neutralArgsLen(ctx: model.view.Args.Ctx) model.view.ProjectError!usize {
 fn neutralArgsAt(ctx: model.view.Args.Ctx, index: usize) model.view.ProjectError!model.view.Argument {
     if (index >= ctx.w2) return error.MalformedView;
     const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
-    return neutralArgument(reader, compositeElem(ctx, index), null) catch return error.MalformedView;
+    return neutralArgument(reader, compositeElem(ctx, index), null, null, 0) catch return error.MalformedView;
 }
 
 /// Forward cursor over a composite list: `cursor` is the element index. Element
 /// access is already O(1) stride math here, so this is `at` plus a bounds-gated
 /// increment, the iterator interface is uniform across codecs.
-fn neutralArgsNext(ctx: model.view.Args.Ctx, cursor: *u64) model.view.ProjectError!?model.view.Argument {
-    if (cursor.* >= ctx.w2) return null;
-    const out = try neutralArgsAt(ctx, @intCast(cursor.*));
+fn neutralArgsNext(ctx: model.view.Args.Ctx, cursor: *u64, out: *model.view.Argument) model.view.ProjectError!bool {
+    if (cursor.* >= ctx.w2) return false;
+    out.* = try neutralArgsAt(ctx, @intCast(cursor.*));
     cursor.* += 1;
-    return out;
+    return true;
 }
 
-fn neutralPositionsLen(ctx: model.view.PositionList.Ctx) model.view.ProjectError!usize {
-    return @intCast(ctx.w2);
+/// The composite list from element `skip` on: the first element's word index
+/// moves by `skip` strides and the count drops by `skip`.
+fn compositeTail(ctx: model.view.Args.Ctx, skip: usize) model.view.ProjectError!model.view.Args.Ctx {
+    if (skip > ctx.w2) return error.MalformedView;
+    const data_words: u16 = @truncate(ctx.w1 >> 16);
+    const ptr_words: u16 = @truncate(ctx.w1);
+    const stride = @as(u64, data_words) + ptr_words;
+    return .{ .bytes = ctx.bytes, .w0 = ctx.w0 + skip * stride, .w1 = ctx.w1, .w2 = ctx.w2 - skip };
 }
 
-fn neutralPositionsAt(ctx: model.view.PositionList.Ctx, index: usize) model.view.ProjectError!u64 {
-    if (index >= ctx.w2) return error.MalformedView;
-    const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
-    return reader.word(@as(usize, @intCast(ctx.w0)) + index) catch return error.MalformedView;
+fn neutralArgsTail(ctx: model.view.Args.Ctx, skip: usize) model.view.ProjectError!model.view.Args.Ctx {
+    return compositeTail(ctx, skip);
 }
 
-fn neutralPositionsNext(ctx: model.view.PositionList.Ctx, cursor: *u64) model.view.ProjectError!?u64 {
-    if (cursor.* >= ctx.w2) return null;
-    const out = try neutralPositionsAt(ctx, @intCast(cursor.*));
-    cursor.* += 1;
-    return out;
+/// The argument list in pointer `i` of `loc`, entered at nesting `depth`.
+/// With room in `slab` for its elements, the list is parsed once into views
+/// the slab lends, so no later reader derives a segment reader and projects
+/// an element again (ADR-0231). Otherwise it is backed by the segment and
+/// each walk projects on the way, and the metered walk descends it here so
+/// the budget bounds those walks. Each element costs one budget word over
+/// the words it reads, so an aliasing graph that reaches the same element
+/// many times burns the one counter.
+pub fn neutralArgs(
+    reader: Reader,
+    loc: StructLoc,
+    i: u16,
+    comptime observe_hints: ?HintListObserver,
+    slab: ?*model.view.ValueSlab,
+    depth: usize,
+) Error!model.view.Args {
+    return neutralArgsOf(reader, try followList(reader, loc, i), observe_hints, slab, depth);
 }
 
-pub fn neutralArgsBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Args {
-    return model.view.Args.fromBacking(try compositeListCtx(reader, loc, i), &neutral_args_vtable);
+/// `neutralArgs` for a list pointer the caller already followed.
+fn neutralArgsOf(
+    reader: Reader,
+    list: ListLoc,
+    comptime observe_hints: ?HintListObserver,
+    slab: ?*model.view.ValueSlab,
+    depth: usize,
+) Error!model.view.Args {
+    if (depth > max_charge_depth) return Error.MalformedFrame;
+    const clist = (try compositeListAt(reader, list)) orelse
+        return model.view.Args.fromBacking(.{ .bytes = reader.bytes }, &neutral_args_vtable);
+    const ctx = ctxFromComposite(reader, clist);
+    if (slab) |s| if (s.claim(model.view.Argument, clist.element_count)) |views| {
+        for (views, 0..) |*slot, index| {
+            try reader.spend(1);
+            slot.* = try neutralArgument(reader, compositeElem(ctx, index), observe_hints, slab, depth);
+        }
+        return model.view.Args.fromViews(views);
+    };
+    if (comptime observe_hints != null) {
+        for (0..clist.element_count) |index| {
+            try reader.spend(1);
+            _ = try neutralArgument(reader, clist.elem(index), observe_hints, null, depth);
+        }
+    }
+    return model.view.Args.fromBacking(ctx, &neutral_args_vtable);
+}
+
+/// A `list` argument's pointer 0: a composite list of arguments, or the
+/// word run the encoder writes for a non-empty list of integers, which the
+/// view reads in place and the metered walk charges once as the words it
+/// spans. An empty run has no encoder, so it is refused rather than accepted
+/// as a second form of the empty list.
+fn neutralListArgs(
+    reader: Reader,
+    loc: StructLoc,
+    comptime observe_hints: ?HintListObserver,
+    slab: ?*model.view.ValueSlab,
+    depth: usize,
+) Error!model.view.Args {
+    const list = try followList(reader, loc, 0);
+    if (list.elem != .eight_bytes) return neutralArgsOf(reader, list, observe_hints, slab, depth);
+    if (depth > max_charge_depth) return Error.MalformedFrame;
+    if (list.count == 0) return Error.MalformedFrame;
+    return model.view.Args.fromRun(try wordRun(reader, list));
 }
 
 pub fn neutralPositionsBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.PositionList {
-    return model.view.PositionList.fromBacking(try primitiveListCtx(reader, loc, i), &neutral_positions_vtable);
+    return model.view.PositionList.fromRun(try wordRun(reader, try followList(reader, loc, i)));
 }
 
 /// Borrow text or bytes as a slice straight into the segment, with no copy.
@@ -147,7 +229,7 @@ pub fn borrowedData(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
 /// or copies. Raw ByteArray fields continue to use `borrowedData`.
 pub fn borrowedText(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
     const text = try borrowedData(reader, loc, i);
-    if (!std.unicode.utf8ValidateSlice(text)) return Error.MalformedFrame;
+    if (!@import("foundation").utf8.valid(text)) return Error.MalformedFrame;
     return text;
 }
 
@@ -168,10 +250,48 @@ pub fn neutralReferenceView(reader: Reader, loc: StructLoc, comptime observe_hin
             Error.UnsupportedReference
         else
             .{ .promise = .{ .answer_position = model.AnswerPosition.from(scalar) } },
-        .sturdy => .{ .sturdy = .{
-            .peer = try neutralPeerLocator(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame, observe_hints),
-            .swissnum = try borrowedData(reader, loc, 1),
-        } },
+        .sturdy => blk: {
+            // The metered pass walks the locator's hint list now; the
+            // projection stays lazy (`model.view.Lazy`).
+            if (comptime observe_hints != null) _ = try sturdyRefFromStruct(reader, loc, observe_hints);
+            break :blk .{ .sturdy = .fromBacking(recordCtx(reader, loc), projectSturdyRef) };
+        },
+    };
+}
+
+fn sturdyRefFromStruct(reader: Reader, loc: StructLoc, comptime observe_hints: ?HintListObserver) Error!model.view.SturdyRef {
+    return .{
+        .peer = try neutralPeerLocator(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame, observe_hints),
+        .swissnum = try borrowedData(reader, loc, 1),
+    };
+}
+
+fn projectSturdyRef(ctx: RecordCtx) model.view.ProjectError!model.view.SturdyRef {
+    const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
+    return sturdyRefFromStruct(reader, recordLoc(ctx), null) catch return error.MalformedView;
+}
+
+fn projectHandoff(ctx: RecordCtx) model.view.ProjectError!model.view.Handoff {
+    const reader = shared.readerFromFrame(ctx.bytes) catch return error.MalformedView;
+    return neutralHandoffFromStruct(reader, recordLoc(ctx), null) catch return error.MalformedView;
+}
+
+/// Carry one struct location through a lazy record's `Ctx`, the way
+/// `ctxFromComposite` carries a list's: `w0` is the data-word index and `w1`
+/// packs the data and pointer section widths.
+fn recordCtx(reader: Reader, loc: StructLoc) RecordCtx {
+    return .{
+        .bytes = reader.bytes,
+        .w0 = loc.data_idx,
+        .w1 = (@as(u64, loc.data_words) << 16) | loc.ptr_words,
+    };
+}
+
+fn recordLoc(ctx: RecordCtx) StructLoc {
+    return .{
+        .data_idx = @intCast(ctx.w0),
+        .data_words = @truncate(ctx.w1 >> 16),
+        .ptr_words = @truncate(ctx.w1),
     };
 }
 
@@ -317,9 +437,18 @@ pub fn neutralErrorView(reader: Reader, loc: StructLoc) Error!model.view.BreakRe
     return .{ .message = try borrowedText(reader, loc, 0) };
 }
 
-/// Project a borrowed argument with full fidelity. Nested
-/// `list` / `set` / `tagged` arms are lazy `Args` backings (no allocation).
-pub fn neutralArgument(reader: Reader, loc: StructLoc, comptime observe_hints: ?HintListObserver) Error!model.view.Argument {
+/// Project a borrowed argument with full fidelity. A nested `list`, `set`, or
+/// `tagged` arm is parsed into `slab` when it has room and is a lazy `Args`
+/// backing otherwise (no allocation). `depth` is the value-nesting level,
+/// incremented once at each composite descent so it tracks the owned
+/// materializer's bound.
+pub fn neutralArgument(
+    reader: Reader,
+    loc: StructLoc,
+    comptime observe_hints: ?HintListObserver,
+    slab: ?*model.view.ValueSlab,
+    depth: usize,
+) Error!model.view.Argument {
     const data0 = try reader.dataWord(loc, 0);
     const disc = try enumFromWire(ArgKind, data0);
     return switch (disc) {
@@ -327,11 +456,17 @@ pub fn neutralArgument(reader: Reader, loc: StructLoc, comptime observe_hints: ?
         .symbol => .{ .symbol = try borrowedText(reader, loc, 0) },
         .reference => .{ .reference = try neutralReferenceView(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame, observe_hints) },
         .@"error" => .{ .@"error" = try neutralErrorView(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
-        .handoff => .{ .handoff = try neutralHandoffFromStruct(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame, observe_hints) },
+        .handoff => blk: {
+            const handoff_loc = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
+            // The metered pass walks the envelope's hint lists now; the
+            // projection stays lazy (`model.view.Lazy`).
+            if (comptime observe_hints != null) _ = try neutralHandoffFromStruct(reader, handoff_loc, observe_hints);
+            break :blk .{ .handoff = .fromBacking(recordCtx(reader, handoff_loc), projectHandoff) };
+        },
         .string => .{ .string = try borrowedText(reader, loc, 0) },
         .integer => .{ .integer = @bitCast(try reader.dataWord(loc, 1)) },
         .boolean => .{ .boolean = data0 & shared.data0_flag != 0 },
-        .list => .{ .list = try neutralArgsBacking(reader, loc, 0) },
+        .list => .{ .list = try neutralListArgs(reader, loc, observe_hints, slab, depth + 1) },
         .void => .{ .void = {} },
         .float64 => .{ .float64 = @bitCast(try reader.dataWord(loc, 1)) },
         // Unlike the struct arm below, decode does not enforce a set's canonical
@@ -346,16 +481,16 @@ pub fn neutralArgument(reader: Reader, loc: StructLoc, comptime observe_hints: ?
         // codec re-canonicalizes on encode (`encodeArgumentSetList`), and set
         // equality is order-independent, so a non-canonically-ordered set is a
         // harmless spelling, not a distinct value.
-        .set => .{ .set = try neutralArgsBacking(reader, loc, 0) },
+        .set => .{ .set = try neutralArgs(reader, loc, 0, observe_hints, slab, depth + 1) },
         .tagged => blk: {
             const tagged_loc = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
             break :blk .{ .tagged = .{
                 .tag = try borrowedText(reader, tagged_loc, 0),
-                .value = try neutralArgsBacking(reader, tagged_loc, 1),
+                .value = try neutralArgs(reader, tagged_loc, 1, observe_hints, slab, depth + 1),
             } };
         },
         .keyword => .{ .keyword = try borrowedText(reader, loc, 0) },
-        .@"struct" => .{ .@"struct" = try neutralStructBacking(reader, loc, 0) },
+        .@"struct" => .{ .@"struct" = try neutralStructBacking(reader, loc, 0, observe_hints, slab, depth + 1) },
         .big_integer => blk: {
             const big = model.BigInteger{
                 .negative = data0 & shared.data0_flag != 0,
@@ -370,7 +505,12 @@ pub fn neutralArgument(reader: Reader, loc: StructLoc, comptime observe_hints: ?
     };
 }
 
-const neutral_struct_vtable = model.view.StructEntries.VTable{ .len = neutralStructLen, .at = neutralStructAt, .next = neutralStructNext };
+const neutral_struct_vtable = model.view.StructEntries.VTable{
+    .len = neutralStructLen,
+    .at = neutralStructAt,
+    .next = neutralStructNext,
+    .tail = neutralStructTail,
+};
 
 fn neutralStructLen(ctx: model.view.StructEntries.Ctx) model.view.ProjectError!usize {
     return @intCast(ctx.w2);
@@ -382,11 +522,15 @@ fn neutralStructAt(ctx: model.view.StructEntries.Ctx, index: usize) model.view.P
     return neutralStructEntry(reader, compositeElem(ctx, index)) catch return error.MalformedView;
 }
 
-fn neutralStructNext(ctx: model.view.StructEntries.Ctx, cursor: *u64) model.view.ProjectError!?model.view.StructEntry {
-    if (cursor.* >= ctx.w2) return null;
-    const out = try neutralStructAt(ctx, @intCast(cursor.*));
+fn neutralStructTail(ctx: model.view.StructEntries.Ctx, skip: usize) model.view.ProjectError!model.view.StructEntries.Ctx {
+    return compositeTail(ctx, skip);
+}
+
+fn neutralStructNext(ctx: model.view.StructEntries.Ctx, cursor: *u64, out: *model.view.StructEntry) model.view.ProjectError!bool {
+    if (cursor.* >= ctx.w2) return false;
+    out.* = try neutralStructAt(ctx, @intCast(cursor.*));
     cursor.* += 1;
-    return out;
+    return true;
 }
 
 /// Borrowed (key, value) entry from one composite-list element: key text at
@@ -394,27 +538,46 @@ fn neutralStructNext(ctx: model.view.StructEntries.Ctx, cursor: *u64) model.view
 fn neutralStructEntry(reader: Reader, elem: StructLoc) Error!model.view.StructEntry {
     const key = try borrowedText(reader, elem, 0);
     const value_loc = (try reader.followStruct(elem, 1)) orelse return Error.MalformedFrame;
-    return .{ .key = key, .value = try neutralArgument(reader, value_loc, null) };
+    return .{ .key = key, .value = try neutralArgument(reader, value_loc, null, null, 0) };
 }
 
 /// Build the lazy struct backing, enforcing the OCapN Struct key rule at the
 /// codec boundary (ADR-0046 / Model.md § Struct): keys must be pairwise
 /// non-Equal, and glowcap's own capnp encoder emits them sorted ascending by
-/// raw key bytes (`canonicalStructOrder`). Decode therefore requires strictly
+/// raw key bytes (`encodeStructEntries`). Decode therefore requires strictly
 /// ascending keys, one comparison of each key against its predecessor, the
-/// same O(n) refusal the Syrup decoder applies (`sliceStructNeutral`). A
+/// same O(n) refusal the Syrup decoder applies (`readStruct`). A
 /// duplicate is never strictly ascending, so this refuses it without the
 /// all-pairs scan a peer could drive to n² over a frame-cap-many struct.
 /// Borrowed slices only, no allocation. Width is bounded by the frame cap.
-fn neutralStructBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.StructEntries {
+/// Entries use the frame head when they fit, otherwise they borrow the wire.
+/// The metered walk validates every key and value before either view escapes.
+fn neutralStructBacking(
+    reader: Reader,
+    loc: StructLoc,
+    i: u16,
+    comptime observe_hints: ?HintListObserver,
+    slab: ?*model.view.ValueSlab,
+    depth: usize,
+) Error!model.view.StructEntries {
+    if (depth > max_charge_depth) return Error.MalformedFrame;
     const clist = (try compositeList(reader, loc, i)) orelse
-        return model.view.StructEntries.fromBacking(.{ .bytes = reader.bytes }, &neutral_struct_vtable);
-    var idx: usize = 1;
-    while (idx < clist.element_count) : (idx += 1) {
-        const key = try borrowedText(reader, clist.elem(idx), 0);
-        const prior = try borrowedText(reader, clist.elem(idx - 1), 0);
-        if (std.mem.order(u8, prior, key) != .lt) return Error.MalformedFrame;
+        return model.view.StructEntries.fromViews(&.{});
+    const entries = if (slab) |s| s.claim(model.view.StructEntry, clist.element_count) else null;
+    var previous: ?[]const u8 = null;
+    for (0..clist.element_count) |index| {
+        const elem = clist.elem(index);
+        const key = try borrowedText(reader, elem, 0);
+        if (previous) |prior| if (std.mem.order(u8, prior, key) != .lt) return Error.MalformedFrame;
+        previous = key;
+        if (observe_hints != null or entries != null) {
+            try reader.spend(1);
+            const value_loc = (try reader.followStruct(elem, 1)) orelse return Error.MalformedFrame;
+            const value = try neutralArgument(reader, value_loc, observe_hints, if (entries != null) slab else null, depth);
+            if (entries) |cached| cached[index] = .{ .key = key, .value = value };
+        }
     }
+    if (entries) |cached| return .fromViews(cached);
     return model.view.StructEntries.fromBacking(ctxFromComposite(reader, clist), &neutral_struct_vtable);
 }
 
@@ -450,11 +613,11 @@ fn neutralHandoffReceive(reader: Reader, loc: StructLoc, comptime observe_hints:
     } };
 }
 
-pub fn neutralResolution(reader: Reader, loc: StructLoc, comptime observe_hints: ?HintListObserver) Error!model.view.Resolution {
+pub fn neutralResolution(reader: Reader, loc: StructLoc, comptime observe_hints: ?HintListObserver, slab: ?*model.view.ValueSlab) Error!model.view.Resolution {
     const disc = try enumFromWire(ResolutionKind, try reader.dataWord(loc, 0));
     const inner = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
     return switch (disc) {
-        .fulfill => .{ .fulfill = try neutralArgument(reader, inner, observe_hints) },
+        .fulfill => .{ .fulfill = try neutralArgument(reader, inner, observe_hints, slab, 0) },
         .@"break" => .{ .@"break" = try neutralErrorView(reader, inner) },
     };
 }

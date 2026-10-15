@@ -26,6 +26,9 @@ use tokio::{
 	time::Instant,
 };
 
+/// The scripts page.html loads by name. They are fetched fresh, while a
+/// hashed chunk can come from the generation before.
+const ENTRIES: [&str; 2] = ["page.js", "ground.js"];
 const MAX_ASSET: usize = 64 * 1024 * 1024;
 const MAX_GENERATION: usize = 128 * 1024 * 1024;
 #[derive(Clone)]
@@ -218,7 +221,8 @@ impl Assets {
 	pub async fn get(&self, path: &str) -> Result<Option<Asset>, String> {
 		// Already-issued pages can load their immutable chunks while a new
 		// generation compiles. Only new entrypoints wait for freshness.
-		if (path.ends_with(".js") && path != "/page.js") || path.starts_with("/rooms-") && path.ends_with(".wasm") {
+		let entry = ENTRIES.iter().any(|name| path.strip_prefix('/') == Some(*name));
+		if (path.ends_with(".js") && !entry) || path.starts_with("/rooms-") && path.ends_with(".wasm") {
 			let state = self.state.borrow();
 			if let Some(asset) = state
 				.current
@@ -318,8 +322,10 @@ impl Generation {
 				generation.insert(route, Asset::new(body.into(), "text/javascript; charset=utf-8")?)?;
 			}
 		}
-		if !generation.files.contains_key("/page.js") {
-			return Err("browser bundle has no page.js".into());
+		for entry in ENTRIES {
+			if !generation.files.contains_key(&format!("/{entry}")) {
+				return Err(format!("browser bundle has no {entry}"));
+			}
 		}
 		let page = text(&bundle.join("page.html"), MAX_ASSET)?;
 		let mut html = Asset::new(page.as_bytes().to_vec().into(), "text/html; charset=utf-8")?;

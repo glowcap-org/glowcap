@@ -1,6 +1,6 @@
 //! A whole conversation over the onion C-ABI endpoints, against fake Tor
 //! daemons: dial through the SOCKS fake to handshake, bootstrap fetch, and a
-//! shutdown that wakes a parked native read. Accept of a forwarded circuit,
+//! shutdown that wakes a parked Zig read. Accept of a forwarded circuit,
 //! and the listen out-parameter length query.
 
 const std = @import("std");
@@ -79,7 +79,7 @@ fn serveDialedPeer(daemon: *fake.Daemon, allocator: std.mem.Allocator) anyerror!
     );
     defer conn.deinit();
 
-    try peer.sendCopying(startSession(fake.service_id));
+    try peer.sendBorrowed(startSession(fake.service_id));
     while (true) {
         const progress = conn.pump() catch |err| switch (err) {
             error.ConnectionLost, error.TruncatedFrame => break,
@@ -162,7 +162,7 @@ test "c-abi onion connect: handshake to open + bootstrap fetch round-trip" {
     try server_result;
 }
 
-test "c-abi onion connection shutdown wakes a native read before release" {
+test "c-abi onion connection shutdown wakes a Zig read before release" {
     const allocator = std.testing.allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();

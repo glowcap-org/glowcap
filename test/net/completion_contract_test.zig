@@ -89,3 +89,64 @@ test "completion buffer pool bounds leases and reuses released storage" {
     pool.release(second);
     try std.testing.expectEqual(@as(usize, 0), pool.leasedCount());
 }
+
+/// An adapter that owns every odd `user_data` and projects each owned record
+/// as one record of its own, refusing the one that names it.
+const OddOwner = struct {
+    ready: completion.ReadyQueue = .{},
+    refused: u64,
+
+    pub fn ownsCompletion(user_data: u64) bool {
+        return user_data % 2 == 1;
+    }
+
+    pub fn dispatchOwned(self: *OddOwner, record: completion.Completion) !void {
+        if (record.user_data == self.refused) return error.DispatchRefused;
+        try self.ready.append(std.testing.allocator, .{ .user_data = record.user_data * 100, .result = 0 });
+    }
+};
+
+test "an adapter keeps foreign records in place and its own never reach the caller" {
+    var owner: OddOwner = .{ .refused = 99 };
+    defer owner.ready.deinit(std.testing.allocator);
+    var out: [8]completion.Completion = undefined;
+    inline for (.{ 2, 3, 4, 5, 6 }, 0..) |user_data, i| out[i] = .{ .user_data = user_data, .result = 0 };
+
+    const kept = try completion.keepForeign(&out, 5, OddOwner, &owner);
+    try std.testing.expectEqual(@as(usize, 3), kept);
+    try std.testing.expectEqual(@as(u64, 2), out[0].user_data);
+    try std.testing.expectEqual(@as(u64, 4), out[1].user_data);
+    try std.testing.expectEqual(@as(u64, 6), out[2].user_data);
+
+    // The projections drain into the room after the kept records, in the
+    // order they were owed.
+    const total = kept + owner.ready.drain(out[kept..]);
+    try std.testing.expectEqual(@as(usize, 5), total);
+    try std.testing.expectEqual(@as(u64, 300), out[3].user_data);
+    try std.testing.expectEqual(@as(u64, 500), out[4].user_data);
+    for (out[0..total]) |record| try std.testing.expect(!OddOwner.ownsCompletion(record.user_data));
+
+    // A refused dispatch refuses the pass.
+    out[0] = .{ .user_data = 99, .result = 0 };
+    try std.testing.expectError(error.DispatchRefused, completion.keepForeign(&out, 1, OddOwner, &owner));
+}
+
+test "an adapter with nothing open still delivers what it owes before a pass goes through" {
+    // The idle pass hands the caller's room to the platform untouched. A
+    // record already owed on the adapter's ready queue is one of the things
+    // that keeps the pass from going through, so it leaves first.
+    const admission = @import("../support/keyed_relay_admission.zig");
+    var backend = try admission.admissionBackend(std.testing.allocator);
+    defer admission.deinitAdmissionBackend(&backend);
+    try std.testing.expectEqual(@as(usize, 0), backend.conns.count());
+
+    var out: [2]completion.Completion = undefined;
+    try std.testing.expectEqual(@as(usize, 0), try backend.peek(&out));
+    try std.testing.expectEqual(@as(usize, 1), backend.platform.poll_calls);
+
+    try backend.ready.append(std.testing.allocator, .{ .user_data = 24, .result = 0 });
+    try std.testing.expectEqual(@as(usize, 1), try backend.peek(&out));
+    try std.testing.expectEqual(@as(u64, 24), out[0].user_data);
+    try std.testing.expectEqual(@as(usize, 2), backend.platform.poll_calls);
+    try std.testing.expectEqual(@as(usize, 0), try backend.peek(&out));
+}

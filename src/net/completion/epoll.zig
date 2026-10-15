@@ -201,6 +201,11 @@ pub const Backend = struct {
     /// Submissions register with epoll as they are made. Nothing waits.
     pub fn flush(_: *Backend) !void {}
 
+    /// Nothing here queues a submission, so a peek is a zero-timeout poll.
+    pub fn peek(self: *Backend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
     /// A platform listener is bound when `openListener` returns; nothing
@@ -572,7 +577,11 @@ pub const Backend = struct {
         return address.port;
     }
 
-    pub fn closeFd(_: *Backend, fd: Fd) void {
+    /// Close a descriptor the loop never submitted a close for. Its pending
+    /// row goes with it: no completion will ever settle those operations,
+    /// and a reused descriptor number must start from an idle row.
+    pub fn closeFd(self: *Backend, fd: Fd) void {
+        _ = self.pending.remove(fd); // idempotent: a descriptor with no armed operation has no row
         _ = linux.close(fd);
     }
 

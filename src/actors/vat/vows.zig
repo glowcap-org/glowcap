@@ -220,7 +220,7 @@ pub fn settleLocal(self: *Vat, vow_id: u64, resolution: Resolution) Error!void {
 
 /// Protect the outcome before releasing external input custody. Retirement
 /// can reenter just like a listener, so both borrow the same settlement scope.
-pub fn settleLocalWithRetirement(self: *Vat, vow_id: u64, resolution: Resolution, retirement: ?*@import("behavior.zig").Delivery) Error!void {
+pub fn settleLocalWithRetirement(self: *Vat, vow_id: u64, resolution: Resolution, retirement: ?*@import("behavior.zig").Queued) Error!void {
     std.debug.assert(self.drive_depth >= 1);
     std.debug.assert(self.pending_local_vows.remove(.{ .id = vow_id }));
     const listener: ?Listener = if (self.listeners.fetchRemove(vow_id)) |entry| entry.value else null;

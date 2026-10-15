@@ -20,7 +20,7 @@
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
          (only-in "../../private/finalizer-diagnostics.rkt"
-                  record-runtime-failure! run-native-finalizer!)
+                  record-runtime-failure! run-ffi-finalizer!)
          (only-in "../../private/ws-transport.rkt" ws-transport)
          (only-in "../../relay.rkt" relay-pump exn:fail:relay?
                   exn:fail:relay-primary exn:fail:relay-secondary)
@@ -42,7 +42,7 @@
                   driver-loop-has-transport?
                   loop-listen! loop-listener-ready! loop-listener-locator
                   loop-listener-close!)
-         "../../private/native-parent.rkt"
+         "../../private/ffi-parent.rkt"
          (only-in "../../private/value.rkt" make-ref/internal)
          "support.rkt"
          racket/tcp)
@@ -182,9 +182,9 @@
 (expect (= 42 (session-send lc-session lc-retained 'double 21))
         "release: the other occurrence stays usable")
 
-;; Native release succeeds before the driver drains its consequences. A drain
+;; FFI release succeeds before the driver drains its consequences. A drain
 ;; refusal cannot turn that committed release into a retryable operation; the
-;; still-live Host owns the exact failure and the native queue owns the work.
+;; still-live Host owns the exact failure and the FFI queue owns the work.
 (define lc-last (session-published-ref lc-session "local-double"))
 (define lc-effects-failure (exn:fail "release effects refused" (current-continuation-marks)))
 ;; Run `thunk` with this session's post-commit drain intercepted on this
@@ -211,12 +211,12 @@
 (expect (not lc-release-failure) "release: a committed release reports success")
 (expect (eq? (host-runtime-primary (session-host lc-session)) lc-effects-failure)
         "release: the surviving Host retains the exact drain refusal")
-(expect (ref-released? lc-retained) "release: committed native release spends the wrapper before effects")
+(expect (ref-released? lc-retained) "release: committed FFI release spends the wrapper before effects")
 (expect
  (with-handlers ([exn:fail? (lambda (e) (regexp-match? #rx"already released" (exn-message e)))])
    (session-release! lc-session lc-retained)
    #f)
- "release: failed effects cannot authorize a second native release")
+ "release: failed effects cannot authorize a second FFI release")
 (expect (= 42 (session-send lc-session lc-last 'double 21)) "release: the remaining retain was not spent")
 
 ;; An operator interrupt during the post-commit drain is not a Host failure.
@@ -243,7 +243,7 @@
  (with-handlers ([exn:fail? (lambda (e) (regexp-match? #rx"already released" (exn-message e)))])
    (session-release! lc-session lc-last)
    #f)
- "release: an interrupted drain cannot authorize a second native release")
+ "release: an interrupted drain cannot authorize a second FFI release")
 
 (define lc-vow (session-send-promise lc-session lc-far 'ping))
 (define lc-closed-host (make-fresh-host))
@@ -261,7 +261,7 @@
     #f))
 (expect (not lc-vow-release-failure) "vow release: a committed release reports success")
 (expect (not (unbox (session-vow-release-armed lc-vow)))
-        "vow release: failed effects cannot rearm a committed native release")
+        "vow release: failed effects cannot rearm a committed FFI release")
 (release-vow! lc-vow)
 
 (session-close! lc-session)

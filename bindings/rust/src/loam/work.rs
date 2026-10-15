@@ -1,5 +1,5 @@
 //! Storage jobs borrow storage work until the blocking worker retires.
-use super::{AttachmentInner, check};
+use super::{AttachmentInner, Executor, check};
 use crate::Result;
 use crate::sys::loam as ffi;
 use std::rc::Rc;
@@ -34,27 +34,20 @@ impl Drop for WorkerDone {
 		self.completion.changed.notify_all();
 	}
 }
-/// The C companion permits exactly this effect to run off-thread. It accesses
-/// immutable submitted buffers and backend state, never Host callbacks or turns.
-/// The owner-thread retirement guard keeps both owners alive and joins all
-/// accesses before portable completion. No application capability crosses here.
+/// One storage effect run on the blocking worker through the store's executor.
 struct StorageJob {
-	storage: *mut ffi::GlowcapLoamLmdb,
+	executor: Arc<dyn Executor>,
 	work: *mut ffi::GlowcapLoamWork,
 	done: WorkerDone,
 }
-// SAFETY: the exclusive work handle and retained backend satisfy the C worker
-// contract above. Only its result is written; Host installation stays local.
+// SAFETY: the raw `work` pointer is the only non-`Send` field. The job holds the exclusive work handle, and the
+// off-thread rationale for the executor lives on `Executor`. Only the result is written; Host installation stays local.
 unsafe impl Send for StorageJob {}
 impl StorageJob {
 	fn run(mut self) -> Result<()> {
-		// SAFETY: `self.storage` is the LMDB owner from `owner.store.storage.get()` and `self.work` the work handle
-		// from `glowcap_loam_next_work`; the `Retirement` that `execute` builds holds the attachment and joins this
-		// job's `WorkerDone` before either handle is completed or released, so both outlive the call, and the job is
-		// the only caller on `self.work`.
-		let code = unsafe { ffi::glowcap_loam_lmdb_work_run(self.storage, self.work) };
+		let code = self.executor.work_run(self.work);
 		self.done.finish(code);
-		check(code, true)
+		self.executor.check(code)
 	}
 }
 struct Retirement {
@@ -114,7 +107,7 @@ impl Drop for Retirement {
 			let rc = self.complete();
 			if self.completed
 				&& rc != ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED
-				&& let Err(error) = check(rc, false)
+				&& let Err(error) = check(rc)
 			{
 				self.owner.host.record_background_failure(error);
 			}
@@ -125,7 +118,7 @@ impl Drop for Retirement {
 		// SAFETY: `self.raw` is this `Retirement`'s work handle from `glowcap_loam_next_work`; the branch is reached
 		// only when `completed` is set, after the worker retired and the core took the result, and a refusal parks the
 		// handle rather than reusing it.
-		} else if let Err(error) = check(unsafe { ffi::glowcap_loam_work_release(self.raw) }, false) {
+		} else if let Err(error) = check(unsafe { ffi::glowcap_loam_work_release(self.raw) }) {
 			self.owner.host.record_background_failure(error);
 			crate::finalizer::park_loam_work(Rc::clone(&self.owner), self.raw);
 		}
@@ -138,7 +131,7 @@ impl Drop for Retirement {
 pub(super) async fn execute(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLoamWork) -> Result<()> {
 	let completion = Arc::new(Completion::default());
 	let job = StorageJob {
-		storage: owner.store.storage.get(),
+		executor: Arc::clone(&owner.store.executor),
 		work: raw,
 		done: WorkerDone {
 			completion: Arc::clone(&completion),
@@ -159,7 +152,7 @@ pub(super) async fn execute(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLo
 	let completion = if code == ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {
 		Ok(())
 	} else {
-		check(code, false)
+		check(code)
 	};
 	match result {
 		Ok(outcome) => outcome?,
@@ -183,13 +176,13 @@ pub(crate) fn finish_retired(owner: &Rc<AttachmentInner>, raw: *mut ffi::Glowcap
 	if code != crate::sys::OK
 		&& code != ffi::GLOWCAP_LOAM_ERR_STALE_COMPLETION
 		&& code != ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED
-		&& let Err(error) = check(code, false)
+		&& let Err(error) = check(code)
 	{
 		owner.host.record_background_failure(error);
 	}
 	// SAFETY: as the `glowcap_loam_work_complete` call above for `raw`, which `completed` shows the core took; the
 	// release runs once, and a refusal returns `false` so the handle stays parked.
-	if let Err(error) = check(unsafe { ffi::glowcap_loam_work_release(raw) }, false) {
+	if let Err(error) = check(unsafe { ffi::glowcap_loam_work_release(raw) }) {
 		owner.host.record_background_failure(error);
 		return false;
 	}

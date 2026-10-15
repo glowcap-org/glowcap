@@ -22,7 +22,7 @@ restart the same objects come back and the same references reach them. Objects
 nobody is calling stay on disk, so the board can be far bigger than memory.
 
 Loam is a library inside your program, not a database server. Its full API is
-in Zig, under `glowcap.loam`, and C and Rust get a narrower profile
+in Zig, under `glowcap.loam`, and C and Rust get a narrower subset
 ([limits]($link.ref('limits'))).
 [Concepts]($link.page('concepts')) covers references and sturdyrefs if they
 are new to you.
@@ -53,7 +53,7 @@ Most cards on a big board go untouched for months, so Loam lets them
 working. A call wakes the card, runs it, saves the result, and only then
 replies.
 
-[A call to a sleeping card: the Host admits it, Loam asks your worker for the record, the card's code proposes new state, your worker saves it, and only then does the reply go back.]($image.siteAsset('diagram-loam-wake.svg'))
+[A call to a sleeping card: the Host accepts it, Loam asks your worker for the record, the card's code proposes new state, your worker saves it, and only then does the reply go back.]($image.siteAsset('diagram-loam-wake.svg'))
 
 The reply waits for the save so nobody is told about a change a crash could
 undo. A crash can still land between the save and the reply, so the change
@@ -61,16 +61,17 @@ is kept but the caller never hears back. If the caller retries, the change
 happens twice. Write methods that are safe to repeat, or use managed access,
 which keeps receipts for its changes.
 
-Loam decides what to read and write but never touches the disk itself, the same way glowcap's protocol core never opens a socket. Your
-worker does the I/O, on threads you choose, against LMDB on disk or an
-in-memory store for tests.
+Loam decides what to read and write but never touches the disk itself, the
+same way glowcap's protocol core never opens a socket. Your worker does the
+I/O, on threads you choose, against SQLite or LMDB on disk, or an in-memory
+store for tests.
 
-[Six layers from top to bottom. Peers call your Host and Vat over CapTP. The Loam attachment wakes actors and saves their state before replying. The Store keeps records, transactions and a bounded cache, and decides every read and write. Your storage worker runs that work on your threads against LMDB, IndexedDB or memory.]($image.siteAsset('diagram-loam-layers.svg'))
+[Six layers from top to bottom. Peers call your Host and Vat over CapTP. The Loam attachment wakes actors and saves their state before replying. The Store keeps records, transactions and a bounded cache, and decides every read and write. Your storage worker runs that work on your threads against SQLite or LMDB, IndexedDB or memory.]($image.siteAsset('diagram-loam-layers.svg'))
 
 Calls travel down from peers to the disk, and replies travel back up. The two
 Loam layers decide what happens. The two below them are yours and do the
-work. The **attachment** is the piece that joins a store to
-the Host you already run.
+work. The **attachment** is the piece that joins a store to the Host you
+already run.
 
 A card's code is a plain function from its saved record and a call to a
 reply. It can propose new state, and it does no I/O, because a proposal that
@@ -126,12 +127,12 @@ nothing for it.
 - Recovery is tested by killing the process mid-write, not by cutting power.
   The [table of checks](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)
   lists every Loam check.
-- Loam's full API is in Zig. C and Rust get a narrower profile through
+- Loam's full API is in Zig. C and Rust get a narrower subset through
   `libglowcap_loam` and Rust's `loam` feature: create a resource, share it
   with separate controls, edit it and the references it holds, restart, and
   fetch the same durable name again. Compiled for the browser, the same Rust
   feature stores to IndexedDB. TypeScript, Python, and Racket have no Loam
-  yet.
+  API.
 
 [What ships](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md#resource-models)
 tracks what is built.
@@ -156,10 +157,11 @@ The guides below go from the model to every contract.
    saving references to other actors and to objects on other machines.
 5. [Collection](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/collection.md):
    deleting unreachable records in small batches while the program runs.
-6. [LMDB operations](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/lmdb.md):
-   sizing, growing, compacting, and measuring the store on disk.
+6. [SQLite operations](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/sqlite.md)
+   and [LMDB operations](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/lmdb.md):
+   sizing, growing, and compacting the store on disk.
 7. [Managed access](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/access.md):
-   grants, use and control references, revocation, and exact retries.
+   grants, use and control references, revocation, and safe retries.
 8. [C and Rust](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/c-and-rust.md)
    and [the browser](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/browser.md):
    the same resources from other languages.

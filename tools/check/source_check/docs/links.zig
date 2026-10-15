@@ -1,4 +1,5 @@
-//! Markdown link integrity across the owned docs, the dangling
+//! Markdown link integrity across the owned docs (files and heading
+//! anchors), the dangling
 //! reference-style links a renderer would silently swallow, and the
 //! repository's own GitHub blob links resolving to real tree paths.
 
@@ -7,6 +8,7 @@ const util = @import("../util.zig");
 
 const appendViolation = util.appendViolation;
 const paths = @import("paths.zig");
+const anchors = @import("anchors.zig");
 
 pub fn checkMarkdownLinks(
     io: std.Io,
@@ -25,7 +27,7 @@ pub fn checkMarkdownLinks(
         "README.md",
         "CONTRIBUTING.md",
         // The two first-read pages a reviewer opens before any code. They are
-        // registered living-state; they should be the best-gated, not the least.
+        // human pages; they should be the best-gated, not the least.
         "PROVENANCE.md",
         "SECURITY.md",
         "examples/README.md",
@@ -99,6 +101,12 @@ fn checkMarkdownLinksInFile(
             const raw_target = after[0..end];
             rest = after[end + 1 ..];
 
+            const target = std.mem.trim(u8, raw_target, " \t\r\n<>");
+            const fragment = if (std.mem.indexOfScalar(u8, target, '#')) |at| target[at + 1 ..] else "";
+            if (std.mem.startsWith(u8, target, "#")) {
+                if (!anchors.has(contents, fragment)) try missingAnchor(gpa, violations, path, line_no, raw_target, path);
+                continue;
+            }
             const resolved = (try paths.resolveMarkdownTarget(gpa, path, raw_target)) orelse continue;
             defer gpa.free(resolved);
             root.access(io, resolved, .{}) catch |err| {
@@ -109,9 +117,25 @@ fn checkMarkdownLinksInFile(
                     resolved,
                     @errorName(err),
                 });
+                continue;
             };
+            if (fragment.len == 0 or !std.mem.endsWith(u8, resolved, ".md")) continue;
+            const linked = root.readFileAlloc(io, resolved, gpa, .limited(2 << 20)) catch continue; // tolerant: the file exists, and a read failure is reported when its own links are walked.
+            defer gpa.free(linked);
+            if (!anchors.has(linked, fragment)) try missingAnchor(gpa, violations, path, line_no, raw_target, resolved);
         }
     }
+}
+
+fn missingAnchor(
+    gpa: std.mem.Allocator,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    line_no: usize,
+    raw_target: []const u8,
+    resolved: []const u8,
+) !void {
+    try appendViolation(gpa, violations, "{s}:{d}: Markdown link `{s}` names no heading or anchor in `{s}`; link a heading that exists, or update the link with the heading", .{ path, line_no, raw_target, resolved });
 }
 
 /// A `github.com/jimisaacs/glowcap/blob/main/<path>` link is a claim the path

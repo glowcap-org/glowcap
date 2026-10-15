@@ -6,6 +6,7 @@ const std = @import("std");
 const Build = std.Build;
 const Step = Build.Step;
 const bans = @import("source_check/bans.zig");
+const native_identifier = @import("source_check/bans/native_identifier.zig");
 const binding_runtime_proof = @import("source_check/binding_runtime_proof.zig");
 const bs_iroh = @import("source_check/binding_spine/iroh.zig");
 const bs_constants = @import("source_check/binding_spine/constants.zig");
@@ -25,7 +26,13 @@ const docs_maps = @import("source_check/docs/maps.zig");
 const docs_inventories = @import("source_check/docs/inventories.zig");
 const docs_claim_parity = @import("source_check/docs/claim_parity.zig");
 const docs_snippets = @import("source_check/docs/snippets.zig");
-const docs_registry = @import("source_check/docs/registry.zig");
+const docs_kinds = @import("source_check/docs/kinds.zig");
+const docs_ocapn_conformance = @import("source_check/docs/ocapn_conformance.zig");
+const docs_temporary = @import("source_check/docs/temporary.zig");
+const docs_static_docs = @import("source_check/docs/static_docs.zig");
+const docs_headers = @import("source_check/docs/headers.zig");
+const docs_code_names = @import("source_check/docs/code_names.zig");
+const docs_corpus = @import("source_check/docs/corpus.zig");
 const docs_voice = @import("source_check/docs/voice.zig");
 const ps_hygiene = @import("source_check/project_shape/hygiene.zig");
 const ps_layers = @import("source_check/project_shape/layers.zig");
@@ -88,6 +95,8 @@ const cp_cli_ux = @import("source_check/captp_product/cli_ux.zig");
 const cp_rooms_profile = @import("source_check/captp_product/rooms_profile.zig");
 const cp_rooms_signaling = @import("source_check/captp_product/rooms_signaling.zig");
 const zig_docs = @import("source_check/zig_docs.zig");
+const zig_doc_names = @import("source_check/zig_doc_names.zig");
+const zig_dead_fns = @import("source_check/zig_dead_fns.zig");
 const fuzz = @import("source_check/fuzz.zig");
 const file_length = @import("source_check/file_length.zig");
 const namespaces = @import("source_check/namespaces.zig");
@@ -129,7 +138,7 @@ pub fn check(
     try scaffolding.expectAbsent(io, gpa, root, &violations, ".codex/skills", "Codex loads .agents/skills directly");
     // The shared UI core. A tool that writes through one of these turns it
     // into a regular file and the brand forks silently; see checkUiCore for
-    // the rest of that contract. tokens.css is the palette; mark.css is the
+    // the rest of that contract. tokens.css is the palette. mark.css is the
     // stacked lockup both surfaces draw.
     try scaffolding.expectSymlink(io, gpa, root, &violations, "site/assets/tokens.css", "../../ui/tokens.css");
     try scaffolding.expectSymlink(io, gpa, root, &violations, "apps/rooms/web/ui/tokens.css", "../../../../ui/tokens.css");
@@ -138,7 +147,6 @@ pub fn check(
 
     try scaffolding.checkCursorRuleOverlay(io, gpa, root, &violations);
     try scaffolding.checkRequiredSubstrings(io, gpa, root, &violations);
-    try agents_catalog.checkRuleIndexAgreement(io, gpa, root, &violations);
     try agents_catalog.checkSkillCatalog(io, gpa, root, &violations);
     try agents_catalog.checkAgentPersonas(io, gpa, root, &violations);
     try agents_catalog.checkAgentsRouting(io, gpa, root, &violations);
@@ -164,6 +172,7 @@ pub fn check(
     try docs_claim_parity.checkDeliverOneWay(io, gpa, root, &violations);
     try docs_claim_parity.checkSessionIsAView(io, gpa, root, &violations);
     try docs_links.checkDanglingReferenceLinks(io, gpa, root, &violations);
+    try docs_ocapn_conformance.checkManifest(io, gpa, root, &violations);
     try docs_snippets.checkMermaidBlocks(io, gpa, root, &violations);
     try ui.checkUiCore(io, gpa, root, &violations);
     try ui.checkUiPaletteLiterals(io, gpa, root, &violations);
@@ -249,9 +258,14 @@ pub fn check(
     try cp_skills.checkCaptpAgentDogfoodRouting(io, gpa, root, &violations);
     try ps_examples.checkExampleIndex(io, gpa, root, &violations);
     try ps_examples.checkExampleWiring(io, gpa, root, &violations);
-    try docs_registry.checkPlanningDocRoles(io, gpa, root, &violations);
-    try docs_registry.checkLivingStateRegistry(io, gpa, root, &violations);
+    try docs_temporary.checkOwners(io, gpa, root, &violations);
+    try docs_temporary.checkRoadmapItems(io, gpa, root, &violations);
+    try docs_temporary.checkLinkDirection(io, gpa, root, &violations);
+    try docs_static_docs.check(io, gpa, root, &violations);
+    try docs_headers.check(io, gpa, root, &violations);
+    try docs_code_names.check(io, gpa, root, &violations);
     try bans.runBans(io, gpa, root, &violations, bans.all);
+    try native_identifier.check(io, gpa, root, &violations);
     try cp_vocabulary.checkTransportVocabulary(io, gpa, root, &violations);
     try cp_pins.checkDurablePinWriters(io, gpa, root, &violations);
     try cp_codes.checkHostErrorCodeMap(io, gpa, root, &violations);
@@ -301,10 +315,11 @@ pub fn check(
     try fuzz.checkFuzzTargetsAreReachable(io, gpa, root, &violations);
     try cp_cli_ux.checkSingleJsonEscaper(io, gpa, root, &violations);
     try docs_voice.checkHumanDocVoice(io, gpa, root, &violations);
-    try docs_inventories.checkStabilityGateList(io, gpa, root, &violations);
+    try docs_inventories.checkStabilityWorkflow(io, gpa, root, &violations);
     try docs_inventories.checkCommunityReviewCiMatrix(io, gpa, root, &violations);
     try docs_inventories.checkFirstReadProvenance(io, gpa, root, &violations);
     try docs_voice.checkProseSentenceLength(io, gpa, root, &violations);
+    try docs_voice.checkParagraphLength(io, gpa, root, &violations);
     try docs_inventories.checkFuzzCorpusSeeds(io, gpa, root, &violations);
     try docs_site.checkSiteSvgAscii(io, gpa, root, &violations);
     try docs_site.checkSiteMotionReducedGuard(io, gpa, root, &violations);
@@ -329,6 +344,8 @@ pub fn check(
     try cp_node_actions.check(io, gpa, root, &violations);
     try zig_docs.checkZigDocSymbolClaims(io, gpa, root, &violations);
     try zig_docs.checkMemoryLedgerSymbolClaims(io, gpa, root, &violations);
+    try zig_doc_names.checkZigDocBareNames(io, gpa, root, &violations);
+    try zig_dead_fns.checkZigDeadPrivateFns(io, gpa, root, &violations);
     try namespaces.checkBareKeyedTables(io, gpa, root, &violations);
     try signing_domain.checkSigningDomains(io, gpa, root, &violations);
 
@@ -358,7 +375,13 @@ test {
     _ = docs_site;
     _ = docs_maps;
     _ = docs_claim_parity;
-    _ = docs_registry;
+    _ = docs_kinds;
+    _ = docs_ocapn_conformance;
+    _ = docs_temporary;
+    _ = docs_static_docs;
+    _ = docs_headers;
+    _ = docs_code_names;
+    _ = docs_corpus;
     _ = docs_snippets;
     _ = file_length;
     _ = ps_packages;
@@ -381,6 +404,8 @@ test {
     _ = rooms_protocol;
     _ = cp_pins;
     _ = zig_docs;
+    _ = zig_doc_names;
+    _ = zig_dead_fns;
     _ = signing_domain;
     _ = util;
     _ = @import("source_check/docs/reader_voice.zig");

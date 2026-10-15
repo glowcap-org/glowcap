@@ -14,6 +14,7 @@ fn heap(value: &Argument) -> usize {
 			text.capacity()
 		}
 		Argument::BigInteger { digits, .. } => digits.capacity(),
+		Argument::Integers(words) => words.capacity() * 8,
 		Argument::List(values) | Argument::Set(values) => vector(values),
 		Argument::Tagged { tag, value } => tag.capacity().saturating_add(vector(value)),
 		Argument::Struct(values) => values.iter().fold(

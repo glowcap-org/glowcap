@@ -6,10 +6,9 @@
 .draft = false,
 ---
 
-This walkthrough starts Rooms on your machine and joins it as two people.
-You will watch a room carry a conversation, then open a direct conversation
-the room is not part of, and finally open your whole session somewhere else
-entirely.
+Start Rooms on your machine, join a room as two people, open a direct
+conversation the room is not part of, and then open your whole session on
+another device.
 
 # Start Rooms
 
@@ -36,7 +35,7 @@ is on the other end. Use it to look around, never to put Rooms on a network.
 
 Open the page. The first time, Rooms asks where to keep your session: the
 rooms you join, your direct conversations, your drafts, and your history
-settings. Choose **Use this browser** for now.
+settings. Choose **Use this browser** to start.
 
 [The first-run choice. Keep your session in this browser, or open one that another device or a server is already keeping.]($image.siteAsset('rooms-session-dark.webp'))
 
@@ -45,14 +44,14 @@ settings. Choose **Use this browser** for now.
 The choice is about who keeps your session, not what you can do with it. Keep
 it here and it lives on this device. Share it, and whoever runs it, this page
 or a server, keeps the one copy that every view opens. You can change your mind
-later: Settings can share your session, open another, export it, or clear it.
+later in Settings.
 
 # Join a room
 
 The join card already points at the server that gave you the page. Type a
 room name such as `workshop`. If no room has that name yet, joining creates
-it. You can leave your name empty: the grey suggestion is a name the server
-can give you right now, and joining with the field empty takes it.
+it. You can leave **Display name** empty: the grey suggestion is a name the
+server can give you right now, and joining with the field empty takes it.
 
 [The join card, pointed at the server that gave you the page, with a room name typed. The display name can stay empty.]($image.siteAsset('rooms-join-dark.webp'))
 
@@ -61,10 +60,10 @@ can give you right now, and joining with the field empty takes it.
 If the name you type is taken, the card shows the next free one and will not
 send a join it knows would fail. Rooms never quietly changes a name you typed.
 
-Now open the same address as somebody else, a private window is the quickest
-way, keep that session where it is too, and join `workshop` under another
-name. Each session is its own peer, with its own seat in the room and its
-own history. A bot makes a fine partner as well: the
+Now open the same address as somebody else (a private window is the quickest
+way), choose **Use this browser** there too, and join `workshop` under another
+name. Each session is its own peer, with its own seat in the room and its own
+history. A bot makes a fine partner as well: the
 [CapTP CLI]($link.page('cli')) joins a room from a terminal as
 `glowcap apps rooms session`, which is how the bots on the
 [Rooms]($link.page('rooms')) page got there.
@@ -97,9 +96,10 @@ of you, and the room sees none of them.
 
 By default the connection is WebRTC. It goes straight between you when it
 can find a route, and uses STUN and TURN servers when the network needs
-them. If it cannot connect where you are, open Settings and pick the relay
-under **Direct message connection**. That setting only changes direct
-messages. It does not change how your session is shared.
+them. If it cannot connect where you are, open Settings, go to the **Reachability**
+tab, and under **Direct message connection** pick **Through the room relay**
+instead of **Browser to browser**. That setting only changes direct messages,
+not how your session is shared.
 
 [WebRTC signaling]($link.page('transports/webrtc')) explains offers,
 candidates, STUN, and TURN. [Operate Rooms]($link.page('rooms/operations'))
@@ -108,9 +108,9 @@ shows where a host supplies TURN credentials and the relay.
 # Open your session somewhere else
 
 Back in the first session, open Settings and go to the **Session** tab.
-**Share** publishes it and shows you its link right there. Open the page
-somewhere else, your phone is the natural choice, choose **Shared session**
-on the first screen, paste the link, and attach.
+**Share this session** publishes it and shows you its link. Open the page
+somewhere else (your phone is the natural choice), choose **Shared session**
+on the first screen, paste the link, and press **Attach**.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-dark.webp'))
 
@@ -118,8 +118,7 @@ on the first screen, paste the link, and attach.
 
 The phone shows the same rooms, the same direct conversation, and the same
 history settings, and a line posted from either side shows up in both.
-The page that shared it is the one serving it. Its saved workspace and access
-survive reload. Other views can reconnect when that page is serving again.
+Closing or reloading the page that shared the session ends the sharing.
 For a session that is always on, run the session service from
 [Operate Rooms]($link.page('rooms/operations')) and open it the same way.
 

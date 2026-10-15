@@ -77,6 +77,7 @@ pub const session_deadline_ms: u32 = 15000;
 pub const open = "open";
 pub const enter = "enter";
 pub const list_publications = "listPublications";
+pub const named_publications = "namedPublications";
 pub const watch_publications = "watchPublications";
 pub const unwatch_publications = "unwatchPublications";
 pub const register = "register";
@@ -125,6 +126,12 @@ pub const registration_event_fields = [_]Field{
 /// What the truncation watch kind carries after its tag.
 pub const truncated_fields = [_]Field{
     .{ .name = "omitted", .ty = .natural, .nullable = false, .values = &.{} },
+};
+
+/// What listPublications answers: one page of publication rows, and the cursor that asks for the page after it, null on the last page. The cursor is the directory's own word: pass it back exactly.
+pub const list_page_fields = [_]Field{
+    .{ .name = "rooms", .ty = .list, .nullable = false, .values = &.{} },
+    .{ .name = "next", .ty = .text, .nullable = true, .values = &.{} },
 };
 
 /// What watchPublications answers: the baseline a watcher folds deltas into.

@@ -91,7 +91,7 @@ presentation rows into a second strong owner.
 
 ## Evidence
 
-`apps/rooms/test/workspace_state_test.ts` checks the document's bounded schema, stable conversation IDs, and refusal of
+`apps/rooms/rust/application/src/workspace.rs` enforces the document's bounded schema, stable conversation IDs, and refusal of
 partial authority and writer/parser round trips. The store and archive tests cover shared history recording and bounded
 logs. The Rooms operator and room-link suites exercise the revisioned paging contract, exact room-owner cleanup, durable
 link and moderator revocation, Host unpublication, restart behavior, current-reference release, watcher admission, and

@@ -61,7 +61,7 @@
       #:handshake-timeout-ms handshake-timeout-ms))))
 
 ;; A driver-owned keyed iroh server. The supplied Host is transferred into the
-;; native loop; the binding does not implement a second CapTP admission path.
+;; driver loop; the binding does not implement a second CapTP admission path.
 (struct iroh-server (node-id host loop-server))
 
 ;; The iroh designator derives from the durable seed, so the identity is
@@ -82,7 +82,10 @@
   (define server
     (listen-loop-profile 'listen-iroh TRANSPORT-IROH (designator-from-seed durable)
                          #:identity? #t
-                         #:seed durable #:codec codec #:captp-version captp-version
+                         ;; A supplied Host is the identity, so only a seed
+                         ;; resolved without one is passed back in.
+                         #:seed (and (not host) durable)
+                         #:codec codec #:captp-version captp-version
                          #:features features #:options options
                          #:host host #:time-travel? #f
                          #:install (lambda (lp)

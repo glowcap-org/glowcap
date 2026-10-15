@@ -4,6 +4,7 @@
     .fingerprint = 0x433cd5dceff6bf04,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
+        // dep zine: The static site generator for the documentation site.
         .zine = .{
             .url = "git+https://github.com/kristoff-it/zine.git#6c9782957f46cf1162aa6fe8e881162b2d31480e",
             .hash = "zine-0.14.1-ou6nIJKIFwBEjCLNI4Hryh9YWa73Rm_DCsypWHbEp5l8",

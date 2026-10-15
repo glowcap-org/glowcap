@@ -1,4 +1,4 @@
-//! Bounded receive-side progress for a native WebSocket close handshake.
+//! Bounded receive-side progress for a WebSocket close handshake.
 
 const protocol = @import("../../websocket.zig").client_protocol;
 const multiplexed_resident = @import("../../multiplexed_resident.zig");

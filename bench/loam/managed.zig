@@ -24,7 +24,7 @@ const max_record_edges = blk: {
 // Read traverses the DirectoryPage levels before each pinned model row. Outside
 // that model budget, a hosted read acquires its endpoint, restored descriptor,
 // operation descriptor, owner header and content record.
-const directory_levels = @as(usize, std.math.maxInt(@FieldType(access.records.DirectoryPage, "level"))) + 1;
+const directory_levels = @as(usize, std.math.maxInt(@FieldType(access.records.DirectoryPage.Header, "level"))) + 1;
 const read_acquisitions_per_call = 5 + record_capacity * (directory_levels + 1);
 // Calibration serializes eight read-only calls to one endpoint, then finishes
 // collection. Each acquisition can report a cold ID plus its portrait/edges;
@@ -142,6 +142,8 @@ pub const Managed = struct {
     items: []Item,
     shared: usize = 0,
     reads: u64 = 0,
+    /// Encoded record bytes the executor's reads returned.
+    read_bytes: u64 = 0,
     lookups: u64 = 0,
     writes: u64 = 0,
 
@@ -149,24 +151,44 @@ pub const Managed = struct {
         return self.initIdentity(allocator, db, count, depth, 0x83, try (try callAllocationBound()).physicalBytes());
     }
 
+    /// The held endpoints and the Store limits one run declares. `held`
+    /// resources get a use and a control endpoint, and sizes the retention and
+    /// grant-child limits. Resources beyond `held` live only in storage.
+    pub const Shape = struct {
+        held: usize,
+        cache_slots: usize = cache_slots,
+        resident_bytes: usize = cache_slots * 64 * 1024,
+        max_changes: usize = 32,
+        staging_bytes: usize = 256 * 1024,
+
+        pub fn population(count: usize) Shape {
+            return .{ .held = count };
+        }
+    };
+
     pub fn initIdentity(self: *Managed, allocator: std.mem.Allocator, db: *w.Lmdb, count: usize, depth: u16, identity: u8, call_bytes: usize) !void {
+        return self.initShaped(allocator, db, .population(count), depth, identity, call_bytes);
+    }
+
+    pub fn initShaped(self: *Managed, allocator: std.mem.Allocator, db: *w.Lmdb, shape: Shape, depth: u16, identity: u8, call_bytes: usize) !void {
+        const count = shape.held;
         const max_retentions = count * 2 + 32;
         self.* = .{
             .allocator = allocator,
             .db = db,
             .store = try loam.core.Store.init(allocator, db.metadata, &schemas, .{
                 .records = .{ .max_record_bytes = 64 * 1024, .max_edges = max_record_edges },
-                .cache_slots = cache_slots,
+                .cache_slots = shape.cache_slots,
                 // Eight admitted preparations each declare record_capacity;
                 // two extra slots cover the native issuer's current read.
                 .max_leases = max_calls * record_capacity + 2,
-                .resident_bytes = cache_slots * 64 * 1024,
-                .max_changes = 32,
-                .staging_bytes = 256 * 1024,
+                .resident_bytes = shape.resident_bytes,
+                .max_changes = shape.max_changes,
+                .staging_bytes = shape.staging_bytes,
                 .max_retentions = max_retentions,
                 // Initial registry/loading/pinned custody plus the declared
                 // calibration window. Journal allocation grows only as needed.
-                .max_collection_roots = max_retentions + cache_slots * (1 + max_record_edges) + collection_window_roots,
+                .max_collection_roots = max_retentions + shape.cache_slots * (1 + max_record_edges) + collection_window_roots,
             }),
             .host = undefined,
             .capabilities = undefined,

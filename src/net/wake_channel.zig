@@ -1,6 +1,6 @@
 //! The cross-thread wake channel: a nonblocking socketpair whose read half a
 //! waiting thread polls, or arms a completion recv on, which is why it is a
-//! socketpair and not a pipe, and whose write half any thread nudges. The
+//! socketpair and not a pipe, and whose write half any thread nudges.
 //! A `WouldBlock` nudge is safely coalesced: unread bytes already make the
 //! read half readable, so no wake is lost. Every other send or receive fault
 //! is returned to the owner. A broken channel cannot masquerade as a

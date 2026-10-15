@@ -29,7 +29,7 @@ extern "C" {
    one upstream Spritely Goblins ships, so it is where a glowcap peer and a
    Goblins vat meet on ground neither invented. A locator is
    ocapn://<serviceid>.onion, and the designator this API takes is that bare
-   service id: 56 base32 characters with no .onion suffix.
+   service id: GLOWCAP_ONION_SERVICE_ID_LEN base32 characters with no .onion suffix.
 
    glowcap starts no Tor. It talks to a daemon the deployment already runs,
    over that daemon's SOCKS endpoint to dial and its control endpoint to host,
@@ -146,7 +146,7 @@ void glowcap_onion_netlayer_shutdown(GlowcapOnionNetlayer *netlayer);
 int32_t glowcap_onion_netlayer_release(GlowcapOnionNetlayer *netlayer, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Dial the onion service `service_id` through the configured Tor and return an
    owned connection framing on `codec`, refusing inbound frames over
-   max_frame_bytes. `service_id` is the bare 56-character designator, borrowed.
+   max_frame_bytes. `service_id` is the bare GLOWCAP_ONION_SERVICE_ID_LEN-character designator, borrowed.
    GLOWCAP_ERR_INVALID_ARGUMENT for a designator that is not a well-formed version
    3 address, which is refused before any socket opens, and for a bad codec or a
    zero frame cap. GLOWCAP_ERR_IO when Tor is not reachable or could not reach the
@@ -224,7 +224,7 @@ int32_t glowcap_onion_conn_read_frame(GlowcapOnionConn *conn, GlowcapManagedFram
    provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
 int32_t glowcap_onion_conn_write_frame(GlowcapOnionConn *conn, const GlowcapFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
-/* Seal native admission and interrupt blocked reads and writes without freeing
+/* Seal admission and interrupt blocked reads and writes without freeing
    the connection. May race operations; join the embedding's leases before release.
    Idempotent. Returns GLOWCAP_ERR_IO when the socket cannot be interrupted; the
    transport last-error slot names the cause. */
@@ -238,7 +238,7 @@ int32_t glowcap_onion_conn_shutdown(GlowcapOnionConn *conn);
    provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
 int32_t glowcap_onion_conn_release(GlowcapOnionConn *conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
-/* Seal native accept admission and interrupt a blocked accept without freeing the
+/* Seal accept admission and interrupt a blocked accept without freeing the
    listener or withdrawing its service. May race operations; join the embedding's
    leases before release. Idempotent; the listener's pre-opened wake channel makes
    this operation infallible. */

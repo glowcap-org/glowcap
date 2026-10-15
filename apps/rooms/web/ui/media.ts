@@ -5,7 +5,7 @@
 // media type is, how a file's size reads to a person, and whether a file's
 // bytes are pulled the moment this window hears about it.
 //
-// Both are decisions about values, with no document in sight, so the in-tree
+// These are decisions about values, with no document in sight, so the in-tree
 // suite can cover them. Saving a file is a document effect and
 // lives next door in `download.ts`.
 

@@ -5,8 +5,11 @@
 //! One direction: the drain reads the queue types and the enqueue family from
 //! `outbound.zig`, which never reaches back in.
 
+const std = @import("std");
+
 const abort_projection = @import("../abort_projection.zig");
 const codec = @import("codec");
+const encoded = @import("encoded.zig");
 const listener_fire = @import("listener_fire.zig");
 const model = @import("model");
 const outbound = @import("../outbound.zig");
@@ -17,6 +20,27 @@ const engine = @import("../mod.zig");
 const v1_0 = @import("../v1_0.zig");
 
 const Peer = engine.Peer;
+
+/// Consecutive answer releases at the queue front leave as one
+/// `op:gc-answers` of at most this many positions, one stack buffer per step.
+const release_wave = 32;
+
+/// Whether the queue front is a run of answer releases with no message
+/// behind it and at least one answer still to release. `Peer.step` holds
+/// such a run, so the releases ride ahead of the session's next message in
+/// one frame, or leave alone through `Peer.flushAnswerReleases` when the
+/// embedder parks. A closed session, or a run whose answers are already
+/// gone (a retracted staged send), holds nothing: the ordinary step
+/// consumes it without a frame.
+pub fn holdsAnswerReleases(self: *Peer) bool {
+    if (!self.sessionIsOpen()) return false;
+    var live = false;
+    for (self.pending_send.pending()) |row| switch (row.item) {
+        .answer_release => |answer| live = live or self.session_state.outboundAnswer(answer) != null,
+        else => return false,
+    };
+    return live;
+}
 
 /// Encode the front pending-send item during `step`. Every carrier remains at
 /// the queue front until its complete wire publication succeeds. V1.0
@@ -33,17 +57,35 @@ pub fn stepPending(self: *Peer) !void {
     // `drive` steps here only while `peek` answers.
     const pending = self.pending_send.peek() orelse unreachable;
     switch (pending.item) {
-        .answer_release => |answer| {
-            // Failed preparation leaves no answer to release. A successful
-            // carrier precedes this release in the same pending queue.
-            if (self.sessionIsOpen() and self.session_state.outboundAnswer(answer) != null) {
-                const positions = [_]u64{answer.int()};
-                try emitRecordedPendingMessage(self, .{
-                    .gc_answer = .{ .positions = &positions },
-                }, .prepared_send);
+        .answer_release => {
+            // Consecutive releases leave as one `op:gc-answers`. Failed
+            // preparation leaves no answer to release, and a successful
+            // carrier precedes its release in the same pending queue.
+            var positions: [release_wave]u64 = undefined;
+            var count: usize = 0;
+            var carriers: usize = 0;
+            const rows = self.pending_send.pending();
+            while (carriers < rows.len and carriers < release_wave) : (carriers += 1) {
+                const answer = switch (rows[carriers].item) {
+                    .answer_release => |answer| answer,
+                    else => break,
+                };
+                if (!self.sessionIsOpen() or self.session_state.outboundAnswer(answer) == null) continue;
+                const position = answer.int();
+                const seen = for (positions[0..count]) |earlier| {
+                    if (earlier == position) break true;
+                } else false;
+                if (seen) continue;
+                positions[count] = position;
+                count += 1;
             }
-            var consumed = self.takePending();
-            consumed.item.deinit(self);
+            if (count != 0) try emitRecordedPendingMessage(self, .{
+                .gc_answer = .{ .positions = positions[0..count] },
+            }, .prepared_send);
+            for (0..carriers) |_| {
+                var consumed = self.takePending();
+                consumed.item.deinit(self);
+            }
         },
         .settled_answer => |sa| {
             // The `applySentResolve` invariant: a settled inbound answer always
@@ -100,10 +142,10 @@ pub fn stepPending(self: *Peer) !void {
             const consumed = self.takePending();
             consumed.item.deinit(self);
         },
-        .next_answered => |pair| {
-            try stepNextAnswered(self, pair);
-            var consumed = self.takePending();
-            consumed.item.deinit(self);
+        .encoded => |sent| {
+            try emitEncoded(self, sent);
+            const consumed = self.takePending();
+            consumed.item.encoded.deinitEmitted(self);
         },
         .message => |message| {
             try emitPendingMessage(self, message);
@@ -137,12 +179,14 @@ fn emitTerminalConsequenceFailure(self: *Peer, err: anyerror) void {
     }
 }
 
-fn stepNextAnswered(self: *Peer, pair: outbound.NextAnswered) !void {
-    try self.pushEncodedPairFromPending(
-        pair.operation,
-        pair.listener,
-        .already_recorded,
-    );
+/// Move an admitted row's frames to `outbound`. Both seats are taken before
+/// either frame is published, so an operation never leaves without the
+/// listener next requires behind it. No waterline stands here: the row's
+/// bytes were admitted when it was queued (`outbound/budget.zig`).
+fn emitEncoded(self: *Peer, sent: encoded.Encoded) !void {
+    try self.ensureOutboundCapacity(if (sent.listener != null) 2 else 1);
+    self.outbound.pushAssumeCapacity(sent.frame);
+    if (sent.listener) |listener| self.outbound.pushAssumeCapacity(listener);
 }
 
 fn emitPendingListenerFire(self: *Peer, fire: listener_fire.Carrier) !void {
@@ -192,18 +236,18 @@ fn emitRecordedPendingMessage(self: *Peer, message: model.Message, accounting: P
 /// translations that have no wire form under next (`v1_0`, ADR-0010):
 ///   - a semantic `Resolve` ships as a resolver-callback `op:deliver` to the
 ///     partner's resolver import, or is dropped when only `op:listen`
-///     listeners settle the answer (the listener fire in `settleSentResolve`
+///     listeners settle the answer (the listener fire in `settleSentAnswer`
 ///     handles notification).
-///   - an answered `op:deliver` gains a synthesized resolver export at encode
-///     time, committing the resolver link as it does.
 ///   - a projection trails an `op:listen` that carries its new answer's
 ///     resolution back, since the projection ops carry no inline resolver
 ///     (ADR-0050, ADR-0052). The listen must follow the op that opened the
 ///     answer on the wire, so it is pushed after the encode.
 /// next encodes the message as it stands. Borrows `message`. The pending queue
 /// continues owning it until this returns successfully. An `op:abort` closes
-/// only after its frame is published so the partner can still take it.
+/// only after its frame is published so the partner can still take it. A
+/// deliver never reaches here: it left as its frame at admission.
 fn emitPendingMessage(self: *Peer, message: model.Message) !void {
+    std.debug.assert(message != .deliver);
     if (message == .abort) {
         try self.commitAbortOutbound(message.abort);
         return;
@@ -226,11 +270,6 @@ fn emitPendingMessage(self: *Peer, message: model.Message) !void {
     if (!needs_v1_0) return self.pushEncodedFromPending(message);
 
     switch (message) {
-        .deliver => |deliver| {
-            const prepared = try v1_0.prepareOutboundDeliver(self, deliver);
-            errdefer prepared.abandon(self);
-            try self.pushEncodedFromPending(prepared.message);
-        },
         .get => |get| try emitV1Projection(self, message, get.answer),
         .index => |index| try emitV1Projection(self, message, index.answer),
         .untag => |untag| try emitV1Projection(self, message, untag.answer),

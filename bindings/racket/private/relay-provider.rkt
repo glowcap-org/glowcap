@@ -1,5 +1,5 @@
 #lang racket/base
-;; Native relay-provider composition for the generic driver loop.
+;; Relay archive provider composition for the generic driver loop.
 
 (require (only-in ffi/unsafe ctype-sizeof void/reference-sink)
          net/url

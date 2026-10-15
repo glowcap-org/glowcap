@@ -80,7 +80,7 @@ pub const ConnDirectionGates = struct {
 };
 
 /// Modest caps on a stream-shaped transport connection's per-direction buffers.
-/// Neither buffer needs to hold a whole frame: `writeAll` streams a large
+/// Neither buffer needs to hold a whole frame: `writeFrame` streams a large
 /// outbound frame straight through the write buffer, and an inbound frame
 /// larger than the read buffer accumulates in the connection's bounded spill
 /// (`net.Spill`) while it is in flight. Steady per-connection memory is

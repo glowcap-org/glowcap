@@ -7,7 +7,7 @@ decision: "Implement one portable record and transaction contract with volatile 
 supersedes: []
 superseded_by: []
 amends: [ADR-0061, ADR-0161]
-amended_by: [ADR-0163, ADR-0164, ADR-0165, ADR-0181, ADR-0182]
+amended_by: [ADR-0163, ADR-0164, ADR-0165, ADR-0181, ADR-0182, ADR-0217]
 ---
 
 # ADR-0162 Loam records, transactions, and native storage
@@ -45,7 +45,7 @@ row from its mapped value, then end the LMDB reader before completion delivery.
 Leases retain validated data snapshots. They do not grant authority or preserve
 historical permission. Cancellation retains a read's buffer until the worker
 reports completion. Backend close stops new work and remains busy until active
-calls and prepared native commits release the environment.
+calls and write transactions release the environment.
 
 Preparation copies only changed records. Known-unchanged failure discards the
 batch. An unknown outcome fences use until the original worker has retired and

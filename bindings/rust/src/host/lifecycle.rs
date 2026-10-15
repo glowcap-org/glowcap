@@ -1,4 +1,4 @@
-//! Host close barriers, owned-task lifetime, and terminal native retirement.
+//! Host close barriers, owned-task lifetime, and terminal FFI retirement.
 
 use super::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,14 +74,14 @@ impl HostShared {
 		})
 	}
 
-	pub(crate) fn native_close_committed(&self) {
+	pub(crate) fn ffi_close_committed(&self) {
 		if self.close_barrier.get() == CloseBarrierState::Idle {
 			self.close_barrier.set(CloseBarrierState::Running);
 		}
 	}
 
 	/// Wake every close driver parked on host activity. Call it after any
-	/// native verb that can advance close-relevant state. Waiters re-check
+	/// FFI verb that can advance close-relevant state. Waiters re-check
 	/// progress on every wake, so a spare signal costs one check and a missed
 	/// one is a hang.
 	pub(crate) fn note_close_activity(&self) {
@@ -100,7 +100,7 @@ impl HostShared {
 	/// close progress: the time until the nearest FINISH grace deadline (the
 	/// Host's own or any session's), clamped at zero, or `None` when no finite
 	/// deadline is pending and only host activity can advance terminal
-	/// progress. Native refusal reaches the close driver. Treating it as "no
+	/// progress. FFI refusal reaches the close driver. Treating it as "no
 	/// deadline" would turn a diagnosable failure into an unbounded park.
 	pub(crate) fn close_wait(&self) -> Result<Option<Duration>> {
 		let mut wait_ms: i64 = -1;
@@ -140,7 +140,7 @@ impl HostShared {
 	/// Spawn one detached DIAL executor under this Host's terminal lifetime.
 	/// Tokio cancellation is the right primitive here: every binding task runs
 	/// on one current-thread LocalSet, so close cannot race a task currently on
-	/// another thread, and `abort` prevents its next poll before native teardown.
+	/// another thread, and `abort` prevents its next poll before FFI teardown.
 	pub(crate) fn spawn_dial_task<F, Fut>(self: &Rc<Self>, ticket: u64, route_index: usize, run: F) -> Result<bool>
 	where
 		F: FnOnce(Rc<HostShared>) -> Fut + 'static,
@@ -221,7 +221,7 @@ impl HostShared {
 			None => cancellation,
 		}
 	}
-	/// Terminally release this Host. A callback cannot free the native Host
+	/// Terminally release this Host. A callback cannot free the FFI Host
 	/// whose actor cell is on its stack, so it parks one Host-owned transaction.
 	/// The outer feed or local-run drain performs the same ordered teardown.
 	pub(crate) fn close_host(self: &Rc<HostShared>, pending: PendingWork) -> Result<()> {
@@ -232,13 +232,13 @@ impl HostShared {
 			CloseBarrierState::Idle | CloseBarrierState::Running => {}
 		}
 		// A loop-adopted Host tears down through its loop, which releases the
-		// wrapped native Host itself; `loop_teardown` (called back from
+		// wrapped FFI Host itself; `loop_teardown` (called back from
 		// `LoopShared::close`) retires this wrapper's shells and vows.
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop() {
 			return lp.request_close(pending);
 		}
-		self.request_native_release(pending)
+		self.request_ffi_release(pending)
 	}
 
 	pub(super) async fn wait_closed(&self) -> Result<()> {
@@ -253,13 +253,13 @@ impl HostShared {
 	}
 
 	/// Release Session shells that unregistered while their callbacks were
-	/// still on the stack. They are absent from `sessions`, but the native Host
+	/// still on the stack. They are absent from `sessions`, but the FFI Host
 	/// still owns them and must not be freed first.
 	fn drain_parked_sessions(self: &Rc<HostShared>) -> Result<()> {
 		crate::finalizer::drain_host_sessions(self)
 	}
 
-	fn request_native_release(self: &Rc<HostShared>, pending: PendingWork) -> Result<()> {
+	fn request_ffi_release(self: &Rc<HostShared>, pending: PendingWork) -> Result<()> {
 		self.drain_parked_sessions()?;
 		let options = pending.to_ffi()?;
 		// SAFETY: as `close_wait` above for the handle; `options` is the local `GlowcapCloseOptions` from
@@ -268,13 +268,13 @@ impl HostShared {
 		if rc != sys::OK {
 			return check_host(rc);
 		}
-		self.native_close_committed();
+		self.ffi_close_committed();
 		// A close request or escalation is close-relevant activity: a driver
 		// parked on a superseded wait must re-check progress.
 		self.note_close_activity();
 		if !self.close_task_started.get() {
 			let host = Rc::clone(self);
-			if try_spawn_local_handle(async move { host.drive_native_close().await }).is_none() {
+			if try_spawn_local_handle(async move { host.drive_ffi_close().await }).is_none() {
 				return Err(Error::with_detail(
 					sys::ERR_INTERNAL,
 					"host close requires a running LocalSet".into(),
@@ -285,7 +285,7 @@ impl HostShared {
 		Ok(())
 	}
 
-	async fn drive_native_close(self: Rc<HostShared>) {
+	async fn drive_ffi_close(self: Rc<HostShared>) {
 		let close_code = loop {
 			if self.close_barrier.get() != CloseBarrierState::Running {
 				return;
@@ -344,16 +344,16 @@ impl HostShared {
 			}
 			notified.await;
 		}
-		self.finish_native_release(close_code);
+		self.finish_ffi_release(close_code);
 	}
 
-	fn finish_native_release(self: &Rc<HostShared>, close_code: i32) {
+	fn finish_ffi_release(self: &Rc<HostShared>, close_code: i32) {
 		if self.close_barrier.get() != CloseBarrierState::Running {
 			return;
 		}
 		// A task may fail after the close driver's final action drain but before
 		// its owned-task count reaches zero. Claim that exact cause here, at the
-		// last surviving barrier, while still releasing native state below.
+		// last surviving barrier, while still releasing FFI state below.
 		let background_failure = match (
 			self.take_background_failure(),
 			self.retirement_failure.borrow_mut().take(),
@@ -386,17 +386,17 @@ impl HostShared {
 		}
 		// SAFETY: `raw` is the non-null handle this `HostShared` read from `self.raw` above, from
 		// `glowcap_host_new_in`; the close barrier is `Running`, the owned tasks, parked sessions and vows have
-		// drained, and this is the only release, after which `retire_native_host` clears the handle.
+		// drained, and this is the only release, after which `retire_ffi_host` clears the handle.
 		let rc = unsafe { ffi::glowcap_host_release(raw) };
 		if rc != sys::OK {
 			let release = host_refusal(rc, "releasing host");
 			if crate::lifecycle::release_consumed(rc) {
-				self.retire_native_host(raw);
+				self.retire_ffi_host(raw);
 			}
 			self.fail_close(background_failure.map_or(release.clone(), |primary| primary.with_secondary(release)));
 			return;
 		}
-		self.retire_native_host(raw);
+		self.retire_ffi_host(raw);
 		if let Some(error) = background_failure {
 			*self.close_failure.borrow_mut() = Some(error);
 			self.close_barrier.set(CloseBarrierState::Failed);
@@ -406,12 +406,12 @@ impl HostShared {
 		self.release_notify.notify_waiters();
 	}
 
-	fn retire_native_host(&self, raw: *mut ffi::GlowcapHost) {
+	fn retire_ffi_host(&self, raw: *mut ffi::GlowcapHost) {
 		crate::trace::detach_host(raw);
 		self.raw.set(core::ptr::null_mut());
 		crate::gc::retire(self);
 		self.vows.clear();
-		// Native release ran every ctx-free callback. These maps contain only
+		// FFI release ran every ctx-free callback. These maps contain only
 		// non-owning pointers and cannot retain stale lookup results afterward.
 	}
 }
@@ -420,24 +420,21 @@ fn decode_close_wait(wait_ms: i64) -> Result<Option<Duration>> {
 	match wait_ms {
 		-1 => Ok(None),
 		0.. => Ok(Some(Duration::from_millis(u64::try_from(wait_ms).map_err(|_| {
-			Error::with_detail(
-				sys::ERR_INTERNAL,
-				"native close wait exceeded the duration range".into(),
-			)
+			Error::with_detail(sys::ERR_INTERNAL, "FFI close wait exceeded the duration range".into())
 		})?))),
 		_ => Err(Error::with_detail(
 			sys::ERR_INTERNAL,
-			format!("native close wait returned invalid negative duration {wait_ms}"),
+			format!("FFI close wait returned invalid negative duration {wait_ms}"),
 		)),
 	}
 }
 
 impl Drop for HostShared {
 	fn drop(&mut self) {
-		// A loop-adopted Host's native handle dies with `glowcap_driver_release`
+		// A loop-adopted Host's FFI handle dies with `glowcap_driver_release`
 		// (at the loop's own drop), never through `glowcap_host_release`. The
 		// wrapper dropping without an explicit close still closes the loop, so
-		// the park task and the native loop cannot outlive every handle.
+		// the park task and the driver loop cannot outlive every handle.
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Some(lp) = self.driver_loop.get_mut().take() {
 			let raw = self.raw.replace(core::ptr::null_mut());
@@ -494,7 +491,7 @@ mod close_wait_tests {
 		assert_eq!(error.code(), sys::ERR_INTERNAL);
 		assert_eq!(
 			error.message(),
-			Some("native close wait returned invalid negative duration -2")
+			Some("FFI close wait returned invalid negative duration -2")
 		);
 	}
 }

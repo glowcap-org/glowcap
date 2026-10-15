@@ -54,7 +54,7 @@ test "a relayed resolution carrying a capability is introduced by handoff, not b
     try node.peer(recipient).?.session_state.exports.retain(allocator, .from(import_pos));
     try recipient_counterpart.session_state.registerImport(.from(import_pos));
     try recipient_counterpart.session_state.registerExport(.from(9));
-    try recipient_counterpart.sendCopying(.{ .listen = .{
+    try recipient_counterpart.sendBorrowed(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(import_pos) },
         .listener = .{ .near = .{ .export_position = .from(9) } },
         .mode = .settling_only,
@@ -113,8 +113,9 @@ test "a relayed resolution carrying a capability is introduced by handoff, not b
         if (tag != .symbol or !std.mem.eql(u8, tag.symbol, "fulfill")) continue;
         const payload = try view.deliver.args.at(1);
         try std.testing.expect(payload == .handoff);
-        try std.testing.expect(payload.handoff == .give);
-        try std.testing.expectEqualStrings(&gift_id, payload.handoff.give.gift_id);
+        const handoff = try payload.handoff.project();
+        try std.testing.expect(handoff == .give);
+        try std.testing.expectEqualStrings(&gift_id, handoff.give.gift_id);
         fired = true;
     }
     try std.testing.expect(fired);
@@ -479,7 +480,7 @@ test "a relayed resolution carrying a routing route emits the wire import positi
     defer partner.deinit();
     try partner.session_state.registerImport(.from(relayed_export.int()));
     try partner.session_state.registerExport(.from(9));
-    try partner.sendCopying(.{ .listen = .{
+    try partner.sendBorrowed(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(relayed_export.int()) },
         .listener = .{ .near = .{ .export_position = .from(9) } },
         .mode = .settling_only,

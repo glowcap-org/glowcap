@@ -86,6 +86,7 @@ async function awaitTraceSturdyref(stream: ReadableStream<Uint8Array>): Promise<
 		buf += decoder.decode(value, { stream: true });
 		const m = buf.match(/ROOMS-TRACE-LISTENING (\S+)/);
 		if (m) {
+			// best-effort: the log drain ends when the server's pipe closes, and only trailing diagnostics are lost.
 			drainToLog(reader, decoder).catch(() => {});
 			return m[1];
 		}
@@ -99,6 +100,7 @@ async function awaitTraceSturdyref(stream: ReadableStream<Uint8Array>): Promise<
  * pipe nobody empties eventually blocks on a write, and its diagnostics are
  * exactly what a failing member's log needs. Nothing awaits them. */
 function drainRest(stream: ReadableStream<Uint8Array>): void {
+	// best-effort: the log drain ends when the server's pipe closes, and only trailing diagnostics are lost.
 	drainToLog(stream.getReader(), new TextDecoder()).catch(() => {});
 }
 

@@ -90,7 +90,7 @@ impl Registration {
 	}
 }
 
-/// Compose both relay profiles without linking a native transport archive.
+/// Compose both relay profiles without linking an FFI transport archive.
 pub fn connector() -> Result<Connector> {
 	Connector::new(
 		&[TRANSPORT_KEYED_RELAY, TRANSPORT_NOISE_RELAY],
@@ -145,7 +145,7 @@ fn route(locator: &Locator) -> Result<Route<'_>> {
 
 /// URL interpretation belongs to the browser. Before invoking it, bound the
 /// untrusted hint and refuse controls, malformed escapes and reserved query
-/// names, matching the native relay's admission contract. Keep the admitted
+/// names, matching the relay archive's admission contract. Keep the admitted
 /// input when appending the relay-owned query rather than rebuilding its path.
 struct Route<'a>(&'a str);
 impl<'a> Route<'a> {

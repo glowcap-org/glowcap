@@ -141,7 +141,7 @@ async fn wait_for(signal: &WireSignal, expected: usize, what: &str) {
 // proves both directions on the real wire; keeping the other handles live
 // isolates each release rather than accepting a teardown side effect.
 async fn serve_gc_tracking(server: tcp::Server) {
-	// The public server is used because its callbacks run under the native
+	// The public server is used because its callbacks run under the FFI
 	// driver loop's Host bracket, so this proves turn->actual-Session recovery
 	// rather than only the simpler byte-fed Session bracket.
 	let session = server.accept().await.unwrap();

@@ -158,7 +158,7 @@ their stable request id.
 
 - The byte-fed seam remains the primitive for wasm and for an embedder that
   explicitly supplies byte channels. It is not an automatic fallback from a
-  native driver refusal.
+  Zig driver refusal.
 - WebRTC signaling remains outside the generic driver. Its provider claims an
   already-open DataChannel in either session role, preserving the authority
   placement from ADR-0089.
@@ -169,7 +169,7 @@ their stable request id.
   explicit embedder-owned channels remain byte-fed.
 - Stream providers begin connects through a nonblocking `start_connect`
   contract and publish readiness-driven completion. Outside this provider
-  seam, each native Zig netlayer advertises exactly one tagged dial execution
+  seam, each Zig netlayer advertises exactly one tagged dial execution
   form: blocking or staged, never parallel callbacks for both.
 - One `max_pending_opens` bound covers every pre-open session and wire across
   dial, accept, external adoption, and redeem. A deadline bounds duration. This
@@ -233,7 +233,7 @@ mailbox minted at init so its descriptor is in the set from the start are each
 owned by a named test. The self-wake nudge when step returns with work
 remaining (`HostRuntime.nudgeIfWorkRemains`) is proven for the pause shape a
 test can construct (a held `feed_tail` of incomplete outer-frame bytes) in
-`test/driver/host_runtime_step_test.zig`. The wake path it shares with
+`test/driver/host_runtime_step/wake_test.zig`. The wake path it shares with
 cross-thread `wakeReadiness` is pinned there too. The direct-C relay-provider
 scenario in `test/c_abi/relay_provider/buffered_accept_test.zig`
 deterministically holds WebSocket payload below the kernel's sight at admission

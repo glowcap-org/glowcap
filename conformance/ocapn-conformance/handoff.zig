@@ -133,8 +133,8 @@ pub fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
     const peer = conf.session.served.port.peer;
     const shared = conf.shared;
     const allocator = shared.allocator;
-    const body = event.view() catch return false;
-    const deliver = switch (body) {
+    const body = event.view();
+    const deliver = switch (body.*) {
         .deliver => |d| d,
         else => return false,
     };
@@ -150,7 +150,7 @@ pub fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
         .handoff => |value| value,
         else => return false,
     };
-    const give = switch (argument_handoff) {
+    const give = switch (argument_handoff.project() catch return false) {
         .give => |value| value,
         .receive => return false,
     };
@@ -158,7 +158,7 @@ pub fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
     // The parsed argument is the authority for both the signed envelope span
     // and exporter locator. Untrusted byte strings elsewhere in the
     // frame cannot impersonate either value.
-    recordLocatorAddr(shared, give.exporter);
+    try recordLocatorAddr(shared, give.exporter);
     const give_owned = try give.toOwned(allocator);
     errdefer model.freeHandoffGive(allocator, give_owned);
     try shared.deferred.ensureUnusedCapacity(allocator, 1);
@@ -183,8 +183,8 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     const peer = conf.session.served.port.peer;
     const shared = conf.shared;
     const allocator = shared.allocator;
-    const body = event.view() catch return false;
-    const deliver = switch (body) {
+    const body = event.view();
+    const deliver = switch (body.*) {
         .deliver => |d| d,
         else => return false,
     };
@@ -199,7 +199,7 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     const argument = deliver.args.at(0) catch return false;
     const sturdy = switch (argument) {
         .reference => |reference| switch (reference) {
-            .sturdy => |value| value,
+            .sturdy => |value| value.project() catch return false,
             else => return false,
         },
         else => return false,
@@ -207,7 +207,7 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     const locator = sturdy.peer;
     const swiss = sturdy.swissnum;
 
-    recordLocatorAddr(shared, locator);
+    try recordLocatorAddr(shared, locator);
     const existing = findSessionByDesignator(shared, locator.designator);
 
     // An answered enliven is the gifter handoff: fetch the exporter object, whose
@@ -269,18 +269,18 @@ pub fn runGifterFetch(shared: *Shared, exporter: *HostSession, swiss: []const u8
 // ── Locator helpers ──────────────────────────────────────────────────────────
 
 /// Record a `tcp-testing-only` locator's uuid → `host:port` for the dialer.
-fn recordLocatorAddr(shared: *Shared, locator: model.view.PeerLocator) void {
+fn recordLocatorAddr(shared: *Shared, locator: model.view.PeerLocator) !void {
     if (use_onion) return;
-    const hostport = hostPortFromHints(shared.allocator, locator) orelse return;
+    const hostport = try hostPortFromHints(shared.allocator, locator) orelse return;
     defer shared.allocator.free(hostport);
-    if (conf_state.g_addrs) |table| table.put(locator.designator, hostport);
+    if (conf_state.g_addrs) |table| try table.put(locator.designator, hostport);
 }
 
 /// The `host:port` built from a locator's `host`/`port` hints, caller-owned,
-/// null when either hint is missing. Falls back to the designator when the
-/// locator carries no host/port hints (a plain `tcp` locator's designator is
-/// already `host:port`).
-fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.view.PeerLocator) ?[]u8 {
+/// or null when the peer's hints do not parse. Falls back to the designator
+/// when the locator carries no host/port hints (a plain `tcp` locator's
+/// designator is already `host:port`).
+fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.view.PeerLocator) !?[]u8 {
     const host_hint = locator.hints.findNamed("host") catch return null;
     const port_hint = locator.hints.findNamed("port") catch return null;
     const dial_host: ?[]const u8 = if (host_hint) |value|
@@ -296,10 +296,10 @@ fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.view.PeerLocat
             const port_num = std.fmt.parseInt(u16, p, 10) catch return null;
             const addr = tcp.parseHostPort(h, port_num) catch return null;
             var buf: [tcp.designator_buf_len]u8 = undefined;
-            return allocator.dupe(u8, tcp.locatorFromAddress(&buf, addr).designator) catch null;
+            return try allocator.dupe(u8, tcp.locatorFromAddress(&buf, addr).designator);
         }
     }
-    return allocator.dupe(u8, locator.designator) catch null;
+    return try allocator.dupe(u8, locator.designator);
 }
 
 /// The accepted session whose partner advertised `designator`, or null.

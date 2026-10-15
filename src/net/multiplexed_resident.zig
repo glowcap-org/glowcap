@@ -25,9 +25,16 @@ const netlayer = @import("netlayer.zig");
 const model = @import("model");
 const crypto = foundation.crypto;
 const readiness = @import("multiplexed_resident/readiness.zig");
+const dial = @import("multiplexed_resident/dial.zig");
+const listening = @import("multiplexed_resident/listen.zig");
 
 pub const would_block = readiness.would_block;
 pub const ContractError = readiness.ContractError;
+pub const DialAttempt = dial.DialAttempt;
+pub const DialStartOutcome = dial.DialStartOutcome;
+pub const DialFinishOutcome = dial.DialFinishOutcome;
+pub const RawDialStartOutcome = dial.RawDialStartOutcome;
+pub const RawDialFinishOutcome = dial.RawDialFinishOutcome;
 
 pub const TeardownOutcome = @import("multiplexed_resident/teardown.zig").Outcome;
 pub const borrowed_read = @import("multiplexed_resident/borrowed_read.zig");
@@ -70,60 +77,6 @@ pub const ClaimedConnection = struct {
     }
 };
 
-/// A resident dial request between admission and connection claim. The value
-/// owns cancellation. `finish` consumes the request on both success and
-/// refusal and returns the next ownership state only on success.
-pub const DialAttempt = struct {
-    dialer: MultiplexedResident.Dialer,
-    request_id: ?usize,
-
-    pub fn deinit(self: *DialAttempt) ?foundation.FailureChain {
-        const request_id = self.request_id orelse return null;
-        self.request_id = null;
-        return self.dialer.cancelDial(request_id);
-    }
-
-    pub fn id(self: DialAttempt) ?usize {
-        return self.request_id;
-    }
-
-    pub fn take(self: *DialAttempt) DialAttempt {
-        const owned = self.*;
-        self.request_id = null;
-        return owned;
-    }
-
-    pub fn finish(self: *DialAttempt) DialFinishOutcome {
-        const request_id = self.request_id orelse
-            return .{ .failed = .init(error.InvalidOptions) };
-        self.request_id = null;
-        return switch (self.dialer.finishDial(request_id)) {
-            .connected => |conn| .{ .connected = .{ .resident = self.dialer.resident, .id = conn } },
-            .failed => |failure| .{ .failed = failure },
-        };
-    }
-};
-
-pub const DialStartOutcome = union(enum) {
-    admitted: DialAttempt,
-    failed: netlayer.DialFailure,
-};
-
-pub const DialFinishOutcome = union(enum) {
-    connected: ClaimedConnection,
-    failed: netlayer.DialFailure,
-};
-
-pub const RawDialStartOutcome = union(enum) {
-    admitted,
-    failed: netlayer.DialFailure,
-};
-
-pub const RawDialFinishOutcome = union(enum) {
-    connected: usize,
-    failed: netlayer.DialFailure,
-};
-
 pub const RawExternalClaimOutcome = union(enum) {
     claimed: usize,
     failed: netlayer.DialFailure,
@@ -141,21 +94,66 @@ pub const ExternalClaimOutcome = union(enum) {
 /// on the wire path: events drain into the caller's array, reads land in the
 /// caller's buffer, and writes are consumed (possibly partially) before the
 /// call returns. Listener locator materialization is setup-only owned state.
+/// What runs after a turn ends (`before_wait`): the runtime or its embedder
+/// parks, so every effect must be in the kernel, or the caller runs and may
+/// stay away.
+pub const AfterTurn = enum { park, caller };
+
 pub const MultiplexedResident = struct {
     ctx: *anyopaque,
     vtable: *const VTable,
 
     pub const VTable = struct {
-        /// The resident's one OS-pollable readiness descriptor. Level-shaped
-        /// by contract: it reads ready while drained records are pending.
+        /// The resident's one OS-pollable readiness descriptor: it reads
+        /// ready while the kernel holds a completion `drain_ready` would turn
+        /// into a record.
         readiness_fd: *const fn (ctx: *anyopaque) i32,
+        /// Whether records already taken from the kernel wait in the resident
+        /// now, where no descriptor reports them. A resident that reaps
+        /// completions at the end of its own verbs holds such records between
+        /// a verb and the next service. The runtime services the resident
+        /// before it parks, and raises a stepped embedder's readiness
+        /// descriptor when a verb leaves them behind. Absent means the
+        /// descriptor reports every record.
+        ready_pending: ?*const fn (ctx: *anyopaque) bool = null,
+        /// The turn is ending, and `after` says what runs next. A resident
+        /// that holds staged sends or queued submissions hands them to the
+        /// kernel here, so a turn's writes leave in one batch instead of one
+        /// syscall per verb. Before a park every re-armed receive leaves
+        /// too. Before the caller runs, a re-armed receive may wait for the
+        /// park: nothing outside the thread can tell an unarmed receive from
+        /// one the kernel has not yet completed, and the park arms it before
+        /// it waits. Absent means every verb completes its own effects.
+        before_wait: ?*const fn (ctx: *anyopaque, after: AfterTurn) void = null,
+        /// Take what the kernel has completed since the last reap and turn
+        /// it into held records, submitting nothing. A runtime that spins
+        /// before it parks asks this on every pass and then `ready_pending`,
+        /// so a reply that lands inside its window is serviced without a
+        /// descriptor wake. Absent means only the descriptor reports new
+        /// completions, and a spinning runtime learns nothing from passing
+        /// this resident.
+        reap: ?*const fn (ctx: *anyopaque) void = null,
         /// The longest the runtime may wait, given `requested_ms` (negative
         /// for no limit), before this resident has timed work that no
         /// descriptor will report. The runtime services the resident when a
         /// wait ends on this bound. Absent means it has none.
         wait_bound_ms: ?*const fn (ctx: *anyopaque, requested_ms: i32) i32 = null,
-        /// Drain pending ready records into `out`, clearing the descriptor's
-        /// coalesced wake. Returns how many records were written.
+        /// Wait in the resident's own kernel queue until a completion lands,
+        /// a watched descriptor reads ready, or `timeout_ms` passes (negative
+        /// for no limit), and turn what arrived into held records. True when
+        /// something arrived. The runtime parks here, not on the readiness
+        /// descriptor, when every resident it has offers it, so the work the
+        /// kernel owes this thread for a completion runs inside the one
+        /// wake. Absent means the runtime polls the descriptor.
+        park: ?*const fn (ctx: *anyopaque, timeout_ms: i32) bool = null,
+        /// Wake `park` when `fd` reads ready, consuming nothing from it, from
+        /// the next park on. The runtime hands the resident that
+        /// parks it the descriptors it would otherwise poll beside that one:
+        /// its settle mailbox, a stepped ready set's wake, and its other
+        /// residents. Present exactly when `park` is.
+        watch: ?*const fn (ctx: *anyopaque, fd: i32) error{OutOfMemory}!void = null,
+        /// Drain pending ready records into `out`. Returns how many records
+        /// were written.
         drain_ready: *const fn (ctx: *anyopaque, out: []ReadyEvent) ContractError!usize,
         /// Dial and listen are complete operation groups: absent means the
         /// runtime does not implement that capability. Present means every
@@ -175,7 +173,9 @@ pub const MultiplexedResident = struct {
         try_write: *const fn (ctx: *anyopaque, conn: usize, bytes: []const u8) isize,
         /// The caller finished one batch of writes on `conn`. A resident that
         /// declares it may hold consumed bytes until this call, so a frame
-        /// and its length prefix leave in one send. One without it sends as
+        /// and its length prefix leave in one send, and one that declares
+        /// `before_wait` may hold them until the runtime parks, so every
+        /// batch of the turn leaves in one send. One without either sends as
         /// each write arrives.
         flush_writes: ?*const fn (ctx: *anyopaque, conn: usize) void = null,
         /// Claim one exact connection-local read/write failure. Null is clean
@@ -192,14 +192,18 @@ pub const MultiplexedResident = struct {
 
     pub const DialVTable = struct {
         /// Begin a dial toward the complete locator. Transport-specific hint
-        /// interpretation belongs to the resident. Completion arrives as an
-        /// `ev_connect` record carrying `request_id`. An error admits no
-        /// operation. The provider has already cleaned any partial work.
+        /// interpretation belongs to the resident. `origin` names the session
+        /// that introduced a handoff dial, borrowed for this call, and a
+        /// resident that needs no outside party reads nothing from it.
+        /// Completion arrives as an `ev_connect` record carrying
+        /// `request_id`. An error admits no operation. The provider has
+        /// already cleaned any partial work.
         start_connect: *const fn (
             ctx: *anyopaque,
             request_id: usize,
             locator: model.PeerLocator,
             options: netlayer.OperationOptions,
+            origin: netlayer.DialOrigin,
         ) RawDialStartOutcome,
         /// Claim the connection a completed `ev_connect` announced. The raw
         /// id immediately enters `ClaimedConnection` ownership in the wrapper.
@@ -347,8 +351,9 @@ pub const MultiplexedResident = struct {
             request_id: usize,
             locator: model.PeerLocator,
             options: netlayer.OperationOptions,
+            origin: netlayer.DialOrigin,
         ) DialStartOutcome {
-            return switch (self.operations().start_connect(self.resident.ctx, request_id, locator, options)) {
+            return switch (self.operations().start_connect(self.resident.ctx, request_id, locator, options, origin)) {
                 .admitted => .{ .admitted = .{ .dialer = self, .request_id = request_id } },
                 .failed => |failure| .{ .failed = failure },
             };
@@ -358,7 +363,9 @@ pub const MultiplexedResident = struct {
             return self.operations().cancel_connect(self.resident.ctx, request_id);
         }
 
-        fn finishDial(self: Dialer, request_id: usize) RawDialFinishOutcome {
+        /// Consume an admitted request. `DialAttempt.finish` is the caller,
+        /// because the attempt owns the request's one consumption.
+        pub fn finishDial(self: Dialer, request_id: usize) RawDialFinishOutcome {
             return self.operations().finish_connect(self.resident.ctx, request_id);
         }
     };
@@ -378,7 +385,8 @@ pub const MultiplexedResident = struct {
         resident: MultiplexedResident,
         ops: *const ListenVTable,
 
-        fn operations(self: Acceptor) *const ListenVTable {
+        /// The listen operations a `Listener` of this acceptor calls.
+        pub fn operations(self: Acceptor) *const ListenVTable {
             return self.ops;
         }
 
@@ -417,162 +425,12 @@ pub const MultiplexedResident = struct {
         }
     };
 
-    pub const ListenAttempt = struct {
-        acceptor: Acceptor,
-        route_id: ?usize,
-        transport: []const u8,
-        completion: ListenCompletionVTable,
-
-        pub fn id(self: ListenAttempt) ?usize {
-            return self.route_id;
-        }
-
-        pub fn deinit(self: *ListenAttempt) ?foundation.FailureChain {
-            const route_id = self.route_id orelse return null;
-            self.route_id = null;
-            return self.completion.cancel(self.acceptor.resident.ctx, route_id);
-        }
-
-        pub fn finish(self: *ListenAttempt) ListenFinishOutcome {
-            const route_id = self.route_id orelse
-                return .{ .failed = .init(error.ProviderContract) };
-            self.route_id = null;
-            return switch (self.completion.finish(
-                self.acceptor.resident.ctx,
-                route_id,
-            )) {
-                .failed => |failure| .{ .failed = failure },
-                .listener => |ctx| .{ .ready = .{
-                    .acceptor = self.acceptor,
-                    .ctx = ctx,
-                    .route_id = route_id,
-                    .transport = self.transport,
-                } },
-            };
-        }
-    };
-
-    pub const ListenStartOutcome = union(enum) {
-        admitted: ListenResult,
-        failed: netlayer.ListenFailure,
-    };
-
-    pub const ListenFinishOutcome = union(enum) {
-        ready: Listener,
-        failed: netlayer.ListenFailure,
-    };
-
-    pub const ListenResult = union(enum) {
-        ready: Listener,
-        pending: ListenAttempt,
-
-        pub fn deinit(self: *ListenResult) ?foundation.FailureChain {
-            const failure = switch (self.*) {
-                .ready => |listener| listener.stopListen(),
-                .pending => |*attempt| attempt.deinit(),
-            };
-            self.* = undefined;
-            return failure;
-        }
-    };
-
-    /// One profile-scoped listener owned by a multiplexed runtime. Its opaque
-    /// provider handle owns listener state. `route_id` is the caller's stable
-    /// readiness identity and is what `ev_accept` records carry.
-    pub const Listener = struct {
-        acceptor: Acceptor,
-        ctx: *anyopaque,
-        route_id: usize,
-        transport: []const u8,
-
-        pub fn localLocator(
-            self: Listener,
-            allocator: std.mem.Allocator,
-        ) netlayer.ListenError!model.PeerLocator {
-            return switch (self.localLocatorOutcome(allocator)) {
-                .locator => |locator| locator,
-                .failed => |failure| netlayer.projectListenError(failure),
-            };
-        }
-
-        pub fn localLocatorOutcome(
-            self: Listener,
-            allocator: std.mem.Allocator,
-        ) netlayer.ListenerLocatorOutcome {
-            return self.acceptor.operations().local_locator(
-                self.acceptor.resident.ctx,
-                self.ctx,
-                self.transport,
-                allocator,
-            );
-        }
-
-        pub fn canonicalizeLocator(
-            self: Listener,
-            allocator: std.mem.Allocator,
-            locator: model.PeerLocator,
-        ) netlayer.ListenError!model.PeerLocator {
-            return switch (self.canonicalizeLocatorOutcome(allocator, locator)) {
-                .locator => |canonical| canonical,
-                .failed => |failure| netlayer.projectListenError(failure),
-            };
-        }
-
-        pub fn canonicalizeLocatorOutcome(
-            self: Listener,
-            allocator: std.mem.Allocator,
-            locator: model.PeerLocator,
-        ) netlayer.ListenerLocatorOutcome {
-            return self.acceptor.operations().canonicalize_locator(
-                self.acceptor.resident.ctx,
-                self.ctx,
-                self.transport,
-                allocator,
-                locator,
-            );
-        }
-
-        pub fn restorationState(self: Listener, out: []u8) netlayer.RestorationStateError!?usize {
-            return switch (self.restorationStateOutcome(out)) {
-                .unsupported => null,
-                .size => |needed| needed,
-                .failed => error.ProviderFailure,
-            };
-        }
-
-        pub fn restorationStateOutcome(self: Listener, out: []u8) netlayer.ListenerRestorationOutcome {
-            const f = self.acceptor.operations().restoration_state orelse return .unsupported;
-            return f(self.acceptor.resident.ctx, self.ctx, out);
-        }
-
-        pub fn finishAccept(self: Listener) netlayer.AcceptError!?ClaimedConnection {
-            return switch (self.finishAcceptOutcome()) {
-                .connection => |connection| connection,
-                .failed => |failure| failure.classification,
-            };
-        }
-
-        pub fn finishAcceptOutcome(self: Listener) FinishAcceptOutcome {
-            const result = self.acceptor.operations().finish_accept(self.acceptor.resident.ctx, self.ctx);
-            return switch (result) {
-                .connection => |id| .{ .connection = if (id) |value| .{ .resident = self.acceptor.resident, .id = value } else null },
-                .failed => |failure| .{ .failed = failure },
-            };
-        }
-
-        pub fn stopListen(self: Listener) ?foundation.FailureChain {
-            return self.stopListenOutcome().requireComplete();
-        }
-
-        pub fn stopListenOutcome(self: Listener) TeardownOutcome {
-            return self.acceptor.operations().stop_listen(self.acceptor.resident.ctx, self.ctx);
-        }
-    };
-
-    pub const FinishAcceptOutcome = union(enum) {
-        connection: ?ClaimedConnection,
-        failed: netlayer.AcceptFailure,
-    };
+    pub const ListenAttempt = listening.ListenAttempt;
+    pub const ListenStartOutcome = listening.ListenStartOutcome;
+    pub const ListenFinishOutcome = listening.ListenFinishOutcome;
+    pub const ListenResult = listening.ListenResult;
+    pub const Listener = listening.Listener;
+    pub const FinishAcceptOutcome = listening.FinishAcceptOutcome;
 
     /// Runtime identity, independent of the transport profiles routed through
     /// it. Provider packages use this to share one runtime and readiness
@@ -598,6 +456,36 @@ pub const MultiplexedResident = struct {
 
     pub fn readinessFd(self: MultiplexedResident) i32 {
         return self.vtable.readiness_fd(self.ctx);
+    }
+
+    pub fn readyPending(self: MultiplexedResident) bool {
+        const pending = self.vtable.ready_pending orelse return false;
+        return pending(self.ctx);
+    }
+
+    pub fn beforeWait(self: MultiplexedResident, after: AfterTurn) void {
+        const before = self.vtable.before_wait orelse return;
+        before(self.ctx, after);
+    }
+
+    pub fn reap(self: MultiplexedResident) void {
+        const take = self.vtable.reap orelse return;
+        take(self.ctx);
+    }
+
+    /// Whether the runtime may park inside this resident.
+    pub fn parks(self: MultiplexedResident) bool {
+        return self.vtable.park != null and self.vtable.watch != null;
+    }
+
+    /// Requires `parks`.
+    pub fn park(self: MultiplexedResident, timeout_ms: i32) bool {
+        return self.vtable.park.?(self.ctx, timeout_ms);
+    }
+
+    /// Requires `parks`.
+    pub fn watch(self: MultiplexedResident, fd: i32) error{OutOfMemory}!void {
+        return self.vtable.watch.?(self.ctx, fd);
     }
 
     pub fn waitBoundMs(self: MultiplexedResident, requested_ms: i32) i32 {

@@ -5,6 +5,7 @@ import { Buffer } from "node:buffer";
 import { spawnWeb } from "../support/web_front.ts";
 import { reapOwned } from "../support/children.ts";
 import { establishLocalSession } from "../support/session_setup.ts";
+import { waitForFiniteAnimations } from "../support/animations.ts";
 import {
 	awaitBubble,
 	confirmTitleLeave,
@@ -123,11 +124,7 @@ try {
 		await first.evaluate(() =>
 			new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
 		);
-		await first.waitForFunction(() =>
-			!document.getAnimations().some((animation) =>
-				animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity
-			)
-		);
+		await waitForFiniteAnimations(first);
 		const bounds = await feedback.evaluate((element) => {
 			const box = element.getBoundingClientRect();
 			const owner = element.closest(".composer")!.getBoundingClientRect();

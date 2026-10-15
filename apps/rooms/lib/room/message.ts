@@ -184,7 +184,7 @@ export function readRoomFacts(args: Argument[]): RoomFacts | undefined {
  * (a participant seat, the topic facet, the files facet), and nothing they
  * hold could say whether the room keeps a line's link previews or relays the
  * typing signal. A feature named is carried and one not named is not, so a
- * room bridged to IRC states an empty list and a native room states both. A
+ * room bridged to IRC states an empty list and a Rooms room states both. A
  * word this client does not know is skipped, so a room may say something new
  * before every client is rebuilt. A statement that carries something that is
  * not a word, or runs past its bounds, is malformed, and the right reading of
@@ -205,7 +205,7 @@ export function readCarries(args: Argument[]): RoomCarries | undefined {
  * `notify(from, text, "bridge", prefix, badge, said)`.
  *
  * The prefix is what a foreign member's roster name carries, so a reader can be
- * told which rows are not native without the page knowing that `irc/` ever
+ * told which rows are not Rooms members without the page knowing that `irc/` ever
  * existed. All three are the bridge's words and are read as every other
  * inbound string is. A room that says any of it malformed has said none of it,
  * because a half-read prefix would mislabel a roster instead of leaving it

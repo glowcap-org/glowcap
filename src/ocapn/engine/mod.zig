@@ -190,13 +190,6 @@ fn frameByteLen(frame: *const foundation.Frame) usize {
 pub const Peer = struct {
     allocator: std.mem.Allocator,
     session_state: session.Session,
-    /// How far the codec has got framing the partial frame at the front of
-    /// whatever pending buffer the consumer is feeding from. It lives on the
-    /// peer because every byte-stream consumer reaches the decoder through
-    /// `recvStreamPrefix`, so one scan serves the completion loop, the byte-fed
-    /// host, the blocking pump, and the C ABI alike, and no consumer has to
-    /// remember to keep one. Reset when a frame is consumed.
-    stream_scan: codec.framing.StreamScan = .{},
     inbound: Queue(foundation.Frame, null),
     pending_send: Queue(PendingOutbound, null),
     /// Bytes charged to staged outbound rows. Each row stores its charge so
@@ -310,6 +303,7 @@ pub const Peer = struct {
     pub const PendingBatch = peer_outbound.PendingBatch;
     pub const pendingOutboundCharge = peer_outbound.pendingOutboundCharge;
     pub const reservePending = peer_outbound.reservePending;
+    pub const reservePendingCharged = peer_outbound.reservePendingCharged;
     pub const reserveAnswerRelease = peer_outbound.reserveAnswerRelease;
     pub const publishAnswerRelease = peer_outbound.publishAnswerRelease;
     pub const reserveInlinePassableStaging = peer_outbound.reserveInlinePassableStaging;
@@ -333,6 +327,7 @@ pub const Peer = struct {
     pub const commitProvisional = peer_provisional.commit;
     pub const retractProvisional = peer_provisional.retract;
     pub const checkOutboundWaterline = peer_outbound.checkOutboundWaterline;
+    pub const admitOutboundProducer = peer_outbound.admitOutboundProducer;
     pub const ensureOutboundCapacity = peer_outbound.ensureOutboundCapacity;
     pub const queuedOutboundBytes = peer_outbound.queuedOutboundBytes;
     pub const outboundSaturated = peer_outbound.outboundSaturated;
@@ -344,9 +339,13 @@ pub const Peer = struct {
 
     pub const send = peer_send.send;
     pub const sendPreparedFetch = peer_send.sendPreparedFetch;
-    pub const sendCopying = peer_send.sendCopying;
+    pub const sendBorrowed = peer_send.sendBorrowed;
+    pub const sendFreight = peer_send.sendFreight;
+    pub const encodeOutbound = peer_send.encodeOutbound;
+    pub const encodeOutboundBody = peer_send.encodeOutboundBody;
     pub const sendAnswerResolutionCopying = peer_send.sendAnswerResolutionCopying;
     pub const sendAnswerTargetResolutionCopying = peer_send.sendAnswerTargetResolutionCopying;
+    pub const sendAnswerTargetResolutionViewCopying = peer_send.sendAnswerTargetResolutionViewCopying;
 
     pub const sendWithdrawSettled = peer_handoffs.sendWithdrawSettled;
     pub const parkPendingWithdraw = peer_handoffs.parkPendingWithdraw;
@@ -402,6 +401,8 @@ pub const Peer = struct {
     pub const feedOwned = peer_drive.feedOwned;
     pub const step = peer_drive.step;
     pub const stepToIdle = peer_drive.stepToIdle;
+    pub const flushAnswerReleases = peer_drive.flushAnswerReleases;
+    pub const holdsAnswerReleases = @import("outbound/drain.zig").holdsAnswerReleases;
 
     pub const emitFailure = peer_failures.emitFailure;
     pub const lastAbort = peer_failures.lastAbort;
@@ -417,8 +418,6 @@ pub const Peer = struct {
     pub const takeOutbound = peer_send.takeOutbound;
 
     pub const recvBorrowed = peer_drive.recvBorrowed;
-    pub const RecvStream = peer_drive.RecvStream;
-    pub const recvStreamPrefix = peer_drive.recvStreamPrefix;
     pub const pollEvent = peer_drive.pollEvent;
 };
 
@@ -426,76 +425,66 @@ pub const Peer = struct {
 ///
 /// A `Peer` is what one CapTP session costs before it touches the heap, and the
 /// 500k-connection destination treats that cost as a budget: a field added here
-/// is a withdrawal from it. One kilobyte is the committed ceiling, so half a
-/// million idle sessions stay under 0.5 GiB of inline state and the heap-warmed
-/// footprint stays the number the ladder's step 2 quotes. The runtime half of the
-/// budget, the heap a warmed session grows, is held by
-/// `test/engine/footprint_budget_test.zig`. Crossing this ceiling is not a build
-/// failure to route around. It is a design event that raises the budget here, in
-/// the ladder, and in the vision, together, with the bytes justified.
+/// is a withdrawal from it. `test/engine/footprint_budget_test.zig` holds the
+/// runtime half, the heap a warmed session grows. Crossing this ceiling is not
+/// a build failure to route around. It is a design event that raises the
+/// budget here with the bytes justified.
 ///
-/// The most recent 24 of these bytes are two deliberate purchases. Sixteen are
-/// the stream scan, bought by giving two others back: Every byte-stream consumer reaches the decoder
-/// through `recvStreamPrefix`, so holding the scan here serves the completion
-/// loop, the byte-fed host, the blocking pump, and the C ABI from one place,
-/// where holding it per consumer served two of them and charged a loop
-/// connection twice, once in its `Conn` slot and again in its `HostSession`
-/// shell, for a frame only one of the two ever framed. The other eight are the
-/// end of the session's export range. The allocator is monotonic and counts
-/// positions ever minted rather than live ones, so without a far end a
-/// long-lived session that mints and releases walks into the next session's
-/// range and silently starts naming its objects, the whole hazard the ranges
-/// exist to remove. Eight bytes buys a typed refusal instead.
+/// Three deliberate purchases sit in the struct:
 ///
-/// The most recent eight are the import table's enrolled-token side, one word
-/// for a map that is only allocated once a session enrolls a
-/// capability under a node-unique token (ADR-0069). Most sessions never do, so
-/// the ordinary session pays the word and nothing else. It is held on
-/// the import row rather than in a node-side memo so it is forgotten when the
-/// import is released. A token that outlived its row would name whatever
-/// capability the partner put at that position next.
+/// - The end of the session's export range (8 bytes). The allocator is monotonic
+///   and counts positions ever minted rather than live ones, so without a far
+///   end a long-lived session that mints and releases walks into the next
+///   session's range and silently starts naming its objects, the whole hazard
+///   the ranges exist to remove. The word buys a typed refusal instead.
+/// - The import table's enrolled-token side (8 bytes), one word for a map that
+///   is only allocated once a session enrolls a capability under a node-unique
+///   token (ADR-0069). Most sessions never do, so the ordinary session pays the
+///   word and nothing else. It lives on the import row rather than in a
+///   node-side memo so it is forgotten when the import is released. A token
+///   that outlived its row would name whatever capability the partner put at
+///   that position next.
+/// - The low end of the session's export range (8 bytes). The high end alone
+///   stops the allocator being dragged past the range. It says nothing about a
+///   position from *below* the range, which names an object this session does
+///   not host just as surely. A name used in a namespace that is not its own is
+///   the class of bug this core has paid for most.
 ///
-/// The most recent eight are the low end of the session's export range. The
-/// high end alone stops the allocator being dragged past the range, which is
-/// the half that kills a session outright. It says nothing about a position
-/// from *below* the range, which names an object this session does not host
-/// just as surely. Half a check is what leaves a class of bug alive to be
-/// rediscovered, and this class, a name used in a namespace that is not its
-/// own, is the one this core has paid for most.
-/// ADR-0105 added storage for two distinct durable-key facts: the target a dial
+/// ADR-0105 gives the session two distinct durable-key facts: the target a dial
 /// named and the far end the byte-channel realizer verified. A
 /// byte-transparent relay can make those different parties, so one slot cannot
 /// represent both without confusing a target requirement with evidence.
-/// Identity is
-/// per-session state by design, the second key is paid only in the struct (the
-/// keys are fixed-width and nothing here allocates), and the warmed 2 KiB
-/// per-session ceiling in `docs/ladder.md` step 2 still holds
-/// (`test/engine/footprint_budget_test.zig`).
+/// Identity is per-session state by design, the second key is paid only in the
+/// struct (the keys are fixed-width and nothing here allocates), and the warmed
+/// per-session ceiling in `test/engine/footprint_budget_test.zig` holds.
 ///
-/// The number is where a 64-bit build measures today under runtime safety, so
-/// a field added here is a build failure rather than a withdrawal nobody
-/// watches. Forty of the bytes are std's, not glowcap's: each of the five
-/// embedded `std.ArrayList` headers (the four peer queues and the session's
-/// sturdyref cache) carries std's one-byte `pointer_stability` lock, padded to
-/// a word, in Debug and ReleaseSafe, the same lock every hash map here already
-/// pays. ReleaseFast and ReleaseSmall make the lock zero-sized and measure
-/// smaller. Every footprint number in `docs/ladder.md` step 2 is stated under
-/// the safe modes, because every gate runs there and `release-pack` names
-/// ReleaseSafe as the mode to ship.
+/// The number is where a 64-bit build measures under runtime safety, so a field
+/// added here is a build failure rather than a withdrawal nobody watches. Forty
+/// of the bytes are std's, not glowcap's: each of the five embedded
+/// `std.ArrayList` headers (the four peer queues and the session's sturdyref
+/// cache) carries std's one-byte `pointer_stability` lock, padded to a word, in
+/// Debug and ReleaseSafe, the same lock every hash map here already pays.
+/// ReleaseFast and ReleaseSmall make the lock zero-sized and measure smaller.
+/// Fifty-six more are the wire-hash secret (ADR-0218): one word on the
+/// session and one in each of the six tables keyed by positions the peer
+/// chooses, because those tables' verbs run without the session in hand. The
+/// sixth is the purpose side of the outbound resolver link, whose purposes
+/// carry the peer's answer positions (ADR-0223).
+/// Every footprint budget is stated under the safe modes, because every gate runs there and `release-pack` names ReleaseSafe as
+/// the mode to ship.
 ///
-/// It is still a ceiling and not an equality, unlike the `Conn` slot overhead
-/// in `src/net/completion/loop/state.zig`. That one measures a *difference* between
-/// two sizes on whatever target is building, which is stable across targets.
-/// This one measures a whole struct full of pointers and `usize`s, and
-/// `wasm32` (the sans-io core under `zig build cross-check`) makes it
-/// smaller, as does a fast build. So no single number is the
-/// measurement on every target and mode, and an equality here would fail the
-/// narrow ones.
-pub const peer_session_struct_budget_bytes = 1176;
+/// It is a ceiling and not an equality, unlike the `Conn` slot overhead in
+/// `src/net/completion/loop/state.zig`. That one measures a *difference*
+/// between two sizes on whatever target is building, which is stable across
+/// targets. This one measures a whole struct full of pointers and `usize`s, and
+/// `wasm32` (the sans-io core under `zig build cross-check`) makes it smaller,
+/// as does a fast build. So no single number is the measurement on every target
+/// and mode, and an equality here would fail the narrow ones.
+pub const peer_session_struct_budget_bytes = 1216;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
-        "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget (docs/ladder.md step 2). " ++
-            "A larger session struct is a withdrawal from the 500k footprint budget — raise the budget deliberately, do not route around it.",
+        "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget. " ++
+            "A larger session struct is a withdrawal from the 500k footprint budget. Raise the budget deliberately, do not route around it.",
         .{ @sizeOf(Peer), peer_session_struct_budget_bytes },
     ));
 }

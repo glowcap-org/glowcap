@@ -39,11 +39,10 @@ pub const AnswerSettlementCharge = struct {
     carrier: usize,
 };
 
-pub fn measureAnswerSettlementCharge(
+pub fn answerSettlementCharge(
     comptime Carrier: type,
-    resolution: model.Resolution,
+    resolution_charge: usize,
 ) !AnswerSettlementCharge {
-    const resolution_charge = try model.measureResolutionOwnedBytes(resolution);
     const carrier_charge = @sizeOf(Carrier);
     return .{
         .total = std.math.add(usize, carrier_charge, resolution_charge) catch
@@ -57,11 +56,7 @@ pub fn pendingCharge(item: anytype) !usize {
     return switch (item) {
         .answer_release => @sizeOf(@TypeOf(item)),
         .message => |message| model.measureMessageOwnedBytes(message),
-        .next_answered => |pair| blk: {
-            const operation = try model.measureMessageOwnedBytes(pair.operation);
-            const listener = try model.measureMessageOwnedBytes(pair.listener);
-            break :blk std.math.add(usize, operation, listener) catch error.MalformedView;
-        },
+        .encoded => |sent| sent.charge(),
         .settled_answer => |settled| settled.reservation_charge,
         .listener_fire => @sizeOf(@TypeOf(item)),
         // The staged carrier's bytes stay charged to its Node staging
@@ -71,15 +66,24 @@ pub fn pendingCharge(item: anytype) !usize {
 }
 
 pub fn reservePending(self: anytype, item: anytype, comptime Reservation: type) !Reservation {
-    const charge = try pendingCharge(item);
-    const is_handshake = switch (item) {
+    const handshake = switch (item) {
         .message => |message| message == .start_session,
         else => false,
     };
-    if (!is_handshake) {
-        if (charge > self.outbound_budget) return error.OutboundBackpressure;
-        try checkWaterline(self);
-    }
+    return reservePendingCharged(self, try pendingCharge(item), handshake, Reservation);
+}
+
+/// Reserve a pending seat for a carrier whose charge the caller already
+/// measured: the inventoried send path, whose inventory carries the tree's
+/// bytes. A handshake is exempt from backpressure, because the session cannot
+/// open without it.
+pub fn reservePendingCharged(
+    self: anytype,
+    charge: usize,
+    handshake: bool,
+    comptime Reservation: type,
+) !Reservation {
+    if (!handshake) try admitProducer(self, charge);
     try self.pending_send.ensureUnusedCapacity(
         self.allocator,
         self.pending_send_reservations + 1,
@@ -90,9 +94,15 @@ pub fn reservePending(self: anytype, item: anytype, comptime Reservation: type) 
     return .{ .charge = charge };
 }
 
-pub fn reserveInline(self: anytype, charge: usize, comptime Reservation: type) !Reservation {
+/// Refuse a producer of `charge` bytes that the budget cannot hold or that
+/// arrives at the waterline, before it costs anything.
+pub fn admitProducer(self: anytype, charge: usize) !void {
     if (charge > self.outbound_budget) return error.OutboundBackpressure;
     try checkWaterline(self);
+}
+
+pub fn reserveInline(self: anytype, charge: usize, comptime Reservation: type) !Reservation {
+    try admitProducer(self, charge);
     self.pending_send_bytes = std.math.add(usize, self.pending_send_bytes, charge) catch
         return error.OutboundBackpressure;
     return .{ .charge = charge };

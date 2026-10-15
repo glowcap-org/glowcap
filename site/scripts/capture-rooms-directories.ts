@@ -31,7 +31,7 @@ import { freePort } from "../../apps/rooms/test/support/ports.ts";
 import { reapOwned } from "../../apps/rooms/test/support/children.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { directOpened, openDmTo, reachDirectoryOnCard } from "../../apps/rooms/test/page/harness.ts";
-import { pinToLatest, plainRun, shot } from "./capture.ts";
+import { pinToLatest, plainRun, shot, still } from "./capture.ts";
 
 const outDir = Deno.args.find((arg) => !arg.startsWith("--")) ?? "site/assets";
 
@@ -131,6 +131,7 @@ const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] }
 const contexts: BrowserContext[] = [];
 async function tab(dir: Directory, scale = 1): Promise<Page> {
 	const context = await browser.newContext({
+		...still,
 		viewport: { width: 1280, height: 760 },
 		deviceScaleFactor: scale,
 		colorScheme: "dark",
@@ -232,6 +233,7 @@ try {
 	await mira.click("#settingsClose");
 
 	const second = await browser.newContext({
+		...still,
 		viewport: { width: 430, height: 900 },
 		deviceScaleFactor: 2,
 		colorScheme: "dark",

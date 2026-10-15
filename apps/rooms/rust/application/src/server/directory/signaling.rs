@@ -28,6 +28,9 @@ pub enum Relay<C, R> {
 pub struct Offered<C, R> {
 	pub id: String,
 	pub target: Route<C, R>,
+	/// The Host key the originator registered, which signaling routes it by.
+	/// The target pins the channel to it.
+	pub from: Option<String>,
 	/// Exchanges this offer displaced, told and released first.
 	pub dropped: Vec<Dropped<C, R>>,
 }
@@ -63,7 +66,15 @@ impl<C, R> Default for Exchanges<C, R> {
 }
 
 impl<C: Copy + Ord, R: Clone> Exchanges<C, R> {
-	pub fn offer(&mut self, originator: C, reply: R, target_key: String, target: (C, R), now: u64) -> Offered<C, R> {
+	pub fn offer(
+		&mut self,
+		originator: (C, Option<String>),
+		reply: R,
+		target_key: String,
+		target: (C, R),
+		now: u64,
+	) -> Offered<C, R> {
+		let (originator, from) = originator;
 		let mut dropped = Vec::new();
 		// One live exchange per originator toward one target; a new offer
 		// replaces the one before it.
@@ -97,6 +108,7 @@ impl<C: Copy + Ord, R: Clone> Exchanges<C, R> {
 				connection: target.0,
 				capability: target.1,
 			},
+			from,
 			dropped,
 		}
 	}
@@ -148,7 +160,6 @@ impl<C: Copy + Ord, R: Clone> Exchanges<C, R> {
 	pub fn contains(&self, id: &str) -> bool {
 		self.rows.contains_key(id)
 	}
-	/// The originator retires its own exchange. Nothing is told.
 	/// Every exchange in flight, oldest first.
 	pub fn faces(&self) -> impl Iterator<Item = ExchangeFace<C>> + '_ {
 		self.order.iter().filter_map(|id| {
@@ -158,11 +169,31 @@ impl<C: Copy + Ord, R: Clone> Exchanges<C, R> {
 			})
 		})
 	}
+	/// The originator retires its own exchange. Nothing is told.
 	pub fn done(&mut self, connection: C, id: &str) -> Option<Dropped<C, R>> {
 		if self.rows.get(id)?.originator != connection {
 			return None;
 		}
 		self.drop(id, None)
+	}
+	/// The answering member gives the exchange up, and the originator hears
+	/// its reason instead of waiting out the timeout.
+	pub fn decline(
+		&mut self,
+		connection: C,
+		id: &str,
+		reason: &str,
+		registrar: impl Fn(&str) -> Option<C>,
+	) -> Result<Option<Dropped<C, R>>, Refusal> {
+		let Some(row) = self.rows.get(id) else {
+			return Ok(None);
+		};
+		if registrar(&row.target_key) != Some(connection) {
+			return Err(Refusal::plain(
+				"signalDecline from a session that does not answer this exchange",
+			));
+		}
+		Ok(self.drop(id, Some(format!("{}{reason}", crate::signaling::DECLINED))))
 	}
 	pub fn drop(&mut self, id: &str, reason: Option<String>) -> Option<Dropped<C, R>> {
 		let row = self.rows.remove(id)?;

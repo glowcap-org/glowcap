@@ -1,4 +1,4 @@
-//! Mechanical projection of native driver failure categories into the C result
+//! Mechanical projection of Zig driver failure categories into the C result
 //! vocabulary. Domain classification remains in `driver`.
 
 const driver = @import("driver");

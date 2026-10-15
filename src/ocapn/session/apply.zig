@@ -31,6 +31,8 @@ const AnswerDirection = session.AnswerDirection;
 
 pub const retainSentExportRef = sent_exports.retainRef;
 pub const releaseSentMessage = sent_exports.releaseMessage;
+pub const releaseSentExports = sent_exports.releaseExports;
+pub const listSentExports = sent_exports.listSentExports;
 pub const ensureSentResolutionExportCapacity = sent_exports.ensureResolutionCapacity;
 
 pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const validate.IntroducedImports) !void {
@@ -155,7 +157,7 @@ fn relocateSubslice(owned: []u8, parent: []const u8, child: []const u8) ?[]const
     return owned[off..][0..child.len];
 }
 
-pub fn applySend(self: *Session, message: model.Message) !void {
+pub fn applySend(self: *Session, message: model.Message, inventory: session.Inventory) !void {
     // Answer-producing sends retain every near reference they publish. Acquire
     // the only fallible storage those arms need before taking any wire-delta
     // retain, so an allocator refusal cannot leave authority for a frame that
@@ -172,7 +174,7 @@ pub fn applySend(self: *Session, message: model.Message) !void {
 
     // Account every `near` export we put on the wire so a later
     // `op:gc-exports` releasing the same wire-delta balances.
-    try sent_exports.retainMessage(self, message);
+    try sent_exports.retainMessage(self, message, inventory);
     switch (message) {
         .deliver => |deliver| {
             if (deliver.answer) |answer| {
@@ -251,26 +253,27 @@ fn installPreparedOutboundAnswer(self: *Session, position: model.AnswerPosition)
 /// status-reading consumer (op:listen, projections, pipelined op:deliver) then
 /// had to special-case it. The invariant is structural: for every inbound
 /// answer, `status != .pending` if and only if a resolution is stored.
-pub fn applySentResolve(self: *Session, resolve: model.Resolve) !void {
-    return applySentResolutionNamed(self, .fromWire(resolve.answer), resolve.resolution);
+pub fn applySentResolve(self: *Session, resolve: model.Resolve, inventory: session.Inventory) !void {
+    return applySentResolutionNamed(self, .fromWire(resolve.answer), resolve.resolution, inventory);
 }
 
 pub fn applySentResolutionNamed(
     self: *Session,
     answer_name: model.AnswerName,
     resolution: model.Resolution,
+    inventory: session.Inventory,
 ) !void {
     var resolution_owned = true;
     errdefer if (resolution_owned)
         model.freeResolution(self.allocator, resolution);
     // Admit the durable answer bytes before any capacity reservation or export
-    // mutation. The plan measures the tree once and carries its charge through
-    // the later infallible commit.
-    const store_plan = try answers.planResolutionStoreNamed(self, answer_name, resolution);
-    // Reserve every allocation the export walk and answer store can need before
-    // either authority changes. Validation already bounded the recursive tree;
+    // mutation. The inventory measured the tree once, and its charge travels
+    // through the later infallible commit.
+    const store_plan = try answers.planResolutionStoreNamed(self, answer_name, resolution, inventory.owned_bytes);
+    // Reserve every allocation the export pass and answer store can need before
+    // either authority changes. The inventory already bounded the tree;
     // capacity plus the prepared store make the commit below infallible.
-    try self.ensureSentResolutionExportCapacity(resolution);
+    try self.ensureSentResolutionExportCapacity(resolution, inventory);
     const prepared_store = try answers.prepareResolutionStore(self, store_plan);
     // Establish every fulfilled local export now. A V1 resolver callback is a
     // known publication and takes its wire retain here; next keeps only the
@@ -278,7 +281,7 @@ pub fn applySentResolutionNamed(
     if (resolution == .fulfill) {
         const has_v1_callback = self.captp_version == .v1_0 and
             self.resolverForInboundAnswer(answer_name) != null;
-        sent_exports.recordResolutionArg(self, resolution.fulfill, has_v1_callback) catch unreachable;
+        sent_exports.recordMentions(self, inventory, &resolution.fulfill, has_v1_callback) catch unreachable;
     }
     // Transfer ownership only after every fallible preparation. No export
     // retain can survive without the stored resolution it describes.
@@ -291,6 +294,7 @@ pub fn applySentResolutionTarget(
     target: session.AnswerTarget,
     payload: *session.AnswerPayload,
     resolution: model.Resolution,
+    inventory: session.Inventory,
 ) !void {
     var resolution_owned = true;
     errdefer if (resolution_owned)
@@ -300,13 +304,14 @@ pub fn applySentResolutionTarget(
         target,
         payload,
         resolution,
+        inventory.owned_bytes,
     );
-    try self.ensureSentResolutionExportCapacity(resolution);
+    try self.ensureSentResolutionExportCapacity(resolution, inventory);
     const prepared_store = try answers.prepareResolutionStore(self, store_plan);
     if (resolution == .fulfill) {
         const has_v1_callback = self.captp_version == .v1_0 and
             payload.resolver_import != null;
-        sent_exports.recordResolutionArg(self, resolution.fulfill, has_v1_callback) catch unreachable;
+        sent_exports.recordMentions(self, inventory, &resolution.fulfill, has_v1_callback) catch unreachable;
     }
     answers.commitPreparedResolutionStore(self, prepared_store, resolution);
     resolution_owned = false;
@@ -352,7 +357,7 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
 /// traversal. The walk that produced it is
 /// `session/validate/passable.zig`'s one dual-shape walker.
 fn installIntroducedImports(self: *Session, introduced: *const validate.IntroducedImports) void {
-    for (introduced.mentions.items) |import_position| {
+    for (introduced.mentions.items()) |import_position| {
         self.imports.retainAssumeCapacity(import_position);
     }
 }

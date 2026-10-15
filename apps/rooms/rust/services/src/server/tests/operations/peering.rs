@@ -164,7 +164,7 @@ async fn peering() {
 		.unwrap();
 	let client = Client::new(visiting.borrowed(), rooms_platform::HostPlatform);
 	let directory = Directory::fetch(client.clone()).await.unwrap();
-	let listed = directory.list().await.unwrap();
+	let listed = directory.list(None).await.unwrap().rooms;
 	assert_eq!(listed.len(), 1);
 	assert_eq!(listed[0].kind, rooms_application::directory::PublicationKind::Foreign);
 	assert_eq!(listed[0].proof, rooms_application::directory::OriginProof::Session);
@@ -226,7 +226,7 @@ async fn peering() {
 			.as_str(),
 		Some("failed")
 	);
-	assert!(directory.list().await.unwrap().is_empty());
+	assert!(directory.list(None).await.unwrap().rooms.is_empty());
 	assert!(directory.enter("garden").await.is_err());
 	room.say("still here").await.unwrap();
 	drop(room);
@@ -250,12 +250,12 @@ async fn peering() {
 	)
 	.await
 	.unwrap();
-	assert_eq!(directory.list().await.unwrap().len(), 1);
+	assert_eq!(directory.list(None).await.unwrap().rooms.len(), 1);
 	within("the publisher leaving", at_destination.close(PendingWork::Cancel))
 		.await
 		.unwrap();
 	tokio::time::timeout(Duration::from_secs(5), async {
-		while !directory.list().await.unwrap().is_empty() {
+		while !directory.list(None).await.unwrap().rooms.is_empty() {
 			tokio::time::sleep(Duration::from_millis(20)).await;
 		}
 	})

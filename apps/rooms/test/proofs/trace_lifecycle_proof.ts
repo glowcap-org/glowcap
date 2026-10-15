@@ -32,7 +32,7 @@ import { spawnWeb } from "../support/web_front.ts";
 //     incoming session out from under other capabilities.
 //   - a tab going away takes its peer and every session it held.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives,
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives,
 // and a Playwright Chromium (the devcontainer image ships one).
 // Run: `zig build rooms-web-trace-lifecycle`.
 

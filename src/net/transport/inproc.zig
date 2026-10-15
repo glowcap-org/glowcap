@@ -1,5 +1,5 @@
-//! The in-process netlayer (`inproc`): a second resident behind the netlayer
-//! contract, with no sockets at all.
+//! The in-process netlayer (`inproc`): a resident behind the netlayer
+//! contract with no sockets at all.
 //!
 //! A `Network` is a switchboard. A listener binds to a designator, a dialer
 //! names that designator, and the two are wired by a pair of in-process byte
@@ -23,7 +23,7 @@
 //!
 //! Blocking uses `std.Io.Mutex` / `std.Io.Condition`, the io-aware primitives, so
 //! one handshake half parks until the other produces bytes under whatever `std.Io`
-//! backs the conversation (a threaded backend blocks the thread. A fiber backend
+//! backs the conversation (a threaded backend blocks the thread, a fiber backend
 //! yields). Teardown callbacks recover the resident's stored `std.Io` and use the
 //! same primitives, so the mock transport does not carry a separate spin-lock
 //! discipline from the production adapters.

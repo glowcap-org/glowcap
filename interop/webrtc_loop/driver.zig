@@ -10,12 +10,14 @@
 //! backend's readiness descriptor, not serving them serially.
 //!
 //! Signaling is an in-process hub, the same stand-in `webrtc-mesh` uses for the
-//! room-carried capability the rooms app ships in TypeScript: the hub answers
-//! each client offer by creating the answerer peer on the server's resident,
-//! authorizing the client's identity, and handing the peer to
-//! `Backend.adoptAnswerer`: the backend's one inbound entry, since WebRTC has
-//! no accept substrate. Candidates trickle both ways through the backend's
-//! thread-safe `provideRemoteCandidate` and the authority's `sendCandidate`.
+//! room-carried capability the rooms app ships in TypeScript: the hub hands
+//! each client offer to `Backend.startAnswer` with the client's designator,
+//! and the backend builds the answerer, scopes the channel to that identity,
+//! and sends the answer back through the authority's `sendAnswer`. Candidates
+//! trickle both ways through the backend's thread-safe
+//! `provideRemoteCandidate` and the authority's `sendCandidate`. Every
+//! accepted session names the client's designator as its authenticated
+//! partner.
 //!
 //! Not part of the hermetic `zig build check` run set as a *runnable* (it links
 //! the Rust sidecar, needs cargo). The compile-only sibling rides `check`.
@@ -41,13 +43,15 @@ const bring_up_timeout_ms: usize = 20_000;
 const WebrtcResident = net.completion_resident.Resident(webrtc.Backend, webrtc.ResidentPolicy);
 
 const Greeter = struct {
-    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
         return .{ .string = greeting };
     }
 };
 const CapturedRef = webrtc_common.CapturedRef;
 const CapturedString = webrtc_common.CapturedString;
+
+const Designator = [crypto.PeerKey.designator_len]u8;
 
 /// The in-process signaling hub: the stand-in for the room-carried signaling
 /// capability. It owns the fd-to-client routing for the server's outbound
@@ -57,8 +61,16 @@ const Hub = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
     backend: *webrtc.Backend,
-    server_resident: *webrtc.Resident,
     clients: std.AutoHashMap(i32, *ClientRoute),
+    /// Clients whose offer is being answered, by designator, until the
+    /// backend's `sendAnswer` names their exchange fd.
+    pending: std.AutoHashMap(Designator, *ClientRoute),
+    /// Answers the backend produced, by exchange fd, until the offering
+    /// client collects its own.
+    answers: std.AutoHashMap(i32, []u8),
+    /// Every designator the backend answered, for the final identity check.
+    answered: [num_conns]Designator = undefined,
+    answered_count: usize = 0,
 
     const ClientRoute = struct {
         mutex: std.Io.Mutex = .init,
@@ -96,13 +108,14 @@ const Hub = struct {
         }
     };
 
-    fn init(allocator: std.mem.Allocator, io: std.Io, backend: *webrtc.Backend, server_resident: *webrtc.Resident) Hub {
+    fn init(allocator: std.mem.Allocator, io: std.Io, backend: *webrtc.Backend) Hub {
         return .{
             .allocator = allocator,
             .io = io,
             .backend = backend,
-            .server_resident = server_resident,
             .clients = std.AutoHashMap(i32, *ClientRoute).init(allocator),
+            .pending = std.AutoHashMap(Designator, *ClientRoute).init(allocator),
+            .answers = std.AutoHashMap(i32, []u8).init(allocator),
         };
     }
 
@@ -110,6 +123,12 @@ const Hub = struct {
         var it = self.clients.valueIterator();
         while (it.next()) |route| self.allocator.destroy(route.*);
         self.clients.deinit();
+        var pending_it = self.pending.valueIterator();
+        while (pending_it.next()) |route| self.allocator.destroy(route.*);
+        self.pending.deinit();
+        var answer_it = self.answers.valueIterator();
+        while (answer_it.next()) |answer| self.allocator.free(answer.*);
+        self.answers.deinit();
     }
 
     fn retainRoute(self: *Hub, fd: i32) ?*ClientRoute {
@@ -148,37 +167,69 @@ const Hub = struct {
         try route.send(hub.io, ice);
     }
 
+    /// Carry the server's answer to the client `designator` names. The
+    /// backend calls this inside `startAnswer`, on the client's own thread,
+    /// so the client's route is filed under its exchange fd before any
+    /// server candidate can look for it, and the client collects the answer
+    /// as soon as `startAnswer` returns.
+    fn sendAnswer(ctx: *anyopaque, fd: i32, designator: []const u8, sdp: []const u8) anyerror!void {
+        const hub: *Hub = @ptrCast(@alignCast(ctx));
+        if (designator.len != crypto.PeerKey.designator_len) return error.UnknownOfferer;
+        const copy = try hub.allocator.dupe(u8, sdp);
+        errdefer hub.allocator.free(copy);
+        hub.mutex.lock();
+        defer hub.mutex.unlock();
+        try hub.clients.ensureUnusedCapacity(1);
+        try hub.answers.ensureUnusedCapacity(1);
+        if (hub.answered_count == hub.answered.len) return error.TooManyOffers;
+        const route = hub.pending.fetchRemove(designator[0..crypto.PeerKey.designator_len].*) orelse return error.UnknownOfferer;
+        hub.clients.putAssumeCapacity(fd, route.value);
+        hub.answers.putAssumeCapacity(fd, copy);
+        hub.answered[hub.answered_count] = route.key;
+        hub.answered_count += 1;
+    }
+
     fn authority(self: *Hub) webrtc.SignalingAuthority {
-        return .{ .ctx = self, .sendOffer = sendOffer, .sendCandidate = sendCandidate };
+        return .{ .ctx = self, .sendOffer = sendOffer, .sendAnswer = sendAnswer, .sendCandidate = sendCandidate };
     }
 
     const OfferResult = struct { fd: i32, answer: []const u8 };
 
-    /// Answer a client's offer: create the server-side answerer, authorize the
-    /// client identity the exchange is scoped to, adopt it into the backend,
-    /// and file the client for return candidates. Runs on the client's thread,
-    /// `adoptAnswerer` is the backend's thread-safe entry.
+    /// Carry a client's offer to the server's backend, which builds the
+    /// answerer scoped to the client's identity, and collect the answer it
+    /// sent back. Runs on the client's thread: `startAnswer` is the backend's
+    /// thread-safe entry.
     fn offer(
         self: *Hub,
         client_peer: *webrtc.Peer,
-        client_key: crypto.PeerKey,
+        client_designator: *const Designator,
         offer_sdp: []const u8,
         answer_buf: []u8,
     ) !OfferResult {
-        var answerer = try self.server_resident.newPeer(false);
-        errdefer answerer.deinit();
-        try answerer.setRemoteOffer(offer_sdp);
-        var answer_len: usize = 0;
-        const answer = try answerer.createAnswer(answer_buf, &answer_len);
-        answerer.authorizeRemote(client_key);
-        const fd = try self.backend.adoptAnswerer(answerer);
         const route = try self.allocator.create(ClientRoute);
         route.* = .{ .peer = client_peer };
-        errdefer self.allocator.destroy(route);
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        try self.clients.put(fd, route);
-        return .{ .fd = fd, .answer = answer };
+        {
+            errdefer self.allocator.destroy(route);
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            try self.pending.putNoClobber(client_designator.*, route);
+        }
+        const fd = self.backend.startAnswer(client_designator, offer_sdp) catch |err| {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            if (self.pending.fetchRemove(client_designator.*)) |kv| self.allocator.destroy(kv.value);
+            return err;
+        };
+        const answer = blk: {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            const kv = self.answers.fetchRemove(fd) orelse return error.AnswerNotCarried;
+            break :blk kv.value;
+        };
+        defer self.allocator.free(answer);
+        if (answer.len > answer_buf.len) return error.AnswerTooLarge;
+        @memcpy(answer_buf[0..answer.len], answer);
+        return .{ .fd = fd, .answer = answer_buf[0..answer.len] };
     }
 
     /// Drop the return-candidate route once the client's channel is up (or its
@@ -214,11 +265,12 @@ fn clientOnce(
     try io.randomSecure(&seed);
     const secret = crypto.SecretKey.fromSeed(seed);
 
+    const client_designator = secret.publicKey().toDesignator();
     var sdp_buf: [webrtc_common.signaling_frame_bytes]u8 = undefined;
     var sdp_len: usize = 0;
     const offer_sdp = try peer.createOffer(&sdp_buf, &sdp_len);
     var signal_buf: [webrtc_common.signaling_frame_bytes]u8 = undefined;
-    const answered = try hub.offer(&peer, secret.publicKey(), offer_sdp, &signal_buf);
+    const answered = try hub.offer(&peer, &client_designator, offer_sdp, &signal_buf);
     defer hub.forget(answered.fd);
     try peer.setRemoteAnswer(answered.answer);
 
@@ -242,7 +294,6 @@ fn clientOnce(
     });
     defer client_host.deinit();
 
-    const client_designator = secret.publicKey().toDesignator();
     try client_host.setAdvertisedLocator(.{
         .transport = webrtc.transport_name,
         .designator = client_designator[0..],
@@ -282,9 +333,13 @@ fn clientOnce(
 }
 
 /// The serving side: one HostRuntime listener whose accepted sessions all
-/// serve the published greeter, stepped on one thread.
+/// serve the published greeter, stepped on one thread. Each accepted
+/// session's authenticated partner is recorded for the final check.
 const Server = struct {
+    host: *driver.core.Host,
     failure: ?anyerror = null,
+    accepted: [num_conns]Designator = undefined,
+    accepted_count: usize = 0,
 
     const listener_tag: u64 = 1;
 
@@ -292,7 +347,18 @@ const Server = struct {
         return .{ .ctx = self, .opened = opened, .failed = failed };
     }
 
-    fn opened(_: *anyopaque, _: u64, _: *driver.core.HostSession) anyerror!void {}
+    /// The channel was scoped to the client's designator when the backend
+    /// answered its offer, so the session opens with that identity proved by
+    /// the transport.
+    fn opened(ctx: *anyopaque, _: u64, session: *driver.core.HostSession) anyerror!void {
+        const self: *Server = @ptrCast(@alignCast(ctx));
+        const identity = try self.host.partnerIdentity(session);
+        if (identity.provenance != .authenticated_transport) return error.UnprovenClient;
+        if (identity.designator.len != crypto.PeerKey.designator_len) return error.UnprovenClient;
+        if (self.accepted_count == self.accepted.len) return error.TooManyClients;
+        self.accepted[self.accepted_count] = identity.designator[0..crypto.PeerKey.designator_len].*;
+        self.accepted_count += 1;
+    }
 
     fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
         const self: *Server = @ptrCast(@alignCast(ctx));
@@ -350,7 +416,7 @@ pub fn main(init: std.process.Init) !void {
     });
     defer host.deinit();
 
-    var hub = Hub.init(allocator, io, undefined, &server_resident);
+    var hub = Hub.init(allocator, io, undefined);
     defer hub.deinit();
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
@@ -373,7 +439,7 @@ pub fn main(init: std.process.Init) !void {
     defer runtime.deinit();
     _ = try runtime.addResident(model.transport.Known.webrtc.metadata(), resident.resident());
     try runtime.publish("greeter", Greeter, .{});
-    var server = Server{};
+    var server = Server{ .host = &host };
     try server.listen(&runtime, allocator);
 
     var loop_err: ?anyerror = null;
@@ -400,8 +466,17 @@ pub fn main(init: std.process.Init) !void {
     if (server.failure) |err| return err;
     if (first_err) |err| return err;
 
+    // Every accepted session named the client whose offer the backend
+    // answered, and nothing else was accepted.
+    if (server.accepted_count != num_conns or hub.answered_count != num_conns) return error.AcceptedCountMismatch;
+    for (server.accepted) |accepted| {
+        var answered = false;
+        for (hub.answered) |designator| answered = answered or std.mem.eql(u8, &designator, &accepted);
+        if (!answered) return error.AcceptedUnansweredClient;
+    }
+
     std.debug.print(
-        "webrtc-loop: OK, {d} concurrent DataChannels, {d} calls each, served from one HostRuntime thread over a completion resident\n",
+        "webrtc-loop: OK, {d} concurrent DataChannels answered by the backend, {d} calls each, served from one HostRuntime thread over a completion resident\n",
         .{ num_conns, calls_per_conn },
     );
 }

@@ -10,7 +10,7 @@ const CapturedRef = @import("../support/capture.zig").CapturedRef;
 const publishAndOpenAccepted = host_pair.publishAndOpenAccepted;
 
 const LocalActor = struct {
-    pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Message) !model.Argument {
+    pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Delivery) !model.Argument {
         return .{ .void = {} };
     }
 };
@@ -18,7 +18,7 @@ const LocalActor = struct {
 const Vendor = struct {
     offered: model.Reference,
 
-    pub fn handle(self: *Vendor, _: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Vendor, _: *actors.Turn, msg: actors.Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
         return .{ .reference = self.offered };
     }
@@ -34,13 +34,17 @@ const LiftSink = struct {
     session: *core.HostSession,
     capture: *LiftCapture,
 
-    pub fn handle(self: *LiftSink, _: *actors.Turn, msg: actors.Message) !model.Argument {
-        if (!std.mem.eql(u8, msg.verb, "take") or msg.args.len != 1 or msg.args[0] != .reference)
-            return error.BadArguments;
-        const reference = msg.args[0].reference;
-        if (reference != .far) return error.BadArguments;
-        self.capture.position = reference.far.import_position.int();
-        self.capture.ref = try self.host.liftCapability(self.session, reference);
+    pub fn handle(self: *LiftSink, _: *actors.Turn, msg: actors.Delivery) !model.Argument {
+        if (!std.mem.eql(u8, msg.verb, "take") or (try msg.args.len()) != 1) return error.BadArguments;
+        const far = switch (try msg.arg(0)) {
+            .reference => |reference| switch (reference) {
+                .far => |far| far,
+                else => return error.BadArguments,
+            },
+            else => return error.BadArguments,
+        };
+        self.capture.position = far.import_position.int();
+        self.capture.ref = try self.host.liftCapability(self.session, .{ .far = far });
         return .{ .void = {} };
     }
 };
@@ -386,7 +390,7 @@ test "Host capability verbs refuse a session owned by another Host" {
     try b_session.served.port.peer.importObject(7);
     const ref = try a.liftCapability(a_session, .{ .far = model.FarRef.object(7) });
     const b_ref = try b.liftCapability(b_session, .{ .far = model.FarRef.object(7) });
-    // Native refs carry the Registry pointer as their scope proof, so two core
+    // Zig refs carry the Registry pointer as their scope proof, so two core
     // Hosts may use the same local scalar without aliasing. The C adapter's
     // process-wide keyed issuer separates opaque ABI-visible scalars across
     // live and retired Hosts; its boundary test lives in c_abi/host_test.zig.

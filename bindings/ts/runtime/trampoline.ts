@@ -1,9 +1,9 @@
-// The behavior trampoline: the ONE native callback in the whole binding. Every
+// The behavior trampoline: the ONE FFI callback in the whole binding. Every
 // hosted object (a `Session.spawn`/`publish` actor, a caretaker or
 // attenuator proxy, a Host publication) registers here and shares a single
 // process-lifetime `GlowcapHostBehavior` whose ctx is the entry's registry id
 // packed as a pointer-sized integer. Host-wide publications also pass the one
-// shared context-free callback, so the native Vat retires their JS ownership
+// shared context-free callback, so the FFI Vat retires their JS ownership
 // with their last actor root. Settlements never cross
 // the C boundary as callbacks; they ride the action queue (SETTLE/FAIL).
 //
@@ -27,12 +27,12 @@ import { checkHost, GlowcapError, hostLastError, VowBroken } from "./errors.ts";
 import { type Argument, type Behavior, Forward, liveRefId, Ref, refFromId } from "./value.ts";
 import { encodeArgs, readArgArray, refStruct } from "./abi_value.ts";
 import { type PromiseFactoryHandle, RemotePromise, sendFar } from "./promise.ts";
-import { type BehaviorEntry, entryFor, releaseNativeBehavior } from "./behavior_registry.ts";
+import { type BehaviorEntry, entryFor, releaseFfiBehavior } from "./behavior_registry.ts";
 
 export {
 	type BehaviorEntry,
 	entryFor,
-	type NativeBehaviorOwner,
+	type FfiBehaviorOwner,
 	registerBehavior,
 	unregisterBehavior,
 } from "./behavior_registry.ts";
@@ -350,7 +350,7 @@ function settleReply(
 		// owning Host, which the enclosing feed bracket carries.
 		const owner = activeDeliver ?? undefined;
 		if (owner === undefined || typeof owner.deferTurnToPromise !== "function") {
-			return turnBreak(turn, "async behavior outside native Host progress");
+			return turnBreak(turn, "async behavior outside FFI Host progress");
 		}
 		if (!owner.deferTurnToPromise(turn, result)) {
 			return turnBreak(turn, hostLastError() ?? "deferral refused");
@@ -414,14 +414,14 @@ function trampoline(
 	}
 }
 
-// The one native callback, created on first use and never closed (closing a
+// The one FFI callback, created on first use and never closed (closing a
 // trampoline from inside its own invocation frees it mid-call, and the host
 // may deliver for as long as the process hosts objects). Deno and Bun register
 // callbacks globally, so the runtime FFI mints it once for every archive.
 let trampolineCb: { pointer: Ptr } | null = null;
 let hostedFreeCb: { pointer: Ptr } | null = null;
 
-/** The shared trampoline's native pointer, for publish/spawn calls. */
+/** The shared trampoline's FFI pointer, for publish/spawn calls. */
 export function trampolinePointer(): Ptr {
 	if (trampolineCb === null) {
 		trampolineCb = ffi.makeCallback(
@@ -443,12 +443,12 @@ export function trampolinePointer(): Ptr {
 	return trampolineCb.pointer;
 }
 
-/** The shared C context destructor for natively owned hosted behaviors. */
+/** The shared C context destructor for FFI-owned hosted behaviors. */
 export function hostedFreePointer(): Ptr {
 	if (hostedFreeCb === null) {
 		hostedFreeCb = ffi.makeCallback(
 			{ parameters: ["pointer"], result: "void" },
-			(ctx: Ptr) => releaseNativeBehavior(BigInt(ctx)),
+			(ctx: Ptr) => releaseFfiBehavior(BigInt(ctx)),
 		);
 	}
 	return hostedFreeCb.pointer;

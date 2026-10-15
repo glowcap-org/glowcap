@@ -3,8 +3,7 @@
 // It is not its own screen. The shell (rail, topbar, Settings) stays up,
 // and this surface stands where the conversation stands, so the way back is
 // the rail itself and Settings opens over it exactly as it opens over a room.
-// The modal this surface replaced could only show what was already held. An
-// address can be arrived at cold, so the gate lives here: a pane this tab
+// An address can be arrived at cold, so the gate lives here: a pane this tab
 // holds is drawn, and one it does not hold leads to the one saved
 // capability-set editor. Possession, not the address, is what grants the
 // server's side.
@@ -17,6 +16,7 @@ import {
 	opsEditCapabilitySet,
 	opsIndex,
 	opsIrcBridgesWhat,
+	opsMintedWithFlag,
 	opsNeedsAdmin,
 	opsNotFoundSaid,
 	opsNotFoundTitle,
@@ -88,18 +88,14 @@ function GateCard({ pane, canEdit }: { pane: OpsPaneFace; canEdit: boolean }) {
 				? (
 					<>
 						<p>{single.lead}</p>
-						<p className="hint">
-							The server mints it with the {single.flag} flag.
-						</p>
+						<p className="hint">{opsMintedWithFlag(single.flag)}</p>
 					</>
 				)
 				: pane.caps.map((cap) => (
 					<div className="ops-gate-cap" key={cap}>
 						<h3>{OPS_CATALOG[cap].label}</h3>
 						<p>{OPS_CATALOG[cap].lead}</p>
-						<p className="hint">
-							The server mints it with the {OPS_CATALOG[cap].flag} flag.
-						</p>
+						<p className="hint">{opsMintedWithFlag(OPS_CATALOG[cap].flag)}</p>
 					</div>
 				))}
 			{canEdit

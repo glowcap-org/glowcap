@@ -240,7 +240,7 @@ export abstract class SessionLifecycle {
 	 * returns the same promise.
 	 *
 	 * A loop-backed session (ADR-0112) has no byte pump of its own: the
-	 * native loop reads, feeds, and drains. Its serve promise only awaits
+	 * driver loop reads, feeds, and drains. Its serve promise only awaits
 	 * the session's closure, keeping the resolves-on-close contract. */
 	#attendInbound(): void {
 		if (this.#serving === null) {
@@ -381,7 +381,7 @@ export abstract class SessionLifecycle {
 		}
 		// Natural EOF or a transport fault already made the serve pump the one
 		// teardown owner. A concurrent explicit close joins that retirement;
-		// starting a second native close here can queue CLOSE after the pump's
+		// starting a second FFI close here can queue CLOSE after the pump's
 		// action-barrier snapshot and strand its result behind wrapper release.
 		if (this.#closing && this.#serving !== null) {
 			await this.#joinCloseBarrier(this.#serving);
@@ -484,9 +484,9 @@ export abstract class SessionLifecycle {
 		else resolve?.();
 	}
 
-	/** Commit wrapper retirement after the native owner released the whole Host
-	 * or loop. No per-session native call is valid beyond this boundary. */
-	nativeOwnerDidRelease(): Promise<void> {
+	/** Commit wrapper retirement after the FFI owner released the whole Host
+	 * or loop. No per-session FFI call is valid beyond this boundary. */
+	ffiOwnerDidRelease(): Promise<void> {
 		if (this.#released) return this.#transportClose ?? Promise.resolve();
 		this.#closing = true;
 		this.#released = true;
@@ -505,10 +505,10 @@ export abstract class SessionLifecycle {
 		return this.#transportClose;
 	}
 
-	/** Project one native SESSION_CLOSED event onto this wrapper before release.
+	/** Project one FFI SESSION_CLOSED event onto this wrapper before release.
 	 * Binding-internal: the loop owns classification; Session owns only promise
 	 * and listener settlement. */
-	nativeTransportDidClose(error: GlowcapError | null): Promise<void> {
+	ffiTransportDidClose(error: GlowcapError | null): Promise<void> {
 		const transport = this.#transport;
 		if (!isLoopChannel(transport)) {
 			return Promise.reject(new GlowcapError(INVALID_ARGUMENT, "session is not loop-backed"));
@@ -544,7 +544,7 @@ export abstract class SessionLifecycle {
 		const transport = this.#transport;
 		const commitRelease = () => {
 			try {
-				if (isLoopChannel(transport)) transport.driverLoop.nativeSessionRelease(ptr);
+				if (isLoopChannel(transport)) transport.driverLoop.ffiSessionRelease(ptr);
 				else checkHost(hostS.glowcap_host_session_release(ptr));
 			} catch (error) {
 				this.#releasePending = false;
@@ -578,7 +578,7 @@ export abstract class SessionLifecycle {
 		}
 	}
 
-	protected get nativePtr(): Ptr {
+	protected get ffiPtr(): Ptr {
 		return this.#ptr;
 	}
 

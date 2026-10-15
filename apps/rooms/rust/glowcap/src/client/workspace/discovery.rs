@@ -80,12 +80,16 @@ impl<D: Deadline> DirectoryReader<D> {
 		if !rooms_application::fields::Text::<32, true>::accepts_utf16(name.encode_utf16()) {
 			return Err(loam::refusal("invalid public room name").into());
 		}
-		let reply = self.call(directory::LIST, &[name.into()]).await?;
+		let reply = self.call(directory::NAMED, &[name.into()]).await?;
 		Ok(directory::rooms(&crate::Value(&reply))?)
 	}
-	pub async fn list(&self) -> Result<Vec<directory::RoomInfo>, Error> {
-		let reply = self.call(directory::LIST, &[]).await?;
-		Ok(directory::rooms(&crate::Value(&reply))?)
+	/// One page of the live rooms. Pass nothing for the first page and the
+	/// page's `next` for the one after it.
+	pub async fn list(&self, after: Option<&directory::Cursor>) -> Result<directory::Page, Error> {
+		let reply = self
+			.call(directory::LIST, &crate::client::directory::cursor_args(after))
+			.await?;
+		Ok(directory::page(&crate::Value(&reply))?)
 	}
 	pub async fn advertised_location(&self) -> Result<String, Error> {
 		let reply = self.call(directory::creation::LOCATION, &[]).await?;

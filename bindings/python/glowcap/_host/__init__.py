@@ -38,8 +38,8 @@ from .._abi_value import (
     _DEFAULT_FEATURES,
     _INTEROP_CAPTP_VERSION,
     _INTEROP_CODEC,
-    _NATIVE_CAPTP_VERSION,
-    _NATIVE_CODEC,
+    _OWN_CAPTP_VERSION,
+    _OWN_CODEC,
     _captp_version_id,
     _codec_id,
     _feature_mask,
@@ -90,7 +90,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
 
     ``seed`` is the Host's 32-byte Ed25519 identity (``None`` draws a fresh
     random one: entropy at the binding boundary, never inside the sans-io
-    host). ``profile`` selects the core-authored ``native`` or ``interop``
+    host). ``profile`` selects the core-authored ``glowcap`` or ``interop``
     codec/version pair. The individual ``codec`` and ``captp_version`` knobs
     remain available when no profile is named. ``features`` completes the Host's
     signed offer. Each session settles version and codec with its
@@ -117,7 +117,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         _driver_loop: "Optional[DriverLoop]" = None,
     ):
         # `_adopt_raw` plus `_driver_loop` is the loop tier's adoption seam
-        # (ADR-0112): the native driver archive owns the host handle, and this
+        # (ADR-0112): the FFI driver archive owns the host handle, and this
         # wrapper adopts it for the application verbs. In that mode the C loop
         # is the action drain, the kick verbs nudge a loop step instead of
         # running the Python drain, and close belongs to `DriverLoop.close`.
@@ -125,7 +125,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             raise GlowcapError(
                 _ERR_INVALID_ARGUMENT, "loop adoption requires the DriverLoop"
             )
-        if profile not in (None, "interop", "native"):
+        if profile not in (None, "interop", "glowcap"):
             raise GlowcapError(
                 _ERR_INVALID_ARGUMENT, f"unknown Host profile {profile!r}"
             )
@@ -135,15 +135,15 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
                 "Host profile cannot be combined with codec or captp_version",
             )
         codec = (
-            _NATIVE_CODEC
-            if profile == "native"
+            _OWN_CODEC
+            if profile == "glowcap"
             else _INTEROP_CODEC
             if profile == "interop"
             else (_DEFAULT_CODEC if codec is None else codec)
         )
         captp_version = (
-            _NATIVE_CAPTP_VERSION
-            if profile == "native"
+            _OWN_CAPTP_VERSION
+            if profile == "glowcap"
             else _INTEROP_CAPTP_VERSION
             if profile == "interop"
             else (_DEFAULT_CAPTP_VERSION if captp_version is None else captp_version)
@@ -160,7 +160,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         if len(durable_seed) != 32:
             raise GlowcapError(_ERR_INVALID_ARGUMENT, "seed must be 32 bytes")
         # `bytes` is immutable and copies mutable bytes-like caller input, so the
-        # native identity and every later designator read the same owned value.
+        # FFI identity and every later designator read the same owned value.
         self._seed = durable_seed
         self.codec = codec
         self.captp_version = captp_version
@@ -199,10 +199,10 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         self._terminal_failures: "list[BaseException]" = []
         self._terminal_failure_count = 0
         # Every admitted action drain, including directly awaited drains. Host
-        # release joins this barrier before invalidating native storage.
+        # release joins this barrier before invalidating FFI storage.
         self._action_drains: "set[asyncio.Task]" = set()
         # The shared close-activity event (wake-all): a close driver clears it
-        # before reading native close progress, and every native verb that can
+        # before reading FFI close progress, and every FFI verb that can
         # advance close-relevant state sets it after the verb returns, so a
         # parked driver cannot miss a wakeup.
         self._close_activity = asyncio.Event()
@@ -211,7 +211,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         # cancels it; caller cancellation of one drain must not strand a ticket.
         self._dial_tasks: "dict[tuple[int, int], asyncio.Task]" = {}
         # Async teardown retains one join task so a second owner cannot free the
-        # native Host while the first owner is still joining its DIAL tasks.
+        # FFI Host while the first owner is still joining its DIAL tasks.
         self._release_task: "Optional[asyncio.Task]" = None
         self._release_started = False
         # Trampoline ctx of each Host publication, by published name, so
@@ -434,7 +434,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
 
     @property
     def driver_loop(self):
-        """The native driver loop that owns this Host, or None. Binding-internal."""
+        """The FFI driver loop that owns this Host, or None. Binding-internal."""
         return self._driver_loop
 
     @property
@@ -500,7 +500,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
             except asyncio.CancelledError:
                 self._break_resolver(resolver, "async behavior cancelled")
                 return
-            except Exception as error:  # noqa: BLE001 — a raise breaks the answer
+            except Exception as error:  # noqa: BLE001 - a raise breaks the answer
                 self._break_resolver(resolver, str(error) or type(error).__name__)
                 return
             self._settle_resolver(resolver, value)
@@ -524,7 +524,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         task.add_done_callback(done)
 
     async def _join_behavior_tasks(self) -> None:
-        """Cancel and join settlements whose native resolver owner is closed."""
+        """Cancel and join settlements whose FFI resolver owner is closed."""
         current = asyncio.current_task()
         pending = tuple(task for task in self._behavior_tasks if task is not current)
         for task in pending:

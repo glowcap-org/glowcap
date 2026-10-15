@@ -1,0 +1,16 @@
+# Suppressions for `zig build test-memcheck` (tools/build/execution.zig owns
+# the valgrind command line). Each entry names a false positive outside
+# glowcap's code and the condition under which it fires. A glowcap site never
+# earns an entry: fix the site.
+{
+   # Zig 0.17.0 std.heap.SafeAllocator (std.testing.allocator)
+   # exchanges a fresh footer's `modify` field with an atomic swap during a
+   # shrinking remap. The swapped-out value is unwritten memory that the
+   # caller discards. On AArch64 without LSE, valgrind implements the
+   # load-exclusive and store-exclusive pair by comparing the loaded value,
+   # so the discarded value reaches a branch and memcheck reports it. The
+   # stored value depends only on the footer address.
+   zig-safe-allocator-footer-swap
+   Memcheck:Cond
+   fun:*SafeAllocator.AllocFooter.Modify.setNone*
+}

@@ -546,3 +546,36 @@ pre code {
     border: 2px solid SelectedItem;
   }
 }
+
+/* A short set of links a reader picks one from, such as the languages on
+   Start building. A bulleted column spent a line per link; a grid of small
+   tiles keeps the choice on one screen. Authored as a `link-grid` block
+   around a plain Markdown list. */
+.prose .link-grid ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+  gap: 0.5rem;
+  margin: 1.25rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prose .link-grid li {
+  margin: 0;
+  padding: 0;
+}
+
+.prose .link-grid a {
+  display: block;
+  padding: 0.6rem 0.85rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.12s ease;
+}
+
+.prose .link-grid a:hover {
+  border-color: var(--accent);
+}

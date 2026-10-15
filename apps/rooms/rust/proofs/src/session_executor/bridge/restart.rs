@@ -1,22 +1,41 @@
 //! Fresh processes recover credentials using the physically saved Loam witness.
 use super::*;
-use glowcap::loam::{Resource, Store};
+use crate::disk::Disk;
+use glowcap::loam::{OpenMode, Resource};
 use rooms_services::documents::DocumentFile;
 use std::{path::Path, sync::Arc};
 
 #[tokio::test]
-async fn bridge_loam_witness_recovers_credentials_after_process_exit() {
+async fn bridge_loam_witness_recovers_credentials_after_process_exit_on_sqlite() {
+	recover(
+		Disk::Sqlite,
+		"bridge_loam_witness_recovers_credentials_after_process_exit_on_sqlite",
+	)
+	.await;
+}
+#[tokio::test]
+async fn bridge_loam_witness_recovers_credentials_after_process_exit_on_lmdb() {
+	recover(
+		Disk::Lmdb,
+		"bridge_loam_witness_recovers_credentials_after_process_exit_on_lmdb",
+	)
+	.await;
+}
+/// Runs each phase in a fresh process: `test` reruns this same test there.
+async fn recover(disk: Disk, test: &str) {
 	if let Some(path) = std::env::var_os("GLOWCAP_BRIDGE_LOAM_RESTART_PATH") {
-		tokio::task::LocalSet::new().run_until(phase(Path::new(&path))).await;
+		let path = Path::new(&path);
+		// The parent checks this marker, so a name that matches no test fails.
+		// It is written first because the submit phase exits without returning.
+		let name = std::env::var("GLOWCAP_BRIDGE_LOAM_RESTART_PHASE").unwrap();
+		std::fs::write(path.join(format!("{name}.ran")), []).unwrap();
+		tokio::task::LocalSet::new().run_until(phase(disk, path)).await;
 		return;
 	}
 	let database = Database::new("bridge-physical-recovery");
 	for phase in ["submit", "recover", "forgotten"] {
 		let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-			.args([
-				"bridge_loam_witness_recovers_credentials_after_process_exit",
-				"--nocapture",
-			])
+			.args([test, "--nocapture"])
 			.env("GLOWCAP_BRIDGE_LOAM_RESTART_PATH", database.path())
 			.env("GLOWCAP_BRIDGE_LOAM_RESTART_PHASE", phase)
 			.spawn()
@@ -38,11 +57,15 @@ async fn bridge_loam_witness_recovers_credentials_after_process_exit() {
 			status.expect("bridge recovery child deadline").success(),
 			"bridge {phase}"
 		);
+		assert!(
+			database.path().join(format!("{phase}.ran")).exists(),
+			"bridge {phase} ran no test"
+		);
 	}
 	database.remove();
 }
 
-async fn phase(path: &Path) {
+async fn phase(disk: Disk, path: &Path) {
 	environment::within(12_000, async {
 		let phase = std::env::var("GLOWCAP_BRIDGE_LOAM_RESTART_PHASE").unwrap();
 		let first = phase == "submit";
@@ -55,7 +78,10 @@ async fn phase(path: &Path) {
 		let mut schemas = managed::schemas();
 		schemas.push(BRIDGE);
 		let limits = managed::production_limits().unwrap();
-		let mut store = Store::open(&store_path, [111; 16], first, 256 * 1024 * 1024, &schemas, limits).unwrap();
+		let mode = if first { OpenMode::Create } else { OpenMode::Open };
+		let mut store = disk
+			.open(store_path.clone(), [111; 16], mode, &schemas, limits)
+			.unwrap();
 		let policy = rooms_glowcap::policy::descriptor().unwrap();
 		let resource = |name: &str, schema: Schema, payload: &[u8]| {
 			let file = path.join(name);
@@ -123,7 +149,7 @@ async fn phase(path: &Path) {
 			.send(
 				&root,
 				"derive-managed",
-				&terms.managed_derive_arguments(1, 1, ControlPowers::default()),
+				&terms.managed_derive_arguments(1, Scope::Object, 1, ControlPowers::default()),
 			)
 			.await
 			.unwrap();

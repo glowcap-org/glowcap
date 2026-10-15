@@ -44,8 +44,15 @@ export { SNAPSHOT } from "./protocol_data.ts";
  * `list()` and `watch(inbox)` retain the Goblins-compatible
  * `[name, count|null]` records.
  * `listPublications()` and `watchPublications(inbox)` are the rooms extension:
- * they add `[id, kind, origin, proof]`, and the exact `id` is accepted by
- * `enterPublication(id)`. `linkPublication(id)` returns that exact publication's
+ * they add `[name, count, id, kind, origin, proof, offers]`, and the exact `id` is accepted by
+ * `enterPublication(id)`. `listPublications()` answers one page,
+ * `[rows, next]`. `next` is the directory's own cursor text, the position of
+ * the page's last row in listing order. Pass it back exactly as
+ * `listPublications(next)` for the page after it, and stop when it is null.
+ * A room that closes between two pages moves no other row, and a room open
+ * for the whole walk is answered exactly once. `namedPublications(name)`
+ * answers the rooms listed under that public name, including a dormant
+ * managed room. `linkPublication(id)` returns that exact publication's
  * existing source-owned entry link, refusing a retired generation or a source
  * that has no link. It does not create room management authority.
  * Keeping this choice in the directory verb avoids coupling an application
@@ -90,7 +97,14 @@ export { ENTER_PUBLICATION } from "./protocol_data.ts";
  * Retaining the directory and publication is sufficient for cold recovery.
  * A display name never resolves a replacement room. */
 export { SUBSCRIBE_PUBLICATION } from "./protocol_data.ts";
-export { LIST, LIST_PUBLICATIONS, UNWATCH_PUBLICATIONS, WATCH, WATCH_PUBLICATIONS } from "./protocol_data.ts";
+export {
+	LIST,
+	LIST_PUBLICATIONS,
+	NAMED_PUBLICATIONS,
+	UNWATCH_PUBLICATIONS,
+	WATCH,
+	WATCH_PUBLICATIONS,
+} from "./protocol_data.ts";
 export type RoomRecordShape = "baseline" | "publication";
 /** The directory's preferred durable location, derived from live listeners. */
 export { ADVERTISED_LOCATION } from "./protocol_data.ts";
@@ -178,7 +192,7 @@ export { LEAVE, LINE_BYTES, OFFLINE, REFILED, TOPIC, TYPING } from "./protocol_d
  * This is description, not authority, so the room states it instead of
  * handing over a facet. Nothing a member holds could say whether the room
  * keeps the link previews a line names (`previews`) or relays the typing
- * signal (`typing`). A room bridged to IRC does neither and says so. A native
+ * signal (`typing`). A room bridged to IRC does neither and says so. A Rooms
  * room also advertises `retained` for correlated delivery and upload reuse.
  * The vocabulary is positive and additive: a feature named is carried, one not
  * named is not, and one a client does not know is skipped. A room that never
@@ -399,9 +413,12 @@ export { OFFER_INBOX } from "./protocol_data.ts";
  *
  * `offerSignaling(inbox)` files the calling member's signaling inbox,
  * replacing any prior one. An unregistered caller is refused. The directory
- * routes an incoming offer or candidate for that member's `webrtc` designator
- * to this inbox as `offer(id, sdp)` / `candidate(id, ice)`, where `id` names
- * the exchange.
+ * routes an incoming offer or candidate for that member's Host key to this
+ * inbox as `offer(id, sdp, from?)` / `candidate(id, ice)`, where `id` names
+ * the exchange and `from` is the Host key the offering member registered,
+ * absent when its locator names none. A `webrtc`, keyed or Noise TCP, or relay
+ * locator's designator is the member's Host key, and an address or iroh
+ * locator names none.
  *
  * `signalOffer(toDesignator, sdp, reply)` starts one exchange: the directory
  * mints an exchange id, remembers `reply` (a capability the caller hosts on
@@ -411,13 +428,22 @@ export { OFFER_INBOX } from "./protocol_data.ts";
  * so nothing here returns a value and the exchange is all eventual sends.
  *
  * `signalAnswer(id, sdp)` is the answering member's reply, accepted only from
- * the connection whose registration owns the exchange's target.
+ * the connection whose registration owns the exchange's target. That member
+ * may instead `signalDecline(id, reason)`, which retires the exchange and
+ * sends the offerer `reject(reason)` at once.
  *
  * Both sides use the admitted id for `signalCandidate(id, ice)`. The directory
  * resolves the direction from the calling session.
  * `signalDone(id)` retires that exact exchange after channel bring-up or
  * failure, so a late retirement cannot close a newer dial to the same peer. */
-export { OFFER_SIGNALING, SIGNAL_ANSWER, SIGNAL_CANDIDATE, SIGNAL_DONE, SIGNAL_OFFER } from "./protocol_data.ts";
+export {
+	OFFER_SIGNALING,
+	SIGNAL_ANSWER,
+	SIGNAL_CANDIDATE,
+	SIGNAL_DECLINE,
+	SIGNAL_DONE,
+	SIGNAL_OFFER,
+} from "./protocol_data.ts";
 
 /** An exact registered name answers this without changing an exchange. A
  * retained managed route uses it to recheck its source and registration before
@@ -425,7 +451,7 @@ export { OFFER_SIGNALING, SIGNAL_ANSWER, SIGNAL_CANDIDATE, SIGNAL_DONE, SIGNAL_O
 export { SIGNAL_CHECK } from "./protocol_data.ts";
 
 /** The verbs a signaling inbox and a signaling reply capability answer:
- * `offer(id, sdp)` and `candidate(id, ice)` on the member's filed inbox,
+ * `offer(id, sdp, from?)` and `candidate(id, ice)` on the member's filed inbox,
  * `accepted(id)`, `answer(sdp)`, `candidate(ice)`, and `reject(reason)` on the
  * offerer's `reply`. */
 export { SIG_ACCEPTED, SIG_ANSWER, SIG_CANDIDATE, SIG_OFFER, SIG_REJECT } from "./protocol_data.ts";

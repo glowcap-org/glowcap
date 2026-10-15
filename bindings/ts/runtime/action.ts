@@ -1,11 +1,11 @@
-// Host-action park + execute — the embedder-contract switch the CapTP host
+// Host-action park + execute: the embedder-contract switch the CapTP host
 // drain runs. `Host` owns park/kick/vows and the Session registry; decode/types
 // come from the generated `internal/host_action.ts`
 // (`zig build gen-binding-host-action`); this module owns the canonical
 // pop-until-WOULD_BLOCK drain (`glowcap_host_next_action`, the one-loop rule),
 // then runs each parked arm (dial, flush, close, gift-id entropy, settle,
 // fail) after the pops, so async I/O never runs while a borrowed action view
-// is live and no native callback is minted per drain. The pop-based drain is
+// is live and no FFI callback is minted per drain. The pop-based drain is
 // also the only shape every FFI target has: the wasm32 browser adapter carries
 // only the fixed behavior and hosted-retirement callback shapes, so a hooks-
 // buffer drain could never run there.
@@ -32,7 +32,7 @@ export interface ActionHost {
 	settleVow(vow: bigint, outcome: { ok: Argument } | { err: GlowcapError }): void;
 }
 
-/** Complete one gift-id effect without letting a rejected native completion
+/** Complete one gift-id effect without letting a rejected FFI completion
  * masquerade as entropy failure. Package-internal and exported for the pure
  * binding-boundary regression. */
 export function answerGiftId(
@@ -71,7 +71,7 @@ export function parkActions(host: ActionHost): { actions: HostAction[]; yielded:
 
 /** The executor is deliberately dumb: every decision was already made in the
  * core; each arm is pure I/O or marshalling. The kind inventory lives in the
- * generated `dispatchHostAction` — a new kind fails generate/check. */
+ * generated `dispatchHostAction`: a new kind fails generate/check. */
 export async function runAction(host: Host, action: HostAction): Promise<void> {
 	await dispatchHostAction(action, {
 		dial: (a) => {
@@ -79,7 +79,7 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			// serve loops: a signaling dial (ADR-0089) round-trips OCapN messages
 			// on an existing session before its channel exists, and the serve
 			// loop that must read those replies awaits this very drain at its
-			// feed's unwind — awaiting the dial here starves the exchange the
+			// feed's unwind: awaiting the dial here starves the exchange the
 			// dial waits on. The ticket contract is already asynchronous:
 			// `runDialTicket` reports `glowcap_host_dialed` / `dial_failed`
 			// whenever it settles, and the follow-up kick drains what that
@@ -113,7 +113,7 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 			} catch {
 				// Session.flushOutbound already retained the exact first cause.
 			}
-			// Commit native/wrapper retirement now, but leave the asynchronous
+			// Commit FFI/wrapper retirement now, but leave the asynchronous
 			// Channel.close() barrier to Session.close() (or the serve pump),
 			// which already joins it. Awaiting that barrier inside this drain can
 			// deadlock with a pump that is itself waiting for CLOSE to drain.

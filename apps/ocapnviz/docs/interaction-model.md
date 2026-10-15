@@ -1,9 +1,17 @@
+---
+type: static
+description: How an input travels from a pointer or keyboard event through the resolver to its state change.
+sources:
+  - resource: /apps/ocapnviz/src/interactions/
+  - resource: /apps/ocapnviz/src/state/
+  - resource: /apps/ocapnviz/src/ui/Timeline/
+---
+
 # Interaction architecture
 
 Use this page to trace an input from pointer or keyboard event to its state
-change. It documents the interaction system wired today. Modules under
-`src/interactions/` cite the section numbers, so keep them stable. Cursor
-precedence is documented separately in [`cursor.md`](cursor.md).
+change. Modules under `src/interactions/` cite the section numbers, so keep
+them stable. Cursor precedence is in [`cursor.md`](cursor.md).
 
 The visualizer has one semantic vocabulary and one resolver, not one physical event loop. The Stage's empty canvas uses
 the pure pointer machine. Stage sprites use Pixi listeners because they already own exact display-object hit geometry.
@@ -17,7 +25,7 @@ All three paths share:
 - `cursorFor`, so the offered cursor and the next pointer-down use the same
   decision
 
-`ScrubInput` is a native DOM control. Its click-to-type and drag-to-adjust behavior is outside the canvas
+`ScrubInput` is a plain DOM control, and its click-to-type and drag-to-adjust behavior is outside the canvas
 gesture vocabulary.
 
 ## 1. Principles
@@ -298,7 +306,7 @@ consumes the key and otherwise seek by the configured stride.
 | Stage peer/endpoint/edge/msg | Pixi display objects | sprite adapters, shared selection grammar |
 | Timeline Overview            | Overview marker      | Timeline controller and view adapter      |
 | Timeline ruler/lanes/gutter  | Scrubber marker      | Timeline controller and pointer adapters  |
-| Inspector, toolbar, inputs   | DOM                  | native controls and keyboard text guard   |
+| Inspector, toolbar, inputs   | DOM                  | browser controls and keyboard text guard  |
 
 These are ownership boundaries, not semantic forks. The resolver, cursor, selection interpreter, and gesture lease cross
 them.
@@ -333,22 +341,22 @@ sequenceDiagram
 
 ## 12. Tests
 
-Resolver tests exhaust every surface and tool. Machine tests cover every transition, coalesced pointer motion, Space
-interruption, cancellation, and pointer-up re-resolution. Selection tests pin anchor membership, fresh-set identity,
-reconciliation, rename, empty commits, and Select All.
-
-Timeline geometry tests cover scrolled rows, gutter precedence, ruler dead space, span and glyph priority, both span
-edges, authored spans with no anchor observation, and Overview grips. Timeline controller tests prove Hand and Space
-turn every mutation target into pan, while Option steals only an empty lane. The indexed-hover guard makes the event
-iterable throw if hit testing scans it after the index has been built.
+- Resolver tests exhaust every surface and tool.
+- Machine tests cover every transition, coalesced pointer motion, Space interruption, cancellation, and pointer-up
+  re-resolution.
+- Selection tests pin anchor membership, fresh-set identity, reconciliation, rename, empty commits, and Select All.
+- Timeline geometry tests cover scrolled rows, gutter precedence, ruler dead space, span and glyph priority, both span
+  edges, authored spans with no anchor observation, and Overview grips.
+- Timeline controller tests prove Hand and Space turn every mutation target into pan, while Option steals only an empty
+  lane.
+- The indexed-hover guard makes the event iterable throw if hit testing scans it after the index is built.
 
 ## 13. Deliberate boundaries
 
-The generic pointer machine is not a goal by itself. It owns the common threshold and Space-interruption lifecycle where
-that lifecycle is shared. Timeline drags retain typed local state because resizing a view window, retiming an
-observation transaction, reordering a row, and sweeping a marquee have different commit and teardown requirements.
-`timeline-gesture.ts` is the shared controller that prevents those adapters from inventing precedence.
+The generic pointer machine owns the threshold and Space-interruption lifecycle where that lifecycle is shared.
+Timeline drags keep typed local state because resizing a view window, retiming an observation transaction, reordering a
+row, and sweeping a marquee have different commit and teardown requirements. `timeline-gesture.ts` is the shared
+controller that keeps those adapters from inventing precedence.
 
-Native DOM inputs remain native. Double-click means fit on the Timeline and
-reset on numeric scrub inputs. It is not a
-hidden entity drill-in gesture.
+Browser DOM inputs keep their own behavior. Double-click means fit on the Timeline and reset on numeric scrub inputs. It is not an
+entity drill-in gesture.

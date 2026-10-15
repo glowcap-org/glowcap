@@ -10,6 +10,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const promise_capture = @import("../../support/capture.zig");
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
@@ -42,9 +43,9 @@ test "near-call dispatches synchronously and become mutates state" {
 
 /// An actor that near-calls itself without bound, a stand-in for a cyclic local
 /// actor graph. The vat's near-call depth cap must stop it with a typed error
-/// instead of overflowing the native stack.
+/// instead of overflowing the Zig stack.
 const SelfRecurser = struct {
-    pub fn handle(self: *SelfRecurser, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *SelfRecurser, turn: *Turn, msg: Delivery) !model.Argument {
         _ = self;
         _ = msg;
         return turn.near(turn.me(), .{ .verb = "recurse" });
@@ -69,7 +70,7 @@ const ReentrantBecomer = struct {
     pub const snapshot_persistent = true;
     n: i64,
 
-    pub fn handle(self: *const ReentrantBecomer, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const ReentrantBecomer, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "outer")) {
             try turn.become(ReentrantBecomer, .{ .n = self.n + 1 });
@@ -109,7 +110,7 @@ const AliasedBecomer = struct {
     pub const snapshot_persistent = true;
     label: [8]u8,
 
-    pub fn handle(self: *const AliasedBecomer, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const AliasedBecomer, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "read")) return .{ .bytes = &self.label };
         if (std.mem.eql(u8, msg.verb, "outer")) {
             _ = try turn.near(turn.me(), .{ .verb = "inner" });
@@ -191,10 +192,10 @@ test "a handler allocates its reply from turn.arena without leaking" {
 /// An actor that, in its own turn, spawns a helper and near-calls it, proving
 /// `Turn` carries spawn/call authority into a handler.
 const Adder = struct {
-    pub fn handle(self: *Adder, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *Adder, turn: *Turn, msg: Delivery) !model.Argument {
         _ = self;
         const helper = try turn.spawn(Counter, .{ .n = 0 });
-        return turn.near(helper, .{ .verb = "add", .args = msg.args });
+        return turn.near(helper, .{ .verb = "add", .args = try msg.args.toOwnedSlice(turn.arena) });
     }
 };
 
@@ -248,7 +249,7 @@ test "a turn's local send built in turn.arena survives the next turn's arena res
 const ArenaGreeter = struct {
     n: u32 = 0,
 
-    pub fn handle(self: *ArenaGreeter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *ArenaGreeter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = msg;
         self.n += 1;
         return .{ .bytes = try std.fmt.allocPrint(turn.arena, "greeting-{d}", .{self.n}) };
@@ -289,7 +290,7 @@ const ReentrantCapture = struct {
 /// reaching into vat internals.
 const RunCounter = struct {
     runs: *u32,
-    pub fn handle(self: *RunCounter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *RunCounter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         _ = msg;
         self.runs.* += 1;

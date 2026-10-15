@@ -1,4 +1,4 @@
-"""Internal: the behavior trampoline, the ONE native callback in the binding.
+"""Internal: the behavior trampoline, the ONE FFI callback in the binding.
 
 Every hosted object: a :meth:`Session.spawn` / :meth:`Session.publish`
 actor, a caretaker or attenuator proxy, or a Host publication registers here
@@ -59,7 +59,7 @@ class _BehaviorEntry:
 # Process-global callback lookup is weak: the owning Host strongly retains each
 # entry, so a behavior that closes over that Host forms a collectable Host-local
 # cycle rather than a process-global root. The C callback has free = NULL;
-# Host.close removes the weak row deterministically after native teardown.
+# Host.close removes the weak row deterministically after FFI teardown.
 _registry: "weakref.WeakValueDictionary[int, _BehaviorEntry]" = (
     weakref.WeakValueDictionary()
 )
@@ -151,7 +151,7 @@ def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
             return result
         except GlowcapError:
             raise
-        except Exception as error:  # noqa: BLE001 — a raise breaks the answer
+        except Exception as error:  # noqa: BLE001 - a raise breaks the answer
             raise VowBroken(str(error) or type(error).__name__)
 
     return RemotePromise.local(begin)
@@ -170,7 +170,7 @@ async def _tell_local(session, ctx: int, verb: str, args: list) -> None:
             # Await so an async behavior's raise lands here instead of
             # surfacing as a never-awaited coroutine warning.
             await result
-    except Exception as error:  # noqa: BLE001 — no answer exists to break
+    except Exception as error:  # noqa: BLE001 - no answer exists to break
         session.host._record_callerless_failure("tell.behavior", error)
         return
     if isinstance(result, Forward):
@@ -190,7 +190,7 @@ _turn_state = threading.local()
 
 
 def _enter_deliver(owner: object) -> Optional[object]:
-    """Bracket synchronous native progress that may run an actor."""
+    """Bracket synchronous FFI progress that may run an actor."""
     prior = getattr(_turn_state, "active_deliver_owner", None)
     _turn_state.active_deliver_owner = owner
     return prior
@@ -221,7 +221,7 @@ def _turn_arriving_session(turn: int) -> tuple[object, object]:
     carrier = getattr(_turn_state, "active_deliver_owner", None)
     owner = _deliver_host(carrier)
     if owner is None:
-        raise RuntimeError("hosted callback ran outside native Host progress")
+        raise RuntimeError("hosted callback ran outside FFI Host progress")
     out = ctypes.c_void_p()
     _check_host(_host.glowcap_host_turn_session(turn, ctypes.byref(out)))
     arriving = owner.get_session(out.value) or owner
@@ -269,7 +269,7 @@ def _settle_reply(turn: int, result, out_reply) -> int:
         arriving = getattr(_turn_state, "active_deliver_owner", None)
         owner = _deliver_host(arriving)
         if owner is None:
-            return _turn_break(turn, "async behavior outside native Host progress")
+            return _turn_break(turn, "async behavior outside FFI Host progress")
         if not owner._defer_turn_to_awaitable(turn, result):
             return _turn_break(turn, _host_last_error() or "deferral refused")
         # The behavior's own reply is a void placeholder; the real answer
@@ -333,14 +333,14 @@ def _trampoline_body(
         if getattr(arriving, "gc_enabled", False):
             getattr(arriving, "gc").track_arguments(args)
         return _settle_reply(turn, _run_hosted(entry, verb, args, turn=turn), out_reply)
-    except BaseException as error:  # noqa: BLE001 — nothing crosses the C frame
+    except BaseException as error:  # noqa: BLE001 - nothing crosses the C frame
         return _turn_break(turn, str(error) or type(error).__name__)
     finally:
         if restore_deliver:
             _turn_state.active_deliver_owner = carrier
 
 
-# The one native callback, module-lifetime by construction: a per-spawn
+# The one FFI callback, module-lifetime by construction: a per-spawn
 # CFUNCTYPE the GC collected would be a dangling C pointer, and the host may
 # deliver for as long as the process hosts objects.
 _TRAMPOLINE = _HostBehavior(_trampoline_body)

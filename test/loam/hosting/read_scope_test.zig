@@ -25,8 +25,9 @@ const Admission = struct {
 const Target = struct {
     ref: *f.driver.Capability,
     calls: *usize,
-    pub fn handle(self: *Target, turn: *f.driver.HostTurn, verb: []const u8, args: []const f.driver.Value) !f.driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Target, turn: *f.driver.HostTurn, verb: []const u8, args: f.driver.Args) !f.driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
         if (std.mem.eql(u8, verb, "read")) return .{ .string = "chunk" };
         if (std.mem.eql(u8, verb, "self")) {
@@ -282,7 +283,7 @@ test "loam read scope mediates foreign recursive results and preserves identity 
     // Stop after the wire result arrives, before the shared source recheck and
     // resolver settlement. The original reply remains under immutable custody.
     var slot: [1]f.hosting.Worker.Slot = undefined;
-    var worker: f.hosting.Worker = .init(&slot);
+    var worker: f.hosting.Worker = .init(&slot, fixture.data.backend.readerCapacity());
     var completed = false;
     for (0..64) |_| {
         while (try exporter.nextAction()) |_| {}

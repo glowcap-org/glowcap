@@ -10,6 +10,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const promise_capture = @import("../../support/capture.zig");
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
@@ -201,7 +202,7 @@ test "a listener that drives a state-mutating turn still reads an intact resolut
 /// Replies with a fresh turn-arena byte string naming the verb, for the
 /// re-entrant far-settle test below.
 const EchoVerb = struct {
-    pub fn handle(self: *EchoVerb, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *EchoVerb, turn: *Turn, msg: Delivery) !model.Argument {
         _ = self;
         return .{ .bytes = try std.fmt.allocPrint(turn.arena, "reply-{s}", .{msg.verb}) };
     }
@@ -470,7 +471,7 @@ test "far observation refuses an unobserved send retracted without allocation" {
     const Probe = struct {
         vow: *actors.Vow,
         allocator: *std.testing.FailingAllocator,
-        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
             self.vow.* = try turn.send(.{ .far = model.FarRef.object(5) }, .{ .verb = "wait" });
             self.allocator.fail_index = self.allocator.alloc_index;
             return error.Refused;
@@ -536,4 +537,54 @@ test "bulk far failure keeps pending listeners cancellable without allocating" {
     try std.testing.expectEqual(calls, refused);
     try std.testing.expect(!failing.has_induced_failure);
     try std.testing.expectEqual(failing.allocated_bytes, failing.freed_bytes);
+}
+
+test "a served deliver hands the handler the frame's own bytes" {
+    const allocator = std.testing.allocator;
+    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
+    defer pair.deinit();
+    const host_peer = &pair.p1;
+    const caller_peer = &pair.p2;
+
+    // The witness checks the contents inside the turn and keeps only the
+    // slice's address: the frame, and so the bytes, end with the event.
+    const Witness = struct {
+        seen: *?[]const u8,
+        pub fn handle(self: *@This(), _: *Turn, msg: Delivery) !model.Argument {
+            const bytes = try msg.argBytes(0);
+            if (!std.mem.eql(u8, bytes, "payload")) return error.WrongPayload;
+            self.seen.* = bytes;
+            return .{ .void = {} };
+        }
+    };
+    var seen_slot: ?[]const u8 = null;
+    var host_vat = actors.Vat.init(allocator);
+    defer host_vat.deinit();
+    var host_port = actors.Port.init(allocator, host_peer);
+    defer host_port.deinit(&host_vat);
+    const witness = try host_vat.spawn(Witness, .{ .seen = &seen_slot });
+    try host_port.bindExport(&host_vat, witness, 5);
+    try host_peer.exportObject(5);
+
+    try caller_peer.importObject(5);
+    var caller_vat = actors.Vat.init(allocator);
+    defer caller_vat.deinit();
+    var caller_port = actors.Port.init(allocator, caller_peer);
+    defer caller_port.deinit(&caller_vat);
+    try caller_port.tell(&caller_vat, .{ .far = model.FarRef.object(5) }, .{ .verb = "note", .args = &.{.{ .bytes = "payload" }} });
+
+    while ((try caller_peer.step()) != .idle) {}
+    const frame = caller_peer.takeOutbound().?;
+    const fed = frame.bytes();
+    try host_peer.feedOwned(frame);
+    while ((try host_peer.step()) != .idle) {}
+    while (host_peer.pollEvent()) |ev| {
+        var e = ev;
+        defer e.deinit();
+        _ = try host_port.serve(&host_vat, &e);
+    }
+
+    const seen = seen_slot.?;
+    const start = @intFromPtr(fed.ptr);
+    try std.testing.expect(@intFromPtr(seen.ptr) >= start and @intFromPtr(seen.ptr) + seen.len <= start + fed.len);
 }

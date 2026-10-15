@@ -73,7 +73,7 @@ pub const human_doc_voice: []const Ban = voice_rows: {
         .{ .needle = "before the mechanism existed", .why = "prerelease transition narration; describe present behavior (doc-voice)" },
         .{ .needle = "intentionally owns", .why = "intent-adverb hedge; state who owns it (doc-voice)" },
         // Insider words with no legitimate identifier spelling on these paths.
-        .{ .needle = "living-state", .why = "insider word; write \"docs kept in step with today's code\" (doc-voice)" },
+        .{ .needle = "living-state", .why = "insider word; write \"docs kept in step with the code\" (doc-voice)" },
         .{ .needle = "hermetic", .why = "insider word; write \"in-tree\" or \"no network or external services\" (doc-voice)" },
         .{ .needle = "pre-1.0", .why = "prerelease: state the present boundary, not the transition producing it" },
         .{ .needle = "pre-publication", .why = "prerelease: state the present boundary, not the transition producing it" },

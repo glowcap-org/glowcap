@@ -1,4 +1,4 @@
-//! Native driver-loop lifecycle and provider scenarios.
+//! FFI driver-loop lifecycle and provider scenarios.
 
 #[cfg(any(feature = "tcp", feature = "iroh"))]
 use super::*;
@@ -23,7 +23,7 @@ fn driver_loop_default_frame_cap_uses_generated_abi_constant() {
 
 #[cfg(any(feature = "tcp", feature = "iroh"))]
 #[test]
-fn unknown_native_event_and_completion_kinds_are_returned_failures() {
+fn unknown_ffi_event_and_completion_kinds_are_returned_failures() {
 	// SAFETY: `GlowcapDriverEvent` is a plain C struct of integers, null pointers, and a nested `GlowcapHostAction` of
 	// the same kind; all-zero is a valid value, and the test sets the discriminant fields it exercises before
 	// `decode_event` reads them.
@@ -88,12 +88,12 @@ fn failed_park_admission_does_not_publish_a_started_loop() {
 }
 
 /// A handshake deadline is a clock edge, not descriptor readiness. The
-/// async loop must therefore ask the native driver when its next progress
+/// async loop must therefore ask the FFI driver when its next progress
 /// step is due. Otherwise a partner that accepts TCP and says nothing can
 /// leave this future parked forever.
 #[cfg(feature = "tcp")]
 #[tokio::test]
-async fn a_silent_loop_dial_reaches_its_native_handshake_deadline() {
+async fn a_silent_loop_dial_reaches_its_ffi_handshake_deadline() {
 	let local = tokio::task::LocalSet::new();
 	local
 		.run_until(async {
@@ -108,7 +108,7 @@ async fn a_silent_loop_dial_reaches_its_native_handshake_deadline() {
 
 			let error = tokio::time::timeout(std::time::Duration::from_secs(1), lp.dial_locator(&locator, None))
 				.await
-				.expect("the native handshake deadline must wake the loop")
+				.expect("the FFI handshake deadline must wake the loop")
 				.expect_err("a silent partner must not open a session");
 			assert_eq!(error.kind(), crate::ErrorKind::TimedOut);
 			lp.close();
@@ -426,7 +426,7 @@ async fn a_finite_finish_close_times_out_over_a_negotiating_loop_dial() {
 }
 
 /// The live parity proof (`zig build rust-iroh-driver-provider`): the
-/// binding's native-loop iroh listener serves while a second loop dials the
+/// binding's driver-loop iroh listener serves while a second loop dials the
 /// same endpoint through the C multiplexed-transport table, and the fetch's
 /// settle arrives as a Completion event in the byte-fed Settle shape.
 #[test]

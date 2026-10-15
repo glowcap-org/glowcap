@@ -9,6 +9,10 @@ pub enum GlowcapLoamPageHandle {}
 pub enum GlowcapLoamWork {}
 #[cfg(not(target_arch = "wasm32"))]
 pub enum GlowcapLoamLmdb {}
+#[cfg(not(target_arch = "wasm32"))]
+pub enum GlowcapLoamSqlite {}
+#[cfg(not(target_arch = "wasm32"))]
+pub enum GlowcapLoamVolatile {}
 pub enum GlowcapLoamContinuationReservation {}
 pub enum GlowcapLoamPendingContinuation {}
 pub enum GlowcapLoamContinuation {}
@@ -1353,14 +1357,21 @@ const _: () = assert!(
 #[cfg(target_arch = "wasm32")]
 pub use crate::sys::layouts_gen::LOAM_ARCHIVE_FINGERPRINT;
 #[cfg(not(target_arch = "wasm32"))]
-pub const LOAM_ARCHIVE_FINGERPRINT: u64 = 12669128613106933256;
+pub const LOAM_ARCHIVE_FINGERPRINT: u64 = 13698614309606046450;
 #[cfg(not(target_arch = "wasm32"))]
-pub const LOAM_LMDB_ARCHIVE_FINGERPRINT: u64 = 11360050748746901026;
+pub const LOAM_LMDB_ARCHIVE_FINGERPRINT: u64 = 6332460472659523018;
+#[cfg(not(target_arch = "wasm32"))]
+pub const LOAM_SQLITE_ARCHIVE_FINGERPRINT: u64 = 11278933236822218362;
+#[cfg(not(target_arch = "wasm32"))]
+pub const LOAM_VOLATILE_ARCHIVE_FINGERPRINT: u64 = 11294886628012510947;
 pub const GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED: i32 = -40;
 pub const GLOWCAP_LOAM_ERR_STALE_COMPLETION: i32 = -41;
 pub const GLOWCAP_LOAM_ERR_DENIED: i32 = -42;
 pub const GLOWCAP_LOAM_ERR_UNCHANGED: i32 = -43;
 pub const GLOWCAP_LOAM_ERR_APPLICATION: i32 = -44;
+pub const GLOWCAP_LOAM_ERR_CORRUPT: i32 = -45;
 pub const GLOWCAP_LOAM_MAX_URI_BYTES: usize = 4096;
 #[cfg(target_arch = "wasm32")]
-pub const GLOWCAP_LOAM_METADATA_SIZE: usize = 174;
+pub const GLOWCAP_LOAM_MAX_KEY_BYTES: usize = 35;
+#[cfg(target_arch = "wasm32")]
+pub const GLOWCAP_LOAM_METADATA_SIZE: usize = 142;

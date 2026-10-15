@@ -34,9 +34,9 @@ test "loam value topology covers observed heterogeneous copies and retained inpu
     const args = try allocator.alloc(Value, 1);
     args[0] = try f.hosting.copyValue(Value, allocator, source);
     const retained = try fixture.host.retainValueCapabilities(allocator, args);
-    defer fixture.host.releaseUntransferredCapabilityRetains(retained);
+    defer fixture.host.releaseCapabilityRetains(retained);
     const dependent = try fixture.host.retainValueCapabilities(allocator, &.{.{ .capability = fixture.root }});
-    defer fixture.host.releaseUntransferredCapabilityRetains(dependent);
+    defer fixture.host.releaseCapabilityRetains(dependent);
     try std.testing.expectEqual(@as(usize, 2), retained.len);
     try std.testing.expect(traffic.demand.bytes <= bound.bytes);
     try std.testing.expect(traffic.demand.allocations <= bound.allocations);
@@ -146,8 +146,9 @@ const RestartPreparation = struct {
 };
 
 const Live = struct {
-    pub fn handle(_: *Live, turn: *f.driver.HostTurn, _: []const u8, args: []const f.driver.Value) !f.driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(_: *Live, turn: *f.driver.HostTurn, _: []const u8, args: f.driver.Args) !f.driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         return .{ .void = {} };
     }
 };
@@ -193,7 +194,7 @@ test "loam capability arguments retain nested authority across cold reads restar
         const operation = for (fixture.attached.operations) |*op| {
             if (op.phase != .free) break op;
         } else return error.NoAdmittedCall;
-        const retained = operation.argument_retains[0].ref;
+        const retained = operation.argument_retains[0];
         try std.testing.expectEqual(@as(?u64, 2), fixture.host.capabilities.retainCount(retained));
         try std.testing.expect(answer.value == null and !answer.broken);
         if (mode == .restart) {

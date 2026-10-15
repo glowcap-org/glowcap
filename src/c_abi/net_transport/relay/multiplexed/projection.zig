@@ -1,4 +1,4 @@
-//! C projection of one native relay multiplexed runtime.
+//! C projection of one relay multiplexed runtime.
 //!
 //! The runtime owns scheduling, connections, listeners, and retained failures.
 //! This module owns only caller-view validation and the fixed C callback table.
@@ -153,6 +153,7 @@ pub fn Projection(
             request_id: u64,
             locator_view: ?*const c.GlowcapLocatorView,
             options: ?*const c.GlowcapTransportOperationOptions,
+            _: ?*const c.GlowcapDialOrigin,
             out_failure: ?*c.GlowcapProviderFailure,
         ) callconv(.c) i32 {
             if (!c.transport_provider.operationOptionsAreInherited(options))

@@ -50,11 +50,10 @@ const TaggedRow = harness.TaggedRow;
 const PublicationProbe = harness.PublicationProbe;
 
 test "Host aggregate footprint and supported verb shapes stay within their budgets" {
-    try std.testing.expect(Host.InitError == error{ DurableBootstrapUnavailable, InvalidHostWorkQuantum });
+    try std.testing.expect(Host.InitError == error{InvalidHostWorkQuantum});
     try std.testing.expect(Host.RuntimeAdoptionError == error{ ReenteredHost, HostClosing, HostNotQuiescent });
-    try std.testing.expectEqual(@as(usize, 2), @typeInfo(Host.BootstrapDurability).@"enum".field_names.len);
     try std.testing.expectEqual(@as(usize, 4), @typeInfo(Host.LifecyclePhase).@"enum".field_names.len);
-    try std.testing.expectEqual(@as(usize, 11), @typeInfo(Host.Options).@"struct".field_names.len);
+    try std.testing.expectEqual(@as(usize, 10), @typeInfo(Host.Options).@"struct".field_names.len);
 
     const set_session_limits: *const fn (*Host, ?usize, ?usize, ?usize, ?u32) error{ ReenteredHost, WrongThread, HostClosing }!void = &Host.setSessionLimits;
     const flush_session: *const fn (*Host, *HostSession) anyerror!void = &Host.flushSession;
@@ -107,12 +106,18 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // Opaque callbacks carry archive-independent failure text. The Vat's
     // optional slice adds 16 bytes to the former error-code storage.
     // One Vat-wide callback identity makes owning forwarding recognizable
-    // across native archives without expanding each listener or session.
+    // across Zig archives without expanding each listener or session.
     // Shared enlivenment adds one Host-wide map (24 bytes). Session shells
     // and existing vow rows gain no storage; groups exist only during fetches.
     // Rollback reserves failure notifications in one Vat-wide list and count
     // (40 bytes). Each pending answer uses a 16-byte slot, shared across Ports.
-    try std.testing.expectEqual(@as(usize, 2592), @sizeOf(Host));
+    // Held answer releases add one Host-wide worklist (40 bytes), reserved
+    // one slot per live session like the encode worklist. The Node's
+    // wire-hash root adds one word (ADR-0218). The session, peer, and
+    // ingress tables are handle tables (ADR-0225): each is an array list
+    // header with a free chain head and two counts in place of a hash map
+    // header and a handle counter, 64 bytes across the three.
+    try std.testing.expectEqual(@as(usize, 2704), @sizeOf(Host));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Host));
     try std.testing.expectEqual(@as(usize, 88), @sizeOf(driver.core.HostAction));
 }
@@ -428,7 +433,7 @@ test "partner abort immediately retires a byte-fed session without an echo" {
     while (try client.takeAction()) |_| {}
 
     const diagnostic = "server is shutting down";
-    try pair.b.served.port.peer.sendCopying(.{ .abort = .{
+    try pair.b.served.port.peer.sendBorrowed(.{ .abort = .{
         .kind = .graceful_shutdown,
         .message = diagnostic,
     } });
@@ -490,7 +495,7 @@ test "release cleanup OOM remains resumable through the action drain" {
     const remaining = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7105", &.{});
     const released = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7106", &.{});
 
-    try remaining.served.port.peer.sendCopying(.{ .abort = .{
+    try remaining.served.port.peer.sendBorrowed(.{ .abort = .{
         .kind = .graceful_shutdown,
         .message = "queued before release",
     } });

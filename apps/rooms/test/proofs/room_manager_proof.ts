@@ -26,7 +26,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // it fails the same way if the join never minted a manager at all, so a failure
 // after the reload cannot be a proof that was aimed wrong.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives,
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives,
 // and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/room_manager_test.ts`.
 

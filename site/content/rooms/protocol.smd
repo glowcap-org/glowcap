@@ -10,8 +10,7 @@ Rooms has no HTTP API and no message format of its own. Everything a client
 does is a call on an object it holds, carried by glowcap over
 [OCapN](https://github.com/ocapn/ocapn)'s CapTP. The server publishes
 one object by name, `directory`. Every other reference a client ever
-uses was handed back by that object, or by an object it led to. This page lays
-out those objects, the calls they answer, and how long each thing lives.
+uses was handed back by that object, or by an object it led to.
 
 If OCapN is new to you, [Why OCapN]($link.page('why')) explains references,
 promises, and introductions from the ground up, and
@@ -20,9 +19,9 @@ promises, and introductions from the ground up, and
 # The objects
 
 Each card is one object: how you come to hold it, the calls it answers, and
-what it hands back. Read them as a chain from the one published name down to a
-single line of text. Cool cards live on the server. Warm cards are handed to
-you to use or pass on. The inbox is the one you make yourself.
+what it hands back. They form a chain from the one published name down to a
+single line of text. Cool cards live on the server, warm cards are handed to
+you to use or pass on, and the inbox is the one you make yourself.
 
 ```=html
 <div class="objects">
@@ -31,8 +30,8 @@ you to use or pass on. The inbox is the one you make yourself.
 <article class="object" data-tone="cool">
 <p class="object-name">directory</p>
 <p class="object-from">Fetch it by name. The one published object.</p>
-<p class="object-calls"><code>open</code> <code>openPrivateLink</code> <code>openManaged</code> <code>enter</code> <code>list</code> <code>watch</code> <code>register</code> <code>introduce</code> <code>offerInbox</code> <code>link</code> <code>listPublications</code> <code>watchPublications</code> <code>enterPublication</code> <code>linkPublication</code> <code>unwatchPublications</code></p>
-<p class="object-back">Hands back a <b>room</b>, a <b>name</b>, another member's <b>inbox</b>, or a room link. The publication calls list the server's published rooms and links.</p>
+<p class="object-calls"><code>open</code> <code>openPrivateLink</code> <code>openManaged</code> <code>enter</code> <code>list</code> <code>watch</code> <code>register</code> <code>introduce</code> <code>offerInbox</code> <code>link</code> <code>listPublications</code> <code>namedPublications</code> <code>watchPublications</code> <code>enterPublication</code> <code>linkPublication</code> <code>unwatchPublications</code></p>
+<p class="object-back">Hands back a <b>room</b>, a <b>name</b>, another member's <b>inbox</b>, or a room link. The publication calls list the server's published rooms and links. <code>listPublications</code> answers one page at a time, with a cursor to pass back for the next page.</p>
 </article>
 <article class="object" data-tone="cool">
 <p class="object-name">inspect, peering, listeners</p>
@@ -42,7 +41,7 @@ you to use or pass on. The inbox is the one you make yourself.
 </article>
 <article class="object" data-tone="cool">
 <p class="object-name">operator</p>
-<p class="object-from">The server's <code>--operator</code> secret, pasted into the Holdings tab. It fills the admin pages under <code>/ops</code>.</p>
+<p class="object-from">The server's <code>--operator</code> secret, pasted into the <b>Holdings</b> tab. It fills the admin pages under <code>/ops</code>.</p>
 <p class="object-calls"><code>operatorSnapshot</code> <code>operatorRetireMatching</code> <code>watch</code> <code>unwatch</code> <code>changed</code> <code>giveSteward</code> <code>giveManager</code> <code>revokeSteward</code> <code>revokeRoomLink</code> <code>unregisterRoom</code> <code>setRoomPolicy</code> <code>revokeRoomAuthority</code> <code>revokeNick</code> <code>disconnectSession</code> <code>removeOperatorRoom</code> <code>releaseOperatorReference</code></p>
 <p class="object-back">Answers for the server's rooms, names, live connections, and the references each holds, and hands back a room's <b>steward</b>.</p>
 </article>
@@ -78,7 +77,7 @@ you to use or pass on. The inbox is the one you make yourself.
 <div class="objects-row">
 <article class="object" data-tone="warm">
 <p class="object-name">steward</p>
-<p class="object-from"><code>giveSteward</code> on the manager, or the operator's admin page. Minted once per room; asking again hands back the same one.</p>
+<p class="object-from"><code>giveSteward</code> on the manager, or the operator's admin page. It is created once per room, and asking again hands back the same one.</p>
 <p class="object-calls"><code>kick</code> <code>governs</code></p>
 <p class="object-back">Hands back nothing. A member is asked to leave.</p>
 </article>
@@ -123,7 +122,7 @@ you to use or pass on. The inbox is the one you make yourself.
 <div class="objects-row">
 <article class="object" data-tone="own">
 <p class="object-name">inbox</p>
-<p class="object-from">You make it, and hand it to rooms and to the directory. Rooms call <code>notify</code> on it; other members call the rest.</p>
+<p class="object-from">You make it, and hand it to rooms and to the directory. Rooms call <code>notify</code> on it. Other members call the rest.</p>
 <p class="object-calls"><code>notify</code> <code>dm</code> <code>directReady</code> <code>handRoom</code> <code>offerRoom</code> <code>handArchive</code> <code>offerArchive</code> <code>offer</code> <code>candidate</code></p>
 <p class="object-back">Receives every line a room sends you, whatever another member hands you directly, and the signaling offers and candidates a WebRTC exchange routes to you.</p>
 </article>
@@ -131,8 +130,8 @@ you to use or pass on. The inbox is the one you make yourself.
 </div>
 ```
 
-Nothing checks who is calling: a member without the line reference cannot form the `edit` at all,
-so there is nothing to check. And a reference can be handed on. Give your
+Nothing checks who is calling: a member without the line reference cannot
+form the `edit` at all. And a reference can be handed on. Give your
 line's reference to someone and they can take the line down. Give the topic
 reference to a bot and it can keep the topic, without the room learning what
 a bot is.
@@ -169,13 +168,13 @@ every client being rebuilt first.
 | A room link | Until the manager releases it | It is a string. Keep it |
 | An invitation | One use | `mintInvitation` again |
 | A direct connection | Until either side closes it | Ask the directory to introduce you again |
-| A steward | Until the room's authority is rotated | Ask the manager again. It hands back the same one |
+| A steward | Until the room's moderator capability is rotated | Ask the manager again. It hands back the same one |
 | An admin secret | Until the server restarts without a data directory | It is written into the data directory |
 
 A live reference dies with its connection. To enter again later, Rooms asks
-the server for a durable link, an OCapN sturdyref. The link keeps the authority
+the server for a durable link, an OCapN sturdyref. The link keeps the right
 to enter and the room's identity, not a live room or seat. Redeeming it gives
-a fresh entrance reference, and the first subscription brings the room back
+a fresh entrance reference, and the first member to join brings the room back
 after a restart or after everyone left. A private room's link says nothing
 about the room's label, and the label says nothing about the link.
 
@@ -196,7 +195,8 @@ bot:
 When the two peers are browsers, WebRTC's connection details travel through
 the directory as `offerSignaling`, `signalOffer`, `signalAnswer`,
 `signalCandidate`, and `signalDone`, until the two are talking and the server
-drops out.
+drops out. A peer that will not answer an offer sends `signalDecline` with its
+reason, and the offering peer hears it right away.
 
 # Files, call by call
 
@@ -207,7 +207,7 @@ drops out.
 | 3 | `write`, chunk by chunk | the upload | Bytes arrive at the room |
 | 4 | `read` with offset and length | the blob | A member reads. A read that reaches bytes still on their way in waits for them |
 
-In a direct conversation the sender hosts the blob on the direct connection
+In a direct conversation the sender hosts the file on the direct connection
 and the other side reads it the same way. The room never sees those bytes.
 
 # What OCapN gives Rooms
@@ -221,24 +221,23 @@ and the other side reads it the same way. The room never sees those bytes.
   this one move.
 - **Promises.** A call answers a promise, so a client can keep sending to a
   room while its `open` is still on the way back.
-- **Durable links.** A sturdyref names something a Host can bring back across
+- **Durable links.** A sturdyref names something a host can bring back across
   restarts and connections. Room links, invitations, and admin secrets are all
   sturdyrefs.
 
-`lib/protocol.ts` in the repository is the readable specification, `zig build gen-rooms-protocol`
-generates the core verbs into each client, and clients in Zig, Rust, Python,
-Racket, TypeScript, and the browser all speak it. So does a
-[Spritely Goblins](https://spritely.institute/) program: it can sit in a
-room and answer a direct message, with nothing in Goblins changed to allow
-it, because the protocol is only OCapN.
+Clients in Zig, Rust, Python, Racket, TypeScript, and the browser all speak
+this protocol. So does a [Spritely Goblins](https://spritely.institute/)
+program: it can sit in a room and answer a direct message, with nothing in
+Goblins changed to allow it, because the protocol is only OCapN.
 
-Every verb above, with the reasoning behind it, lives beside the code:
+The readable specification, with the reasoning behind every verb, is
 [`protocol.ts`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol.ts)
-for the directory, rooms, seats, lines, files, and introductions, and its
-siblings for
+for the directory, rooms, seats, lines, files, and introductions. Other files
+cover
 [handover](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_handover.ts),
 [IRC](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_irc.ts),
 and the
 [admin objects](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_operator.ts).
+`zig build gen-rooms-protocol` generates the core verbs into each client.
 [How Rooms works]($link.page('rooms/architecture')) shows how the code that
 speaks it is divided.

@@ -9,7 +9,7 @@ pub const Inputs = struct {
     optimize: std.builtin.OptimizeMode,
     glowcap: *std.Build.Module,
     iroh: *std.Build.Module,
-    native_relay: *std.Build.Module,
+    relay_tls: *std.Build.Module,
     check_relay: *std.Build.Module,
     version: std.SemanticVersion,
     iroh_sidecar_archive: std.Build.LazyPath,
@@ -28,14 +28,14 @@ pub fn add(b: *std.Build, in: Inputs) void {
         .optimize = in.optimize,
     })) |dep| dep.module("vaxis") else return;
 
-    const product = cliModule(b, in, vaxis, options, "cli/main.zig", true, in.native_relay);
+    const product = cliModule(b, in, vaxis, options, "cli/main.zig", true, in.relay_tls);
     const exe = b.addExecutable(.{ .name = "glowcap", .root_module = product });
     b.installArtifact(exe);
     const run = common.addInstalledSystemRun(b, .service, &.{"env"});
     run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "bin/glowcap" } });
     run.step.dependOn(&b.top_level_steps.get("rooms-build").?.step);
     run.addPassthruArgs();
-    b.step("glowcap", "Run the glowcap CapTP CLI; pass `-- <command> …` (ocapn|repl|mcp|apps rooms session|…)")
+    b.step("glowcap", "Run the glowcap CapTP CLI; pass `-- <command> ...` (ocapn, repl, mcp, apps rooms session, and so on)")
         .dependOn(&run.step);
 
     const product_check = cliModule(b, in, vaxis, options, "cli/main.zig", false, in.check_relay);
@@ -85,7 +85,7 @@ pub fn add(b: *std.Build, in: Inputs) void {
     const cli_test = b.step("cli-test", "Run hermetic glowcap CLI registry + session/capture tests");
     cli_test.dependOn(&run_registry.step);
     cli_test.dependOn(&run_source.step);
-    b.step("cli", "Alias for cli-test — hermetic glowcap CLI goldens")
+    b.step("cli", "Alias for cli-test: hermetic glowcap CLI goldens")
         .dependOn(cli_test);
 }
 
@@ -96,7 +96,7 @@ fn cliModule(
     options: *std.Build.Step.Options,
     root: []const u8,
     link_iroh: bool,
-    native_relay: *std.Build.Module,
+    relay_tls: *std.Build.Module,
 ) *std.Build.Module {
     const module = common.irohDriverModule(
         b,
@@ -106,7 +106,7 @@ fn cliModule(
         in.iroh,
         root,
     );
-    module.addImport("native_relay", native_relay);
+    module.addImport("relay_tls", relay_tls);
     module.addImport("vaxis", vaxis);
     module.addOptions("build_options", options);
     if (link_iroh) common.linkIrohSidecar(b, module, in.target, in.iroh_sidecar_archive);
@@ -126,7 +126,7 @@ fn testApiModule(
         .optimize = in.optimize,
     });
     module.addImport("glowcap", in.glowcap);
-    module.addImport("native_relay", in.check_relay);
+    module.addImport("relay_tls", in.check_relay);
     module.addImport("vaxis", vaxis);
     module.addImport("iroh", in.iroh);
     module.addImport("iroh_sidecar_stub", iroh_stub);

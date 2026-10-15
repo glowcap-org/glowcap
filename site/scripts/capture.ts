@@ -6,11 +6,34 @@
  */
 import type { Page } from "playwright";
 
-/** Put the page in one theme and let its animations finish. */
+/** Browser context options every capture shares. Reduced motion stops the
+ * mycelium's light from running at random, so a capture shows the same page
+ * each time. */
+export const still = { reducedMotion: "reduce" } as const;
+
+/** How much of the mycelium a capture keeps, by theme. Moving, the threads
+ * read as depth. Held still at full strength, they read as scratches over the
+ * UI. Dark threads on paper fade sooner than light ones on the night ground. */
+const GROUND = { dark: 0.18, light: 0.55 } as const;
+
+/** Put the page in one theme, with the mycelium faint, and let its animations
+ * finish. */
 export async function settle(page: Page, theme: "dark" | "light" = "dark"): Promise<void> {
-	await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+	await page.evaluate(([t, ground]) => {
+		document.documentElement.setAttribute("data-theme", t);
+		// A filter, because the page's own fade holds the canvas opacity.
+		for (const canvas of document.querySelectorAll<HTMLElement>("canvas[class^=mycelium]")) {
+			canvas.style.filter = `opacity(${ground})`;
+		}
+	}, [theme, GROUND[theme]] as const);
+	// An endless animation, such as the mycelium breathing, never finishes, so
+	// only the ones that end are waited for.
 	await page.evaluate(() =>
-		Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {})))
+		Promise.all(
+			document.getAnimations()
+				.filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+				.map((animation) => animation.finished.catch(() => {})),
+		)
 	);
 	// Presence pips and the composer's focus ring settle a frame after the last
 	// animation; one short pause keeps a capture from catching them mid-move.
@@ -37,6 +60,11 @@ export async function shot(page: Page, outDir: string, name: string, within?: st
 			return { x: left, y: top, width: right - left, height: bottom - top };
 		}, within);
 	}
+	// The "New messages" rule retires a moment after arrival, and a capture
+	// that beats it shows a rule its other face does not.
+	await page.waitForFunction(() => document.querySelector(".divider.unread") === null, undefined, {
+		timeout: 10_000,
+	});
 	// One capture per face. The site shows whichever matches its own theme.
 	for (const theme of ["dark", "light"] as const) {
 		await settle(page, theme);
@@ -67,12 +95,21 @@ export function plainRun(text: string): string {
 /**
  * Resizing the window can leave the timeline scrolled short of its end, and
  * the page then offers a "latest messages" pill over the log. Scroll the log
- * to its end and let the pill retire before a capture.
+ * to its end until it stays there, since the page can still be laying out the
+ * last rows, and let the pill retire before a capture.
  */
 export async function pinToLatest(page: Page): Promise<void> {
-	await page.evaluate(() => {
+	const atEnd = () => {
 		const log = document.querySelector("#log");
-		if (log) log.scrollTo(0, log.scrollHeight);
-	});
-	await page.waitForTimeout(400);
+		if (log === null) return true;
+		const end = log.scrollHeight - log.clientHeight;
+		const there = log.scrollTop >= end - 2;
+		log.scrollTo(0, log.scrollHeight);
+		return there;
+	};
+	for (let settled = 0; settled < 2;) {
+		await page.waitForFunction(atEnd, undefined, { polling: 100, timeout: 10_000 });
+		await page.waitForTimeout(300);
+		settled = (await page.evaluate(atEnd)) ? settled + 1 : 0;
+	}
 }

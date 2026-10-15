@@ -6,7 +6,7 @@
 //! declares no core symbol. The host surface over it lives in `crate::host`,
 //! `crate::trampoline`, and `crate::session`.
 //!
-//! Callback discipline: the ONE native *behavior* callback in the whole
+//! Callback discipline: the ONE FFI *behavior* callback in the whole
 //! binding, the shared trampoline (`crate::trampoline`), fires synchronously
 //! on the thread executing the enclosing `glowcap_host_*` call. Settlements
 //! carry no callback at all: they ride the action queue as SETTLE/FAIL and the
@@ -37,7 +37,7 @@ pub struct GlowcapHostSession {
 	_private: [u8; 0],
 }
 
-/// Terminal owner-close policy shared by byte-fed Hosts and native drivers.
+/// Terminal owner-close policy shared by byte-fed Hosts and FFI drivers.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct GlowcapCloseOptions {

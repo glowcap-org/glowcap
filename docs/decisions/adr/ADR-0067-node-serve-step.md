@@ -85,7 +85,7 @@ glowcap_node_exporter_dialed, glowcap_node_dial_failed,
 glowcap_node_claim_resolve, glowcap_node_intercept_fulfilled_ref,
 glowcap_node_provide_gift_id, glowcap_node_set_exporter_location, and
 glowcap_node_next_action over the GlowcapNodeAction struct
-(`src/c_abi/ocapn/node.zig` at acceptance, that C waist is deleted: see banner),
+(at acceptance, that C waist is deleted: see banner),
 and all four bindings collapsed onto it:
 each binding's `redeem` / `withdraw` / `originate` orchestration, exporter
 cache, and pending bookkeeping were deleted, leaving a dumb action
@@ -123,11 +123,11 @@ ordinary connection's reply path pays nothing for handoffs.
   executor: it feeds the give, performs the dial, offers resolves back, and
   receives the settle, so `zig build goblins-handoff` proves the serve step
   against live Goblins.
-- `test/engine/node_test.zig` pins the decisions hermetically: interception,
+- the suites under `test/engine/node/` pin the decisions hermetically: interception,
   the fail-closed empty-locator and unopened-session arms, dial dedup, dial
   failure fan-out, claim-or-pass, token settlement and routability, exporter
   cache reuse, and the gifter claim/pass verdicts.
-- At acceptance, `test/c_abi/node_test.zig` drove the projected glowcap_node_*
+- At acceptance, a C test drove the projected glowcap_node_*
   verbs over `include/glowcap_ocapn.h`. That C waist and its header family are
   gone (see banner). CapTP product work uses `glowcap_host_*` /
   `GlowcapHostAction` instead.

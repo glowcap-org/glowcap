@@ -107,7 +107,7 @@ fn expectCapnpGiveRoundTrip(
 
     try pair.p1.exportObject(9);
     try pair.p2.importObject(9);
-    try pair.p2.sendCopying(.{ .deliver = .{
+    try pair.p2.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(9) },
         .args = &.{},
         .answer = model.AnswerPosition.from(5),
@@ -126,13 +126,13 @@ fn expectCapnpGiveRoundTrip(
 
     var event = pair.p2.pollEvent() orelse return error.ExpectedResolveEvent;
     defer event.deinit();
-    const view = try event.view();
+    const view = event.view();
     const arg = switch (view.resolve.resolution) {
         .fulfill => |a| a,
         .@"break" => return error.ExpectedFulfill,
     };
     const give_view = switch (arg) {
-        .handoff => |h| switch (h) {
+        .handoff => |h| switch (try h.project()) {
             .give => |g| g,
             .receive => return error.ExpectedGive,
         },

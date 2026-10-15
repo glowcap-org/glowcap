@@ -63,6 +63,7 @@ export function parsePort(gate: string, defaultPort: number, maxPort = 65535): n
 export async function acceptLoop(
 	server: AsyncIterable<{ serve(): Promise<void> }>,
 ): Promise<void> {
+	// tolerant: a session's serve rejects when its partner hangs up, which is that session's normal end.
 	for await (const session of server) session.serve().catch(() => {});
 }
 

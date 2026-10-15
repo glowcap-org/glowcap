@@ -22,7 +22,7 @@ amended_by: [ADR-0118]
 > demo-rooms-onion` runs Rooms over one hosted onion service with two independent
 > clients. Live Tor scale remains unmeasured. `docs/boundaries.md` owns that
 > limit.
-> Native Zig and every native binding also compose the onion provider into the
+> Zig and every native binding also compose the onion provider into the
 > generic driver and expose ordinary application-facing Sessions. The raw
 > Netlayer remains the explicit embedding surface. The driver exposes opaque
 > listener restoration bytes without naming Tor. Only the onion package calls
@@ -137,7 +137,7 @@ Five pieces carry it.
   [ADR-0059](ADR-0059-composable-c-abi-archives.md). Like every independently
   materialized transport provider archive, its build row is `.graph = false`
   and outside the layer DAG. It links no foreign code, so its checks need no cargo.
-- **One product listener seam.** Native Zig and every native binding install
+- **One product listener seam.** Zig and every native binding install
   the onion provider into the generic driver, read the driver-owned canonical
   locator, and accept ordinary Sessions. Provider-owned restoration state is a
   size-query/caller-buffer contract shared by every listener shape. It stays

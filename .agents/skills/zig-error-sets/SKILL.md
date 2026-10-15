@@ -17,7 +17,7 @@ description: >-
 - `@TypeOf` resolves an inferred set to `anyerror` outside the call graph. A
   file-scope `@typeInfo` probe sees `anyerror`, not the members.
 - A **declared** set on a function whose callees have inferred sets fails to
-  compile (the callee's set cannot be checked against it).
+  compile, because the callee's set cannot be checked against it.
 - **Mutually recursive** functions cannot both carry inferred sets ("dependency
   loop with length N"). Break the cycle with `anyerror` on one side and name
   the loop on site. Self-recursion with inference is fine.
@@ -40,8 +40,8 @@ description: >-
 
 ## Enumerating a resolved set
 
-Inside a function that is analyzed and calls the target, a
-comptime probe prints the callee's resolved members:
+Inside a function that is analyzed and calls the target, a comptime probe
+prints the callee's resolved members:
 
 ```zig
 comptime {
@@ -53,7 +53,7 @@ comptime {
 
 Remove the probe before committing: `@compileLog` fails the build.
 
-## Procedure (from the A1 sweep, 2026-10)
+## Procedure
 
 Survey `) anyerror!` in return positions. Classify each site: vtable slot
 (keep, comment the vtable type), concrete function (narrow by inference),

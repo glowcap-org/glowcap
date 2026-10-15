@@ -370,12 +370,12 @@ pub(crate) fn require_archive_fingerprint(archive: &str, actual: u64, expected: 
 	Err(Error::with_detail(
 		sys::ERR_INTERNAL,
 		format!(
-			"{archive}: callable surface does not match this binding (expected {expected:016x}, got {actual:016x}); rebuild the native libraries"
+			"{archive}: callable surface does not match this binding (expected {expected:016x}, got {actual:016x}); rebuild the FFI libraries"
 		),
 	))
 }
 
-/// Decode the shared close lifecycle without allowing an unknown native value
+/// Decode the shared close lifecycle without allowing an unknown FFI value
 /// to masquerade as a still-running owner and park a binding task forever.
 #[cfg(feature = "async")]
 pub(crate) fn lifecycle_is_closed(raw: u32) -> Result<bool> {

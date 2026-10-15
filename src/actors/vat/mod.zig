@@ -1,6 +1,6 @@
 //! A vat: a turn loop over local actors and session Ports.
 //!
-//! This is glowcap's Goblins-shaped actor model, expressed in native Zig. It is
+//! This is glowcap's Goblins-shaped actor model, expressed in Zig. It is
 //! where local actors meet the OCapN engine. A Vat owns local actors and queued
 //! turns. One or more Ports own session-specific wire names and route remote
 //! sends. You drive it
@@ -8,7 +8,7 @@
 //! sync, no-I/O core as the engine it rides on.
 //!
 //! An actor is any type with `pub fn handle(self: *@This(), turn: *Turn, msg:
-//! Message) !model.Argument` (and, optionally, `pub fn deinit(self, allocator)`).
+//! Delivery) !model.Argument` (and, optionally, `pub fn deinit(self, allocator)`).
 //! Its mutable `self` *is* its state: where Goblins returns a fresh behavior via
 //! `bcom`, a Zig actor assigns its own fields. It is the same "become" idea,
 //! expressed through Zig's ordinary mutable state. A mutable actor's turn is
@@ -17,8 +17,10 @@
 //! Use the persistent flavor for all-or-nothing turns. Its staged `become` is
 //! discarded when the handler errors.
 //!
-//! Ownership at the handler boundary is *turn-scoped*. The `Message` a handler
-//! receives borrows its arguments for the duration of the turn. For its reply a
+//! Ownership at the handler boundary is *turn-scoped*. The `Delivery` a handler
+//! receives borrows its arguments as views for the duration of the turn: a wire
+//! deliver's views read the frame's bytes where they lie, and a local call's
+//! views project the caller's owned arguments. For its reply a
 //! handler has three choices, and the vat reclaims storage after each. It
 //! can return a value owned by its own `self` or aliased from the message, which
 //! allocates nothing. It can allocate the reply and any scratch from
@@ -29,8 +31,8 @@
 //! hand-off where copying the buffer onto the arena would be O(len). The vat
 //! then owns the bytes and frees them on the same schedule as the arena. In
 //! every case the reply is valid until the vat's next top-level turn: within
-//! that window the vat clones it for the local vow's listener or clones it
-//! onto the wire (the one clone in `peer.sendCopying`). To keep a value beyond
+//! that window the vat clones it for the local vow's listener or encodes it
+//! onto the wire. To keep a value beyond
 //! your turn, store it in `self` or copy it. Never return storage that ends
 //! before the turn does. A `Resolution` delivered to a listener follows the
 //! same rule. It is valid only for that listener call, so a listener that keeps
@@ -40,8 +42,8 @@
 //! the verb and args only for the duration of the call. The local arm clones
 //! them into an ingress-attributed queue chunk (a queued turn runs at the next
 //! `drive`, after the turn arena the caller built them in has been reset), and
-//! the far arm clones them inside `peer.sendCopying`. Either way the caller's
-//! storage is free the moment the send returns.
+//! the far arm encodes them onto the wire inside `peer.sendBorrowed`. Either
+//! way the caller's storage is free the moment the send returns.
 //!
 //! Two verbs, matching Goblins:
 //!   * `Vat.near` is the synchronous near-call (`$`). It runs an actor's handler
@@ -97,6 +99,7 @@
 //! queue), else `NotQuiescent`.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 const reply_interceptor = @import("interceptor.zig");
 
@@ -198,6 +201,7 @@ pub const ResolverPair = struct {
 pub const ResolverPairReservation = struct {};
 
 pub const Message = @import("behavior.zig").Message;
+pub const Delivery = @import("behavior.zig").Delivery;
 pub const OpaqueMessage = @import("behavior.zig").OpaqueMessage;
 
 pub const IngressId = ingress_mod.IngressId;
@@ -302,8 +306,8 @@ pub const Vat = struct {
     queue_copy_active: bool = false,
     local_ingress: IngressState = .{ .id = .local },
     /// Non-local ingress rows are heap-pinned so the intrusive runnable ring
-    /// stays pointer-stable while the hash map grows inside a running turn.
-    ingresses: std.AutoHashMapUnmanaged(IngressId, *IngressState) = .{},
+    /// stays pointer-stable while the table grows inside a running turn.
+    ingresses: foundation.handle_table.Owner(IngressId, *IngressState) = .empty,
     runnable_head: ?*IngressState = null,
     runnable_tail: ?*IngressState = null,
     /// One Vat-wide spare amortizes ordinary local enqueue without retaining a
@@ -311,7 +315,7 @@ pub const Vat = struct {
     spare_chunk: ?*QueueChunk = null,
     listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
     /// One installed callback identity for Vat-owned forwarding contexts.
-    /// Native archives compile distinct function addresses. Retaining this
+    /// Zig archives compile distinct function addresses. Retaining this
     /// address costs one word per Vat, avoiding a tag on every listener and
     /// allowing exact teardown and iterative settlement across code images.
     forward_listener: @FieldType(Listener, "func"),
@@ -360,7 +364,6 @@ pub const Vat = struct {
     /// at their Port until notification, so cancellation keeps its usual owner.
     turn_breaks: std.ArrayListUnmanaged(TurnBreak) = .empty,
     turn_break_reservations: usize = 0,
-    next_ingress: u32 = 1,
     /// Scratch for local and far fulfilled-listener calls. Queue chunks may
     /// reclaim independently, so settlement has one depth-guarded arena that a
     /// listener-opened drive cannot reset under the borrowed value.
@@ -477,7 +480,7 @@ pub const Vat = struct {
     /// the vat, behind `hosted.ctx`, reached through the callbacks in
     /// `HostedActor`. This is the C-ABI hosting path a non-Zig consumer uses.
     /// The actor is otherwise ordinary. It is delivered to, driven, sent to,
-    /// and listened on exactly like a native one, and its `handle` gets the full
+    /// and listened on exactly like a Zig one, and its `handle` gets the full
     /// `Turn`. Like `spawn`, mints no export (bind it with `Port.bindExport` to
     /// reach it). `hosted.free`, if set, runs on every outcome, including a failed
     /// spawn, which frees `ctx` before returning the error, so the caller never
@@ -499,6 +502,13 @@ pub const Vat = struct {
         const removed = self.actors.fetchRemove(id) orelse unreachable;
         std.debug.assert(removed.value.pending_become == null);
         releaseBox(self.allocator, removed.value.box);
+    }
+
+    /// The state of live actor `id` when it runs `Behavior`, else null. A
+    /// read-only peek for an owner that must recognize its own actor kind.
+    pub fn stateAs(self: *const Vat, comptime Behavior: type, id: u64) ?*const Behavior {
+        const cell = self.actors.getPtr(id) orelse return null;
+        return boxed.stateAs(Behavior, cell.box);
     }
 
     pub fn hasActor(self: *const Vat, id: u64) bool {
@@ -567,6 +577,12 @@ pub const Vat = struct {
     }
 
     pub fn nearFromPort(self: *Vat, port: ?*Port, ingress: IngressId, target: Ref, msg: Message) anyerror!model.Argument {
+        return self.nearDelivery(port, ingress, target, msg.delivery());
+    }
+
+    /// The near call a forwarding handler makes with the delivery it holds:
+    /// the target reads the same views, and nothing is copied on the hop.
+    pub fn nearDelivery(self: *Vat, port: ?*Port, ingress: IngressId, target: Ref, msg: Delivery) anyerror!model.Argument {
         try self.admitMutation();
         const state = try ingress_mod.ingressState(self, ingress);
         state.active_turns += 1;

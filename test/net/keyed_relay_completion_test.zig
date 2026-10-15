@@ -276,15 +276,18 @@ test "keyed-relay buffered work still services delegated platform completions" {
     try backend.submitRecv(24, fd);
     backend.platform.pending_send = .{ .user_data = 25, .result = 1 };
 
+    // The owed record takes the one slot, and the platform is still polled,
+    // with no room, so its submissions flush. Its record lands next pass.
     var completions: [1]net.completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 24), completions[0].user_data);
     try std.testing.expectEqual(@as(usize, 1), backend.platform.poll_calls);
-    try std.testing.expect(backend.platform.pending_send == null);
+    try std.testing.expect(backend.platform.pending_send != null);
     backend.recycleBorrowed(completions[0]);
 
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 25), completions[0].user_data);
+    try std.testing.expect(backend.platform.pending_send == null);
 }
 
 test "keyed-relay allocator pressure does not hide earned completions" {

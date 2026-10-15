@@ -139,7 +139,7 @@ pub fn main(init: std.process.Init) !void {
     defer listener.deinit();
 
     var host_future = try io.concurrent(hostOnce, .{ io, listener, accept_budget_ms });
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(publish_settle_ms), .real) catch {};
+    try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(publish_settle_ms), .real);
     const client_result = callByIdOnly(io, allocator, &client_providers, server_id);
     if (client_result) |_| {} else |err| {
         std.debug.print("iroh-reachability: client failed: {s}\n", .{@errorName(err)});

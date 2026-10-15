@@ -3,7 +3,7 @@
 // ADR-0088 receiver primitive: `currentSession()` names that connection, so a
 // caller that opened no listener (a browser, a NAT'd peer) is answered without
 // a dial back. Shared by the receiver-reply demos so they assert against one
-// spine instead of four hand-rolled copies. This is not the app's own path. The
+// helper instead of hand-rolled copies. This is not the app's own path. The
 // browser UI's Rust receiver captures the reply capability and answers on a
 // later user send instead of inline, so this helper models the inline-reply
 // demos, not what the app ships.

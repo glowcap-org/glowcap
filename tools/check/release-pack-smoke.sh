@@ -128,7 +128,7 @@ write_consumer() {
 						'    errors += glowcap_driver_last_error(NULL, 0);' \
 						'    fingerprints ^= glowcap_driver_archive_fingerprint();'
 					;;
-				glowcap_loam | glowcap_loam_lmdb)
+				glowcap_loam | glowcap_loam_lmdb | glowcap_loam_sqlite | glowcap_loam_volatile)
 					printf '    errors += %s_last_error(NULL, 0);\n' "$name"
 					printf '    fingerprints ^= %s_archive_fingerprint();\n' "$name"
 					;;

@@ -1,5 +1,5 @@
 //! Retention and effect codecs keep bounded ownership and canonical edges.
-//! Removing early transaction binding made the allocation-failure proof fail.
+//! The allocation-failure proof fails if early transaction binding is removed.
 const std = @import("std");
 const f = @import("owner_fixture.zig");
 const records = f.loam.access.records;

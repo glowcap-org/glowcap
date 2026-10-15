@@ -25,7 +25,7 @@ import { _connectIroh } from "../../iroh/impl.ts";
 import { assert, eqBytes, ok } from "./support.ts";
 
 export async function run(managed: Runtime): Promise<void> {
-	// The native TCP transport is its own composable module
+	// The FFI TCP transport is its own composable module
 	// (`@glowcap/tcp/transport`, riding libglowcap_net_transport_tcp). Bind a
 	// listener, dial it, accept the peer, and shuttle one whole frame through the
 	// `glowcap_tcp_*` endpoints intact. This is the Deno application path.
@@ -315,7 +315,7 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// Mid-turn close parks the C release (parity with Python/Rust): a behavior that
-	// closes its own Session inside a local turn must not free the native session
+	// closes its own Session inside a local turn must not free the FFI session
 	// while the trampoline frame is still on the stack. The release runs after the
 	// turn unwinds; the next verb is the typed CLOSED.
 	{
@@ -362,7 +362,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("a behavior closing its own connection mid-turn parks the release");
 	}
 
-	// Closing a Host closes every Session before freeing the native Host. When the
+	// Closing a Host closes every Session before freeing the FFI Host. When the
 	// request comes from a behavior callback, one terminal Host transaction parks;
 	// after the turn it closes both sessions and releases behind the admission/dial
 	// barrier.
@@ -408,7 +408,7 @@ export async function run(managed: Runtime): Promise<void> {
 		}
 		assert(!(await during), "Host close waits until the callback unwinds");
 		await captpHost.close();
-		assert(captpHost.released, "the native Host is released after its loop barrier");
+		assert(captpHost.released, "the FFI Host is released after its loop barrier");
 		await first.close();
 		await second.close();
 		await server.close();

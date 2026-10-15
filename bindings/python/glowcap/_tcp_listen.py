@@ -1,4 +1,4 @@
-"""One native listener surface across the TCP provider's profiles.
+"""One FFI listener surface across the TCP provider's profiles.
 
 The driver owns sockets, admission, handshakes, events, session release, and
 canonical locator metadata. A supplied :class:`Host` is transferred into that

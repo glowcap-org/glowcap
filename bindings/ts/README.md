@@ -25,35 +25,23 @@ console.log(await session.send(greeter, "greet", ["world"]));
 | [`@glowcap/iroh`](iroh/README.md) | Optional encrypted QUIC provider and listener. |
 | `@glowcap/onion` | Tor onion provider, listener, and raw transport handles. |
 | [`@glowcap/relay`](relay/README.md) | A byte-transparent relay for browser peers that cannot open sockets. |
-| `@glowcap/webrtc` | A WebRTC DataChannel opened through a signaling capability. |
+| [`@glowcap/webrtc`](webrtc/README.md) | A WebRTC DataChannel opened through a signaling capability. `/driver` is the Deno provider and listener: it dials a `webrtc` locator and accepts offers on the driver loop. |
 | [`@glowcap/web`](web/README.md) | The same host and session API compiled to WebAssembly. |
-| `@glowcap/tcp` | TCP-profile locator constructors and native driver listeners. `/transport` exposes provider installation and blocking frame handles. |
-| `@glowcap/inproc` | Socket-free in-process frame transport for tests and embedded topologies. |
+| `@glowcap/tcp` | TCP-profile locator constructors and C driver listeners. `/transport` exposes provider installation and blocking frame handles. |
+| `@glowcap/inproc` | Socket-free in-process frame transport for tests and programs that keep every peer in one process. |
 | `@glowcap/abi` | Generated ABI constants used by the other packages. |
 
 An adapter selected at load time holds the runtime-specific FFI and socket
 code, so Deno never loads Bun FFI and Bun never loads Deno FFI.
 
-On Deno and Bun the Runtime loads the symbol-disjoint `libglowcap_host` and
-`libglowcap_driver` archives. The driver adopts a quiescent Host and receives
-archive-owned provider packages: one TCP package owns TCP, keyed TCP, and
-Noise TCP, while the optional iroh package owns its dial and listener halves.
-On Deno those providers run on one stepping driver loop that owns readiness,
-pumping, and admission. Explicit keyed-relay channels, Bun, and the browser
-keep the byte-fed Host path.
-
-## What is checked
-
-| Runtime | Recurring evidence | Still manual |
-| --- | --- | --- |
-| Deno | Application round trips, live Goblins client and listener, handoff, relay, and iroh checks. | None known in the supported path. |
-| Bun | Host identity/lifetime, locator and sturdyref ABI, and fail-closed driver-loop and transport admission. | Hosted application round trips, live Goblins, and iroh checks. |
-| Browser | WebAssembly handshake, ABI layout, and import checks. | Real Chromium, WebRTC, mesh, and cold-dial scenarios. |
-
-`@glowcap/web` uses the same byte-fed host as Deno and Bun. JavaScript supplies
-the channel, either a WebSocket relay or a WebRTC DataChannel.
+On Deno, TCP, iroh, and WebRTC connections run on glowcap's driver loop. Bun, the
+browser, and explicit keyed-relay channels use the byte-fed Host instead.
+[Developing a binding](../DEVELOPING.md) explains both paths.
 
 ## Run the checks
+
+[Stability](../../docs/stability.md) says what is checked on Deno, Bun, and
+the browser.
 
 ```sh
 zig build deno-dogfood
@@ -65,3 +53,6 @@ zig build wasm-import-check
 
 `zig build bindings` runs the binding checks together. The
 [binding overview](../README.md) describes the shared session API.
+
+`@glowcap/web` uses the same byte-fed Host as Deno and Bun. JavaScript supplies
+the channel, either a WebSocket relay or a WebRTC DataChannel.

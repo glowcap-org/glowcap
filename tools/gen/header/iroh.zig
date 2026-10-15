@@ -125,11 +125,11 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\glowcap_iroh_netlayer_try_accept, and move raw bytes with the
         \\non-blocking glowcap_iroh_conn_try_read / _try_write. You frame those
         \\bytes yourself, feeding a GlowcapHost session and writing its
-        \\outbound frames back — the same shape the TCP consumer uses. No call ever
+        \\outbound frames back, the same shape the TCP consumer uses. No call ever
         \\parks on a specific connection, so releasing one never races a read.
         \\
         \\The one difference from TCP is addressing: there is no host:port. A
-        \\partner is dialed by its endpoint id — the canonical lowercase-hex
+        \\partner is dialed by its endpoint id, the canonical lowercase-hex
         \\designator glowcap_iroh_netlayer_node_id prints. Whether you also need a
         \\direct-address hint string from glowcap_iroh_netlayer_direct_addrs
         \\depends on the reachability the netlayer was created with: a
@@ -230,8 +230,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\/* One iroh endpoint's configuration, passed to glowcap_iroh_netlayer_new /
         \\   _new_in. reachability is mandatory (one of GLOWCAP_IROH_REACH_*; an unknown
         \\   value is refused). connect_timeout_ms is the per-endpoint stream-
-        \\   establishment deadline in milliseconds — the dial's connect + first-stream
-        \\   open and each accepted stream ride it — with 0 meaning glowcap's thirty seconds. Every 0 here is
+        \\   establishment deadline in milliseconds (the dial's connect + first-stream
+        \\   open and each accepted stream ride it), with 0 meaning glowcap's thirty seconds. Every 0 here is
         \\   glowcap's number, never the QUIC stack's own, a distinction that matters most
         \\   for idle_timeout_ms, where glowcap's replaces a longer one the stack would
         \\   otherwise use.
@@ -241,6 +241,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   equivalent of the FIN a dying TCP process gets from the operating system, so
         \\   nothing else ends the connection. 0 keeps glowcap's fifteen seconds; read a live
         \\   session as presence and you want a shorter one of your own.
+        \\   worker_threads sizes this endpoint's runtime. 0 takes glowcap's two.
         \\   Zero-initialize the whole struct before filling the fields you set (e.g.
         \\   `GlowcapIrohConfig cfg = {0};`), so a field added in a later version
         \\   defaults to 0 rather than reading stack garbage. */
@@ -266,7 +267,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_iroh_conn_id", &.{"conn"}, "Return this connection's stable readiness identity, unique for the netlayer's\nlifetime and never derived from the handle allocation address. Returns 0 for a\nNULL handle.");
     try emitFn(&b, gpa, "glowcap_iroh_conn_remote_node_id", &.{ "conn", "out", "cap", "out_len" }, "Write the far end's QUIC-verified endpoint id into out as lowercase hex, and the\nbyte count into out_len. Compare it with the partner's CapTP location before\ncalling the durable name proved. cap must be at least GLOWCAP_IROH_NODE_ID_BYTES\nor the call is GLOWCAP_ERR_BUFFER_TOO_SMALL. No terminator is written. A missing\nproof is GLOWCAP_ERR_IO with out_len untouched, never success with a zero length.");
 
-    try emitFn(&b, gpa, "glowcap_iroh_netlayer_readiness_fd", &.{"netlayer"}, "The netlayer's single read-only OS readiness fd — the borrowed read end of the\nsidecar's wakeup channel, readable whenever fresh readiness records are pending.\nRegister it once with your poller (poll/epoll/kqueue, or a runtime's reactor);\nwhen it signals, call glowcap_iroh_netlayer_drain_ready. The fd is owned by the\nnetlayer and valid until glowcap_iroh_netlayer_release — do not close it; dup it\nif your runtime needs its own copy. Negative only for a null handle.");
+    try emitFn(&b, gpa, "glowcap_iroh_netlayer_readiness_fd", &.{"netlayer"}, "The netlayer's single read-only OS readiness fd, the borrowed read end of the\nsidecar's wakeup channel, readable whenever fresh readiness records are pending.\nRegister it once with your poller (poll/epoll/kqueue, or a runtime's reactor);\nwhen it signals, call glowcap_iroh_netlayer_drain_ready. The fd is owned by the\nnetlayer and valid until glowcap_iroh_netlayer_release. Do not close it. Dup it\nif your runtime needs its own copy. Negative only for a null handle.");
     try emitFn(&b, gpa, "glowcap_iroh_netlayer_drain_ready", &.{ "netlayer", "out_events", "out_cap", "out_count" }, "Clear the fd's coalesced wake bytes, then drain pending readiness records into\nout_events (out_cap entries, caller-owned) without blocking: GLOWCAP_OK with the\ndrained count (0 when none) in out_count, or a GLOWCAP_ERR_* on fault (out_count\nuntouched). Call it when readiness_fd signals, then again until it drains fewer\nthan out_cap records (more may be queued than one call drains), before re-parking\non the fd. A record for a connection already released still carries only its\nstable id, so the host can discard it without dereferencing freed storage. The\ndrain touches only the endpoint, never a per-connection buffer. Run it on one\nthread per netlayer, serialized against glowcap_iroh_netlayer_release.");
     try emitFn(&b, gpa, "glowcap_iroh_netlayer_try_accept", &.{ "netlayer", "out_conn" }, "Claim one accepted connection (already non-blocking) into out_conn, returning\nGLOWCAP_OK, or GLOWCAP_ERR_WOULD_BLOCK when none is pending. Drive it after\ndrain_ready reports an accept record. Release with glowcap_iroh_conn_release.");
     try emitFn(&b, gpa, "glowcap_iroh_netlayer_start_connect", &.{ "netlayer", "request_id", "node_id", "node_id_len", "addr_hints", "addr_hints_len" }, "Admit one outbound dial without blocking. request_id is nonzero and unique among\nthis netlayer's live requests. GLOWCAP_OK promises exactly one EV_CONNECT record\ncarrying request_id; a synchronous error promises no event. The borrowed target\nbytes are parsed before return.");

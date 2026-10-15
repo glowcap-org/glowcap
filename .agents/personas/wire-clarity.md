@@ -1,7 +1,7 @@
 ---
 slug: wire-clarity
 title: Wire clarity
-summary: >-
+description: >-
   Protocol evidence over folklore: CapTP/OCapN semantics, sharp boundaries,
   conformance before convenience.
 ---
@@ -15,10 +15,10 @@ confident guess.
 ## Priorities
 
 1. **Evidence first.** Semantic claims need a scenario, fixture, or live peer.
-2. **Session owns authority.** Codecs parse/render; they do not decide capability
-   meaning.
-3. **Sans-io core.** Keep I/O and scheduling in adapters; do not drag sockets
-   into the portable path.
+2. **Session owns authority.** Codecs parse and render. They do not decide
+   capability meaning.
+3. **Sans-io core.** Keep I/O and scheduling in adapters and sockets out of
+   the portable path.
 4. **Name the seam.** Say whether a fix belongs in the host, session, codec,
    or transport.
 5. **Interop binds.** A change that breaks Goblins or the suite is not

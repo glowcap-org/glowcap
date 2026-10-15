@@ -1,4 +1,4 @@
-// Native registered accepts for the relay profiles. The driver owns the
+// FFI registered accepts for the relay profiles. The driver owns the
 // registration socket, admission, handshake, events, and terminal release;
 // this module installs the relay provider with its two routes and projects
 // the listener into the TypeScript API, the same shape `@glowcap/tcp`'s
@@ -6,7 +6,7 @@
 //
 // The provider hosts one registration route per loop (the deployed
 // rendezvous protocol queues inbound legs by durable designator without a
-// channel-profile discriminator). Native installation is the configuration
+// channel-profile discriminator). FFI installation is the configuration
 // authority: repeated installation accepts only the same complete route and
 // trust snapshot.
 
@@ -25,7 +25,7 @@ import {
 } from "@glowcap/runtime/transport";
 import type { Codec, DriverLoop } from "@glowcap/runtime/transport";
 import { IO } from "@glowcap/abi";
-import { installProvider, type NativeTrust } from "./transport.ts";
+import { installProvider, type TlsTrust } from "./transport.ts";
 import { relayRoute } from "./route.ts";
 
 export interface RelayListenOptions {
@@ -33,8 +33,8 @@ export interface RelayListenOptions {
 	readonly relayUrl: string;
 	/** Registration endpoint this listener holds inbound sockets at. */
 	readonly registerUrl: string;
-	/** Immutable trust snapshot used by native WSS opens. */
-	readonly trust?: NativeTrust;
+	/** Immutable trust snapshot used by WSS opens. */
+	readonly trust?: TlsTrust;
 	/** Cancel listener construction before the driver reports readiness. */
 	readonly signal?: AbortSignal;
 	/** Reuse this Host's identity, publications, and handoff router. */

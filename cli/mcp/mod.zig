@@ -127,7 +127,7 @@ fn handleInitialize(io: std.Io, gpa: std.mem.Allocator, id_json: []const u8, roo
     const answering = negotiateProtocolVersion(root);
     if (askedProtocolVersion(root)) |asked| {
         if (!std.mem.eql(u8, asked, answering)) {
-            log.err(io, "client asked for MCP revision \"{s}\", which this server does not speak; answering \"{s}\"", .{ asked, answering });
+            log.err(io, "client asked for MCP revision \"{s}\", which this server does not speak. Answering \"{s}\"", .{ asked, answering });
         }
     }
 
@@ -325,7 +325,7 @@ const CapsWatch = struct {
         while (!signals.stopRequested()) {
             const now = clock.nowMs();
             if (self.max_session_ms != 0 and now - self.started_ms >= self.max_session_ms) {
-                log.info(self.io, "mcp max session reached; draining", .{});
+                log.info(self.io, "mcp max session reached, draining", .{});
                 signals.requestStop();
                 self.closeOnce();
                 return;
@@ -336,7 +336,7 @@ const CapsWatch = struct {
                 // then, which reads as fresh activity, not idleness.
                 const last = self.last_activity_ms.load(.acquire);
                 if (now - last >= self.idle_ms) {
-                    log.info(self.io, "mcp idle timeout; draining", .{});
+                    log.info(self.io, "mcp idle timeout, draining", .{});
                     signals.requestStop();
                     self.closeOnce();
                     return;

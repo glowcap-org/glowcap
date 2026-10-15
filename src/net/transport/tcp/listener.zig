@@ -1,4 +1,4 @@
-//! Profile-aware listener shared by native TCP residents and C projections.
+//! Profile-aware listener shared by Zig TCP residents and C projections.
 //!
 //! The raw runtime owns the socket. `advertisement.zig` owns what a listener
 //! publishes.

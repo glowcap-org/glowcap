@@ -7,16 +7,16 @@
 ---
 
 The `@glowcap/web` package compiles glowcap's protocol core to WebAssembly. A
-browser uses the same `Session` operations as the native TypeScript binding.
+browser uses the same `Session` operations as the TypeScript binding.
 JavaScript supplies the byte channel and scheduling.
 
 # Dial
 
 A page cannot bind a socket, so every path below is a dial. The iroh tab
-reaches a native node id through a [relay]($link.page('relay')) over `wss://`.
-The `noise-relay` tab reaches a peer registered at the relay, with Noise_XK
-sealing the stream so the relay forwards only ciphertext. `keyed-tcp` and
-`keyed-relay` name a key but leave CapTP frames in the clear, and `tcp` is for
+reaches an iroh node id through a [relay]($link.page('relay')) over `wss://`.
+The `noise-relay` tab reaches a peer registered at the relay, and Noise_XK
+seals the stream so the relay forwards only ciphertext. `keyed-tcp` and
+`keyed-relay` name a key but send CapTP frames in the clear. `tcp` is for
 testing.
 
 Install an iroh, Noise-relay, or WebRTC connector for those locators. The
@@ -35,7 +35,7 @@ built-in runtime also opens `tcp` and `keyed-tcp` through WebSocket.
 > 	relayUrl: (locator) => `wss://relay.example/?locator=${encodeURIComponent(locator)}`,
 > });
 > await using runtime = web.runtime;
-> // `@glowcap/iroh` loads native FFI, so a page parses the locator on the web runtime.
+> // `@glowcap/iroh` loads a compiled library through FFI, so a page parses the locator on the web runtime.
 > const partner = web.parseLocator("ocapn://<64 lowercase hex characters>.iroh");
 > ```
 > **webrtc**
@@ -119,7 +119,7 @@ console.log(reply);
 
 When you hold the key and address as separate pieces instead, import
 `@glowcap/tcp` before `init` and use `tcp.keyed.locator`. The locator package
-does not load native FFI or depend on the initialized wasm adapter.
+does not load a compiled library or depend on the initialized wasm adapter.
 
 `init` instantiates `glowcap_host.wasm` (built by `zig build wasm-driver`) and
 hands back the configured browser runtime. From there `connect`, `fetch`,
@@ -128,17 +128,19 @@ hands back the configured browser runtime. From there `connect`, `fetch`,
 
 # Browser dial paths
 
-To reach a **native** peer, the page dials over WebSocket. A host-and-port dial
-opens `ws://host:port/` by default, straight to a peer that accepts WebSocket
-itself. For a peer that only speaks raw TCP or iroh, dial through a
+To reach a **non-browser** peer, the page dials over WebSocket. A host-and-port
+dial opens `ws://host:port/` by default, straight to a peer that accepts
+WebSocket itself. For a peer that only speaks raw TCP or iroh, dial through a
 [relay]($link.page('relay')): `init`'s `wsUrl` option maps a host-and-port dial
-to the relay's URL, and `relayUrl` does the same for a native-only locator such
-as iroh. The keyed handshake still runs end to end between the two peers.
+to the relay's URL, and `relayUrl` does the same for a locator only a
+non-browser peer can serve, such as iroh. The keyed handshake still runs end
+to end between the two peers.
 
 To reach **another browser**, open a direct
 [WebRTC]($link.page('transports/webrtc')) DataChannel. Once the channel is up, no
-server sits on the byte path. Two browser peers that first met through a relay can also
-cold-dial each other by identity, which `init`'s `relayUrl` option enables.
+server sits on the byte path. Two browser peers that first met through a relay
+can also dial each other cold by identity, which `init`'s `relayUrl` option
+enables.
 
 # Next
 

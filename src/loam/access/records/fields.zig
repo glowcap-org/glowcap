@@ -12,7 +12,7 @@ pub fn writeWide(sink: anytype, value: u128) !void {
 pub fn readWide(bytes: []const u8, cursor: *usize) !u128 {
     // The syntax limit is an absolute record boundary, not a field length.
     // Public decoders already cap bytes before entering this grammar.
-    const value = try syntax.readBytesLimited(bytes, cursor, bytes.len);
+    const value = try syntax.readBytes(bytes, cursor);
     if (value.len != 16) return error.InvalidRecord;
     return std.mem.readInt(u128, value[0..16], .big);
 }

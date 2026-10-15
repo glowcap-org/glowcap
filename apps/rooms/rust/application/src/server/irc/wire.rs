@@ -1,5 +1,5 @@
 //! What a bridged room says to a member's inbox, and the arguments each
-//! notice carries: the same `notify` shapes a native room speaks where the
+//! notice carries: the same `notify` shapes a Rooms room speaks where the
 //! vocabulary is shared, and the bridge and seat facts beside them.
 use super::seat::{self, View};
 use crate::room::{

@@ -45,7 +45,7 @@ pub fn sessionName(side_a: [32]u8, side_b: [32]u8) [32]u8 {
 /// handshake established, which are the two ends of that very session.
 ///
 /// Deriving rather than trusting the wire binds the receive to the live
-/// Receiver–Exporter session. That session's `Peer` owns one monotonic replay
+/// Receiver-Exporter session. That session's `Peer` owns one monotonic replay
 /// scalar, so another session cannot redirect a receive into its replay
 /// namespace by supplying different names.
 pub const ExpectedReceiver = struct {

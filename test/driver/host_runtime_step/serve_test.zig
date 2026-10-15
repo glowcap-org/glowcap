@@ -57,7 +57,7 @@ test "attendance failure settles registered reply listeners before the wait fram
     try std.testing.expectError(error.NoSuchVow, accepted.runtime.core.vowSession(promise.id));
 }
 
-test "native operation failures classify at the I/O-owning driver" {
+test "Zig operation failures classify at the I/O-owning driver" {
     const Failure = driver.OperationFailure;
     try std.testing.expectEqual(Failure.Kind.internal, Failure.classify(error.OutOfMemory));
     try std.testing.expectEqual(Failure.Kind.invalid_argument, Failure.classify(error.ProviderContract));
@@ -75,7 +75,7 @@ test "native operation failures classify at the I/O-owning driver" {
     try std.testing.expectEqual(Failure.Kind.io, Failure.classify(error.ConnectionRefused));
 }
 
-test "native operation failures can retain archive-crossing cause names" {
+test "Zig operation failures can retain archive-crossing cause names" {
     var failure = driver.OperationFailure.fromError(error.ProviderIo);
     failure.namePrimary("TcpReadFailed");
     failure.noteNamed(error.ProviderInternal, "SocketReleaseFailed");

@@ -30,6 +30,10 @@ const completion_state = @import("completion/state.zig");
 const socks5 = @import("socks5.zig");
 
 pub const Config = completion_state.Config;
+
+/// The most records one pass of the inner backend hands up at once, the
+/// bound the ready reserve projects from. The resident asks for fewer.
+const pass_records = 256;
 pub const DialResolver = completion_state.DialResolver;
 
 /// Bound refused inner submissions attempted in one poll turn.
@@ -76,6 +80,11 @@ pub fn InnerBackend(comptime Inner: type) type {
         config: ?ConfigType,
         listener: Listener.State = .{},
         control_fd: ?Inner.Fd = null,
+        /// Operations in flight on the control connection, counted when the
+        /// inner backend accepts one and released as its record returns.
+        /// A withdrawn setup leaves its row before the connection's last
+        /// records land, so this count is what says they are still coming.
+        control_ops: u8 = 0,
         retries: RetryState = .{},
 
         pub fn init(
@@ -312,6 +321,17 @@ pub fn InnerBackend(comptime Inner: type) type {
         }
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
+            return collect(self, out, timeout_ms);
+        }
+
+        pub fn peek(self: *Self, out: []completion.Completion) !usize {
+            return collect(self, out, null);
+        }
+
+        /// `wait_ms` null reaps what the inner backend already completed and
+        /// submits nothing.
+        fn collect(self: *Self, out: []completion.Completion, wait_ms: ?i32) !usize {
+            if (self.idle()) return completion.passThrough(&self.inner, out, wait_ms);
             // The listener setup turns on every poll: its deadline and owed
             // submissions are enforced here, never by blocking a caller.
             Listener.pump(self);
@@ -320,33 +340,55 @@ pub fn InnerBackend(comptime Inner: type) type {
             if (self.retries.takeRecvRecycleProgress()) self.retryRecvStarvation();
             self.retrySubmissions();
             const has_ready = self.ready.len() != 0;
-            var tmp: [256]completion.Completion = undefined;
             // One consumed inner completion can fail a pending connect, recv,
             // and send together and publish the close beside them. Reserve
-            // that fan-out before asking the inner backend for any record.
-            self.ready.ensureUnusedCapacity(self.allocator, tmp.len * 4) catch {
+            // that fan-out for a full pass before asking the inner backend
+            // for any record.
+            self.ready.ensureUnusedCapacity(self.allocator, pass_records * 4) catch {
                 if (has_ready) return self.ready.drain(out);
                 return error.OutOfMemory;
             };
-            const effective_timeout: i32 = if (has_ready)
+            const owed = self.ready.drain(out);
+            const room = out[owed..];
+            const n = if (wait_ms) |timeout_ms| try self.inner.poll(room, if (has_ready)
                 0
             else if (self.retries.submissionRetryCount() == 0)
                 timeout_ms
             else if (timeout_ms < 0)
                 submission_retry_ms
             else
-                @min(timeout_ms, submission_retry_ms);
-            const n = try self.inner.poll(&tmp, effective_timeout);
-            for (tmp[0..n]) |comp| {
-                if (Identity.owns(comp.user_data)) {
-                    self.dispatchInternal(comp) catch |err| {
-                        const id = Identity.id(comp.user_data);
-                        if (id == 0) return err;
-                        if (self.conns.get(id)) |c| self.fail(c);
-                    };
-                } else self.ready.appendAssumeCapacity(comp);
-            }
-            return self.ready.drain(out);
+                @min(timeout_ms, submission_retry_ms)) else try self.inner.peek(room);
+            const kept = try completion.keepForeign(room, n, Self, self);
+            return owed + kept + self.ready.drain(room[kept..]);
+        }
+
+        /// Nothing open, armed, or owed. Every completion this adapter owns
+        /// belongs to a connection, the listener, or the control connection,
+        /// and every chore serves one of those or a retry queue, so with all
+        /// of them empty the pass is the inner backend's alone. A control
+        /// connection's records can land after its listener row is gone,
+        /// so its in-flight count stands in for the row. A recycle edge
+        /// noted while idle waits for the next pass with a connection, which
+        /// is the first pass that could owe a receive.
+        fn idle(self: *const Self) bool {
+            return self.conns.count() == 0 and self.listener.fd == null and self.listener.setup == null and
+                self.listener.ready_ud == null and self.listener.failed == null and self.control_fd == null and
+                self.control_ops == 0 and self.ready.len() == 0 and self.retries.submissionRetryCount() == 0 and
+                self.retries.recvStarvationCount() == 0;
+        }
+
+        pub fn ownsCompletion(user_data: u64) bool {
+            return Identity.owns(user_data);
+        }
+
+        /// A refused dispatch fails its own connection. A listener record
+        /// (id zero) has none, so its refusal refuses the pass.
+        pub fn dispatchOwned(self: *Self, comp: completion.Completion) !void {
+            self.dispatchInternal(comp) catch |err| {
+                const id = Identity.id(comp.user_data);
+                if (id == 0) return err;
+                if (self.conns.get(id)) |c| self.fail(c);
+            };
         }
 
         fn dispatchInternal(self: *Self, comp: completion.Completion) !void {

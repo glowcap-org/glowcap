@@ -17,12 +17,12 @@ CORPUS = json.loads(
 
 
 class RelayRouteTests(unittest.TestCase):
-    def test_managed_connector_refuses_native_alias_configuration(self) -> None:
+    def test_managed_connector_refuses_alias_configuration(self) -> None:
         config = relay.RelayConfig(
             "ws://127.0.0.1:8080/relay",
             relay_alias_url="wss://relay.example.test/relay",
         )
-        with self.assertRaisesRegex(GlowcapError, "native relay provider"):
+        with self.assertRaisesRegex(GlowcapError, "relay archive.s provider"):
             relay.connector(config)
 
     def test_dial_url_preserves_admitted_query_bytes(self) -> None:
@@ -36,7 +36,7 @@ class RelayRouteTests(unittest.TestCase):
         with self.assertRaises(Exception):
             relay._dial_url("wss://relay.example.test/", "AB" * 32)
 
-    def test_route_matches_the_binding_neutral_native_corpus(self) -> None:
+    def test_route_matches_the_binding_neutral_ffi_corpus(self) -> None:
         self.assertEqual(CORPUS["designator"], DESIGNATOR)
         for case in CORPUS["accepted"]:
             route = case["route"]

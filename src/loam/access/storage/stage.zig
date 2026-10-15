@@ -45,14 +45,16 @@ pub fn contentStagingSizeBound(resource_path: usize, receipt: bool) !ContentStag
 /// failure never replaces an owner. Callers explicitly retain this reference.
 pub fn createOwner(store: *loam.Store, owner: core.OwnerId, policy: core.Policy, options: Options) !loam.ObjectId {
     if (store.phase != .staging) return error.WrongPhase;
-    if (options.max_resource_depth > 64 or options.max_grant_depth > 64) return error.DepthLimit;
+    if (options.max_resource_depth > max_depth or options.max_grant_depth > max_depth) return error.DepthLimit;
     errdefer store.abort() catch unreachable;
     const object = try store.allocateId();
     const header: records.OwnerRecord = .{ .owner = owner, .policy = policy, .max_resource_depth = options.max_resource_depth, .max_grant_depth = options.max_grant_depth, .max_grant_children = options.max_grant_children };
     try putEncoded(store, object, records.profile.owner, header, &.{}, null, true);
     return object;
 }
-pub const Options = struct { max_resource_depth: u32 = 64, max_grant_depth: u16 = 64, max_grant_children: u32 = 256 };
+/// The deepest resource or grant tree an owner may allow.
+pub const max_depth = 64;
+pub const Options = struct { max_resource_depth: u32 = max_depth, max_grant_depth: u16 = max_depth, max_grant_children: u32 = 256 };
 
 fn writable(view: *Read) !void {
     try view.prepareHistory();
@@ -82,6 +84,13 @@ fn loaded(view: *Read, target: read.Target) !loam.RecordView {
 }
 
 pub fn appendResource(append: *Append, kind: core.KindId, parent: ?core.ResourceId) !core.ResourceId {
+    return (try appendResourceRecord(append, kind, parent)).id;
+}
+
+/// A staged resource and the record its content's binding edge names.
+pub const AppendedResource = struct { id: core.ResourceId, object: loam.ObjectId };
+
+fn appendResourceRecord(append: *Append, kind: core.KindId, parent: ?core.ResourceId) !AppendedResource {
     const view = append.view;
     try writable(view);
     if (append.directory.family != .resource or append.directory.count != 4 or append.directory.staged or append.directory.cancelled) return error.WrongPhase;
@@ -123,7 +132,7 @@ pub fn appendResource(append: *Append, kind: core.KindId, parent: ?core.Resource
     path.count += 1;
     try history.append(view, .{ .resource = .{ .id = id, .kind = .created, .before = &.{}, .after = path.slice() } });
     try headerRow(view, view.header);
-    return id;
+    return .{ .id = id, .object = object };
 }
 
 /// Stages a prepared grant and its ancestry in the shared retained batch.
@@ -134,40 +143,38 @@ pub const StagedGrant = struct { change: core.GrantPlan.Change, object: loam.Obj
 pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !StagedGrant {
     try writable(view);
     var grants = try view.grantView();
-    const event_parent = if (plan.delta == .issue) plan.delta.issue.parent else (try grants.get(plan.grant)).parent;
+    const event_parent = if (plan.delta == .issue) plan.delta.issue.parent else blk: {
+        const current = try grants.borrow(plan.grant);
+        defer grants.release();
+        break :blk current.parent;
+    };
     var ancestors: [records.ChangeBatchRecord.max_path]core.GrantId = undefined;
     ancestors[0] = plan.grant;
     var ancestor_count: usize = 1;
-    var ancestry = grants.ancestry(event_parent orelse plan.grant);
-    if (event_parent != null) while (try ancestry.next()) |entry| {
-        if (ancestor_count == ancestors.len) return error.DepthLimit;
-        ancestors[ancestor_count] = entry.id;
-        ancestor_count += 1;
-    };
+    if (event_parent) |start| {
+        var ancestry = grants.ancestry(start);
+        defer ancestry.close();
+        while (try ancestry.next()) |entry| {
+            if (ancestor_count == ancestors.len) return error.DepthLimit;
+            ancestors[ancestor_count] = entry.id;
+            ancestor_count += 1;
+        }
+    }
     const changes = try plan.changes(&grants);
+    defer changes.release(&grants);
     const issuing = changes.expected == null;
     if (issuing) {
         const path = append orelse return error.WrongPhase;
         if (path.view != view or path.directory.family != .grant or path.directory.count != 4 or path.directory.staged or path.directory.cancelled or path.directory.slot != plan.grant.slot or plan.grant.generation != 1) return error.WrongPhase;
     } else if (append != null) return error.WrongPhase;
     const original = if (issuing) null else try rowOf(view, .{ .grant = plan.grant });
-    // Policy edits preserve lifecycle history. Separate scratch keeps the
-    // plan's borrowed selections intact while decoding the prior stamp.
-    const status_stamp = if (issuing or plan.delta == .status) try history.stamp(view, @backingInt(changes.record.revision)) else blk: {
-        var scratch: [2 * core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined;
-        var fixed = std.heap.FixedBufferAllocator.init(&scratch);
-        var prior = try records.GrantRecord.decodeOwned(fixed.allocator(), original.?.view.payload);
-        defer prior.deinit(fixed.allocator());
-        break :blk prior.value.lifecycle;
-    };
-    const parent = if (changes.parent_record) |parent_record| try rowOf(view, .{ .grant = parent_record.id }) else null;
-    var child_root: ?loam.ObjectId = null;
-    if (original) |row| {
-        var prior = try records.GrantRecord.decodeOwned(view.allocator, row.view.payload);
-        defer prior.deinit(view.allocator);
-        child_root = prior.value.children;
-    }
-    var edges: [515]loam.Edge = undefined;
+    // An edit's prior row is the one the plan borrowed. Policy and label
+    // edits preserve its lifecycle stamp, and every edit keeps its child root.
+    const prior: ?*const records.GrantRecord = if (issuing) null else view.heldRow();
+    const status_stamp = if (issuing or plan.delta == .status) try history.stamp(view, @backingInt(changes.record.revision)) else prior.?.lifecycle;
+    const parent = if (changes.parent) |inventory| try rowOf(view, .{ .grant = inventory.id }) else null;
+    const child_root: ?loam.ObjectId = if (prior) |row| row.children else null;
+    var edges: [records.GrantRecord.max_edges]loam.Edge = undefined;
     var edge_count: usize = 0;
     if (plan.delta == .status or plan.delta == .label) {
         var it = original.?.view.edges();
@@ -203,7 +210,7 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
     const object = if (original) |row| row.view.id else try view.store.allocateId();
     try putEncoded(view.store, object, records.profile.grant, records.GrantRecord{ .children = child_root, .grant = changes.record, .lifecycle = status_stamp, .authority = try history.stamp(view, @backingInt(header.version.grants)), .inventory = try history.stamp(view, @backingInt(header.version.grants)) }, edges[0..edge_count], if (original) |row| row.expected else null, false);
     if (parent) |row| {
-        var parent_edges: [515]loam.Edge = undefined;
+        var parent_edges: [records.GrantRecord.max_edges]loam.Edge = undefined;
         var n: usize = 0;
         var it = row.view.edges();
         while (it.next()) |edge| {
@@ -224,8 +231,8 @@ pub fn grant(view: *Read, plan: *const core.GrantPlan, append: ?*Append) !Staged
             n += 1;
         }
         parent_record.value.children = root;
-        parent_record.value.grant.child_count = changes.parent_record.?.child_count;
-        parent_record.value.grant.revision = changes.parent_record.?.revision;
+        parent_record.value.grant.child_count = changes.parent.?.child_count;
+        parent_record.value.grant.revision = changes.parent.?.revision;
         parent_record.value.inventory = try history.stamp(view, @backingInt(header.version.grants));
         try putEncoded(view.store, row.view.id, records.profile.grant, parent_record.value, parent_edges[0..n], row.expected, false);
     }
@@ -272,6 +279,7 @@ pub fn prepareGrant(view: *Read, plan: *const core.GrantPlan) !void {
     const parent = if (plan.delta == .issue) plan.delta.issue.parent else @as(?core.GrantId, plan.grant);
     if (parent) |id| {
         var path = grants.ancestry(id);
+        defer path.close();
         while (try path.next()) |_| {}
     }
 }
@@ -281,7 +289,7 @@ pub fn prepareGrant(view: *Read, plan: *const core.GrantPlan) !void {
 pub fn prepareContent(operation: *@import("capability_operation.zig").Operation, target: core.ResourceId) !void {
     const value = @import("capability_operation.zig").state(operation);
     try value.opened();
-    if (value.staged or (value.prepared != .none and value.prepared != .resource)) return error.WrongPhase;
+    if (value.staged or (value.prepared != .none and value.prepared != .resource and value.prepared != .child)) return error.WrongPhase;
     if (value.children != 0) return error.Busy;
     try value.read.?.prepareHistory();
     _ = try history.resourcePath(&value.read.?, target);
@@ -293,6 +301,26 @@ pub fn content(operation: *@import("capability_operation.zig").Operation, target
     try value.unprepared();
     try contentChanged(&value.read.?, target);
     value.staged = true;
+}
+
+/// Stage the prepared child under its parent. Hosting writes the child's
+/// content record and endpoint in this same batch.
+pub fn child(operation: *@import("capability_operation.zig").Operation, kind: core.KindId) !AppendedResource {
+    const value = @import("capability_operation.zig").state(operation);
+    try value.opened();
+    if (value.staged or value.prepared != .child) return error.WrongPhase;
+    const appended = try appendResourceRecord(value.prepared.child.append, kind, value.prepared.child.parent);
+    value.staged = true;
+    return appended;
+}
+
+/// One more content effect in the batch where this operation already staged
+/// its first effect. The caller prepared the target's path with `prepareContent`.
+pub fn contentAlso(operation: *@import("capability_operation.zig").Operation, target: core.ResourceId) !void {
+    const value = @import("capability_operation.zig").state(operation);
+    try value.opened();
+    if (!value.staged) return error.WrongPhase;
+    try contentChanged(&value.read.?, target);
 }
 
 pub fn resourceWithContent(operation: *@import("capability_operation.zig").Operation, changed: bool) !bool {

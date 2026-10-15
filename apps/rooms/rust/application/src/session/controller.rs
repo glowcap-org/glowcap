@@ -335,14 +335,14 @@ impl Drop for Operation {
 	}
 }
 
-fn refusal(reason: &str, native: super::state::Error, local: &str) -> bool {
+fn refusal(reason: &str, shared: super::state::Error, local: &str) -> bool {
 	use alloc::string::ToString;
-	// Native sessions report the shared state error. The remaining browser-local
+	// Host sessions report the shared state error. The remaining browser-local
 	// session reports its older sentence; both travel inside binding diagnostics.
-	let native = native.to_string();
+	let shared = shared.to_string();
 	let mut segment = reason;
 	loop {
-		if segment == native
+		if segment == shared
 			|| segment == local
 			|| (local == "session revision changed" && segment.starts_with("session revision changed from "))
 		{

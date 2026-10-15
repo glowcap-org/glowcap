@@ -23,14 +23,14 @@ def run() -> None:
         else:
             raise AssertionError("Host must reject a seed that is not 32 bytes")
 
-    native = Host(profile="native")
+    own_host = Host(profile="glowcap")
     interop = Host(profile="interop")
-    assert (native.codec, native.captp_version) == ("capnp", "next")
+    assert (own_host.codec, own_host.captp_version) == ("capnp", "next")
     assert (interop.codec, interop.captp_version) == ("syrup", "v1_0")
-    asyncio.run(native.close())
+    asyncio.run(own_host.close())
     asyncio.run(interop.close())
     try:
-        Host(profile="native", codec="syrup")
+        Host(profile="glowcap", codec="syrup")
     except GlowcapError as exc:
         assert exc.code == ERR_INVALID_ARGUMENT, exc.code
     else:
@@ -89,7 +89,7 @@ def run() -> None:
     stopped_work_loop.run_until_complete(stopped_work_host.close())
     assert stopped_work_finished, "CANCEL_DIAL did not join its ticketed task"
     assert stopped_work_host._raw is None, (
-        "stopped-loop close retained the native Host after joining work"
+        "stopped-loop close retained the FFI Host after joining work"
     )
     stopped_work_loop.close()
 
@@ -122,7 +122,7 @@ def run() -> None:
     collector.start()
     collector.join()
     assert _entry_for(finalized_ctx) is None, (
-        "off-thread Host finalization must retire native and trampoline authority"
+        "off-thread Host finalization must retire FFI and trampoline authority"
     )
 
     # A finalizer release refused outside a callback transfers to one process

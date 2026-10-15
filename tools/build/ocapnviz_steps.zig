@@ -37,7 +37,7 @@ pub fn register(
     ocapnviz_test.addArgs(&.{ "bash", "tools/check/ocapnviz-test.sh" });
     ocapnviz_test.step.dependOn(rooms_services_install);
     ocapnviz_test.step.dependOn(&ocapnviz_build_check.step);
-    const ocapnviz_test_step = b.step("ocapnviz-test", "Run the ocapnviz visualizer's own test suite (needs deno; part of runtime-check)");
+    const ocapnviz_test_step = b.step("ocapnviz-test", "Run the ocapnviz visualizer's own test suite (needs deno, part of runtime-check)");
     ocapnviz_test_step.dependOn(&ocapnviz_test.step);
     check_step.dependOn(&ocapnviz_build_check.step);
     runtime_gate.add(ocapnviz_test_step);
@@ -62,8 +62,8 @@ pub fn register(
     // Production Live mode is a browser product, so its last proof is a sibling
     // rather than part of `check`: it needs the devcontainer's pinned Chromium.
     // The app-owned task builds Vite's dist, serves only that output, and drives
-    // its wasm OCapN peer against the native trace capability endpoint.
-    const ocapnviz_live_browser = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
+    // its wasm OCapN peer against the Rooms server's trace capability endpoint.
+    const ocapnviz_live_browser = execution.addSystemCommand(b, .{ .browser_proof = 120 }, &.{"env"});
     ocapnviz_live_browser.setCwd(b.path("apps/ocapnviz"));
     ocapnviz_live_browser.has_side_effects = true;
     ocapnviz_live_browser.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });

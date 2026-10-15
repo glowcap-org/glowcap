@@ -113,6 +113,7 @@ out = pathlib.Path(sys.argv[3])
 if os.environ.get('GLOWCAP_ROOMS_TEST_FIRST_BUILD') == '1' and not (root / 'built').exists():
     out.mkdir(parents=True, exist_ok=True)
     (out / 'page.js').write_text('// complete fixture artifact\n')
+    (out / 'ground.js').write_text('// complete fixture artifact\n')
     (root / 'built').write_text('1')
 else:
     (root / 'waiting').write_text(json.dumps({'pid': os.getpid(), 'owned': str(out)}))

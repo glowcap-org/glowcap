@@ -12,14 +12,20 @@
 //! about the message model above it.
 
 pub const id = @import("id.zig");
+pub const handle_table = @import("handle_table.zig");
+pub const bearer_table = @import("bearer_table.zig");
 pub const frame = @import("frame.zig");
 pub const spill = @import("spill.zig");
 pub const failure_chain = @import("failure_chain.zig");
 pub const stream_framing = @import("stream_framing.zig");
+pub const decimal = @import("decimal.zig");
+pub const utf8 = @import("utf8.zig");
 pub const crypto = @import("crypto.zig");
 pub const noise = @import("noise.zig");
 pub const sealed = @import("sealed.zig");
 pub const thread_affinity = @import("thread_affinity.zig");
+pub const identity_hash = @import("identity_hash.zig");
+pub const inline_rows = @import("inline_rows.zig");
 
 pub const Frame = frame.Frame;
 pub const FrameShape = frame.FrameShape;

@@ -1,4 +1,4 @@
-//! Stable failure categories for native driver operations. The I/O-owning
+//! Stable failure categories for Zig driver operations. The I/O-owning
 //! driver classifies failures. Observers project the category into their
 //! public error vocabulary without reinterpreting Zig error names.
 
@@ -164,7 +164,7 @@ pub const OperationFailure = struct {
             error.SessionNotOwned,
             error.SessionAlreadyOwned,
             error.InvalidBufferConfiguration,
-            error.DurableBootstrapUnavailable,
+            error.BusyPollWindowTooLong,
             error.InvalidHostWorkQuantum,
             => .invalid_argument,
 

@@ -1,9 +1,18 @@
+---
+type: static
+description: How C and Rust programs create, share, edit, and persist one managed resource without writing Zig.
+audience: human
+sources:
+  - resource: /src/c_abi/loam/
+  - resource: /bindings/rust/src/loam/
+---
+
 # C and Rust resource lifecycle
 
-This guide is for C and Rust programs that use Loam's managed resources
-without writing Zig. It covers one profile: a fixed resource, such as one
-shared board, that you create, share, edit, and keep across a restart. In the
-terms of the [Loam guide](../loam.md):
+C and Rust programs use Loam's managed resources without writing Zig. This
+guide covers one shape: a single resource, such as one shared board, that you
+create, share, edit, and keep across a restart. The [Loam guide](../loam.md)
+explains the terms.
 
 - **Create** the resource and the content record behind it.
 - **Share** it by deriving a *facet*: a narrower capability for one grant,
@@ -11,32 +20,44 @@ terms of the [Loam guide](../loam.md):
   later pause, resume, or revoke that grant.
 - **Edit** the content and its access policy, including the references the
   content holds.
-- **Restart** and *cold-fetch*: reopen the store, and a peer fetches the same
+- **Restart** and fetch it cold: reopen the store, and a peer fetches the same
   durable name to reach the content again, with nothing loaded at startup.
 
-Zig owns policy, grant ancestry, transaction order, and receipt replay. C and
-Rust supply the content's code and carry out the storage work. The
-[boundary decision](../decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)
-records that split. Registered content pages can form a bounded graph behind
-one resource. General resource-graph editing and privileged owner lifecycle
-are outside this profile.
+Loam's Zig code decides who may do what, the order of transactions, and what a
+retried request returns. Your C or Rust code supplies the content's behavior
+and runs the storage work, as
+[ADR-0185](../decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)
+records. The content behind one resource can span a bounded graph of pages.
+Creating, sharing, and moving resources inside a tree
+([Zig hosting](access-endpoints.md#calls-that-change-several-resources)) and
+the operations only a resource's owner may run are available from Zig only.
 
 ## Setting up
 
-Link `libglowcap_loam` beside the Host archives, and add
-`libglowcap_loam_lmdb` for LMDB storage. Rust enables the `loam` feature and uses
-`loam::{Store, Schema, Limits, Policy, Registration, Content}` with `Host`,
-`Ref` and Session. Opening, fresh creation and privileged restoration perform
-blocking startup I/O, so complete them before admitting traffic. Execute Host
-work on a Tokio `LocalSet`. LMDB jobs run on its blocking executor. The
-[browser profile](browser.md) uses the same resource model with asynchronous
-IndexedDB opening, creation and restoration.
+Link `libglowcap_loam` beside the Host archives, plus one engine archive:
 
-In Rust, prepare the resource before committing its private startup metadata.
-The embedding supplies `persist_private_resource` below:
+- `libglowcap_loam_sqlite` for SQLite, the default on disk
+  ([SQLite operations](sqlite.md#from-c-and-rust))
+- `libglowcap_loam_lmdb` for LMDB
+- `libglowcap_loam_volatile` for a store in memory
+  ([in-memory operations](volatile.md#from-c-and-rust))
+
+Rust enables the `loam` feature and uses
+`loam::{Store, Schema, Limits, Policy, Registration, Content}` with `Host`,
+`Ref` and `Session`. Opening, creating, and restoring the owner's capabilities
+block on disk, so finish them before you accept connections. Run Host work on
+a Tokio `LocalSet` and engine jobs on a blocking executor. The
+[browser guide](browser.md) uses the same resource model with IndexedDB, where
+those steps are asynchronous.
+
+In Rust, prepare the resource, save its name where your program keeps private
+startup data, and only then commit it. `persist_private_resource` below is
+your code:
 
 ```rust
-let store = Store::open(path, identity, true, map_bytes, &[schema], limits)?;
+let store = Store::open(Sqlite { path, identity, mode: OpenMode::Create, capacity_bytes }, &[schema], limits)?;
+// or: Lmdb { path, identity, mode: OpenMode::Create, map_bytes }
+// or: Volatile { identity, capacity_bytes }
 let staged = store.stage_resource(&policy, schema, kind, initial, 2, owner_identity)?;
 persist_private_resource(staged.resource().encode())?;
 let resource = staged.commit()?;
@@ -44,424 +65,500 @@ let attachment = store.attach(&host, registrations)?;
 let (access, control) = attachment.restore(resource)?;
 ```
 
+### Opening refusals
+
+Every engine archive refuses a failed open with a code you can branch on, and
+`last_error` names the cause. A refused open leaves no store handle. The
+in-memory open has no directory, so it returns `NOT_FOUND` for `create=0` and
+never `WOULD_BLOCK`.
+
+| Return code | Cause |
+| --- | --- |
+| `GLOWCAP_ERR_NOT_FOUND` | Opening with `create=0` found no store, or the directory is missing. |
+| `GLOWCAP_ERR_WOULD_BLOCK` | Another process has the directory open. Retry when it closes. |
+| `GLOWCAP_ERR_IO` | A storage call failed, or the first commit's outcome is unknown. Reopen to find out. |
+| `GLOWCAP_LOAM_ERR_CORRUPT` | The store's metadata is damaged. Retrying cannot repair it, so restore the directory from a backup. |
+| `GLOWCAP_ERR_INVALID_ARGUMENT` | The map size, capacity, or schemas are unusable, or the file is not this store (another identity, or a file from another program or a newer version). |
+
 ## The lifecycle, step by step
 
-1. Open an existing directory with a stable 16-byte store identity and bounded
-   application schemas. Rust's LMDB `Store::open` also requires `map_bytes`
-   (at least 1 MiB), a physical storage budget independent of resident and staged
-   record bytes in `Limits`. Storage capacity refusal leaves the transaction
-   unchanged, and the embedding can close and reopen with a larger map.
-   Creation refuses an existing store. Reopen refuses a missing or mismatched
-   one. Exclusive custody prevents concurrent writers.
-2. Define a policy with sorted distinct permission keys and lower/upper-bound
-   constraints. `Policy::with_dependencies` also accepts `(permission,
-   prerequisite)` key pairs. Configured terms and editing ceilings must include
-   every prerequisite, and refusal adds no authority. Method requirements can
-   request individual permissions. Stage the resource before attaching, persist
-   its provisional `Resource::encode()` metadata, then commit the staging guard.
-   Dropping or aborting an unsubmitted guard discards staging. These names
-   cannot restore authority until their records commit, and aborted names are
-   never reused. `create_resource` combines preparation and commit when separate
-   anchor persistence is unnecessary. If creation reports `RECOVERY_REQUIRED`,
-   retain the Store and call `recover_creation`. Proven absence returns
-   `UNCHANGED`, while committed recovery returns the original result. Serialized
-   resource names are trusted local metadata. `Store::open_bootstrap` projects
-   the shared atomic bootstrap mode when the embedding has persisted its store
-   identity before opening.
-3. Register content implementations by schema/version. Each method declares
-   `ReadOnly`, `Idempotent` or `Receipt` retry behavior. Requirements supply
-   permission keys and content facts. The Zig evaluator admits the operation.
-   `Content::invoke` returns a passable value and may call `Call::replace`.
-   `loam::refusal(message)` constructs a callback refusal. Its local detail is
-   application-owned, and the peer receives `ApplicationRefused`. Caught
-   Rust callback panics also refuse the call and retain their diagnostic in
-   the Host's bounded failure journal, claimed with `Host::take_failures`.
-   Receipt methods use the `mutate(sequence, verb, args...)` envelope.
-4. Attach to the application's Host, restore the use/control pair and share
-   ordinary `Ref` values. `Policy::value(...).derive_arguments(sequence, depth)`
-   supplies the first profile's bounded derivation vocabulary. The held endpoint
-   supplies resource scope and checks ceilings and delegation. Preserve the
-   Host seed and the returned durable name to cold-fetch a derived facet after
-   restart. Policy keys and object IDs confer no invocation authority.
-5. Request a managed child with
-   `managed_derive_arguments(sequence, depth, powers)`. `ControlPowers` names
-   independent Inspect, Issue, Edit, DelegateControl and pause/resume/revoke
-   powers, and its default grants none of them. `derive-managed` returns a list
-   of two ordinary Refs: use and child control. A policy value's
-   `set_policy_arguments(sequence, revision)` supplies a `mutate` request on
-   that control. Read the expected grant revision with
-   `control_revision(&host, &control)`. A grant's configured policy remains
-   bounded by its issuance ceiling. Ancestor edits restrict effective use
-   without rewriting the child's choices. Editing a paused grant preserves its
-   paused status.
-6. Narrow management with `ControlPowers::attenuation_arguments(sequence)` in
-   a `mutate` call. `revoke-control` retires that control and its dependent
-   controls while leaving use and independent controls intact. `revoke` instead
-   retires the grant and its descendants. Replay the original managed derivation
-   through a held source to recover the child pair after restart or a lost reply.
-   A revoked grant cannot be resurrected by receipt replay. Issued and narrowed
-   controls answer `durable-name` with their own independent publication secret.
-   Save or share that name at the control's hosting peer. A use name cannot
-   reconstruct it. Private bootstrap controls remain unpublished.
-7. Close sessions, then close the attachment and Store. Host shutdown also
-   detaches quiescent registrations before releasing its C owner. Callback
-   contexts drop only after successful detach, and closed wrappers cannot invoke
-   the freed attachment. Store release refuses outstanding borrows. Dropping an
-   LMDB progress observer waits for worker retirement, which can block its thread.
+1. Open the store with a stable 16-byte store identity and your bounded
+   application schemas.
+   - In Rust, the `Sqlite` value names the directory, identity, open mode, and
+     `capacity_bytes`, the most the database file may grow to. It must be at
+     least 1 MiB, and it is separate from the cache and pending-write limits
+     in `Limits`.
+   - The `Lmdb` value takes `map_bytes` instead, the largest size its file may
+     reach.
+   - A write that would pass the capacity is refused and changes nothing. Close
+     and reopen with a larger size to make room.
+   - Creating refuses an existing store, and opening refuses a missing or
+     mismatched one. One process holds the store at a time.
+2. Define a policy and create the resource.
+   - A policy lists sorted, distinct permission keys and lower and upper
+     bounds. `Policy::with_dependencies` also takes
+     `(permission, prerequisite)` pairs. Every permission a grant or edit
+     allows must bring its prerequisites along, and a refusal grants nothing.
+     Each method can require its own permissions.
+   - Stage the resource before attaching, save what `Resource::encode()`
+     returns, then commit the staged resource. Dropping or aborting it before
+     you submit it discards it. The saved name restores nothing until the
+     records commit, and the name of an aborted resource is never reused.
+   - `create_resource` stages and commits in one call when you do not need to
+     save the name first. If it reports `RECOVERY_REQUIRED`, keep the Store
+     and call `recover_creation`. It returns `UNCHANGED` if the resource was
+     never written and the original result if it was.
+   - A saved resource name is private data your program trusts. Use
+     `OpenMode::Bootstrap` when your program saved its store identity before
+     opening, so a first open creates the store and later opens reuse it.
+3. Register content behavior for each schema and version.
+   - Each method declares how a retry behaves: `ReadOnly`, `Idempotent`, or
+     `Receipt`. It also lists the permission keys and content facts it needs,
+     and Zig checks them before the call runs. Receipt methods take the form
+     `mutate(sequence, verb, args...)`.
+   - `Content::invoke` returns a value that can be sent and may call
+     `Call::replace`.
+   - `loam::refusal(message)` refuses a call. The message stays local, and the
+     peer receives `ApplicationRefused`. A Rust callback that panics also
+     refuses the call, and the Host keeps a record of it that
+     `Host::take_failures` returns.
+4. Attach to the Host, restore the use and control capabilities, and share
+   ordinary `Ref` values.
+   - `Policy::value(...).derive_arguments(sequence, scope, depth)` builds the
+     arguments for a share. The endpoint you call names the resource,
+     `Scope::Object` or `Scope::Subtree` says whether the share reaches its
+     children, and Zig checks the grant's limits and how far it may be passed
+     on.
+   - To fetch a shared facet cold after a restart, keep the Host seed and the
+     durable name the share returned. Policy keys and object IDs let nobody
+     call anything.
+5. Ask for a managed child grant with
+   `managed_derive_arguments(sequence, scope, depth, powers)`.
+   - `ControlPowers` lists separate powers: Inspect, Issue, Edit,
+     DelegateControl, and pause, resume, and revoke. Its default grants none.
+     `derive-managed` returns two ordinary `Ref` values: use and child control.
+   - `set_policy_arguments(sequence, revision)` on a policy value builds a
+     `mutate` request for that control. Read the current grant revision with
+     `control_revision(&host, &control)`.
+   - A grant's policy stays within the limit it was issued with. An edit
+     higher up the chain narrows what the child can use without rewriting the
+     child's own settings. Editing a paused grant leaves it paused.
+6. Narrow or end management.
+   - `ControlPowers::attenuation_arguments(sequence)` in a `mutate` call
+     narrows a control. `revoke-control` ends that control and the controls
+     issued from it, leaving use and unrelated controls in place. `revoke`
+     ends the grant itself and every grant derived from it.
+   - To get the child pair back after a restart or a lost reply, resend the
+     original `derive-managed` request through a source you still hold. A
+     revoked grant stays revoked.
+   - Issued and narrowed controls answer `durable-name` with their own secret
+     name. Save or share it with the peer hosting the control. A use name
+     cannot rebuild it. The owner's private controls have no durable name.
+7. Close sessions, then the attachment and the Store. Host shutdown detaches
+   idle registrations before it frees its C side. Callback contexts are
+   dropped only after a successful detach. Releasing the Store is refused
+   while anything still borrows from it. Dropping an LMDB progress observer
+   waits for its worker to finish, which can block the thread.
 
 ## Sharing and managing access from C
 
-The [held-scope decision](../decisions/adr/ADR-0187-held-scope-management-vocabulary.md)
-owns the neutral management vocabulary. C embedders send ordinary Host
-arguments, and these operations add no C entry points. A policy triple is
-`[identity bytes (16), [permission mask bytes (8)], ordered bounds]`, with each
-bound either Void or eight unsigned big-endian bytes. A management selection is
-`[Edit policy triple or Void, Issue policy triple or Void, power mask]`.
-Mask bits 1, 2, 4, 8 and 16 request Pause, Resume, Revoke, Inspect and
-DelegateControl. Each policy ceiling is independent. Revision arguments are
-eight unsigned big-endian bytes, including when the value exceeds signed i64.
+C programs manage access by calling the endpoint with ordinary Host
+arguments, with no extra C functions.
+[ADR-0187](../decisions/adr/ADR-0187-held-scope-management-vocabulary.md)
+defines these forms.
 
-| Held endpoint method | Arguments after method name |
+- A scope is the symbol `object` for the endpoint's resource alone or
+  `subtree` for it and every child, including ones added later. The policy's
+  kind rules decide which permissions each scope can carry.
+- A policy triple is `[identity bytes (16), [permission mask bytes (8)],
+  ordered bounds]`, with each bound either Void or eight unsigned big-endian
+  bytes.
+- A management selection is `[Edit policy triple or Void, Issue policy triple
+  or Void, power mask]`. Each policy limit is separate.
+- Mask bits 1, 2, 4, 8 and 16 ask for Pause, Resume, Revoke, Inspect and
+  DelegateControl.
+- A revision is eight unsigned big-endian bytes, even when the value is past
+  the signed 64-bit range.
+
+| Endpoint method | Arguments after the method name |
 | --- | --- |
-| `derive` | Sequence, policy triple's three fields, delegation depth |
+| `derive` | Sequence, scope, policy triple's three fields, delegation depth |
 | `derive-managed` | The `derive` arguments followed by one management selection |
-| `issue-access` on control | Derivation sequence, expected revision, immutable ceiling policy triple, initial configured policy triple, depth, management selection, UTF-8 label, initially paused Boolean |
-| `inventory` on control | Cursor bytes or Void, limit from 1 through 32 |
+| `issue-access` on control | Derivation sequence, expected revision, scope, fixed limit policy triple, initial policy triple, depth, management selection, UTF-8 label, initially paused Boolean |
+| `inventory` on control | Cursor bytes or Void, limit from 1 through <!-- value ../../src/loam/access/hosting/inventory.zig max_rows -->32<!-- /value --> |
 | `mutate` for `set-policy` | Mutation sequence, `"set-policy"`, expected revision, policy triple's three fields |
 | `mutate` for `set-label` | Mutation sequence, `"set-label"`, expected revision, UTF-8 label |
 | `mutate` for `pause`, `resume`, `revoke` | Mutation sequence, verb, expected revision |
 | `mutate` for `attenuate-control` | Sequence, `"attenuate-control"`, management selection |
 
-Depth, ceilings, policy identity and powers are admitted in Zig. Labels hold at
-most 120 UTF-8 bytes and carry no authority. Issue requires a held issuance
-ceiling and non-revoked source ancestry. It works while use is paused, narrowed,
-or unable to delegate. Child use retains the source's restrictions. Nonempty
-child management additionally requires DelegateControl.
+Zig checks depth, limits, policy identity, and powers. A label holds at most
+<!-- value ../../src/loam/access/core/grant_label.zig max_bytes -->120<!-- /value --> UTF-8 bytes and grants nothing. Issuing needs a control with an issue limit
+whose chain back to the owner has no revoked grant. It works even while use is
+paused, narrowed, or unable to delegate. The child's use keeps every
+restriction of its source, and a child with any management powers also needs
+DelegateControl.
 
-Rust's `PolicyValue::with_ceiling` constructs an `IssuePolicy` containing the
-initial configured policy and immutable ceiling. Both are explicit in the
-retained issuance request. Editing can later change configured use within that
-ceiling, and requesting management powers does not widen it.
+Rust's `PolicyValue::with_ceiling` builds an `IssuePolicy` from the initial
+policy and its fixed limit. Edits can later change the policy within that
+limit, and asking for management powers never widens it.
 
-Inventory requires Inspect and walks the held grant's direct-child index.
-Each row describes slot, generation, revision, label, own status, inherited
-status, ceiling policy, configured policy and delegation depth. It carries no
-use/control capability or publication secret. Cursors bind endpoint identity
-and Store revision. Edits invalidate them. Restart paging from Void on conflict.
+`inventory` needs Inspect and lists the held grant's direct children. Each row
+gives the slot, generation, revision, label, the grant's own status, the
+status it inherits, its limit and current policies, and its delegation depth.
+A row carries no capability or secret name. A cursor is tied to the endpoint
+and the Store revision, so any edit invalidates it. Start again from Void on a
+conflict.
 
-Issuance uses the derivation receipt window. Replay checks held management,
-source ancestry and returned endpoint custody before recovering the original
-pair, and does not compare the old revision as a fresh issuance. Edit replay
-likewise finds its committed mutation receipt first, while fresh no-op edits
-still compare the expected revision. Application-specific management metadata
-and Rooms behavior are outside this shared profile. The
-[session guide](../rooms/session.md) describes its production consumers.
+A resent `issue-access` uses the same receipts as `derive`. Loam checks that
+the caller still holds management and an unrevoked source, then returns the
+original pair instead of comparing the old revision as if the request were
+new. A resent edit likewise finds its receipt first, while a new edit that
+changes nothing still checks the expected revision. Application-specific
+management data and Rooms behavior are not part of this shared model. The
+[session guide](../rooms/session.md) describes how Rooms uses it.
 
-Rust projects management replies through borrowed `ControlDescription`,
-`PolicyDescription`, `GrantDescription` and `InventoryPage` views. They preserve
-unsigned revisions and typed bounds without copying labels or maintaining a
-grant mirror. Inventory contains at most 32 rows. A full last page can require a
-final empty page to confirm exhaustion. Row identity confers no control
-authority. The Rooms `client::access::Control` uses a held control, explicit
-expected revisions and a retained `Issuance` request for replay.
+Rust reads management replies through the borrowed views
+`ControlDescription`, `PolicyDescription`, `GrantDescription` and
+`InventoryPage`. They keep unsigned revisions and typed bounds without copying
+labels or keeping a copy of the grant. A full last page may need one more,
+empty page to confirm there are no more rows. A row's identity grants no
+control. The Rooms `client::access::Control` keeps a held control, expected
+revisions, and its `Issuance` request so it can resend it.
 
 ## Reference fields
 
-Content may declare `ReferenceRequest::Restore(index)` or `Save { reference, uri }`
-through `Content::references`. Zig prepares these requests after current grant
-admission and before invocation. Same-attachment held references need no URI.
-Foreign references need an established sturdy URI that restores the exact held
-authority. Unsupported live references and unsupported receipt capability kinds
-refuse before persistent staging. Cross-attachment local scope registration is
-not projected by this profile.
+Content declares the references a call needs through `Content::references`:
+`ReferenceRequest::Restore(index)` to use a saved one, or
+`Save { reference, uri }` to save one. Loam handles these after it has checked
+the caller's grant and before the call runs.
 
-An edit using prepared restored authority can reuse a matching retained
-committed recipe edge. Repeated fields using one prepared save share one
-immutable recipe row in that transaction. An aborted transaction cannot lend
-its ID to a retry.
+- A reference into the same attachment needs no URI.
+- A reference to another peer needs an established sturdyref URI that
+  restores exactly the capability held.
+- A live reference Loam cannot save, or a receipt capability of a kind it
+  does not support, is refused before anything is written.
+- References to local objects in another attachment are not available from C
+  or Rust.
 
-Graph consumers can declare `ReferenceRequest::RestorePageWithUri`
-and borrow the canonical recipe URI with `Call::page_saved_uri`. Foreign URI
-bytes survive through callback return. Local and valid live recipes return `None`.
-Expired live custody still refuses restoration. Ordinary restoration retains no
-URI copy or recipe row lease. `ReferenceRequest::uri_call_size_bound` derives
-the additional retained-call demand. This metadata follows restoration and
-grants no reply disclosure.
+An edit that restores a saved reference can reuse the stored entry that
+already holds it. Several fields saving the same reference in one transaction
+share one stored entry. An aborted transaction never lends its IDs to a retry.
 
-`Call::append_reference`, `replace_reference` and `remove_reference` stage fields
-with payload changes in one shared transaction. Exact disclosure returns the
-saved authority. Dependent disclosure also mediates every call through the
-current invoking grant and `Content::dependent_requirement`. Removing custody
-does not revoke independently held authority. Indices address committed
-application fields throughout an invocation, and appended fields follow the
-surviving fields. Duplicate edits refuse.
+Content that holds a graph can declare
+`ReferenceRequest::RestorePageWithUri` and borrow the stored sturdyref URI with
+`Call::page_saved_uri`.
 
-Created content keeps its managed resource through a protected first strong
-edge. Application indices omit this binding, and `field_count` reports only
-application fields. Schema edge limits include the binding. Content without it
-refuses invocation, so recreate that store. The [reference-field
-decision](../decisions/adr/ADR-0188-managed-content-reference-fields.md) owns
-this contract.
+- The URI bytes for another peer stay valid until the callback returns. Local
+  and live references return `None`, and a live reference whose process has
+  ended still cannot be restored.
+- An ordinary restore keeps no copy of the URI and no lease on the stored
+  entry. `ReferenceRequest::uri_call_size_bound` gives the extra call memory.
+- Reading this URI does not let the reply hand the capability out.
 
-C reference declarations borrow their token only during the synchronous
-callback. URI bytes copy into the retained call arena before return. A declaration
-admits both the old restored fields and new saved fields, at most twice 514
-requests for a single record or twice the graph's aggregate edge limit.
-Each URI has at most `GLOWCAP_LOAM_MAX_URI_BYTES` bytes, which Rust exposes as
-`ReferenceRequest::MAX_URI_BYTES`. Shared Host quotas bound preparation and
-enlivenment.
+`Call::append_reference`, `replace_reference` and `remove_reference` change
+fields in the same transaction as the payload. An exact disclosure returns the
+saved capability as it is. A dependent disclosure also checks every call
+against the caller's current grant and `Content::dependent_requirement`.
+Removing a field does not revoke a copy someone else holds. Indices refer to
+the committed fields for the whole call, and appended fields come after the
+fields that remain. Editing the same field twice is refused.
+
+Content keeps its link to its managed resource as a protected first strong
+edge. Application indices skip it, and `field_count` counts only application
+fields, but schema edge limits include it. Content without that link is
+refused at call time, so recreate the store.
+[ADR-0188](../decisions/adr/ADR-0188-managed-content-reference-fields.md)
+records these rules.
+
+A C reference declaration borrows its token only during the callback, and URI
+bytes are copied into the call's memory before it returns. A declaration can
+name both the fields it restores and the fields it saves: at most twice
+<!-- value ../../src/c_abi/loam/common.zig max_content_fields -->514<!-- /value --> requests for one record, or twice the graph's total edge limit. Each URI
+is at most `GLOWCAP_LOAM_MAX_URI_BYTES` bytes, which Rust exposes as
+`ReferenceRequest::MAX_URI_BYTES`. The Host's shared limits bound the work of
+preparing and reviving references.
 
 ## Registered content graphs
 
-Set `Registration.graph` to a `Graph` declaring page schemas and aggregate
-page, payload and edge limits. Register every schema before opening the Store.
-The root's application fields become owned page links. Each page's protected
-first edge binds the same canonical resource. Its remaining fields retain
-capabilities. Shared hosting validates those roles before invocation.
+Set `Registration.graph` to a `Graph` that declares the page schemas and the
+total page, payload and edge limits. Register every schema before opening the
+Store. The root's application fields become links to its pages. Each page's
+protected first edge links the same resource, and its other fields hold
+capabilities. Loam checks those roles before the call runs.
 
-`Invocation.graph` borrows the prepared pages. Declare saved fields with
-`ReferenceRequest::RestorePage`, then use `Call::page_reference` for exact
-callback-bound custody or `disclose_page` for a checked result.
-`replace_graph` accepts an ordered list of kept handles, payload updates and
-written pages. A payload update preserves the selected page's committed fields
-without restoring their targets, so a receipt can settle while an unrelated
-upstream authority is unavailable. The update uses this preparation's borrowed
-page token, and the shared owner checks its revision and graph capacity. Handles
-belong to that callback and cannot be saved as durable identities. The setter
-copies replacement bytes before Rust or C buffers retire.
+`Invocation.graph` borrows the loaded pages. Declare saved fields with
+`ReferenceRequest::RestorePage`, then use `Call::page_reference` for a
+reference that lives only in the callback, or `disclose_page` for a checked
+result. `replace_graph` takes an ordered list of kept handles, payload updates
+and written pages:
 
-Written pages accept `GraphField::Held` for newly held authority and
-`GraphField::Retained { page, index }` for a committed field in this
-preparation. Retained fields preserve object and recipe identity without
-restoring the target, so reorganizing or releasing local custody does not depend
-on an upstream connection. Index zero selects the first capability field and
-never the resource binding. Shared validation rejects foreign tokens, invalid
-indices and weak fields before capturing any held capability. Page membership
-uses the bounded snapshot inventory. Field lookup decodes one fixed-width edge.
+- A payload update keeps the page's committed fields without restoring their
+  targets, so a receipt can commit even while some unrelated peer is
+  unreachable. Loam checks the page's revision and the graph's capacity.
+- Handles belong to that callback and cannot be saved as durable identities.
+- The setter copies the new bytes before the Rust or C buffers go away.
+- A written page takes `GraphField::Held` for a capability the call holds and
+  `GraphField::Retained { page, index }` for a field already committed on a
+  loaded page. A retained field keeps its object and stored reference without
+  restoring the target, so reorganizing pages never needs a connection to
+  another peer.
+- Index zero is the first capability field, never the resource link. Loam
+  refuses tokens from another call, bad indices, and weak fields before it
+  takes any capability.
 
-Preparation releases each page lease before reading another. The retained
-snapshot, candidate and callback spines count against `Limits.call_bytes`,
-including block headers, alignment and spare capacity. Heap blocks grow only as
-needed. Admission reserves the whole call ceiling: `pending_bytes` bounds the
-attachment's reservations, and `ingress_bytes` bounds one ingress after queue
-dispatch. These allowances do not expand the Vat message queue. Physical record
-and transaction limits remain independent. A refusal aborts the complete graph,
-managed event and retry receipt. Replaying a committed receipt rechecks current
-source and target authority and the receipt's retained results. It does not
-prepare the current content graph or declare new reference saves. Unrelated
-graph availability cannot gate replay.
+Loam releases each page's lease before it reads the next. Memory and limits
+follow these rules:
 
-`record_capacity` bounds the pinned managed working set per operation. Leave
-two additional leases for the descriptor and directory read window.
-`max_reference_saves` bounds live save proofs, including completed proofs held
-through the transaction outcome. Both are checked before storage opens.
-`max_retentions` separately bounds live Store roots, including each restored
-recipe held through settlement. `max_references` bounds attachment endpoints.
-Increasing recipe custody does not require reserving more endpoint slots.
-`record_bytes` bounds the complete encoded record, including its envelope and
-checksum. Schema payload limits apply inside that physical bound.
-Before opening storage, use `Schema::encoded_size_bound` in Rust or
-`glowcap_loam_schema_size_bound` in C to derive an application's complete row
-bound. The shared encoder measures scalar lengths without allocating or reading
-storage, and refuses arithmetic overflow. Include every row family in the
-transaction profile. The query reserves no storage and admits no schema.
+- The loaded pages, the new graph, and the callback's lists all count against
+  `Limits.call_bytes`, including allocator overhead. Memory is allocated only
+  as it is needed.
+- Each call reserves its whole allowance up front. `pending_bytes` bounds all
+  of an attachment's reservations, and `ingress_bytes` bounds one session's
+  calls once they leave the queue. These allowances do not enlarge the Vat's
+  message queue, and the record and transaction limits stay separate.
+- A refusal aborts the whole graph, its change event, and its receipt.
+- Resending a request whose receipt committed checks the current source and
+  target grants and the saved results. It does not load the current graph or
+  save new references, so pages that are unavailable cannot block the
+  replay.
 
-`StagingBounds::content(path, receipt)` in Rust and
-`glowcap_loam_content_staging_size_bound` in C derive the managed rows for one
-content effect. The path includes the target and every ancestor. Its rows join
-the owner, change batch and history, plus the optional mutation receipt and
-invoking endpoint. `StagingBounds::references(saves)` and
-`glowcap_loam_reference_staging_size_bound` derive at most one canonical recipe
-row per fresh save. Reused committed fields need no new recipe. Add application
-root and page rows using their schema bounds. Sum `changes` and `staging_bytes`.
-Take the largest `record_bytes`. These queries use the owners' registered row
-families and expose no private schema identities.
+## Limits and sizing
 
-Staging bytes cover retained encoded proposals. Temporary payload rendering,
-replacement encoding, Store descriptors and backend metadata have separate
-costs. Creation, resource and control edits, and multiple managed effects need
-their own profiles. Repeated proposals for one row replace its retained bytes.
-Old pages and expired history entries lose edges and add no deletion rows.
-Sizing queries read no storage and admit no writes, and refused C queries zero
-every output field.
+Loam checks these `Limits` fields before it opens storage:
 
-`ReferenceRequest::call_size_bound` in Rust and
-`glowcap_loam_reference_call_size_bound` in C derive the reference contribution
-to `call_bytes` for one preparation and staging attempt. Supply upper bounds
-for old restore occurrences, new save occurrences and supplied or stored URI
-input bytes, at most `GLOWCAP_LOAM_MAX_URI_BYTES`. The bound includes canonical
-URI expansion, copied C declarations, request-spine growth, recipe payloads, one
-temporary parse window, block headers, alignment and growth slack. It is an
-additive physical contribution and not a complete call budget. Add separately
-sized invocation projections, snapshots, candidates, held fields, application
-callbacks and replies. Rust callback buffers and Host network state have their
-own owners. The query uses bounded scalar growth enumeration, allocates nothing
-in shared Zig and admits no work. A refused C query leaves its output zero.
+- `record_capacity` bounds how many managed records one operation can hold in
+  memory. Leave two more leases (`max_leases`) for the descriptor and
+  directory reads.
+- `max_reference_saves` bounds the reference saves in progress, including
+  finished ones kept until the transaction's outcome is known.
+- `max_retentions` bounds the records kept alive outside the graph, including
+  each restored reference until its call finishes. Restoring more references
+  does not need more endpoint slots.
+- `max_references` bounds the attachment's endpoints.
+- `record_bytes` bounds a whole encoded record, including its header and
+  checksum. Schema payload limits apply inside that.
 
-`Graph::call_size_bound` in Rust and `glowcap_loam_graph_call_size_bound` in C
-derive the graph contribution for one preparation and complete replacement.
-Each supplied bound covers both old and new populations: child pages exclude
-the root, aggregate payload bytes include it, and capability fields exclude
-resource bindings and page links. The query includes streamed child snapshots,
-view and candidate inventories, C payload/field copies, both prepared callback
-page projections and staged edges. The old root remains borrowed. Aggregate
-bytes are charged once, with padding and block overhead per possible positive
-allocation. Add reference preparation, private managed state, receipt data,
-argument projections, held occurrences, application callbacks and replies
-separately. Store staging and Rust callback buffers have their own owners.
-The [graph decision](../decisions/adr/ADR-0199-retained-resource-content-graphs.md)
-records the ownership and cost boundary.
+The sizing functions compute these limits before the Store opens. None of them
+reads storage, allocates, or starts work, and a refused C call zeroes every
+output. Each C function's comment in
+[`glowcap_loam.h`](../../include/glowcap_loam.h), and its Rust doc comment,
+says what the result includes and what you add yourself.
 
-`InvocationBounds::call_size_bound` in Rust and
-`glowcap_loam_invocation_call_size_bound` in C derive the managed-content
-invocation contribution. `ValueBounds` counts every value node, struct keys
-separately, aggregate copied leaf bytes and capability occurrences. Arguments
-describe the complete incoming vector, including `mutate` sequence and method
-wrappers. Reply bounds must cover both fresh results and persisted receipts
-for the profile's lifetime. Held occurrences count application acquisitions,
-including repeated field reads. Receipt capture and reply custody are added
-by the query. Local dependent calls include their separate input retain.
+| Rust | C | Computes |
+| --- | --- | --- |
+| `Schema::encoded_size_bound` | `glowcap_loam_schema_size_bound` | The largest encoded record for one schema. |
+| `StagingBounds::content(path, receipt)` | `glowcap_loam_content_staging_size_bound` | The managed rows one content change writes. |
+| `StagingBounds::references(saves)` | `glowcap_loam_reference_staging_size_bound` | At most one stored reference per new save. |
+| `ReferenceRequest::call_size_bound` | `glowcap_loam_reference_call_size_bound` | What references add to `call_bytes` for one call. |
+| `Graph::call_size_bound` | `glowcap_loam_graph_call_size_bound` | What a graph adds to `call_bytes` for one call that replaces it. |
+| `InvocationBounds::call_size_bound` | `glowcap_loam_invocation_call_size_bound` | What the call itself adds to `call_bytes`. |
 
-This contribution includes private managed state, retained input, held-list
-growth, optional receipt encoding and replay, C argument projections, policy
-output copies and owned reply conversion. Codec costs derive from shared
-writer fragments and cap at accepted record limits. Sizing does not guarantee
-that every described value is encodable. Add the reference and graph
-contributions and application allocation demand to obtain this profile's
-retained-call allowance. Single-record content and reference edits, resource
-and control edits, sharing, observation and external forwarding need separate
-profiles. Store staging, Capabilities operations, registration, resolver
-settlement arenas, Rust buffers and Host network state have independent owners.
-All sizing queries are pure and leave admission with the Store and attachment.
+Rules for adding the results together:
+
+- A row bound covers one content change. Add your root and page rows from
+  their schema bounds, sum `changes` and `staging_bytes`, and take the largest
+  `record_bytes`. Writing one row twice replaces its bytes, and old pages and
+  expired history add no rows. Creating resources, editing resources or
+  controls, and several managed changes in one call need their own sizing.
+- Each `call_bytes` result is one part of a call's memory, not the whole. Add
+  the reference, graph, and call parts to your own callback's needs. Store
+  staging, capability operations, registration, promise resolution, Rust
+  buffers, and Host network state have their own limits.
+- A graph bound covers the old and new graph together. Page counts leave out
+  the root, payload totals include it, and capability field counts leave out
+  the resource link and page links.
+  [ADR-0199](../decisions/adr/ADR-0199-retained-resource-content-graphs.md)
+  records how graph memory is owned and counted.
+- `InvocationBounds` uses `ValueBounds`, which counts every value, each
+  struct key, the total copied bytes, and every capability. Argument bounds
+  cover the whole incoming argument list, including the `mutate` sequence and
+  method name. Reply bounds must cover both new replies and replies saved in
+  receipts. A value within these bounds can still fail to encode.
+- Single-record content and reference edits, resource and control edits,
+  sharing, observation, and forwarding to another peer need their own sizing.
 
 ## Callback context
 
-Rust `Content` methods receive one borrowed `Invocation`. C receives its generated
-mirror. `bound_resource` supplies canonical identity, kind, object and owner
-resource revision, paired with the selected content's object and revision.
-`Delivery::Local` describes the executing target, including local dependent
-calls. `Delivery::Forwarding` describes only the mediating source. The separately
-held capability selects the forwarding destination, and its metadata is unknown
-here. These values are descriptive and cannot be retained as admission.
+Rust `Content` methods receive one borrowed `Invocation`, and C receives the
+same struct generated from it. `bound_resource` gives the resource's identity,
+kind, object, and owner revision, beside the content's own object and
+revision.
 
-Shared hosting loads the canonical row before declaration and rebuilds the
-context on Store revision restart. The C seam verifies the protected first edge
-against that row before calling application code. The shared Linux and Chromium
-trace checks projected identity through exact and dependent calls and cold
-reopen. Zig scenarios own selection, revision fencing and refusal. Rebuild
-consumers against the generated layouts.
+- `Delivery::Local` describes the target that is running, including local
+  dependent calls.
+- `Delivery::Forwarding` describes only the source passing the call on. The
+  capability it forwards to chooses the destination, and nothing about that
+  destination is known here.
+- These values describe the call and grant nothing if kept.
+
+Loam reads the resource's record before the callback declares anything, and
+rebuilds this context when a newer commit makes the call run again. The C
+layer checks the protected first edge against that record before your code
+runs. A shared trace on Linux and in Chromium checks this identity through
+exact and dependent calls and a cold reopen. Rebuild against the generated
+headers after any change to them.
 
 ## Callbacks, memory, and limits in C
 
-`max_continuations`, `continuation_bytes` and `max_continuation_targets` configure
-the shared runtime's independent receipt custody. Zero continuation count
-disables reservation. `forward_reply_bytes` bounds each forwarded target's
-owning reply, separately from the source callback and outer observer. Zero or
-overflow refuses before storage opens.
+### Work after a receipt commits
 
-Receipt callbacks can call `Call::reserve_continuation_copying` with their held
-targets. The reservation borrows the callback. Its source and target getters
-return independently owned references for application receipt staging. The
-returned `PendingContinuation` owns observation through commit and recovery.
-`confirmed` transfers that owner once, without allocating. Proven absence returns
-`UNCHANGED`. Unknown commit keeps custody until recovery. Dropping the observer
-does not classify a commit or cancel an admitted effect.
+`max_continuations`, `continuation_bytes` and `max_continuation_targets` size
+the memory for work that waits on a receipt, and a count of zero turns the
+feature off. `forward_reply_bytes` bounds each forwarded target's reply,
+apart from the source callback and its observer. A zero or overflowing value
+is refused before storage opens.
 
-The confirmed `Continuation` can project a public reference that rechecks source
-admission, or privately `execute` a target. `EffectExecution::completed` reports
-`Ready`, `Unsent`, or `Unknown`. Only `Unsent` proves that target admission did
-not occur. The execution owns its reply and attachment borrow, so the continuation can be
-dropped immediately. Each ready observation returns
-ordinary owned Rust values and reference guards. C child views expire at the
-next query. Returned reference occurrences require independent release.
-Projection refusal preserves the ready result for retry without redispatch.
+A receipt callback can call `Call::reserve_continuation_copying` with targets
+it holds.
 
-The size queries separate immutable continuation custody, C observer metadata,
-source-call decoding, caller reply storage and Host dispatch metadata. Rust
-String/Vec storage and Host queues retain their own budgets. These are live
-executor handles. Applications persist effect receipts and implement restart
-recovery. The [Rooms session guide](../rooms/session.md)
-describes production receipts and recovery.
+- The reservation borrows the callback. Its source and target getters return
+  references you own, for the application's own receipt record.
+- The returned `PendingContinuation` follows the commit and any recovery.
+  `confirmed` hands it over once, without allocating.
+- If the receipt never committed, it returns `UNCHANGED`. An unknown commit
+  holds the work until recovery decides. Dropping the observer neither decides
+  the commit nor cancels work already accepted.
 
-Read-only content can call `Call::disclose_reads_copying` over a held target.
-`ReadInterface` declares allowed verbs. Each `ReadMethod` declares the interface
-index of every returned capability occurrence in depth-first reply order. Empty
-result lists forbid capability disclosure. Shared Zig retains the original
-source intent, checks it before dispatch and after waits, and recursively
-restricts returned capabilities. A scope preserves identity for each exact
-target and interface, including repeated and recursive replies. Trusted content
-must declare only read operations. Mutation callbacks refuse this disclosure
-path. `ReadScopeBounds::size_bound` derives independent scope storage. Temporary
-C/Rust declaration spines, Host actors and ordinary call storage retain their
-own owners.
+A confirmed `Continuation` can hand out a public reference that checks the
+source again, or `execute` a target privately.
+
+- `EffectExecution::completed` reports `Ready`, `Unsent`, or `Unknown`. Only
+  `Unsent` means the target never received the call.
+- The execution owns its reply and its borrow of the attachment, so the
+  continuation can be dropped at once.
+- Each ready result returns owned Rust values and reference guards. C child
+  views expire at the next query, and each returned reference must be released
+  on its own.
+- If handing out the result is refused, the ready result is kept for a retry
+  without sending the call again.
+
+The continuation sizing functions report the reservation, the C observer, the
+source call's arguments, the reply, and the Host's dispatch separately. These
+handles live only as long as the process, so your application saves its own
+receipts and handles recovery after a restart. The
+[Rooms session guide](../rooms/session.md) shows how Rooms does it.
+
+### Read-only disclosure
+
+Read-only content can call `Call::disclose_reads_copying` over a target it
+holds.
+
+- `ReadInterface` lists the allowed verbs. Each `ReadMethod` names the
+  interface of every capability its reply returns, in depth-first order. An
+  empty list means the reply may return no capabilities.
+- Loam keeps the original caller's request, checks it before sending and
+  after every wait, and restricts each returned capability the same way. One
+  target and interface keep one identity, even across repeated and nested
+  replies.
+- Content must declare only read operations, and callbacks that change state
+  are refused on this path.
+- `ReadScopeBounds::size_bound` gives the memory it needs.
+
 [ADR-0206](../decisions/adr/ADR-0206-recursive-read-interfaces-retain-source-admission.md)
-owns the lifetime and retry contract.
+records how long these capabilities live and how retries work.
 
-C callbacks borrow payload, verb and argument views until return. They cannot
-unwind or reenter Host driving. Reply and replacement setters copy into the
-bounded call arena. The standalone `glowcap_loam_store_new_in` uses a Context
-allocator for Store and attachment allocations, so keep that Context alive
-through all their releases. The LMDB companion uses the library allocator.
-Declarations and method names are copied at attach, and application and entropy
-contexts remain borrowed until successful detach. Policy descriptors allow at
-most 64 permissions and 16 unsigned bounds. Methods are limited to 64 per
-registration, with names of 1–256 bytes. The profile accepts at most 128 content
-registrations. `Limits` owns cache, lease, staging, reference and operation
-budgets. The work pool reserves `cache_slots + 1` slots at startup, so
-individual C storage effects allocate no handle.
+### C callbacks and registration
 
-In C, `GlowcapLoamPolicy.prerequisite_masks[i]` lists required bits in the same
-sorted order as `permissions`. Unused rows must be zero. Self and undeclared
-bits refuse construction. The copied policy matrix occupies 512 bytes and adds
-no allocation. Validation visits at most 64 selected permissions. Owner records
-persist the matrix within their 4 KiB payload limit. Rebuild consumers against
-the generated header. Owner records without the matrix or kind list refuse
-decoding, so create a new store with a fresh identity and reissue authority.
-Reopening and application imports refuse incompatible grants.
+- Callbacks borrow the payload, verb, and argument views until they return.
+  They must not unwind or drive the Host from inside the callback.
+- Reply and replacement setters copy into the call's bounded memory.
+- `glowcap_loam_store_new_in` allocates the Store and attachment from a
+  Context, so keep that Context alive until both are released. The SQLite,
+  LMDB, and in-memory archives use the library's allocator.
+- Attaching copies declarations and method names. Application and entropy
+  contexts stay borrowed until a successful detach.
+- A policy allows at most <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions and <!-- value ../../src/loam/access/core/policy.zig max_constraints -->16<!-- /value --> unsigned bounds. A registration has at most <!-- value ../../src/c_abi/loam/callbacks.zig max_methods -->64<!-- /value -->
+  methods, with names of 1 to 256 bytes. An attachment takes at most <!-- value ../../src/c_abi/loam/attachment.zig max_contents -->128<!-- /value --> content
+  registrations and <!-- value ../../src/c_abi/loam/common.zig max_schemas -->128<!-- /value --> schemas.
+- `Limits` sets the cache, lease, staging, reference, and operation limits.
+  The work pool reserves `cache_slots + 1` slots at startup, so storage work
+  from C allocates no handle.
 
-`Policy::with_kinds` declares exact and future-subtree support for up to 16
-sorted resource kinds. A nonempty table refuses unknown kinds. The factory
-issues the exact kind's supported permissions and preserves the full
-vocabulary.
-Direct derivation, edits and control ceilings obey applicability after reopen.
-`value_for_kind` prepares exact-interface terms through the shared Zig check.
-It supplies data and does not admit an effect or confer resource authority.
-Kind rows add 384 inline bytes plus a count, without allocation. The maximum
-owner descriptor still fits 4 KiB. The
-[scope decision](../decisions/adr/ADR-0197-scope-aware-permission-applicability.md)
-owns mixed selections, exact effects and containment. General resource-graph
-operations are outside this fixed-resource consumer profile.
+### Policy prerequisites and kinds
+
+A C policy carries a table of prerequisites:
+
+- `GlowcapLoamPolicy.prerequisite_masks[i]` lists the bits permission `i`
+  requires, in the same sorted order as `permissions`. Unused rows must be
+  zero, and a permission that requires itself or an undeclared bit is
+  refused.
+- The table takes 512 bytes inside the policy and allocates nothing. Checking
+  it visits at most 64 permissions.
+- Owner records save the table within their 4 KiB payload limit. An owner
+  record written without the table or the kind list cannot be read, so create
+  a new store with a fresh identity and grant access again. Opening a store or
+  importing grants refuses ones that do not fit the policy.
+
+`Policy::with_kinds` declares up to <!-- value ../../src/loam/access/core/policy.zig max_kinds -->16<!-- /value --> sorted resource kinds, each with
+the permissions it supports alone and for children added later.
+
+- A nonempty table refuses unknown kinds. A grant issues only the
+  permissions the exact kind supports, while the policy keeps the full list.
+  Derivation, edits, and control limits follow these rules after a reopen.
+- `value_for_kind` builds the terms for one kind through Loam's Zig check. It
+  returns data only and grants nothing.
+- Kinds add 384 bytes plus a count inside the policy, with no allocation. The
+  largest owner policy fits the <!-- value ../../src/loam/access/records/owner_record.zig max_encoded_bytes bytes -->4 KiB<!-- /value --> owner record.
+
+[ADR-0197](../decisions/adr/ADR-0197-scope-aware-permission-applicability.md)
+covers mixed selections and how scopes contain each other. General operations
+on resource trees are available from Zig only.
 
 ## Driving storage from C
 
-A C embedder alternates Host driving and `glowcap_loam_advance`, takes submitted
-work with `glowcap_loam_next_work`, executes it through the LMDB companion and
-joins the executor. It then calls `glowcap_loam_work_complete` on the Host thread.
-Its `out_completed` flag states whether completion consumed the effect even
-when the status is a refusal. Zero preserves the work and all its owners. One
-permits `glowcap_loam_work_release`. The caller must join the worker before
-completion or release, because a result flag does not prove another thread has
-retired.
-Unknown writes select recovery only after the original work is completed and
-released. Failed or unstarted recovery preserves the barrier. Each work handle
-is one slot of the attachment's `hosting.Worker`, so C and Zig embeddings
-follow the same slot, recovery, and retirement rules.
+A C program runs this loop:
 
-`glowcap_loam_advance` reports newly runnable Host work through `out_progress`,
-including a fetch emitted while reference preparation still waits. Drain that
-work before parking for the reply. Outstanding foreign replies and internal
-work blocked on transport readiness do not keep that progress flag set.
+1. Alternate driving the Host and calling `glowcap_loam_advance`.
+2. Take storage work with `glowcap_loam_next_work`.
+3. Run it through the engine archive and join the thread that ran it.
+4. Call `glowcap_loam_work_complete` on the Host thread.
 
-## Evidence
+Completion follows these rules:
 
-`zig build loam-abi-test` proves the C ownership and recovery boundary.
+- `out_completed` says whether Loam took the result, even when the status is
+  a refusal. Zero leaves the work and everything it holds in place. One lets
+  you call `glowcap_loam_work_release`.
+- Join the worker before completing or releasing, because a result flag does
+  not show that another thread has finished.
+- After an unknown write, recovery is offered only once the original work is
+  completed and released. If recovery fails or never starts, the store keeps
+  refusing other work.
+- A read that finds damaged bytes completes with `GLOWCAP_LOAM_ERR_CORRUPT`,
+  and retrying it cannot help. When a commit's result is unknown, every other
+  call reports `GLOWCAP_ERR_IO` until recovery succeeds, so keep the Store and
+  engine open until then.
+- Each work handle is one slot of the attachment's `hosting.Worker`, so C and
+  Zig programs follow the same rules for slots, recovery, and shutdown.
+- An engine archive's attachment hands out no more reads at once than the
+  engine has readers, and `glowcap_loam_next_work` reports `WOULD_BLOCK`
+  until one completes. A write is still offered, because it needs no reader,
+  so a thread pool of any size can run every handle it receives.
+
+`glowcap_loam_advance` reports new Host work through `out_progress`, including
+a fetch sent while a reference is still being prepared. Run that work before
+you wait for the reply. Replies still owed by other peers, and work waiting on
+the network, do not keep that flag set.
+
+Collection runs in the same loop. `Store::collect(work_limit)` runs one
+bounded step and returns whether the cycle has more to do. A step does
+`work_limit` units of work, plus whatever finishes the unit it started, so
+call it until it returns false. Over an engine archive it calls the archive's
+`collect` function (`glowcap_loam_lmdb_collect` for LMDB) and then reads
+`glowcap_loam_store_collecting`. A C program that brings its own storage calls
+`glowcap_loam_store_collect_plan`, commits the transaction, and finishes with
+`glowcap_loam_store_finish(raw, 0, outcome)`. Collection is refused while an
+attachment exists or a resource is staged.
+
+## Tests
+
+`zig build loam-abi-test` covers C ownership and recovery.
 `zig build loam-rust-test` runs create, share, edit, restart, and cold reopen
-over loopback TCP, plus receipt replay, panic containment, and worker
+over loopback TCP, plus resent requests, panics in callbacks, and worker
 cancellation. It shares its management and field traces with the Chromium
-proof in the [browser guide](browser.md#bounds-and-evidence). These LMDB checks
-do not establish Windows or macOS support.
+test in the [browser guide](browser.md#limits-and-tests).
+[Stability](../stability.md) says which platforms these cover.
 
 The Rooms
-[maximum foreign trace](../../apps/rooms/rust/proofs/src/session_foreign/mod.rs)
-checks the largest field and page counts, including refusal at capacity and
-cold restoration (`zig build rooms-session-foreign-test`).
+[largest-reference trace](../../apps/rooms/rust/proofs/src/session_foreign/mod.rs)
+checks the most fields and pages Rooms allows, including refusal at capacity
+and cold restoration (`zig build rooms-session-foreign-test`).

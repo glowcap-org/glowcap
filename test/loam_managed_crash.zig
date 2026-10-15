@@ -2,7 +2,7 @@
 //! The Python supervisor SIGKILLs this process at an acknowledged boundary.
 //! Verification starts a new Host and Store and fetches only durable names.
 //! Validated against omitted source receipt persistence, stale event linkage,
-//! and ignored revocation. This exercises synchronous LMDB process loss, not
+//! and ignored revocation. This exercises synchronous process loss, not
 //! power loss or cross-vat restoration.
 const std = @import("std");
 const h = @import("loam/access/hosting_fixture.zig");
@@ -11,7 +11,7 @@ const resources = @import("loam/access/resource_fixture.zig");
 const sharing = @import("loam/access/sharing_fixture.zig");
 const pairs = @import("support/host_pair.zig");
 const captures = @import("support/capture.zig");
-const Lmdb = @import("loam_lmdb").Lmdb;
+const fixture = @import("engine_fixture");
 const core = h.loam.core;
 const records = h.loam.access.records;
 const publication = h.loam.hosting.publication;
@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
     const creating = std.mem.eql(u8, mode, "create");
     const verifying = std.mem.eql(u8, mode, "verify-old") or std.mem.eql(u8, mode, "verify-new");
     const boundary = if (creating or verifying) null else std.meta.stringToEnum(Boundary, mode) orelse return error.InvalidArguments;
-    var db = try Lmdb.open(std.mem.span(args[2]), .{ .mode = if (creating) .{ .create = h.f.store_id } else .{ .open = h.f.store_id } });
+    var db = try fixture.open(std.mem.span(args[2]), if (creating) .create else .open, h.f.store_id);
     defer db.close() catch unreachable;
     var store = try core.Store.init(init.gpa, db.metadata, &schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -139,10 +139,11 @@ pub fn main(init: std.process.Init) !void {
         };
         if (count != observation_names.len) return error.MissingPublication;
     }
-    var pending = try db.beginCommit(batch);
+    var pending = try db.beginWrite();
+    const next = try batch.apply(&pending);
     if (boundary.? == .before) stop();
-    const outcome = pending.finish();
-    if (outcome != .committed) return error.CommitFailed;
+    if (try pending.commit() != .committed) return error.CommitFailed;
+    const outcome: h.loam.core.Outcome = .{ .committed = next };
     if (boundary.? == .after) stop();
     try server.attached.completeWrite(batch.ticket, outcome);
     if (boundary.? == .installed) stop();
@@ -184,11 +185,11 @@ const Server = struct {
     service: h.access.Service,
     behaviors: [h.access.Service.behavior_count]h.loam.hosting.Behavior,
     attached: *h.loam.hosting.Attachment,
-    db: *Lmdb,
+    db: *fixture.Engine,
     io: std.Io,
     last_entropy: publication.Entropy = @splat(0),
 
-    fn init(self: *Server, store: *core.Store, db: *Lmdb, io: std.Io) !void {
+    fn init(self: *Server, store: *core.Store, db: *fixture.Engine, io: std.Io) !void {
         self.host = h.host_support.init(store.allocator, @splat(0x61), h.driver.Host.Options.withFrameCap(4096));
         self.caps = try h.c.storage.Capabilities.init(store.allocator, store, .{});
         self.service = .{

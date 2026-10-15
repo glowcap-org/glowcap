@@ -2,15 +2,15 @@
 ;; Internal: the shared C-ABI vocabulary the glowcap archives agree on by layout.
 ;;
 ;; This module is the binding's one types leaf: every C-visible cstruct and
-;; callback type the archives' `_fun` signatures name — frame, reference,
+;; callback type the archives' `_fun` signatures name: frame, reference,
 ;; argument, host action, last abort, and the driver's plan/dial views and
 ;; callback types. It declares the *types*, not any bound function, and it
-;; opens no library — so requiring it loads nothing, and the generated
+;; opens no library, so requiring it loads nothing, and the generated
 ;; per-archive tables (`ffi-*-gen.rkt`) can require it below every hand
 ;; module. Archive path resolve + `ffi-lib` live in `lib-resolve.rkt`.
 ;;
 ;; Memory discipline: Racket's collector moves GC-managed memory, so every
-;; buffer whose raw address C reads — and every cstruct C reads or writes — is
+;; buffer whose raw address C reads, and every cstruct C reads or writes, is
 ;; allocated 'atomic-interior, which stays put while a Racket reference is
 ;; retained; the `keep` lists threaded through the marshalling code provide
 ;; exactly that reference for the duration C may use the address. Plain
@@ -60,7 +60,7 @@
 ;; build bans automatic FFI out syntax under bindings/racket.
 ;; One fresh out cell for `ctype`, seeded with `init`. A cstruct init is a
 ;; tagged pointer, and the generated stub types that out-param `_ID-pointer`,
-;; whose argument conversion refuses an untagged malloc block — so the fresh
+;; whose argument conversion refuses an untagged malloc block, so the fresh
 ;; cell must carry the init's tag before it crosses.
 (define (out-cell ctype init)
   (define cell (malloc ctype 'atomic-interior))
@@ -182,7 +182,7 @@
 
 ;; Caller-owned deterministic provider-install and loop-release outcome. The
 ;; pointed-to names are process-lifetime stable and copied by the runtime tier
-;; before another native call can retire the record.
+;; before another FFI call can retire the record.
 (define-cstruct _GlowcapDriverFailure
   ([abi-version _uint32] [struct-size _size]
    [primary-result _int32] [secondary-result _int32]
@@ -247,7 +247,7 @@
 ;; The C behavior callback. `_fun` makes a Racket closure C-callable; the
 ;; closure must stay reachable while the host may invoke it (the host's
 ;; strong `keep` table in `private/host/state.rkt` provides that).
-;; GlowcapTraceEvent — one live-trace fact (glowcap_host_set_trace); the
+;; GlowcapTraceEvent: one live-trace fact (glowcap_host_set_trace); the
 ;; layout facts in layouts-gen.rkt pin the mirror.
 (define-cstruct _GlowcapTraceEvent
   ([kind _uint32]
@@ -272,7 +272,7 @@
    ;; that carried it. Zero on the non-message kinds.
    [digest (_array _uint8 TRACE-DIGEST-BYTES)]) #:malloc-mode 'atomic-interior)
 
-;; GlowcapTraceCallback — void (*)(void *ctx, const GlowcapTraceEvent *event).
+;; GlowcapTraceCallback: void (*)(void *ctx, const GlowcapTraceEvent *event).
 (define _GlowcapTraceCallback
   (_fun _pointer _GlowcapTraceEvent-pointer -> _void))
 (pin-layout! '_GlowcapTraceEvent _GlowcapTraceEvent GLOWCAP-TRACE-EVENT-SIZE
@@ -281,12 +281,12 @@
 (define _GlowcapHostBehavior
   (_fun _pointer _pointer _pointer _size _pointer _size _GlowcapArgument-pointer -> _int32))
 
-;; Sync arm for glowcap_host_pump_drain. Must not await — park decoded work
+;; Sync arm for glowcap_host_pump_drain. Must not await; park decoded work
 ;; and run I/O after the C loop returns.
 (define _GlowcapHostPumpArmFn
   (_fun _pointer _pointer _GlowcapHostAction-pointer _pointer -> _int32))
 
-;; GlowcapHostPumpHooks — five arm slots + caller ctx. Fields are `_fpointer`
+;; GlowcapHostPumpHooks: five arm slots + caller ctx. Fields are `_fpointer`
 ;; so `function-ptr` callbacks install cleanly.
 (define-cstruct _GlowcapHostPumpHooks
   ([ctx _pointer]
@@ -318,7 +318,8 @@
 (define-cstruct _GlowcapDriverOptions
   ([abi-version _uint32] [struct-size _size]
    [wire-buffer-bytes _size] [max-pending-opens _size]
-   [handshake-ms _uint32] [listener-setup-ms _uint32] [settle-ms _uint32])
+   [handshake-ms _uint32] [listener-setup-ms _uint32] [settle-ms _uint32]
+   [busy-poll-ns _uint64])
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_GlowcapDriverOptions _GlowcapDriverOptions GLOWCAP-DRIVER-OPTIONS-SIZE
              GLOWCAP-DRIVER-OPTIONS-LAYOUT)

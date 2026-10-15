@@ -1,15 +1,14 @@
 # Serve the Rooms browser UI over a WebSocket relay to an iroh room server from
-# a light, toolchain-free container, with kept room lines in a PostgreSQL
-# service beside it. This tracked base publishes no host port and joins one
-# shared Docker network. How this machine reaches the page is the ignored
-# docker-compose.override.yml's business, so a host's ports and network names
-# never enter the repository. Terminal CapTP peers need neither: they dial
+# a light, toolchain-free container. This tracked base publishes no host port
+# and joins one shared Docker network. How this machine reaches the page is
+# the ignored docker-compose.override.yml's business, so a host's ports and
+# network names never enter the repository. Terminal CapTP peers need neither: they dial
 # over iroh Discovery.
 #
 # `glowcap apps rooms deployment up` installs this template into the selected
-# configuration directory, preserves the operator override and database secret,
-# selects an immutable product image, and waits for service health. With the
-# example override the page is at http://127.0.0.1:8080 on the Docker host.
+# configuration directory, preserves the operator override, selects an
+# immutable product image, and waits for service health. With the example
+# override the page is at http://127.0.0.1:8080 on the Docker host.
 # Runtime binaries and browser assets are inside the image, never live mounts.
 
 name: glowcap-rooms
@@ -28,6 +27,7 @@ services:
       GLOWCAP_LIB_DIR: /runtime/lib
       # One room authority across child and container restarts. This keeps the
       # iroh endpoint id and every issued durable room link stable.
+      # Listed rooms' kept lines live here too, under history/.
       GLOWCAP_ROOMS_STATE: /state
       # Rate overrides are absolute class=burst/per-minute pairs.
       GLOWCAP_ROOMS_ADMISSION_SCALE: ${GLOWCAP_ROOMS_ADMISSION_SCALE:-}
@@ -88,24 +88,8 @@ services:
       # Same as --history: listed rooms keep their last lines and serve them
       # to members who join later.
       GLOWCAP_ROOMS_HISTORY: "1"
-      # Same as --storage=: where kept lines persist. The default is the
-      # PostgreSQL service below, reached only over the private compose
-      # network, so TLS is off on that leg; the URL names user, host, and
-      # database, and the password rides in as a Docker secret through
-      # --storage-password-file, never in this environment. Export both of
-      # these empty to keep lines in the state volume's files instead, which
-      # is a development posture, not a deployment.
-      GLOWCAP_ROOMS_STORAGE: ${GLOWCAP_ROOMS_STORAGE-postgres://rooms@postgres:5432/rooms?sslmode=disable}
-      GLOWCAP_ROOMS_STORAGE_PASSWORD_FILE: ${GLOWCAP_ROOMS_STORAGE_PASSWORD_FILE-/run/secrets/storage-db-password}
-    secrets:
-      - storage-db-password
     volumes:
       - directory-state:/state
-    # The room server refuses to start until it can open its history store,
-    # so it waits for the database to answer before it is started at all.
-    depends_on:
-      postgres:
-        condition: service_healthy
     # Readiness checks both the supervised directory and prepared browser assets.
     healthcheck:
       test: ["CMD", "/runtime/bin/glowcap", "apps", "rooms", "status"]
@@ -172,47 +156,6 @@ services:
     networks:
       - glowcap-rooms-net
 
-  # The history database. The room server reaches it only over the private
-  # compose network; nothing publishes it to the host, and its one password
-  # is the Docker secret deployment up mints, mounted here as a file the image reads
-  # at first start. Data checksums are on from the first initdb, because
-  # turning them on later means a dump and restore. The data volume is the
-  # deployment's memory: back it up with pg_dump (README, Storage) before
-  # recreating or upgrading this service, and never change the major version
-  # in place.
-  postgres:
-    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
-    container_name: glowcap-rooms-postgres
-    environment:
-      POSTGRES_DB: rooms
-      POSTGRES_USER: rooms
-      POSTGRES_PASSWORD_FILE: /run/secrets/storage-db-password
-      POSTGRES_INITDB_ARGS: --data-checksums
-    secrets:
-      - storage-db-password
-    volumes:
-      - postgres:/var/lib/postgresql
-    # PostgreSQL's shared buffers live in shared memory, and Docker's 64 MiB
-    # default is too small for a busy checkpoint.
-    shm_size: 256m
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rooms -d rooms"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 30s
-    # Give a checkpoint time to finish before the process is killed.
-    stop_grace_period: 60s
-    restart: unless-stopped
-    networks:
-      - glowcap-rooms-net
-
-secrets:
-  # Minted in the deployment configuration on first use. One file, read by the
-  # database at its first start and by the room server at every start.
-  storage-db-password:
-    file: ./secrets/storage-db-password
-
 networks:
   # Shared fabric with the glowcap devcontainer: a bot there reaches this
   # container's internal CapTP over this network. Fixed name, external so both
@@ -226,5 +169,3 @@ volumes:
     name: glowcap-rooms-directory-state
   session-state:
     name: glowcap-rooms-session-state
-  postgres:
-    name: glowcap-rooms-postgres

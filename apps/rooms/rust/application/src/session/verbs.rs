@@ -1,6 +1,6 @@
 //! The method names a Rooms session facet answers. The browser's
 //! `lib/session/verbs.ts` names the same methods for the attaching side. This
-//! is the one Rust authority for them, shared by native and Wasm owners.
+//! is the one Rust authority for them, shared by host and Wasm owners.
 
 macro_rules! methods {
 	($($variant:ident => $constant:ident = $name:literal;)*) => {

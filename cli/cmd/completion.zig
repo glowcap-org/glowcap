@@ -57,7 +57,7 @@ fn emitWith(em: *Emitter, root: *const Command, shell: Shell) !void {
 
 fn emitBash(em: *Emitter, root: *const Command) !void {
     try em.writeAll(
-        \\# glowcap bash completion — eval "$(glowcap completion bash)"
+        \\# glowcap bash completion: eval "$(glowcap completion bash)"
         \\_glowcap() {
         \\  local cur prev
         \\  COMPREPLY=()
@@ -122,7 +122,7 @@ fn emitCaseTables(em: *Emitter, root: *const Command, register: []const u8) !voi
 fn emitZsh(em: *Emitter, root: *const Command) !void {
     // Both wrappers feed shell tokens to the same tree-derived context scanner.
     try em.writeAll(
-        \\# glowcap zsh completion — eval "$(glowcap completion zsh)"
+        \\# glowcap zsh completion: eval "$(glowcap completion zsh)"
         \\#compdef glowcap
         \\_glowcap() {
         \\  local cur="${words[CURRENT]}"
@@ -273,7 +273,7 @@ fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8, n
 }
 
 fn emitFish(em: *Emitter, root: *const Command) !void {
-    try em.writeAll("# glowcap fish completion — glowcap completion fish | source\n");
+    try em.writeAll("# glowcap fish completion: glowcap completion fish | source\n");
     try em.writeAll("complete -c glowcap -f\n");
     try em.writeAll("complete -c glowcap -l help -s h -d 'Help'\n");
     try writeFishNode(em, root, &.{}, &.{root});

@@ -8,6 +8,9 @@ mod continuation;
 #[cfg(feature = "tcp")]
 #[path = "../../../proofs/_support/loam_continuations.rs"]
 mod continuations;
+mod engines;
+#[cfg(feature = "tcp")]
+mod volatile;
 #[cfg(feature = "tcp")]
 use crate::ListenerIdentity;
 #[cfg(feature = "tcp")]
@@ -168,6 +171,29 @@ fn registration() -> Registration {
 	#[cfg(not(feature = "tcp"))]
 	registration
 }
+type EngineFn<E> = fn(&std::path::Path, OpenMode, usize) -> E;
+fn lmdb_engine(path: &std::path::Path, mode: OpenMode, bytes: usize) -> Lmdb {
+	Lmdb {
+		path: path.to_owned(),
+		identity: [3; 16],
+		mode,
+		map_bytes: bytes,
+	}
+}
+fn sqlite_engine(path: &std::path::Path, mode: OpenMode, bytes: usize) -> Sqlite {
+	Sqlite {
+		path: path.to_owned(),
+		identity: [3; 16],
+		mode,
+		capacity_bytes: bytes,
+	}
+}
+fn volatile_engine(_path: &std::path::Path, _mode: OpenMode, bytes: usize) -> Volatile {
+	Volatile {
+		identity: [3; 16],
+		capacity_bytes: bytes,
+	}
+}
 struct Directory(std::path::PathBuf);
 impl Directory {
 	fn new() -> Self {
@@ -185,18 +211,14 @@ impl Drop for Directory {
 }
 
 #[cfg(feature = "tcp")]
-#[tokio::test]
-async fn create_share_edit_restart_and_cold_reopen() {
+async fn create_share_edit_restart_and_cold_reopen<E: Engine>(engine: EngineFn<E>) {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			tokio::time::timeout(std::time::Duration::from_secs(5), async {
 				let directory = Directory::new();
 				let policy = dependencies::descriptor();
 				let mut store = Store::open(
-					&directory.0,
-					[3; 16],
-					true,
-					256 * 1024 * 1024,
+					engine(&directory.0, OpenMode::Create, 256 * 1024 * 1024),
 					&[SCHEMA],
 					Limits::default(),
 				)
@@ -231,7 +253,7 @@ async fn create_share_edit_restart_and_cold_reopen() {
 				assert_text(&client, &root, b"initial").await;
 				let terms = policy.value(&[10, 20], &[]).unwrap();
 				let shared = client
-					.send(&root, "derive", &terms.derive_arguments(1, 0))
+					.send(&root, "derive", &terms.derive_arguments(1, Scope::Object, 0))
 					.await
 					.unwrap();
 				let shared = Ref::try_from(&shared).unwrap();
@@ -246,7 +268,7 @@ async fn create_share_edit_restart_and_cold_reopen() {
 					.send(
 						&root,
 						"derive",
-						&policy.value(&[10], &[]).unwrap().derive_arguments(2, 0),
+						&policy.value(&[10], &[]).unwrap().derive_arguments(2, Scope::Object, 0),
 					)
 					.await
 					.unwrap();
@@ -344,10 +366,7 @@ async fn create_share_edit_restart_and_cold_reopen() {
 				drop(store);
 
 				let mut store = Store::open(
-					&directory.0,
-					[3; 16],
-					false,
-					256 * 1024 * 1024,
+					engine(&directory.0, OpenMode::Open, 256 * 1024 * 1024),
 					&[SCHEMA],
 					Limits::default(),
 				)
@@ -460,16 +479,12 @@ impl Content for DropProbe {
 		Text.invoke(call, input)
 	}
 }
-#[tokio::test]
-async fn refused_registration_and_host_close_release_callback_custody() {
+async fn refused_registration_and_host_close_release_callback_custody<E: Engine>(engine: EngineFn<E>) {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			let directory = Directory::new();
 			let mut store = Store::open(
-				&directory.0,
-				[3; 16],
-				true,
-				256 * 1024 * 1024,
+				engine(&directory.0, OpenMode::Create, 256 * 1024 * 1024),
 				&[SCHEMA],
 				Limits::default(),
 			)
@@ -503,15 +518,19 @@ async fn refused_registration_and_host_close_release_callback_custody() {
 		})
 		.await;
 }
-#[test]
-fn physical_map_budget_refuses_writes_without_losing_the_store() {
+fn physical_map_budget_refuses_writes_without_losing_the_store<E: Engine>(engine: EngineFn<E>) {
 	let directory = Directory::new();
 	let schema = Schema {
 		max_payload: 32 * 1024,
 		..SCHEMA
 	};
 	let policy = Policy::new([5; 16], &[10, 20], &[]).unwrap();
-	let mut store = Store::open(&directory.0, [3; 16], true, 1024 * 1024, &[schema], Limits::default()).unwrap();
+	let mut store = Store::open(
+		engine(&directory.0, OpenMode::Create, 1024 * 1024),
+		&[schema],
+		Limits::default(),
+	)
+	.unwrap();
 	let payload = vec![0u8; schema.max_payload];
 	let mut created = 0;
 	let failure = loop {
@@ -531,16 +550,52 @@ fn physical_map_budget_refuses_writes_without_losing_the_store() {
 	assert!(failure.message().unwrap().contains("StorageCapacity"));
 	store.close().unwrap();
 	let mut reopened = Store::open(
-		&directory.0,
-		[3; 16],
-		false,
-		4 * 1024 * 1024,
+		engine(&directory.0, OpenMode::Open, 4 * 1024 * 1024),
 		&[schema],
 		Limits::default(),
 	)
 	.unwrap();
 	reopened.create_resource(&policy, schema, 1, &payload, 0).unwrap();
 	reopened.close().unwrap();
+}
+
+fn collect_runs_bounded_steps_until_the_cycle_ends<E: Engine>(engine: EngineFn<E>) {
+	let directory = Directory::new();
+	let policy = Policy::new([5; 16], &[10, 20], &[]).unwrap();
+	let store = Store::open(
+		engine(&directory.0, OpenMode::Create, 64 * 1024 * 1024),
+		&[SCHEMA],
+		Limits::default(),
+	)
+	.unwrap();
+	for _ in 0..2 {
+		store.create_resource(&policy, SCHEMA, 1, b"payload", 0).unwrap();
+	}
+	let mut steps = 0;
+	while store.collect(2).unwrap() {
+		steps += 1;
+		assert!(steps < 10_000, "collection must end within a bounded number of steps");
+	}
+}
+
+fn collect_refuses_while_a_creation_is_staged_and_leaves_it_intact<E: Engine>(engine: EngineFn<E>) {
+	let directory = Directory::new();
+	let policy = Policy::new([5; 16], &[10, 20], &[]).unwrap();
+	let store = Store::open(
+		engine(&directory.0, OpenMode::Create, 64 * 1024 * 1024),
+		&[SCHEMA],
+		Limits::default(),
+	)
+	.unwrap();
+	let staged = store
+		.stage_resource(&policy, SCHEMA, 1, b"payload", 0, [9; 16])
+		.unwrap();
+	assert_eq!(
+		store.collect(1).unwrap_err().code(),
+		crate::sys::WOULD_BLOCK,
+		"a staged creation owns the store's batch"
+	);
+	staged.commit().unwrap();
 }
 
 #[test]

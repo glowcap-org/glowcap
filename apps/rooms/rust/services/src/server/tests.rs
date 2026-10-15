@@ -80,7 +80,6 @@ async fn start_with_admission(
 			state: Some(state),
 			transport,
 			history: true,
-			storage: None,
 			asked,
 			trace_port: 0,
 			trace_publish: None,
@@ -229,7 +228,7 @@ async fn members() {
 		Directory::fetch(bob.clone()).await.unwrap(),
 	);
 	assert_eq!(alice_dir.advertised_location().await.unwrap(), dial.designator);
-	assert!(alice_dir.list().await.unwrap().is_empty());
+	assert!(alice_dir.list(None).await.unwrap().rooms.is_empty());
 
 	// Registration: the name is acknowledged and discoverable.
 	let mut alice_name = alice_dir.registration();
@@ -347,6 +346,7 @@ async fn members() {
 		"signalAnswer",
 		"signalCandidate",
 		"signalDone",
+		"signalDecline",
 	] {
 		assert!(
 			carol.session().send(&retired_carol_name, verb, &[]).await.is_err(),
@@ -356,10 +356,13 @@ async fn members() {
 	let mut carol_signaling = carol_route.signaling_inbox().await.unwrap();
 	let exchange = bob_route.signaling_exchange("carol-designator").unwrap();
 	exchange.offer(&Description::parse("v=0 offer").unwrap()).unwrap();
-	let Incoming::Offer { id, description } = carol_signaling.next().await.unwrap().expect("an offer") else {
+	let Incoming::Offer { id, description, from } = carol_signaling.next().await.unwrap().expect("an offer") else {
 		panic!("expected an offer");
 	};
 	assert_eq!(description.as_str(), "v=0 offer");
+	// The directory names the offerer by the Host key it registered, and
+	// Bob's address locator names none.
+	assert!(from.is_none());
 	carol_route
 		.signal_answer(&id, &Description::parse("v=0 answer").unwrap())
 		.unwrap();
@@ -385,6 +388,21 @@ async fn members() {
 		Some("candidate:carol".into())
 	);
 	exchange.close().unwrap();
+	// Carol declines a second offer, and Bob hears her reason at once.
+	let declined = bob_route.signaling_exchange("carol-designator").unwrap();
+	declined.offer(&Description::parse("v=0 offer").unwrap()).unwrap();
+	let Incoming::Offer { id, .. } = carol_signaling.next().await.unwrap().expect("an offer") else {
+		panic!("expected an offer");
+	};
+	carol_route
+		.signal_decline(&id, &rooms_application::signaling::Reason::parse("busy").unwrap())
+		.unwrap();
+	let reason = declined.answer().await.unwrap_err();
+	assert!(
+		reason.to_string().contains("the member declined the offer: busy"),
+		"{reason}"
+	);
+	declined.close().unwrap();
 	// An offer to a designator nobody registered is refused as offline.
 	let nowhere = bob_dir.signaling().signaling_exchange("nobody").unwrap();
 	nowhere.offer(&Description::parse("v=0").unwrap()).unwrap();
@@ -569,7 +587,6 @@ async fn restart() {
 					state: Some(temp.0.clone()),
 					transport: tcp(),
 					history: false,
-					storage: None,
 					asked: Default::default(),
 					trace_port: 0,
 					trace_publish: None,

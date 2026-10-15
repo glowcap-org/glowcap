@@ -39,13 +39,13 @@ from smoke.runtime import tcp_connect
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar("scenario_runtimes", default=None)
 
 
-def _wait_for_native_call(owner, label: str) -> None:
-    """Wait until a blocking wrapper has transferred one lease to native code."""
-    native = owner._native
-    with native._condition:
-        entered = native._condition.wait_for(lambda: native._active != 0, timeout=1)
+def _wait_for_ffi_call(owner, label: str) -> None:
+    """Wait until a blocking wrapper has transferred one lease to FFI code."""
+    ffi = owner._ffi
+    with ffi._condition:
+        entered = ffi._condition.wait_for(lambda: ffi._active != 0, timeout=1)
     if not entered:
-        raise AssertionError(f"{label} did not acquire its native lease")
+        raise AssertionError(f"{label} did not acquire its FFI lease")
 
 
 async def _send_redeeming_surfaces_the_direct_exporter() -> None:
@@ -470,7 +470,7 @@ def _onion_against_a_fake_daemon() -> None:
     thread.join(timeout=2)
 
     # ctypes releases the GIL around CDLL calls. Owner release must therefore
-    # interrupt an accept already parked in native code, wait for its lease to
+    # interrupt an accept already parked in FFI code, wait for its lease to
     # return, and only then free the listener and netlayer storage.
     control = _loopback()
     seen = []
@@ -491,7 +491,7 @@ def _onion_against_a_fake_daemon() -> None:
     accepter = threading.Thread(target=blocked_accept, daemon=True)
     accepter.start()
     assert entered.wait(1), "the accept thread did not start"
-    _wait_for_native_call(listener, "onion accept")
+    _wait_for_ffi_call(listener, "onion accept")
     assert accepter.is_alive(), "the empty listener did not block accept"
     nl.release()
     accepter.join(timeout=2)

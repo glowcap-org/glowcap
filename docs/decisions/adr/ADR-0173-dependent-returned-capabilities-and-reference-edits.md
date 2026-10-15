@@ -7,7 +7,7 @@ decision: "A managed method can return a runtime facet that admits every call th
 supersedes: []
 superseded_by: []
 amends: [ADR-0169, ADR-0172]
-amended_by: [ADR-0182, ADR-0205]
+amended_by: [ADR-0182, ADR-0205, ADR-0227]
 ---
 
 # ADR-0173 Dependent returned capabilities and reference edits
@@ -88,6 +88,6 @@ replies, separate invoking and target grants, ancestor pause and revocation,
 and refusal to expose the original target or a controller. The in-process
 hosting suite covers every composite reply arm, bounded failed-reply cleanup,
 reference replacement and removal, weak and volatile refusal, and an aborted
-write. `test/loam/lmdb/managed_hosting_test.zig` proves replacement, aborted
+write. `test/loam/engines/managed_hosting_test.zig` proves replacement, aborted
 removal recovery, committed removal, and reopen. These run under
 `zig build check` and `zig build loam-lmdb-test`.

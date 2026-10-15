@@ -45,7 +45,7 @@ async function readyBase(stdout) {
 	throw new Error("rooms-web exited before readiness");
 }
 
-// Exercise the executable users start: it supervises the native directory and
+// Exercise the executable users start: it supervises the Rooms directory and
 // relays this Wasm client's WebSocket bytes. Deno drives the proof but carries
 // no application traffic.
 export async function checkChannels(
@@ -85,7 +85,7 @@ export async function checkChannels(
 		const base = await Promise.race([
 			readyBase(child.stdout),
 			new Promise((_, reject) => {
-				timer = setTimeout(() => reject(new Error("native web startup timed out")), 15_000);
+				timer = setTimeout(() => reject(new Error("Rooms web startup timed out")), 15_000);
 			}),
 		]);
 		clearTimeout(timer);
@@ -110,7 +110,7 @@ export async function checkChannels(
 				}
 			}, { url, location });
 		}
-		// Use the native application's origin, preserving its relay origin
+		// Use the Rooms application's origin, preserving its relay origin
 		// enforcement. Load a real response so Chromium records its loopback
 		// address space; a synthetic document loses that network provenance.
 		await page.route(
@@ -210,7 +210,7 @@ export async function checkChannels(
 		const kill = setTimeout(() => child.kill("SIGKILL"), 10_000);
 		try {
 			const status = await exited;
-			assert(status.success, `native web shutdown failed (${status.signal ?? status.code})`);
+			assert(status.success, `Rooms web shutdown failed (${status.signal ?? status.code})`);
 		} finally {
 			clearTimeout(kill);
 		}

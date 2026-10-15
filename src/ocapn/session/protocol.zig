@@ -15,12 +15,14 @@ const model = @import("model");
 const session = @import("mod.zig");
 const answer_notifications = @import("answers/notifications.zig");
 const apply = @import("apply.zig");
+const sent_exports = @import("apply/sent_exports.zig");
 const validate = @import("validate.zig");
 
 const AnswerPayload = session.AnswerPayload;
 const AnswerTarget = session.AnswerTarget;
 const Error = session.Error;
 const Session = session.Session;
+const Inventory = session.Inventory;
 
 /// Record one answer settlement whose payload has already been retained.
 /// Consumes `resolution` on every outcome.
@@ -29,13 +31,14 @@ pub fn recordSentResolutionTarget(
     target: AnswerTarget,
     payload: *AnswerPayload,
     resolution: model.Resolution,
+    inventory: Inventory,
 ) !void {
     var apply_owns_resolution = false;
     errdefer if (!apply_owns_resolution) model.freeResolution(self.allocator, resolution);
     try admitOpen(self);
-    try answer_notifications.validateSettlement(self, target, payload, resolution);
+    try answer_notifications.validateSettlement(self, target, payload, resolution, inventory);
     apply_owns_resolution = true;
-    try apply.applySentResolutionTarget(self, target, payload, resolution);
+    try apply.applySentResolutionTarget(self, target, payload, resolution, inventory);
 }
 
 pub fn close(self: *Session) void {
@@ -70,27 +73,56 @@ pub fn admits(self: *const Session, body: model.view.Body) Error!void {
     try admitInState(self, body);
 }
 
+/// Record a send whose tree nobody has inventoried yet: prepared engine
+/// messages, bindings, and tests. The engine's outbound path takes the
+/// inventory once at admission and records through `recordSendInventoried`.
 pub fn recordSend(self: *Session, message: model.Message) !void {
+    var inventoried = false;
+    errdefer if (message == .resolve and !inventoried)
+        model.freeResolution(self.allocator, message.resolve.resolution);
+    const inventory = try session.inventory.ofMessage(self, message);
+    defer inventory.deinit(self.allocator);
+    inventoried = true;
+    return recordSendInventoried(self, message, inventory);
+}
+
+/// The checks `recordSendInventoried` makes before it commits, for a carrier
+/// that encodes `message` between the two (ADR-0236). Borrows `message`.
+pub fn validateSendInventoried(self: *Session, message: model.Message, inventory: Inventory) !void {
+    try admitInState(self, message);
+    try validate.validateSend(self, message, inventory);
+}
+
+/// Commit a send `validateSendInventoried` accepted, with no session
+/// mutation between the two beyond a resolver mint for its answer. A resolve
+/// is not accepted here: its resolution moves at `recordSendInventoried`.
+pub fn applyValidatedSend(self: *Session, message: model.Message, inventory: Inventory) !void {
+    std.debug.assert(message != .resolve);
+    return apply.applySend(self, message, inventory);
+}
+
+pub fn recordSendInventoried(self: *Session, message: model.Message, inventory: Inventory) !void {
     // Admit and validate borrow `message`. A sent resolve is consumed by apply,
     // while every other kind remains owned by the outbound queue.
     var apply_owns_resolution = false;
     errdefer if (message == .resolve and !apply_owns_resolution)
         model.freeResolution(self.allocator, message.resolve.resolution);
     try admitInState(self, message);
-    try validate.validateSend(self, message);
+    try validate.validateSend(self, message, inventory);
     apply_owns_resolution = true;
     switch (message) {
-        .resolve => |resolve| try apply.applySentResolve(self, resolve),
-        else => try apply.applySend(self, message),
+        .resolve => |resolve| try apply.applySentResolve(self, resolve, inventory),
+        else => try apply.applySend(self, message, inventory),
     }
 }
 
 /// Undo `recordSend` for a deliver that never reached the wire, when the turn
-/// that made it failed (ADR-0194): release the export retains it took and
-/// retire the outbound answer it installed. The answer position stays spent.
-pub fn retractSend(self: *Session, message: model.Message) void {
-    apply.releaseSentMessage(self, message);
-    if (message.deliver.answer) |answer| self.abandonOutboundAnswer(answer);
+/// that made it failed (ADR-0194): release the export retains it took, which
+/// `listSentExports` listed at admission, and retire the outbound answer it
+/// installed. The answer position stays spent.
+pub fn retractSend(self: *Session, exports: []const model.ExportPosition, answer: ?model.AnswerPosition) void {
+    apply.releaseSentExports(self, exports);
+    if (answer) |position| self.abandonOutboundAnswer(position);
 }
 
 /// Undo `recordPreparedSend` for a listen that never reached the wire.
@@ -115,7 +147,7 @@ pub fn retractPreparedListen(self: *Session, message: model.Message) void {
 pub fn recordPreparedSend(self: *Session, message: model.Message) void {
     std.debug.assert(self.state == .open);
     switch (message) {
-        .listen, .gc_export, .gc_answer => apply.applySend(self, message) catch unreachable,
+        .listen, .gc_export, .gc_answer => apply.applySend(self, message, .none) catch unreachable,
         // Only the kinds the prepare/commit pairs build; a new prepared kind
         // extends this switch with its own infallibility argument.
         else => unreachable,
@@ -142,20 +174,27 @@ pub fn recordSentResolutionNamed(
 ) !void {
     var apply_owns_resolution = false;
     errdefer if (!apply_owns_resolution) model.freeResolution(self.allocator, resolution);
+    const inventory = try session.inventory.ofResolution(self, resolution);
+    defer inventory.deinit(self.allocator);
     try admitOpen(self);
-    try validate.validateSentResolutionNamed(self, answer, resolution);
+    try validate.validateSentResolutionNamed(self, answer, resolution, inventory);
     apply_owns_resolution = true;
-    try apply.applySentResolutionNamed(self, answer, resolution);
+    try apply.applySentResolutionNamed(self, answer, resolution, inventory);
 }
 
 pub fn recordRecv(self: *Session, message: model.Message) !void {
     try admitInState(self, message);
+    // The receive arena is scratch space for this one message. Everything
+    // validation allocates in it is freed at once when the message ends. The
+    // reset keeps up to a bounded amount of memory for the next message, so
+    // steady traffic allocates nothing and a large message cannot pin its
+    // peak.
     defer _ = self.recv_scratch.reset(.{
         .retain_with_limit = Session.steady_recv_scratch_bytes,
     });
     var introduced: validate.IntroducedImports = .init(
         self.recv_scratch.allocator(),
-        self.limits,
+        self,
     );
     try validate.validateRecv(self, message, &introduced);
     switch (message) {
@@ -171,12 +210,13 @@ pub fn recordRecv(self: *Session, message: model.Message) !void {
 /// turn-local owned materialization only after their feature gate succeeds.
 pub fn recordRecvView(self: *Session, body: model.view.Body) !void {
     try admitInState(self, body);
+    // Same arena reset as in `recordRecv`.
     defer _ = self.recv_scratch.reset(.{
         .retain_with_limit = Session.steady_recv_scratch_bytes,
     });
     var introduced: validate.IntroducedImports = .init(
         self.recv_scratch.allocator(),
-        self.limits,
+        self,
     );
     switch (body) {
         .deliver, .resolve, .listen, .start_session, .abort, .get, .index, .untag => {
@@ -215,6 +255,7 @@ pub fn validateInboundDeliverView(
 ) !void {
     const body = model.view.Body{ .deliver = deliver };
     try admitInState(self, body);
+    // Same arena reset as in `recordRecv`.
     defer _ = self.recv_scratch.reset(.{
         .retain_with_limit = Session.steady_recv_scratch_bytes,
     });
@@ -262,10 +303,10 @@ pub fn prepareIntroducedImports(
     // prior wire mentions. Keep exact duplicate counting off the ordinary path
     // and allocate it only when this frame's total mention count could possibly
     // overflow at least one held row.
-    const mention_count = std.math.cast(u64, introduced.mentions.items.len) orelse
+    const mention_count = std.math.cast(u64, introduced.mentions.count()) orelse
         return Error.GcUnderflow;
     var needs_exact_counts = false;
-    for (introduced.mentions.items) |position| {
+    for (introduced.mentions.items()) |position| {
         const held = self.imports.count(position);
         if (mention_count > std.math.maxInt(u64) - held) {
             needs_exact_counts = true;
@@ -275,7 +316,7 @@ pub fn prepareIntroducedImports(
     if (needs_exact_counts) {
         var counts: std.AutoHashMapUnmanaged(model.ImportPosition, u64) = .empty;
         defer counts.deinit(introduced.allocator);
-        for (introduced.mentions.items) |position| {
+        for (introduced.mentions.items()) |position| {
             const gop = try counts.getOrPut(introduced.allocator, position);
             if (!gop.found_existing) gop.value_ptr.* = 0;
             gop.value_ptr.* = std.math.add(u64, gop.value_ptr.*, 1) catch
@@ -305,12 +346,13 @@ pub fn recordResolverCallbackResolve(
     self: *Session,
     resolve: model.view.Resolve,
 ) !void {
+    // Same arena reset as in `recordRecv`.
     defer _ = self.recv_scratch.reset(.{
         .retain_with_limit = Session.steady_recv_scratch_bytes,
     });
     var introduced: validate.IntroducedImports = .init(
         self.recv_scratch.allocator(),
-        self.limits,
+        self,
     );
     try validateResolverCallbackResolve(self, resolve, &introduced);
     try prepareIntroducedImports(self, &introduced);
@@ -336,8 +378,17 @@ pub fn applyValidatedResolverCallbackResolve(
 }
 
 /// Commit a listener fire whose target, payload, export capacity, and outbound
-/// carrier were all prepared before settlement. No failure remains legal.
-pub fn commitPreparedListenerFire(self: *Session, message: model.Message) void {
+/// carrier were all prepared before settlement. No failure remains legal. The
+/// fire is a deliver with no answer whose `value` argument carries the stored
+/// resolution, and `inventory` is that resolution's, with `value` as its root.
+pub fn commitPreparedListenerFire(
+    self: *Session,
+    message: model.Message,
+    inventory: Inventory,
+    value: *const model.Argument,
+) void {
     std.debug.assert(message == .deliver and message.deliver.answer == null);
-    apply.applySend(self, message) catch unreachable;
+    std.debug.assert(message.deliver.resolve_me_desc == null);
+    sent_exports.retainRef(self, message.deliver.target) catch unreachable;
+    sent_exports.recordMentions(self, inventory, value, true) catch unreachable;
 }

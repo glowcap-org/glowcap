@@ -7,11 +7,11 @@
 ---
 
 glowcap speaks [OCapN](https://github.com/ocapn/ocapn). If you know what a bearer
-token is, this page has the background it assumes.
+token is, you have the background this page assumes.
 
-# How today's protocols authorize
+# How common protocols authorize
 
-When a program calls a service today, it identifies itself first. An HTTP
+When a program calls a service, it usually identifies itself first. An HTTP
 request carries a bearer token, a cookie, or an API key. An SSH client logs in
 as an account. An IRC client identifies with a nickname and a password. In
 each case the service looks the caller up in a permission table and decides
@@ -203,7 +203,7 @@ First with a bearer token, then with capabilities.
 		<li>Under capability rules, signing in returns a live reference to your album. Holding that reference is the permission, and there is no permission table.</li>
 		<li>You pass the thumbnailer a reference to that one album. It never learns who you are, and it cannot reach anything else of yours. That single move, passing the reference, is delegation.</li>
 		<li>You would rather it could not delete anything, so you hand it a wrapper instead: an object of yours, running in your process, that forwards reads to the album and refuses the rest. The Photos service never knows the wrapper exists. This narrowed grant is attenuation.</li>
-		<li>When the job is done, you cut your wrapper, and every copy of that grant dies with it. Your own reference still works, and the service was never consulted. Revocation here is surgery on one grant.</li>
+		<li>When the job is done, you cut your wrapper, and every copy of that grant dies with it. Your own reference still works, and the service was never consulted. Revocation here cuts one grant and nothing else.</li>
 		<li>Later the thumbnailer needs your print service, so you send it a signed introduction. It presents the introduction to the print service, and the two talk over their own session from then on. This handoff takes you out of the path for good.</li>
 	</ol>
 </figure>
@@ -221,8 +221,8 @@ no identities and no rights, only which object each position means.
 A bearer token works for whoever presents it, anywhere. Record capability
 traffic and you hold a row number for a conversation you cannot join, and
 guessing does no better. The transport still protects the pipe, as it does for
-your tokens today. What changes is the cost of a leak: a leaked token is
-authority, and a leaked table position is a number with no ledger behind it.
+your tokens. What changes is the cost of a leak: a leaked token
+hands over your access, and a leaked table position is just a number.
 
 ```=html
 <figure class="tokref">
@@ -303,20 +303,20 @@ authority, and a leaked table position is a number with no ledger behind it.
 </figure>
 ```
 
-One exception remains: the very first reference. It arrives the way
-trust already flows. You sign in once, or you redeem a durable link called a
-sturdyref, an unguessable address that names one published object. From then
-on, authority moves by passing references inside sessions. The sturdyref is
-the one string that does behave like a bearer secret, and it names the one
-thing its maker chose to publish, never an account.
+The very first reference is the exception. It arrives the way trust already
+flows: you sign in once, or you redeem a durable link called a sturdyref, an
+unguessable address that names one published object. From then on, access
+moves by passing references inside sessions. The sturdyref is the one string
+that behaves like a bearer secret, and it names only what its maker chose to
+publish, never an account.
 
 # Where the idea comes from
 
 Every step above rests on one rule: holding a reference is the permission.
-Memory-safe languages already enforce it inside one process. An object
-reference can only be used by code it was given to, and nothing conjures a
-pointer to a private object out of thin air. Object-capability security
-treats that guarantee as the whole security model.
+Memory-safe languages already enforce it inside one process: an object
+reference works only for code it was given to, and nothing conjures a pointer
+to a private object. Object-capability security makes that guarantee the whole
+security model.
 
 The idea has been around since 1966, when
 [a paper](https://dl.acm.org/doi/10.1145/365230.365252) on programs sharing one
@@ -331,23 +331,23 @@ took it onto a network and produced
 [CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
 along with [vats]($link.page('modules')) and
 [promise pipelining]($link.page('concepts')).
+
 [Sandstorm](https://sandstorm.org/) runs web applications this way, giving every
-document its own sealed grain. [Agoric](https://agoric.com/) runs financial
+document its own isolated sandbox. [Agoric](https://agoric.com/) runs financial
 contracts on a hardened JavaScript.
-[Spritely Goblins](https://spritely.institute/goblins/) is where most people
-meet the idea now, and OCapN is the standard
+[Spritely Goblins](https://spritely.institute/goblins/) brings the idea to
+current application languages, and OCapN is the standard
 [that community](https://spritely.institute/) is writing so the implementations
 can reach each other.
 
 # What OCapN is
 
 OCapN is one message model over a choice of wire encodings and transports, so
-the same references travel over encrypted
-QUIC, a sealed TCP stream, or a browser DataChannel. Calls return promises you can keep calling
-through, which lets a chain of dependent calls cross the network once instead
-of once per call. glowcap checks its outside interoperability against
-Spritely Goblins on signed CapTP 1.0
-over Syrup.
+the same references travel over encrypted QUIC, a sealed TCP stream, or a
+browser DataChannel. Calls return promises you can keep calling through, so a
+chain of dependent calls crosses the network once instead of once per call.
+glowcap checks that it works with Spritely Goblins over CapTP 1.0, encoded in
+Syrup, OCapN's wire format.
 
 You can watch a three-party introduction in the
 [rooms demo]($link.page('examples')): asking a room to message a member gives
@@ -357,7 +357,9 @@ you a direct reference to that member, and the room leaves the path.
 
 - [Concepts]($link.page('concepts')) explains the mechanisms one level down:
   locators and sturdyrefs, pipelining on the wire, the handoff stages, and
-  dialect negotiation.
+  how two peers agree on a wire format.
+- [What about identity?]($link.page('identity')) covers what keys cannot
+  answer: who a person is, and whether ten thousand visitors are one.
 - The [CapTP CLI]($link.page('cli')) ships a REPL with a guided mode: run
   `glowcap repl`, then type `guide`, and it walks these ideas against a live
   session while you type the verbs.
@@ -365,4 +367,4 @@ you a direct reference to that member, and the room leaves the path.
   C, and every binding.
 - The glossary in
   [capabilities](https://github.com/jimisaacs/glowcap/blob/main/docs/capabilities.md)
-  gives every term on this page a one-line definition.
+  gives every term here a one-line definition.

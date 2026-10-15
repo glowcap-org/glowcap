@@ -41,9 +41,9 @@
 (define ref-gc-tokens (make-weak-hasheq))
 
 ;; The Host-wide GC state: finalizers park ids on `channel`; a Host-owner
-;; thread transfers them to `pending` and performs native release. `gate`
+;; thread transfers them to `pending` and performs FFI release. `gate`
 ;; makes enqueue and terminal retirement one transition, so no token can land
-;; after its native owner has been consumed.
+;; after its FFI owner has been consumed.
 (struct gc-state (channel pending scheduled retired? gate))
 
 (define (make-gc-state)
@@ -89,7 +89,7 @@
 ;; operation, or a delivered argument releases its Host retain when Racket's
 ;; collector reclaims it, so the partner can release the matching export.
 ;; Collection follows the collector's schedule; once parked, every release
-;; remains owned until native commit. Fresh and cached session-enliven results
+;; remains owned until FFI commit. Fresh and cached session-enliven results
 ;; each own an application retain. Locally minted capabilities stay outside this seam.
 ;; Returns the session for chaining.
 (define (session-with-gc! c)
@@ -122,7 +122,7 @@
                             (queue-release! weak-host gs (cons 'ref id))))))
   capability)
 
-;; Every public far-vow handle owns one native Host vow independently of the
+;; Every public far-vow handle owns one FFI Host vow independently of the
 ;; opt-in capability GC policy. Its finalizer parks only the id; the Host loop
 ;; performs the release and publishes op:gc-answer.
 (define (queue-vow-release! weak-host gs id armed)
@@ -141,9 +141,9 @@
                         (queue-vow-release! weak-host gs id armed))))
 
 ;; Attach one finalizer unit to every capability occurrence in a value the
-;; native Host has just projected. Container identity stays unchanged; equal
+;; FFI Host has just projected. Container identity stays unchanged; equal
 ;; ids in separate leaves receive separate death rites because
-;; the native projection minted one Host retain per occurrence.
+;; the FFI projection minted one Host retain per occurrence.
 (define (track-argument! c value)
   (cond
     [(ref? value) (track-ref! c value)]
@@ -161,13 +161,13 @@
   (for-each (lambda (value) (track-argument! c value)) values)
   values)
 
-;; One explicit release transaction. The internal commit thunk performs native
+;; One explicit release transaction. The internal commit thunk performs FFI
 ;; release and spends its binding token under the Host lock, with interruption
 ;; disabled across that indivisible transition. After success, the Host owns
-;; any drain failure: the caller must never retry an already-spent native unit.
+;; any drain failure: the caller must never retry an already-spent FFI unit.
 ;; A break is the operator interrupting the program, not the Host failing, so
 ;; it escapes like everywhere else in this binding: the commit is already
-;; spent, and the drained work stays in the native queue for the next pass.
+;; spent, and the drained work stays in the FFI queue for the next pass.
 (define (release-host-unit! m commit)
   (define committed? #f)
   (with-handlers ([(lambda (raised) (not (exn:break? raised)))
@@ -195,15 +195,15 @@
         (error 'session-release! "capability already released"))
       (check/host (glowcap_host_ref_release
                    (host-ptr m) (make-GlowcapReference (ref-id capability)) 1))
-      ;; Native success spends this occurrence even if draining its effects
-      ;; fails. Publish that fact under the same lock as the native release.
+      ;; FFI success spends this occurrence even if draining its effects
+      ;; fails. Publish that fact under the same lock as the FFI release.
       (define token (hash-ref ref-gc-tokens capability #f))
       (when token (set-box! token #f))
       (set-ref-released?! capability #t)))
   (void))
 
 ;; Release the Host-owned FIFO prefix. The pending box advances only after one
-;; native release commits, so a refusal preserves the exact token and tail in
+;; FFI release commits, so a refusal preserves the exact token and tail in
 ;; front of capabilities collected concurrently.
 (define (release-pending! pending release-one)
   (let loop ()
@@ -300,7 +300,7 @@
   (check-equal? (reverse attempted) '((ref . 11) (ref . 12)))
   (check-equal? (unbox pending) '((ref . 12) (ref . 13)))
 
-  ;; An interrupt requested during native release may escape only after its
+  ;; An interrupt requested during FFI release may escape only after its
   ;; queue token is consumed. Otherwise the next drain repeats that release.
   (define interrupted (box '((ref . 21) (ref . 22))))
   (define committed '())

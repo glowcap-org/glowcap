@@ -1,17 +1,12 @@
-// The WebRTC browser-to-browser proof (ADR-0089). Two real headless
-// Chromium contexts each run `@glowcap/web` (the wasm Host) and `@glowcap/webrtc`
-// (`RtcPeer`). They exchange signaling through this harness's WebSocket relay,
-// bring up a direct DataChannel between the two browsers, and hold a keyed OCapN
-// session over it: the answerer publishes a greeter and accepts, the offerer
-// dials the answerer's key and greets. The relay only forwards opaque signaling
-// strings between the two tabs; the keyed session and its DTLS run end to end
-// over the DataChannel, so the relay is out of the byte path.
-//
-// This is the two-browser end state ADR-0089 names: two peers introduced by a
-// signaling host speaking directly, the host blind to what they say. The relay
-// here stands in for a room capability (a room hosts the same offer/answer/
-// candidate exchange, proven over CapTP by `webrtc-signaling-captp`); keeping it
-// a plain byte relay makes the proof deno-only, with no room and no cargo.
+// The WebRTC browser-to-browser proof (ADR-0089). Two real headless Chromium
+// contexts each run `@glowcap/web` (the wasm Host) and `@glowcap/webrtc`. The
+// offerer dials the answerer's key through the WebRTC connector, the answerer
+// accepts through the WebRTC listener, and the two hold a keyed OCapN session
+// over a direct DataChannel. The answerer checks that the session names the
+// offerer's key. The signaling relay here forwards opaque strings between the
+// tabs and stays out of the byte path. It stands in for the room a deployment
+// signals through (`webrtc-signaling-captp` proves that over CapTP), so the
+// proof needs no room and no cargo.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), and a Playwright
 // Chromium (the devcontainer image ships one; elsewhere
@@ -97,29 +92,25 @@ try {
 	const answerer = await openTab("answerer");
 	const offerer = await openTab("offerer");
 
-	const verdict = await offerer.evaluate(
-		() => (globalThis as { __verdict: Promise<{ ok: boolean; reason?: string }> }).__verdict,
-	) as { ok: boolean; reason?: string };
-	if (!verdict.ok) {
-		fail(
-			`the offerer browser did not greet the answerer browser: ${verdict.reason ?? "(none)"}`,
-		);
-	}
+	// Each tab settles its own verdict. Watch both, so a failure on either side
+	// is reported as soon as it happens instead of as the other side's timeout.
+	type Verdict = { ok: boolean; reason?: string };
+	const verdictOf = (tab: typeof offerer) =>
+		tab.evaluate(() => (globalThis as { __verdict: Promise<Verdict> }).__verdict) as Promise<Verdict>;
+	const answered = verdictOf(answerer).then((v) => {
+		if (!v.ok) fail(`the answerer browser did not accept the keyed session: ${v.reason ?? "(none)"}`);
+		return v;
+	});
+	const greeted = await verdictOf(offerer);
+	if (!greeted.ok) fail(`the offerer browser did not greet the answerer browser: ${greeted.reason ?? "(none)"}`);
 	// Confirm the answerer accepted, so both directions of the keyed session are
 	// proven, not just the offerer's receive.
-	const answered = await answerer.evaluate(
-		() => (globalThis as { __verdict: Promise<{ ok: boolean; reason?: string }> }).__verdict,
-	) as { ok: boolean; reason?: string };
-	if (!answered.ok) {
-		fail(
-			`the answerer browser did not accept the keyed session: ${answered.reason ?? "(none)"}`,
-		);
-	}
+	await answered;
 
 	console.log(
 		"PASS: two real headless Chromium peers brought up a direct WebRTC DataChannel, " +
 			"the signaling host out of the byte path, and held a keyed OCapN session over it " +
-			"(the answerer published a greeter and accepted, the offerer dialed its key and greeted)",
+			"(the answerer's listener accepted the offerer by its key, and the offerer dialed and greeted)",
 	);
 } finally {
 	clearTimeout(deadline);

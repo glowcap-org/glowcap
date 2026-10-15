@@ -64,7 +64,7 @@ impl Server {
 	/// skips it and keeps serving. Must be called inside a `LocalSet` (the
 	/// handle graph is `!Send`).
 	///
-	/// The native driver owns bounded admission and advances independent
+	/// The FFI driver owns bounded admission and advances independent
 	/// handshakes without binding listener progress to application `accept`.
 	/// Await the next accepted session. It delivers its partner's inbound only
 	/// once served: publish what it should answer, then `session.serve()`.
@@ -197,10 +197,10 @@ pub(crate) async fn listen(
 		|_host, lp| {
 			std::future::ready(
 				crate::tcp::ensure_loop_provider(&lp, config)
-					.map(|()| crate::tcp::address_designator(&bind.ip().to_string(), bind.port())),
+					.map(|()| (crate::tcp::address_designator(&bind.ip().to_string(), bind.port()), ())),
 			)
 		},
-		|lp, listener, _bound_designator| {
+		|lp, listener, _bound_designator, ()| {
 			let locator = lp.listener_locator(listener)?;
 			let bound_direct = direct_address(&locator)?.to_owned();
 			let bound: std::net::SocketAddr = bound_direct.parse().map_err(|_| {
@@ -484,7 +484,7 @@ mod tests {
 				let server = listen_with_host("127.0.0.1:0", host.clone()).await.unwrap();
 				server.close().await.unwrap();
 
-				// A second bind proves the first listener released only its native
+				// A second bind proves the first listener released only its FFI
 				// listener handle. The supplied Host and its adopted loop remain the
 				// authority for subsequent listeners.
 				let sibling = listen_with_host("127.0.0.1:0", host.clone()).await.unwrap();

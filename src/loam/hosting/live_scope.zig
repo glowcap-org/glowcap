@@ -124,7 +124,7 @@ pub const Scope = struct {
             if (entry.phase == .free) break entry;
         } else return error.ReferenceCapacity;
         const held = try self.host.retainValueCapabilities(scratch, &.{.{ .capability = capability }});
-        entry.* = .{ .phase = .reserved, .scope = self, .capability = held[0].ref };
+        entry.* = .{ .phase = .reserved, .scope = self, .capability = held[0] };
         return entry;
     }
 
@@ -139,11 +139,11 @@ pub const Scope = struct {
         const guard = try self.host.retainLocalCapability(source_entry.actor.?);
         defer self.host.releaseCapabilityTerminal(guard, null);
         const held = try self.host.retainValueCapabilities(scratch, &.{.{ .capability = target }});
-        defer self.host.releaseUntransferredCapabilityRetains(held);
-        const facet = try owner.projectDependent(source_entry.id, held[0].ref);
+        defer self.host.releaseCapabilityRetains(held);
+        const facet = try owner.projectDependent(source_entry.id, held[0]);
         defer self.host.releaseCapabilityTerminal(facet, null);
         const entry = try self.reserve(scratch, facet);
-        entry.dependent = .{ .source = guard, .target = held[0].ref };
+        entry.dependent = .{ .source = guard, .target = held[0] };
         return entry;
     }
 
@@ -178,7 +178,7 @@ pub const Scope = struct {
         if (self.epoch == null or !std.meta.eql(epoch, self.epoch.?)) return error.LiveReferenceExpired;
         const entry = self.by_recipe.get(id) orelse return error.LiveReferenceExpired;
         const held = try self.host.retainValueCapabilities(scratch, &.{.{ .capability = entry.capability }});
-        return held[0].ref;
+        return held[0];
     }
 
     pub fn validateStaged(self: *Scope) !void {

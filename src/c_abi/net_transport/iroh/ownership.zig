@@ -47,7 +47,7 @@ pub const NetlayerPayload = struct {
         const alloc = self.allocator;
         var failure: ?anyerror = null;
         if (self.multiplexed_adapter) |adapter| {
-            if (adapter.native.deinit()) |reported| failure = reported.cause;
+            if (adapter.zig.deinit()) |reported| failure = reported.cause;
             alloc.destroy(adapter);
         }
         self.resident.deinit() catch |err| {
@@ -69,13 +69,13 @@ pub const ConnPayload = struct {
     netlayer: *NetlayerPayload,
 };
 
-/// C projection storage. Transport state lives in the native adapter.
+/// C projection storage. Transport state lives in the Zig adapter.
 pub const MultiplexedAdapter = struct {
     payload: *NetlayerPayload,
     profile: c.GlowcapTransportProfile,
     multiplexed_transport: c.GlowcapMultiplexedTransport,
     entry: c.GlowcapTransportProviderEntry,
-    native: iroh.MultiplexedAdapter,
+    zig: iroh.MultiplexedAdapter,
 
     pub fn fromOpaque(ctx: ?*anyopaque) *MultiplexedAdapter {
         return @ptrCast(@alignCast(ctx.?));

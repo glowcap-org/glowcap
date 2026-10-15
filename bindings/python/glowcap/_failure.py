@@ -96,7 +96,7 @@ _U64_MAX = (1 << 64) - 1
 
 
 def _bounded_text(fields: tuple[str, ...]) -> tuple[tuple[str, ...], int]:
-    """Copy one native-sized UTF-8 prefix across the ordered schema fields."""
+    """Copy one C-sized UTF-8 prefix across the ordered schema fields."""
     remaining = DEFAULT_FAILURE_PAYLOAD_CAP
     retained = []
     flags = 0

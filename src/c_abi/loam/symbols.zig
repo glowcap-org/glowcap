@@ -32,6 +32,8 @@ pub const symbols = [_]shared.symbols.Symbol{
     .{ .name = "glowcap_loam_metadata_claim", .out_params = &.{4} },
     .{ .name = "glowcap_loam_store_plan" },
     .{ .name = "glowcap_loam_store_finish" },
+    .{ .name = "glowcap_loam_store_collect_plan" },
+    .{ .name = "glowcap_loam_store_collecting", .out_params = &.{1} },
     .{ .name = "glowcap_loam_work_kind", .out_params = &.{1} },
     .{ .name = "glowcap_loam_work_plan" },
     .{ .name = "glowcap_loam_work_finish" },

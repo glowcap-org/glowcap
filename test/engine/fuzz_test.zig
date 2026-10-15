@@ -1,9 +1,14 @@
 //! Untrusted-bytes fuzzing of the whole inbound path, against live session state.
 //!
-//! The codec fuzzers next door stop at decode. This one starts where a socket
-//! does: bytes go into `Peer.recvStreamPrefix`, which finds frame boundaries,
-//! decodes, runs session validation, applies to the session tables, and surfaces
-//! events. Every layer the protocol has is downstream of that call.
+//! The codec fuzzers next door stop at decode. This one starts where a
+//! transport hands over a frame: bytes go into `Peer.recvBorrowed`, which
+//! copies them behind a frame head, decodes once into it, runs session
+//! validation, applies to the session tables, and surfaces events. Every layer
+//! the protocol has is downstream of that call. The owned door takes its turn
+//! as well: a shuttled frame enters through `Peer.feedOwned` on every second
+//! frame, and an injected chunk is lifted into an owned frame first when its
+//! first byte is even. Stream boundaries are the envelope's, and
+//! `test/net/fuzz_test.zig` searches those.
 //!
 //! What makes it worth more than a decode fuzzer is the state underneath. A
 //! cold peer has empty tables, so untrusted bytes meet almost no code: they are
@@ -23,10 +28,9 @@
 //! Nothing crashes and nothing leaks, whatever the program was. Everything runs
 //! under `std.testing.allocator`, which fails the test on either.
 //!
-//! A `consumed` count is always positive and never past the buffer. Zero would
-//! spin a live connection's read loop forever, and past the end would read
-//! storage the read never filled. Both are arithmetic slips a length-prefixed
-//! parser makes, and neither shows up as a crash on the machine that made it.
+//! A refusal leaves the session in one terminal state with nothing further
+//! to apply, and a chunk the peer accepted surfaces through events that read
+//! the retained frame, never the injected buffer.
 //!
 //! And every table the session declares a bound for stays inside it. This is
 //! the property worth the most here. A partner's whole goal is to make the
@@ -287,39 +291,41 @@ fn shuttle(from: *engine.Peer, to: *engine.Peer) void {
     // without stepping takes nothing, which quietly means no traffic ever
     // reaches the partner and no state is built on either side.
     stepBounded(from) catch return;
-    while (from.takeOutbound()) |frame_in| {
+    var shuttled: usize = 0;
+    while (from.takeOutbound()) |frame_in| : (shuttled += 1) {
         var frame = frame_in;
-        defer frame.deinit();
-        _ = to.recvStreamPrefix(frame.bytes()) catch return;
+        if (shuttled % 2 == 1) {
+            // The owned door consumes the frame on every outcome.
+            to.feedOwned(frame) catch return;
+        } else {
+            defer frame.deinit();
+            to.recvPacket(frame.bytes()) catch return;
+        }
         drainApplication(to) catch return;
     }
 }
 
-/// Feed the fuzzer's own bytes in, the way a read would: apply what is whole,
-/// compact the tail, repeat.
+/// Feed the fuzzer's own bytes in as one frame, through whichever door its
+/// first byte picks.
 fn inject(peer: *engine.Peer, bytes: []const u8) !void {
     var scratch: [max_chunk]u8 = undefined;
-    var valid: usize = @min(bytes.len, scratch.len);
+    const valid: usize = @min(bytes.len, scratch.len);
     @memcpy(scratch[0..valid], bytes[0..valid]);
+    if (valid == 0) return;
 
-    while (valid > 0) {
-        const outcome = peer.recvStreamPrefix(scratch[0..valid]) catch {
-            // A refusal is a legitimate answer to untrusted bytes; the session is
-            // condemned and there is nothing further to apply.
-            try drainApplication(peer);
-            return;
-        };
-        switch (outcome) {
-            .incomplete => break,
-            .consumed => |n| {
-                try std.testing.expect(n > 0);
-                const used: usize = n;
-                try std.testing.expect(used <= valid);
-                std.mem.copyForwards(u8, scratch[0 .. valid - used], scratch[used..valid]);
-                valid -= used;
-            },
-        }
+    if (scratch[0] & 1 == 1) {
+        // The borrowed door takes the chunk as one whole frame and copies it
+        // behind a head before it decodes. A refusal is a legitimate answer to
+        // untrusted bytes; the session is condemned and there is nothing
+        // further to apply.
+        peer.recvBorrowed(.{ .bytes = scratch[0..valid], .shape = .byte }) catch {};
+    } else {
+        // The owned door consumes the frame on every outcome.
+        const frame = engine.ownedFrameFromView(std.testing.allocator, .{ .bytes = scratch[0..valid], .shape = .byte }) catch return;
+        peer.feedOwned(frame) catch {};
     }
+    // The transport's buffer is gone before the application drains.
+    @memset(scratch[0..valid], 'x');
     try drainApplication(peer);
 }
 
@@ -367,7 +373,7 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
         // Call the partner's bootstrap, which mints an answer on both sides.
         0 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
-            actor.sendCopying(.{ .deliver = .{
+            actor.sendBorrowed(.{ .deliver = .{
                 .target = .{ .far = model.FarRef.object(0) },
                 .args = &.{.{ .integer = 1 }},
                 .answer = model.AnswerPosition.from(answer),
@@ -376,7 +382,7 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
         // Answer one, so the partner grows a resolved answer with listeners.
         1 => {
             const answer = smith.valueRangeAtMost(u8, 1, 40);
-            actor.sendCopying(.{ .resolve = .{
+            actor.sendBorrowed(.{ .resolve = .{
                 .answer = model.AnswerPosition.from(answer),
                 .resolution = .{ .fulfill = .{ .integer = 7 } },
             } }) catch {};
@@ -392,7 +398,7 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
                 actor.session_state.registerExport(model.ExportPosition.from(position)) catch return;
                 break :blk .{ .near = model.NearRef.object(position) };
             } else .{ .far = model.FarRef.object(0) };
-            actor.sendCopying(.{ .listen = .{
+            actor.sendBorrowed(.{ .listen = .{
                 .target = .{ .promise = .{ .answer_position = model.AnswerPosition.from(answer) } },
                 .listener = listener,
                 .mode = if (smith.valueRangeAtMost(u8, 0, 1) == 1)
@@ -415,7 +421,7 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
             // reference and the import table never grows at all.
             const position = actor.exportNextObject() catch return;
             actor.session_state.registerExport(model.ExportPosition.from(position)) catch return;
-            actor.sendCopying(.{ .resolve = .{
+            actor.sendBorrowed(.{ .resolve = .{
                 .answer = model.AnswerPosition.from(answer),
                 .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(position) } } },
             } }) catch {};
@@ -429,7 +435,7 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
             const held = heldImport(actor, releasable_only, pick) orelse return;
             const positions = [_]u64{held};
             const deltas = [_]u64{1};
-            actor.sendCopying(.{ .gc_export = .{
+            actor.sendBorrowed(.{ .gc_export = .{
                 .positions = positions[0..],
                 .deltas = deltas[0..],
             } }) catch {};
@@ -443,7 +449,7 @@ fn legitimateOp(smith: *std.testing.Smith, actor: *engine.Peer, partner: *engine
         else => {
             const answer = heldOutboundAnswer(actor) orelse return;
             const positions = [_]u64{answer};
-            actor.sendCopying(.{ .gc_answer = .{ .positions = positions[0..] } }) catch {};
+            actor.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..] } }) catch {};
         },
     }
     try drainApplication(actor);
@@ -541,7 +547,7 @@ test "fuzz: no program of operations and untrusted bytes crashes or leaks a sess
 
         // A resolve answers a question somebody asked, so the question comes
         // first: p2 calls p1's bootstrap, which opens an answer on p1.
-        try pair.p2.sendCopying(.{ .deliver = .{
+        try pair.p2.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = model.FarRef.object(0) },
             .args = &.{.{ .integer = 1 }},
             .answer = model.AnswerPosition.from(1),
@@ -552,7 +558,7 @@ test "fuzz: no program of operations and untrusted bytes crashes or leaks a sess
         // reference is what becomes an import row on p2.
         const position = try pair.p1.exportNextObject();
         try pair.p1.session_state.registerExport(model.ExportPosition.from(position));
-        try pair.p1.sendCopying(.{ .resolve = .{
+        try pair.p1.sendBorrowed(.{ .resolve = .{
             .answer = model.AnswerPosition.from(1),
             .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(position) } } },
         } });
@@ -577,7 +583,7 @@ test "fuzz: no program of operations and untrusted bytes crashes or leaks a sess
     {
         var pair = try pairing.pairedWithLimits(std.testing.allocator, .syrup, bounds.tight);
         defer pair.deinit();
-        pair.p2.sendCopying(.{ .deliver = .{
+        pair.p2.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = model.FarRef.object(0) },
             .args = &.{.{ .integer = 1 }},
             .answer = model.AnswerPosition.from(1),

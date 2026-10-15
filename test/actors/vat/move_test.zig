@@ -9,6 +9,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const promise_capture = @import("../../support/capture.zig");
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
@@ -37,7 +38,7 @@ const AliasingSwapper = struct {
     allocator: std.mem.Allocator,
     label: []u8,
 
-    pub fn handle(self: *const AliasingSwapper, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const AliasingSwapper, turn: *Turn, msg: Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "swap")) return error.NoSuchMethod;
         // Reply with the current label (borrowed from this box's state), then
         // transition to the next. The next label's heap moves into the new box;
@@ -89,7 +90,7 @@ const BufferHandoff = struct {
     allocator: std.mem.Allocator,
     label: []u8,
 
-    pub fn handle(self: *BufferHandoff, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *BufferHandoff, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "swap")) {
             const reply = try turn.moveOut(&self.label);
             self.label = try self.allocator.dupe(u8, try msg.argBytes(0));
@@ -180,7 +181,7 @@ const MovingSwapper = struct {
     allocator: std.mem.Allocator,
     label: []u8,
 
-    pub fn handle(self: *MovingSwapper, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *MovingSwapper, turn: *Turn, msg: Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "swap")) return error.NoSuchMethod;
         const reply = try turn.moveOut(&self.label);
         try turn.become(MovingSwapper, .{
@@ -227,7 +228,7 @@ const MisdirectedMover = struct {
     scratch: []u8,
     label: []u8,
 
-    pub fn handle(self: *MisdirectedMover, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *MisdirectedMover, turn: *Turn, msg: Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "swap")) return error.NoSuchMethod;
         _ = try turn.moveOut(&self.scratch);
         try turn.become(MisdirectedMover, .{
@@ -276,7 +277,7 @@ const DoubleMover = struct {
     first: []u8,
     second: []u8,
 
-    pub fn handle(self: *DoubleMover, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *DoubleMover, turn: *Turn, msg: Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "swap")) return error.NoSuchMethod;
         const reply = try turn.moveOut(&self.first);
         _ = try turn.moveOut(&self.second);
@@ -320,7 +321,7 @@ const StringSwapper = struct {
     allocator: std.mem.Allocator,
     label: []u8,
 
-    pub fn handle(self: *StringSwapper, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *StringSwapper, turn: *Turn, msg: Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "swap")) return error.NoSuchMethod;
         const reply = try turn.moveOutString(&self.label);
         try turn.become(StringSwapper, .{

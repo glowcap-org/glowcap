@@ -1,6 +1,7 @@
 //! Durable, record-backed actors attached to an existing Host. The attachment
 //! emits storage work and queues ready calls on that Host's Vat. It owns no I/O.
 const std = @import("std");
+const identity_hash = @import("foundation").identity_hash;
 const core = @import("loam_core");
 const actors = @import("actors");
 const driver = @import("driver_core");
@@ -46,6 +47,8 @@ pub const Options = struct {
 };
 pub const Stats = struct { loads: u64 = 0, invocations: u64 = 0, sleeps: u64 = 0 };
 
+/// One live endpoint row. `Attachment.liveEntry` finds it by endpoint id and
+/// `Attachment.entryFor` by capability, so no call path walks the table.
 pub const Entry = struct {
     owner: *Attachment,
     id: core.ObjectId = undefined,
@@ -76,6 +79,12 @@ pub const Attachment = struct {
     behaviors: []const Behavior,
     options: Options,
     entries: []Entry,
+    /// Each live entry by its endpoint id. A released row leaves it at the
+    /// next Vat boundary, so a stale row may still occupy its slot while its
+    /// id maps to a fresh one.
+    index: identity_hash.Map(core.ObjectId, u32),
+    /// Slots with no actor, ready for `restoreEdge`.
+    free: std.ArrayListUnmanaged(u32),
     operations: []Operation,
     reads: []?Loading,
     retirements: []?Retirement,
@@ -117,6 +126,14 @@ pub const Attachment = struct {
         const entries = try allocator.alloc(Entry, options.max_endpoints);
         errdefer allocator.free(entries);
         for (entries) |*entry| entry.* = .{ .owner = self };
+        const slots = std.math.cast(u32, options.max_endpoints) orelse return error.InvalidLimits;
+        var index: identity_hash.Map(core.ObjectId, u32) = .{};
+        errdefer index.deinit(allocator);
+        try index.ensureTotalCapacity(allocator, slots);
+        var free = try std.ArrayListUnmanaged(u32).initCapacity(allocator, slots);
+        errdefer free.deinit(allocator);
+        var slot = slots;
+        while (slot > 0) : (slot -= 1) free.appendAssumeCapacity(slot - 1);
         const operations = try allocator.alloc(Operation, options.max_calls);
         errdefer allocator.free(operations);
         @memset(operations, .{});
@@ -130,7 +147,7 @@ pub const Attachment = struct {
         if ((options.reference_scope == null) != (options.attachment_name == null) or options.max_reference_saves == 0) return error.InvalidLimits;
         const runner = try host.vat.spawn(drive.Runner, .{ .owner = self });
         errdefer host.vat.discardFreshActor(runner);
-        self.* = .{ .allocator = allocator, .host = host, .store = store, .behaviors = behaviors, .options = options, .entries = entries, .operations = operations, .reads = reads, .retirements = retirements, .runner = runner };
+        self.* = .{ .allocator = allocator, .host = host, .store = store, .behaviors = behaviors, .options = options, .entries = entries, .index = index, .free = free, .operations = operations, .reads = reads, .retirements = retirements, .runner = runner };
         if (options.reference_scope) |scope| try scope.register(self);
         errdefer if (options.reference_scope) |scope| scope.unregister(self);
         if (options.live_scope) |scope| try scope.register(self);
@@ -183,16 +200,14 @@ pub const Attachment = struct {
     /// authority. Both actor retains transfer into the facet on successful spawn.
     pub fn projectDependent(self: *Attachment, source: core.ObjectId, target: driver.Capability) !driver.Capability {
         if (self.closing) return error.AttachmentClosed;
-        const source_entry = for (self.entries) |*entry| {
-            if (entry.actor != null and entry.id.eql(source)) break entry;
-        } else return error.NotDurable;
+        const source_entry = self.liveEntry(source) orelse return error.NotDurable;
         const guard = try self.host.retainLocalCapability(source_entry.actor.?);
         const retained = self.host.retainValueCapabilities(self.allocator, &.{.{ .capability = target }}) catch |err| {
             self.host.releaseCapability(guard, 1) catch unreachable;
             return err;
         };
         defer self.allocator.free(retained);
-        const held_target = retained[0].ref;
+        const held_target = retained[0];
         if (self.dependent_facets == std.math.maxInt(usize)) {
             self.host.releaseCapability(held_target, 1) catch unreachable;
             self.host.releaseCapability(guard, 1) catch unreachable;
@@ -225,6 +240,7 @@ pub const Attachment = struct {
     pub const advanceProgress = drive.advanceProgress;
     pub const prefetch = storage.prefetch;
     pub const nextWork = storage.nextWork;
+    pub const nextWrite = storage.nextWrite;
     pub const completeRead = storage.completeRead;
     pub const completeLookup = storage.completeLookup;
     pub const completeWrite = storage.completeWrite;
@@ -252,8 +268,37 @@ pub const Attachment = struct {
     pub fn entryFor(self: *Attachment, ref: driver.Capability) !*Entry {
         if (self.closing) return error.AttachmentClosed;
         const actor = self.host.localActorFor(ref) orelse return error.NotDurable;
-        for (self.entries) |*entry| if (entry.actor != null and entry.actor.?.local == actor.local) return entry;
-        return error.NotDurable;
+        const endpoint = self.host.vat.stateAs(driver.Hosting(calls.Endpoint), actor.local) orelse return error.NotDurable;
+        const entry = endpoint.inner.entry;
+        if (entry.owner != self or entry.actor == null) return error.NotDurable;
+        return entry;
+    }
+
+    /// The live row for endpoint `id`, if this attachment holds one.
+    pub fn liveEntry(self: *Attachment, id: core.ObjectId) ?*Entry {
+        const slot = self.index.get(id) orelse return null;
+        const entry = &self.entries[slot];
+        return if (entry.actor != null) entry else null;
+    }
+
+    /// Return a row whose endpoint actor is gone. The row's id leaves the
+    /// index unless a fresh row already took it over.
+    pub fn releaseEntry(self: *Attachment, entry: *Entry) void {
+        entry.actor = null;
+        const slot: u32 = @intCast((@intFromPtr(entry) - @intFromPtr(self.entries.ptr)) / @sizeOf(Entry));
+        if (self.index.get(entry.id)) |mapped| if (mapped == slot) std.debug.assert(self.index.remove(entry.id));
+        self.free.appendAssumeCapacity(slot);
+    }
+
+    /// The durable endpoint a capability designates here: the endpoint itself,
+    /// or the stored target of a dependent facet this attachment projected.
+    /// Designation names a record. It admits nothing.
+    pub fn designated(self: *Attachment, ref: driver.Capability) !core.ObjectId {
+        if (self.entryFor(ref)) |entry| return entry.id else |err| if (err != error.NotDurable) return err;
+        const actor = self.host.localActorFor(ref) orelse return error.NotDurable;
+        const facet = self.host.vat.stateAs(driver.Hosting(calls.DependentEndpoint), actor.local) orelse return error.NotDurable;
+        if (facet.inner.owner != self) return error.NotDurable;
+        return (try self.entryFor(facet.inner.target)).id;
     }
 
     pub fn topLevel(self: *Attachment) !void {
@@ -267,21 +312,25 @@ pub const Attachment = struct {
 pub fn restoreEdge(self: *Attachment, id: core.ObjectId) !driver.Capability {
     if (self.closing) return error.AttachmentClosed;
     if (id.store != self.store.metadata.store) return error.NotDurable;
-    for (self.entries) |*entry| {
-        if (entry.actor != null and entry.id.eql(id) and self.host.vat.hasActor(entry.actor.?.local))
-            return self.host.retainLocalCapability(entry.actor.?);
-    }
-    const entry = for (self.entries) |*candidate| {
-        if (candidate.actor == null) break candidate;
-    } else return error.EndpointCapacity;
+    // A row whose actor was released keeps its slot until the next Vat
+    // boundary retires it, and a fresh row takes the id over meanwhile.
+    if (self.liveEntry(id)) |entry| if (self.host.vat.hasActor(entry.actor.?.local)) return self.host.retainLocalCapability(entry.actor.?);
+    const slot = self.free.pop() orelse return error.EndpointCapacity;
+    const entry = &self.entries[slot];
     entry.id = id;
-    const retained = try self.store.retain(id);
+    const retained = self.store.retain(id) catch |err| {
+        self.free.appendAssumeCapacity(slot);
+        return err;
+    };
     errdefer self.store.releaseRetention(retained) catch unreachable;
+    // From here the endpoint's destructor returns the row: a refused spawn
+    // and a discarded fresh actor both run it.
     const actor = try self.host.vat.spawn(driver.Hosting(calls.Endpoint), .{ .inner = .{ .entry = entry } });
     entry.actor = actor;
     errdefer self.host.vat.discardFreshActor(actor);
     const result = try self.host.liftLocalActor(actor);
     entry.retention = retained;
+    self.index.putAssumeCapacity(id, slot);
     return result;
 }
 
@@ -289,10 +338,12 @@ pub fn releaseClosed(self: *Attachment) void {
     if (!self.closing) return;
     if (self.continuations != 0) return;
     if (self.dependent_facets != 0) return;
-    for (self.entries) |entry| if (entry.actor != null) return;
+    if (self.free.items.len != self.entries.len) return;
     self.allocator.free(self.reads);
     self.allocator.free(self.operations);
     self.allocator.free(self.retirements);
+    self.index.deinit(self.allocator);
+    self.free.deinit(self.allocator);
     self.allocator.free(self.entries);
     const allocator = self.allocator;
     allocator.destroy(self);

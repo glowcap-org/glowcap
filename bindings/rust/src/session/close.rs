@@ -15,14 +15,14 @@ impl Session {
 	pub fn same_connection(&self, other: &Session) -> bool {
 		Rc::ptr_eq(&self.shared, &other.shared)
 	}
-	/// Sample native connection liveness without starting work or waiting for
+	/// Sample FFI connection liveness without starting work or waiting for
 	/// terminal cleanup. A closing Host or retired session returns false.
 	pub fn is_open(&self) -> bool {
 		self.shared.session_open()
 	}
 
 	/// Observe this session becoming unavailable for new work, without waiting
-	/// for physical transport cleanup or native handle release. This is the
+	/// for physical transport cleanup or FFI handle release. This is the
 	/// asynchronous counterpart to [`Session::is_open`]: independent and late
 	/// observers share the same transition, and cancelling one observer changes
 	/// no session state.
@@ -142,7 +142,7 @@ async fn drive_session_close(shared: Rc<SessionShared>) {
 		tokio::pin!(notified);
 		notified.as_mut().enable();
 		let mut lifecycle = 0;
-		// SAFETY: `shared.ptr` is this session's `GlowcapHostSession` handle, nulled only by `commit_native_release`,
+		// SAFETY: `shared.ptr` is this session's `GlowcapHostSession` handle, nulled only by `commit_ffi_release`,
 		// which also sets `released`; no await separates this call from the `while !shared.released.get()` check at the
 		// loop head, so the handle is live, and `lifecycle` is a local out-parameter the callee fills.
 		let rc = unsafe { ffi::glowcap_host_session_close_progress(shared.ptr.get(), monotonic_ms(), &mut lifecycle) };
@@ -214,7 +214,7 @@ pub(crate) fn session_close_result(code: i32) -> Result<()> {
 			"finish close exhausted its grace period".into(),
 		))
 	} else {
-		Err(Error::with_detail(code, "native session close failed".into()))
+		Err(Error::with_detail(code, "FFI session close failed".into()))
 	}
 }
 
@@ -231,7 +231,7 @@ impl Drop for Session {
 		if owners != 1 || self.shared.released.get() || self.shared.host_retained.get() {
 			return;
 		}
-		// A drop has no result channel. Inside a behavior callback the native
+		// A drop has no result channel. Inside a behavior callback the FFI
 		// close is refused, and `close_transport` parks the release
 		// for the next drain, as the Host's own drop does.
 		if crate::trampoline::inside_turn() {

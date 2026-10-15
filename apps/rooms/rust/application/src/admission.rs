@@ -10,7 +10,9 @@ use alloc::string::String;
 use bucket::Bucket;
 pub use bucket::Rate;
 pub use registry::{Charge, Policy, Registry, Statistics};
-pub use settings::{Settings, Source};
+pub use settings::{
+	DIRECTORY_ROWS, HTTP_ROWS, MAX_ROWS, MAX_SCALE, POOLED_AGGREGATE_SCALE, SESSION_ROWS, Settings, Source,
+};
 
 /// Fixed reserve for authorized cleanup when the subject table is full. It
 /// owns one bucket, allocates nothing, and never replaces existing subject debt.

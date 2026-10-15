@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the Racket-owned state and mediation authority for a CapTP Host.
-;; Native close policy and Host verbs stay in ../host.rkt; this leaf owns only
+;; FFI close policy and Host verbs stay in ../host.rkt; this leaf owns only
 ;; binding state, serialization, diagnostics, loop selection, and registries.
 
 (require ffi/unsafe
@@ -39,7 +39,7 @@
 ;; terminal state, so a repeated `host-close!` re-observes it (a finish grace
 ;; timeout included) instead of silently succeeding;
 ;; `released?` guards the handle against use after release; `driver-loop`
-;; boxes the native loop this host is adopted over (ADR-0112), or #f for a
+;; boxes the driver loop this host is adopted over (ADR-0112), or #f for a
 ;; byte-fed host. When set, the action drain, session release, and host
 ;; release all route through the loop via the hooks below.
 (struct host ([ptr #:mutable] context diagnostic-id seed lock lock-owner sessions progress keep vows dial-workers redeem-reachability runtime-failure close-result released? codec captp-version features driver-loop connectors))
@@ -74,7 +74,7 @@
   (define failure (unbox (host-runtime-failure m)))
   (and failure (terminal-failure-chain-primary failure)))
 
-;; The native loop this host is adopted over, or #f. The one branch point
+;; The driver loop this host is adopted over, or #f. The one branch point
 ;; every loop-aware seam reads.
 (define (host-loop-of m) (unbox (host-driver-loop m)))
 
@@ -123,7 +123,7 @@
 (define (failure-text ptr len)
   (if (or (not ptr) (zero? len))
       ""
-      ;; Native diagnostic reports are validated and truncated at code-point
+      ;; FFI diagnostic reports are validated and truncated at code-point
       ;; boundaries. Invalid text here is an ABI violation, not adapter data
       ;; that the binding may silently repair.
       (bytes->string/utf-8 (bytes<-c ptr len))))
@@ -166,7 +166,7 @@
                     (GlowcapFailureEvent-secondary-message-len event)))]
     [else (check first)]))
 
-;; Atomically claim every callerless native failure currently retained by m.
+;; Atomically claim every callerless FFI failure currently retained by m.
 (define (host-take-failures! m)
   (call-with-host
    m
@@ -228,15 +228,15 @@
 ;; Stop stepping and join the park thread, run by the Host release worker
 ;; OUTSIDE the host lock (the park thread takes that lock to step).
 (define loop-prestop-hook (box #f))
-;; Drive the native loop close policy and event projection to its terminal
+;; Drive the driver loop close policy and event projection to its terminal
 ;; barrier before stepping stops.
 (define loop-close-barrier-hook (box #f))
 ;; Forward one close request to a loop already being driven. Caller holds the
 ;; Host lock; no lifecycle policy is interpreted here.
 (define loop-begin-close-hook (box #f))
-;; Native teardown in place of `glowcap_host_release`: the loop releases
+;; FFI teardown in place of `glowcap_host_release`: the loop releases
 ;; itself and the wrapped host together.
-(define loop-native-release-hook (box #f))
+(define loop-ffi-release-hook (box #f))
 ;; A loop-owned session's release, through `glowcap_driver_session_release`.
 (define loop-session-release-hook (box #f))
 ;; Forward one loop-owned session close request while the caller holds the Host
@@ -256,12 +256,12 @@
 
 ;; Distributed-GC state exists only after gc.rkt has loaded. Its retirement
 ;; hook is installed there and runs inside the Host's terminal lock after the
-;; native owner has been consumed.
+;; FFI owner has been consumed.
 (define host-gc-retire-hook (box void))
 
-;; Release one native session handle through its owner: the loop for a
+;; Release one FFI session handle through its owner: the loop for a
 ;; loop-adopted host, `glowcap_host_session_release` for a byte-fed one.
-(define (native-session-release! m ptr)
+(define (ffi-session-release! m ptr)
   (define lp (host-loop-of m))
   (if lp
       ((unbox loop-session-release-hook) lp ptr)
@@ -304,13 +304,13 @@
   (call-with-host* m (lambda () '()) thunk))
 
 ;; Cleanup paths still need the lock after terminal transition so they can
-;; observe that state and retire binding-owned queues without touching native
+;; observe that state and retire binding-owned queues without touching FFI
 ;; authority. Ordinary operations use `call-with-host`; release uses the
 ;; idempotent variant above.
 (define (call-with-host/terminal m thunk)
   (call-with-host* m thunk thunk))
 
-;; The trace registry holds Hosts weakly and reaches native state only through
+;; The trace registry holds Hosts weakly and reaches FFI state only through
 ;; this installer. Its strong owner snapshot prevents finalization during the
 ;; call; this lock serializes an install or uninstall against explicit release.
 (define (host-install-trace! m callback ctx)
@@ -336,7 +336,7 @@
 (define (host-bump-progress! m)
   ;; A terminal cleanup drain still has to wake pumps that observed the prior
   ;; generation. This mutates only Racket-owned scheduler state, so it remains
-  ;; valid after the native host pointer is gone.
+  ;; valid after the FFI host pointer is gone.
   (call-with-host/terminal m
     (lambda ()
       (define old (unbox (host-progress m)))

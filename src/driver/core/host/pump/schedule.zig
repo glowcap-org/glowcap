@@ -116,6 +116,51 @@ pub fn removeDirtySession(self: *Host, session: *HostSession) void {
     unreachable;
 }
 
+/// Note that `session`'s peer holds answer releases at its queue tail
+/// (`engine.Peer.holdsAnswerReleases`). Not encode work: the session's next
+/// message carries them, or `flushHeldReleases` sends them at the park.
+pub fn holdReleases(self: *Host, session: *HostSession) void {
+    if (session.releases_held) return;
+    self.held_releases.pushReserved(session.peer_handle);
+    session.releases_held = true;
+}
+
+/// Encode every held answer release and queue its flush: the embedder is
+/// about to park, so no message of its own will carry them. Returns whether
+/// any session gained outbound bytes. A refused encode (memory or outbound
+/// pressure) keeps that session held and the rest of the list intact.
+pub fn flushHeldReleases(self: *Host) !bool {
+    try self.refuseReentry();
+    var flushed = false;
+    while (self.held_releases.pop(self.allocator)) |peer_handle| {
+        const session = self.sessions.get(peer_handle) orelse continue;
+        session.releases_held = false;
+        if (session.isTerminating()) continue;
+        _ = session.served.port.peer.flushAnswerReleases() catch |err| {
+            holdReleases(self, session);
+            return err;
+        };
+        if (!session.served.hasOutbound()) continue;
+        queueUniqueSessionAction(self, .flush, peer_handle);
+        flushed = true;
+    }
+    return flushed;
+}
+
+/// Remove a dying shell's held-release row before its membership bit
+/// disappears, as `removeDirtySession` does for the encode worklist.
+pub fn removeHeldReleases(self: *Host, session: *HostSession) void {
+    if (!session.releases_held) return;
+    var offset: usize = 0;
+    while (offset < self.held_releases.unpopped().len) : (offset += 1) {
+        if (self.held_releases.unpopped()[offset] != session.peer_handle) continue;
+        _ = self.held_releases.removeUnpopped(offset);
+        session.releases_held = false;
+        return;
+    }
+    unreachable;
+}
+
 /// Retract the embedder notifications a session-open transaction published
 /// before its post-enrollment pump failed. No consumer can have observed an
 /// action for this fresh session because the opening verb has not returned.

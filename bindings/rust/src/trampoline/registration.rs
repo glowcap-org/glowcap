@@ -10,7 +10,7 @@ impl Drop for Receipt<'_> {
 	fn drop(&mut self) {
 		if !self.retired.get() {
 			// The callback is synchronous and Host handles are thread-confined.
-			// Clear the stack address before the native-owned cell escapes.
+			// Clear the stack address before the FFI-owned cell escapes.
 			// SAFETY: `self.cell` is the `ActorCell` that `register_actor_cell` was handed; this branch runs only while
 			// `retired` is false, meaning `ctx_free` has not run and the cell has not been reclaimed (the reclaim path
 			// sets `retired` first), so the allocation is still live, and the Host's single thread makes no concurrent
@@ -49,7 +49,7 @@ pub(crate) unsafe fn register_actor_cell(
 		// itself report through the C ABI's diagnostic slot.
 		let primary = crate::host::host_refusal(code, "actor registration");
 		// An invalid nonnegative result is an ABI invariant failure, not proof
-		// of refusal. A still-live cell may already belong to the native Host.
+		// of refusal. A still-live cell may already belong to the FFI Host.
 		let cleanup = if code >= 0 || retired.replace(true) {
 			Ok(())
 		} else {

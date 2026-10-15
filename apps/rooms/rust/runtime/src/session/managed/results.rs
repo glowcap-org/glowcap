@@ -54,7 +54,7 @@ enum Lookup {
 pub(super) struct Settlement(pub Argument);
 impl Settlement {
 	/// One bounded diagnostic string survives observation and settlement retry.
-	/// Formatting stops at 4096 UTF-16 units. Ordinary String growth retains at
+	/// Formatting stops at `MAX_OBSERVATION_REASON_UNITS` UTF-16 units. Ordinary String growth retains at
 	/// most twice the 12 KiB UTF-8 bound, even if the peer's failure was larger.
 	/// The original receipt owns it through cold restoration. It grants no replay.
 	pub(super) fn refused(error: &glowcap::Error) -> Self {

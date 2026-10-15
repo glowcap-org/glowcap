@@ -19,6 +19,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 
 /// Scratch well past the steady bound in one turn, and burst well past it in
 /// one send episode.
@@ -28,7 +29,7 @@ const burst_sends: usize = 600;
 const BurstActor = struct {
     turns: usize = 0,
 
-    pub fn handle(self: *BurstActor, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *BurstActor, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "oversized")) {
             const scratch = try turn.arena.alloc(u8, oversized_scratch_bytes);
             @memset(scratch, 0xaa);

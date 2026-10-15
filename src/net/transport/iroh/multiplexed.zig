@@ -1,7 +1,7 @@
-//! Native multiplexed projection of one borrowed iroh endpoint.
+//! Zig multiplexed projection of one borrowed iroh endpoint.
 //!
 //! The endpoint outlives this heap-stable adapter and every registered runtime.
-//! C and native consumers share connection identity, listener state and failure
+//! C and Zig consumers share connection identity, listener state and failure
 //! custody here. Each boundary only projects its values.
 
 const std = @import("std");
@@ -191,7 +191,7 @@ pub const MultiplexedAdapter = struct {
     fn drain(ctx: *anyopaque, out: []net.multiplexed_resident.ReadyEvent) net.multiplexed_resident.ContractError!usize {
         return from(ctx).drainReady(out) catch return error.ProviderContract;
     }
-    fn start(ctx: *anyopaque, request: usize, locator: model.PeerLocator, options: net.netlayer.OperationOptions) net.multiplexed_resident.RawDialStartOutcome {
+    fn start(ctx: *anyopaque, request: usize, locator: model.PeerLocator, options: net.netlayer.OperationOptions, _: net.netlayer.DialOrigin) net.multiplexed_resident.RawDialStartOutcome {
         from(ctx).startConnect(request, locator, options) catch |err| return .{ .failed = .init(err) };
         return .admitted;
     }

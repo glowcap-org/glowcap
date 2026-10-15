@@ -141,6 +141,10 @@ pub fn Machine(comptime Self: type, comptime Policy: type) type {
             const listener: *Listener = @ptrCast(@alignCast(listener_ctx));
             if (listener.accepted.items.len == 0) return .{ .connection = null };
             const fd = listener.accepted.orderedRemove(0);
+            // A listener that stopped at the unclaimed bound accepts again
+            // once a claim makes room.
+            if (!listener.accept_armed and listener.setup == .ready)
+                self.armAccept(listener) catch |err| self.latch(err);
             const id = self.adopt(fd) catch |err| {
                 self.backend.closeFd(fd);
                 return .{ .failed = .init(err) };

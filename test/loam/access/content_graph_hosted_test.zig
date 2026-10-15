@@ -155,7 +155,7 @@ test "loam managed graph row-family bound admits exact capacity and refuses one 
     var backend = try h.loam.Volatile.init(a, h.f.store_id, 16 * 1024 * 1024);
     defer backend.deinit();
     const seeded = blk: {
-        defer backend.close();
+        defer backend.close() catch unreachable;
         var initial = try h.loam.core.Store.init(a, try backend.open(), &h.schemas, h.limits);
         defer initial.deinit() catch unreachable;
         break :blk try seed(&initial, &backend);
@@ -172,7 +172,7 @@ test "loam managed graph row-family bound admits exact capacity and refuses one 
     limits.staging_bytes = managed.staging_bytes + graph_rows * graph_bytes;
     limits.records.max_record_bytes = @max(managed.record_bytes, graph_bytes);
     for ([_]usize{ rows - 1, rows }) |capacity| {
-        defer backend.close();
+        defer backend.close() catch unreachable;
         limits.max_changes = capacity;
         var store = try h.loam.core.Store.init(a, try backend.open(), &h.schemas, limits);
         defer store.deinit() catch unreachable;

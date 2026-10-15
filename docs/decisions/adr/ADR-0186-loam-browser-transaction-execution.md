@@ -7,7 +7,7 @@ decision: "Browser storage evaluates shared Zig transactions through bounded tra
 supersedes: []
 superseded_by: []
 amends: [ADR-0185]
-amended_by: [ADR-0200]
+amended_by: [ADR-0200, ADR-0217]
 ---
 
 # ADR-0186 Loam browser transaction execution

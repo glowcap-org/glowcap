@@ -2,7 +2,7 @@
 // consumer of this package's `webSocketRelay` and the Deno row of the
 // cross-runtime relay matrix beside `bindings/python/relay.py` and
 // `bindings/rust/relay`. It carries the raw bytes of a keyed CapTP session
-// between a browser peer's WebSocket and a native host without parsing them, so
+// between a browser peer's WebSocket and an FFI host without parsing them, so
 // the keyed handshake and session authority run end to end and the relay holds
 // no capability.
 //
@@ -25,13 +25,13 @@
 import {
 	denoIrohChannel,
 	denoTcpChannel,
-	isRendezvousDesignator,
 	type RelayConfig,
 	relayFailureLogger,
 	Rendezvous,
 	webSocketRelay,
 } from "@glowcap/relay";
 import { BINDING_RELAY_IDLE_TIMEOUT_MS, BINDING_RELAY_MAX_BYTES_PER_SESSION } from "@glowcap/abi";
+import { isKeyDesignator } from "@glowcap/runtime/transport";
 
 // Liveness is the idle timeout; the per-session byte total is a runaway backstop
 // over the session's life, not a memory bound (instantaneous memory is bounded
@@ -133,7 +133,7 @@ function relay(socket: WebSocket, query: URLSearchParams): void {
 	const locator = query.get("locator");
 	const rendezvous_id = query.get("rendezvous");
 	if (rendezvous_id != null) {
-		if (!isRendezvousDesignator(rendezvous_id)) {
+		if (!isKeyDesignator(rendezvous_id)) {
 			socket.close(1008, "invalid rendezvous designator");
 			return;
 		}
@@ -204,7 +204,7 @@ const handler = (req: Request): Response => {
 	if (url.pathname === "/register") {
 		const id = url.searchParams.get("id");
 		if (id == null) return new Response("register requires ?id=<designator>", { status: 400 });
-		if (!isRendezvousDesignator(id)) {
+		if (!isKeyDesignator(id)) {
 			return new Response("invalid rendezvous designator", { status: 400 });
 		}
 		if (

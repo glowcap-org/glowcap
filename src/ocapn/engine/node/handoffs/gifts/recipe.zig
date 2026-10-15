@@ -135,8 +135,9 @@ pub fn mint(
     exporter_key: []const u8,
     exporter_loc: []const u8,
 ) ![]u8 {
-    const secret = Internal.sessionSecret(self, exporter_peer) orelse
+    var secret = Internal.sessionSecret(self, exporter_peer) orelse
         return error.RouteNotLowerable;
+    defer std.crypto.secureZero(u8, std.mem.asBytes(&secret));
     const exporter = self.peer(exporter_peer) orelse return error.RouteNotLowerable;
     const exporter_session_location = exporter.session_state.partnerLocatorRaw() orelse
         return error.RouteNotLowerable;

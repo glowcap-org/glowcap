@@ -19,6 +19,8 @@ const doc_c_abi_header_paths = [_][]const u8{
     "include/glowcap_host.h",
     "include/glowcap_loam.h",
     "include/glowcap_loam_lmdb.h",
+    "include/glowcap_loam_sqlite.h",
+    "include/glowcap_loam_volatile.h",
     "include/glowcap_driver.h",
     "include/glowcap_transport_provider.h",
     "include/glowcap_net_transport_tcp.h",
@@ -74,6 +76,8 @@ pub fn checkDeletedNodeCProjection(
         "include/glowcap_host.h",
         "include/glowcap_loam.h",
         "include/glowcap_loam_lmdb.h",
+        "include/glowcap_loam_sqlite.h",
+        "include/glowcap_loam_volatile.h",
         "bindings/ts/runtime/internal/ffi/ocapn.ts",
         "bindings/python/glowcap/_ffi_ocapn.py",
         "bindings/racket/private/ffi-ocapn.rkt",
@@ -92,7 +96,10 @@ pub fn checkDeletedNodeCProjection(
     // The companion header itself must stay deleted.
     if (root.access(io, "include/glowcap_ocapn_node.h", .{})) |_| {
         try appendViolation(gpa, violations, "include/glowcap_ocapn_node.h: file must stay deleted (demoted node waist)", .{});
-    } else |_| {}
+    } else |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    }
 }
 
 /// Every `glowcap_[a-z0-9_]+` token inside backticks in docs and site content

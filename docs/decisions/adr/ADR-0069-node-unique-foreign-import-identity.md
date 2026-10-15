@@ -7,7 +7,7 @@ decision: "A fetched or redeemed foreign capability is identified across session
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0079, ADR-0091, ADR-0096, ADR-0113, ADR-0116]
+amended_by: [ADR-0079, ADR-0091, ADR-0096, ADR-0113, ADR-0116, ADR-0234]
 ---
 
 # ADR-0069 Foreign capabilities have Node-owned route identities

@@ -5,7 +5,7 @@ Nothing here is public. The driver is a separate archive and exports only
 ``glowcap_driver_*``. It adopts a Host created through this family. The Host
 surface lives in :mod:`glowcap._host` and :mod:`glowcap._session`.
 
-Callback discipline: the ONE native callback in the whole binding, the shared
+Callback discipline: the ONE FFI callback in the whole binding, the shared
 behavior trampoline (:mod:`glowcap._trampoline`), fires synchronously on the
 thread executing the enclosing ``glowcap_host_*`` call, with ctypes
 re-acquiring the GIL for it. Settlements carry no callback at all: they ride

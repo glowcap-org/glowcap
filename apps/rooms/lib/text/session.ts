@@ -34,7 +34,7 @@ export const sessionSharedCommit = "Attach";
 export const sessionSignInTitle = "Sign in";
 export const sessionSignInHint =
 	"Keep your session on a server and sign in from any device, instead of carrying a link around.";
-export const sessionSignInState = "Coming soon";
+export const sessionSignInState = "Not available";
 
 /** The advanced section and the two confirmations under it. Each
  * confirmation names what survives as well as what goes, since "delete" alone

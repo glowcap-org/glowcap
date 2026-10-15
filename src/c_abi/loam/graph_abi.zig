@@ -4,10 +4,14 @@ const graph = @import("graph_callbacks.zig");
 const c = common.c;
 const shared = common.shared;
 
+/// A grant chain is at most `stage.max_depth` deep, plus its root.
+pub const max_accounting_path = common.access.storage.stage.max_depth + 1;
+
 /// Copy the admitted source grant's durable record names, nearest first.
 /// The call's validated working set supplies every ancestor. These names are
 /// descriptive accounting data and confer no use, disclosure or control.
-/// This projection supports paths of at most 65 records without allocation.
+/// This projection supports paths of at most `max_accounting_path` records
+/// without allocation.
 pub fn glowcap_loam_call_accounting_path(raw: ?*c.GlowcapLoamCall, out_path: ?[*]c.GlowcapLoamObject, capacity: usize, out_count: ?*usize) callconv(.c) i32 {
     shared.lastErrorClear();
     const count = out_count orelse return shared.GLOWCAP_ERR_NULL_POINTER;
@@ -15,7 +19,7 @@ pub fn glowcap_loam_call_accounting_path(raw: ?*c.GlowcapLoamCall, out_path: ?[*
     const out = out_path orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     const call: *@import("callbacks.zig").Call = @ptrCast(@alignCast(raw orelse return shared.GLOWCAP_ERR_NULL_POINTER));
     if (!call.active) return common.code(error.WrongPhase);
-    var buffer: [65]common.core.ObjectId = undefined;
+    var buffer: [max_accounting_path]common.core.ObjectId = undefined;
     const path = call.content_call.accountingPath(&buffer) catch |err| return common.code(err);
     if (capacity < path.len) return common.code(error.InvalidArgument);
     for (path, out[0..path.len]) |id, *target| target.* = common.objectToC(id);
@@ -24,7 +28,7 @@ pub fn glowcap_loam_call_accounting_path(raw: ?*c.GlowcapLoamCall, out_path: ?[*
 }
 
 /// Copy a failed application's explanation into the retained bounded arena.
-/// UTF-8 must be nonempty and at most 1024 bytes. Returning success from the
+/// UTF-8 must be nonempty and at most `Call.max_refusal_bytes`. Returning success from the
 /// callback after this setter refuses. A refusal cannot accompany a reply.
 pub fn glowcap_loam_call_refuse_copying(raw: ?*c.GlowcapLoamCall, reason: ?[*]const u8, len: usize) callconv(.c) i32 {
     shared.lastErrorClear();

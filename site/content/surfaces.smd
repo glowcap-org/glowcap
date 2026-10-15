@@ -20,8 +20,6 @@ matches your language and runtime.
 
 The TypeScript binding also compiles to WebAssembly, so the same session runs in
 the browser ([In the browser]($link.page('bindings/browser'))).
-=====END
-
 
 # One engine
 

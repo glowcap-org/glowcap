@@ -170,7 +170,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		}
 	}
 
-	/** Replace this listener's advertised locator through its native owner. */
+	/** Replace this listener's advertised locator through its FFI owner. */
 	advertiseListener(listener: bigint, locator: Locator | string): void {
 		this._guardHandle();
 		const parsed = typeof locator === "string" ? parseLocator(locator) : locator;
@@ -186,7 +186,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		checkDriver(loopS.glowcap_driver_listener_select(this._h, listener));
 	}
 
-	/** Stop one listener and join the native admission barrier. Events committed
+	/** Stop one listener and join the FFI admission barrier. Events committed
 	 * before close remain queued; after this resolves, no later accepted event
 	 * can name the listener. */
 	closeListener(listener: bigint, reason: GlowcapError = loopClosedError()): Promise<void> {
@@ -229,7 +229,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 
 	protected _closeListener(listener: bigint, reason: GlowcapError): void {
 		try {
-			if (!this._closeListenerNative(listener)) {
+			if (!this._closeListenerFfi(listener)) {
 				this.scheduleStep();
 				return;
 			}
@@ -255,7 +255,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 	}
 
 	/** Dispatch only events committed by earlier steps. Listener close uses
-	 * this after native admission is sealed, so it cannot create a new accept
+	 * this after FFI admission is sealed, so it cannot create a new accept
 	 * while preserving an old one. */
 	protected _dispatchCommittedEvents(): void {
 		const events = this._popEvents();
@@ -270,11 +270,11 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 	protected _advanceClosingListeners(): void {
 		for (const [listener, reason] of [...this._closingListeners]) {
 			if (!this._listeners.has(listener)) continue;
-			if (this._closeListenerNative(listener)) this._finishListenerClose(listener, reason);
+			if (this._closeListenerFfi(listener)) this._finishListenerClose(listener, reason);
 		}
 	}
 
-	protected _closeListenerNative(listener: bigint): boolean {
+	protected _closeListenerFfi(listener: bigint): boolean {
 		return closeDriverListener(this._h, listener);
 	}
 
@@ -294,7 +294,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		}
 		for (const ptr of this._accepts.get(listener)?.splice(0) ?? []) {
 			try {
-				this.nativeSessionRelease(ptr);
+				this.ffiSessionRelease(ptr);
 			} catch (error) {
 				failure ??= error;
 			}
@@ -314,7 +314,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 
 	/** Wrap a loop-minted session handle as the public `Session`, over the
 	 * adopted wrapper Host: every session verb, promise, and trampoline works
-	 * on it, with the native loop as the transport and the drain. Idempotent
+	 * on it, with the driver loop as the transport and the drain. Idempotent
 	 * per handle: a handle already wrapped returns its wrapper. */
 	adoptSession(ptr: Ptr): Session {
 		const host = this.wrapperHost();
@@ -323,7 +323,7 @@ export abstract class DriverLoopConnections extends DriverLoopDrive {
 		const state = this._unclaimedSessions.get(ptr) ?? { kind: "open" as const };
 		const session = Session.adoptLoopSession(ptr, host, new LoopTransport(this));
 		this._unclaimedSessions.delete(ptr);
-		if (state.kind === "closed") void session.nativeTransportDidClose(state.error);
+		if (state.kind === "closed") void session.ffiTransportDidClose(state.error);
 		return session;
 	}
 

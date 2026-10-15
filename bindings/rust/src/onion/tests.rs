@@ -348,7 +348,7 @@ fn the_listener_descriptor_reports_arrival_without_blocking() {
 	// The duplicate is what keeps the listener's own descriptor intact.
 	let probe = {
 		use std::os::fd::{AsRawFd, BorrowedFd};
-		// SAFETY: `fd` is the accept descriptor `listener.readiness_fd()` returned, which the native listener owns and
+		// SAFETY: `fd` is the accept descriptor `listener.readiness_fd()` returned, which the FFI listener owns and
 		// keeps open while `listener` is alive, and `listener` outlives this statement; `try_clone_to_owned` duplicates
 		// it before the borrow ends, so the `TcpListener` below owns its own descriptor.
 		let owned = unsafe { BorrowedFd::borrow_raw(fd) }.try_clone_to_owned().unwrap();

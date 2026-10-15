@@ -30,8 +30,8 @@ operation's scope through settlement. The shared operation admits edits,
 attenuation and lifecycle changes. Decoding does not decide availability.
 Repeated terminal grant revocation retains the model's idempotent result.
 
-`src/c_abi/loam/vocabulary.zig` supplies one fixed-resource vocabulary for C,
-Rust and browser attachments. `set-policy` replaces policy within the held
+`src/loam/access/hosting/vocabulary.zig` supplies one fixed-resource vocabulary
+for Zig, C, Rust and browser attachments. `set-policy` replaces policy within the held
 management scope. `derive-managed` returns an ordinary use/control pair with
 explicit child management powers. `attenuate-control` returns a dependent
 control with narrowed powers. Policy identities, unsigned masks and ordered

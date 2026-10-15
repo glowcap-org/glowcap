@@ -62,7 +62,7 @@ pub fn checkAttachmentsReleased(handle: ?*c.GlowcapHost) !void {
 pub const valueToC = common.valueToC;
 pub const valueProjectionBound = common.valueProjectionBound;
 
-/// Claim the C handle's transport/action-drain ownership for a native driver
+/// Claim the C handle's transport/action-drain ownership for a Zig driver
 /// construction. `HostRuntime.initWithCore` validates whether the core itself
 /// can transfer. Rollback restores this token if it cannot.
 pub fn claimForDriver(handle: ?*c.GlowcapHost) ClaimError!?DriverClaim {

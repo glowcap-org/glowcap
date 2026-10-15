@@ -1,7 +1,7 @@
 //! Process-wide opaque capability IDs for pointer-free C projections.
 //!
 //! `driver_core` owns capability identity and accepts an injected issuer, but
-//! synchronization belongs at this process adapter seam. Native Zig refs keep
+//! synchronization belongs at this process adapter seam. Zig refs keep
 //! their Registry pointer and do not pay this atomic/permutation cost.
 
 const std = @import("std");

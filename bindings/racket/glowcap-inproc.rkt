@@ -28,7 +28,7 @@
          "private/ffi-inproc.rkt"
          "private/finalizer-diagnostics.rkt"
          "private/locator.rkt"
-         "private/native-parent.rkt"
+         "private/ffi-parent.rkt"
          "private/seam.rkt"
          "private/transport.rkt")
 
@@ -58,7 +58,7 @@
 (struct inproc-connection (handle read-gate write-gate netlayer) #:mutable)
 
 (define (inproc-netlayer-forget! nl child)
-  (native-parent-forget! (inproc-netlayer-owner nl) child))
+  (ffi-parent-forget! (inproc-netlayer-owner nl) child))
 
 ;; A designator is any opaque token; accept a string and pass its bytes.
 (define (designator-bytes designator)
@@ -67,7 +67,7 @@
 (define (make-inproc-netlayer)
   (define-values (rc h) (glowcap_inproc_netlayer_new))
   (check/inproc rc)
-  (define nl (inproc-netlayer (make-native-parent h glowcap_inproc_netlayer_release)))
+  (define nl (inproc-netlayer (make-ffi-parent h glowcap_inproc_netlayer_release)))
   (register-finalizer nl (lambda (q) (inproc-netlayer-release! q)))
   nl)
 
@@ -93,7 +93,7 @@
         #:handshake-timeout-ms handshake-timeout-ms)))))
 
 (define (inproc-netlayer-release! nl)
-  (native-parent-release!
+  (ffi-parent-release!
    (inproc-netlayer-owner nl)
    (lambda (child)
      (cond [(inproc-listener? child) (inproc-listener-release! child)]
@@ -102,7 +102,7 @@
 (define (inproc-netlayer-listen nl designator)
   (define bs (designator-bytes designator))
   (define lst
-    (native-parent-open-child
+    (ffi-parent-open-child
      (inproc-netlayer-owner nl) 'inproc-netlayer-listen
      (lambda (parent-handle)
        (define-values (rc h)
@@ -123,7 +123,7 @@
   (register-finalizer
    lst
    (lambda (q)
-     (run-native-finalizer! "inproc-listener.finalize"
+     (run-ffi-finalizer! "inproc-listener.finalize"
                             (lambda () (inproc-listener-release! q))
                             #:layer 'transport)))
   lst)
@@ -131,7 +131,7 @@
 (define (inproc-netlayer-connect nl designator [codec 'syrup] [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
   (define bs (designator-bytes designator))
   (define cn
-    (native-parent-open-child
+    (ffi-parent-open-child
      (inproc-netlayer-owner nl) 'inproc-netlayer-connect
      (lambda (parent-handle)
        (define-values (rc h)
@@ -164,7 +164,7 @@
      (check/inproc rc)
      (define nl (inproc-listener-netlayer lst))
      (define cn
-       (native-parent-adopt-or-release!
+       (ffi-parent-adopt-or-release!
         (inproc-netlayer-owner nl)
         (inproc-connection h (make-semaphore 1) (make-semaphore 1) nl)
         inproc-connection-release!

@@ -11,7 +11,11 @@ const resident_mod = @import("../multiplexed_resident.zig");
 /// Completion user_data: the operation kind in the top byte, the row id
 /// below. A row id is a connection id, a dial's request id, or a listener
 /// token, by kind.
-pub const Kind = enum(u8) { wake, connect, dial_close, recv, send, close, accept, listen_close, listen_ready };
+pub const Kind = enum(u8) { connect, dial_close, recv, send, close, accept, listen_close, listen_ready, watch };
+
+/// One descriptor whose readiness wakes the park (`watch`). Rows are never
+/// removed: a completion names its row by index.
+pub const Watch = struct { fd: i32, armed: bool };
 
 pub fn userData(kind: Kind, id: usize) u64 {
     return (@as(u64, @backingInt(kind)) << 56) | @as(u64, @intCast(id));
@@ -25,10 +29,6 @@ fn idOf(user_data: u64) usize {
     return @intCast(user_data & ((@as(u64, 1) << 56) - 1));
 }
 
-/// The wake readiness poll and the cancel that retires it.
-pub const wake_poll = 0;
-pub const wake_cancel = 1;
-
 pub fn Machine(comptime Self: type) type {
     return struct {
         const Conn = Self.Conn;
@@ -40,8 +40,20 @@ pub fn Machine(comptime Self: type) type {
             if (self.failure == null) self.failure = err;
         }
 
+        /// Queue the connection's receive for the `beforeWait` that precedes
+        /// a park. A verb that frees the receive slot ends with the re-arm
+        /// held here, so the submit it needs rides the park's.
         pub fn armRecv(self: *Self, id: usize, conn: *Conn) void {
             if (conn.close != .open or conn.recv != .idle) return;
+            self.recv_queue.append(self.allocator, id) catch {
+                // The queue is the only allocation on this path; a refusal
+                // arms this receive alone rather than losing it.
+                return startRecv(self, id, conn);
+            };
+            conn.recv = .queued;
+        }
+
+        fn startRecv(self: *Self, id: usize, conn: *Conn) void {
             self.backend.submitRecv(userData(.recv, id), conn.fd) catch |err| {
                 conn.recv = .{ .failed = err };
                 record(self, id, resident_mod.ev_readable);
@@ -74,39 +86,145 @@ pub fn Machine(comptime Self: type) type {
             listener.accept_armed = true;
         }
 
-        /// Take every completion the backend has, without waiting.
+        /// Turn every completion the backend already holds into held bytes,
+        /// records, and re-armed operations. The runtime's `reap` and
+        /// `drain_ready` verbs and `beforeWait` run it, and a read verb runs
+        /// it first when no receive is held, so bytes that landed since the
+        /// last pump answer now. A verb that only arms or stages leaves what
+        /// it armed to the reap at the turn's end: each pump walks every
+        /// wrapped backend, so one per verb would cost the round trip more
+        /// than it finds. It submits nothing: the backend keeps what the verb
+        /// armed until `beforeWait`, and a record reaped here waits in
+        /// `records`, which `ready_pending` reports.
         pub fn pump(self: *Self) void {
             var out: [64]completion.Completion = undefined;
             var turns: usize = 0;
             while (turns < 64) : (turns += 1) {
-                const n = self.backend.poll(&out, 0) catch |err| {
+                const n = self.backend.peek(&out) catch |err| {
                     latch(self, err);
                     break;
                 };
                 for (out[0..n]) |comp| dispatch(self, comp);
                 if (n < out.len) break;
             }
-            signalRecords(self);
-            // The runtime waits on the descriptor next, and it reports only
-            // operations the backend has handed to the kernel.
+        }
+
+        /// The turn is ending: start every send a batch left staged, and
+        /// before a park every queued receive, and hand the queue to the
+        /// kernel in one submit. What that submit completes inline (a
+        /// loopback send finishes inside it) is reaped now, so a completion
+        /// that leaves no record does not wake the park. The reap can arm
+        /// more (a fed starved receive, a wrapped backend's next step), so
+        /// the queue is handed over once more; a submit with nothing queued
+        /// costs no syscall. Before the caller runs, the queued receives
+        /// stay queued, so a turn that only consumed a reply submits nothing.
+        pub fn beforeWait(self: *Self, after: resident_mod.AfterTurn) void {
+            // Writes queued during the turn start now and go to the kernel in
+            // one submit. A receive re-arm waits until a park. That is safe
+            // because nothing can arrive for a re-armed receive until the
+            // kernel has the request, and the runtime always calls
+            // `beforeWait` before it parks (ADR-0213, ADR-0220).
+            for (self.send_queue.items) |id| {
+                const conn = self.conns.getPtr(id) orelse continue;
+                if (!conn.send_queued) continue;
+                conn.send_queued = false;
+                startSend(self, id, conn);
+            }
+            self.send_queue.clearRetainingCapacity();
+            if (after == .park) startQueuedRecvs(self);
+            submitQueued(self);
+            pump(self);
+            if (after == .park) startQueuedRecvs(self);
+            submitQueued(self);
+        }
+
+        fn startQueuedRecvs(self: *Self) void {
+            for (self.recv_queue.items) |id| {
+                const conn = self.conns.getPtr(id) orelse continue;
+                if (conn.close != .open or conn.recv != .queued) continue;
+                conn.recv = .idle;
+                startRecv(self, id, conn);
+            }
+            self.recv_queue.clearRetainingCapacity();
+        }
+
+        /// Park in the backend's own queue until a completion lands, a
+        /// watched descriptor reads ready, or `timeout_ms` passes, and turn
+        /// what arrived into records. True when something arrived, or when
+        /// the wait failed and `ready_pending` now reports the failure.
+        /// `beforeWait` ran first, so the turn's queue is in the kernel.
+        /// The watches are armed here, as the park begins: a descriptor
+        /// that reads ready now ends the park at once, where a watch armed
+        /// earlier would have been reaped by a verb and left the park
+        /// asleep beside the wake it announced.
+        pub fn park(self: *Self, timeout_ms: i32) bool {
+            armWatches(self);
+            var out: [64]completion.Completion = undefined;
+            const n = self.backend.poll(&out, timeout_ms) catch |err| {
+                latch(self, err);
+                return true;
+            };
+            for (out[0..n]) |comp| dispatch(self, comp);
+            if (n == out.len) pump(self);
+            return n != 0;
+        }
+
+        /// Wake the next park when `fd` reads ready, consuming nothing from
+        /// it. Each park arms the watch once and its completion disarms it,
+        /// so one event posts one completion and a descriptor that stays
+        /// readable posts no more until the next park.
+        pub fn watch(self: *Self, fd: i32) error{OutOfMemory}!void {
+            for (self.watches.items) |row| if (row.fd == fd) return;
+            try self.watches.append(self.allocator, .{ .fd = fd, .armed = false });
+        }
+
+        fn armWatches(self: *Self) void {
+            for (self.watches.items, 0..) |*row, index| {
+                if (row.armed) continue;
+                self.backend.submitPoll(userData(.watch, index), row.fd, .readable) catch |err| {
+                    latch(self, err);
+                    return;
+                };
+                row.armed = true;
+            }
+        }
+
+        /// Hand every armed operation to the kernel now. A backend that
+        /// submits as it arms makes this free.
+        pub fn submitQueued(self: *Self) void {
             self.backend.flush() catch |err| {
                 latch(self, err);
             };
         }
 
-        pub fn dispatch(self: *Self, comp: completion.Completion) void {
+        /// Start `conn`'s staged bytes at the next `beforeWait`, so every
+        /// batch of the turn leaves in one send. A message-framed connection
+        /// starts now: its batch is one packet, and the packet boundary is the
+        /// batch boundary.
+        pub fn queueSend(self: *Self, id: usize, conn: *Conn) void {
+            if (self.backend.wireFraming(conn.fd) == .message) return startSend(self, id, conn);
+            if (conn.send_queued or conn.sending or conn.close != .open) return;
+            if (conn.front.items.len == conn.sent and conn.back.items.len == 0) return;
+            self.send_queue.append(self.allocator, id) catch {
+                // The queue is the only allocation on this path; a refusal
+                // sends this batch alone rather than losing it.
+                return startSend(self, id, conn);
+            };
+            conn.send_queued = true;
+        }
+
+        pub fn dispatch(self: *Self, comp_in: completion.Completion) void {
+            var comp = comp_in;
             const id = idOf(comp.user_data);
-            switch (kindOf(comp.user_data)) {
-                .wake => {
-                    // A readiness poll consumes nothing: drain the nudge here,
-                    // so records still waiting need another.
-                    if (id == wake_poll) {
-                        self.wake_armed = false;
-                        self.wake_cancel_submitted = false;
-                        self.wake_nudged = false;
-                        if (comp.result >= 0) self.wake.drain() catch |err| latch(self, err);
-                    }
-                },
+            const kind = kindOf(comp.user_data);
+            // The backend reads ENOBUFS as an empty receive pool, since it
+            // cannot tell which operation completed. On any other operation
+            // it is the kernel short of socket memory, a failure with a cause.
+            if (comp.recv_no_buffer and kind != .recv) {
+                comp.recv_no_buffer = false;
+                comp.failure = error.SystemResources;
+            }
+            switch (kind) {
                 .connect => {
                     const dial = self.dials.getPtr(id) orelse return;
                     dial.inflight -= 1;
@@ -202,6 +320,15 @@ pub fn Machine(comptime Self: type) type {
                     retireIfQuiet(self, id, conn);
                 },
                 .listen_close => self.closing_listeners -= 1,
+                .watch => {
+                    const row = &self.watches.items[id];
+                    row.armed = false;
+                    // The runtime owns a watched descriptor for the
+                    // resident's whole life, so a watch that fails is a
+                    // wake the runtime would never get again.
+                    if (comp.result < 0) latch(self, comp.failure orelse error.WatchFailed);
+                    recycle(self, comp);
+                },
                 .listen_ready => {
                     self.listen_waits -= 1;
                     // A listener stopped during setup finds no row.
@@ -225,9 +352,12 @@ pub fn Machine(comptime Self: type) type {
                             self.backend.closeFd(acceptedFd(comp));
                         record(self, listener.route, resident_mod.ev_accept);
                     }
-                    armAccept(self, listener) catch |err| {
-                        latch(self, err);
-                    };
+                    // Past the unclaimed bound the listener waits for a
+                    // claim, which re-arms it (`finishAccept`).
+                    if (listener.accepted.items.len < Self.max_unclaimed_accepts)
+                        armAccept(self, listener) catch |err| {
+                            latch(self, err);
+                        };
                 },
             }
         }
@@ -298,27 +428,6 @@ pub fn Machine(comptime Self: type) type {
             self.records.append(self.allocator, .{ .subject = subject, .events = events }) catch {
                 latch(self, error.OutOfMemory);
             };
-        }
-
-        /// Keep the descriptor readable while records wait.
-        pub fn signalRecords(self: *Self) void {
-            if (self.records.items.len == 0 or self.wake_nudged) return;
-            armWake(self);
-            // A coalesced nudge already left the descriptor readable.
-            _ = self.wake.nudge() catch |err| {
-                latch(self, err);
-                return;
-            };
-            self.wake_nudged = true;
-        }
-
-        pub fn armWake(self: *Self) void {
-            if (self.wake_armed) return;
-            self.backend.submitPoll(userData(.wake, wake_poll), self.wake.read, .readable) catch |err| {
-                latch(self, err);
-                return;
-            };
-            self.wake_armed = true;
         }
     };
 }

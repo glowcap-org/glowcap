@@ -201,7 +201,7 @@ test "a closing byte-fed Host cannot transfer to a new driver" {
     );
     try std.testing.expect(loop == null);
 
-    // Failed native adoption returns the C drive token to the byte-fed owner.
+    // Failed Zig adoption returns the C drive token to the byte-fed owner.
     try expectOk(cd.glowcap_host_release(host));
 }
 

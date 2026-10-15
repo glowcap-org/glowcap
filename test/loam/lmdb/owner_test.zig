@@ -47,7 +47,8 @@ test "loam LMDB managed owner reopens indexes and recovers content grants and ev
             if (committed) {
                 try std.testing.expect(db.commit(batch) == .committed);
             } else {
-                var pending = try db.beginCommit(batch);
+                var pending = try db.beginWrite();
+                _ = try batch.apply(&pending);
                 pending.abort();
             }
             try store.completeWrite(ticket, .unknown);
@@ -147,7 +148,8 @@ test "loam LMDB composed managed changes reopen atomically after commit and unkn
                 try std.testing.expect(outcome == .committed);
                 try store.completeWrite(ticket, outcome);
             } else {
-                var pending = try db.beginCommit(batch);
+                var pending = try db.beginWrite();
+                _ = try batch.apply(&pending);
                 pending.abort();
                 try store.completeWrite(ticket, .unknown);
                 try store.resolve(ticket, try db.recover(try store.recoveryBatch()));
@@ -172,8 +174,10 @@ test "loam LMDB composed managed changes reopen atomically after commit and unkn
                 try f.require(&verify, &db, derived_grant, staged_message, req);
                 try std.testing.expectError(error.OutOfScope, f.require(&verify, &db, derived_grant, resource, req));
                 var grants = try verify.grantView();
-                try std.testing.expectEqual(@as(u32, 1), (try grants.get(issued_grant)).child_count);
-                try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), (try grants.get(issued_grant)).revision);
+                const issued = try grants.borrow(issued_grant);
+                try std.testing.expectEqual(@as(u32, 1), issued.child_count);
+                try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), issued.revision);
+                grants.release();
                 const event = try f.latestGrant(&verify, &db);
                 try std.testing.expectEqualDeep(verify.header.version, event.version);
                 try std.testing.expectEqual(derived_grant, event.grant);

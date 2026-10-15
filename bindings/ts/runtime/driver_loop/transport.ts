@@ -4,7 +4,7 @@ import type { LoopChannel } from "../session.ts";
 import type { DriverLoop } from "../driver_loop.ts";
 
 /** The loop-backed `Channel` a loop-minted `Session` rides: no byte verbs (the
- * native loop owns the wire), one closed event the serve promise and teardown
+ * driver loop owns the wire), one closed event the serve promise and teardown
  * share, and the `driverLoop` back-reference `Session`'s loop arms dispatch
  * on. */
 export class LoopTransport implements LoopChannel {
@@ -34,7 +34,7 @@ export class LoopTransport implements LoopChannel {
 
 	write(_data: Uint8Array): Promise<void> {
 		return Promise.reject(
-			new GlowcapError(INVALID_ARGUMENT, "the native loop owns this session's wire"),
+			new GlowcapError(INVALID_ARGUMENT, "the driver loop owns this session's wire"),
 		);
 	}
 

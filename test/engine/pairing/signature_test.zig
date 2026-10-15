@@ -39,7 +39,7 @@ test "a verifying peer aborts an op:start-session whose signature does not match
     defer allocator.free(signed);
     const sig = crypto.sign(&honest, signed);
 
-    try sender.sendCopying(.{ .start_session = .{
+    try sender.sendBorrowed(.{ .start_session = .{
         .captp_version = .v1_0,
         .session_pubkey = .{ .bytes = imposter.publicKey().asBytes() },
         .acceptable_location = loc,
@@ -218,7 +218,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     defer pair.deinit();
 
     // p1 calls the partner bootstrap, allocating answer 42 and a resolver export.
-    try pair.p1.sendCopying(.{ .deliver = .{
+    try pair.p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(42),
@@ -241,7 +241,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     // resolver-callback form), where the reason is a tagged record. glowcap
     // cannot *emit* this (its breaks are desc:error), so it is sent by hand.
     try pair.p2.session_state.registerImport(.from(resolver_export));
-    try pair.p2.sendCopying(.{ .deliver = .{
+    try pair.p2.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(resolver_export) } },
         .args = &.{ .{ .symbol = "break" }, .{ .tagged = .{ .tag = "exn:fail:mystery", .value = &.{} } } },
         .answer = null,
@@ -258,7 +258,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     var event = pair.p1.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-    const view = try event.view();
+    const view = event.view();
     try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
     try std.testing.expect(view.resolve.resolution == .@"break");
     try std.testing.expectEqualSlices(u8, "exn:fail:mystery", view.resolve.resolution.@"break".message);

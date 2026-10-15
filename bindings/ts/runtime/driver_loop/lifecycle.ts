@@ -54,7 +54,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 	 * unclaimed queue, and close the loop once the last application-owned
 	 * session is gone. Sessions already yielded (or dialed on this loop's
 	 * Host) remain open until their owners close them, as the byte-fed
-	 * server contract requires. Resolves at the eventual native release barrier. */
+	 * server contract requires. Resolves at the eventual FFI release barrier. */
 	requestClose(): Promise<void> {
 		if (this._terminalFailure != null) {
 			this._wrapper.drainParkedReleases();
@@ -92,7 +92,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 
 	/** Re-arm the loop's one clock from glowcap's complete pending-work
 	 * deadline. No operation kind is interpreted here: deadline policy and
-	 * arbitration stay native, while JavaScript owns only `setTimeout`. */
+	 * arbitration stay FFI, while JavaScript owns only `setTimeout`. */
 	protected _rearmProgressClock(): void {
 		this._progressTimer = clearProgressClock(this._progressTimer);
 		if (this._released || this._terminalFailure != null) return;
@@ -165,6 +165,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 			retireDriverLoopFinalizer(this, this._finalizerState);
 			this._h = NULL;
 			this._released = true;
+			this._runTeardownReleases();
 			for (const listener of [...this._listeners]) {
 				this._closingListeners.set(listener, loopClosedError());
 				this._finishListenerClose(listener, loopClosedError());
@@ -202,7 +203,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 	/** Release one loop-owned session through the loop's own verb, which also
 	 * drops queued events naming it. A no-op once the loop is released: the
 	 * loop's release freed its sessions itself. */
-	nativeSessionRelease(ptr: Ptr): void {
+	ffiSessionRelease(ptr: Ptr): void {
 		if (this._released || ptr === NULL) {
 			this._unclaimedSessions.delete(ptr);
 			return;
@@ -226,7 +227,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		return ptr === NULL ? null : ptr;
 	}
 
-	/** Close one loop-owned session under the shared native barrier, observing
+	/** Close one loop-owned session under the shared FFI barrier, observing
 	 * timeout before the public Session releases its opaque handle. */
 	closeSession(ptr: Ptr, options: CloseOptions = {}): Promise<void> {
 		if (this._terminalFailure != null) return Promise.reject(this._terminalFailure);
@@ -263,7 +264,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		return waiter.promise;
 	}
 
-	/** The deadline-stepper behind one session's native close barrier: a grace
+	/** The deadline-stepper behind one session's FFI close barrier: a grace
 	 * expiry takes effect only inside a step, so this driver steps on every
 	 * loop-activity or deadline wake until the session's lifecycle turns
 	 * terminal. Escalating repeats of `closeSession` share it. */

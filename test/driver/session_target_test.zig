@@ -43,7 +43,7 @@ const DropServingSession = struct {
     owned: *?*driver.Session,
     dropped: *std.atomic.Value(bool),
 
-    pub fn handle(self: *DropServingSession, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *DropServingSession, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = .{ ht, args };
         if (!std.mem.eql(u8, verb, "drop")) return error.NoSuchMethod;
         const session = self.owned.* orelse return error.SessionAlreadyDropped;
@@ -66,7 +66,7 @@ const SettlementFlag = struct {
 const CountLocal = struct {
     hits: *usize,
 
-    pub fn handle(self: *CountLocal, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+    pub fn handle(self: *CountLocal, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
         if (!std.mem.eql(u8, verb, "count")) return error.NoSuchMethod;
         self.hits.* += 1;
         return .{ .void = {} };

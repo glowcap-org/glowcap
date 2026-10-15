@@ -1,8 +1,13 @@
-# What ships today
+---
+type: living
+description: Everything glowcap implements and checks in this repository.
+sources: []
+---
 
-glowcap has no release yet, but everything on this page is implemented and
-checked in this repository. It speaks signed CapTP 1.0 over Syrup to outside
-implementations. The regular checks against
+# What ships
+
+Everything on this page is implemented and checked in this repository. glowcap speaks signed CapTP 1.0 over Syrup to
+outside implementations, and its regular checks against
 [Spritely Goblins](https://spritely.institute/goblins/) use the cleartext `tcp`
 testing adapter.
 
@@ -15,9 +20,9 @@ claim. If capabilities are new to you, [capabilities](capabilities.md) starts fr
 | ------------ | ---------------- |
 | Zig          | `driver.Session` connects or listens, fetches and publishes capabilities, calls them, and redeems three-party introductions. `driver.HostRuntime` owns the sessions behind that API. |
 | I/O-free Zig | `engine.Peer` exposes the protocol engine without sockets or scheduling. Callers feed frames, step the engine, drain output, and handle events. |
-| C            | Opaque handles, fixed-width result codes, explicit release, and separate archives for the core, Host, native loop, and transports. See [the C ABI](#the-c-abi) below. |
+| C            | Opaque handles, fixed-width result codes, explicit release, and separate archives for the core, Host, driver loop, and transports. See [the C ABI](#the-c-abi) below. |
 | Bindings     | Rust, TypeScript, Python, and Racket expose the same session and actor model through the C ABI. They can dial, listen, host objects, call far objects, and pass capabilities. |
-| Browser      | `@glowcap/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs, take sealed `noise-relay` cold dials, and hold a keyed session over WebRTC. |
+| Browser      | `@glowcap/web` runs a full peer in WebAssembly. A browser can host objects, answer calls, redeem handoffs, take sealed `noise-relay` cold dials, and dial or answer a keyed session over WebRTC. |
 
 The [Zig examples](../examples/README.md), [C guide](consuming-from-c.md), and [binding contract](../bindings/README.md)
 are the entry points for those surfaces.
@@ -38,7 +43,7 @@ listening, and events, over a Host it has adopted.
 
 - The TCP provider package handles `noise-tcp`, `keyed-tcp`, and the testing `tcp`. Other transports register
   through the same ABI.
-- The iroh provider dials and listens. Native Zig uses `iroh.MultiplexedAdapter` with `driver.connect` and
+- The iroh provider dials and listens. Zig uses `iroh.MultiplexedAdapter` with `driver.connect` and
   `driver.listen`.
 - The onion archive supplies the standard Tor transport. Zig and all four bindings host onion like any other
   provider, and only the onion package reads the Tor service key it stores.
@@ -63,7 +68,7 @@ listening, and events, over a Host it has adopted.
   two proved routes in order and keeps the first. `alt-locators` are weaker fallbacks tried one at a time.
   [Multi-home peers](https://jimisaacs.github.io/glowcap/multihome/) explains the design, and
   [known limitations](boundaries.md#protocol-and-interop) gives the rules.
-- **Distributed garbage collection.** Native Zig and all four bindings release Goblins objects independently and
+- **Distributed garbage collection.** Zig and all four bindings release Goblins objects independently and
   observe Goblins reclaim them. It is a per-session opt-in in every binding.
 - **Three-party handoff.** A capability from one peer can be passed on to another, recursively. Outbound gives wait
   as one bounded transaction and keep their place in the recipient's queue. The Deno, Python, Rust, and Racket
@@ -88,7 +93,18 @@ listening, and events, over a Host it has adopted.
   bounded. One partner's backpressure holds back only its own work
   ([ADR-0145](decisions/adr/ADR-0145-node-actions-park-per-recipient.md)). Every binding sets these limits through
   one versioned options value.
-- **Unreturned failures.** A failure with no caller left to receive it goes into a typed, bounded journal on the
+- **Busy-poll.** A Zig `HostRuntime` given a busy-poll window spins and reaps
+  its transports before it parks, so a reply that lands inside the window
+  costs no wake
+  ([ADR-0215](decisions/adr/ADR-0215-a-runtime-may-spin-before-it-parks.md)).
+- **One wake per reply on io_uring.** When every transport on a
+  `HostRuntime` has its own kernel queue, the idle thread waits inside the
+  first one's queue, and that queue also watches the other wake sources. A
+  reply then wakes the thread once instead of twice.
+  A receive set up again during a call goes out with the next wait, so a call
+  that only read its reply makes no system call as it returns
+  ([ADR-0220](decisions/adr/ADR-0220-a-receive-re-arm-waits-for-the-park.md)).
+- **Unreturned failures.** A failure with no caller left to receive it goes into a typed, bounded log on the
   `GlowcapContext` ([ADR-0115](decisions/adr/ADR-0115-structured-diagnostic-waist.md)).
 - **Close.** Every owner closes under an explicit policy: cancel now, or finish admitted work within a grace period
   ([ADR-0114](decisions/adr/ADR-0114-pending-work-close-policy.md)). This works on the Zig Host, the C ABI, the
@@ -99,6 +115,14 @@ The value model covers the pinned OCapN scalar and aggregate forms, including bi
 data, plus Goblins' Set and Keyword. An Error value stays distinct from a broken promise on every surface. OCapN Null
 is not implemented ([protocol limitations](boundaries.md#protocol-and-interop)).
 
+Zig, C, and every binding accept a typed array of 64-bit integers as a list,
+with the same wire meaning as individual integer values. A received array
+arrives as a list. Capability-free far sends borrow their values through
+encoding ([ADR-0246](decisions/adr/ADR-0246-a-deliver-of-values-leaves-as-the-caller-lends-it.md),
+[ADR-0247](decisions/adr/ADR-0247-a-caller-lends-a-typed-integer-run.md)).
+Served replies carrying no capability stay borrowed until the engine copies
+them for retention ([ADR-0249](decisions/adr/ADR-0249-served-replies-stay-views-until-retained.md)).
+
 ## Codecs
 
 | Codec       | Use |
@@ -108,7 +132,7 @@ is not implemented ([protocol limitations](boundaries.md#protocol-and-interop)).
 
 The OCapN 1.0 profile uses Syrup. Two glowcap peers can offer Cap'n Proto or `"glowcap-next"` in their hellos and
 settle on it ([ADR-0103](decisions/adr/ADR-0103-hello-carried-profile-offers.md)). A peer that makes no offer gets
-1.0 over Syrup, so Goblins traffic is unchanged. Every binding offers `native` and `interop` Host profiles. The
+1.0 over Syrup, so Goblins traffic is unchanged. Every binding offers `glowcap` and `interop` Host profiles. The
 `rust-dogfood`, `deno-dogfood`, `python-dogfood`, and `racket-dogfood` checks run each binding over a live
 Cap'n Proto socket. Zig applications can register another codec.
 
@@ -117,60 +141,64 @@ Cap'n Proto socket. Zig applications can register another codec.
 | Transport     | Use |
 | ------------- | --- |
 | `iroh`        | Encrypted QUIC with discovery, relays, and a node ID that also serves as the OCapN designator. |
-| `webrtc`      | An encrypted DataChannel reached through signaling, carrying a keyed OCapN session. |
+| `webrtc`      | An encrypted DataChannel reached through signaling, carrying a keyed OCapN session. Every binding dials it with `webrtc.provider(signaling)` and listens with `webrtc.listen` (`listen-webrtc` in Racket). A browser dials with `connector` and listens with `listener` over its own peer connection. |
 | `noise-tcp`   | TCP sealed with Noise_XK between the two peers. Completing the handshake proves the dialed key ([ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)). |
-| `noise-relay` | A relay pipe sealed the same way. The relay only forwards ciphertext. Browsers and every native binding can listen and dial. |
+| `noise-relay` | A relay pipe sealed the same way. The relay only forwards ciphertext. Browsers and every binding that loads the C library can listen and dial. |
 | `onion`       | The standard OCapN Tor netlayer. Tor proves the service to the dialer but reveals no caller identity to the listener. |
 | `keyed-tcp`   | TCP with a key designator as the dial target. Cleartext and unauthenticated. |
 | `keyed-relay` | Cleartext WebSocket to a relay, for a peer with no listening address. Trusted network and relay only. |
 | `tcp`         | Cleartext testing path, with a host:port designator. |
 | `inproc`      | An in-process connection for tests and deterministic local scenarios. |
 
-Goblins ships `onion`. Live Goblins also meets glowcap over `tcp` and `iroh` through adapters in
-`conformance/goblins-peer/`. The live Tor checks are `onion-interop`, `goblins-onion`, `ocapn-conformance-onion`,
-`bindings-onion`, and `demo-rooms-onion`.
+[Community review](community-review.md) lists which transports meet live Goblins.
 
-A relay locator can carry its own `rendezvous-relay` route. Native WebRTC accepts ICE server records, including
+A relay locator can carry its own `rendezvous-relay` route. The Rust WebRTC stack accepts ICE server records, including
 TURN credentials. The relay forwards bytes without parsing CapTP or holding a capability.
 
-The TCP completion loop has held 500,000 signed sessions over plain TCP in one process, across 32 Hosts sharing one
-identity, each with a completed handshake and a fetched capability. [The ladder](ladder.md#2-performance-at-scale)
-records the setup. That run used io_uring. On Linux the loop falls back to epoll when io_uring is unavailable, and
-`net.tcpBackendStatus` reports which one it chose.
+On Linux the TCP completion loop uses io_uring and falls back to epoll, and `net.tcpBackendStatus` reports which one
+it chose. [Benchmarks](../bench/README.md) records the largest session run.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares their security and reachability.
 
 ## Resource models
 
 [Loam](loam.md) is glowcap's storage layer: immutable collections, checksummed records with typed edges, and
-transactions over an in-memory backend or LMDB.
+transactions over SQLite, LMDB, or an in-memory engine.
 
 - **Transactions** update several records atomically. A change made from stale data is refused.
 - **Sleepy actors** keep their state in a record, load when a message arrives, and reply only after their change
   commits. Saved fields can hold references to other actors, attachments, and remote objects
   ([references](loam/references.md)).
 - **Storage work** runs on your threads. `hosting.Worker` carries an attachment's reads and commits to the backend,
-  and the C work handles are its slots ([API](loam/api.md#host-attachment-and-sleepy-actors)).
+  and the C work handles are its slots ([API](loam/api.md#host-attachment-and-durable-actors)).
 - **Durable names** let peers fetch an actor after a restart. Only the fetched actor wakes
   ([publications](loam/publications.md)).
 - **Collection** removes unreachable records in bounded batches while the program runs
   ([collection](loam/collection.md)).
-- **LMDB maintenance** grows the map within a budget and compacts offline ([LMDB operations](loam/lmdb.md)).
-- **Crash tests** kill the process before and after commit and check what a fresh process finds. They do not cover
-  power loss.
-- **C and Rust** (`libglowcap_loam`, `libglowcap_loam_lmdb`, and Rust's `loam` feature) create, share, edit, and
+- **SQLite** is the default disk engine. It runs the same storage tests and crash tests from Zig, grows its capacity,
+  and compacts in place ([SQLite operations](loam/sqlite.md)). It opens from C and Rust through `libglowcap_loam_sqlite`.
+- **LMDB** returns failed disk reads as errors, grows its size limit within a budget, and compacts offline.
+  When a commit's result is unknown, the store refuses other work until recovery finds out ([LMDB operations](loam/lmdb.md)).
+- **The in-memory engine** opens from C and Rust through `libglowcap_loam_volatile`, with no path and a lock around
+  each engine call. Its transactions admit multiple readers or one exclusive writer, preserving borrowed rows
+  ([in-memory operations](loam/volatile.md)).
+- **Storage failure tests** kill processes around commit and, on Linux, inject write and sync errors into both disk
+  engines before checking a fresh process. They also fail reads and cut data files short. They do not cover power loss ([stability](stability.md)).
+- **C and Rust** (`libglowcap_loam`, `libglowcap_loam_sqlite`, `libglowcap_loam_lmdb`, `libglowcap_loam_volatile`, and Rust's `loam` feature) create, share, edit, and
   restore a resource ([guide](loam/c-and-rust.md)). The [browser profile](loam/browser.md) does the same on
   IndexedDB.
-- **`bench-loam`** measures LMDB workloads, and a small version runs under `check`
-  ([method](../bench/loam/README.md)).
+- **`bench-loam`** measures LMDB workloads, including cold reads over a million
+  resources, and the Tasks app on each disk engine, and a small version runs under `check`
+  ([method](../bench/loam/README.md)). `profile-loam` attributes each marked
+  phase under callgrind ([profiles](../bench/README.md)).
 
-Rooms stores its managed session through Loam on LMDB and IndexedDB. The [session guide](rooms/session.md) owns that
+Rooms stores its managed session through Loam on SQLite and IndexedDB. The [session guide](rooms/session.md) owns that
 contract.
 
 ### Managed access
 
 Loam supplies separate use and control capabilities, scoped policy, durable issuance with exact recovery, and paged
-management and observation. The [managed access coverage](loam/coverage.md) records the implementation and proofs.
+management and observation. The [managed access coverage](loam/coverage.md) maps each surface to its tests.
 [Known limitations](boundaries.md#managed-access) lists what remains.
 
 ## Actors and hosting
@@ -192,9 +220,10 @@ so a peer with no listening socket can still reply and take part in a handoff.
   an MCP interface, and join a Rooms session ([CLI guide](cli.md)).
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
 - The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions. Members hold rooms
-  and direct messages with files over WebRTC, the Noise-sealed relay, iroh, and TCP. Directories peer, IRC works in
-  both directions, and operator capabilities can be revoked. [What Rooms ships](../apps/rooms/shipped.md) has the
-  details.
+  and direct messages with files over WebRTC, the Noise-sealed relay, iroh, and TCP. A session process started with
+  `--dial-transports=webrtc` and a WebRTC member reach each other directly, signaling through a room they share.
+  Directories peer, IRC works in both directions, and operator capabilities can be revoked.
+  [What Rooms ships](../apps/rooms/shipped.md) has the details.
 - ocapnviz opens a read-only trace sturdyref as a browser peer and shows replay and live events
   ([ADR-0120](decisions/adr/ADR-0120-trace-endpoint-capability-admission.md)).
 - The accountability example adds signed identity and an audit log above ordinary capabilities without changing
@@ -204,6 +233,5 @@ The [examples](../examples/README.md) and [apps](../apps/README.md) pages list t
 
 ## What checks it
 
-[Stability](stability.md) says which checks run on `main` and `dev` pushes and
-pull requests, and what each one does not prove.
+[Stability](stability.md) says which checks recur, and what each one does not prove.
 [Community review](community-review.md) is the outside-peer matrix.

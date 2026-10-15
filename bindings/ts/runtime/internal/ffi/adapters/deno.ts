@@ -1,15 +1,15 @@
 // Internal: the Deno runtime adapter.
 //
 // Deno's FFI (`Deno.dlopen`, `Deno.UnsafePointer`, `Deno.UnsafePointerView`,
-// `Deno.UnsafeCallback`) and its native sockets (`Deno.connect`/`Deno.listen`)
+// `Deno.UnsafeCallback`) and its sockets (`Deno.connect`/`Deno.listen`)
 // implement the runtime seams declared in `../runtime.ts`. Pointers cross the
 // seam as `bigint`; the shared spine in `ptr_wrap.ts` converts to and from
 // Deno's opaque `PointerValue` at each call so the layers above hold one
 // representation.
 
 import type {
-	NativeCallback,
-	NativeType,
+	FfiCallback,
+	FfiType,
 	NetConn,
 	NetListener,
 	Ptr,
@@ -26,7 +26,7 @@ import { type PtrBridge, wrapCallbackFn, wrapSymbols } from "./ptr_wrap.ts";
 const D = (globalThis as any).Deno;
 
 // Deno's FFI type names match our vocabulary one for one.
-function denoType(t: NativeType): Deno.NativeType {
+function denoType(t: FfiType): Deno.NativeType {
 	return t as Deno.NativeType;
 }
 
@@ -60,7 +60,7 @@ const ffi: RuntimeFfi = {
 	makeCallback(
 		def: SymbolDef,
 		fn: (...args: unknown[]) => unknown,
-	): NativeCallback {
+	): FfiCallback {
 		const cb = new D.UnsafeCallback(denoDef(def), wrapCallbackFn(def, fn, bridge));
 		return {
 			pointer: bridge.toPtr(cb.pointer),
@@ -78,8 +78,8 @@ const ffi: RuntimeFfi = {
 
 	readMemory(ptr: Ptr, len: number): ArrayBuffer {
 		if (ptr === 0n || len === 0) return new ArrayBuffer(0);
-		// One copy, straight from native memory into a buffer this side owns.
-		// `getArrayBuffer` would hand back a live view over the native bytes
+		// One copy, straight from FFI memory into a buffer this side owns.
+		// `getArrayBuffer` would hand back a live view over the FFI bytes
 		// (as `writeMemory` below relies on), so a copy is what makes the
 		// result safe to keep past the call that lent the pointer.
 		const owned = new Uint8Array(len);
@@ -89,7 +89,7 @@ const ffi: RuntimeFfi = {
 
 	writeMemory(ptr: Ptr, bytes: Uint8Array): void {
 		if (ptr === 0n || bytes.length === 0) return;
-		// getArrayBuffer here is a live view over the native memory, so writing
+		// getArrayBuffer here is a live view over the FFI memory, so writing
 		// through it writes the pointer's bytes directly.
 		const view = new D.UnsafePointerView(bridge.fromPtr(ptr));
 		new Uint8Array(view.getArrayBuffer(bytes.length) as ArrayBuffer).set(bytes);

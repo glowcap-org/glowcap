@@ -62,7 +62,7 @@ pub const ObservationRecord = struct {
             result.target = try fields.readId(core.ResourceId, bytes, &cursor);
             if (result.target.?.generation == 0) return error.InvalidRecord;
         }
-        const key = try s.readBytesLimited(bytes, &cursor, bytes.len);
+        const key = try s.readBytes(bytes, &cursor);
         if (key.len != result.key.len) return error.InvalidRecord;
         result.key = key[0..32].*;
         result.started = try s.readPositiveInt(bytes, &cursor);

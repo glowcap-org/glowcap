@@ -4,7 +4,7 @@ use crate::sys;
 use crate::sys::host::GlowcapCloseOptions;
 use crate::{Error, Result};
 
-/// Whether a final native release crossed its ownership boundary. Host and
+/// Whether a final FFI release crossed its ownership boundary. Host and
 /// driver release share one pre-commit refusal: INVALID_ARGUMENT. Every other
 /// status is a teardown outcome and names an already-consumed handle.
 pub(crate) fn release_consumed(code: i32) -> bool {
@@ -69,7 +69,7 @@ mod tests {
 			grace: Some(Duration::from_millis(u64::from(sys::CLOSE_MAX_GRACE_MS))),
 		}
 		.to_ffi()
-		.expect("the native maximum is representable");
+		.expect("the FFI maximum is representable");
 		assert_eq!(maximum.grace_ms, sys::CLOSE_MAX_GRACE_MS);
 
 		let above = PendingWork::Finish {

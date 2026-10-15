@@ -6,24 +6,24 @@
 .draft = false,
 ---
 
-This page explains how capabilities work. [Why OCapN]($link.page('why'))
-explains why they matter, and [modules]($link.page('modules')) shows where
+A capability is a reference you can call. [Why OCapN]($link.page('why'))
+explains why that matters, and [modules]($link.page('modules')) shows where
 `Session`, `Host`, and `Peer` fit.
 
 # A capability is a reference
 
-Code that holds a
-reference to an object can call it. Code that was never handed one cannot,
-and there is no way to manufacture one from bytes.
+Code that holds a reference to an object can call it. Code that was never
+handed one cannot, and there is no way to manufacture one from bytes.
 [CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/) is the protocol that keeps
 this true between two programs on a network.
 [OCapN](https://github.com/ocapn/ocapn) is its standardization.
-[Spritely Goblins](https://spritely.institute/goblins/) is the implementation
-most readers already know, and the peer glowcap checks against.
+[Spritely Goblins](https://spritely.institute/goblins/) is an implementation
+of it, and the peer glowcap checks against.
 
 Most permission features turn out to be ways of passing references around.
-Hand one along and you have delegated. Wrap one in an object that only forwards some methods, hand out
-the wrapper, and you have attenuated. Cut the wrapper and you have revoked.
+Hand one along and you have delegated. Wrap one in an object that forwards
+only some methods, hand out the wrapper, and you have attenuated. Cut the
+wrapper and you have revoked.
 [Why OCapN]($link.page('why')) walks all three with pictures.
 
 [A capability is a reference. Pass it as an argument and the partner can call it. Without it there is nothing else to reach for.]($image.siteAsset('diagram-capability.svg'))
@@ -47,7 +47,7 @@ The **designator** names the peer: an iroh node id, a public key for Noise
 and keyed transports, a Tor service id, or a `host:port` for testing-only
 `tcp`. Optional `?key=value` **hints** carry routing help, like the socket
 address for a keyed listener. Hints can only help you reach a peer. They
-carry no authority of their own.
+give no access of their own.
 
 Dialing a locator opens a session. The **bootstrap object** is the one
 capability available at first. You fetch a published name from it and get
@@ -68,9 +68,9 @@ answers every session, so an introduction can hand it to a third peer. When
 both use the same name, the partner gets the one its own session published.
 
 A sturdyref still works after a restart only if the peer comes back with the
-same identity and can still answer for that swiss number. The standard
-`Host`'s default bootstrap registry lives only as long as the process, so on
-its own the application must register every name again.
+same identity and can still answer for that swiss number. A plain `Host`
+forgets its published names when the process exits, so the application
+publishes them again when it starts.
 [Loam]($link.page('loam')), glowcap's storage layer, keeps objects and their
 names on disk, and restores an object when a peer fetches its name.
 
@@ -78,9 +78,9 @@ names on disk, and restores an object when a peer fetches its name.
 | --- | --- |
 | locator | A peer address, and how to dial it. |
 | swiss number | The secret name of one object at that peer. |
-| live reference | Session authority you can call *now*. |
+| live reference | A reference you hold in a session and can call. |
 
-[Everything left of the hints is an address, and none of it is authority. Only the swiss number names something you can be given.]($image.siteAsset('diagram-locator.svg'))
+[Everything left of the hints is an address, and none of it grants access. Only the swiss number names something you can be given.]($image.siteAsset('diagram-locator.svg'))
 
 > **Swiss number**: holding the string *is* the permission. There is no
 > permission list and no login. The name comes from the numbered Swiss bank
@@ -123,9 +123,9 @@ The handoff runs in four stages:
 
 In glowcap you never handle the gift bytes. When a call's answer is an
 introduction, glowcap redeems it for you, and the call you were already
-waiting on settles as the introduced capability. In the Rooms chat, the
-**Message** button is this kind of introduction: the room hands you a live
-reference to the other member.
+waiting on settles as the introduced capability. In the Rooms chat,
+**Message *name* directly** is this kind of introduction: the room hands you a
+live reference to the other member.
 
 Chapter 02,
 [introduce and redeem](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig),
@@ -133,9 +133,10 @@ runs the whole exchange, and the
 [handoffs](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/06-handoffs.md)
 diagrams draw it.
 
-# Which dialect answers
+# Agreeing on a version and codec
 
-Two peers have to agree on a CapTP **version** and a **codec** first. Each side
+Two peers have to agree on a CapTP **version** and a **codec** first. Together
+those are the session's **dialect**. Each side
 has a ranked menu, both apply the same rule to the two menus, and the most
 preferred shared entry wins. If the menus share nothing, no session opens. The
 menus never cross the wire: each side sends a signed hello naming the version
@@ -147,12 +148,12 @@ of writing the same message down. Session logic never changes with the codec.
 
 [Both peers run the same rule over the two menus and reach the same pick.]($image.siteAsset('diagram-negotiation.svg'))
 
-[The dialect depends on who answers: the canonical floor against Goblins, glowcap's own profile between two glowcap peers.]($image.siteAsset('diagram-dialects.svg'))
+[The dialect depends on who answers: the standard baseline against Goblins, glowcap's own choices between two glowcap peers.]($image.siteAsset('diagram-dialects.svg'))
 
 With a Goblins peer, the choice is CapTP 1.0 over Syrup, the shared baseline
 for interop. If glowcap and Goblins disagree there, glowcap treats it as a
-glowcap bug. Two glowcap peers can negotiate up to `glowcap-next`, glowcap's
-own trial profile, usually with Cap'n Proto.
+glowcap bug. Two glowcap peers can negotiate up to `glowcap-next`, an
+experimental CapTP version of glowcap's own, usually with Cap'n Proto.
 [What a CapTP 1.0 peer sees]($link.page('protocol')) lists the one place
 application code can tell them apart.
 

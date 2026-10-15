@@ -39,7 +39,7 @@ const Widget = harness.StaticReplyBehavior("poke", poked);
 const Introducer = struct {
     widget: driver.Capability,
 
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = ht;
         _ = args;
         if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
@@ -55,6 +55,7 @@ const Endpoint = struct {
 
     fn init(self: *Endpoint, io: std.Io, allocator: std.mem.Allocator, seed: ?*const [32]u8) !void {
         self.endpoint = try iroh.Resident.init(io, seed, .{ .reachability = .local_discovery });
+        // best-effort: this unwind returns the adapter's init error, and a failed endpoint close would only mask it.
         errdefer self.endpoint.deinit() catch {};
         self.adapter = try iroh.MultiplexedAdapter.init(allocator, &self.endpoint);
     }

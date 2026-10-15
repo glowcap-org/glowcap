@@ -22,7 +22,7 @@ pub fn checkDriverEventFailureProjection(
     const paths = [_][]const u8{
         "bindings/rust/src/driver_loop.rs",
         "bindings/rust/src/driver_loop/close.rs",
-        "bindings/rust/src/driver_loop/native.rs",
+        "bindings/rust/src/driver_loop/ffi.rs",
         "bindings/rust/src/driver_loop/progress.rs",
         "bindings/rust/src/driver_loop/provider.rs",
         "bindings/rust/src/driver_loop/sessions.rs",

@@ -63,6 +63,56 @@ class _WebrtcIceServer(ctypes.Structure):
 pin_struct(_WebrtcIceServer, "GLOWCAP_WEBRTC_ICE_SERVER")
 
 
+# The signaling callbacks a netlayer calls while it runs an exchange for the
+# driver. Each runs on the thread that steps the driver and returns at once.
+_WebrtcSendOfferFn = ctypes.CFUNCTYPE(
+    ctypes.c_int32,
+    ctypes.c_void_p,
+    ctypes.c_uint64,
+    ctypes.POINTER(ctypes.c_uint8),
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.c_uint8),
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.c_uint8),
+    ctypes.c_size_t,
+)
+_WebrtcSendAnswerFn = ctypes.CFUNCTYPE(
+    ctypes.c_int32,
+    ctypes.c_void_p,
+    ctypes.c_uint64,
+    ctypes.POINTER(ctypes.c_uint8),
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.c_uint8),
+    ctypes.c_size_t,
+)
+_WebrtcSendCandidateFn = ctypes.CFUNCTYPE(
+    ctypes.c_int32,
+    ctypes.c_void_p,
+    ctypes.c_uint64,
+    ctypes.POINTER(ctypes.c_uint8),
+    ctypes.c_size_t,
+)
+_WebrtcExchangeDoneFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint64)
+
+
+class _WebrtcSignaling(ctypes.Structure):
+    """How the application carries signaling for the exchanges a netlayer
+    runs on the driver's behalf. See the header's ``GlowcapWebrtcSignaling``.
+    ``send_offer`` lets it dial and ``send_answer`` lets it accept. All zero
+    means the netlayer runs no exchange."""
+
+    _fields_ = [
+        ("ctx", ctypes.c_void_p),
+        ("send_offer", _WebrtcSendOfferFn),
+        ("send_answer", _WebrtcSendAnswerFn),
+        ("send_candidate", _WebrtcSendCandidateFn),
+        ("done", _WebrtcExchangeDoneFn),
+    ]
+
+
+pin_struct(_WebrtcSignaling, "GLOWCAP_WEBRTC_SIGNALING")
+
+
 class _WebrtcConfig(ctypes.Structure):
     """One WebRTC endpoint's configuration. See the header's
     ``GlowcapWebrtcConfig`` for what each setting means. Zero-initialized by
@@ -73,6 +123,7 @@ class _WebrtcConfig(ctypes.Structure):
         ("ice_server_count", ctypes.c_size_t),
         ("include_loopback_candidates", ctypes.c_uint32),
         ("worker_threads", ctypes.c_uint32),
+        ("signaling", _WebrtcSignaling),
     ]
 
 

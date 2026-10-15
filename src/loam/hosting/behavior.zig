@@ -29,12 +29,13 @@ pub const Call = struct {
     /// immutable input owner, never to an application callback.
     pub const Intent = struct { verb: []const u8, args: []const driver.Value };
     pub const Memory = @import("call_memory.zig").Memory;
+    pub const max_refusal_bytes = 1024;
     /// Each acquisition may grow held custody and allocate a one-element Host
     /// retain spine, even when it acquires the same capability again.
     pub fn heldAllocationBound(occurrences: usize) !@import("call_memory.zig").AllocationBound {
         var bound: @import("call_memory.zig").AllocationBound = .{};
         try bound.includeArrayGrowth(driver.Capability, occurrences);
-        try bound.include(@sizeOf(driver.Host.StagedCapabilityRetain), @alignOf(driver.Host.StagedCapabilityRetain), occurrences);
+        try bound.include(@sizeOf(driver.Capability), @alignOf(driver.Capability), occurrences);
         return bound;
     }
     memory: *Memory,
@@ -87,7 +88,7 @@ pub const Call = struct {
 
     pub fn refuseCopying(self: *Call, reason: []const u8) !void {
         if (self.refusal != null) return error.WrongPhase;
-        if (reason.len == 0 or reason.len > 1024 or !std.unicode.utf8ValidateSlice(reason)) return error.InvalidArgument;
+        if (reason.len == 0 or reason.len > max_refusal_bytes or !std.unicode.utf8ValidateSlice(reason)) return error.InvalidArgument;
         self.refusal = try self.arena().dupe(u8, reason);
     }
     pub const Transaction = struct {
@@ -136,12 +137,7 @@ pub const Call = struct {
     /// the same authority contract as `edge`: a strong edge carries its saved
     /// exact authority, a weak edge retains nothing and is refused.
     pub fn storedEdge(self: *Call, view: core.RecordView, index: usize) !driver.Capability {
-        if (index >= view.edge_count) return error.NoSuchEdge;
-        var edges = view.edges();
-        var current: usize = 0;
-        const target = while (edges.next()) |item| : (current += 1) {
-            if (current == index) break item;
-        } else unreachable;
+        const target = try view.edgeAt(index);
         if (target.strength != .strong) return error.NotDurable;
         if (target.restoration == .recipe) {
             const working = self.references orelse return error.ReferenceUnprepared;

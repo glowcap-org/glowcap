@@ -15,6 +15,7 @@
 //! that never fetches a foreign capability pays nothing.
 
 const model = @import("model");
+const session = @import("session");
 const services_mod = @import("node_services.zig");
 const NodeServices = services_mod.NodeServices;
 
@@ -23,18 +24,21 @@ const NodeServices = services_mod.NodeServices;
 /// hook (`Node.lowerForConn`) and propagated out of the failed `Peer.send`.
 /// Lower every reference an outbound `message` carries to its wire form on the
 /// lowering's connection, in place. The message is owned by the caller (the peer
-/// about to enqueue it), so the walk rewrites its references directly. The
-/// `@constCast`s reach into that owned argument heap,
-/// never into borrowed wire bytes. A `RouteNotLowerable` from any position aborts
+/// about to enqueue it), so the pass rewrites its references directly through
+/// the slots its inventory lists. A `RouteNotLowerable` from any position aborts
 /// the whole send and leaves the caller to free the message.
-pub fn lowerMessage(services: NodeServices, message: *model.Message) services_mod.LoweringError!void {
+pub fn lowerMessage(
+    services: NodeServices,
+    message: *model.Message,
+    inventory: session.Inventory,
+) services_mod.LoweringError!void {
     switch (message.*) {
         .deliver => |*deliver| {
             deliver.target = try services.lower(deliver.target);
             if (deliver.resolve_me_desc) |desc| deliver.resolve_me_desc = try services.lower(desc);
-            try lowerArguments(services, deliver.args);
+            try lowerSlots(services, inventory, null);
         },
-        .resolve => |*resolve| try lowerResolution(services, &resolve.resolution),
+        .resolve => |*resolve| try lowerResolution(services, &resolve.resolution, inventory),
         .listen => |*listen| {
             listen.target = try services.lower(listen.target);
             listen.listener = try services.lower(listen.listener);
@@ -47,31 +51,30 @@ pub fn lowerMessage(services: NodeServices, message: *model.Message) services_mo
     }
 }
 
-/// Lower a bare owned resolution in place, the same walk `lowerMessage` runs on
-/// a resolve's payload. `pub` for the one outbound path that bypasses `send`'s
-/// chokepoint: a relayed resolution recorded by `Peer.applyRelayedResolution`
-/// (ADR-0009), whose stored value later reaches the wire through the fire
-/// carriers.
-pub fn lowerResolution(services: NodeServices, resolution: *model.Resolution) services_mod.LoweringError!void {
-    switch (resolution.*) {
-        .fulfill => |*arg| try lowerArgument(services, arg),
-        .@"break" => {},
-    }
+/// Lower a bare owned resolution in place, the same pass `lowerMessage` runs on
+/// a resolve's payload. `pub` for the outbound paths that bypass `send`'s
+/// chokepoint: an answer settlement, and a relayed resolution recorded by
+/// `Peer.applyRelayedResolution` (ADR-0009), whose stored value later reaches
+/// the wire through the fire carriers.
+pub fn lowerResolution(
+    services: NodeServices,
+    resolution: *model.Resolution,
+    inventory: session.Inventory,
+) services_mod.LoweringError!void {
+    const root: ?*model.Argument = if (resolution.* == .fulfill) &resolution.fulfill else null;
+    try lowerSlots(services, inventory, root);
 }
 
-fn lowerArguments(services: NodeServices, args: []const model.Argument) services_mod.LoweringError!void {
-    for (@constCast(args)) |*arg| try lowerArgument(services, arg);
-}
-
-fn lowerArgument(services: NodeServices, arg: *model.Argument) services_mod.LoweringError!void {
-    switch (arg.*) {
-        .reference => |reference| arg.* = .{ .reference = try services.lower(reference) },
-        .list => |items| try lowerArguments(services, items),
-        .set => |items| try lowerArguments(services, items),
-        .tagged => |tagged| try lowerArguments(services, tagged.value),
-        .@"struct" => |entries| for (@constCast(entries)) |*entry| try lowerArgument(services, &entry.value),
+fn lowerSlots(
+    services: NodeServices,
+    inventory: session.Inventory,
+    root: ?*model.Argument,
+) services_mod.LoweringError!void {
+    for (inventory.slots) |slot| {
+        const argument = slot.at(root);
         // Handoff records carry their own typed certificate fields rather than
-        // semantic `Reference` values; every other arm is POD or bytes.
-        else => {},
+        // semantic `Reference` values, and a set is revisited only for its
+        // uniqueness.
+        if (argument.* == .reference) argument.* = .{ .reference = try services.lower(argument.reference) };
     }
 }

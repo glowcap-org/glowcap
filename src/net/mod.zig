@@ -13,14 +13,14 @@
 //! reads and writes one outer-framed codec frame at a time. Any transport that
 //! can provide those interfaces can drive a peer here: TCP, TLS or Unix streams
 //! over `std.Io`, or an in-memory pipe. The residents live under `transport/`.
-//! `tcp` owns the native provider and its plain, keyed, and Noise profiles, not
-//! a requirement of the protocol core.
+//! `tcp` is one such resident, not a requirement of the protocol core.
 //!
 //! A transport that is not a blocking `std.Io` stream, such as a callback or
-//! datagram API, can drive the peer directly through
-//! `engine.Peer.recvStreamPrefix` and `takeOutbound`. That is also how a language
-//! binding runs a Host session over its own async sockets through the byte-fed
-//! C Host ABI.
+//! datagram API, drives the peer directly: `frame_stream.drainWholeFrames` for
+//! enveloped byte chunks, `engine.Peer.recvPacket` for a transport that keeps
+//! message boundaries, and `takeOutbound` for what to write. That is also how
+//! a language binding runs a Host session over its own async sockets through
+//! the byte-fed C Host ABI.
 //!
 //! ## High-fan-out completion loop
 //!
@@ -56,10 +56,14 @@ pub const spill_retain_bytes = frame_stream.spill_retain_bytes;
 /// Fill a spill from a `std.Io.Reader`, the reader-shaped half of
 /// `Spill.absorbBytes` that `foundation` cannot hold because it is core.
 pub const absorbFrom = frame_stream.absorbFrom;
-/// The resumable frame-boundary scan `readFrameFrom` carries between reads, so
-/// a frame arriving in pieces is walked once rather than once per read.
-pub const StreamScan = codec.framing.StreamScan;
 pub const readFrameFrom = frame_stream.readFrameFrom;
+/// The stream door a readiness or completion loop drives: apply every whole
+/// envelope in a chunk to a peer and park the partial tail in the spill.
+pub const drainWholeFrames = frame_stream.drainWholeFrames;
+pub const DrainVerdict = frame_stream.DrainVerdict;
+/// One envelope off a borrowed prefix, for a caller that keeps its own buffer.
+pub const recvOuterPrefix = frame_stream.recvOuterPrefix;
+pub const RecvStream = frame_stream.RecvStream;
 pub const writeFrameTo = frame_stream.writeFrameTo;
 pub const writeFrameBytes = frame_stream.writeFrameBytes;
 pub const appendFrameBytes = frame_stream.appendFrameBytes;
@@ -83,7 +87,7 @@ pub const tls = struct {
     pub const transform = @import("tls/transform.zig");
 };
 
-/// The native TCP transport provider and its `plain`, `keyed`, and `noise`
+/// The Zig TCP transport provider and its `plain`, `keyed`, and `noise`
 /// profiles. The namespace owns their shared socket realization and fixed
 /// provider composition. Drivers consume it without enumerating the profiles.
 pub const tcp = @import("transport/tcp.zig");
@@ -99,6 +103,9 @@ pub const onion = @import("transport/onion/mod.zig");
 /// gathered behind one name so a resident never reaches into `completion/` or a
 /// sibling for it. See `socket.zig`.
 pub const socket = @import("socket.zig");
+/// Nonblocking socket calls behind the TCP completion backend, one body per
+/// OS, for a bench or probe that drives a socket without a loop above it.
+pub const socket_tcp = @import("completion/socket_tcp.zig");
 
 /// Short-critical-section spin-lock for adapter-level synchronization. The
 /// sans-io core bans `std.atomic`. Net and transport C-ABI adapters share this
@@ -168,6 +175,7 @@ pub const stream_shim = @import("stream_shim.zig");
 /// `model`. This is only its I/O realization.
 pub const netlayer = @import("netlayer.zig");
 pub const OperationOptions = netlayer.OperationOptions;
+pub const DialOrigin = netlayer.DialOrigin;
 
 /// The multiplexed-resident contract (ADR-0112): a transport that multiplexes
 /// its connections behind one readiness descriptor, the iroh and WebRTC
@@ -242,7 +250,7 @@ else
 /// per-OS backend selection. The OCapN conformance harness does exactly that
 /// (`conformance/ocapn-conformance/glowcap_peer.zig`), binding a locator whose
 /// address lives in the locator hints. `Backend.initWithListenerIp4` selects a
-/// native listener interface before the value is moved into `TcpLoop`. The
+/// Zig listener interface before the value is moved into `TcpLoop`. The
 /// ordinary constructor defaults to loopback. An empty struct off
 /// the supported platforms.
 pub const Backend = if (@import("builtin").os.tag == .linux)
@@ -252,7 +260,7 @@ else if (@import("builtin").os.tag.isDarwin())
 else
     struct {};
 
-/// Linux completion implementation chosen for a concrete native loop,
+/// Linux completion implementation chosen for a concrete Zig loop,
 /// including the exact reason epoll replaced the preferred io_uring backend.
 /// The TCP, onion, keyed-relay, Noise, and iroh loop backends all preserve this
 /// status through their adapter layers. Applications decide how to present it.
@@ -284,7 +292,7 @@ fn emptyTcpBackendStatus(_: anytype) TcpBackendStatus {
     return .{};
 }
 
-/// The host platform backend wrapped with native onion dials and onion-service
+/// The host platform backend wrapped with Zig onion dials and onion-service
 /// publication (ADR-0108). Construct `Backend`, move it into
 /// `OnionBackend.initOnion` with the deployment's Tor endpoints, then pass the
 /// result to `OnionLoop.initWithBackend`.
@@ -300,14 +308,14 @@ pub const OnionDialResolver = if (@import("builtin").os.tag == .linux or @import
 else
     struct {};
 
-/// The ready-to-use native onion completion loop. Tor conversations stay in
+/// The ready-to-use Zig onion completion loop. Tor conversations stay in
 /// `OnionBackend`. `completion.Loop` remains transport-blind.
 pub const OnionLoop = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
     completion.Loop(OnionBackend, OnionDialResolver)
 else
     struct {};
 
-/// The host platform backend wrapped with native keyed-relay outbound dials.
+/// The host platform backend wrapped with Zig keyed-relay outbound dials.
 /// TCP accept/dial still ride the platform backend directly. `keyed-relay`
 /// dials are evented WebSocket client legs to a configured relay. Use
 /// `initWithBackend` with `relay.CompletionBackend(Backend).initWithRelay`

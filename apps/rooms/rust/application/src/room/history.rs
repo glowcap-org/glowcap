@@ -2,7 +2,7 @@
 //! in the binding. Malformed display rows are ignored without retaining caps.
 use alloc::{string::String, vec::Vec};
 
-/// The membership history verb returns at most the server's last 100 lines.
+/// The membership history verb returns at most this many of the server's last lines.
 pub const MAX_LINES: usize = 100;
 pub const MAX_BYTES: usize = 2 * 1024 * 1024;
 pub use crate::protocol_data::HISTORY as VERB;

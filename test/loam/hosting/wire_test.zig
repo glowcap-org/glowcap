@@ -186,7 +186,7 @@ test "loam publication retirement fences discovery at its owned commit outcome" 
     try fixture.data.store.release(active);
     _ = try fixture.attached.submit();
     var slot: [1]f.hosting.Worker.Slot = undefined;
-    var worker: f.hosting.Worker = .init(&slot);
+    var worker: f.hosting.Worker = .init(&slot, fixture.data.backend.readerCapacity());
     try worker.drive(fixture.attached, &fixture.data.backend);
     try std.testing.expectError(error.UnknownPublication, fixture.host.removeDurable(swiss.slice()));
 }
@@ -280,8 +280,8 @@ test "loam known absent recovery retains retry custody under publication allocat
         if (cold) {
             try fixture.attached.advance();
             const read = (try fixture.attached.nextWork()).?.read;
-            failing.fail_index = failing.alloc_index;
             try fixture.attached.completeRead(read.ticket, fixture.data.backend.read(read));
+            failing.fail_index = failing.alloc_index;
         }
         // Restoration can refuse; the completed write must stay completed.
         try std.testing.expectError(error.OutOfMemory, fixture.attached.advance());

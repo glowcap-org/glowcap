@@ -14,19 +14,31 @@
     "@glowcap/relay": "./bindings/ts/relay/mod.ts",
     "@glowcap/web": "./bindings/ts/web/mod.ts",
     "@glowcap/webrtc": "./bindings/ts/webrtc/mod.ts",
+    "@glowcap/webrtc/driver": "./bindings/ts/webrtc/driver.ts",
+    // dep playwright: Drives the browser tests.
     "playwright": "npm:playwright@1.64.0",
+    // dep es-module-lexer: Reads import graphs in Rooms bundle tests.
     "es-module-lexer": "npm:es-module-lexer@3.0.3/minimal",
+    // dep @std/jsonc: Reads the Rooms web manifest, whose dependency comments make it JSONC.
+    "@std/jsonc": "jsr:@std/jsonc@1.0.3",
+    // dep react: React for the Rooms tests that run under this config.
     "react": "npm:react@19.3.0",
     "react/jsx-runtime": "npm:react@19.3.0/jsx-runtime",
+    // dep react-dom: Renders Rooms components in those tests.
     "react-dom": "npm:react-dom@19.3.0",
     "react-dom/client": "npm:react-dom@19.3.0/client",
     "react-dom/server": "npm:react-dom@19.3.0/server",
+		// dep react-router: Routes between Rooms views.
 		"react-router": "npm:react-router@8.4.0",
+		// dep zustand: Holds Rooms client state.
 		"zustand": "npm:zustand@5.0.15",
 		"zustand/vanilla": "npm:zustand@5.0.15/vanilla",
 		"zustand/react/shallow": "npm:zustand@5.0.15/react/shallow",
+		// dep @types/react: React's types for the type checker.
 		"@types/react": "npm:@types/react@19.3.0",
+    // dep @types/react-dom: React DOM's types for the type checker.
     "@types/react-dom": "npm:@types/react-dom@19.3.0",
+    // dep zod: Validates data in the shared Rooms code.
     "zod": "npm:zod@4.6.5",
     "zod/mini": "npm:zod@4.6.5/mini"
   },

@@ -1,6 +1,6 @@
 // Distributed GC (ADR-0063), opt-in and off by default. Owns the Host-wide
 // `HostGc` state, recursive application-value tracking / verb-head `drainGc`, and
-// native release verbs. Session keeps `withGc` as a thin capability opt-in;
+// FFI release verbs. Session keeps `withGc` as a thin capability opt-in;
 // public vow lifetime is mandatory and uses the same Host-owned scheduler.
 
 import { hostS } from "./internal/ffi/host.ts";
@@ -38,7 +38,7 @@ export class HostGc {
 		this.#h = h;
 	}
 
-	/** Retire queues whose native Host owner has been consumed. */
+	/** Retire queues whose FFI Host owner has been consumed. */
 	retire(): void {
 		this.#h = null;
 		this.#scheduled = false;
@@ -68,8 +68,8 @@ export class HostGc {
 	}
 
 	/** Attach one finalizer unit to every capability occurrence in a value the
-	 * native Host has just projected. Containers stay intact; equal ids in two
-	 * leaves remain two guards because native projection minted two retains. */
+	 * FFI Host has just projected. Containers stay intact; equal ids in two
+	 * leaves remain two guards because FFI projection minted two retains. */
 	trackArgument(value: Argument): Argument {
 		if (isReference(value)) return this.trackRef(value);
 		if (Array.isArray(value)) {
@@ -94,7 +94,7 @@ export class HostGc {
 		this.#registry?.unregister(ref);
 	}
 
-	/** Bind one native Host vow to its public promise wrapper. */
+	/** Bind one FFI Host vow to its public promise wrapper. */
 	trackVow(handle: object, vow: bigint): void {
 		const h = this.#h;
 		if (h === null) return;
@@ -108,7 +108,7 @@ export class HostGc {
 
 	/** Drain parked GC releases: one release delta per reclaimed token, then
 	 * a kick so the op:gc-exports flushes. A token leaves the queue only after
-	 * its native release commits. A scheduled drain has no immediate caller,
+	 * its FFI release commits. A scheduled drain has no immediate caller,
 	 * so its exact failure is retained and raised by the next observable drain. */
 	drainGc(): void {
 		const h = this.#h;

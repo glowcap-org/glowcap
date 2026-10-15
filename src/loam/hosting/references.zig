@@ -32,7 +32,7 @@ pub fn allocationBound(restores: usize, saves: usize, uri_bytes: usize) !Allocat
     try bound.include(try std.math.mul(usize, requests, @sizeOf(usize)), @alignOf(usize), 2);
     // A dependent live save adds one canonical target spine before the facet
     // retains that target. Its reservation then uses the ordinary save spine.
-    try bound.include(@sizeOf(driver.Host.StagedCapabilityRetain), @alignOf(driver.Host.StagedCapabilityRetain), try std.math.mul(usize, saves, 2));
+    try bound.include(@sizeOf(driver.Capability), @alignOf(driver.Capability), try std.math.mul(usize, saves, 2));
     try bound.merge(try save_mod.allocationBound(saves, uri_bytes));
     try bound.include(@sizeOf(SavedState), @alignOf(SavedState), saves);
     try bound.include(try std.math.add(usize, @max(try Save.canonicalUriBytesBound(uri_bytes), Scope.max_name_bytes), 1), 1, saves);
@@ -40,7 +40,7 @@ pub fn allocationBound(restores: usize, saves: usize, uri_bytes: usize) !Allocat
     const parse = try model.uri.parseAllocationBound(uri_bytes, model.max_locator_hint_count);
     try bound.merge(.{ .bytes = parse.bytes, .allocations = parse.allocations });
     // Save admission owns this temporary spine in the same parse window.
-    if (saves != 0) try bound.include(@sizeOf(driver.Host.StagedCapabilityRetain), @alignOf(driver.Host.StagedCapabilityRetain), 1);
+    if (saves != 0) try bound.include(@sizeOf(driver.Capability), @alignOf(driver.Capability), 1);
     return bound;
 }
 
@@ -119,8 +119,8 @@ pub fn copySaved(call: *h.Call, save: *Save) !Replacement {
 pub fn hold(call: *h.Call, capability: driver.Capability) !driver.Capability {
     try call.held.ensureUnusedCapacity(call.arena(), 1);
     const retains = try call.attachment.host.retainValueCapabilities(call.arena(), &.{.{ .capability = capability }});
-    call.adoptRetain(retains[0].ref);
-    return retains[0].ref;
+    call.adoptRetain(retains[0]);
+    return retains[0];
 }
 
 pub fn edgeAt(view: core.RecordView, index: usize) !core.Edge {
@@ -201,7 +201,7 @@ pub const Set = struct {
         for (slots) |*slot| switch (slot.request) {
             .save => |request| {
                 const retained = try call.attachment.host.retainValueCapabilities(call.arena(), &.{.{ .capability = request.capability }});
-                slot.capability = retained[0].ref;
+                slot.capability = retained[0];
             },
             .save_live => |capability| {
                 const scope = call.attachment.options.live_scope orelse return error.LiveScopeRequired;

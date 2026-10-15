@@ -1,4 +1,4 @@
-//! Typed, vendor-neutral projection of a native carrier failure location.
+//! Typed, vendor-neutral projection of an FFI carrier failure location.
 
 #[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 use crate::{Error, Result};

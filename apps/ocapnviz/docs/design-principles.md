@@ -1,21 +1,36 @@
+---
+type: static
+description: The visual vocabulary and interaction rules for changing the ocapnviz interface, with the one place each rule lives.
+sources:
+  - resource: /apps/ocapnviz/src/ui/
+  - resource: /apps/ocapnviz/src/interactions/
+  - resource: /apps/ocapnviz/src/state/
+  - resource: /apps/ocapnviz/src/controls.css
+---
+
 # ocapnviz: Design Principles
 
-Use this page when changing the interface. It documents the code that exists
-today, so update it when that code moves. A change must keep gestures consistent
-across surfaces and keep each rule at one implementation point.
+Use this page when changing the interface. A change keeps gestures consistent
+across surfaces and keeps each rule at one implementation point.
 
 ## Visual vocabulary
 
 ocapnviz fits a large amount of protocol state on screen. It gets that density
 from alignment and clear levels, not by shrinking every element equally.
 
-**Type.** The interface uses four sizes. Tracked uppercase 9 px text is for
-section titles, field keys, and legend captions, never body text. Data such as
-field values, chips, and list rows uses 10 px. Controls use 11 px. Headings use
-13 px. Monospace is reserved for protocol tokens, times, and addresses. Because
-it renders larger than sans text at the same size, a monospace value normally
-drops one size. The narrow Legend is the exception: both faces use 9 px so its
-sentences do not wrap excessively.
+**Type.** The interface uses four sizes:
+
+| Size | Use |
+| --- | --- |
+| 9 px | Tracked uppercase section titles, field keys, and legend captions. Never body text. |
+| 10 px | Data: field values, chips, and list rows. |
+| 11 px | Controls. |
+| 13 px | Headings. |
+
+Monospace is reserved for protocol tokens, times, and addresses. It renders
+larger than sans text at the same size, so a monospace value normally drops one
+size. The narrow Legend is the exception: both faces use 9 px so its sentences
+do not wrap excessively.
 
 **Color.** Full ink is for the primary content, muted ink for controls and
 labels, and subtle ink for captions and asides. The workspace has the strongest
@@ -24,12 +39,15 @@ on a control without its own chrome, ordinary at rest, and strong under the
 pointer. Accent color marks the active control or keyboard focus. Green, amber,
 and red describe protocol state, not interface chrome.
 
-**Treatments.** Use one visual signal for each fact. Hover combines a background
-and border change. A dialog's affirmative action may use a solid accent fill.
-A persistent selected state uses an accent border over a pale wash. Keyboard
-focus uses an outline one pixel outside the box so variants cannot erase it.
-Pressing a control moves it by one pixel. Controls use neither elevation nor
-bevels.
+**Treatments.** Use one visual signal for each fact:
+
+- Hover combines a background and border change.
+- A dialog's affirmative action may use a solid accent fill.
+- A persistent selected state uses an accent border over a pale wash.
+- Keyboard focus uses an outline one pixel outside the box so variants cannot
+  erase it.
+- Pressing a control moves it by one pixel.
+- Controls use neither elevation nor bevels.
 
 **Components.** A button runs an action. A segmented control chooses from a
 small fixed set that should remain visible, such as modes or view kinds. A
@@ -57,8 +75,8 @@ by "Check the sturdyref and the Rooms server, then wait for reconnect."
 parts: "Save (Cmd/Ctrl+S): download this timeline as a JSON file" or "Open
 session: click the first node." Use a period between independent sentences.
 
-**Do not make labels cryptic to save space.** The Scrubber hint uses a full line
-to describe six gestures because each one must be discoverable where it is used.
+**Do not make labels cryptic to save space.** The Scrubber hint spends a full
+line on six gestures because each must be discoverable where it is used.
 
 ## The idiom index
 
@@ -86,14 +104,14 @@ names one authority. A change that cannot use the authority extends it in place.
 | A control's chrome from rest to press                | the ladder at `.ocv-btn.is-ghost` in `src/controls.css`: a faint border at rest, an ordinary one under the pointer, and a one-pixel nudge on press. `CONTROL.height` in `src/ui/tokens.ts` is the same box for a control styled inline                                                                                                                                                                                             |
 | How an icon is drawn                                 | `ICON` / `STROKE` in `src/ui/glyphs.tsx`: a glyph's viewBox equals the pixels it draws in, at one weight                                                                                                                                                                                                                                                                                                                           |
 | What the stage writes under a node                   | `peerLabelText` / `endpointLabelText`, `src/render/stage-labels.ts`, read by both the renderer and the layout solver                                                                                                                                                                                                                                                                                                               |
-| What to call a session, or one of its ends           | `sessionPairName` / `sessionEndName`, `src/ui/session-name.ts`: a session has no name of its own, so it is named by the pair it joins, read at whichever moment the surface is showing. The Inspector's heading, its pickers, the timeline's pills and the row labels down its gutter all read it, and `SESSION_PAIR_SEPARATOR` is the one thing that stands between the two ends                                                  |
+| What to call a session, or one of its ends           | `sessionPairName` / `sessionEndName`, `src/ui/session-name.ts`: a session has no name of its own, so it is named by the pair it joins, read at whichever moment the surface is showing. The Inspector's heading, its pickers, the timeline's pills and the gutter's row labels all read it, and `SESSION_PAIR_SEPARATOR` stands between the two ends                                                  |
 | What a timeline row is called                        | `laneRowLabel`, `src/ui/Timeline/lane-bundle.ts`: the gutter reads the name its own span carries, so a row and the pill beside it cannot say two things. `gutterLabelText` in `gutter-paint.ts` is what fits it into the column                                                                                                                                                                                                    |
 | One field row, and the line between two              | `Field` in `src/ui/inspector/fields.tsx` over the `.ocv-field` subgrid rule: key and value are one element, so the hairline belongs to the row. `belowRowStyle` in `styles.tsx` sets the gap inside a two-line row, tighter than the gap to the next                                                                                                                                                                                 |
 | One row in a Connections list                        | `LinkRow` in `src/ui/inspector/links.tsx` over `.ocv-session-row`: one element, two slots, all chrome in the class                                                                                                                                                                                                                                                                                                                 |
 | Inspector row shape                                  | the `ROW_H` family in `src/ui/inspector/styles.tsx`                                                                                                                                                                                                                                                                                                                                                                                |
 | Inspector editable fields                            | `InlineTextField` / `EnumSelect` / `EditableIdField`, `src/ui/inspector/fields.tsx`                                                                                                                                                                                                                                                                                                                                                |
 | Scrub gesture = one undo step                        | `EditBracket` in `src/ui/inspector/edit-bracket.ts`, fired by `ScrubInput`                                                                                                                                                                                                                                                                                                                                                |
-| When a new source means a new buffer                 | `bufferSourceTracker`, `src/state/hooks.ts`. Rebuilding empties Undo, so only a different document earns one: not a mode switch, and not the working document handed back on the way out of Build. It records every source it is asked about, because a source it decided not to rebuild for is still one it has seen                                                                                                                                                                                                                               |
+| When a new source means a new buffer                 | `bufferSourceTracker`, `src/state/hooks.ts`. Rebuilding empties Undo, so only a different document earns one: not a mode switch, and not the working document handed back on leaving Build. It records every source it is asked about, including one it decided not to rebuild for                                                                                                                                                                                                                               |
 | What the buffer is                                   | the source resolution in `App` + `BufferSourceInfo`                                                                                                                                                                                                                                                                                                                                                                                |
 | A node's pin                                         | `src/engine/event-helpers.ts`: `authoredPeerPosition` for one peer, `authoredPins` for the stage                                                                                                                                                                                                                                                                                                                                   |
 | Timing provenance                                    | `TimeSpan.derived`, `src/engine/temporal/time-span.ts`: projection marks it, authoring strips it                                                                                                                                                                                                                                                                                                                                   |
@@ -102,7 +120,7 @@ names one authority. A change that cannot use the authority extends it in place.
 | Live recording                                       | the same hook's capture arm. Record re-dials and mounts the engine, so t=0 is the press. Stop claims via `claimRecording`, `src/engine/live/mode.ts`                                                                                                                                                                                                                                                                               |
 | Live wire names to stage identities                  | the `StageLedger`, `src/engine/stage-ledger.ts`: one lifetime per stage id, leaves refcounted by live sessions, epochs retire a dead producer                                                                                                                                                                                                                                                                                      |
 | Builder mutations                                    | `engine.dispatch` intents, each with a no-op guard and an undo label. A guard compares against the authored doc, not the live world                                                                                                                                                                                                                                                                                                |
-| Taking history back or forward                       | `undoWithSelection` / `redoWithSelection` / `undoAllWithSelection` / `discardAllEdits`, `src/builder/selection-history.ts`: a history step moves ids out from under the selection, so the step and the walk that catches the selection up are one act. Neither the top bar's buttons nor the Cmd-Z binding reaches for `engine.undo` itself                                                                                                                                               |
+| Taking history back or forward                       | `undoWithSelection` / `redoWithSelection` / `undoAllWithSelection` / `discardAllEdits`, `src/builder/selection-history.ts`: a history step moves ids out from under the selection, so the step and the walk that catches the selection up are one act. Neither the top bar's buttons nor the Cmd-Z binding calls `engine.undo` itself                                                                                                                                               |
 | What the Tools pane offers as a command              | `src/ui/ToolCommands.tsx`: a command is an act that runs once, not a tool you sit in, so it is a text button in the wrapping row under the strip rather than a sixth icon square. `ToolCommandButton` holds all three rules: Build only, inert with a tooltip that says why, and a `confirm` exactly when the act cannot be taken back                                                                                                                                             |
 | Going back to where the buffer started               | two questions, not one. `Engine.undoAll` walks the history back and keeps it, offered on `canUndo`. `Engine.discardAllEdits` goes to the whole document the engine was built from and throws the history away, offered on `hasHistory`. The second reaches past the history's hundred-entry bound and past the fields `DocSnapshot` carries, which is why it is not a `BuilderIntent`                                                                                             |
 | Whether an act may disturb a live capture            | the App's own `recording` state, read by every control that has to respect it (`ModeToggle`, `SaveOpenControls`, `LiveSturdyrefField`). A capture cannot outlive its connection, so an act that leaves Live is refused with the way out named. Stop and Discard are the only controls that end one                                                                                                                                                                              |

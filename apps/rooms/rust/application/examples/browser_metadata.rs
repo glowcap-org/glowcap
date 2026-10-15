@@ -66,6 +66,7 @@ fn main() -> Result<(), String> {
 		("MAX_ROOM_OFFLINE", server::rooms::MAX_ROOM_OFFLINE),
 		("MAX_SESSION_DIRECTORY_ROWS", session::directory::MAX_ROWS),
 		("MAX_DIRECTORY_DISCOVERY_ROWS", directory::MAX_ROWS),
+		("MAX_DIRECTORY_CURSOR", directory::Cursor::MAX_TEXT),
 		("MAX_ROOM_LINKS", server::document::MAX_ROOM_LINKS),
 		(
 			"MAX_TROUBLE_SOURCE_BYTES",

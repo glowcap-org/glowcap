@@ -142,10 +142,19 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	/// The live rooms a directory lists: listed, occupied, with what its
 	/// public name offers.
 	pub fn listed(&self) -> impl Iterator<Item = RoomInfo> + '_ {
+		self.listed_after(None).map(|(_, room)| room)
+	}
+	/// The listed rooms in key order, each with the key it is held under,
+	/// starting after `after` when a page cursor names one.
+	pub fn listed_after(&self, after: Option<&str>) -> impl Iterator<Item = (&str, RoomInfo)> + '_ {
+		let from = match after {
+			Some(key) => core::ops::Bound::Excluded(RoomKey::from_text(key)),
+			None => core::ops::Bound::Unbounded,
+		};
 		self.rooms
-			.values()
-			.filter(|room| room.policy.is_listed() && !room.members.is_empty())
-			.map(Room::info)
+			.range((from, core::ops::Bound::Unbounded))
+			.filter(|(_, room)| room.policy.is_listed() && !room.members.is_empty())
+			.map(|(key, room)| (key.as_str(), room.info()))
 	}
 	/// Every live room, listed or not, for the inventories an operator reads.
 	pub fn live(&self) -> impl Iterator<Item = LiveRoom<'_, C>> + '_ {

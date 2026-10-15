@@ -17,7 +17,7 @@ pub fn executable(ctx: *Ctx, name: []const u8) ![]u8 {
     const path = try std.fs.path.join(ctx.gpa, &.{ root, "libexec", name });
     errdefer ctx.gpa.free(path);
     std.Io.Dir.cwd().access(ctx.io, path, .{ .execute = true }) catch {
-        log.err(ctx.io, "missing installed runtime {s}; reinstall the complete glowcap package", .{path});
+        log.err(ctx.io, "missing installed runtime {s}. Reinstall the complete glowcap package", .{path});
         return error.FileNotFound;
     };
     return path;

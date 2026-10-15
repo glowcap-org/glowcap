@@ -172,7 +172,7 @@ a partner, because it does not know whether it is looking at the partner.
 
 `engine.Peer.requirePartnerAttestation` and the `require_partner_attestation`
 field are deleted. The demand is computed at the pre-open chokepoint in
-`engine.inbound.applyDecodedOwnedFrame`, from the claim in front of it and the
+`engine.inbound.applyPlainOwnedFrame`, from the claim in front of it and the
 evidence the adapter supplied. Let the claim be the hello's
 `acceptable_location.designator`, the demand be the key a dial named, and the
 channel key be what a realizer verified.

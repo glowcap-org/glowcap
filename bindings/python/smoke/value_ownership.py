@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import array
 import ctypes
 
 from glowcap._abi_value import _arg_to_c
@@ -30,3 +31,27 @@ def run() -> None:
     c_arg = _arg_to_c(mutable, keep)
     mutable[:] = b"muted"
     assert ctypes.string_at(c_arg.bytes, c_arg.bytes_len) == b"owned"
+
+    words = array.array("q", [-(2**63), 0, 2**63 - 1])
+    keep = []
+    c_arg = _arg_to_c(words, keep)
+    assert _addr(c_arg.bytes) == words.buffer_info()[0]
+    assert c_arg.bytes_len == len(words) * 8
+    borrowed = ctypes.cast(c_arg.bytes, ctypes.POINTER(ctypes.c_int64))
+    assert [borrowed[i] for i in range(len(words))] == list(words)
+    try:
+        words.append(7)
+    except BufferError:
+        pass
+    else:
+        raise AssertionError("a borrowed integer array must refuse resize")
+    keep.clear()
+    words.append(7)
+    assert words[-1] == 7
+
+    empty = array.array("q")
+    keep = []
+    c_arg = _arg_to_c(empty, keep)
+    assert _addr(c_arg.bytes) == 0 and c_arg.bytes_len == 0
+    assert not keep
+    empty.append(7)

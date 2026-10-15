@@ -1,6 +1,6 @@
 """Idiomatic Python API for Glowcap's optional encrypted-QUIC transport.
 
-The public module is only a facade. ``_iroh_native`` owns the C
+The public module is only a facade. ``_iroh_ffi`` owns the C
 archive endpoint and provider lifecycle. ``_iroh_async`` projects that owner
 onto asyncio and the ordinary Session API. Neither layer owns CapTP semantics.
 """
@@ -12,7 +12,7 @@ from ._iroh_async import (
     dial_locator_for_relay,
     listen,
 )
-from ._iroh_native import (
+from ._iroh_ffi import (
     IrohConfig,
     IrohConnection,
     IrohNetlayer,

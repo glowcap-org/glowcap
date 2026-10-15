@@ -4,6 +4,8 @@
     "jsr:@std/assert@*": "1.0.19",
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "jsr:@std/json@^1.1.0": "1.1.0",
+    "jsr:@std/jsonc@1.0.3": "1.0.3",
     "npm:@types/react-dom@19.3.0": "19.3.0_@types+react@19.3.0",
     "npm:@types/react@19.3.0": "19.3.0",
     "npm:es-module-lexer@3.0.3": "3.0.3",
@@ -23,6 +25,15 @@
     },
     "@std/internal@1.0.14": {
       "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    },
+    "@std/json@1.1.0": {
+      "integrity": "93330d3ed4054d6b1ffe54b075432c80a5f671be77277b978931e018014cb1cc"
+    },
+    "@std/jsonc@1.0.3": {
+      "integrity": "9a4bb168c6b64e8e89944e45f96390a6e6e6865f59f02f0a70b24653911f2d64",
+      "dependencies": [
+        "jsr:@std/json"
+      ]
     }
   },
   "npm": {
@@ -103,6 +114,7 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@std/jsonc@1.0.3",
       "npm:@types/react-dom@19.3.0",
       "npm:@types/react@19.3.0",
       "npm:es-module-lexer@3.0.3",

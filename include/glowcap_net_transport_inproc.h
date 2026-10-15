@@ -28,8 +28,8 @@ extern "C" {
    two peers in one process wired by in-process pipes and no kernel transport.
    The listener exposes a wake descriptor for foreign reactors. The same
    host-owns-the-peer frame shuttle and
-   netlayer lifecycle — create the netlayer, make connections/listeners from
-   it, release them, then release it — but a listener binds to a string
+   netlayer lifecycle (create the netlayer, make connections/listeners from
+   it, release them, then release it), but a listener binds to a string
    designator (any opaque token, not a host:port) and a dialer names that
    designator. This is the path a binding's smoke test dials to run a full
    OCapN conversation without touching a socket. Blocking; in-process only. */
@@ -103,14 +103,14 @@ int32_t glowcap_inproc_conn_read_frame(GlowcapInprocConn *conn, GlowcapManagedFr
    provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
 int32_t glowcap_inproc_conn_write_frame(GlowcapInprocConn *conn, const GlowcapFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
-/* Seal native admission and interrupt blocked reads and writes without freeing
+/* Seal admission and interrupt blocked reads and writes without freeing
    the connection. May race operations; join the embedding's leases before release.
    Idempotent. */
 void glowcap_inproc_conn_shutdown(GlowcapInprocConn *conn);
 /* After stopping new calls, invoking shutdown, and joining the embedding's
    operation leases, close and free the handle. Release must not race call initiation. */
 void glowcap_inproc_conn_release(GlowcapInprocConn *conn);
-/* Seal native accept admission and wake a blocked accept without freeing the
+/* Seal accept admission and wake a blocked accept without freeing the
    listener. May race operations; join the embedding's leases before release. Idempotent. */
 void glowcap_inproc_listener_shutdown(GlowcapInprocListener *listener);
 /* After stopping new calls, invoking shutdown, and joining the embedding's

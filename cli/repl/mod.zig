@@ -92,6 +92,6 @@ pub fn runParsed(ctx: *Ctx, parsed: *Parsed) !u8 {
         try parsed.setBool("repl", true);
         return ocapn.cmdDial(ctx, parsed);
     }
-    // Optional locator: sessionless lab (dial inside; listen is argv-only).
+    // Optional locator: sessionless lab (dial or listen inside).
     return runAttached(ctx);
 }

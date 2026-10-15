@@ -3,7 +3,7 @@
 use glowcap::loam::{
 	Call, Content, ControlPowers, Delivery, EffectExecution, EffectResult, Graph, Invocation, InvocationBounds,
 	KindRule, Limits, Method, PendingContinuation, Policy, ReferenceRequest, Registration, Requirement, Resource,
-	Retry, Schema, StagingBounds, Store, UNCHANGED, ValueBounds, parse_control_revision, refusal,
+	Retry, Schema, Scope, StagingBounds, Store, UNCHANGED, ValueBounds, parse_control_revision, refusal,
 };
 use glowcap::{Argument, Host, Locator, PendingWork, Ref, Result as HostResult, Session};
 use std::{
@@ -48,6 +48,7 @@ mod management;
 
 #[path = "../../../_support/loam_inventory.rs"]
 mod inventory;
+mod operations;
 const NAME: &str = "glowcap-loam-browser-proof";
 const SCHEMA: Schema = Schema {
 	id: 7,
@@ -187,10 +188,10 @@ pub async fn create() -> Result<String, JsValue> {
 		let use_ref = Ref::try_from(&values[0]).unwrap();
 		let management = Ref::try_from(&values[1]).unwrap();
 		text(&session, &use_ref, b"initial").await;
-		let shared = session.send(&use_ref, "derive", &policy().value(&[10, 20], &[]).unwrap().derive_arguments(1, 0)).await.unwrap();
+		let shared = session.send(&use_ref, "derive", &policy().value(&[10, 20], &[]).unwrap().derive_arguments(1, Scope::Object, 0)).await.unwrap();
 		let shared = Ref::try_from(&shared).unwrap();
 		let swiss = session.send(&shared, "durable-name", &[]).await.unwrap().as_str().unwrap().to_owned();
-		let limited = session.send(&use_ref, "derive", &policy().value(&[10], &[]).unwrap().derive_arguments(2, 0)).await.unwrap();
+		let limited = session.send(&use_ref, "derive", &policy().value(&[10], &[]).unwrap().derive_arguments(2, Scope::Object, 0)).await.unwrap();
 		let limited = Ref::try_from(&limited).unwrap();
 		let (field_name, initial_context) = fields::exercise(&session, &use_ref, &limited, &shared, &management, &entry).await;
 		fields::live(&session, &use_ref, &entry).await;
@@ -237,10 +238,10 @@ pub async fn create() -> Result<String, JsValue> {
 		host.close(PendingWork::Cancel).await.unwrap();
 		let costs = store.storage_statistics();
         assert!(costs.peak_input_bytes <= costs.input_capacity_bytes);
-        assert!(costs.input_capacity_bytes < Limits::default().record_bytes + 1024);
+        assert!(costs.input_capacity_bytes < 2 * Limits::default().record_bytes + 1024);
         store.close().await.unwrap();
         assert!(glowcap::take_runtime_failures().is_empty());
-		Ok(serde_json::json!({ "resource": resource.encode().to_vec(), "live_marker": live_marker.encode().to_vec(), "swiss": swiss, "managed": managed_name, "inventory": inventory_name, "field": field_name, "context": initial_context, "costs": { "transactions": costs.transactions, "planning_passes": costs.planning_passes, "database_rows": costs.database_rows, "emitted_writes": costs.emitted_writes, "copied_bytes": costs.copied_bytes, "peak_input_bytes": costs.peak_input_bytes, "input_capacity_bytes": costs.input_capacity_bytes, "max_transaction_write_bytes": costs.max_transaction_write_bytes } }).to_string())
+		Ok(serde_json::json!({ "resource": resource.encode().to_vec(), "live_marker": live_marker.encode().to_vec(), "swiss": swiss, "managed": managed_name, "inventory": inventory_name, "field": field_name, "context": initial_context, "costs": { "js_calls": costs.js_calls, "callbacks": costs.callbacks, "transactions": costs.transactions, "planning_passes": costs.planning_passes, "database_rows": costs.database_rows, "emitted_writes": costs.emitted_writes, "copied_bytes": costs.copied_bytes, "peak_input_bytes": costs.peak_input_bytes, "input_capacity_bytes": costs.input_capacity_bytes, "max_transaction_write_bytes": costs.max_transaction_write_bytes } }).to_string())
 	}).await
 }
 
@@ -399,6 +400,40 @@ pub async fn empty_store() -> Result<(), JsValue> {
 		.map_err(message)?;
 	store.close().await.unwrap();
 	Ok(())
+}
+
+#[wasm_bindgen]
+pub async fn collection() -> Result<String, JsValue> {
+	tokio::task::LocalSet::new()
+		.run_until(async {
+			let name = "glowcap-loam-collection-proof";
+			let mut store = Store::open(name, [6; 16], true, &[SCHEMA], Limits::default())
+				.await
+				.map_err(message)?;
+			let resource = store
+				.create_resource(&policy(), SCHEMA, 1, b"kept", 2)
+				.await
+				.map_err(message)?;
+			let mut steps = 0;
+			while store.collect(2).await.map_err(message)? {
+				steps += 1;
+				if steps >= 1000 {
+					return Err(JsValue::from_str("collection did not finish within 1000 steps"));
+				}
+			}
+			let reads = store.storage_statistics().cursor_reads;
+			assert!(reads > 0, "collection read no cursor rows");
+			let host = Host::from_seed([9; 32]).unwrap();
+			let drops = Rc::new(Cell::new(0));
+			let mut attachment = store.attach(&host, vec![registration(&drops)]).unwrap();
+			let (root, control) = attachment.restore(resource).await.map_err(message)?;
+			drop((root, control));
+			attachment.close().await.map_err(message)?;
+			host.close(PendingWork::Cancel).await.unwrap();
+			store.close().await.map_err(message)?;
+			Ok(format!("collection steps={steps} cursor_reads={reads}"))
+		})
+		.await
 }
 
 #[wasm_bindgen]

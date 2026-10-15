@@ -131,7 +131,7 @@ pub(super) async fn run() {
 						.send(
 							&root,
 							"derive-managed",
-							&terms.managed_derive_arguments(1, 1, ControlPowers::default()),
+							&terms.managed_derive_arguments(1, Scope::Object, 1, ControlPowers::default()),
 						)
 						.await
 						.unwrap();

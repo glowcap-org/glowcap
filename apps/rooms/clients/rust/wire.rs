@@ -12,10 +12,10 @@
 use glowcap::Argument;
 
 use crate::protocol_gen::{
-	Effect, Field, MEMBERSHIP_ENDED, PUBLICATION_FIELDS, REGISTRATION_ID_DASHES, REGISTRATION_ID_LENGTH,
-	REGISTRATION_ID_VARIANT_AT, REGISTRATION_ID_VARIANTS, REGISTRATION_ID_VERSION_AT, REGISTRATION_ID_VERSIONS,
-	REGISTRATION_ROW_FIELDS, ROOM_SENDER, ROOM_TAILS, RoomTail, SUBSCRIBE_ANSWER_FIELDS, Sender, TextRule, Ty,
-	WATCH_KINDS, WATCH_SNAPSHOT_FIELDS,
+	Effect, Field, LIST_PAGE_FIELDS, MEMBERSHIP_ENDED, PUBLICATION_FIELDS, REGISTRATION_ID_DASHES,
+	REGISTRATION_ID_LENGTH, REGISTRATION_ID_VARIANT_AT, REGISTRATION_ID_VARIANTS, REGISTRATION_ID_VERSION_AT,
+	REGISTRATION_ID_VERSIONS, REGISTRATION_ROW_FIELDS, ROOM_SENDER, ROOM_TAILS, RoomTail, SUBSCRIBE_ANSWER_FIELDS,
+	Sender, TextRule, Ty, WATCH_KINDS, WATCH_SNAPSHOT_FIELDS,
 };
 
 /// One exact directory publication. Foreign occupancy is unknown, not zero.
@@ -126,8 +126,31 @@ fn parse_room(values: &[Argument]) -> Option<RoomInfo> {
 	})
 }
 
-/// Every publication in a `listPublications` answer.
-pub fn parse_rooms(arg: &Argument) -> Result<Vec<RoomInfo>, String> {
+/// One page of a `listPublications` answer: its publications, and the cursor
+/// that asks for the next page when more remain.
+#[derive(Clone, Debug)]
+pub struct RoomPage {
+	pub rooms: Vec<RoomInfo>,
+	pub next: Option<String>,
+}
+
+/// A `listPublications` answer, held to the generated page record.
+pub fn parse_room_page(arg: &Argument) -> Result<RoomPage, String> {
+	let values = arg
+		.as_list()
+		.filter(|values| fits(LIST_PAGE_FIELDS, values))
+		.ok_or_else(|| "the directory answered a malformed room page".to_string())?;
+	let rooms = field(LIST_PAGE_FIELDS, values, "rooms")
+		.ok_or_else(|| "the directory answered a malformed room page".to_string())
+		.and_then(parse_rooms)?;
+	let next = field(LIST_PAGE_FIELDS, values, "next")
+		.and_then(Argument::as_str)
+		.map(str::to_owned);
+	Ok(RoomPage { rooms, next })
+}
+
+/// Every publication in a room list.
+fn parse_rooms(arg: &Argument) -> Result<Vec<RoomInfo>, String> {
 	let rows = arg
 		.as_list()
 		.ok_or_else(|| "the directory answered a room list that is not a list".to_string())?;
@@ -371,6 +394,19 @@ mod tests {
 		assert!(parse_room(&publication(Argument::from(-1_i64), Argument::Void)).is_none());
 		assert!(parse_room(&publication(Argument::from(2_i64), Argument::from("steward"))).is_none());
 		assert!(parse_room(&publication(Argument::from(2_i64), Argument::Void)[..6]).is_none());
+	}
+
+	#[test]
+	fn a_room_page_is_held_to_the_generated_record() {
+		let rooms = Argument::from(vec![Argument::from(publication(Argument::from(1_i64), Argument::Void))]);
+		let last = parse_room_page(&Argument::from(vec![rooms.clone(), Argument::Void])).expect("a last page");
+		assert_eq!((last.rooms.len(), last.next), (1, None));
+		let more =
+			parse_room_page(&Argument::from(vec![rooms.clone(), Argument::from("local:#garden")])).expect("a page");
+		assert_eq!(more.next.as_deref(), Some("local:#garden"));
+		// A bare row list is not a page, and a cursor is the directory's text.
+		assert!(parse_room_page(&rooms).is_err());
+		assert!(parse_room_page(&Argument::from(vec![rooms, Argument::from(256_i64)])).is_err());
 	}
 
 	#[test]

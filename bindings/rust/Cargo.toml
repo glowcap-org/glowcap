@@ -36,7 +36,8 @@ undocumented_unsafe_blocks = "deny"
 # archive and symbols — only for the transports it turns on.
 default = ["tcp", "inproc"]
 
-# Optional durable resources on the existing Host with LMDB or browser execution.
+# Optional durable resources on the existing Host, stored in SQLite, LMDB,
+# memory or the browser.
 loam = ["async", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futures"]
 
 # Blocking TCP transport. Links `libglowcap_net_transport_tcp` and compiles
@@ -70,15 +71,18 @@ iroh = ["async"]
 # (`libglowcap_net_transport_webrtc`, built by `zig build webrtc-abi`, needs
 # cargo) alongside the static core archive; it exports only `glowcap_webrtc_*`,
 # so core symbols still come from `libglowcap_ocapn` (ADR-0089). Compiles
-# `pub mod webrtc`, the raw multiplexed-readiness and peer try-I/O family. Signaling
-# submissions are synchronous control operations; no call parks the runtime.
-webrtc = []
-# Opt-in native relay provider. Links the relay archive and composes its
+# `pub mod webrtc`: the raw multiplexed-readiness and peer try-I/O family, plus
+# `webrtc::provider`, which dials through the generic driver with the
+# application's signaling. Implies `async` (the driver it rides).
+webrtc = ["async"]
+# Opt-in relay archive provider. Links the relay archive and composes its
 # keyed-relay/noise-relay package into the generic driver loop.
 relay = ["async"]
 
 [dependencies]
+# dep tokio: The async I/O behind the binding's `async` feature.
 tokio = { version = "1", default-features = false, features = ["rt", "io-util", "macros", "sync"], optional = true }
+# dep getrandom: Entropy for durable names, from the browser in the WebAssembly build.
 getrandom = { version = "0.4", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -86,16 +90,24 @@ tokio = { version = "1", default-features = false, features = ["net", "time"], o
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"], optional = true }
+# dep web-time: Clocks in the WebAssembly build.
 web-time = { version = "1.1", optional = true }
+# dep gloo-timers: Timers in the WebAssembly build.
 gloo-timers = { version = "0.4", features = ["futures"], optional = true }
+# dep wasm-bindgen: The binding's WebAssembly build.
 wasm-bindgen = { version = "0.2", optional = true }
+# dep wasm-bindgen-futures: Runs futures on the browser's event loop.
 wasm-bindgen-futures = { version = "0.4", optional = true }
+# dep js-sys: JavaScript built-ins for the WebAssembly build.
 js-sys = { version = "0.3", optional = true }
+# dep web-sys: WebSocket and WebRTC browser APIs for the WebAssembly build.
 web-sys = { version = "0.3", optional = true, features = ["Url", "WebSocket", "BinaryType", "RtcDataChannel", "RtcDataChannelState", "RtcDataChannelType", "Event", "MessageEvent", "CloseEvent", "RtcPeerConnection", "RtcPeerConnectionState", "RtcConfiguration", "RtcPeerConnectionIceEvent", "RtcIceCandidate", "RtcIceCandidateInit", "RtcDataChannelEvent", "RtcSessionDescriptionInit", "RtcSdpType"] }
 
 # build.rs parses the package-shipped c-abi-resolve.json (ADR-0077).
 [build-dependencies]
+# dep serde: Reads `c-abi-resolve.json` in `build.rs`.
 serde = { version = "1", features = ["derive"] }
+# dep serde_json: Parses `c-abi-resolve.json` in `build.rs`.
 serde_json = "1"
 
 # The library never spawns a process; only the live-interop examples do (they
@@ -104,6 +116,8 @@ serde_json = "1"
 # stops carrying it.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["process"] }
+# dep serde_json: The live WebRTC tests read the Zig peers' JSON signaling lines.
+serde_json = "1"
 
 # Live interop proof: a peer on the C ABI holds a keyed OCapN conversation with a
 # real Goblins vat. Run via `zig build rust-goblins-interop` (needs racket +

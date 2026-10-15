@@ -26,7 +26,7 @@ const backend_support = @import("cross_arm_backend.zig");
 const CrossArmBackend = backend_support.CrossArmBackend;
 const startSession = backend_support.startSession;
 const makeServerPeer = backend_support.makeServerPeer;
-const drainOutboundBytes = backend_support.drainOutboundBytes;
+const pumpStream = backend_support.pumpStream;
 const drainOutboundStreamBytes = backend_support.drainOutboundStreamBytes;
 
 /// One accepted connection's registry row: the peer and slot `make_conn_ctx`
@@ -202,15 +202,12 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
 
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
-    var server_ss: std.ArrayList(u8) = .empty;
-    defer server_ss.deinit(allocator);
-    try drainOutboundBytes(&server_twin, allocator, &server_ss);
-    _ = try client.recvStreamPrefix(server_ss.items);
+    _ = try pumpStream(&server_twin, &client, allocator);
     fetch_pump.drainEvents(&client);
 
     var fetch_bytes: std.ArrayList(u8) = .empty;
@@ -287,7 +284,7 @@ test "cross-arm: a partial write that drains under the mark clears the deadline"
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     CrossArmBackend.chunks = &.{client_ss.items};
@@ -352,7 +349,7 @@ test "cross-arm: a terminal failure with a write in flight swaps its queued tail
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     // Hello, then bytes the session refuses. The refusal projects an abort

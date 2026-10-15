@@ -7,7 +7,7 @@ decision: "glowcap provides a Goblins-shaped actor layer (`src/actors/`) as a ne
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0099]
+amended_by: [ADR-0099, ADR-0241]
 ---
 
 # ADR-0036 Actor layer
@@ -33,7 +33,7 @@ actors.
 
 - **Actor.** Any type with
   `pub fn handle(self: *@This(), turn: *Turn, msg:
-  Message) !model.Argument`
+  Delivery) !model.Argument` (ADR-0237 names the delivery shape)
   (and optional `deinit`). Its mutable `self` is its state. Goblins returns a
   fresh behavior via `bcom`, and a Zig actor assigns its own fields.
 - **`spawn`** is comptime-typed (type-safe construction) and stores actors

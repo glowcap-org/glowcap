@@ -127,6 +127,6 @@ pub fn run() {
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
-fn result_plans_use_the_native_locator_parser() {
+fn result_plans_use_the_host_locator_parser() {
 	check(&fixture(), &rooms_glowcap::routes::CheckpointRoutes);
 }

@@ -1,4 +1,4 @@
-//! One stable C projection of the neutral native carrier failure phase.
+//! One stable C projection of the neutral Zig carrier failure phase.
 
 const net = @import("net");
 const shared = @import("c_abi_shared");

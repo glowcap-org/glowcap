@@ -15,7 +15,7 @@ import {
 	WOULD_BLOCK,
 } from "@glowcap/runtime/ffi";
 import { BINDING_IROH_READ_CHUNK_BYTES, BINDING_READINESS_DRAIN_CAP } from "@glowcap/abi";
-import { IrohConnection, IrohNetlayer } from "./native.ts";
+import { IrohConnection, IrohNetlayer } from "./ffi_archive.ts";
 
 const READ_CHUNK = BINDING_IROH_READ_CHUNK_BYTES;
 

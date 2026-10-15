@@ -11,7 +11,7 @@ export const opsListenersLead = "Lists this server's live listeners and lets you
 
 export const opsDiagnosticsLabel = "Inspect this server";
 export const opsDiagnosticsShort = "Inspect";
-export const opsDiagnosticsLead = "Lists what this server is currently holding.";
+export const opsDiagnosticsLead = "Lists what this server is holding.";
 
 export const opsIrcLabel = "IRC gateway";
 export const opsIrcShort = "IRC";
@@ -188,7 +188,7 @@ export function sectionCountMore(count: number): string {
 export const tracePublisherShared = "The shared session publishes every connection it opens";
 export const tracePublisherTab = "This tab publishes every session it opens";
 export function traceLead(publisher: string): string {
-	return `${publisher}, direct messages included, to the live timeline. What leaves here is who it talked to and when, never the words. Room messages still show their contents on the timeline, published by the room server from its own side. A direct message has no server in the middle, so its words go nowhere.`;
+	return `${publisher}, direct messages included, to the live timeline. What leaves here is who it talked to and when, never the words. Room messages still show their contents on the timeline, published by the room server from its own side. The server never reads a direct message, so its words never reach the timeline.`;
 }
 export const traceNowTitle = "Publishing now";
 export const traceEndpointLabel = "Endpoint";
@@ -236,7 +236,7 @@ export const opsBrowserTroubleTitle = "Browser trouble";
 
 /** The IRC gateway page. Its nouns come from the server's form description,
  * so these sentences take them as arguments. */
-export const gatewayPrimaryOnly = "Only the main action on this form works yet.";
+export const gatewayPrimaryOnly = "Only the main action on this form is supported.";
 export function gatewayNoneYet(connectionsNoun: string): string {
 	return `No ${connectionsNoun} yet.`;
 }
@@ -252,6 +252,14 @@ export function gatewayRemoveLeaseSay(label: string, lease: string, connection: 
 export const gatewayOpenRoom = "Open room";
 export function gatewayCloseLabel(connection: string): string {
 	return `Close ${connection}`;
+}
+/** The button that asks before closing, so its label ends in an ellipsis. */
+export function gatewayCloseAsk(connectionNoun: string): string {
+	return `Close ${connectionNoun}…`;
+}
+/** Which server flag grants an operations capability. */
+export function opsMintedWithFlag(flag: string): string {
+	return `The server mints it with the ${flag} flag.`;
 }
 export function gatewayDeleteSavedSay(connection: string, connectionNoun: string): string {
 	return `Delete the saved ${connection} ${connectionNoun}?`;

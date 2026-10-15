@@ -42,7 +42,7 @@
       (drain-host-actions! m)))
   ;; The park thread may be in an unbounded fd park from before this dial
   ;; existed; the loop's one cross-thread verb makes the fd readable so it
-  ;; rebuilds its wait from the newly installed native deadline.
+  ;; rebuilds its wait from the newly installed FFI deadline.
   (check/driver (glowcap_driver_wake (driver-loop-handle lp)))
   ;; Co-stepping park: a listener fire may run this dial on the park thread
   ;; itself, and then nobody else would step the handshake forward. Wait on
@@ -70,7 +70,7 @@
     [(error) (raise (cdr r))]
     [else (raise-glowcap 'connect ERR-CLOSED "the loop closed before the dial settled")]))
 
-;; The loop-backed session transport: the native loop owns the wire, so
+;; The loop-backed session transport: the driver loop owns the wire, so
 ;; there is nothing to write, flush, read, or close here. A read parks on
 ;; the wake event and reports progress; teardown runs through
 ;; `abandon-session!`, whose release routes through the loop.
@@ -83,7 +83,7 @@
 
 ;; Wrap a loop-minted session handle as the public `session` over the
 ;; adopted wrapper host: every session verb, vow, and trampoline works on it,
-;; with the native loop as the transport and the drain. The handshake
+;; with the driver loop as the transport and the drain. The handshake
 ;; already ran inside the loop's steps, so the session arrives open and the
 ;; byte pump's tail-resume never applies.
 (define (wrap-loop-session lp ptr time-travel?)
@@ -94,7 +94,7 @@
       (set-box! (async-connection-tail-resumed? (session-async c)) #t)
       ;; Post-open setup happens between accept (or dial) and serve; the hook
       ;; is how serve tells the loop to start delivering this session's
-      ;; inbound (early bytes replay in order). Idempotent on the native side.
+      ;; inbound (early bytes replay in order). Idempotent on the FFI side.
       (set-box! (async-connection-serve-hook (session-async c))
                 (lambda ()
                   ;; Serving releases frames parked behind the handshake and

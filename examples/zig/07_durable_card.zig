@@ -1,7 +1,7 @@
 //! 07: A card that survives a restart.
 //!
 //! Loam keeps an object and its state across a restart. This chapter stores
-//! one task card in LMDB and moves it. Then it shuts everything down (the
+//! one task card in SQLite and moves it. Then it shuts everything down (the
 //! Host, the Loam attachment, the store, and the database) and opens the same
 //! directory again in a fresh Host. The card comes back with the move it made.
 //!
@@ -15,7 +15,7 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const Lmdb = @import("glowcap_loam_lmdb").Lmdb;
+const Sqlite = @import("glowcap_loam_sqlite").Sqlite;
 const core = glowcap.loam.core;
 const hosting = glowcap.loam.hosting;
 const driver = glowcap.driver.core;
@@ -67,8 +67,8 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn firstRun(allocator: std.mem.Allocator, io: std.Io, path: [:0]const u8) !core.ObjectId {
-    var db = try Lmdb.open(path, .{ .mode = .{ .create = store_id } });
-    defer db.close() catch |err| std.log.err("closing LMDB: {s}", .{@errorName(err)});
+    var db = try Sqlite.open(path, .{ .mode = .{ .create = store_id } });
+    defer db.close() catch |err| std.log.err("closing SQLite: {s}", .{@errorName(err)});
     var store = try core.Store.init(allocator, db.metadata, &schemas, limits);
     defer store.deinit() catch |err| std.log.err("closing the store: {s}", .{@errorName(err)});
 
@@ -91,8 +91,8 @@ fn firstRun(allocator: std.mem.Allocator, io: std.Io, path: [:0]const u8) !core.
 }
 
 fn secondRun(allocator: std.mem.Allocator, io: std.Io, path: [:0]const u8, id: core.ObjectId) !void {
-    var db = try Lmdb.open(path, .{ .mode = .{ .open = store_id } });
-    defer db.close() catch |err| std.log.err("closing LMDB: {s}", .{@errorName(err)});
+    var db = try Sqlite.open(path, .{ .mode = .{ .open = store_id } });
+    defer db.close() catch |err| std.log.err("closing SQLite: {s}", .{@errorName(err)});
     var store = try core.Store.init(allocator, db.metadata, &schemas, limits);
     defer store.deinit() catch |err| std.log.err("closing the store: {s}", .{@errorName(err)});
 
@@ -118,7 +118,7 @@ fn newHost(allocator: std.mem.Allocator, io: std.Io) !driver.Host {
 
 /// Commit the staged transaction. The backend does the write, Loam decides
 /// what it contains and installs the result.
-fn commit(store: *core.Store, db: *Lmdb) !void {
+fn commit(store: *core.Store, db: *Sqlite) !void {
     const ticket = try store.prepare();
     const outcome = db.commit(try store.beginWrite(ticket));
     try store.completeWrite(ticket, outcome);
@@ -126,7 +126,7 @@ fn commit(store: *core.Store, db: *Lmdb) !void {
 }
 
 /// Turn the card's record back into a live capability.
-fn restore(attachment: *hosting.Attachment, db: *Lmdb, id: core.ObjectId) !driver.Capability {
+fn restore(attachment: *hosting.Attachment, db: *Sqlite, id: core.ObjectId) !driver.Capability {
     const store = attachment.store;
     const lease = switch (try store.acquire(id)) {
         .ready => |lease| lease,
@@ -153,12 +153,12 @@ const Answer = struct {
 
 /// Call the card and run the storage work the call needs: the read that wakes
 /// it, and the write that saves its new state before the reply is released.
-fn call(host: *driver.Host, attachment: *hosting.Attachment, db: *Lmdb, card_cap: driver.Capability, verb: []const u8) !i64 {
+fn call(host: *driver.Host, attachment: *hosting.Attachment, db: *Sqlite, card_cap: driver.Capability, verb: []const u8) !i64 {
     var answer: Answer = .{};
     const target = host.localActorFor(card_cap) orelse return error.NotLocal;
     _ = try host.vat.sendObservedFromIngress(.local, target, .{ .verb = verb, .args = &.{} }, .{ .ctx = &answer, .func = Answer.record });
     var slot: [1]hosting.Worker.Slot = undefined;
-    var worker: hosting.Worker = .init(&slot);
+    var worker: hosting.Worker = .init(&slot, db.readerCapacity());
     for (0..64) |_| {
         _ = try host.vat.driveIngressBudgeted(.local, 64);
         try attachment.advance();

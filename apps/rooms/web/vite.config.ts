@@ -7,6 +7,7 @@ import { defineConfig, type Plugin, type ProxyOptions } from "vite";
 const webRoot = fileURLToPath(new URL("./ui/", import.meta.url));
 const page = fileURLToPath(new URL("./ui/page.html", import.meta.url));
 const entry = fileURLToPath(new URL("./ui/page.js", import.meta.url));
+const groundEntry = fileURLToPath(new URL("./ui/ground.js", import.meta.url));
 const applicationWasm = fileURLToPath(
 	new URL("../../../zig-out/wasm/rooms/rooms_browser_bg.wasm", import.meta.url),
 );
@@ -61,7 +62,7 @@ export function backendProxy(target: string | undefined): Record<string, ProxyOp
 }
 
 /** wasm-bindgen gives its generated module a sibling-file fallback. Rooms
- * supplies the Wasm response explicitly, and the native publisher gives that
+ * supplies the Wasm response explicitly, and the Rust publisher gives that
  * response its content-addressed route. Rewriting the unused fallback keeps
  * Vite from copying the nine-megabyte Wasm file into its temporary output. */
 function externalApplicationWasm(): Plugin {
@@ -83,8 +84,8 @@ function externalApplicationWasm(): Plugin {
 	};
 }
 
-/** Adapt the native page contract to Vite in development. Production output
- * still passes through the native generation publisher. */
+/** Adapt the Rust page contract to Vite in development. Production output
+ * still passes through the Rust generation publisher. */
 function roomsDevelopment(): Plugin {
 	return {
 		name: "rooms-development-front",
@@ -143,7 +144,7 @@ export default defineConfig(({ command }) => {
 		root: webRoot,
 		cacheDir: fileURLToPath(new URL("../../../zig-out/cache/rooms-vite/", import.meta.url)),
 		appType: "custom",
-		// The native backend prints the room's locators before Vite starts.
+		// The web server prints the room's locators before Vite starts.
 		// Keep them in the terminal across startup and configuration reloads.
 		clearScreen: false,
 		logLevel: development ? "info" : "warn",
@@ -160,10 +161,10 @@ export default defineConfig(({ command }) => {
 			minify: "oxc",
 			modulePreload: { polyfill: false },
 			rolldownOptions: {
-				input: { main: entry },
+				input: { page: entry, ground: groundEntry },
 				output: {
 					format: "es",
-					entryFileNames: "page.js",
+					entryFileNames: "[name].js",
 					chunkFileNames: "[name]-[hash].js",
 					assetFileNames: "[name]-[hash][extname]",
 				},

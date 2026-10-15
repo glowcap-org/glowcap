@@ -130,6 +130,7 @@ fn adoptionOptions(options: c.GlowcapDriverOptions) driver.HostRuntime.AdoptionO
         .handshake = waitBudget(options.handshake_ms),
         .listener_setup = waitBudget(options.listener_setup_ms),
         .settle = waitBudget(options.settle_ms),
+        .busy_poll_ns = options.busy_poll_ns,
     };
 }
 

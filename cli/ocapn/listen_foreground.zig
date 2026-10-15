@@ -82,11 +82,11 @@ pub fn run(ctx: *Ctx, parsed: *Parsed) !u8 {
     // process is idle on accept. Say so on stderr so a quiet
     // wait is not mistaken for a hang (stdout already carried the locator).
     if (publish_name) |name| {
-        ctx.logInfo("listening; will publish {s} when a partner connects (Ctrl-C to stop)", .{name});
+        ctx.logInfo("listening, and will publish {s} when a partner connects (Ctrl-C to stop)", .{name});
     } else if (once) {
-        ctx.logInfo("listening; accepting one partner (Ctrl-C to stop)", .{});
+        ctx.logInfo("listening for one partner (Ctrl-C to stop)", .{});
     } else {
-        ctx.logInfo("listening; Ctrl-C to stop", .{});
+        ctx.logInfo("listening (Ctrl-C to stop)", .{});
     }
 
     const loop_code = try acceptLoop(ctx, server, publish_name, once);

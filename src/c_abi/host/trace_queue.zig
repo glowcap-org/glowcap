@@ -2,7 +2,7 @@
 //! for embedders that cannot hand the library a C function pointer.
 //!
 //! `glowcap_host_set_trace` reports each fact through a callback, which is
-//! what a native embedder wants: synchronous, allocation-free, and exact.
+//! what a Zig embedder wants: synchronous, allocation-free, and exact.
 //! A browser cannot take that seam: the wasm module admits exactly the fixed
 //! behavior and hosted-retirement callback imports (`zig build
 //! wasm-import-check` holds that set), so a trace callback has nowhere to land.

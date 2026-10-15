@@ -23,7 +23,7 @@ pub const command: types.Command = .{ .name = "deployment", .short_help = "Run R
     .{ .name = "trace", .short_help = "Follow the directory's live protocol trace", .flags = &.{ dir, .{ .long = "json", .help = "Print complete records as JSON lines" } }, .run = run(.trace) },
     .{ .name = "down", .short_help = "Stop the deployment and keep its data", .flags = &.{dir}, .run = run(.down) },
     .{ .name = "restart", .short_help = "Restart the selected deployment and keep its data, identities, and links", .flags = &.{dir}, .run = run(.restart) },
-    .{ .name = "reset", .short_help = "Permanently delete the selected data and authority, then restart", .flags = &.{ dir, image_flag, build_flag, .{ .long = "yes", .help = "Confirm the requested destruction without prompting" } }, .positionals = &.{.{ .name = "unit", .help = "session | state | storage | all" }}, .run = run(.reset) },
+    .{ .name = "reset", .short_help = "Permanently delete the selected data and authority, then restart", .flags = &.{ dir, image_flag, build_flag, .{ .long = "yes", .help = "Confirm the requested destruction without prompting" } }, .positionals = &.{.{ .name = "unit", .help = "session | state | all" }}, .run = run(.reset) },
 } };
 
 const Verb = enum { up, doctor, status, logs, trace, down, restart, reset };
@@ -65,8 +65,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         operations.Unit.all;
     if (verb == .logs) {
         for (parsed.positionals) |service| {
-            if (!std.mem.eql(u8, service, "directory") and !std.mem.eql(u8, service, "session") and
-                !std.mem.eql(u8, service, "postgres")) return error.Usage;
+            if (!std.mem.eql(u8, service, "directory") and !std.mem.eql(u8, service, "session")) return error.Usage;
         }
     }
     const cwd = try std.process.currentPathAlloc(ctx.io, gpa);
@@ -101,8 +100,6 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
             } else {
                 try stdout(ctx.io, "selected image: none (run deployment up to select an image)\n");
             }
-            const secret = try state.read("secrets/storage-db-password");
-            try stdout(ctx.io, if (secret == null) "database secret: missing\n" else if (std.mem.trim(u8, secret.?, " \r\n").len == 0) "database secret: empty\n" else "database secret: present (not authenticated)\n");
         } else |err| switch (err) {
             error.FileNotFound => try stdout(ctx.io, "configuration directory: missing (run deployment up to initialize)\n"),
             else => return err,
@@ -135,7 +132,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
     var lock: ?state_lock.Guard = if (mutating) try state_lock.tryAcquire(ctx.io, absolute_dir) else null;
     defer if (lock) |*guard| guard.deinit();
     if (starts) {
-        try state.prepare(docker);
+        try state.prepare();
         // Up and reset choose an image by one rule, before any service stops:
         // an explicit --image or --build, else a Linux checkout's prepared
         // product, else (installed) the saved selection or the release image.
@@ -146,7 +143,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
         const default_image = try std.fmt.allocPrint(gpa, "ghcr.io/jimisaacs/glowcap-rooms:v{d}.{d}.{d}", .{
             version.version_major, version.version_minor, version.version_patch,
         });
-        log.writeMsg(ctx.io, "Preparing deployment image and configuration; services and volumes have not been changed.\n");
+        log.writeMsg(ctx.io, "Preparing deployment image and configuration. Services and volumes have not been changed.\n");
         try operations.selectImage(state, docker, image, source, default_image);
     }
     const selected = try state.image() orelse {
@@ -199,7 +196,7 @@ fn prepareCheckout(ctx: *Ctx, parsed: *types.Parsed, gpa: std.mem.Allocator, roo
 
 fn notConfigured(io: Io, path: []const u8, reason: []const u8) void {
     log.err(io, "deployment is not configured at {s}: {s}", .{ path, reason });
-    log.writeMsg(io, "Select the existing configuration with --dir, or copy its original database password and operator override into this directory. Then run `glowcap apps rooms deployment up` to select an image.\n");
+    log.writeMsg(io, "Select the existing configuration with --dir, or copy its operator override into this directory. Then run `glowcap apps rooms deployment up` to select an image.\n");
 }
 
 fn nonempty(value: ?[]const u8) ?[]const u8 {

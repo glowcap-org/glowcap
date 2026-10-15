@@ -9,7 +9,7 @@ const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
 /// The application-surface verbs the vision promises in every binding and on the
-/// native driver. Each surface that introduces the vocabulary must list all of
+/// Zig driver. Each surface that introduces the vocabulary must list all of
 /// them. A dropped verb is a silently second-class surface.
 const application_surface_verbs = [_][]const u8{
     "connect", "listen", "fetch", "publish", "spawn", "send", "tell", "serve", "close",
@@ -40,7 +40,7 @@ pub fn mentionsVerbInCode(contents: []const u8, verb: []const u8) bool {
     return false;
 }
 
-/// Gate that every living-state surface listing the application vocabulary names
+/// Gate that every doc listing the application vocabulary names
 /// all nine verbs. This is the check the prose restatements collapse toward: when
 /// a verb is added or renamed, this fails until every surface is updated, so the
 /// list cannot silently drift on one surface (as it did when `listen` and `tell`

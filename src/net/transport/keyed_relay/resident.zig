@@ -1,5 +1,5 @@
 //! The relay transport's blocking resident: RFC 6455 WebSocket client legs
-//! over TCP sockets, so a native peer dials, and is dialed through, a relay's
+//! over TCP sockets, so a Zig peer dials, and is dialed through, a relay's
 //! rendezvous (ADR-0088). The resident owns both byte-channel profiles:
 //! clear `keyed-relay` and Host-sealed `noise-relay`.
 //!
@@ -39,7 +39,7 @@
 //! `RelayStream` (the ADR-0043 stable-address pin) carrying the socket
 //! reader/writer stores. That is an application-tier cost, not the loop tier's.
 //!
-//! The native scale path is the sibling `completion.zig` adapter, which wraps
+//! The scale path is the sibling `completion.zig` adapter, which wraps
 //! the host platform completion backend and keeps TCP plus outbound relay dials
 //! in one `completion.Loop`. Registration accept remains resident-owned. When
 //! the profile is `noise-relay`, `driver_core.Host` seals that byte pipe.

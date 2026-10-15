@@ -1,4 +1,4 @@
-//! The live timeline producer: a veneer over the native tap. The core is the
+//! The live timeline producer: a veneer over the FFI tap. The core is the
 //! one owner of the facts: `glowcap_host_set_trace` reports every session's
 //! open (with the partner's designator, whether a durable identity verified
 //! the name, and the codec the handshake negotiated), every
@@ -256,7 +256,7 @@ struct TraceState {
 impl Drop for TraceState {
 	fn drop(&mut self) {
 		// Hosts held by another TLS owner may outlive this registry. Disarm
-		// their native callbacks before the sink and registry context retire.
+		// their FFI callbacks before the sink and registry context retire.
 		for host in &self.hosts {
 			// SAFETY: `host.raw` is a handle `attach_host` registered and `detach_host` removes on release, so it is
 			// live; a null callback clears the tap, and the null ctx is never read.
@@ -278,7 +278,7 @@ thread_local! {
 
 type ProjectedTrace = (Rc<crate::ContextInner>, u64, TraceCallback, TraceEvent);
 
-fn project_native_event(cookie: usize, ev: &ffi::GlowcapTraceEvent) -> crate::Result<Option<ProjectedTrace>> {
+fn project_ffi_event(cookie: usize, ev: &ffi::GlowcapTraceEvent) -> crate::Result<Option<ProjectedTrace>> {
 	STATE.with(|state| {
 		let state = state.try_borrow().map_err(|_| {
 			crate::Error::with_detail(
@@ -454,7 +454,7 @@ fn report_callback_failure(cookie: usize, operation: &str, error: crate::Error) 
 	}
 }
 
-unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::GlowcapTraceEvent) {
+unsafe extern "C" fn on_ffi_event(ctx: *mut c_void, event: *const ffi::GlowcapTraceEvent) {
 	let cookie = ctx as usize;
 	let projected = catch_unwind(AssertUnwindSafe(|| {
 		if event.is_null() {
@@ -465,7 +465,7 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Glowca
 		}
 		// SAFETY: `event` is non-null (checked above): the `GlowcapTraceEvent` the core passes to this callback,
 		// borrowed for the callback and not retained past it.
-		project_native_event(cookie, unsafe { &*event })
+		project_ffi_event(cookie, unsafe { &*event })
 	}));
 	match projected {
 		Ok(Ok(Some((context, diagnostic_id, sink, record)))) => emit_record(&context, diagnostic_id, sink, record),
@@ -480,8 +480,8 @@ unsafe extern "C" fn on_native_event(ctx: *mut c_void, event: *const ffi::Glowca
 }
 
 /// Install the sink (replacing any prior one), start the clock, and register
-/// the native tap on every live Host on this thread (a Host minted later
-/// registers itself). Returns an uninstall that also clears the native tap.
+/// the FFI tap on every live Host on this thread (a Host minted later
+/// registers itself). Returns an uninstall that also clears the FFI tap.
 /// `self_label`, when given, is what the producing application would like its
 /// own endpoint CALLED: a display name beside the identity, never instead of
 /// it: the `a` endpoint stays the host's own key designator, the name a
@@ -497,9 +497,9 @@ pub fn enable_trace(sink: TraceSink, self_label: Option<&str>) -> impl FnOnce() 
 		state.hosts.iter().map(|h| (h.raw, h.cookie)).collect::<Vec<_>>()
 	});
 	for (raw, cookie) in hosts {
-		// SAFETY: `raw` is a handle `attach_host` registered, live until `detach_host`; `on_native_event` matches the
+		// SAFETY: `raw` is a handle `attach_host` registered, live until `detach_host`; `on_ffi_event` matches the
 		// callback signature, and `cookie` is an integer ctx the callback never dereferences.
-		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
+		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_ffi_event), cookie as *mut c_void) };
 	}
 	move || {
 		let hosts = STATE.with(|state| {
@@ -561,17 +561,17 @@ pub(crate) fn attach_host(
 		state.sink.is_some().then_some(cookie)
 	});
 	if let Some(cookie) = install {
-		// SAFETY: `raw` is the live host handle this function was just given; `on_native_event` matches the callback
+		// SAFETY: `raw` is the live host handle this function was just given; `on_ffi_event` matches the callback
 		// signature, and `cookie` is an integer ctx the callback never dereferences.
-		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_native_event), cookie as *mut c_void) };
+		unsafe { ffi::glowcap_host_set_trace(raw, Some(on_ffi_event), cookie as *mut c_void) };
 	}
 }
 
 /// Binding-internal: a released Host leaves the registry. The core dropped
-/// its own sink row with the host, so no native call is needed.
+/// its own sink row with the host, so no FFI call is needed.
 pub(crate) fn detach_host(raw: *mut ffi::GlowcapHost) {
 	// A late TLS owner can release Host after TraceState::drop has removed
-	// every native callback. No registry row remains to retire in that case.
+	// every FFI callback. No registry row remains to retire in that case.
 	let _ = STATE.try_with(|state| {
 		state.borrow_mut().hosts.retain(|h| h.raw != raw);
 	});
@@ -606,7 +606,7 @@ mod tests {
 	}
 
 	#[test]
-	fn malformed_native_trace_is_contained_and_reported() {
+	fn malformed_ffi_trace_is_contained_and_reported() {
 		let context = Rc::new(crate::ContextInner::new().unwrap());
 		let cookie = STATE.with(|state| {
 			let mut state = state.borrow_mut();
@@ -626,7 +626,7 @@ mod tests {
 		event.kind = u32::MAX;
 		// SAFETY: `event` is a live local borrowed for the call, which the callback only reads; `cookie` is the integer
 		// ctx it expects, never dereferenced.
-		unsafe { on_native_event(cookie as *mut c_void, &event) };
+		unsafe { on_ffi_event(cookie as *mut c_void, &event) };
 		let failure = context.next_failure().unwrap().expect("decoder failure is retained");
 		assert_eq!(failure.operation, "trace.decode");
 		assert_eq!(failure.scope, crate::FailureScope::Host);

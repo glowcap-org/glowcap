@@ -71,7 +71,7 @@ timed room reconnect-claim state machine.
 `apps/rooms/rust/application/src/server/directory/tests.rs` distinguishes a
 reconnecting authenticated peer from a different peer. The server name-voucher
 scenario moves a live registration before its old connection closes.
-`apps/rooms/test/attached/archive_projection_test.ts` resumes an attached projection with missing archive rows on both
+`apps/rooms/test/session/archive_reconciliation_test.ts` resumes an attached projection with missing archive rows on both
 sides of an existing live line, including an edit and withdrawal missed during suspension. The archive backend scenarios
 hold creation time across replacement and restart. The attached-delivery scenario holds the pre-queue event time, and
 orders snapshots behind earlier line events. Store scenarios give equal timestamps their conversation order without

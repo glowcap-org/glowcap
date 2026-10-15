@@ -1,25 +1,23 @@
 // Cross-language tasks demo orchestrator.
 //
-// Starts the Deno tasks server, then joins one client per available language —
-// Deno and the native Zig client always, plus Python, Racket, and Rust when
-// their runtimes are on PATH — into one capability-secure task board over TCP. Each
-// client adds a task, lists tasks, marks its task done, and confirms the
-// change. The orchestrator asserts every participating client exits 0, so
-// `zig build demo-tasks` proves that one OCapN task board holds clients written
-// in several languages at once.
+// Starts the Zig tasks server on a fresh SQLite store directory, then joins one client
+// per available language (Deno and Zig always, plus Python, Racket, and Rust
+// when their runtimes are on PATH) to its board over TCP. Each client watches
+// the board, adds a task to the first list, marks it done by moving it to the
+// second, and confirms the move and the change. The orchestrator asserts every participating client exits
+// 0, so `zig build demo-tasks` proves one board saved in Loam holds clients
+// written in several languages at once.
 //
-// Run by `zig build demo-tasks`, which passes the built Zig client's path as argv[0].
-// `--port=N` (from `-Dport`) pins the server's port instead of an ephemeral one;
-// `--attach` (from `-Dattach`, requires `--port`) joins a server you already
-// started on that port instead of spawning one. An attached board should be
-// otherwise idle: the clients assert against the board state their own
-// operations produce.
+// Run by `zig build demo-tasks`, which passes the built Zig client and server
+// paths. `--port=N` (from `-Dport`) pins the server's port. The board's name is
+// a secret the server announces when it starts, so there is no `--attach`.
 
 import {
 	buildRust,
 	DENO_FLAGS,
 	onPath,
 	type Participant,
+	rejectAttach,
 	requireZigClientPath,
 	runCrossLangDemo,
 	splitDemoArgs,
@@ -31,9 +29,15 @@ const ZIG_CLIENT = requireZigClientPath(
 	positional,
 	"demo.ts: missing the Zig client path (run via `zig build demo-tasks`)",
 );
+const ZIG_SERVER = requireZigClientPath(
+	positional.slice(1),
+	"demo.ts: missing the Zig server path (run via `zig build demo-tasks`)",
+);
 validatePortOptions(pinPort, attach, "demo.ts");
+rejectAttach(attach, "demo.ts", "the board's name is announced only by a server this demo starts");
 
 const ROOT = Deno.cwd();
+const DATA = await Deno.makeTempDir({ prefix: "glowcap-tasks-" });
 
 async function roster(): Promise<{ participants: Participant[]; skipped: string[] }> {
 	const participants: Participant[] = [
@@ -42,11 +46,13 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 			cmd: "deno",
 			argv: (
 				p,
+				[name],
 			) => [
 				...DENO_FLAGS,
 				`${ROOT}/apps/tasks/deno/client.ts`,
 				"127.0.0.1",
 				String(p),
+				name,
 				"deno-ada",
 				"learn OCapN",
 			],
@@ -54,7 +60,7 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 		{
 			name: "zig",
 			cmd: ZIG_CLIENT,
-			argv: (p) => [String(p), "zig-niklaus", "write glowcap apps"],
+			argv: (p, [name]) => [String(p), name, "zig-niklaus", "write glowcap apps"],
 		},
 	];
 	const skipped: string[] = [];
@@ -65,10 +71,12 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 			cmd: "python3",
 			argv: (
 				p,
+				[name],
 			) => [
 				`${ROOT}/apps/tasks/python/client.py`,
 				"127.0.0.1",
 				String(p),
+				name,
 				"py-grace",
 				"try capabilities",
 			],
@@ -81,11 +89,13 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 			cmd: "racket",
 			argv: (
 				p,
+				[name],
 			) => [
 				"-y",
 				`${ROOT}/apps/tasks/racket/client.rkt`,
 				"127.0.0.1",
 				String(p),
+				name,
 				"rkt-alan",
 				"spawn an actor",
 			],
@@ -99,7 +109,8 @@ async function roster(): Promise<{ participants: Participant[]; skipped: string[
 				cmd: `${ROOT}/apps/tasks/rust/target/debug/tasks-client`,
 				argv: (
 					p,
-				) => ["127.0.0.1", String(p), "rs-barbara", "zero-copy everything"],
+					[name],
+				) => ["127.0.0.1", String(p), name, "rs-barbara", "zero-copy everything"],
 			});
 		} else skipped.push("rust (cargo build failed)");
 	} else skipped.push("rust (no cargo on PATH)");
@@ -112,13 +123,14 @@ await runCrossLangDemo(
 		label: "tasks",
 		serverNoun: "server",
 		clientNoun: "client",
-		serverScript: `${ROOT}/apps/tasks/deno/server.ts`,
-		listenPattern: /TASKS-SERVER-LISTENING (\d+)/,
+		server: { cmd: ZIG_SERVER, args: (pinPort) => [`--data=${DATA}`, `--port=${pinPort}`] },
+		listenPattern: /TASKS-SERVER-LISTENING (\d+) (\S+)/,
+		cleanup: () => Deno.remove(DATA, { recursive: true }),
 		listenMiss: "server never announced its port",
 		roster,
-		failLine: "tasks demo FAILED: at least one client did not complete the add-list-done-list round trip",
+		failLine: "tasks demo FAILED: at least one client did not watch, add, move, and confirm its task",
 		okLine: (langs) =>
-			`tasks demo OK: ${langs} held one capability-secure task board and every client completed a round trip`,
+			`tasks demo OK: ${langs} shared one task board saved in Loam, and every client moved its task to Done`,
 	},
 	pinPort,
 	attach,

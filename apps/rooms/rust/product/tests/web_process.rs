@@ -114,7 +114,7 @@ impl Web {
 		String::from_utf8(output.stdout).unwrap().trim().into()
 	}
 	async fn reach(&self) {
-		let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/web/native_relay.ts");
+		let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test/web/wasm_relay_peer.ts");
 		let mut peer = Command::new("deno")
 			.args(["run", "--allow-read", "--allow-net", "--allow-env"])
 			.arg(script)
@@ -205,7 +205,7 @@ async fn web_shared_session_announces_independent_links_and_releases_custody() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn web_can_serve_native_endpoints_without_loading_browser_assets() {
+async fn web_can_serve_rooms_endpoints_without_loading_browser_assets() {
 	tokio::time::timeout(Duration::from_secs(20), async {
 		let mut command = Web::endpoint_command(0);
 		command.arg("--no-browser-assets");

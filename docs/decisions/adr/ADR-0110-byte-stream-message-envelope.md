@@ -7,7 +7,7 @@ decision: "A byte-stream netlayer carries each bare codec frame inside one canon
 supersedes: [ADR-0029]
 superseded_by: []
 amends: [ADR-0030, ADR-0072, ADR-0089, ADR-0090]
-amended_by: []
+amended_by: [ADR-0229]
 ---
 
 # ADR-0110 Byte streams carry message envelopes

@@ -52,7 +52,7 @@ is vat-side and stays in the binding.
 A protocol decision copied N times is a latent inconsistency, and the two
 binding designs had drifted on the redeemed-token encoding. The router could not
 sink because every route value pointed at a language connection object (a
-`tokio` channel, an `asyncio` task). The native Zig `BlockingSession` had no
+`tokio` channel, an `asyncio` task). The Zig `BlockingSession` had no
 router.
 
 The conformance host
@@ -165,7 +165,7 @@ Routing sinks and the vat does not.
 ## Alternatives Considered
 
 - **Keep the router in each binding.** Rejected: a routing decision copied four
-  times in two designs must be fixed N times, and native Zig could not do what
+  times in two designs must be fixed N times, and Zig could not do what
   every binding can.
 - **Sink the vat too (the dispatch-shim node).** Rejected: it relocates
   per-runtime host-scheduler glue into a re-entrant C-callback runtime and taxes
@@ -182,7 +182,7 @@ Routing sinks and the vat does not.
 - `interop/goblins_interop/handoff_driver.zig` builds its recipient redeem on
   `engine.Node` (the node mints the withdraw, enrolls the redeemed greeter under
   a token, and routes the call back to the exporter), so the router is checked
-  against live Goblins (`goblins-handoff`) and native Zig has the capability.
+  against live Goblins (`goblins-handoff`) and Zig has the capability.
 - `conformance/ocapn-conformance/glowcap_peer.zig` drives one `driver.core.Host`
   (which owns the node router) behind a `driver.Bridge` over a single completion
   loop. The one loop thread serializes every node call with no lock, and the Host

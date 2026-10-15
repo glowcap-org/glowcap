@@ -1,3 +1,11 @@
+---
+type: static
+description: A short glossary of object capabilities, CapTP and OCapN for readers new to them.
+sources:
+  - resource: https://github.com/ocapn/ocapn
+  - resource: /examples/zig/02_introduce_and_redeem.zig
+---
+
 # Capabilities, CapTP, and OCapN
 
 Start here if object-capability security is new to you and you want a short
@@ -8,7 +16,7 @@ familiar, go to the [quick start](../README.md#quick-start).
 ## A capability is a reference with authority
 
 If you hold a capability to an object, you may call it. If you do not, you
-cannot forge or guess one. Passing the reference passes that authority.
+cannot forge or guess one. Passing the reference passes that permission.
 
 Capability systems can still use roles or policy where an application needs
 them. The important change is at the object boundary: permission arrives as a
@@ -16,7 +24,7 @@ reference, rather than being inferred from a process identity or a global
 namespace.
 
 This avoids *ambient authority*, where a program and every library it loads can
-draw from one shared pool of permissions. In a capability design, authority
+draw from one shared pool of permissions. In a capability design, permission
 arrives one reference at a time from someone who chose to grant it.
 
 Three common patterns follow:
@@ -27,6 +35,10 @@ Three common patterns follow:
 
 These are ordinary object-reference patterns. CapTP carries them across a
 network.
+
+A capability decides what its holder may do, not who the holder is.
+[What about identity?](https://jimisaacs.github.io/glowcap/identity/) covers how a service tells people
+from bots and hands each one its own key.
 
 ## CapTP carries references between programs
 
@@ -41,7 +53,7 @@ through a global object namespace.
 
 Remote calls return promises. A caller may send the next operation to a promise
 before its answer arrives. CapTP forwards that operation when the promise
-settles. This is *promise pipelining*, and it can turn a chain of dependent calls
+settles (is fulfilled or broken). This is *promise pipelining*, and it can turn a chain of dependent calls
 into one network flight.
 
 CapTP also supports three-party handoff. If Alice holds a capability to Carol's
@@ -90,16 +102,16 @@ wire.
 | reference | A name for an object: *near* in your vat, *far* across a session. |
 | export / import | The session-table positions for an object on its owning and receiving sides. |
 | promise | An OCapN passable reference representing an eventual fulfillment or break. |
-| vow | In Goblins, a passable eventual reference. glowcap's `Vow` is instead a local host/actor-layer observation and send-result handle over an OCapN promise. It is not the passable reference or its wire position. |
+| vow | In Goblins, a promise you can pass to another object. In glowcap, `Vow` is a local handle for watching the result of a send. It never crosses the wire. |
 | answer position | The sender-chosen CapTP session slot (`desc:answer`) used to pipeline sends against a promise. |
 | promise pipelining | Calling through a promise before it settles so dependent calls share a flight. |
 | bootstrap object | The one well-known capability available when a session opens. |
-| swiss number | A high-entropy name registered under the bootstrap object for later lookup. |
+| swiss number | A long random secret name registered under the bootstrap object, so the object can be fetched later. |
 | sturdyref | Durable data containing a peer locator and swiss number. Redemption still depends on that peer continuing to answer at the locator and honor the registration. |
 | locator | An `ocapn://` URI identifying an OCapN peer, and optionally one of its objects, for the selected netlayer to reach. |
-| designator | The netlayer-defined part of a peer locator that, together with the transport, distinguishes the peer's location. It is conventionally self-authenticating but need not be: examples are a public key, onion service id, iroh node id, or cleartext TCP `host:port`. Hints say how to reach it but are not identity. |
+| designator | The part of a locator that names the peer: a public key, an onion service id, an iroh node id, or a cleartext TCP `host:port`. Most designators prove who answers, but a TCP `host:port` does not. Hints help reach the peer and are never identity. |
 | handoff | A signed three-party introduction that moves a capability without keeping the introducer as proxy. |
 | give | The signed introduction presented to the exporting peer during handoff. |
-| netlayer | The locator-selected OCapN channel contract. glowcap realizes some netlayers as per-stream `net.Connection` values and others through multiplexed residents. [Known limitations](boundaries.md) says what each shipped profile proves. |
+| netlayer | OCapN's word for a transport: how a locator's bytes reach the peer. [Known limitations](boundaries.md) says what each one proves. |
 | codec | A wire encoding for the message model. glowcap ships Syrup and Cap'n Proto. |
 | Syrup | The S-expression-shaped binary encoding used by OCapN and Goblins. |

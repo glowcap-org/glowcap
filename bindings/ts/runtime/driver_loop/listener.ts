@@ -1,4 +1,4 @@
-// One generic native-driver listener owner. Transport packages wrap this
+// One generic driver listener owner. Transport packages wrap this
 // object only to project their own locator metadata.
 
 import { CLOSED } from "@glowcap/abi";

@@ -84,7 +84,7 @@ fn proveExportGc(
     // holds the import only for the echo turn, then releases it with
     // op:gc-exports naming our export position.
     const export_pos = try peer.exportNextObject();
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = echo,
         .args = &.{.{ .reference = .{ .near = .{ .export_position = model.ExportPosition.from(export_pos) } } }},
         .answer = null,
@@ -104,8 +104,8 @@ fn proveExportGc(
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
-            const body = event.view() catch |err| return err;
-            if (body != .gc_export) continue;
+            const body = event.view();
+            if (body.* != .gc_export) continue;
             const gc = body.gc_export;
             const n = try gc.positions.len();
             var i: usize = 0;

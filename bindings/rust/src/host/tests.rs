@@ -120,7 +120,7 @@ async fn dropping_a_resolver_after_its_session_closes_does_not_poison_host_progr
 			runtime.close(PendingWork::Cancel).await.unwrap();
 			host.close(PendingWork::Cancel).await.unwrap();
 			drop(answer);
-			drained.expect("native session retirement already consumed this resolver");
+			drained.expect("FFI session retirement already consumed this resolver");
 		})
 		.await;
 }
@@ -142,8 +142,8 @@ fn public_close_is_a_safe_boundary_for_deferred_driver_release() {
 	});
 }
 
-// A hosted behavior may retain a Host clone. Native Host ownership of the
-// behavior then closes an Rc cycle; explicit close must release the native
+// A hosted behavior may retain a Host clone. FFI Host ownership of the
+// behavior then closes an Rc cycle; explicit close must release the FFI
 // actor row and break that cycle instead of waiting for HostShared::drop.
 #[test]
 fn close_breaks_a_hosted_behavior_host_cycle() {
@@ -170,7 +170,7 @@ fn close_breaks_a_hosted_behavior_host_cycle() {
 
 		host.close(crate::PendingWork::Cancel).await.unwrap();
 		assert!(host.shared.raw.get().is_null());
-		assert!(dropped.get(), "native Host release drops the captured behavior");
+		assert!(dropped.get(), "FFI Host release drops the captured behavior");
 	});
 }
 
@@ -439,7 +439,7 @@ fn refused_publication_attaches_panicking_actor_cell_drop() {
 }
 
 #[test]
-fn close_waits_for_an_admitted_action_drain_before_native_release() {
+fn close_waits_for_an_admitted_action_drain_before_ffi_release() {
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
 		.build()
@@ -453,7 +453,7 @@ fn close_waits_for_an_admitted_action_drain_before_native_release() {
 		host.request_close();
 		assert!(
 			!host.shared.raw.get().is_null(),
-			"close released native state beneath an admitted action drain"
+			"close released FFI state beneath an admitted action drain"
 		);
 		host.close(crate::PendingWork::Cancel).await.unwrap();
 		assert!(host.shared.raw.get().is_null());
@@ -494,7 +494,7 @@ fn a_finite_finish_close_reports_its_timeout_and_a_repeat_observes_it() {
 		assert_eq!(error.kind(), crate::ErrorKind::TimedOut);
 		assert!(
 			host.shared.raw.get().is_null(),
-			"the timed-out finish still releases native state"
+			"the timed-out finish still releases FFI state"
 		);
 
 		let again = host
@@ -596,9 +596,9 @@ fn host_options_carry_local_turn_budget() {
 
 #[test]
 fn host_profiles_use_the_generated_coherent_pairs() {
-	let native = HostOptions::with_profile(crate::HostProfile::Native);
-	assert_eq!(native.codec, Codec::Capnp);
-	assert_eq!(native.captp_version, crate::CaptpVersion::Next);
+	let glowcap = HostOptions::with_profile(crate::HostProfile::Glowcap);
+	assert_eq!(glowcap.codec, Codec::Capnp);
+	assert_eq!(glowcap.captp_version, crate::CaptpVersion::Next);
 	let interop = HostOptions::with_profile(crate::HostProfile::Interop);
 	assert_eq!(interop.codec, Codec::Syrup);
 	assert_eq!(interop.captp_version, crate::CaptpVersion::V1_0);

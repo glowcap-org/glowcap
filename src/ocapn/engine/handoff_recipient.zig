@@ -62,8 +62,8 @@ pub const SignedReceive = struct {
     }
 
     /// Release the give `signedReceiveFromGiveBytes` parsed and owns. Safe to
-    /// call once the withdraw `message()` projected has been encoded,
-    /// `sendCopying` deep-copies before it returns, so the caller's one send
+    /// call once the withdraw `message()` projected has been sent:
+    /// `sendBorrowed` keeps nothing of its input, so the caller's one send
     /// call always finishes first.
     pub fn deinit(self: *const SignedReceive, allocator: std.mem.Allocator) void {
         model.freeHandoffGive(allocator, self.give);
@@ -73,9 +73,8 @@ pub const SignedReceive = struct {
 /// Build a signed `desc:handoff-receive` embedding the gifter's give, returning
 /// a self-contained `SignedReceive` the caller keeps alive while it encodes the
 /// withdraw, then releases with `SignedReceive.deinit`. `give_bytes` is the
-/// Syrup-encoded `<desc:sig-envelope …>` a gifter returned (or a binding's
-/// `glowcap_build_handoff_give` built). It is parsed once here into a typed,
-/// codec-neutral give. `secret` is the recipient's session key, the one the
+/// Syrup-encoded `<desc:sig-envelope …>` a gifter returned. It is parsed once
+/// here into a typed, codec-neutral give. `secret` is the recipient's session key, the one the
 /// gifter named as the give's recipient key, so the exporter verifies the
 /// receive against it. `handoff_count` is supplied by the owner of issuance.
 /// Ordinary peers mint it from their recipient-to-exporter session registry. A
@@ -240,7 +239,7 @@ pub fn sendWithdrawGift(
     // on*, because that is the identity the give named as its
     // `recipient_key` and the exporter verifies this receive against that
     // name. The side and session names below are this session's, the
-    // recipient–exporter one, because they name where the withdrawal is
+    // recipient-exporter one, because they name where the withdrawal is
     // happening. Goblins draws the same distinction: its receive is signed
     // by the coordinator that received the give while its names come from
     // the exporter session's coordinator. Conflating them works only while
@@ -266,10 +265,10 @@ pub fn sendWithdrawGift(
         give_bytes,
     );
     defer signed.deinit(peer.allocator);
-    // `signed.message()` borrows `signed`; both outlive `sendCopying`, which
-    // deep-copies the deliver before this returns.
+    // `signed.message()` borrows `signed`; both outlive `sendBorrowed`, which
+    // keeps nothing of the deliver once it returns.
     var handoff = model.Handoff{ .receive = signed.message() };
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
         .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff } },
         .answer = answer,

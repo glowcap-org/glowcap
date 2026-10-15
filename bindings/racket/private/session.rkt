@@ -132,7 +132,7 @@
       (with-handlers ([exn? (lambda (e)
                               (set-box! (session-release-pending? c) #f)
                               (raise e))])
-        (native-session-release! m ptr)
+        (ffi-session-release! m ptr)
         (set-box! (async-connection-released? ac) #t)
         (set-box! (session-release-pending? c) #f)
         (host-unregister-session! m ptr)

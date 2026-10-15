@@ -53,7 +53,7 @@ steward reference.
   no durable member identity to ban.
 - Sharing a sturdyref copies authority. ADR-0127 adds the separate server
   operator capability that can rotate it and invalidate every old holder.
-- The IRC front does not map IRC operator modes onto the steward capability.
+- The IRC server does not map IRC operator modes onto the steward capability.
 - Stewardship does not grant entry to the room. A holder needs a room
   capability separately.
 

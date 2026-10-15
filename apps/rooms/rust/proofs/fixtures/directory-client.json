@@ -5763,6 +5763,311 @@
       "error": true
     }
   ],
+  "pages": [
+    {
+      "input": [
+        [
+          [
+            "garden",
+            {
+              "integer": "2"
+            },
+            "local-id",
+            "local",
+            "",
+            "local",
+            "participant"
+          ],
+          [
+            "garden",
+            null,
+            "foreign-id",
+            "foreign",
+            "elsewhere",
+            "authenticated",
+            "observer"
+          ],
+          [
+            "channel",
+            null,
+            "bridge-id",
+            "bridge",
+            "network",
+            "bridge",
+            null
+          ]
+        ],
+        null
+      ],
+      "result": {
+        "rooms": [
+          {
+            "id": "local-id",
+            "name": "garden",
+            "kind": "local",
+            "count": 2,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "foreign-id",
+            "name": "garden",
+            "kind": "foreign",
+            "count": null,
+            "origin": "elsewhere",
+            "proof": "authenticated",
+            "offers": "observer"
+          },
+          {
+            "id": "bridge-id",
+            "name": "channel",
+            "kind": "bridge",
+            "count": null,
+            "origin": "network",
+            "proof": "bridge",
+            "offers": null
+          }
+        ],
+        "next": null
+      }
+    },
+    {
+      "input": [
+        [
+          [
+            "garden",
+            {
+              "integer": "2"
+            },
+            "local-id",
+            "local",
+            "",
+            "local",
+            "participant"
+          ],
+          [
+            "garden",
+            null,
+            "foreign-id",
+            "foreign",
+            "elsewhere",
+            "authenticated",
+            "observer"
+          ],
+          [
+            "channel",
+            null,
+            "bridge-id",
+            "bridge",
+            "network",
+            "bridge",
+            null
+          ]
+        ],
+        "local:#garden"
+      ],
+      "result": {
+        "rooms": [
+          {
+            "id": "local-id",
+            "name": "garden",
+            "kind": "local",
+            "count": 2,
+            "origin": "",
+            "proof": "local",
+            "offers": "participant"
+          },
+          {
+            "id": "foreign-id",
+            "name": "garden",
+            "kind": "foreign",
+            "count": null,
+            "origin": "elsewhere",
+            "proof": "authenticated",
+            "offers": "observer"
+          },
+          {
+            "id": "bridge-id",
+            "name": "channel",
+            "kind": "bridge",
+            "count": null,
+            "origin": "network",
+            "proof": "bridge",
+            "offers": null
+          }
+        ],
+        "next": "local:#garden"
+      }
+    },
+    {
+      "input": [
+        [],
+        null
+      ],
+      "result": {
+        "rooms": [],
+        "next": null
+      }
+    },
+    {
+      "input": [
+        [],
+        "local:#garden"
+      ],
+      "error": true
+    },
+    {
+      "input": [
+        [
+          [
+            "garden",
+            {
+              "integer": "2"
+            },
+            "local-id",
+            "local",
+            "",
+            "local",
+            "participant"
+          ],
+          [
+            "garden",
+            null,
+            "foreign-id",
+            "foreign",
+            "elsewhere",
+            "authenticated",
+            "observer"
+          ],
+          [
+            "channel",
+            null,
+            "bridge-id",
+            "bridge",
+            "network",
+            "bridge",
+            null
+          ]
+        ],
+        "garden"
+      ],
+      "error": true
+    },
+    {
+      "input": [
+        [
+          [
+            "garden",
+            {
+              "integer": "2"
+            },
+            "local-id",
+            "local",
+            "",
+            "local",
+            "participant"
+          ],
+          [
+            "garden",
+            null,
+            "foreign-id",
+            "foreign",
+            "elsewhere",
+            "authenticated",
+            "observer"
+          ],
+          [
+            "channel",
+            null,
+            "bridge-id",
+            "bridge",
+            "network",
+            "bridge",
+            null
+          ]
+        ],
+        "elsewhere:#garden"
+      ],
+      "error": true
+    },
+    {
+      "input": [
+        [
+          [
+            "garden",
+            {
+              "integer": "2"
+            },
+            "local-id",
+            "local",
+            "",
+            "local",
+            "participant"
+          ],
+          [
+            "garden",
+            null,
+            "foreign-id",
+            "foreign",
+            "elsewhere",
+            "authenticated",
+            "observer"
+          ],
+          [
+            "channel",
+            null,
+            "bridge-id",
+            "bridge",
+            "network",
+            "bridge",
+            null
+          ]
+        ],
+        "local:"
+      ],
+      "error": true
+    },
+    {
+      "input": [
+        [
+          [
+            "garden",
+            {
+              "integer": "2"
+            },
+            "local-id",
+            "local",
+            "",
+            "local",
+            "participant"
+          ],
+          [
+            "garden",
+            null,
+            "foreign-id",
+            "foreign",
+            "elsewhere",
+            "authenticated",
+            "observer"
+          ],
+          [
+            "channel",
+            null,
+            "bridge-id",
+            "bridge",
+            "network",
+            "bridge",
+            null
+          ]
+        ],
+        {
+          "integer": "256"
+        }
+      ],
+      "error": true
+    }
+  ],
   "snapshots": [
     {
       "input": [

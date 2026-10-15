@@ -1,166 +1,140 @@
-//! A tasks board client, written on glowcap actors in native Zig. Zig is the home
-//! language; this runs on the same core every binding wraps, and it drives the
-//! real TCP netlayer.
+//! A Tasks board client in Zig, on the same driver surface every binding wraps.
 //!
-//! On the driver surface this reads like the other languages: one owning
-//! `driver.connect`, `fetch` the board by name, `spawn` a watcher, then add a
-//! task, list, mark it done, and list again to confirm, each a blocking
-//! `session.call` that pumps the session until its reply settles. The script reads
-//! top to bottom, no phase machine: this is the same sequence every other
-//! language's one-shot client runs.
+//! It fetches the board by the name the server printed and starts watching it,
+//! adds a task to the first list, marks it done by moving it to the second
+//! list, and reads both lists to confirm. The watcher then reports that the
+//! board changed. Each change names a fresh sequence number from
+//! `mutation-sequence`, so a retried change applies once.
 //!
-//!   glowcap-tasks-client <port> <nick> <task-text>
+//!   glowcap-tasks-client <port> <board-name> <nick> <task-text>
 //!
-//! It exits 0 once the full add-list-done-list round trip succeeds.
+//! It exits 0 once the task shows up in the second list and the watcher saw
+//! the change.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
 
 const demo_usage = @import("demo_usage");
 
-const model = glowcap.ocapn.model;
-const actors = glowcap.actors;
 const driver = glowcap.driver;
 const tcp = glowcap.net.tcp;
 
 const host_addr = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
 
-const Watcher = struct {
-    pub fn handle(self: *Watcher, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        _ = self;
-        _ = ht;
-        _ = args;
-        if (!std.mem.eql(u8, verb, "update")) return error.NoSuchMethod;
-        return .{ .void = {} };
+const Client = struct {
+    session: *driver.Session,
+    arena: std.mem.Allocator,
+    nick: []const u8,
+
+    fn call(self: Client, target: driver.Capability, verb: []const u8, args: []const driver.Value) driver.Value {
+        return switch (self.session.call(target, verb, args, self.arena) catch |err| die(self.nick, @errorName(err))) {
+            .fulfilled => |value| value,
+            .broken => |reason| die(self.nick, reason),
+        };
+    }
+
+    fn integer(self: Client, target: driver.Capability, verb: []const u8, args: []const driver.Value) i64 {
+        const value = self.call(target, verb, args);
+        return if (value == .integer) value.integer else die(self.nick, "expected an integer reply");
+    }
+
+    fn facet(self: Client, target: driver.Capability, verb: []const u8, at: i64) driver.Capability {
+        const value = self.call(target, verb, &.{.{ .integer = at }});
+        return if (value == .capability) value.capability else die(self.nick, "expected a capability reply");
+    }
+
+    /// One change with a fresh sequence number, so a retry applies once.
+    fn mutate(self: Client, target: driver.Capability, args: []const driver.Value) driver.Value {
+        var wrapped: [4]driver.Value = undefined;
+        wrapped[0] = .{ .integer = self.integer(target, "mutation-sequence", &.{}) };
+        @memcpy(wrapped[1 .. 1 + args.len], args);
+        return self.call(target, "mutate", wrapped[0 .. 1 + args.len]);
+    }
+
+    /// Poll a watcher from `cursor`. Returns whether the board changed since,
+    /// and moves `cursor` to the reply's.
+    fn changed(self: Client, receiver: driver.Capability, cursor: *[]const u8) bool {
+        const value = self.call(receiver, "poll", if (cursor.len == 0) &.{} else &.{.{ .bytes = cursor.* }});
+        if (value != .tagged or value.tagged.value.len != 5) die(self.nick, "the watcher sent no observation");
+        // Loam's `access:observation` record, see docs/loam/access-observation.md:
+        // fields[0] is the cursor and fields[3] is whether anything changed.
+        const fields = value.tagged.value;
+        if (fields[0] != .bytes or fields[3] != .boolean) die(self.nick, "the watcher sent no observation");
+        cursor.* = fields[0].bytes;
+        return fields[3].boolean;
+    }
+
+    /// Print a list and report whether it holds `wanted`.
+    fn show(self: Client, list: driver.Capability, wanted: []const u8) bool {
+        const name = self.call(list, "name", &.{});
+        const count = self.integer(list, "count", &.{});
+        std.debug.print("[{s}] {s}: {d} task(s)\n", .{ self.nick, if (name == .string) name.string else "?", count });
+        var found = false;
+        for (0..@intCast(count)) |i| {
+            const text = self.call(self.facet(list, "task", @intCast(i)), "text", &.{});
+            if (text != .string) die(self.nick, "a task had no text");
+            std.debug.print("  {s}\n", .{text.string});
+            found = found or std.mem.eql(u8, text.string, wanted);
+        }
+        return found;
     }
 };
 
-fn printTask(item: driver.Value) void {
-    switch (item) {
-        .list => |fields| {
-            if (fields.len >= 3) {
-                const id = switch (fields[0]) {
-                    .integer => |v| v,
-                    else => 0,
-                };
-                const text = switch (fields[1]) {
-                    .string => |s| s,
-                    else => "?",
-                };
-                const is_done = switch (fields[2]) {
-                    .boolean => |v| v,
-                    else => false,
-                };
-                const mark: []const u8 = if (is_done) "[x]" else "[ ]";
-                std.debug.print("  {s} #{d} {s}\n", .{ mark, id, text });
-            }
-        },
-        else => {},
-    }
-}
-
-/// True when the board's `list` reply contains `id` marked done, the
-/// confirmation the round trip asserts on.
-fn taskIsDone(items: []const driver.Value, id: i64) bool {
-    for (items) |item| {
-        switch (item) {
-            .list => |fields| {
-                if (fields.len >= 3) {
-                    const fid = switch (fields[0]) {
-                        .integer => |v| v,
-                        else => 0,
-                    };
-                    const is_done = switch (fields[2]) {
-                        .boolean => |v| v,
-                        else => false,
-                    };
-                    if (fid == id and is_done) return true;
-                }
-            },
-            else => {},
-        }
-    }
-    return false;
-}
-
-/// Print the failure and exit non-zero, usable in any expression position
-/// (a broken reply or a malformed one ends the one-shot client the same way).
+/// Print the failure and exit non-zero, usable in any expression position.
 fn die(nick: []const u8, reason: []const u8) noreturn {
     std.debug.print("tasks-client: {s} failed: {s}\n", .{ nick, reason });
     std.process.exit(1);
 }
 
 pub fn main(init: std.process.Init) !void {
-    const io = init.io;
-    const allocator = init.gpa;
-
     var args_iter = std.process.Args.Iterator.init(init.minimal.args);
     _ = args_iter.next();
     const port_str = args_iter.next() orelse return fail("missing <port>");
+    const board_name = args_iter.next() orelse return fail("missing <board-name>");
     const nick = args_iter.next() orelse return fail("missing <nick>");
     const task_text = args_iter.next() orelse return fail("missing <task-text>");
-    const port = try std.fmt.parseInt(u16, port_str, 10);
+    const port = std.fmt.parseInt(u16, port_str, 10) catch return fail("<port> must be a number");
 
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const address = try tcp.parseHostPort(host_addr, port);
-    const loc = tcp.locatorFromAddress(&designator_buf, address);
-    var session = try driver.connect(allocator, io, .{ .symbols = &.{.tcp} }, loc, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
+    const loc = tcp.locatorFromAddress(&designator_buf, try tcp.parseHostPort(host_addr, port));
+    const session = try driver.connect(init.gpa, init.io, .{ .symbols = &.{.tcp} }, loc, .ephemeral, .{ .frame_cap = frame_cap, .handshake = .{ .ms = 10_000 }, .settle = .{ .ms = 10_000 } });
     defer session.deinit();
-
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    var arena_state = std.heap.ArenaAllocator.init(init.gpa);
     defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const board = try session.fetch("board");
-    const watcher = try session.spawn(Watcher, .{});
-
-    try session.tell(board, "watch", &.{.{ .capability = watcher }});
+    const client: Client = .{ .session = session, .arena = arena_state.allocator(), .nick = nick };
 
     var text_buf: [256]u8 = undefined;
-    const full_text = std.fmt.bufPrint(&text_buf, "[{s}] {s}", .{ nick, task_text }) catch task_text;
+    const text = std.fmt.bufPrint(&text_buf, "[{s}] {s}", .{ nick, task_text }) catch return fail(std.fmt.comptimePrint("<nick> and <task-text> together must fit in {d} bytes", .{text_buf.len - "[] ".len}));
 
-    const added_id = switch (try session.call(board, "add", &.{.{ .string = full_text }}, arena)) {
-        .fulfilled => |arg| switch (arg) {
-            .integer => |id| id,
-            else => die(nick, "add did not return a task id"),
-        },
-        .broken => |reason| die(nick, reason),
-    };
-    std.debug.print("[{s}] added task #{d}\n", .{ nick, added_id });
-
-    switch (try session.call(board, "list", &.{}, arena)) {
-        .fulfilled => |arg| switch (arg) {
-            .list => |items| {
-                std.debug.print("[{s}] {d} task(s) on the board\n", .{ nick, items.len });
-                for (items) |item| printTask(item);
-            },
-            else => die(nick, "list did not return a list"),
-        },
-        .broken => |reason| die(nick, reason),
-    }
-
-    switch (try session.call(board, "done", &.{.{ .integer = added_id }}, arena)) {
-        .fulfilled => std.debug.print("[{s}] completed task #{d}\n", .{ nick, added_id }),
-        .broken => |reason| die(nick, reason),
-    }
-
-    const confirmed = switch (try session.call(board, "list", &.{}, arena)) {
-        .fulfilled => |arg| switch (arg) {
-            .list => |items| taskIsDone(items, added_id),
-            else => die(nick, "list did not return a list"),
-        },
-        .broken => |reason| die(nick, reason),
-    };
-
-    if (confirmed) {
-        std.debug.print("[{s}] confirmed task #{d} is done\n", .{ nick, added_id });
-    } else {
-        std.debug.print("tasks-client: {s} failed the round trip\n", .{nick});
-        std.process.exit(1);
-    }
+    const board = try session.fetch(board_name);
+    // Watching replies with a receiver to poll and a canceller that frees the
+    // owner's observation context.
+    const watch = client.mutate(board, &.{.{ .string = "observe" }});
+    if (watch != .list or watch.list.len != 2 or watch.list[0] != .capability) die(nick, "watching returned no receiver");
+    const receiver = watch.list[0].capability;
+    const canceller = watch.list[1];
+    if (canceller != .capability) die(nick, "watching returned no canceller");
+    var cursor: []const u8 = &.{};
+    _ = client.changed(receiver, &cursor);
+    const todo = client.facet(board, "list", 0);
+    const done = client.facet(board, "list", 1);
+    // Adding replies with the new task, and the move names it by that
+    // capability, so it moves exactly this task whatever else changed.
+    const added = client.mutate(todo, &.{ .{ .string = "add" }, .{ .string = text } });
+    const task = if (added == .capability) added.capability else die(nick, "adding a task returned no task");
+    std.debug.print("[{s}] added a task\n", .{nick});
+    _ = client.mutate(todo, &.{ .{ .string = "move" }, .{ .capability = task }, .{ .capability = done } });
+    std.debug.print("[{s}] marked it done\n", .{nick});
+    _ = client.show(todo, text);
+    if (!client.show(done, text)) die(nick, "the task is not in the done list");
+    std.debug.print("[{s}] confirmed the task is done\n", .{nick});
+    if (!client.changed(receiver, &cursor)) die(nick, "the watcher saw no change");
+    std.debug.print("[{s}] the watcher saw the board change\n", .{nick});
+    const cancelled = client.call(canceller.capability, "cancel", &.{});
+    if (cancelled != .boolean) die(nick, "cancelling the watcher returned no boolean");
 }
 
 fn fail(message: []const u8) error{Usage} {
-    return demo_usage.usage("usage: glowcap-tasks-client <port> <nick> <task-text>", message);
+    return demo_usage.usage("usage: glowcap-tasks-client <port> <board-name> <nick> <task-text>", message);
 }

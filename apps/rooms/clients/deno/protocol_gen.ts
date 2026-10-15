@@ -61,6 +61,7 @@ export const SESSION_DEADLINE_MS = 15000;
 export const OPEN = "open";
 export const ENTER = "enter";
 export const LIST_PUBLICATIONS = "listPublications";
+export const NAMED_PUBLICATIONS = "namedPublications";
 export const WATCH_PUBLICATIONS = "watchPublications";
 export const UNWATCH_PUBLICATIONS = "unwatchPublications";
 export const REGISTER = "register";
@@ -109,6 +110,12 @@ export const REGISTRATION_EVENT_FIELDS: readonly Field[] = [
 /** What the truncation watch kind carries after its tag. */
 export const TRUNCATED_FIELDS: readonly Field[] = [
 	{ name: "omitted", type: "natural", nullable: false, values: [] },
+];
+
+/** What listPublications answers: one page of publication rows, and the cursor that asks for the page after it, null on the last page. The cursor is the directory's own word: pass it back exactly. */
+export const LIST_PAGE_FIELDS: readonly Field[] = [
+	{ name: "rooms", type: "list", nullable: false, values: [] },
+	{ name: "next", type: "text", nullable: true, values: [] },
 ];
 
 /** What watchPublications answers: the baseline a watcher folds deltas into. */

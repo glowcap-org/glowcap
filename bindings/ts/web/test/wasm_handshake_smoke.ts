@@ -9,7 +9,7 @@
 // The proof is that both sessions reach `session_open`, then a wrong-peer
 // sturdyref is refused before any frame is emitted. The signed handshake,
 // keyed crypto, Syrup framing, entropy seam, URI parsing, and peer check all
-// run inside the wasm sandbox. It mirrors the native
+// run inside the wasm sandbox. It mirrors the FFI
 // `test/driver/core_host/` "two hosts complete the keyed handshake over
 // fed bytes" scenario, one layer out through the wasm exports.
 //
@@ -143,6 +143,16 @@ const u8 = () => new Uint8Array(mem.buffer);
 const dv = () => new DataView(mem.buffer);
 const readU32 = (off: number) => dv().getUint32(off, true);
 
+// Every staged block is 8-aligned, so a run of int64 words the library reads
+// in place (a BigInt64Array argument) is never refused as misaligned.
+for (const len of [1, 3, 5, 24]) {
+	const blocks = [ex.glowcap_wasm_alloc(len), ex.glowcap_wasm_alloc(len)];
+	for (const ptr of blocks) {
+		if (ptr === 0 || ptr % 8 !== 0) throw new Error(`glowcap_wasm_alloc(${len}) returned unaligned block ${ptr}`);
+	}
+	for (const ptr of blocks) ex.glowcap_wasm_free(ptr, len);
+}
+
 // The wasm32 `GlowcapManagedFrame` byte offsets are target-specific (four-byte
 // pointers and `usize`), so the module reports its own layout rather than the
 // 64-bit host mirror in `abi.ts`. `glowcap_wasm_abi_layout` writes a blob of
@@ -202,7 +212,7 @@ function lastHostError(): string {
 function hostNew(seed: Uint8Array): number {
 	// Durable identity followed by a session-key root, so every session this
 	// host opens signs with its own key (ADR-0097). The wasm module draws no
-	// entropy; the page supplies it, as the native bindings do.
+	// entropy; the page supplies it, as the FFI bindings do.
 	const seedWithRoot = new Uint8Array(64);
 	seedWithRoot.set(seed.subarray(0, 32), 0);
 	crypto.getRandomValues(seedWithRoot.subarray(32));

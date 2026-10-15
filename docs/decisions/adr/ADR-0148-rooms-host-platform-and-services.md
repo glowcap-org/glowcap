@@ -15,7 +15,7 @@ amended_by: [ADR-0151, ADR-0174]
 ## Context
 
 `rooms-native` mixed two boundaries. Tokio scheduling, filesystem custody,
-listeners, TLS, WebSocket channels, room and session peers, IRC fronts, the web
+listeners, TLS, WebSocket channels, room and session peers, IRC servers, the web
 front, and interactive commands all lived in one crate. The name described where
 the code ran, not what it owned, and made platform effects look like part of
 each service's policy.

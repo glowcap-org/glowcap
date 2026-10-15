@@ -42,6 +42,7 @@ const driver_options: cdrv.GlowcapDriverOptions = .{
     .handshake_ms = 1_000,
     .listener_setup_ms = 1_000,
     .settle_ms = 1_000,
+    .busy_poll_ns = 0,
 };
 
 fn closeProviderListener(table: *const cdrv.GlowcapStreamTransport, listener: *anyopaque) void {

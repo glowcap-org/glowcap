@@ -2,8 +2,8 @@
 //!
 //! This staticlib wraps one iroh endpoint behind the narrow C ABI
 //! declared in `include/glowcap_iroh_sidecar.h`, emitting
-//! `libglowcap_iroh_sidecar.a`. The Zig resident
-//! (`src/net/transport/iroh.zig`) is the only consumer. Shape decisions:
+//! `libglowcap_iroh_sidecar.a`. Its only consumer
+//! is the Zig sidecar owner, `src/net/transport/iroh/sidecar.zig`. Shape decisions:
 //!
 //! * Each endpoint owns its own tokio runtime behind the opaque handle, so a
 //!   caller needs no async runtime of its own. Evented dial, accept, and stream

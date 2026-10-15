@@ -1,6 +1,6 @@
 //! Transport-neutral connection and handoff dialing.
 //!
-//! Native I/O enters through an explicitly selected [`Provider`]. An embedder
+//! FFI I/O enters through an explicitly selected [`Provider`]. An embedder
 //! that owns channel establishment supplies a [`Connector`]. Transport modules
 //! construct both values and own locator interpretation. This module owns only
 //! Host lifetime, loop adoption, handshake budgets, and terminal reporting of
@@ -32,7 +32,7 @@ pub(crate) async fn dial_with_connector(
 	if host.shared().driver_loop().is_some() {
 		return Err(Error::with_detail(
 			sys::ERR_INVALID_ARGUMENT,
-			"a native-loop Host cannot open an embedder-owned byte channel".to_string(),
+			"a driver-loop Host cannot open an embedder-owned byte channel".to_string(),
 		));
 	}
 	let session = connector

@@ -25,6 +25,10 @@ fn acceptsInbound(session: *const HostSession) bool {
 /// Move every queued frame across the pair, both directions. A feed error
 /// surfaces to the caller (often the assertion under test).
 pub fn shuttle(pair: Pair) !bool {
+    // Reading the wire is where an embedder parks, so each side's held
+    // answer releases leave first, as a park flushes them.
+    _ = try pair.ah.flushHeldReleases();
+    _ = try pair.bh.flushHeldReleases();
     var moved = false;
     while (try pair.a.takeOutbound()) |frame_value| {
         var frame = frame_value;

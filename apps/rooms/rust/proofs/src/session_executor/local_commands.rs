@@ -187,9 +187,9 @@ pub(super) async fn run() {
 					.unwrap()
 					.as_i64()
 					.unwrap() as u32;
-				let source_derivation = terms.managed_derive_arguments(sequence, 1, powers);
+				let source_derivation = terms.managed_derive_arguments(sequence, Scope::Object, 1, powers);
 				let (source, control) = owner.derive(terms, 1, powers).await.unwrap();
-				let other_derivation = terms.managed_derive_arguments(sequence + 1, 1, powers);
+				let other_derivation = terms.managed_derive_arguments(sequence + 1, Scope::Object, 1, powers);
 				let (other, _) = owner.derive(terms, 1, powers).await.unwrap();
 				let observe = policy
 					.value_for_kind(session::KIND, &[Permission::ObserveWorkspace.key()], &[])

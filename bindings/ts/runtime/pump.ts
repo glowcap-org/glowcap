@@ -50,7 +50,7 @@ export interface PumpHandle {
 	kickActions(): Promise<void>;
 	/** Teardown barrier: drain current effects and join all admitted drains. */
 	settleActions(): Promise<void>;
-	/** Wake any parked close driver after a native verb that can advance
+	/** Wake any parked close driver after an FFI verb that can advance
 	 * close-relevant state returns (`Host.signalCloseActivity`). */
 	signalCloseActivity(): void;
 	closeTransport(): void | Promise<void>;

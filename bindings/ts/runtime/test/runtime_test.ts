@@ -23,7 +23,7 @@ Deno.test("final release status names the ownership boundary", () => {
 	assert(releaseConsumed(IO), "teardown failure must consume ownership");
 });
 
-Deno.test("native lifecycle decoding rejects unknown states", () => {
+Deno.test("FFI lifecycle decoding rejects unknown states", () => {
 	assert(!lifecycleClosed(LIFECYCLE_ACTIVE), "active was decoded as closed");
 	assert(lifecycleClosed(LIFECYCLE_CLOSED), "closed was decoded as active");
 	let refused = false;
@@ -54,20 +54,20 @@ Deno.test("empty locator inputs refuse as grammar errors before FFI", () => {
 });
 
 Deno.test("Host profiles use the generated coherent wire pairs", async () => {
-	const native = new Host(undefined, { profile: "native", features: "full" });
+	const glowcap = new Host(undefined, { profile: "glowcap", features: "full" });
 	const interop = new Host(undefined, { profile: "interop", features: "baseline" });
 	try {
-		assert(native.codec === "capnp" && native.captpVersion === "next", "native profile split its wire pair");
+		assert(glowcap.codec === "capnp" && glowcap.captpVersion === "next", "glowcap profile split its wire pair");
 		assert(interop.codec === "syrup" && interop.captpVersion === "v1_0", "interop profile split its wire pair");
 		let refused = false;
 		try {
-			new Host(undefined, { profile: "native", codec: "syrup" });
+			new Host(undefined, { profile: "glowcap", codec: "syrup" });
 		} catch (error) {
 			refused = error instanceof GlowcapError && error.code === INVALID_ARGUMENT;
 		}
 		assert(refused, "a named Host profile accepted a conflicting codec");
 	} finally {
-		await native.close();
+		await glowcap.close();
 		await interop.close();
 	}
 });

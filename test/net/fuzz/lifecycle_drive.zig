@@ -41,7 +41,7 @@ fn makeLifecyclePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!en
     // inline from `failConn`, which is the path the adoption-teardown deferral
     // needs, and that dropped to zero when it was unconditional.
     if (backend.schedule.len > 0 and backend.schedule[0] & 2 != 0) {
-        try peer.sendCopying(handshake.startSession(net.tcp.plain.transport_name, "fuzz"));
+        try peer.sendBorrowed(handshake.startSession(net.tcp.plain.transport_name, "fuzz"));
     }
     return peer;
 }

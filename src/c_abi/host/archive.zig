@@ -1,6 +1,6 @@
 //! Artifact entry root for `libglowcap_host`.
 //!
-//! `mod.zig` is also imported by the native driver for shared opaque types and
+//! `mod.zig` is also imported by the Zig driver for shared opaque types and
 //! ownership operations. Keeping export rooting here makes archive ownership
 //! structural: importing the Host implementation cannot make another archive
 //! emit the `glowcap_host_*` family.

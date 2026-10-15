@@ -60,7 +60,7 @@ const GcExportBatch = struct {
             positions[j] = self.counts[j].pos;
             deltas[j] = self.counts[j].delta;
         }
-        try self.peer.sendCopying(.{ .gc_export = .{
+        try self.peer.sendBorrowed(.{ .gc_export = .{
             .positions = positions[0..self.n],
             .deltas = deltas[0..self.n],
         } });
@@ -74,7 +74,7 @@ const GcExportBatch = struct {
 /// callback and is released beside that callback, not by event GC. When the
 /// event carries `introduced_far_imports` (the session's own validate walk,
 /// `session.validate.IntroducedImports`, threaded here by
-/// `engine.inbound.dispatchDecodedOwnedFrame`), that record is reused instead
+/// `engine.inbound.dispatchOwnedFrame`), that record is reused instead
 /// of re-walked. Absent (a deliver surfaced by a path other than the engine's
 /// own inbound dispatch, such as a drained pipelined call redirected locally),
 /// this falls back to the args walk below, which recurses through lists, sets,
@@ -82,8 +82,8 @@ const GcExportBatch = struct {
 /// takes), so a nested introduction's refcount is released like a top-level one
 /// and the wire-delta accounting balances either way.
 fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) !void {
-    const body = try event.view();
-    const deliver = switch (body) {
+    const body = event.view();
+    const deliver = switch (body.*) {
         .deliver => |d| d,
         else => return,
     };
@@ -105,7 +105,7 @@ fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) !void {
 /// the walk. Depth past the session's already-validated nesting limit remains a
 /// defensive stop. The three walkers keep `anyerror`: they are mutually
 /// recursive, which this toolchain refuses to resolve as inferred sets, and
-/// their true set mirrors `Peer.sendCopying`'s inferred set, whose members have
+/// their true set mirrors `Peer.sendBorrowed`'s inferred set, whose members have
 /// no nameable authority here.
 fn addIntroducedFarsInArgs(batch: *GcExportBatch, args: model.view.Args, depth: usize, max_depth: usize) anyerror!void {
     if (depth > max_depth) return;
@@ -140,8 +140,8 @@ fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
     const answer = switch (event.answer_override) {
         .resolver_callback => |a| a,
         else => blk: {
-            const body = try event.view();
-            const resolve = switch (body) {
+            const body = event.view();
+            const resolve = switch (body.*) {
                 .resolve => |r| r,
                 else => return,
             };
@@ -152,19 +152,19 @@ fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
     if (aliases.len == 0) {
         if (peer.session_state.outboundAnswerReleaseClaimed(answer)) return;
         const positions = [_]u64{answer.int()};
-        try peer.sendCopying(.{ .gc_answer = .{ .positions = &positions } });
+        try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &positions } });
         return;
     }
 
     const positions = peer.allocator.alloc(u64, aliases.len + 1) catch {
         if (!peer.session_state.outboundAnswerReleaseClaimed(answer)) {
             const primary = [_]u64{answer.int()};
-            try peer.sendCopying(.{ .gc_answer = .{ .positions = &primary } });
+            try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &primary } });
         }
         for (aliases) |alias| {
             if (peer.session_state.outboundAnswerReleaseClaimed(alias)) continue;
             const one = [_]u64{alias.int()};
-            try peer.sendCopying(.{ .gc_answer = .{ .positions = &one } });
+            try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &one } });
         }
         return;
     };
@@ -180,7 +180,7 @@ fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
         count += 1;
     }
     if (count != 0)
-        try peer.sendCopying(.{ .gc_answer = .{ .positions = positions[0..count] } });
+        try peer.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..count] } });
 }
 
 /// The stateless-GC policy after one served event: a deliver gc-collects the

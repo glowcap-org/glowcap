@@ -4,7 +4,7 @@
 // is, and the act that takes it. No answer explains itself here, because every
 // one of them explains itself in full a press later: the attach card leads
 // with what a session peer keeps, and the other two open the question that
-// says what they cost. Saying it twice is what made this well long.
+// says what they cost. Saying it twice would make this well long.
 //
 // Three acts that all change which session this browser answers to, kept
 // together so the card above them can stay about the session it is on. Two of

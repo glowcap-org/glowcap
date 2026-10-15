@@ -11,7 +11,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 Deno.test("the web front reports a room server that cannot start, and stops", async () => {
-	// Startup must preserve the native storage refusal through child retirement.
+	// Startup must preserve the host storage refusal through child retirement.
 	const dir = await Deno.makeTempDir();
 	try {
 		await Deno.writeTextFile(

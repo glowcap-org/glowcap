@@ -37,7 +37,7 @@ test "local-delivery depth bounds one resolution and resets, so a long-lived pee
     var cycle: usize = 0;
     while (cycle < 4) : (cycle += 1) {
         // p1 calls p2's export, allocating `answer` (pending on p2).
-        try p1.sendCopying(.{ .deliver = .{
+        try p1.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{},
             .answer = .from(answer),
@@ -51,7 +51,7 @@ test "local-delivery depth bounds one resolution and resets, so a long-lived pee
         }
 
         // p1 pipelines a call against the unresolved answer.
-        try p1.sendCopying(.{ .deliver = .{
+        try p1.sendBorrowed(.{ .deliver = .{
             .target = .{ .promise = .{ .answer_position = .from(answer) } },
             .args = &.{.{ .bytes = "ping" }},
             .answer = .from(answer + 1),
@@ -62,7 +62,7 @@ test "local-delivery depth bounds one resolution and resets, so a long-lived pee
 
         // p2 resolves `answer` to a local export: one local delivery. This must
         // not exceed the cap on any cycle, the depth resets per resolution.
-        try p2.sendCopying(.{ .resolve = .{
+        try p2.sendBorrowed(.{ .resolve = .{
             .answer = .from(answer),
             .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
         } });
@@ -89,7 +89,7 @@ test "a closed session refuses a pipelined deliver instead of queuing it (fail c
     try p2.session_state.registerExport(.from(7));
 
     // p1 calls p2's export, allocating answer 42 (pending on p2).
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
         .answer = .from(42),
@@ -110,7 +110,7 @@ test "a closed session refuses a pipelined deliver instead of queuing it (fail c
     // p1 pipelines a call against answer 42. A closed session admits nothing,
     // the engine must refuse it at the state gate, before the pipelined-enqueue
     // pre-mutation, rather than queuing a call onto a dead session.
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(43),
@@ -136,7 +136,7 @@ test "a multi-hop pipeline cycle breaks its dependent call without closing the s
     // p1 makes two calls to p2's export, allocating answers 1 and 2 (both pending
     // on p2).
     inline for (.{ 1, 2 }) |answer| {
-        try p1.sendCopying(.{ .deliver = .{
+        try p1.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{},
             .answer = .from(answer),
@@ -149,7 +149,7 @@ test "a multi-hop pipeline cycle breaks its dependent call without closing the s
     }
 
     // p1 pipelines a call against promise(answer 1).
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(1) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(99),
@@ -161,7 +161,7 @@ test "a multi-hop pipeline cycle breaks its dependent call without closing the s
 
     // p2 resolves answer 1 to promise(2): the queued call moves onto answer 2.
     // Resolving answer 1 settles it.
-    try p2.sendCopying(.{ .resolve = .{
+    try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(1),
         .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(2) } } } },
     } });
@@ -175,7 +175,7 @@ test "a multi-hop pipeline cycle breaks its dependent call without closing the s
     // p2 now resolves answer 2 back to promise(1), closing the cycle. The one
     // bounded exact-incarnation walk breaks answer 99 rather than bouncing the
     // call or converting one bad promise graph into a session-wide abort.
-    try p2.sendCopying(.{ .resolve = .{
+    try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(2),
         .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(1) } } } },
     } });
@@ -203,7 +203,7 @@ test "exceeding the local-delivery cap fails closed with a resource_exhausted ab
 
     // p1 calls p2's export, allocating answer 42 (pending on p2), then
     // pipelines a call against it.
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
         .answer = .from(42),
@@ -215,7 +215,7 @@ test "exceeding the local-delivery cap fails closed with a resource_exhausted ab
         var event = p2.pollEvent().?;
         event.deinit();
     }
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(43),
@@ -227,7 +227,7 @@ test "exceeding the local-delivery cap fails closed with a resource_exhausted ab
     // Resolving answer 42 to a local export drives one local delivery, past
     // the cap. The bound is partner-drivable, so the refusal must fail closed
     // like an inbound violation: typed abort on the wire, session closed.
-    try p2.sendCopying(.{ .resolve = .{
+    try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
     } });
@@ -282,7 +282,7 @@ test "V1 settlement pressure after callback publication is terminal and never re
             .bytes = "<10'op:deliver<11'desc:answer42+>[<18'desc:import-object77+>]43+<19'desc:import-promise99+>>",
             .shape = .byte,
         });
-        try peer.sendCopying(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
+        try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
             .reference = .{ .far = model.FarRef.object(88) },
         } } } });
 
@@ -319,20 +319,7 @@ test "V1 settlement pressure after callback publication is terminal and never re
     try std.testing.expect(saw_post_publication_oom);
 }
 
-const SettledPipelineIngress = enum { packet, stream };
-
-fn receiveSettledPipeline(
-    peer: *engine.Peer,
-    ingress: SettledPipelineIngress,
-    wire: []const u8,
-) !void {
-    switch (ingress) {
-        .packet => try peer.recvPacket(wire),
-        .stream => _ = try peer.recvStreamPrefix(wire),
-    }
-}
-
-fn expectSettledPipelineIngressFailsTerminal(ingress: SettledPipelineIngress) !void {
+fn expectSettledPipelineIngressFailsTerminal() !void {
     var saw_preownership_oom = false;
     var saw_postcommit_oom = false;
     var saw_success = false;
@@ -353,7 +340,7 @@ fn expectSettledPipelineIngressFailsTerminal(ingress: SettledPipelineIngress) !v
         });
         var source = peer.pollEvent().?;
         source.deinit();
-        try peer.sendCopying(.{ .resolve = .{
+        try peer.sendBorrowed(.{ .resolve = .{
             .answer = .from(42),
             .resolution = .{ .fulfill = .{ .reference = .{
                 .near = model.NearRef.object(9),
@@ -362,7 +349,7 @@ fn expectSettledPipelineIngressFailsTerminal(ingress: SettledPipelineIngress) !v
 
         const wire = "<10'op:deliver<11'desc:answer42+>[<18'desc:import-object77+>]43+<19'desc:import-promise99+>>";
         failing.fail_index = failing.alloc_index + offset;
-        const attempt = receiveSettledPipeline(&peer, ingress, wire);
+        const attempt = peer.recvPacket(wire);
         failing.fail_index = std.math.maxInt(usize);
 
         if (attempt) |_| {
@@ -395,10 +382,6 @@ fn expectSettledPipelineIngressFailsTerminal(ingress: SettledPipelineIngress) !v
     try std.testing.expect(saw_success);
 }
 
-test "packet ingress closes after settled-pipeline post-commit OOM" {
-    try expectSettledPipelineIngressFailsTerminal(.packet);
-}
-
-test "stream ingress closes after settled-pipeline post-commit OOM" {
-    try expectSettledPipelineIngressFailsTerminal(.stream);
+test "borrowed ingress closes after settled-pipeline post-commit OOM" {
+    try expectSettledPipelineIngressFailsTerminal();
 }

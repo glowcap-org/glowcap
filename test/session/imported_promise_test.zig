@@ -146,7 +146,7 @@ test "promise shortening rewrites through chains and refuses a cycle" {
         .target = .{ .far = model.FarRef.promise(5) },
         .args = &.{},
     } };
-    s.rewriteShortenedMessage(&message);
+    s.rewriteShortenedMessage(&message, .none);
     try std.testing.expectEqual(model.FarRef.promise(7), message.deliver.target.far);
 
     const cycle = (try s.nominateShorteningResolver(.from(7))).?;

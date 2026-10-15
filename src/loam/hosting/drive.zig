@@ -266,14 +266,14 @@ fn dispatched(ctx: ?*anyopaque, result: actors.Resolution) void {
 
 pub const Runner = struct {
     owner: *h.Attachment,
-    pub fn handle(self: *Runner, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Runner, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "barrier")) return .{ .void = {} };
-        if (!std.mem.eql(u8, msg.verb, "invoke") or msg.args.len != 2) return error.InvalidDelivery;
-        const index = std.math.cast(usize, msg.args[0].integer) orelse return error.InvalidDelivery;
+        if (!std.mem.eql(u8, msg.verb, "invoke") or (try msg.args.len()) != 2) return error.InvalidDelivery;
+        const index = std.math.cast(usize, try msg.argInt(0)) orelse return error.InvalidDelivery;
         if (index >= self.owner.operations.len) return error.InvalidDelivery;
         const op = &self.owner.operations[index];
-        if (op.phase != .scheduled or op.sequence != msg.args[1].integer) return error.StaleCompletion;
+        if (op.phase != .scheduled or op.sequence != try msg.argInt(1)) return error.StaleCompletion;
         if (self.owner.store.phase != .idle or op.snapshot_revision != self.owner.store.metadata.revision) {
             // Retire preparation at the next top-level advance boundary.
             op.phase = .restarting;
@@ -417,8 +417,8 @@ fn settle(owner: *h.Attachment, op: *calls.Operation) !void {
     }
     owner.host.vat.releaseActor(op.entry.actor.?.local);
     if (op.dependent_target) |target| owner.host.releaseCapabilityTerminal(target, null);
-    for (op.argument_retains) |retained| owner.host.releaseCapabilityTerminal(retained.ref, null);
-    for (op.dispatch_retains) |retained| owner.host.releaseCapabilityTerminal(retained.ref, null);
+    for (op.argument_retains) |retained| owner.host.releaseCapabilityTerminal(retained, null);
+    for (op.dispatch_retains) |retained| owner.host.releaseCapabilityTerminal(retained, null);
     op.lifetime.complete();
     owner.pending_bytes -= owner.options.call_bytes;
     op.memory.deinit();

@@ -1,9 +1,9 @@
-//! The native WebRTC DataChannel sidecar (ADR-0089).
+//! The Rust WebRTC DataChannel sidecar (ADR-0089).
 //!
 //! This staticlib wraps WebRTC peers and their reliable, ordered
 //! `RTCDataChannel`s behind a narrow C ABI, emitting
-//! `libglowcap_webrtc_sidecar.a`. The Zig resident
-//! (`src/net/transport/webrtc.zig`) is the only consumer. It mirrors the iroh
+//! `libglowcap_webrtc_sidecar.a`. Its only consumer
+//! is the Zig sidecar owner, `src/net/transport/webrtc/sidecar.zig`. The crate mirrors the iroh
 //! sidecar's shape (ADR-0055), with the differences WebRTC forces:
 //!
 //! * One endpoint owns the tokio runtime and readiness fd shared by every peer
@@ -192,10 +192,12 @@ const MAX_SIGNAL_BYTES: usize = constants_gen::MAX_SIGNAL_BYTES;
 /// budget named at the Rust sidecar boundary.
 const MAX_ICE_CANDIDATE_BYTES: usize = constants_gen::MAX_ICE_CANDIDATE_BYTES;
 
-/// Locally gathered ICE candidates waiting for the signaling owner. These are
-/// control-plane strings, not CapTP bytes, but they are still retained state.
-const MAX_PENDING_LOCAL_CANDIDATES: usize = constants_gen::MAX_PENDING_ICE_CANDIDATES;
-const LOCAL_CANDIDATE_QUEUE_BYTES: usize = constants_gen::PENDING_ICE_CANDIDATE_QUEUE_BYTES;
+/// ICE candidates a peer retains: locally gathered ones waiting for the
+/// signaling owner, and far ones that arrived before the remote description.
+/// These are control-plane strings, not CapTP bytes, but they are still
+/// retained state, and each queue keeps this bound on its own.
+const MAX_PENDING_CANDIDATES: usize = constants_gen::MAX_PENDING_ICE_CANDIDATES;
+const CANDIDATE_QUEUE_BYTES: usize = constants_gen::PENDING_ICE_CANDIDATE_QUEUE_BYTES;
 
 /// How many unread inbound packet bytes may pile up in the C-facing staging
 /// buffer before the sidecar pauses its channel poller.
@@ -247,12 +249,13 @@ struct Outbound {
 	closed: bool,
 }
 
-struct LocalCandidates {
+/// A bounded queue of ICE candidates as JSON text, in arrival order.
+struct CandidateQueue {
 	items: VecDeque<String>,
 	queued_bytes: usize,
 }
 
-impl LocalCandidates {
+impl CandidateQueue {
 	fn new() -> Self {
 		Self {
 			items: VecDeque::new(),
@@ -263,8 +266,8 @@ impl LocalCandidates {
 	fn admit(&mut self, text: String) -> bool {
 		if text.is_empty()
 			|| text.len() > MAX_ICE_CANDIDATE_BYTES
-			|| self.items.len() >= MAX_PENDING_LOCAL_CANDIDATES
-			|| self.queued_bytes > LOCAL_CANDIDATE_QUEUE_BYTES.saturating_sub(text.len())
+			|| self.items.len() >= MAX_PENDING_CANDIDATES
+			|| self.queued_bytes > CANDIDATE_QUEUE_BYTES.saturating_sub(text.len())
 		{
 			return false;
 		}
@@ -278,6 +281,20 @@ impl LocalCandidates {
 			self.queued_bytes = self.queued_bytes.saturating_sub(text.len());
 		}
 	}
+
+	fn take_all(&mut self) -> VecDeque<String> {
+		self.queued_bytes = 0;
+		std::mem::take(&mut self.items)
+	}
+}
+
+/// The far peer's candidates, relative to its description. WebRTC refuses a
+/// candidate until the description it belongs to is set, and signaling carries
+/// the two in either order, so candidates that arrive first wait here and
+/// `set_remote` adds them once the description lands.
+struct RemoteCandidates {
+	description_set: bool,
+	early: CandidateQueue,
 }
 
 struct PeerShared {
@@ -306,7 +323,8 @@ struct PeerShared {
 	open: Arc<Mutex<OpenGate>>,
 	/// Locally gathered ICE candidates, serialized as JSON, awaiting the caller
 	/// to drain and ferry to the far peer.
-	local_candidates: Arc<Mutex<LocalCandidates>>,
+	local_candidates: Arc<Mutex<CandidateQueue>>,
+	remote_candidates: Mutex<RemoteCandidates>,
 }
 /// One shared WebRTC runtime and readiness namespace. Peers retain this inner
 /// value so a misuse that releases the endpoint first cannot strand runtime

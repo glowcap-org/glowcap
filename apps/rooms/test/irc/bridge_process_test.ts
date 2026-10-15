@@ -48,7 +48,7 @@ async function scene(
 		let port: string | undefined;
 		try {
 			while (!port) {
-				const next = await within(reader.read(), "native bridge announcement");
+				const next = await within(reader.read(), "bridge announcement");
 				assert(!next.done, "bridge exited before announcement");
 				text += new TextDecoder().decode(next.value);
 				port = text.match(/ROOMS-IRC-BRIDGE-LISTENING (\d+) fixture\/#news\n/)?.[1];
@@ -97,11 +97,11 @@ async function register(conn: Deno.Conn) {
 	return lines;
 }
 
-roomsTest("native IRC bridge preserves readers and publications across feed reconnection", async () => {
+roomsTest("IRC bridge preserves readers and publications across feed reconnection", async () => {
 	await scene(false, async (directory, accept) => {
 		const conn = await accept();
 		const lines = await register(conn);
-		const publications = await directory.list();
+		const publications = (await directory.list()).rooms;
 		assertEquals(publications.map((row) => row.name), ["fixture/#news"]);
 		assertEquals((await directory.watch(() => {})).map((row) => row.name), ["fixture/#news"]);
 		const reference = await directory.enter("fixture/#news");
@@ -142,7 +142,7 @@ roomsTest("native IRC bridge preserves readers and publications across feed reco
 	});
 });
 
-roomsTest("native IRC bridge authenticates, writes before echo, and bounds pending posts at shutdown", async () => {
+roomsTest("IRC bridge authenticates, writes before echo, and bounds pending posts at shutdown", async () => {
 	await scene(true, async (directory, accept, proc) => {
 		const conn = await accept();
 		const joining = registerSaslFeed(conn, "bridgebot", "bridge-account", "bridge-password", "#news", true);
@@ -178,7 +178,7 @@ roomsTest("native IRC bridge authenticates, writes before echo, and bounds pendi
 		proc.kill("SIGTERM");
 		const answers = await within(Promise.all(pending), "pending posts at shutdown");
 		assert(answers.slice(1).every((answer) => answer !== "accepted"), "unwritten posts succeeded on shutdown");
-		assert((await within(proc.status, "native bridge shutdown")).success, "bridge failed to stop");
+		assert((await within(proc.status, "bridge shutdown")).success, "bridge failed to stop");
 		messages.releaseLock();
 	});
 });

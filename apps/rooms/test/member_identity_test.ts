@@ -37,7 +37,7 @@ Deno.test("a bridged identity is named bare, marked as IRC, and keeps a person's
 	assertEquals(foreignName("irc/", irc), null);
 	assertEquals(foreignName("IRC/alice", irc), null);
 	// A room that named no bridge has no foreign members, whatever a name looks
-	// like, so a native member called `irc/alice` is called that.
+	// like, so a Rooms member called `irc/alice` is called that.
 	assertEquals(foreignName("irc/alice", undefined), null);
 	// And a different bridge's prefix is a different bridge's.
 	assertEquals(
@@ -66,7 +66,7 @@ Deno.test("a roster distinguishes IRC-only, Rooms-only, linked, and unhealthy br
 		network: "foreign",
 	});
 	// The seat cases hand in no bridge facts: a seated member is a
-	// native member, so a room's foreign prefix has nothing to say about them.
+	// Rooms member, so a room's foreign prefix has nothing to say about them.
 	//
 	// Not IRC's words. A bridge writes its own badge and sentence
 	// and this reading carries them; asserting IRC's here would only prove that

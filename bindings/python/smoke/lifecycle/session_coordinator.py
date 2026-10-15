@@ -97,7 +97,7 @@ async def cancelled_loop_close_waiter_preserves_terminal_chain() -> None:
             self.calls += 1
             started.set()
             await finish.wait()
-            session._native_owner_did_release()
+            session._ffi_owner_did_release()
             raise primary
 
     class TransportStub:

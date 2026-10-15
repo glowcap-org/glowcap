@@ -67,7 +67,7 @@ pub fn checkDriverAdmissionAuthority(
     }
 }
 
-/// Transport and I/O failures belong to the native driver. The sans-I/O core
+/// Transport and I/O failures belong to the Zig driver. The sans-I/O core
 /// must not regain a parallel classification, and C only projects the driver's
 /// stable category.
 pub fn checkDriverFailureAuthority(

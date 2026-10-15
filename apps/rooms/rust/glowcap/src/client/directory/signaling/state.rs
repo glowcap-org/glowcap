@@ -87,6 +87,9 @@ pub struct CleanupFailure {
 	pub count: usize,
 }
 impl Registry {
+	pub(super) fn same(&self, other: &Self) -> bool {
+		Rc::ptr_eq(&self.0, &other.0)
+	}
 	pub(super) fn insert(&self, designator: &policy::Id, state: &Rc<RefCell<State>>) -> Result<(), Error> {
 		let mut entries = self.0.borrow_mut();
 		entries

@@ -63,7 +63,7 @@ pub fn checkIrohBindingAggregatesComplete(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const path = "tools/build/binding_families.zig";
+    const path = "tools/build/binding_families/iroh.zig";
     const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for iroh-binding-aggregate check with {s}", .{ path, @errorName(err) });
         return;

@@ -45,9 +45,12 @@ test "io_uring finite wait returns an empty turn when interrupted" {
     }.run, .{ target_tid, &waiting });
     defer interrupter.join();
 
+    var backend = try net.Backend.init(std.testing.allocator, 8, 2, 512);
+    defer backend.deinit();
+    var out: [4]net.completion.Completion = undefined;
     const started = net.clock.nowMonotonicMs();
     waiting.store(true, .release);
-    try std.testing.expectEqual(@as(usize, 0), try uring.waitForCompletionOnce(-1, 10_000));
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&out, 10_000));
     try std.testing.expect(net.clock.nowMonotonicMs() - started < 5_000);
 }
 

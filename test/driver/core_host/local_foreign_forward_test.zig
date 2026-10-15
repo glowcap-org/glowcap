@@ -9,26 +9,29 @@ const a = std.testing.allocator;
 
 const Echo = struct {
     calls: *usize,
-    pub fn handle(self: *Echo, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Echo, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
-        return args[0];
+        return arg_values[0];
     }
 };
 const Hop = struct {
     target: driver.Capability,
     fail: bool = false,
-    pub fn handle(self: *Hop, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
-        const result = try turn.forward(self.target, verb, args);
+    pub fn handle(self: *Hop, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
+        const result = try turn.forward(self.target, verb, arg_values);
         if (self.fail) return error.Refused;
         return result;
     }
 };
 const Gift = struct {
     target: driver.Capability,
-    pub fn handle(self: *Gift, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Gift, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         return .{ .capability = self.target };
     }
 };

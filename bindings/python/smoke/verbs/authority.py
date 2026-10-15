@@ -223,7 +223,7 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
 
 async def _mid_turn_host_release_orders_sessions_before_host() -> None:
     """A behavior records driver-owned Host close intent immediately. Python
-    schedules only the completion barrier. Native code owns session teardown."""
+    schedules only the completion barrier. FFI code owns session teardown."""
     host = Host()
     server = await tcp.listen("127.0.0.1", 0, host=host)
     loop = asyncio.get_running_loop()
@@ -266,12 +266,12 @@ async def _mid_turn_host_release_orders_sessions_before_host() -> None:
             # Host teardown may close the wire before this answer arrives.
             pass
         assert await asyncio.wait_for(during, timeout=5) == 0, (
-            "callback-time native close must not park binding teardown policy"
+            "callback-time FFI close must not park binding teardown policy"
         )
-        assert host.pending_release_count() == 0, "native-authoritative close leaves no binding release transaction"
+        assert host.pending_release_count() == 0, "FFI-authoritative close leaves no binding release transaction"
         await asyncio.wait_for(hosted, timeout=5)
         await host.close()
-        assert host._raw is None, "Host teardown retained native authority"
+        assert host._raw is None, "Host teardown retained FFI authority"
         assert not callback_errors, callback_errors
     finally:
         loop.set_exception_handler(prior_exception_handler)

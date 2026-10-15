@@ -120,7 +120,7 @@ pub const testing = if (builtin.is_test) struct {
     ) !void {
         const inst = common.instanceFrom(host_handle) orelse return error.NullPointer;
         const session_ptr = common.sessionFrom(raw) orelse return error.NullPointer;
-        _ = try common.hostArgsToC(inst, session_ptr, allocator, args);
+        _ = try common.hostArgsToC(inst, session_ptr, allocator, .fromOwnedSlice(args));
     }
 
     pub fn liveCapabilityCount(host_handle: ?*GlowcapHost) !usize {
@@ -165,9 +165,9 @@ pub const WasmLayoutSpec = struct {
     /// name-hash word is computed from.
     prefix: []const u8,
     T: type,
-    /// Whether native TypeScript FFI also reads this struct directly. A false
-    /// row is byte-fed wasm embedder vocabulary, not native binding policy.
-    native_mirror: bool = true,
+    /// Whether TypeScript FFI also reads this struct directly. A false
+    /// row is byte-fed wasm embedder vocabulary, not FFI binding policy.
+    ffi_mirror: bool = true,
 };
 
 pub const wasm_layout_manifest = [_]WasmLayoutSpec{
@@ -179,7 +179,7 @@ pub const wasm_layout_manifest = [_]WasmLayoutSpec{
     .{ .prefix = "ALLOCATOR", .T = shared.GlowcapAllocator },
     .{ .prefix = "HOST_ACTION", .T = GlowcapHostAction },
     .{ .prefix = "HOST_PUMP_HOOKS", .T = GlowcapHostPumpHooks },
-    .{ .prefix = "DIAL_PLAN", .T = GlowcapDialPlan, .native_mirror = false },
+    .{ .prefix = "DIAL_PLAN", .T = GlowcapDialPlan, .ffi_mirror = false },
     .{ .prefix = "PARTNER_IDENTITY", .T = GlowcapPartnerIdentity },
     .{ .prefix = "TRACE_EVENT", .T = GlowcapTraceEvent },
     .{ .prefix = "LOCATOR_HINT_VIEW", .T = shared.GlowcapLocatorHintView },

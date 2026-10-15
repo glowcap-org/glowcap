@@ -4,6 +4,8 @@ mod content;
 mod reload;
 mod targets;
 use crate::{session_capacity, session_storage};
+#[cfg(not(target_arch = "wasm32"))]
+use glowcap::loam::OpenMode;
 use glowcap::{
 	Argument, Host, PendingWork, Ref, Session,
 	loam::{Limits, Policy, Resource, Store, ValueBounds},
@@ -29,34 +31,40 @@ fn limits(capacity: usize) -> Limits {
 struct Database {
 	#[cfg(not(target_arch = "wasm32"))]
 	path: std::path::PathBuf,
+	#[cfg(not(target_arch = "wasm32"))]
+	disk: crate::disk::Disk,
 }
 impl Database {
+	#[cfg(not(target_arch = "wasm32"))]
+	fn new(disk: crate::disk::Disk) -> Self {
+		let nonce = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.unwrap()
+			.as_nanos();
+		let path = std::env::temp_dir().join(format!(
+			"rooms-session-foreign-{disk:?}-{}-{nonce:x}",
+			std::process::id()
+		));
+		std::fs::create_dir(&path).unwrap();
+		Self { path, disk }
+	}
+	#[cfg(target_arch = "wasm32")]
 	fn new() -> Self {
-		#[cfg(not(target_arch = "wasm32"))]
-		{
-			let nonce = std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH)
-				.unwrap()
-				.as_nanos();
-			let path = std::env::temp_dir().join(format!("rooms-session-foreign-{}-{nonce:x}", std::process::id()));
-			std::fs::create_dir(&path).unwrap();
-			Self { path }
-		}
-		#[cfg(target_arch = "wasm32")]
 		Self {}
 	}
 	async fn open(&self, create: bool, capacity: usize) -> Store {
 		#[cfg(not(target_arch = "wasm32"))]
 		{
-			Store::open(
-				&self.path,
-				[92; 16],
-				create,
-				256 * 1024 * 1024,
-				&session_storage::schemas(),
-				limits(capacity),
-			)
-			.unwrap()
+			let mode = if create { OpenMode::Create } else { OpenMode::Open };
+			self.disk
+				.open(
+					self.path.clone(),
+					[92; 16],
+					mode,
+					&session_storage::schemas(),
+					limits(capacity),
+				)
+				.unwrap()
 		}
 		#[cfg(target_arch = "wasm32")]
 		{
@@ -124,9 +132,8 @@ async fn stamp(session: &Session, root: &Ref) -> (i64, i64) {
 	let values = result.as_list().unwrap();
 	(values[0].as_i64().unwrap(), values[1].as_i64().unwrap())
 }
-async fn run(phases: &[usize], inspect_baseline: bool) {
+async fn run(database: Database, phases: &[usize], inspect_baseline: bool) {
 	let targets = targets::Targets::new();
-	let database = Database::new();
 	let mut resource = None;
 	let mut original_stamp = None;
 	for &phase in phases {
@@ -250,21 +257,52 @@ async fn run(phases: &[usize], inspect_baseline: bool) {
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
-async fn maximum_session_foreign_admission_preserves_every_exact_identity() {
-	tokio::task::LocalSet::new().run_until(run(&[0], true)).await;
+async fn maximum_session_foreign_admission_preserves_every_exact_identity_on_sqlite() {
+	let database = Database::new(crate::disk::Disk::Sqlite);
+	tokio::task::LocalSet::new().run_until(run(database, &[0], true)).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
-async fn maximum_session_foreign_capacity_refusal_preserves_the_cold_graph() {
-	tokio::task::LocalSet::new().run_until(run(&[0, 1], false)).await;
+async fn maximum_session_foreign_admission_preserves_every_exact_identity_on_lmdb() {
+	let database = Database::new(crate::disk::Disk::Lmdb);
+	tokio::task::LocalSet::new().run_until(run(database, &[0], true)).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
-async fn maximum_session_foreign_replacement_and_cold_copy_preserve_receipt_replay() {
-	tokio::task::LocalSet::new().run_until(run(&[0, 2, 3], false)).await;
+async fn maximum_session_foreign_capacity_refusal_preserves_the_cold_graph_on_sqlite() {
+	let database = Database::new(crate::disk::Disk::Sqlite);
+	tokio::task::LocalSet::new()
+		.run_until(run(database, &[0, 1], false))
+		.await;
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[tokio::test]
+async fn maximum_session_foreign_capacity_refusal_preserves_the_cold_graph_on_lmdb() {
+	let database = Database::new(crate::disk::Disk::Lmdb);
+	tokio::task::LocalSet::new()
+		.run_until(run(database, &[0, 1], false))
+		.await;
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[tokio::test]
+async fn maximum_session_foreign_replacement_and_cold_copy_preserve_receipt_replay_on_sqlite() {
+	let database = Database::new(crate::disk::Disk::Sqlite);
+	tokio::task::LocalSet::new()
+		.run_until(run(database, &[0, 2, 3], false))
+		.await;
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[tokio::test]
+async fn maximum_session_foreign_replacement_and_cold_copy_preserve_receipt_replay_on_lmdb() {
+	let database = Database::new(crate::disk::Disk::Lmdb);
+	tokio::task::LocalSet::new()
+		.run_until(run(database, &[0, 2, 3], false))
+		.await;
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub async fn rooms_session_foreign_contract() {
-	tokio::task::LocalSet::new().run_until(run(&[0, 1, 2, 3], true)).await;
+	tokio::task::LocalSet::new()
+		.run_until(run(Database::new(), &[0, 1, 2, 3], true))
+		.await;
 }

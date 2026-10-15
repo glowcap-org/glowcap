@@ -99,7 +99,7 @@ const Input = struct {
 const Receiver = struct {
     trace: *Trace,
 
-    pub fn handle(self: *Receiver, _: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Receiver, _: *actors.Turn, msg: actors.Delivery) !model.Argument {
         self.trace.order[self.trace.len] = @intCast(try msg.argInt(0));
         self.trace.len += 1;
         return .{ .void = {} };
@@ -133,7 +133,7 @@ const Stager = struct {
     target: actors.Ref,
     input: *Input,
 
-    pub fn handle(self: *Stager, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Stager, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = try turn.vat.sendOpaqueFromIngress(turn.ingress, self.target, self.input.message(), self.input.trace.listener());
         try turn.vat.drive();
         try std.testing.expectEqual(@as(usize, 0), self.input.trace.calls);
@@ -143,7 +143,7 @@ const Stager = struct {
 };
 
 const Plain = struct {
-    pub fn handle(_: *Plain, _: *actors.Turn, _: actors.Message) !model.Argument {
+    pub fn handle(_: *Plain, _: *actors.Turn, _: actors.Delivery) !model.Argument {
         return error.MustNotRun;
     }
 };
@@ -153,12 +153,12 @@ test "an answerless forwarded turn preserves refusal for payload retirement" {
         target: actors.Ref,
         fail: bool,
 
-        pub fn handle(_: *@This(), _: *actors.Turn, _: actors.Message) !model.Argument {
+        pub fn handle(_: *@This(), _: *actors.Turn, _: actors.Delivery) !model.Argument {
             return error.MustNotRun;
         }
 
         pub fn handleOpaque(self: *@This(), turn: *actors.Turn, _: actors.OpaqueMessage) !void {
-            _ = try turn.forward(self.target, .{ .verb = "record", .args = &.{.{ .integer = 7 }} });
+            _ = try turn.forward(self.target, .{ .verb = "record", .args = .fromOwnedSlice(&.{.{ .integer = 7 }}) });
             if (self.fail) return error.Refused;
         }
     };
@@ -266,7 +266,7 @@ test "vat opaque payload retirement during teardown is independent of an observe
 }
 
 const Scribbler = struct {
-    pub fn handle(_: *Scribbler, turn: *actors.Turn, _: actors.Message) !model.Argument {
+    pub fn handle(_: *Scribbler, turn: *actors.Turn, _: actors.Delivery) !model.Argument {
         const bytes = try turn.arena.alloc(u8, 4096);
         @memset(bytes, 'x');
         return .{ .void = {} };

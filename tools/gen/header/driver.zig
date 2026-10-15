@@ -49,13 +49,15 @@ const Spec = struct {
     pub const const_docs = [_]struct { name: []const u8, doc: []const u8 }{
         .{ .name = "GLOWCAP_DRIVER_OPTIONS_ABI_VERSION", .doc = "GlowcapDriverOptions.abi_version." },
         .{ .name = "GLOWCAP_DRIVER_FAILURE_ABI_VERSION", .doc = "GlowcapDriverFailure.abi_version." },
-        .{ .name = "GLOWCAP_DRIVER_MAX_WAIT_MS", .doc = "Largest handshake_ms or settle_ms value." },
+        .{ .name = "GLOWCAP_DRIVER_MAX_WAIT_MS", .doc = "Largest handshake_ms, listener_setup_ms, or settle_ms value." },
         .{ .name = "GLOWCAP_DRIVER_WAIT_UNBOUNDED", .doc = "GlowcapDriverOptions wait value with no deadline. SECURITY.md asks deployments to set a finite one." },
         .{ .name = "GLOWCAP_DRIVER_DEFAULT_WIRE_BUFFER_BYTES", .doc = "Default GlowcapDriverOptions.wire_buffer_bytes." },
         .{ .name = "GLOWCAP_DRIVER_DEFAULT_MAX_PENDING_OPENS", .doc = "Default GlowcapDriverOptions.max_pending_opens." },
         .{ .name = "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS", .doc = "Default GlowcapDriverOptions.handshake_ms." },
         .{ .name = "GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS", .doc = "Default GlowcapDriverOptions.listener_setup_ms." },
         .{ .name = "GLOWCAP_DRIVER_DEFAULT_SETTLE_MS", .doc = "Default GlowcapDriverOptions.settle_ms." },
+        .{ .name = "GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS", .doc = "Default GlowcapDriverOptions.busy_poll_ns." },
+        .{ .name = "GLOWCAP_DRIVER_MAX_BUSY_POLL_NS", .doc = "Longest GlowcapDriverOptions.busy_poll_ns the loop adopts; a longer window is refused." },
         .{ .name = "GLOWCAP_DRIVER_EVENT_OPENED", .doc = "GlowcapDriverEvent.kind: dial or external adoption reached an open session." },
         .{ .name = "GLOWCAP_DRIVER_EVENT_OPEN_FAILED", .doc = "GlowcapDriverEvent.kind: dial or external adoption failed; failure fields carry the typed chain." },
         .{ .name = "GLOWCAP_DRIVER_EVENT_ACCEPTED", .doc = "GlowcapDriverEvent.kind: listener accepted session." },
@@ -126,6 +128,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS",
         "GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS",
         "GLOWCAP_DRIVER_DEFAULT_SETTLE_MS",
+        "GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS",
+        "GLOWCAP_DRIVER_MAX_BUSY_POLL_NS",
         "GLOWCAP_DRIVER_EVENT_OPENED",
         "GLOWCAP_DRIVER_EVENT_OPEN_FAILED",
         "GLOWCAP_DRIVER_EVENT_ACCEPTED",
@@ -145,6 +149,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Handshake progress budget in milliseconds; zero waits without a bound.",
         "Listener-construction progress budget in milliseconds; zero waits without a bound.",
         "Application-answer progress budget in milliseconds; zero waits without a bound.",
+        "Nanoseconds the runtime spins reaping its transports before it parks. Zero parks at once. A spinning runtime holds its CPU for the window.",
     });
     try b.appendSlice(gpa, "\n");
     try E.emitStruct(&b, gpa, cd.GlowcapDriverFailure, "GlowcapDriverFailure", &.{
@@ -192,7 +197,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "glowcap_driver_lifecycle_state", &.{ "loop", "out_state" }, "Write the current GLOWCAP_LIFECYCLE_* state. CLOSED is withheld until the runtime\nhas retired its execution state and queued events have been drained. After finite\ngrace expiry, teardown escalates to CANCEL and this returns GLOWCAP_ERR_TIMEOUT\ntogether with CLOSED.");
     try E.emitFn(&b, gpa, "glowcap_driver_step_wait_ms", &.{ "loop", "out_wait_ms" }, "The longest a nonblocking embedder may park on the readiness descriptor before\ncalling glowcap_driver_step again with a zero timeout: milliseconds until the\nnearest pending-work deadline (the close grace, a session's close grace, a dial\nor listener setup budget), clamped at zero, or -1 when no finite deadline is\npending and readiness alone advances the loop. The value drops straight into a\nwait primitive's timeout argument.");
     try E.emitFn(&b, gpa, "glowcap_driver_release", &.{ "loop", "out_failure" }, "Release listeners, wires, events, provider adapters, and the moved Host.\nout_failure must identify the current version/layout before the call. NULL loop is\na no-op. Invalid output or reentry refuses before consumption; every other\nresult consumes the handle and returns the exact teardown chain in out_failure.");
-    try E.emitFn(&b, gpa, "glowcap_driver_add_provider", &.{ "loop", "provider", "out_failure" }, "Install one validated provider package. out_failure must identify the current\nversion/layout and receives the exact primary and rollback chain. The driver\nacquires the native lease through provider.retain, copies profiles and tables,\nand calls provider.release after every listener, connection, and callback retires.");
+    try E.emitFn(&b, gpa, "glowcap_driver_add_provider", &.{ "loop", "provider", "out_failure" }, "Install one validated provider package. out_failure must identify the current\nversion/layout and receives the exact primary and rollback chain. The driver\nacquires its lease through provider.retain, copies profiles and tables,\nand calls provider.release after every listener, connection, and callback retires.");
     try E.emitFn(&b, gpa, "glowcap_driver_has_transport", &.{ "loop", "transport", "transport_len", "out_present" }, "Report whether one installed provider owns the transport symbol.");
     try E.emitFn(&b, gpa, "glowcap_driver_dial", &.{ "loop", "locator", "options", "out_operation_id" }, "Begin a non-blocking dial from one borrowed locator view. Null options inherit\nprovider defaults; a payload is interpreted only by the selected provider.\nPre-admission failures return directly and mint no operation id. After admission,\ntransport completion and the CapTP handshake advance through step; OPENED or\nOPEN_FAILED carries the returned operation id. A transient transport fault\nparks the dial for GLOWCAP_DISCOVERY_DIAL_RETRY_MS and dials again, up to\nGLOWCAP_DISCOVERY_DIAL_MAX_ATTEMPTS attempts within the handshake deadline;\nOPEN_FAILED carries a permanent fault or the exhausted budget.");
     try E.emitFn(&b, gpa, "glowcap_driver_adopt_external", &.{ "loop", "transport", "transport_len", "subject", "role", "out_operation_id" }, "Begin adoption of one externally established provider connection. Pre-admission failures return directly and mint no operation id. The subject is interpreted only by the provider registered under transport. role selects the Host/session half; after admission, OPENED or OPEN_FAILED carries the returned operation id.");

@@ -236,6 +236,16 @@ export class OwnedLocator {
 	}
 }
 
+const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
+
+/** Whether `value` is a key designator: an Ed25519 public key as 64 lowercase
+ * hexadecimal characters, the form a keyed transport names its peers by.
+ * Check an untrusted designator with it before using it as a table key or
+ * pinning a channel to it. */
+export function isKeyDesignator(value: string): boolean {
+	return KEY_DESIGNATOR.test(value);
+}
+
 /** A locator carrying no hints, for a caller that holds only a transport and
  * a designator. The wire form matches the core's empty-hints default. */
 export function bareLocator(transport: string, designator: string): Locator {

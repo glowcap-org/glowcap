@@ -142,7 +142,7 @@ if [[ ${1:-} == zig && ${2:-} == build ]]; then
     for arg in "${@:3}"; do
         [[ ${arg} == -- ]] && break
         case "${arg}" in
-            glowcap | docs-serve | ocapnviz-dev | rooms-chat | rooms-irc-front | rooms-irc-bridge | rooms-archive | rooms-session | rooms-server | rooms-trace-tail | rooms-web | rooms-dev)
+            glowcap | docs-serve | ocapnviz-dev | rooms-chat | rooms-irc-server | rooms-irc-bridge | rooms-archive | rooms-session | rooms-server | rooms-trace-tail | rooms-web | rooms-dev)
                 service_build=true
                 break
                 ;;

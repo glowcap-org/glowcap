@@ -1,7 +1,7 @@
 // The refusal vocabulary, kept with every other sentence Rooms says, in
 // `apps/rooms/lib/text/failure.ts`.
 //
-// This file is the UI's door onto it. The words moved rather than being copied,
+// This file is the UI's door onto it. The words live in one place and are not copied,
 // because a product whose voice lives in two places has no voice: the next
 // author edits whichever copy they found.
 

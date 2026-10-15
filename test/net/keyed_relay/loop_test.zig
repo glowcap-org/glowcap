@@ -68,7 +68,7 @@ fn makeLoopClientPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!e
     var peer = stubNegotiatingPeer(allocator);
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
-    try peer.sendCopying(startSession("client"));
+    try peer.sendBorrowed(startSession("client"));
     return peer;
 }
 

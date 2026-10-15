@@ -3,8 +3,8 @@
 //
 // Everything that asks where the mushroom is asks this file. The scene traces
 // it, the lamps are seated by it, the outline is measured against it. That is
-// the whole reason it is one file: a beam that placed its own cap once
-// started beside its window instead of in it.
+// the whole reason it is one file: a beam that placed its own cap would start
+// beside its window instead of in it.
 
 /** The field half of the scene shader. Module-scope WGSL declarations can
  * come in any order, so this concatenates ahead of the light and the entry

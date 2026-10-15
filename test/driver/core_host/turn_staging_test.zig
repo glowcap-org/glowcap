@@ -25,7 +25,7 @@ const CapturedRef = harness.CapturedRef;
 
 const TakeCounter = struct {
     takes: *usize,
-    pub fn handle(self: *TakeCounter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *TakeCounter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "take")) self.takes.* += 1;
         return .{ .void = {} };
@@ -38,7 +38,7 @@ const SendThen = struct {
     target: Capability,
     gift: Capability,
 
-    pub fn handle(self: *SendThen, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *SendThen, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();

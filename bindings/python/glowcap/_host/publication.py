@@ -336,7 +336,7 @@ class _PublicationMixin(HostMixinBase):
         return name
 
     def _register_behavior(self, entry: _BehaviorEntry) -> int:
-        """Retain one callback entry for this Host's native lifetime."""
+        """Retain one callback entry for this Host's FFI lifetime."""
         ctx = _register_global_behavior(entry)
         self._behavior_entries[ctx] = entry
         return ctx

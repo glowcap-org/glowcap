@@ -1,4 +1,4 @@
-//! The native TCP transport: one provider, three channel profiles.
+//! The Zig TCP transport: one provider, three channel profiles.
 //!
 //! Plain `tcp`, identity-addressed `keyed-tcp`, and sealed `noise-tcp` share
 //! one socket realization and differ only in locator posture and channel
@@ -6,7 +6,7 @@
 //! driver holds one `Provider` at a stable address and stores `netlayers()`.
 //! It does not construct or enumerate the members itself.
 //!
-//! This provider is native-only because it owns `std.Io` socket residents.
+//! This provider is Zig-only because it owns `std.Io` socket residents.
 //! A byte-fed host, including the wasm build, carries the same transport
 //! symbols and sealed-channel profiles without pretending to own TCP sockets.
 
@@ -47,7 +47,7 @@ pub const DialResolver = addressing.DialResolver;
 pub const resolveProfile = addressing.resolveProfile;
 pub const CompletionPolicy = @import("tcp/completion_policy.zig").Policy;
 
-/// The complete archive-owned TCP profile inventory. Native and C projections
+/// The complete archive-owned TCP profile inventory. Zig and C projections
 /// consume this one declaration. Adding a profile cannot silently update only
 /// one surface.
 pub const profiles = [_]model.transport.Known{ .tcp, .keyed_tcp, .noise_tcp };
@@ -66,7 +66,7 @@ pub const Config = struct {
 /// default enables it.
 pub const OperationOptions = stream.OperationOptions;
 
-/// One heap-pinned native realization of every TCP channel profile. The
+/// One heap-pinned Zig realization of every TCP channel profile. The
 /// netlayer vtables borrow its resident fields, so `create` makes moving the
 /// owner impossible and `destroy` names the one setup allocation explicitly.
 pub const Provider = struct {

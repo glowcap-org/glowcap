@@ -35,7 +35,7 @@ test "raw-open fixture records v1.0 resolver callback imports" {
         peer.session_state.resolverForInboundAnswer(.fromWire(.from(11))),
     );
 
-    try peer.sendCopying(.{ .resolve = .{
+    try peer.sendBorrowed(.{ .resolve = .{
         .answer = .from(11),
         .resolution = .{ .fulfill = .{ .integer = 7 } },
     } });
@@ -76,7 +76,7 @@ test "V1 resolver authority outlives stateless argument GC" {
         frame.deinit();
     }
 
-    try peer.sendCopying(.{ .resolve = .{
+    try peer.sendBorrowed(.{ .resolve = .{
         .answer = .from(11),
         .resolution = .{ .fulfill = .{ .integer = 7 } },
     } });
@@ -104,7 +104,7 @@ test "a bootstrap resolver callback emits no wire-delta release" {
     event.deinit();
     try std.testing.expectEqual(bootstrap_count, peer.session_state.imports.count(.from(0)));
 
-    try peer.sendCopying(.{ .resolve = .{
+    try peer.sendBorrowed(.{ .resolve = .{
         .answer = .from(11),
         .resolution = .{ .fulfill = .{ .integer = 7 } },
     } });
@@ -126,7 +126,7 @@ test "V1.0 resolver-only delivery retains a virtual answer without inventing a w
     var event = peer.pollEvent().?;
     defer event.deinit();
 
-    const body = try event.view();
+    const body = event.view();
     try std.testing.expect(body.deliver.answer == null);
     const answer = event.deliverAnswerName().?;
     try std.testing.expect(answer == .virtual);
@@ -210,7 +210,7 @@ test "raw-open v1.0 fixture rejects raw inbound op:resolve" {
     var peer = engine.testing.initRawOpenPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerImport(.from(7));
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
         .answer = .from(11),
@@ -227,7 +227,7 @@ test "a rejected next answer reuse preserves the original resolver" {
     try peer.session_state.registerImport(.from(7));
 
     const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{},
         .answer = .from(42),
@@ -238,7 +238,7 @@ test "a rejected next answer reuse preserves the original resolver" {
         frame.deinit();
     }
 
-    try std.testing.expectError(session.Error.UnexpectedMessage, peer.sendCopying(.{ .deliver = .{
+    try std.testing.expectError(session.Error.UnexpectedMessage, peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{},
         .answer = .from(42),
@@ -257,7 +257,7 @@ test "a rejected next answer reuse preserves the original resolver" {
     var event = peer.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-    const resolved = try event.view();
+    const resolved = event.view();
     try std.testing.expectEqual(@as(u64, 42), resolved.resolve.answer.int());
 }
 
@@ -268,7 +268,7 @@ test "V1_0 runtime translation synthesizes resolve-me-desc for answered deliver"
     peer.session_state.captp_version = model.CaptpVersion.v1_0;
     try peer.session_state.registerImport(.from(7));
 
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{.{ .bytes = "hello" }},
@@ -311,7 +311,7 @@ test "V1_0 resolve for an answer whose deliver carried no resolver emits nothing
     // resolve settles the answer locally and puts nothing on the wire. The
     // drop is the contract (the guard in `outbound.emitOutboundMessage`),
     // pinned here so it stays a decision rather than an accident.
-    try peer.sendCopying(.{ .resolve = .{
+    try peer.sendBorrowed(.{ .resolve = .{
         .answer = .from(11),
         .resolution = .{ .fulfill = .{ .integer = 1 } },
     } });
@@ -329,7 +329,7 @@ test "V1_0 resolver-callback resolving to a container registers the introduced i
 
     // An answered deliver installs outbound answer 42 and our resolver export 1
     // (export 0 is the reserved bootstrap id).
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{.{ .bytes = "hi" }},
@@ -379,7 +379,7 @@ test "next refuses wire op:resolve" {
     var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerImport(.from(99));
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(99) } },
         .args = &.{},
         .answer = .from(42),
@@ -426,7 +426,7 @@ test "view and decodeOwned agree on a V1.0 resolver-callback deliver" {
     try peer.session_state.registerImport(.from(7));
 
     // An answered deliver mints resolver export 1 at encode time.
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{.{ .bytes = "hi" }},
         .answer = .from(42),
@@ -453,8 +453,8 @@ test "view and decodeOwned agree on a V1.0 resolver-callback deliver" {
     // The two projections may not disagree about what this frame is: both the
     // borrowed view and the owned materialization surface the translated
     // semantic Resolve, never the raw callback deliver.
-    const view = try event.view();
-    try std.testing.expect(view == .resolve);
+    const view = event.view();
+    try std.testing.expect(view.* == .resolve);
     try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
 
     const owned = try event.decodeOwned(allocator);
@@ -492,7 +492,7 @@ test "a V1.0 settling listener hears an answer that resolves to the partner's ow
     var listen_event = peer.pollEvent().?;
     listen_event.deinit();
 
-    try peer.sendCopying(.{ .resolve = .{
+    try peer.sendBorrowed(.{ .resolve = .{
         .answer = .from(11),
         .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.promise(12) } } },
     } });

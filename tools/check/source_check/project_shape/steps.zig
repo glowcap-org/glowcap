@@ -275,11 +275,13 @@ fn collectCommandDocsUnder(
 
 fn collectBuildSteps(gpa: std.mem.Allocator, build_zig: []const u8, steps: *std.StringHashMap(void)) !void {
     // Steps are declared as `b.step("name", …)`, table-driven `.step_name = "name"`
-    // rows, header-gen `.check_step_name` / `.write_step_name` pairs, and
-    // binding-family `.aggregate_name = "name"` rows passed to `addBindingFamily`.
+    // and `.profile_step = "name"` rows, header-gen `.check_step_name` /
+    // `.write_step_name` pairs, and binding-family `.aggregate_name = "name"`
+    // rows passed to `addBindingFamily`.
     const patterns = [_][]const u8{
         "b.step(\"",
         ".step_name = \"",
+        ".profile_step = \"",
         ".check_step_name = \"",
         ".write_step_name = \"",
         ".aggregate_name = \"",
@@ -305,9 +307,11 @@ fn firstCommandTokenEnd(text: []const u8) usize {
     return text.len;
 }
 
+/// A step name never holds `<`, so a citation inside an HTML `<code>` span on
+/// a site page ends at its closing tag.
 fn isCommandTerminator(byte: u8) bool {
     return switch (byte) {
-        ' ', '\t', '\n', '\r', '`', '$', '#', '|', '&', ';', ')' => true,
+        ' ', '\t', '\n', '\r', '`', '$', '#', '|', '&', ';', ')', '<' => true,
         else => false,
     };
 }
@@ -397,4 +401,10 @@ test "collectCommandRegions yields only fenced and inline-code text" {
     // Prose is not, so its trailing tokens can never be read as a step.
     try std.testing.expect(std.mem.indexOf(u8, seen, "system") == null);
     try std.testing.expect(std.mem.indexOf(u8, seen, "nonsense") == null);
+}
+
+test "a step cited inside an HTML code span ends at the closing tag" {
+    const text = "zig build bench-site-report</code> repeats it.";
+    const after = std.mem.trimStart(u8, text["zig build".len..], " ");
+    try std.testing.expectEqualStrings("bench-site-report", after[0..firstCommandTokenEnd(after)]);
 }

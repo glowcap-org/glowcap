@@ -33,7 +33,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 		return {
 			guardOpen: () => s.guardOpen(),
 			get ptr() {
-				return s.nativePtr;
+				return s.ffiPtr;
 			},
 			get hosted() {
 				return s.hostedActors;
@@ -91,7 +91,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 		const bytes = utf8Encoder.encode(name);
 		const out = new Uint8Array(8);
 		const code = hostS.glowcap_host_session_published_ref(
-			this.nativePtr,
+			this.ffiPtr,
 			ab(bytes),
 			BigInt(bytes.length),
 			ab(out),
@@ -175,7 +175,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 		);
 	}
 
-	/** Apply this Session's opt-in to a native-projected application value.
+	/** Apply this Session's opt-in to an FFI-projected application value.
 	 * Binding-internal: the trampoline uses it for delivered arguments. */
 	trackGcArgument(value: Argument): Argument {
 		return this.distributedGcEnabled ? this.hostOwner.trackGcArgument(value) : value;
@@ -289,14 +289,14 @@ export abstract class SessionApplication extends SessionLifecycle {
 	setExporterLocator(locator: Locator | null): void {
 		this.guardOpen();
 		if (locator === null) {
-			checkHost(hostS.glowcap_host_session_set_exporter_location(this.nativePtr, NULL));
+			checkHost(hostS.glowcap_host_session_set_exporter_location(this.ffiPtr, NULL));
 			return;
 		}
 		withOwnedLocator(
 			locator,
 			(owned) =>
 				checkHost(hostS.glowcap_host_session_set_exporter_location(
-					this.nativePtr,
+					this.ffiPtr,
 					owned.borrowView(),
 				)),
 		);
@@ -324,7 +324,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	partnerIdentity(): PartnerIdentity {
 		this.guardOpen();
 		const buf = new Uint8Array(L.PARTNER_IDENTITY_SIZE);
-		checkHost(hostS.glowcap_host_session_partner_identity(this.nativePtr, ab(buf)));
+		checkHost(hostS.glowcap_host_session_partner_identity(this.ffiPtr, ab(buf)));
 		// The views the call filled in are session-owned and a later call can
 		// invalidate them, so every field is copied here (`readBytes` owns its
 		// result) before this returns.
@@ -371,7 +371,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 		this.guardOpen();
 		const bytes = utf8Encoder.encode(designator);
 		checkHost(hostS.glowcap_host_session_bind_verified_channel_key(
-			this.nativePtr,
+			this.ffiPtr,
 			ab(bytes),
 			BigInt(bytes.length),
 		));
@@ -385,7 +385,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * retain when the runtime reclaims its `Ref`. The Host routes any required
 	 * `op:gc-exports` to the import's actual home. Collection is scheduled by
 	 * `FinalizationRegistry`; once parked, a release remains Host-owned until
-	 * native commit. Fresh and cached `enliven` results each own a retain. Returns
+	 * FFI commit. Fresh and cached `enliven` results each own a retain. Returns
 	 * `this` for chaining. */
 	withGc(): this {
 		this.distributedGcEnabled = true;

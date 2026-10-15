@@ -18,14 +18,14 @@ const transaction = @import("grant_transaction.zig");
 const capability = @import("grant_capability.zig");
 const GrantView = @import("grant_view.zig").GrantView;
 
-const Entry = types.Entry;
-
 pub const GrantLedger = struct {
     allocator: std.mem.Allocator,
     graph: *Graph,
     policy: Policy,
     limits: Limits,
-    entries: []Entry,
+    /// Committed rows at their slot. Each owns its selections. The read view
+    /// lends them in place, and no commit moves a row.
+    records: []Record,
     used: u32 = 0,
     current_revision: Revision = @fromBackingInt(0),
     pending: ?transaction.Pending = null,
@@ -52,17 +52,17 @@ pub const GrantLedger = struct {
             .graph = graph,
             .policy = policy,
             .limits = limits,
-            .entries = try allocator.alloc(Entry, limits.capacity),
+            .records = try allocator.alloc(Record, limits.capacity),
         };
     }
 
     pub fn deinit(self: *GrantLedger) error{Busy}!void {
         if (self.pending != null or self.live_capabilities != 0) return error.Busy;
-        for (self.entries[0..self.used]) |*entry| {
-            entry.ceiling.deinit(self.allocator);
-            entry.configured.deinit(self.allocator);
+        for (self.records[0..self.used]) |record| {
+            record.ceiling.deinitOwned(self.allocator);
+            record.configured.deinitOwned(self.allocator);
         }
-        self.allocator.free(self.entries);
+        self.allocator.free(self.records);
         self.* = undefined;
     }
 
@@ -88,22 +88,26 @@ pub const GrantLedger = struct {
         return self.used;
     }
 
+    /// A copy of one committed row. Its selections borrow the ledger until
+    /// the next commit that replaces them.
     pub fn get(self: *const GrantLedger, id: GrantId) Error!Record {
         try self.checkReadable();
-        return transaction.recordOf(id, (try self.lookup(id)).*);
+        return (try self.lookup(id)).*;
     }
 
+    /// Rows stay at their address and are replaced only by a commit, so the
+    /// view lends them with no release step.
     pub fn readView(self: *const GrantLedger) GrantView {
-        return GrantView.init(.{ .owner = self.graph.owner, .revisions = self.version() }, self.limits.max_depth, self, readRecord);
+        return GrantView.init(.{ .owner = self.graph.owner, .revisions = self.version() }, self.limits.max_depth, .{ .context = self, .lend = lend });
     }
 
-    fn readRecord(context: *const anyopaque, id: GrantId) GrantView.SourceError!GrantView.Reply {
+    fn lend(context: *const anyopaque, id: GrantId) GrantView.SourceError!GrantView.Reply {
         const self: *const GrantLedger = @ptrCast(@alignCast(context));
         if (self.pending) |pending| if (pending.phase == .uncertain) return error.RecoveryRequired;
         const version_: GrantView.Version = .{ .owner = self.graph.owner, .revisions = self.version() };
         if (id.slot >= self.used or id.generation == 0) return .{ .version = version_, .value = .{ .absent = .unknown } };
         if (id.generation != 1) return .{ .version = version_, .value = .{ .absent = .gone } };
-        return .{ .version = version_, .value = .{ .present = transaction.recordOf(id, self.entries[id.slot]) } };
+        return .{ .version = version_, .value = .{ .present = &self.records[id.slot] } };
     }
 
     /// Trusted issuance of independent access. The volatile convenience path
@@ -204,7 +208,7 @@ pub const GrantLedger = struct {
         if (self.pending) |pending| if (pending.phase == .uncertain) return error.RecoveryRequired;
     }
 
-    fn lookup(self: *const GrantLedger, id: GrantId) Error!*const Entry {
+    fn lookup(self: *const GrantLedger, id: GrantId) Error!*const Record {
         return transaction.lookup(self, id);
     }
 };

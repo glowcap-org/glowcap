@@ -203,7 +203,7 @@ test "loam cold discovery shares managed durable-name preparation read and its t
         try client.send(child, "durable-name", &.{}, &held_name);
         const Worker = h.loam.hosting.Worker;
         var slot: [1]Worker.Slot = undefined;
-        var worker: Worker = .init(&slot);
+        var worker: Worker = .init(&slot, backend.readerCapacity());
         const descriptor = waiting: for (0..64) |_| {
             try server.attached.advance();
             while (try worker.next(server.attached, false)) |work| {

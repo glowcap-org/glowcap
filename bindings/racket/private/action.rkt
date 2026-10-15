@@ -204,7 +204,7 @@
 
 (define (drain-pump-actions! m)
   (let loop ([touched '()] [fires '()] [popped? #f])
-    ;; The native drain resumes queued Host work before its first external
+    ;; The FFI drain resumes queued Host work before its first external
     ;; action and may synchronously invoke a behavior.
     (define-values (parked yielded?)
       (parameterize ([current-deliver-owner m])

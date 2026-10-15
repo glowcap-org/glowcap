@@ -9,6 +9,7 @@
 //! or settlement consequence unsettled.
 
 const shared = @import("c_abi_shared");
+const driver_core = @import("driver_core");
 const model = @import("model");
 const c = @import("mod.zig");
 const common = @import("common.zig");
@@ -123,15 +124,23 @@ pub fn fetchAt(
     return shared.GLOWCAP_OK;
 }
 
+/// The embedder parks when this drain runs dry, so an empty queue is where
+/// the core's held answer releases leave: their flush is the last action.
+fn popAction(inst: *common.Instance) !?driver_core.HostAction {
+    if (try inst.core.nextAction()) |action| return action;
+    if (!try inst.core.flushHeldReleases()) return null;
+    return inst.core.nextAction();
+}
+
 pub fn next(host: ?*c.GlowcapHost, out_action: ?*c.GlowcapHostAction) i32 {
     const inst = common.instanceFrom(host) orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     if (!common.embedderOwnsDrive(inst, "next_action")) return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_action orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     // A refused core pop leaves the preceding action and all of its borrowed C
     // views intact. Reset projection scratch only after the pop commits.
-    var popped = inst.core.nextAction() catch |err| return common.errToCode(err);
+    var popped = popAction(inst) catch |err| return common.errToCode(err);
     _ = inst.completion_scratch.reset(.{ .retain_with_limit = common.steady_scratch_bytes });
-    while (popped) |action| : (popped = inst.core.nextAction() catch |err| return common.errToCode(err)) {
+    while (popped) |action| : (popped = popAction(inst) catch |err| return common.errToCode(err)) {
         switch (action) {
             .dial => |dial| {
                 slot.* = common.zero_action;

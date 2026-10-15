@@ -13,8 +13,18 @@
 //! does. The core archives never import this file and stay cargo-free.
 //!
 //! Unlike iroh, a WebRTC peer has no dialable address, so there is no
-//! `connect(addr)`. The caller drives signaling, but channel establishment and
-//! byte I/O use the same reactor discipline: one netlayer readiness fd reports
+//! `connect(addr)`. Signaling brings a channel up, in one of two ways. A
+//! netlayer created with `GlowcapWebrtcConfig.signaling` runs the exchange
+//! itself, calling the application to carry each offer, answer, and
+//! candidate. For the driver's dials it takes the answer back through
+//! `glowcap_webrtc_netlayer_provide_answer` (ADR-0226, `dial.zig`), and for
+//! the driver's listener it takes each inbound offer through
+//! `glowcap_webrtc_netlayer_provide_offer` (ADR-0232, `accept.zig`). An
+//! application can instead drive the exchange by hand with the
+//! `glowcap_webrtc_peer_*` calls (`peer_signaling.zig`) and give the open
+//! peer to the driver through the provider's `claim_external`. Either way,
+//! channel establishment and byte
+//! I/O use the same reactor discipline: one netlayer readiness fd reports
 //! stable peer-id OPEN/CANDIDATE/READABLE/WRITABLE/CLOSED events, and every
 //! drain or try-I/O call returns immediately.
 //!
@@ -36,6 +46,9 @@ const webrtc = @import("webrtc");
 const crypto = @import("foundation").crypto;
 const ownership = @import("ownership.zig");
 const provider = @import("provider.zig");
+const exchange = @import("exchange.zig");
+const accept = @import("accept.zig");
+const peer_signaling = @import("peer_signaling.zig");
 
 // The shared C-ABI vocabulary leaf (codes, allocation policy, the per-thread
 // last-error slot), not the `c_abi` ocapn root, so this transport ABI pulls
@@ -46,6 +59,7 @@ pub const contract_layouts = [_]c.archive_contract.Layout{
     c.archive_contract.layout("GLOWCAP_WEBRTC_READY_EVENT", GlowcapWebrtcReadyEvent),
     c.archive_contract.layout("GLOWCAP_WEBRTC_STRING_VIEW", GlowcapWebrtcStringView),
     c.archive_contract.layout("GLOWCAP_WEBRTC_ICE_SERVER", GlowcapWebrtcIceServer),
+    c.archive_contract.layout("GLOWCAP_WEBRTC_SIGNALING", GlowcapWebrtcSignaling),
     c.archive_contract.layout("GLOWCAP_WEBRTC_CONFIG", GlowcapWebrtcConfig),
 };
 pub const GLOWCAP_WEBRTC_ARCHIVE_FINGERPRINT = c.archive_contract.fingerprint(
@@ -63,11 +77,13 @@ pub export fn glowcap_webrtc_archive_fingerprint() u64 {
 // (ADR-0059), the same twin `glowcap_tcp_netlayer_new_in` and its siblings hold.
 const GlowcapContext = c.GlowcapContext;
 
-/// One WebRTC peer: its `RTCPeerConnection` and single data channel, wrapping
-/// the netlayer resident's byte-fed `Peer`. Owned by the caller. Released with
-/// `glowcap_webrtc_peer_release`.
-pub const GlowcapWebrtcPeer = opaque {};
-pub const GlowcapWebrtcNetlayer = opaque {};
+pub const GlowcapWebrtcPeer = ownership.GlowcapWebrtcPeer;
+pub const GlowcapWebrtcNetlayer = ownership.GlowcapWebrtcNetlayer;
+pub const GlowcapWebrtcSignaling = exchange.GlowcapWebrtcSignaling;
+pub const GlowcapWebrtcSendOfferFn = exchange.GlowcapWebrtcSendOfferFn;
+pub const GlowcapWebrtcSendAnswerFn = exchange.GlowcapWebrtcSendAnswerFn;
+pub const GlowcapWebrtcSendCandidateFn = exchange.GlowcapWebrtcSendCandidateFn;
+pub const GlowcapWebrtcExchangeDoneFn = exchange.GlowcapWebrtcExchangeDoneFn;
 
 pub const GLOWCAP_WEBRTC_EV_OPEN: u32 = webrtc.ev_open;
 pub const GLOWCAP_WEBRTC_EV_CANDIDATE: u32 = webrtc.ev_candidate;
@@ -81,6 +97,7 @@ pub const GLOWCAP_WEBRTC_MAX_ICE_URLS_PER_SERVER: usize = webrtc.max_ice_urls_pe
 pub const GLOWCAP_WEBRTC_MAX_ICE_URL_BYTES: usize = webrtc.max_ice_url_bytes;
 pub const GLOWCAP_WEBRTC_MAX_ICE_CREDENTIAL_BYTES: usize = webrtc.max_ice_credential_bytes;
 pub const GLOWCAP_WEBRTC_MAX_PENDING_ICE_CANDIDATES: usize = webrtc.max_pending_ice_candidates;
+pub const GLOWCAP_WEBRTC_MAX_ACCEPTS_IN_FLIGHT: usize = webrtc.max_accepts_in_flight;
 pub const GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES: usize = webrtc.pending_ice_candidate_queue_bytes;
 pub const GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES: usize = webrtc.data_channel_queue_bytes;
 pub const GlowcapWebrtcStringView = webrtc.StringView;
@@ -110,18 +127,11 @@ pub const symbols = @import("symbols.zig");
 
 const PeerPayload = ownership.PeerPayload;
 const NetlayerPayload = ownership.NetlayerPayload;
-const retainNetlayer = ownership.retainNetlayer;
-const undoNetlayerRetain = ownership.undoNetlayerRetain;
 const releaseNetlayer = ownership.releaseNetlayer;
 const releasePeer = ownership.releasePeer;
-
-fn payloadFromOpaque(p: ?*GlowcapWebrtcPeer) ?*PeerPayload {
-    return @ptrCast(@alignCast(p orelse return null));
-}
-
-fn netlayerFromOpaque(p: ?*GlowcapWebrtcNetlayer) ?*NetlayerPayload {
-    return @ptrCast(@alignCast(p orelse return null));
-}
+const payloadFromOpaque = ownership.payloadFromOpaque;
+const netlayerFromOpaque = ownership.netlayerFromOpaque;
+const ioError = peer_signaling.ioError;
 
 /// Copy the calling thread's last webrtc-transport error into `out_buf`, the
 /// webrtc sibling of `glowcap_last_error`. Copies at most `cap - 1` bytes and
@@ -172,6 +182,14 @@ pub export fn glowcap_webrtc_clear_last_error() void {
 /// connection that fails to establish. The caller already owns the wall clock,
 /// and a second deadline here would be a second authority for the same fact.
 ///
+/// `signaling` is how the application carries offers, answers, and candidates
+/// for the exchanges this netlayer runs on the driver's behalf
+/// (`GlowcapWebrtcSignaling`). `send_offer` gives the provider its connect
+/// verbs and `send_answer` its listen verbs. Left zero, the netlayer runs no
+/// exchange: the driver refuses a `webrtc` dial or listen as unsupported, and
+/// only peers the application signals by hand reach the driver, through
+/// `claim_external`.
+///
 /// Callers must zero-initialize the whole struct before filling the fields they
 /// set, so a field added in a later version defaults to 0 rather than reading a
 /// caller's stack garbage. The `extern struct` counterpart of the header's
@@ -181,6 +199,7 @@ pub const GlowcapWebrtcConfig = extern struct {
     ice_server_count: usize,
     include_loopback_candidates: u32,
     worker_threads: u32,
+    signaling: GlowcapWebrtcSignaling,
 };
 
 /// Create the shared WebRTC runtime and readiness endpoint. Every peer is
@@ -216,6 +235,12 @@ fn netlayerNewIn(
 ) i32 {
     slot.* = null;
     const ice_servers = decodeIceServers(cfg) catch |err| return iceConfigPointerError(err);
+    exchange.validate(cfg.signaling) catch |err| switch (err) {
+        error.HalfSignaling => {
+            setLastError("webrtc netlayer_new: signaling needs send_candidate with send_offer or send_answer, or none of them", .{});
+            return GLOWCAP_ERR_INVALID_ARGUMENT;
+        },
+    };
     const payload = alloc.create(NetlayerPayload) catch |err|
         return c.failInternal("webrtc netlayer_new", err);
     payload.* = .{
@@ -228,6 +253,7 @@ fn netlayerNewIn(
             return residentInitError(err);
         },
         .allocator = alloc,
+        .signaling = cfg.signaling,
     };
     slot.* = @ptrCast(payload);
     return GLOWCAP_OK;
@@ -340,213 +366,16 @@ pub export fn glowcap_webrtc_peer_new_in(context: ?*GlowcapContext, netlayer: ?*
 fn peerNewIn(alloc: std.mem.Allocator, nl: *NetlayerPayload, is_offerer: i32, out_peer: ?*?*GlowcapWebrtcPeer) i32 {
     const slot = out_peer orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = null;
-    // The retain comes first so a refusal has nothing to unwind: a netlayer
-    // whose last reference is already gone admits no new peer.
-    if (!retainNetlayer(nl)) {
-        c.setLastError("webrtc peer_new: netlayer already released", .{});
-        return c.GLOWCAP_ERR_CLOSED;
-    }
-    const payload = alloc.create(PeerPayload) catch |err| {
-        undoNetlayerRetain(nl);
-        return c.failInternal("webrtc peer_new", err);
-    };
-    payload.* = .{
-        .peer = nl.resident.newPeer(is_offerer != 0) catch |err| {
-            undoNetlayerRetain(nl);
-            alloc.destroy(payload);
-            return c.failIo("webrtc peer_new sidecar", err);
+    const payload = ownership.createPeer(alloc, nl, is_offerer != 0) catch |err| return switch (err) {
+        error.NetlayerReleased => {
+            setLastError("webrtc peer_new: netlayer already released", .{});
+            return GLOWCAP_ERR_CLOSED;
         },
-        .allocator = alloc,
-        .netlayer = nl,
-    };
-    nl.peers.put(nl.allocator, @backingInt(payload.peer.id()), payload) catch |err| {
-        payload.peer.deinit();
-        undoNetlayerRetain(nl);
-        alloc.destroy(payload);
-        return c.failInternal("webrtc peer_new subject table", err);
+        error.OutOfMemory => c.failInternal("webrtc peer_new", err),
+        error.PeerCreateFailed => c.failIo("webrtc peer_new: the WebRTC library", err),
     };
     slot.* = @ptrCast(payload);
     return GLOWCAP_OK;
-}
-
-/// Bind the durable key authorized by the signaling authority. Authorization
-/// is a pre-open fact: after the channel opens, changing it would make the
-/// provider's transport provenance mutable while the driver owns the wire.
-pub export fn glowcap_webrtc_peer_authorize_remote(
-    peer: ?*GlowcapWebrtcPeer,
-    designator: ?[*]const u8,
-    designator_len: usize,
-) i32 {
-    c.lastErrorClear();
-    const payload = payloadFromOpaque(peer) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const bytes = keyDesignatorInput(designator, designator_len) catch |err| return keyDesignatorInputError(err);
-    const key = crypto.PeerKey.fromDesignator(bytes) orelse {
-        setLastError("webrtc authorize_remote: invalid durable key designator", .{});
-        return GLOWCAP_ERR_INVALID_ARGUMENT;
-    };
-    if (payload.peer.authorized_remote != null) {
-        setLastError("webrtc authorize_remote: remote identity is already authorized", .{});
-        return GLOWCAP_ERR_INVALID_ARGUMENT;
-    }
-    if (payload.peer.checkOpen()) |_| {
-        setLastError("webrtc authorize_remote: the channel is already open", .{});
-        return GLOWCAP_ERR_INVALID_ARGUMENT;
-    } else |err| switch (err) {
-        error.WouldBlock => {},
-        error.Closed => return GLOWCAP_ERR_CLOSED,
-        error.Failed => return ioError("authorize_remote: the channel faulted"),
-    }
-    payload.peer.authorizeRemote(key);
-    return GLOWCAP_OK;
-}
-
-fn keyDesignatorInput(ptr: ?[*]const u8, len: usize) error{ NullPointer, InvalidArgument }![]const u8 {
-    if (len != crypto.PeerKey.designator_len) return error.InvalidArgument;
-    const src = ptr orelse return error.NullPointer;
-    return src[0..crypto.PeerKey.designator_len];
-}
-
-fn keyDesignatorInputError(err: error{ NullPointer, InvalidArgument }) i32 {
-    return switch (err) {
-        error.NullPointer => GLOWCAP_ERR_NULL_POINTER,
-        error.InvalidArgument => {
-            setLastError("webrtc authorize_remote: remote identity must be a {d}-byte lowercase hex designator", .{crypto.PeerKey.designator_len});
-            return GLOWCAP_ERR_INVALID_ARGUMENT;
-        },
-    };
-}
-
-/// Produce the offerer's SDP offer into `(out, cap)`, writing its length to
-/// `*out_len`. `GLOWCAP_ERR_BUFFER_TOO_SMALL` still writes the required length,
-/// so the caller retries with a buffer that size. `GLOWCAP_ERR_INVALID_ARGUMENT`
-/// means the generated SDP exceeds `GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES`. Offerer
-/// only.
-pub export fn glowcap_webrtc_peer_create_offer(peer: ?*GlowcapWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
-    c.lastErrorClear();
-    return produceSdp(peer, out, cap, out_len, .offer);
-}
-
-/// Produce the answerer's SDP answer into `(out, cap)`, writing its length to
-/// `*out_len`. `GLOWCAP_ERR_INVALID_ARGUMENT` means the generated SDP exceeds
-/// `GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES`. Answerer only, after
-/// `glowcap_webrtc_peer_set_remote_offer`.
-pub export fn glowcap_webrtc_peer_create_answer(peer: ?*GlowcapWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
-    c.lastErrorClear();
-    return produceSdp(peer, out, cap, out_len, .answer);
-}
-
-const SdpKind = enum { offer, answer };
-
-fn produceSdp(peer: ?*GlowcapWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize, kind: SdpKind) i32 {
-    const payload = payloadFromOpaque(peer) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const dest = out orelse return GLOWCAP_ERR_NULL_POINTER;
-    const slot = out_len orelse return GLOWCAP_ERR_NULL_POINTER;
-    const result = switch (kind) {
-        .offer => payload.peer.createOffer(dest[0..cap], slot),
-        .answer => payload.peer.createAnswer(dest[0..cap], slot),
-    };
-    _ = result catch |err| return switch (err) {
-        error.BufferTooSmall => GLOWCAP_ERR_BUFFER_TOO_SMALL,
-        error.SignalTooLarge => signalOutputTooLarge("create_offer/answer", "generated SDP"),
-        error.SignalFailed => ioError("create_offer/answer: the sidecar refused"),
-    };
-    return GLOWCAP_OK;
-}
-
-/// Set the far offerer's SDP offer as the remote description. Answerer side.
-pub export fn glowcap_webrtc_peer_set_remote_offer(peer: ?*GlowcapWebrtcPeer, sdp: ?[*]const u8, sdp_len: usize) i32 {
-    c.lastErrorClear();
-    return setRemote(peer, sdp, sdp_len, true);
-}
-
-/// Set the far answerer's SDP answer as the remote description. Offerer side.
-pub export fn glowcap_webrtc_peer_set_remote_answer(peer: ?*GlowcapWebrtcPeer, sdp: ?[*]const u8, sdp_len: usize) i32 {
-    c.lastErrorClear();
-    return setRemote(peer, sdp, sdp_len, false);
-}
-
-fn setRemote(peer: ?*GlowcapWebrtcPeer, sdp: ?[*]const u8, sdp_len: usize, is_offer: bool) i32 {
-    const payload = payloadFromOpaque(peer) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const bytes = signalInput(sdp, sdp_len) catch |err| return signalInputError(err, "set_remote", "SDP description");
-    const result = if (is_offer) payload.peer.setRemoteOffer(bytes) else payload.peer.setRemoteAnswer(bytes);
-    result catch |err| return switch (err) {
-        error.SignalTooLarge => signalOutputTooLarge("set_remote", "SDP description"),
-        else => ioError("set_remote: the sidecar refused the description"),
-    };
-    return GLOWCAP_OK;
-}
-
-/// Add one remote ICE candidate, as the JSON the far peer's
-/// `glowcap_webrtc_peer_next_local_candidate` produced.
-pub export fn glowcap_webrtc_peer_add_remote_candidate(peer: ?*GlowcapWebrtcPeer, cand: ?[*]const u8, cand_len: usize) i32 {
-    c.lastErrorClear();
-    const payload = payloadFromOpaque(peer) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const bytes = candidateInput(cand, cand_len) catch |err| return candidateInputError(err, "add_remote_candidate", "ICE candidate");
-    payload.peer.addRemoteCandidate(bytes) catch |err| return switch (err) {
-        error.SignalTooLarge => candidateOutputTooLarge("add_remote_candidate", "ICE candidate"),
-        else => ioError("add_remote_candidate: the sidecar refused the candidate"),
-    };
-    return GLOWCAP_OK;
-}
-
-fn signalInput(ptr: ?[*]const u8, len: usize) error{ NullPointer, SignalTooLarge }![]const u8 {
-    const src = ptr orelse return error.NullPointer;
-    if (len > webrtc.max_signal_bytes) return error.SignalTooLarge;
-    return src[0..len];
-}
-
-fn candidateInput(ptr: ?[*]const u8, len: usize) error{ NullPointer, SignalTooLarge }![]const u8 {
-    const src = ptr orelse return error.NullPointer;
-    if (len > webrtc.max_ice_candidate_bytes) return error.SignalTooLarge;
-    return src[0..len];
-}
-
-fn signalInputError(err: error{ NullPointer, SignalTooLarge }, operation: []const u8, label: []const u8) i32 {
-    return switch (err) {
-        error.NullPointer => GLOWCAP_ERR_NULL_POINTER,
-        error.SignalTooLarge => {
-            setLastError("webrtc {s}: {s} exceeds GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES", .{ operation, label });
-            return GLOWCAP_ERR_INVALID_ARGUMENT;
-        },
-    };
-}
-
-fn candidateInputError(err: error{ NullPointer, SignalTooLarge }, operation: []const u8, label: []const u8) i32 {
-    return switch (err) {
-        error.NullPointer => GLOWCAP_ERR_NULL_POINTER,
-        error.SignalTooLarge => {
-            setLastError("webrtc {s}: {s} exceeds GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES", .{ operation, label });
-            return GLOWCAP_ERR_INVALID_ARGUMENT;
-        },
-    };
-}
-
-/// Drain the next locally gathered ICE candidate into `(out, cap)` as JSON,
-/// writing its length to `*out_len`. `GLOWCAP_ERR_WOULD_BLOCK` when none is
-/// pending yet. `GLOWCAP_ERR_BUFFER_TOO_SMALL` still writes the required length.
-/// `GLOWCAP_ERR_INVALID_ARGUMENT` means the candidate exceeds
-/// `GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES`.
-pub export fn glowcap_webrtc_peer_next_local_candidate(peer: ?*GlowcapWebrtcPeer, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
-    c.lastErrorClear();
-    const payload = payloadFromOpaque(peer) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const dest = out orelse return GLOWCAP_ERR_NULL_POINTER;
-    const slot = out_len orelse return GLOWCAP_ERR_NULL_POINTER;
-    const candidate = payload.peer.nextLocalCandidate(dest[0..cap], slot) catch |err| return switch (err) {
-        error.BufferTooSmall => GLOWCAP_ERR_BUFFER_TOO_SMALL,
-        error.SignalTooLarge => candidateOutputTooLarge("next_local_candidate", "local ICE candidate"),
-        error.SignalFailed => ioError("next_local_candidate: the sidecar refused"),
-    };
-    return if (candidate == null) GLOWCAP_ERR_WOULD_BLOCK else GLOWCAP_OK;
-}
-
-fn signalOutputTooLarge(operation: []const u8, label: []const u8) i32 {
-    setLastError("webrtc {s}: {s} exceeds GLOWCAP_WEBRTC_MAX_SIGNAL_BYTES", .{ operation, label });
-    return GLOWCAP_ERR_INVALID_ARGUMENT;
-}
-
-fn candidateOutputTooLarge(operation: []const u8, label: []const u8) i32 {
-    setLastError("webrtc {s}: {s} exceeds GLOWCAP_WEBRTC_MAX_ICE_CANDIDATE_BYTES", .{ operation, label });
-    return GLOWCAP_ERR_INVALID_ARGUMENT;
 }
 
 /// Stable readiness identity for this peer, unique for the netlayer's lifetime.
@@ -625,9 +454,10 @@ pub export fn glowcap_webrtc_peer_release(peer: ?*GlowcapWebrtcPeer) i32 {
     return GLOWCAP_OK;
 }
 
-/// Fill the generic driver provider package for externally established WebRTC
-/// peers. The package has no dial or listener operation: signaling owns those
-/// actions, and the driver claims only an authorized open subject.
+/// Fill the generic driver provider package. The driver claims a peer the
+/// application signaled by hand through `claim_external`, dials through the
+/// connect verbs when the netlayer's signaling carries `send_offer`, and
+/// listens through the listen verbs when it carries `send_answer`.
 pub export fn glowcap_webrtc_transport_provider(
     netlayer: ?*GlowcapWebrtcNetlayer,
     out_provider: ?*c.GlowcapTransportProvider,
@@ -639,9 +469,21 @@ pub export fn glowcap_webrtc_transport_provider(
     return GLOWCAP_OK;
 }
 
-/// Record `msg` in the last-error slot and return `GLOWCAP_ERR_IO`, the one
-/// fault code every sidecar refusal maps to.
-fn ioError(msg: []const u8) i32 {
-    setLastError("{s}", .{msg});
-    return GLOWCAP_ERR_IO;
+// The exports whose bodies live in a leaf. The alias is the public index, and
+// the walk below roots every annotated export so omission from the linked
+// artifact is impossible.
+pub const glowcap_webrtc_peer_authorize_remote = peer_signaling.glowcap_webrtc_peer_authorize_remote;
+pub const glowcap_webrtc_peer_create_offer = peer_signaling.glowcap_webrtc_peer_create_offer;
+pub const glowcap_webrtc_peer_create_answer = peer_signaling.glowcap_webrtc_peer_create_answer;
+pub const glowcap_webrtc_peer_set_remote_offer = peer_signaling.glowcap_webrtc_peer_set_remote_offer;
+pub const glowcap_webrtc_peer_set_remote_answer = peer_signaling.glowcap_webrtc_peer_set_remote_answer;
+pub const glowcap_webrtc_peer_add_remote_candidate = peer_signaling.glowcap_webrtc_peer_add_remote_candidate;
+pub const glowcap_webrtc_peer_next_local_candidate = peer_signaling.glowcap_webrtc_peer_next_local_candidate;
+pub const glowcap_webrtc_netlayer_provide_offer = accept.glowcap_webrtc_netlayer_provide_offer;
+pub const glowcap_webrtc_netlayer_provide_answer = exchange.glowcap_webrtc_netlayer_provide_answer;
+pub const glowcap_webrtc_netlayer_provide_candidate = exchange.glowcap_webrtc_netlayer_provide_candidate;
+pub const glowcap_webrtc_netlayer_fail_exchange = exchange.glowcap_webrtc_netlayer_fail_exchange;
+
+comptime {
+    for (symbols.symbols) |symbol| _ = @field(@This(), symbol.name);
 }

@@ -39,10 +39,10 @@ pub const Slot = struct {
 /// at construction, so the host never mutates session authority after the fact.
 ///
 /// Export-range capacity and the range itself are acquired before membership
-/// becomes visible. Every failure unwinds the peer and range, and the handle
-/// only advances after the map row commits, so handles are never reused.
+/// becomes visible. Every failure unwinds the peer and range, and the row
+/// commits last, so a failed registration spends no handle.
 pub fn registerPeer(self: *Node, options: engine.Peer.NegotiatingOptions) !PeerHandle {
-    if (self.next_peer_handle == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
+    if (self.peers.full()) return error.CapabilitySpaceExhausted;
     const new_peer = try self.allocator.create(engine.Peer);
     new_peer.* = engine.Peer.initNegotiatingWith(self.allocator, options);
     errdefer {
@@ -53,10 +53,9 @@ pub fn registerPeer(self: *Node, options: engine.Peer.NegotiatingOptions) !PeerH
     try export_ranges.applyExportRange(self, new_peer);
     errdefer export_ranges.recycleExportBase(self, new_peer.session_state.export_base);
 
-    const handle: PeerHandle = .from(self.next_peer_handle);
+    const handle = try self.peers.mint(self.allocator, .{ .peer = new_peer, .ownership = .node_owned });
+    new_peer.session_state.keyWireTables(export_ranges.wireHashMultiplier(self.wire_hash_secret, handle.int()));
     new_peer.node_services = services(self, handle);
-    try self.peers.putNoClobber(self.allocator, handle, .{ .peer = new_peer, .ownership = .node_owned });
-    self.next_peer_handle += 1;
     return handle;
 }
 
@@ -66,14 +65,12 @@ pub fn registerPeer(self: *Node, options: engine.Peer.NegotiatingOptions) !PeerH
 /// surrendering its inline peer. The embedder must keep it alive until removal.
 /// Node detaches services and membership but never frees the peer itself.
 pub fn registerPeerOver(self: *Node, adopted: *engine.Peer) !PeerHandle {
-    if (self.next_peer_handle == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
+    if (self.peers.full()) return error.CapabilitySpaceExhausted;
     try export_ranges.applyExportRange(self, adopted);
     errdefer export_ranges.recycleExportBase(self, adopted.session_state.export_base);
-    const handle: PeerHandle = .from(self.next_peer_handle);
+    const handle = try self.peers.mint(self.allocator, .{ .peer = adopted, .ownership = .borrowed });
+    adopted.session_state.keyWireTables(export_ranges.wireHashMultiplier(self.wire_hash_secret, handle.int()));
     adopted.node_services = services(self, handle);
-    errdefer adopted.node_services = null;
-    try self.peers.putNoClobber(self.allocator, handle, .{ .peer = adopted, .ownership = .borrowed });
-    self.next_peer_handle += 1;
     return handle;
 }
 
@@ -82,8 +79,8 @@ pub fn registerPeerOver(self: *Node, adopted: *engine.Peer) !PeerHandle {
 /// Cleanup remains allocation-free after membership disappears. Each child
 /// authority owns its rows. This function fixes the ordering between them and
 /// frees the peer only when the membership row says the Node owns it.
-/// The monotonic handle remains burned, so a stale routed reference can only fail
-/// closed and can never acquire a later session's meaning.
+/// The handle's generation is spent with the row, so a stale routed reference
+/// can only fail closed and can never acquire a later session's meaning.
 pub fn removePeer(self: *Node, peer_handle: PeerHandle) void {
     const live = self.peers.get(peer_handle) orelse return;
     // A recipient batch carries a reservation charged on this exact Peer.
@@ -95,16 +92,16 @@ pub fn removePeer(self: *Node, peer_handle: PeerHandle) void {
     // is valid. This also makes an adopted peer safe to deinit later.
     live.peer.detachNodeServices();
     const removed = self.peers.fetchRemove(peer_handle) orelse return;
-    // Mark only receivers that name this exact Gifter–Exporter session after
+    // Mark only receivers that name this exact Gifter-Exporter session after
     // liveness disappears, so their retry observes closure.
     Internal.markGifterHandoffsChanged(self, peer_handle);
     // Give the range back before the peer goes, while it remains the only
     // record of the range this session held. Reclamation makes the slot bound
     // live sessions rather than all sessions over the Node's lifetime.
-    export_ranges.recycleExportBase(self, removed.value.peer.session_state.export_base);
-    if (removed.value.ownership == .node_owned) {
-        removed.value.peer.deinit();
-        self.allocator.destroy(removed.value.peer);
+    export_ranges.recycleExportBase(self, removed.peer.session_state.export_base);
+    if (removed.ownership == .node_owned) {
+        removed.peer.deinit();
+        self.allocator.destroy(removed.peer);
     }
     gift_recipe.removeForPeer(self, peer_handle);
 

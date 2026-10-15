@@ -20,7 +20,7 @@
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
          (only-in "../../private/finalizer-diagnostics.rkt"
-                  record-runtime-failure! run-native-finalizer!)
+                  record-runtime-failure! run-ffi-finalizer!)
          (only-in "../../private/ws-transport.rkt" ws-transport)
          (only-in "../../relay.rkt" relay-pump exn:fail:relay?
                   exn:fail:relay-primary exn:fail:relay-secondary)
@@ -42,7 +42,7 @@
                   driver-loop-has-transport?
                   loop-listen! loop-listener-ready! loop-listener-locator
                   loop-listener-close!)
-         "../../private/native-parent.rkt"
+         "../../private/ffi-parent.rkt"
          (only-in "../../private/value.rkt" make-ref/internal)
          "support.rkt"
          racket/tcp)
@@ -60,7 +60,7 @@
 
 ;; ── Mid-turn close defers handle release ─────────────────────────────────────
 ;; A behavior that calls `session-close!` inside its own *wire* turn must not
-;; free the native session while the trampoline frame is still on the stack. Local
+;; free the FFI session while the trampoline frame is still on the stack. Local
 ;; vat turns do not set `inside-turn?` (they never enter the C latch); the park
 ;; is for the hosted trampoline path. Closing the transport drops the partner
 ;; before the reply can settle on the wire. The proof here is the park count
@@ -78,7 +78,7 @@
                      (methods
                       [(die)
                        (session-close! hsession)
-                       ;; Native intent is already recorded; only handle release
+                       ;; FFI intent is already recorded; only handle release
                        ;; remains parked until this trampoline frame returns.
                        (channel-put mc-during
                                     (host-pending-release-count (session-host hsession)))
@@ -107,9 +107,9 @@
 (when (exn? mc-host-result) (raise mc-host-result))
 (server-close! mc-server)
 
-(printf "racket zig-smoke OK: callback close records native intent and defers handle release\n")
+(printf "racket zig-smoke OK: callback close records FFI intent and defers handle release\n")
 
-;; Host close records its native admission barrier under the callback latch.
+;; Host close records its FFI admission barrier under the callback latch.
 ;; Racket defers only waiting and handle release until the feed unwinds, then
 ;; clears the Host's strong callback/session tables.
 (define hr-server (listen "127.0.0.1" 0))
@@ -161,7 +161,7 @@
 ;; Two explicit releases can both observe a live wrapper before either acquires
 ;; the host lock. Terminal state must therefore be checked after the wait, not
 ;; only before it: the second caller is an idempotent no-op, never a second
-;; native release of the same pointer.
+;; FFI release of the same pointer.
 (define rr-host (make-fresh-host))
 (define rr-started (make-semaphore 0))
 (define rr-results (make-channel))
@@ -185,12 +185,12 @@
 (expect (and (eq? rr-first 'released)
              (eq? rr-second 'released)
              (unbox (host-released? rr-host)))
-        "concurrent Host release crosses native teardown exactly once")
+        "concurrent Host release crosses FFI teardown exactly once")
 
 (printf "racket zig-smoke OK: concurrent Host release is serialized and idempotent\n")
 
 ;; A repeated close is not merely an idempotent wrapper call: every request
-;; reaches the one native barrier. Hold FINISH open with a negotiating session,
+;; reaches the one FFI barrier. Hold FINISH open with a negotiating session,
 ;; kill the first public waiter, then prove a concurrent CANCEL still escalates
 ;; the retained worker and every surviving caller joins the terminal result.
 (define re-host (make-fresh-host))
@@ -340,7 +340,7 @@
 
 ;; An ordinary dial has no close driver to supply a timer. Accept TCP and then
 ;; stay silent: the binding's one progress clock must wake at HostRuntime's
-;; handshake deadline and project the native ERR-TIMEOUT event.
+;; handshake deadline and project the FFI ERR-TIMEOUT event.
 (define hd-listener (tcp-listen 0 4 #t "127.0.0.1"))
 (define hd-port
   (let-values ([(_host port _peer-host _peer-port)
@@ -361,14 +361,14 @@
 (define hd-outcome (sync/timeout 2 hd-result))
 (expect (and (exn:fail:glowcap? hd-outcome)
              (= ERR-TIMEOUT (exn:fail:glowcap-code hd-outcome)))
-        "a silent loop dial did not reach its native handshake deadline")
+        "a silent loop dial did not reach its FFI handshake deadline")
 (thread-wait hd-thread)
 (runtime-close! hd-runtime)
 (close-input-port hd-in)
 (close-output-port hd-out)
 (tcp-close hd-listener)
 
-(printf "racket zig-smoke OK: a silent loop dial reaches glowcap's native handshake deadline\n")
+(printf "racket zig-smoke OK: a silent loop dial reaches glowcap's FFI handshake deadline\n")
 
 ;; Session close has the same ownership contract. A negotiating byte-fed
 ;; session keeps unbounded FINISH pending; killing the first waiter must not

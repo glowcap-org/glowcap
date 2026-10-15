@@ -46,6 +46,21 @@ pub const OperationOptions = struct {
     }
 };
 
+/// Where one dial came from, borrowed for the starting call. A handoff dial
+/// follows a reference some open session handed over, and the core knows that
+/// session. A provider whose connect needs an outside party, as WebRTC
+/// signaling does, routes by it. A provider that connects to an address reads
+/// nothing here.
+pub const DialOrigin = struct {
+    /// The designator the introducing session's partner signed in its hello,
+    /// as `Host.partnerIdentity` reports it. Null for a dial the application
+    /// started itself, for a handoff whose introducing session has closed,
+    /// and for a partner that signed no designator.
+    introducer: ?[]const u8 = null,
+
+    pub const application: DialOrigin = .{};
+};
+
 /// Borrowed configuration for one listener bind.
 pub const ListenConfig = struct {
     designator: []const u8,

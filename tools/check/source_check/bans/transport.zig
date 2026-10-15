@@ -5,7 +5,7 @@ const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 const Where = bans.Where;
 
-/// Living-state surfaces the transport-vocabulary rows scan. Shared with the
+/// Docs the transport-vocabulary rows scan. Shared with the
 /// bespoke keyed-tcp resident-count heuristic in `source_check.zig`.
 pub const transport_vocabulary_paths: []const []const u8 = &.{
     ".agents/rules/architecture.md",
@@ -32,8 +32,8 @@ pub const transport_vocabulary_paths: []const []const u8 = &.{
     "site/content/examples.smd",
 };
 
-/// CapTP is transport-agnostic. Only netlayers name transports. Living-state
-/// surfaces that equate glowcap/OCapN with TCP fail here so the vocabulary
+/// CapTP is transport-agnostic. Only netlayers name transports. Docs that
+/// equate glowcap/OCapN with TCP fail here so the vocabulary
 /// cannot rot back. (The keyed-tcp resident-count heuristic stays bespoke in
 /// `source_check.zig`'s `checkTransportVocabulary`.)
 pub const transport_vocabulary: []const Ban = &.{

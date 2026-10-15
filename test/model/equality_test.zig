@@ -438,16 +438,16 @@ test "a borrowed handoff compares signatures in whichever shape its codec carrie
 
     // Equal in every field, including both signature halves.
     try std.testing.expect(try model.equality.viewArgumentsEqualBounded(
-        .{ .handoff = .{ .give = give_a } },
-        .{ .handoff = .{ .give = give_b } },
+        .{ .handoff = backedGive(&give_a) },
+        .{ .handoff = backedGive(&give_b) },
         ctx,
     ));
 
     // One half differing is the whole difference, so these are not Equal.
     give_b.signature = other_halves;
     try std.testing.expect(!try model.equality.viewArgumentsEqualBounded(
-        .{ .handoff = .{ .give = give_a } },
-        .{ .handoff = .{ .give = give_b } },
+        .{ .handoff = backedGive(&give_a) },
+        .{ .handoff = backedGive(&give_b) },
         ctx,
     ));
 
@@ -455,8 +455,19 @@ test "a borrowed handoff compares signatures in whichever shape its codec carrie
     // comparison answers rather than reading the arm that is not there.
     give_a.signature = .{ .raw = "r-halfs-half" };
     try std.testing.expect(!try model.equality.viewArgumentsEqualBounded(
-        .{ .handoff = .{ .give = give_a } },
-        .{ .handoff = .{ .give = give_b } },
+        .{ .handoff = backedGive(&give_a) },
+        .{ .handoff = backedGive(&give_b) },
         ctx,
     ));
+}
+
+/// A lazy handoff whose backing is the borrowed give itself, standing in for
+/// the codec that would otherwise parse it out of frame bytes.
+fn backedGive(give: *const model.view.HandoffGive) model.view.LazyHandoff {
+    return .fromBacking(.{ .bytes = std.mem.asBytes(give) }, projectBackedGive);
+}
+
+fn projectBackedGive(ctx: model.view.LazyHandoff.Ctx) model.view.ProjectError!model.view.Handoff {
+    const give: *const model.view.HandoffGive = @ptrCast(@alignCast(ctx.bytes.ptr));
+    return .{ .give = give.* };
 }

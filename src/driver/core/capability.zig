@@ -1,7 +1,7 @@
 //! Host-scoped capability identity (ADR-0096).
 //!
 //! Wire positions remain session names. This registry gives the composed Host
-//! an opaque name for the target behind one of those positions. Native refs
+//! an opaque name for the target behind one of those positions. Zig refs
 //! carry their Registry scope. Adapters that erase it must provide a wider id
 //! source. A reverse index canonicalizes repeated observations, while an
 //! intrusive per-session list invalidates exactly the rows homed on a closing
@@ -99,7 +99,7 @@ pub const FreshLocalReservation = struct {
     id: CapabilityId,
 };
 
-/// Optional source for ids that leave the native scoped `Ref`. Native callers
+/// Optional source for ids that leave the Zig scoped `Ref`. Zig callers
 /// need no issuer because the Registry pointer carries scope. Pointer-free
 /// adapters inject their own process-wide authority.
 pub const IdIssuer = struct {
@@ -148,7 +148,7 @@ comptime {
 /// have not settled yet. Released slots are reused, but public ids are never
 /// reused by this registry, so stale handles fail the Host-owned `by_id`
 /// lookup. Pointer-free projections use opaque ids whose issuer also separates
-/// Hosts. Native refs carry the Registry pointer as their scope proof.
+/// Hosts. Zig refs carry the Registry pointer as their scope proof.
 pub const Registry = struct {
     slots: std.ArrayListUnmanaged(Slot) = .empty,
     free_head: ?u32 = null,

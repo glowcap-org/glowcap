@@ -12,9 +12,9 @@ const ev_readable = sidecar.ev_readable;
 const ev_writable = sidecar.ev_writable;
 const ev_closed = sidecar.ev_closed;
 
-/// A foreign descriptor a host asked the backend to report once, such as a
-/// resident's wake channel.
-pub const ForeignPoll = struct { user_data: u64, fd: i32, interest: completion.Interest };
+/// A descriptor outside this backend that one `submitPoll` waits on. The
+/// next park that finds it ready completes it once and drops the row.
+pub const Watched = struct { user_data: u64, fd: i32, events: i16 };
 
 pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connections: type) type {
     return struct {
@@ -29,43 +29,6 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
         /// Nothing here waits on a timer.
         pub fn waitBoundMs(_: *const Self, requested_ms: i32) i32 {
             return requested_ms;
-        }
-
-        /// Report `fd` once through `poll`, consuming nothing. One foreign
-        /// poll is armed at a time.
-        pub fn submitPoll(self: *Self, user_data: u64, fd: i32, interest: completion.Interest) !void {
-            if (self.foreign_poll != null) return error.AlreadyPolling;
-            try self.ready.ensureUnusedCapacity(self.allocator, 1);
-            try self.ready_set.add(fd);
-            // tolerant: unwinding this call's own membership; a refused
-            // removal leaves one idle member that `deinit` releases.
-            errdefer self.ready_set.remove(fd) catch {};
-            if (interest == .writable) try self.ready_set.setInterest(fd, .write);
-            self.foreign_poll = .{ .user_data = user_data, .fd = fd, .interest = interest };
-        }
-
-        /// Retire an armed foreign poll. False when `target` names another.
-        pub fn cancelForeignPoll(self: *Self, cancel_user_data: u64, target_user_data: u64, fd: i32) !bool {
-            const armed = self.foreign_poll orelse return false;
-            if (armed.user_data != target_user_data or armed.fd != fd) return false;
-            try self.ready.ensureUnusedCapacity(self.allocator, 2);
-            try self.ready_set.remove(fd);
-            self.foreign_poll = null;
-            self.ready.appendAssumeCapacity(.{ .user_data = target_user_data, .result = -1 });
-            self.ready.appendAssumeCapacity(.{ .user_data = cancel_user_data, .result = 0 });
-            return true;
-        }
-
-        fn harvestForeignPoll(self: *Self) !void {
-            const armed = self.foreign_poll orelse return;
-            const events: i16 = if (armed.interest == .readable) std.posix.POLL.IN else std.posix.POLL.OUT;
-            var pfd = [_]std.posix.pollfd{.{ .fd = armed.fd, .events = events, .revents = 0 }};
-            _ = try net.poll.wait(&pfd, 0);
-            if (pfd[0].revents == 0) return;
-            try self.ready.ensureUnusedCapacity(self.allocator, 1);
-            try self.ready_set.remove(armed.fd);
-            self.foreign_poll = null;
-            self.ready.appendAssumeCapacity(.{ .user_data = armed.user_data, .result = 0 });
         }
 
         fn dispatchReady(self: *Self, ev: ReadyEvent) !void {
@@ -116,7 +79,6 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
         /// this round), then drain resident readiness records.
         fn harvestReadiness(self: *Self) !bool {
             try self.signal_wake_failure.check();
-            try harvestForeignPoll(self);
             var pfds = [_]std.posix.pollfd{
                 .{ .fd = self.signal_wake.read, .events = std.posix.POLL.IN, .revents = 0 },
                 .{ .fd = self.readiness_fd, .events = std.posix.POLL.IN, .revents = 0 },
@@ -150,6 +112,54 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
             return woke;
         }
 
+        /// Complete once when `fd`, a descriptor this backend does not own,
+        /// reads ready for `interest`, has failed, or has hung up. The wait
+        /// rides the park's own `poll`, whose set is reserved here so a park
+        /// allocates nothing.
+        pub fn submitPoll(self: *Self, user_data: u64, fd: i32, interest: completion.Interest) !void {
+            try self.park_fds.ensureTotalCapacity(self.allocator, self.watched.items.len + 2);
+            try self.watched.append(self.allocator, .{
+                .user_data = user_data,
+                .fd = fd,
+                .events = switch (interest) {
+                    .readable => std.posix.POLL.IN,
+                    .writable => std.posix.POLL.OUT,
+                },
+            });
+        }
+
+        /// Retire a pending `submitPoll`, or cancel a connection's receive.
+        pub fn submitCancel(self: *Self, cancel_user_data: u64, target_user_data: u64, fd: i32) !void {
+            for (self.watched.items, 0..) |row, index| {
+                if (row.user_data != target_user_data) continue;
+                try self.ready.ensureUnusedCapacity(self.allocator, 2);
+                const retired = self.watched.swapRemove(index);
+                self.ready.appendAssumeCapacity(.{ .user_data = retired.user_data, .result = -1 });
+                self.ready.appendAssumeCapacity(.{ .user_data = cancel_user_data, .result = 0 });
+                return;
+            }
+            return Connections.submitCancel(self, cancel_user_data, target_user_data, fd);
+        }
+
+        /// Complete every watch whose descriptor the park found ready.
+        /// `fds[i]` is `watched[i]`, and the walk runs backward so a swap
+        /// moves only rows it has already read.
+        fn completeWatches(self: *Self, fds: []const std.posix.pollfd) !void {
+            try self.ready.ensureUnusedCapacity(self.allocator, fds.len);
+            var index = fds.len;
+            while (index > 0) {
+                index -= 1;
+                if (fds[index].revents == 0) continue;
+                const fired = self.watched.swapRemove(index);
+                self.ready.appendAssumeCapacity(.{ .user_data = fired.user_data, .result = 0 });
+            }
+        }
+
+        /// No submission queue here, so a peek is a zero-timeout poll.
+        pub fn peek(self: *Self, out: []completion.Completion) !usize {
+            return self.poll(out, 0);
+        }
+
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
             const pre_wake = try harvestReadiness(self);
             {
@@ -161,10 +171,15 @@ pub fn Machine(comptime Self: type, comptime Signaling: type, comptime Connectio
             // the owner loop must get a turn before this backend blocks again.
             if (pre_wake) return 0;
 
-            var pfds = [_]std.posix.pollfd{
-                .{ .fd = self.ready_set.descriptor(), .events = std.posix.POLL.IN, .revents = 0 },
-            };
-            _ = net.poll.wait(&pfds, timeout_ms) catch |err| return err;
+            // The park set is this backend's readiness, then each watch.
+            // `submitPoll` reserved its room.
+            self.park_fds.clearRetainingCapacity();
+            self.park_fds.appendAssumeCapacity(.{ .fd = self.ready_set.descriptor(), .events = std.posix.POLL.IN, .revents = 0 });
+            for (self.watched.items) |row| {
+                self.park_fds.appendAssumeCapacity(.{ .fd = row.fd, .events = row.events, .revents = 0 });
+            }
+            _ = net.poll.wait(self.park_fds.items, timeout_ms) catch |err| return err;
+            try completeWatches(self, self.park_fds.items[1..]);
 
             _ = try harvestReadiness(self);
             return self.ready.drain(out);

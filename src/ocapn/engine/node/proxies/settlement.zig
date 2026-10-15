@@ -117,12 +117,19 @@ pub const RelayRecipient = struct {
             return false;
         };
         var payload: Internal.InlinePassablePayload = .{ .relayed_resolution = owned };
+        const inventory = recipient_peer.session_state.inventoryResolution(owned) catch {
+            payload.deinit(recipient_peer.allocator, &recipient_peer.session_state);
+            breakRecipient(self.node, self.recipient);
+            return false;
+        };
+        defer inventory.deinit(recipient_peer.allocator);
         var destination: Internal.InlinePassableDestination = .{ .relayed = self.recipient.* };
         self.recipient.failure_reason = null;
         const staged = Internal.stageInlinePassable(
             self.node,
             self.recipient.peer,
             &payload,
+            inventory,
             &destination,
             null,
         ) catch {

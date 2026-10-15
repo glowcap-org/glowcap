@@ -26,7 +26,7 @@ pub const Symbol = struct {
     /// teardown are lifecycle calls and are classified separately.
     ///
     /// TCP, inproc, and onion mark every call that can park, including a parent
-    /// release that joins native operation ownership. Their TypeScript surfaces
+    /// release that joins Zig operation ownership. Their TypeScript surfaces
     /// refuse runtimes whose FFI cannot honor that dispatch. High-level JS hosts
     /// otherwise use runtime-native async sockets where available.
     nonblocking: bool = false,

@@ -12,7 +12,7 @@ amended_by: [ADR-0113, ADR-0117]
 
 # ADR-0107 A sealed byte channel for the cleartext netlayers
 
-`noise-tcp` and `noise-relay` ship through the native Host tiers, the generic C
+`noise-tcp` and `noise-relay` ship through the Zig Host tiers, the generic C
 driver, and all four native bindings. Browser wasm peers do not compose the
 `noise-relay` provider: they use WebRTC for an authenticated channel, or
 cleartext `keyed-relay` rendezvous.
@@ -188,7 +188,7 @@ also retain the unread suffix of one caller-owned read across the CapTP hello
 pause, just as its plaintext stream parser retains coalesced frames. No Ed25519
 signing secret survives construction. The
 completion adapter's whole per-connection state is pinned by
-`test/net/noise_relay_test.zig`, so proof growth or new queue state changes a
+`test/net/keyed_relay_completion_test.zig`, so proof growth or new queue state changes a
 checked number rather than an estimate in prose.
 
 Sealing writes ciphertext and opened plaintext into separate record-sized

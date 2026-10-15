@@ -20,7 +20,7 @@
 // hint, and the redeemer follows that hint. `@glowcap/relay`'s explicit
 // connector opens the hinted WebSocket and drives
 // `Session.establishDialedLocator` (the mirror of the `establishAccepted`
-// this module parks on), and its native provider package carries the same
+// this module parks on), and its FFI provider package carries the same
 // dial inside the driver loop. Keeping the redeeming side on that one
 // locator-carried route is what lets the conformance proof pin a single
 // cold-dial mechanism rather than a raw dial-by-designator convenience

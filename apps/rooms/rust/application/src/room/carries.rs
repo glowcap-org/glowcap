@@ -64,7 +64,7 @@ pub struct Carries {
 	pub retained: bool,
 }
 impl Carries {
-	/// Everything this vocabulary names: what a native room carries.
+	/// Everything this vocabulary names: what a Rooms room carries.
 	pub const EVERYTHING: Self = Self {
 		previews: true,
 		typing: true,

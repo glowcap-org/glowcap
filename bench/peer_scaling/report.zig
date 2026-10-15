@@ -29,7 +29,7 @@ pub fn writeReport(gpa: std.mem.Allocator, io: std.Io, results: []const Measurem
     defer gpa.free(md);
 
     var dir = std.Io.Dir.cwd();
-    dir.createDirPath(io, "zig-out/bench-reports") catch {};
+    try dir.createDirPath(io, "zig-out/bench-reports");
     try dir.writeFile(io, .{ .sub_path = "zig-out/bench-reports/peer-scaling.svg", .data = svg });
     try dir.writeFile(io, .{ .sub_path = "zig-out/bench-reports/peer-scaling.md", .data = md });
 }

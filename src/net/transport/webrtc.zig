@@ -59,6 +59,10 @@ pub const max_ice_urls_per_server = sidecar.max_ice_urls_per_server;
 pub const max_ice_url_bytes = sidecar.max_ice_url_bytes;
 pub const max_ice_credential_bytes = sidecar.max_ice_credential_bytes;
 pub const max_pending_ice_candidates: usize = 256;
+/// How many accepts one listener holds at once, still signaling or opened and
+/// not yet claimed. Each holds a peer connection, so an offer past it is
+/// refused instead of queued.
+pub const max_accepts_in_flight: usize = 64;
 pub const pending_ice_candidate_queue_bytes: usize = 64 * 1024;
 pub const data_channel_queue_bytes: usize = 1 * 1024 * 1024;
 pub const sctp_receive_buffer_bytes: usize = data_channel_queue_bytes;
@@ -104,3 +108,9 @@ pub const Backend = backend.Backend;
 /// `Backend` as a HostRuntime resident's transport policy:
 /// `net.completion_resident.Resident(Backend, ResidentPolicy)`.
 pub const ResidentPolicy = @import("webrtc/resident_policy.zig").ResidentPolicy(Backend);
+
+/// The provider profile a driver registration names for this transport.
+pub const transport_profile = known_transport.metadata();
+/// The completion-loop resident a driver hosts: one `Backend` behind the
+/// shared readiness policy, dialed through `glowcap.driver.connect`.
+pub const CompletionResident = net.completion_resident.Resident(Backend, ResidentPolicy);

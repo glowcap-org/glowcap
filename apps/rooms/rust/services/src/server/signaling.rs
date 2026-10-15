@@ -29,7 +29,9 @@ pub(super) fn dispatch(state: &Shared, connection: u64, verb: &str, args: &[Argu
 		signal::OFFER => offer(state, connection, args),
 		signal::ANSWER => answer(state, connection, args),
 		signal::CANDIDATE => candidate(state, connection, args),
-		_ => done(state, connection, args),
+		signal::DONE => done(state, connection, args),
+		signal::DECLINE => decline(state, connection, args),
+		_ => Err(format!("signaling has no method {verb}")),
 	}
 }
 
@@ -80,6 +82,7 @@ fn offer(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 		id: offered.id,
 		target: offered.target,
 		sdp: sdp.into(),
+		from: offered.from,
 		originator: connection,
 		reply: reply.clone(),
 	});
@@ -140,6 +143,25 @@ fn done(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
 	Ok(Argument::Void)
 }
 
+fn decline(state: &Shared, connection: u64, args: &[Argument]) -> Reply {
+	let (id, reason) = (text(args, 0).unwrap_or(""), text(args, 1).unwrap_or(""));
+	if args.len() != 2 || !fits(id, reason, signal::MAX_REASON) {
+		return Err(format!(
+			"signalDecline needs one exchange id and a reason of at most {} bytes",
+			signal::MAX_REASON
+		));
+	}
+	let mut state = state.borrow_mut();
+	if let Some(dropped) = state
+		.policy
+		.signal_decline(connection, id, reason)
+		.map_err(|refusal| refusal.reason())?
+	{
+		state.reject(dropped);
+	}
+	Ok(Argument::Void)
+}
+
 /// A relayed message could not be queued for its recipient: the exchange is
 /// retired and its originator told why.
 fn failed(state: &mut State, id: &str, what: &str) {
@@ -149,22 +171,24 @@ fn failed(state: &mut State, id: &str, what: &str) {
 }
 
 /// Deliver an offer and, once its target has taken it, acknowledge it to the
-/// originator. Runs outside any turn. The loop owns the task. A target whose
-/// connection has already gone is a failed delivery with nobody to report.
+/// originator, with the `webrtc` designator the originator registered. Runs
+/// outside any turn. The loop owns the task. A target whose connection has
+/// already gone is a failed delivery with nobody to report.
 pub(super) async fn deliver_offer(
 	state: Shared,
 	id: String,
 	target: (Option<Session>, glowcap::Ref),
 	sdp: String,
+	from: Option<String>,
 	originator: u64,
 	reply: glowcap::Ref,
 ) {
 	let outcome = match target.0 {
-		Some(session) => Some(
-			session
-				.send(&target.1, SIG_OFFER, &[id.as_str().into(), sdp.into()])
-				.await,
-		),
+		Some(session) => {
+			let mut args = vec![id.as_str().into(), sdp.into()];
+			args.extend(from.map(Argument::from));
+			Some(session.send(&target.1, SIG_OFFER, &args).await)
+		}
 		None => None,
 	};
 	let mut state = state.borrow_mut();

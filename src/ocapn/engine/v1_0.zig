@@ -1,10 +1,11 @@
 //! The OCapN V1.0 resolver-callback translation (ADR-0010), end to end.
 //!
 //! OCapN V1.0 has no wire `op:resolve`. A promise settles through a *resolver
-//! capability* instead. The round trip lives in this one file. On the way out,
-//! `prepareOutboundDeliver` augments an answered `op:deliver` with a
-//! synthesized resolver export advertised as `resolve_me_desc`, committing the
-//! answer-to-export link in the session. On the way back,
+//! capability* instead. On the way out, admission mints the resolver export
+//! an answered `op:deliver` advertises as `resolve_me_desc` and commits the
+//! answer-to-export link in the session (`outbound/encoded.zig`, the same
+//! mint next names in its trailing listen). This file holds the rest of the
+//! round trip. A projection's listener is prepared here at emission. On the way back,
 //! `preparePartnerResolver` prepares the partner's advertised resolver as our
 //! import, so our eventual resolution has somewhere to go. Recognizing a
 //! deliver *to* one of our resolver exports is version-neutral and belongs to
@@ -36,45 +37,6 @@ pub const PreparedMessage = struct {
     }
 };
 
-/// Augment an outbound answered `op:deliver` with a synthesized V1.0 resolver
-/// export, *committing session authority*: the resolver export is minted, the
-/// answer-to-export link is installed, and the export takes the wire-delta
-/// retain its on-wire mention requires. A deliver with no answer, or one that
-/// already carries a `resolve_me_desc`, passes through untouched. The returned
-/// message borrows `deliver`'s heap. The caller's ownership of the original
-/// message is unchanged. V1.0 sessions only, the caller gates on
-/// `Session.needsV1_0Translation`.
-pub fn prepareOutboundDeliver(peer: *Peer, deliver: model.Deliver) !PreparedMessage {
-    if (deliver.answer == null or deliver.resolve_me_desc != null) {
-        return .{ .message = .{ .deliver = deliver } };
-    }
-    // Explicit public-handle release can queue `op:gc-answers` behind a request
-    // before this deferred encode runs. Its send-side accounting has already
-    // retired the answer, so no resolver remains locally observable and minting
-    // one here would recreate authority after release.
-    if (peer.session_state.outboundAnswer(deliver.answer.?) == null)
-        return .{ .message = .{ .deliver = deliver } };
-    // Synthesize the resolver object V1.0 requires and commit the
-    // answer→export link (plus the wire-delta retain its on-wire mention
-    // needs) through the session's single accounting seam, so the partner's
-    // subsequent resolver-callback deliver translates back into a semantic
-    // `Resolve`.
-    const resolver_export = try peer.session_state.mintOutboundResolver(deliver.answer.?);
-    return .{
-        .message = .{
-            .deliver = .{
-                .target = deliver.target,
-                .args = deliver.args,
-                .answer = deliver.answer,
-                // Project the mention from the authoritative slot (the resolver was
-                // minted as a local object), never a hand-typed kind (ADR-0080).
-                .resolve_me_desc = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
-            },
-        },
-        .resolver_export = resolver_export,
-    };
-}
-
 /// Install the V1.0 carrier for a projection's resolution. A projection
 /// (`op:get`/`op:index`/`op:untag`) opens a new answer, but V1.0 has no wire
 /// `op:resolve` to push that answer's resolution back, and the projection ops
@@ -92,8 +54,8 @@ pub fn prepareOutboundDeliver(peer: *Peer, deliver: model.Deliver) !PreparedMess
 pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosition) !?PreparedMessage {
     if (peer.session_state.outboundAnswer(projected_answer) == null) return null;
     // Mint the resolver export and commit its answer link and wire-delta retain
-    // through the session's single accounting seam (see
-    // `prepareOutboundDeliver`), then carry the mention on `op:listen`.
+    // through the session's single accounting seam, then carry the mention on
+    // `op:listen`.
     const resolver_export = try peer.session_state.mintOutboundResolver(projected_answer);
     return .{
         .message = .{
@@ -169,7 +131,7 @@ pub fn encodeResolutionAsCallback(
 ///
 /// The other half of the V1.0 round trip, recognizing a deliver *to* one of
 /// our resolver exports, is version-neutral and lives in the inbound
-/// classifier (`engine.inbound.classifyInboundDeliver`, ADR-0095).
+/// classifier (`inbound/deliver_route.zig`'s `classify`, ADR-0095).
 pub fn preparePartnerResolver(
     peer: *Peer,
     deliver: model.view.Deliver,

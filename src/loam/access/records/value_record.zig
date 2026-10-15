@@ -48,18 +48,22 @@ pub const ValueRecord = struct {
     }
 
     fn write(sink: anytype, value: anytype, context: anytype, depth: usize) WalkError!void {
-        if (depth > max_depth) return error.FrameTooLarge;
+        // A value nested past what `read` accepts is one the codec cannot
+        // encode, the same refusal the walk gives invalid text.
+        if (depth > max_depth) return error.UnsupportedArgument;
+        if (comptime @hasField(@TypeOf(value), "integers")) {
+            // A run of integers is stored as the list it means (ADR-0247),
+            // so the durable form has one shape and reads back as a list.
+            if (value == .integers) return writeIntegerList(sink, value.integers, depth);
+        }
         try writeHeader(sink, @tagName(value));
         switch (value) {
             .capability => |ref| try s.writeBytes(sink, &context.id(ref).key()),
             .bytes, .symbol, .string, .keyword => |bytes| try s.writeBytes(sink, bytes),
             .@"error" => |err| try s.writeBytes(sink, err.message),
             .void => {},
-            .integer => |integer| {
-                var bytes: [8]u8 = undefined;
-                std.mem.writeInt(i64, &bytes, integer, .big);
-                try s.writeBytes(sink, &bytes);
-            },
+            .integer => |integer| try writeIntegerPayload(sink, integer),
+            .integers => unreachable, // stored as a list above
             .float64 => |float| {
                 var bytes: [8]u8 = undefined;
                 std.mem.writeInt(u64, &bytes, @bitCast(float), .big);
@@ -90,6 +94,24 @@ pub const ValueRecord = struct {
         try s.endRecord(sink);
     }
 
+    fn writeIntegerPayload(sink: anytype, integer: i64) WalkError!void {
+        var bytes: [8]u8 = undefined;
+        std.mem.writeInt(i64, &bytes, integer, .big);
+        try s.writeBytes(sink, &bytes);
+    }
+
+    fn writeIntegerList(sink: anytype, words: []const i64, depth: usize) WalkError!void {
+        if (words.len != 0 and depth == max_depth) return error.UnsupportedArgument;
+        try writeHeader(sink, "list");
+        try s.writePositiveInt(sink, words.len);
+        for (words) |word| {
+            try writeHeader(sink, "integer");
+            try writeIntegerPayload(sink, word);
+            try s.endRecord(sink);
+        }
+        try s.endRecord(sink);
+    }
+
     /// Returned byte leaves borrow bytes. The caller retains the receipt lease.
     /// Context restores only IDs retained by that receipt's strong edges.
     pub fn decode(comptime To: type, allocator: std.mem.Allocator, bytes: []const u8, context: anytype) !To {
@@ -107,24 +129,24 @@ pub const ValueRecord = struct {
         const tag = try s.readSymbol(bytes, cursor);
         const result: To = result: {
             inline for (.{ "bytes", "symbol", "string", "keyword" }) |name| {
-                if (std.mem.eql(u8, tag, name)) break :result @unionInit(To, name, try s.readBytesLimited(bytes, cursor, bytes.len));
+                if (std.mem.eql(u8, tag, name)) break :result @unionInit(To, name, try s.readBytes(bytes, cursor));
             }
             if (std.mem.eql(u8, tag, "capability")) {
-                const id = try loam.ObjectId.fromKey(try s.readBytesLimited(bytes, cursor, bytes.len));
+                const id = try loam.ObjectId.fromKey(try s.readBytes(bytes, cursor));
                 break :result .{ .capability = try context.restore(id) };
             }
             if (std.mem.eql(u8, tag, "void")) break :result .{ .void = {} };
             if (std.mem.eql(u8, tag, "boolean")) break :result .{ .boolean = try s.readBool(bytes, cursor) };
-            if (std.mem.eql(u8, tag, "error")) break :result .{ .@"error" = .{ .message = try s.readBytesLimited(bytes, cursor, bytes.len) } };
+            if (std.mem.eql(u8, tag, "error")) break :result .{ .@"error" = .{ .message = try s.readBytes(bytes, cursor) } };
             if (std.mem.eql(u8, tag, "integer") or std.mem.eql(u8, tag, "float64")) {
-                const payload = try s.readBytesLimited(bytes, cursor, bytes.len);
+                const payload = try s.readBytes(bytes, cursor);
                 if (payload.len != 8) return error.InvalidRecord;
                 const bits = std.mem.readInt(u64, payload[0..8], .big);
                 break :result if (std.mem.eql(u8, tag, "integer")) .{ .integer = @bitCast(bits) } else .{ .float64 = @bitCast(bits) };
             }
-            if (std.mem.eql(u8, tag, "big_integer")) break :result .{ .big_integer = .{ .negative = try s.readBool(bytes, cursor), .digits = try s.readBytesLimited(bytes, cursor, bytes.len) } };
+            if (std.mem.eql(u8, tag, "big_integer")) break :result .{ .big_integer = .{ .negative = try s.readBool(bytes, cursor), .digits = try s.readBytes(bytes, cursor) } };
             if (std.mem.eql(u8, tag, "list") or std.mem.eql(u8, tag, "set") or std.mem.eql(u8, tag, "tagged")) {
-                const label = if (std.mem.eql(u8, tag, "tagged")) try s.readBytesLimited(bytes, cursor, bytes.len) else null;
+                const label = if (std.mem.eql(u8, tag, "tagged")) try s.readBytes(bytes, cursor) else null;
                 const items = try allocator.alloc(To, try count(bytes, cursor));
                 var initialized: usize = 0;
                 errdefer {
@@ -146,7 +168,7 @@ pub const ValueRecord = struct {
                     allocator.free(items);
                 }
                 for (items) |*item| {
-                    item.* = .{ .key = try s.readBytesLimited(bytes, cursor, bytes.len), .value = try read(To, allocator, bytes, cursor, context, depth + 1) };
+                    item.* = .{ .key = try s.readBytes(bytes, cursor), .value = try read(To, allocator, bytes, cursor, context, depth + 1) };
                     initialized += 1;
                 }
                 break :result .{ .@"struct" = items };

@@ -36,10 +36,10 @@ _OK = _abi.OK
 
 
 def _answer_gift_id(draw, provide, failed) -> None:
-    """Complete entropy failure separately from native ticket refusal."""
+    """Complete entropy failure separately from FFI ticket refusal."""
     try:
         gift_id = draw()
-    except Exception:  # noqa: BLE001 — the core owns the failed effect
+    except Exception:  # noqa: BLE001 - the core owns the failed effect
         failed()
         return
     provide(gift_id)
@@ -97,7 +97,7 @@ class _Handlers:
         self._host = host
 
     async def dial(self, a: Dial) -> None:
-        # A popped DIAL is not owned by the native action queue. Hand
+        # A popped DIAL is not owned by the FFI action queue. Hand
         # it to the Host before returning so teardown can cancel and join it
         # without serializing this drain behind network establishment.
         from ._dial import run_dial_ticket
@@ -116,7 +116,7 @@ class _Handlers:
         if session is not None:
             try:
                 await session.flush_outbound()
-            except Exception:  # noqa: BLE001 — the session owns this failure
+            except Exception:  # noqa: BLE001 - the session owns this failure
                 # Session.flush_outbound retained the exact first cause and
                 # retired this stream. Do not fail an unrelated Host drain.
                 # Cancellation is not the session's failure: it is this drain
@@ -128,7 +128,7 @@ class _Handlers:
         if session is not None:
             try:
                 await session.flush_outbound()
-            except Exception:  # noqa: BLE001 — the session is ending either way
+            except Exception:  # noqa: BLE001 - the session is ending either way
                 # Session.flush_outbound owns terminal failure state.
                 pass
             session.close_transport()

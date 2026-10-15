@@ -28,7 +28,7 @@ const opts: driver.SessionOptions = .{
 };
 
 const Widget = struct {
-    pub fn handle(_: *Widget, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+    pub fn handle(_: *Widget, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
         if (!std.mem.eql(u8, verb, "poke")) return error.NoSuchMethod;
         return .{ .string = "poked: directly, the directory is out of the path" };
     }
@@ -37,7 +37,7 @@ const Widget = struct {
 const Directory = struct {
     widget: driver.Capability,
 
-    pub fn handle(self: *Directory, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Directory, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
         if (!std.mem.eql(u8, verb, "lookup")) return error.NoSuchMethod;
         return .{ .capability = self.widget };
     }
@@ -53,11 +53,15 @@ fn serveAll(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void
     var accepted: usize = 0;
     defer for (sessions[0..accepted]) |session| session.deinit();
     while (!done.load(.acquire)) {
-        if (accepted < max_sessions and try server.waitAcceptable(0)) {
-            sessions[accepted] = try server.accept();
-            accepted += 1;
-            // An accepted session dispatches nothing until its owner attends.
-            try sessions[accepted - 1].attend();
+        // The accept wait is a host-wide step: every attended session is
+        // served inside it, so one wait a turn covers admission and traffic.
+        if (accepted < max_sessions) {
+            if (try server.waitAcceptable(10)) {
+                sessions[accepted] = try server.accept();
+                accepted += 1;
+                // An accepted session dispatches nothing until its owner attends.
+                try sessions[accepted - 1].attend();
+            }
             continue;
         }
         _ = try server.runtime.stepAny(10);

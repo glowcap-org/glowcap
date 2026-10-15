@@ -1,4 +1,4 @@
-//! Trusted setup and native sharing through the shipped managed Store APIs.
+//! Trusted setup and sharing through the shipped managed Store APIs.
 const g = @import("glowcap");
 const access = g.loam.access;
 const core = access.core;
@@ -20,13 +20,24 @@ pub fn resource(self: anytype, parent: ?core.ResourceId) !core.ResourceId {
     var read = try storage.Read.init(self.allocator, &self.store, self.owner, 32);
     defer read.deinit() catch unreachable;
     try pump(self, &read);
-    var append = try storage.Append.init(&read, .resource);
+    try self.store.begin();
+    errdefer if (self.store.phase == .staging) self.store.abort() catch unreachable;
+    const id = try stageResource(self, &read, parent);
+    try self.finish(try self.store.prepare());
+    return id;
+}
+
+/// Stage one resource append inside the caller's open transaction. Several
+/// calls over one `read` compose: each sees the directory pages and header the
+/// earlier ones proposed.
+pub fn stageResource(self: anytype, read: *storage.Read, parent: ?core.ResourceId) !core.ResourceId {
+    var append = try storage.Append.init(read, .resource);
     defer append.deinit() catch unreachable;
     try pump(self, &append);
     for (0..512) |_| {
         const step = append.prepareResource(parent) catch |err| {
             if (err != error.RecordUnloaded) return err;
-            try pump(self, &read);
+            try pump(self, read);
             continue;
         };
         switch (step) {
@@ -38,16 +49,12 @@ pub fn resource(self: anytype, parent: ?core.ResourceId) !core.ResourceId {
             .waiting => return error.UnexpectedWait,
         }
     }
-    try self.store.begin();
-    errdefer if (self.store.phase == .staging) self.store.abort() catch unreachable;
     for (0..128) |_| {
-        const id = storage.stage.appendResource(&append, @fromBackingInt(1), parent) catch |err| {
+        return storage.stage.appendResource(&append, @fromBackingInt(1), parent) catch |err| {
             if (err != error.RecordUnloaded) return err;
-            try pump(self, &read);
+            try pump(self, read);
             continue;
         };
-        try self.finish(try self.store.prepare());
-        return id;
     }
     return error.NoProgress;
 }

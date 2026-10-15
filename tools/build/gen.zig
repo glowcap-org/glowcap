@@ -182,8 +182,8 @@ pub const Context = struct {
     host_mods: []*std.Build.Module,
     host_abi_mod: *std.Build.Module,
     driver_abi_mod: *std.Build.Module,
-    loam_abi_mod: *std.Build.Module,
-    loam_lmdb_abi_mod: *std.Build.Module,
+    /// The Loam archives' ABI modules, one per companion.
+    loam: @import("loam_abi.zig").Registered,
     reflected_archives: ReflectedArchives,
     support: Support,
 };
@@ -206,17 +206,18 @@ pub fn register(ctx: Context) void {
         .write_step_name = "gen-binding-loam-layout",
         .write_desc = "Generate Rust Loam layouts and fingerprints",
         .generator = "tools/gen/binding/loam_layout.zig",
-        .reflects = .{ .name = "c_abi_loam", .module = ctx.loam_abi_mod },
-        .extra_imports = &.{ .{ .name = "c_abi_loam_lmdb", .module = ctx.loam_lmdb_abi_mod }, .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] } },
+        .reflects = .{ .name = "c_abi_loam", .module = ctx.loam.portable },
+        .extra_imports = &.{ .{ .name = "c_abi_loam_lmdb", .module = ctx.loam.lmdb }, .{ .name = "c_abi_loam_sqlite", .module = ctx.loam.sqlite }, .{ .name = "c_abi_loam_volatile", .module = ctx.loam.volatile_abi }, .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] } },
     });
     // ── Generated headers / binding mirrors (per archive; ADR-0059) ──────────
     // Each row reflects a Zig C ABI module through the shared verify/emit
     // harness. `*-check` steps fail on stale committed mirrors; bare steps
     // rewrite them.
     const header_gens = [_]HeaderGen{
-        .{ .check_step_name = "gen-header-loam-check", .check_desc = "Verify portable Loam header", .write_step_name = "gen-header-loam", .write_desc = "Generate portable Loam header", .generator = "tools/gen/header/loam.zig", .reflects = .{ .name = "c_abi_loam", .module = ctx.loam_abi_mod } },
-        .{ .check_step_name = "gen-header-loam-lmdb-check", .check_desc = "Verify LMDB Loam companion header", .write_step_name = "gen-header-loam-lmdb", .write_desc = "Generate LMDB Loam companion header", .generator = "tools/gen/header/loam_lmdb.zig", .reflects = .{ .name = "c_abi_loam_lmdb", .module = ctx.loam_lmdb_abi_mod } },
-
+        .{ .check_step_name = "gen-header-loam-check", .check_desc = "Verify portable Loam header", .write_step_name = "gen-header-loam", .write_desc = "Generate portable Loam header", .generator = "tools/gen/header/loam.zig", .reflects = .{ .name = "c_abi_loam", .module = ctx.loam.portable } },
+        .{ .check_step_name = "gen-header-loam-lmdb-check", .check_desc = "Verify LMDB Loam companion header", .write_step_name = "gen-header-loam-lmdb", .write_desc = "Generate LMDB Loam companion header", .generator = "tools/gen/header/loam_lmdb.zig", .reflects = .{ .name = "c_abi_loam_lmdb", .module = ctx.loam.lmdb } },
+        .{ .check_step_name = "gen-header-loam-sqlite-check", .check_desc = "Verify SQLite Loam companion header", .write_step_name = "gen-header-loam-sqlite", .write_desc = "Generate SQLite Loam companion header", .generator = "tools/gen/header/loam_sqlite.zig", .reflects = .{ .name = "c_abi_loam_sqlite", .module = ctx.loam.sqlite } },
+        .{ .check_step_name = "gen-header-loam-volatile-check", .check_desc = "Verify in-memory Loam companion header", .write_step_name = "gen-header-loam-volatile", .write_desc = "Generate in-memory Loam companion header", .generator = "tools/gen/header/loam_volatile.zig", .reflects = .{ .name = "c_abi_loam_volatile", .module = ctx.loam.volatile_abi } },
         .{
             .check_step_name = "gen-header-locator-check",
             .check_desc = "Verify include/glowcap_locator.h matches the shared locator ABI (fails if stale)",
@@ -344,7 +345,7 @@ pub fn registerMirrors(
         .{ .name = "c_abi_net_transport_webrtc", .module = webrtc_abi_mod },
     };
     const ffi_layout_extra_imports = [_]AbiImport{
-        .{ .name = "c_abi_loam", .module = ctx.loam_abi_mod },
+        .{ .name = "c_abi_loam", .module = ctx.loam.portable },
         .{ .name = "c_abi_host", .module = host_abi_mod },
         .{ .name = "c_abi_driver", .module = driver_abi_mod },
         .{ .name = "c_abi_net_transport_tcp", .module = reflected_archives.tcp },
@@ -409,8 +410,10 @@ pub fn registerMirrors(
         .generator = "tools/gen/binding/rust_ffi.zig",
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &(ffi_extra_imports ++ [_]AbiImport{
-            .{ .name = "c_abi_loam", .module = ctx.loam_abi_mod },
-            .{ .name = "c_abi_loam_lmdb", .module = ctx.loam_lmdb_abi_mod },
+            .{ .name = "c_abi_loam", .module = ctx.loam.portable },
+            .{ .name = "c_abi_loam_lmdb", .module = ctx.loam.lmdb },
+            .{ .name = "c_abi_loam_sqlite", .module = ctx.loam.sqlite },
+            .{ .name = "c_abi_loam_volatile", .module = ctx.loam.volatile_abi },
         }),
     });
     addHeaderGen(b, check_step, target, optimize, support, .{
@@ -426,7 +429,7 @@ pub fn registerMirrors(
         .check_step_name = "gen-binding-python-ffi-check",
         .check_desc = "Verify the generated Python ctypes signature tables match src/c_abi (fails if stale)",
         .write_step_name = "gen-binding-python-ffi",
-        .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi (types reflected; the sigs dicts are positional)",
+        .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi (types are reflected and the sigs dicts are positional)",
         .generator = "tools/gen/binding/python_ffi.zig",
         .reflects = .{ .name = "c_abi_net_transport_iroh", .module = iroh_abi_mod },
         .extra_imports = &ffi_extra_imports,

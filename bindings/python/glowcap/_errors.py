@@ -77,7 +77,7 @@ class GlowcapError(Exception):
     """Base of every exception glowcap raises, carrying a negative
     ``GLOWCAP_ERR_*`` code.
 
-    For a failed native call, the per-thread error message is captured at raise
+    For a failed FFI call, the per-thread error message is captured at raise
     time (the message is thread-local and may be overwritten by a later call)
     and shown by ``str(err)``. When the failure was a refused inbound frame,
     ``abort`` carries the typed :class:`AbortDetail` naming which layer refused
@@ -108,7 +108,7 @@ _FAILURE_CHAIN_CAP = _abi.BINDING_SECONDARY_FAILURE_CAP
 def _retain_cleanup_failure(
     primary: BaseException, cleanup: BaseException
 ) -> BaseException:
-    """Retain a later native cleanup failure without replacing its cause."""
+    """Retain a later FFI cleanup failure without replacing its cause."""
     try:
         total = getattr(primary, "secondary_count", 0)
         retained = getattr(primary, "secondary", ())

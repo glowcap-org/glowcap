@@ -36,6 +36,8 @@ mod direct_line;
 mod direct_operation;
 mod directory_client;
 mod directory_view;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod disk;
 mod documents;
 mod failures;
 mod files;
@@ -43,12 +45,12 @@ mod grant_protocol;
 mod grants;
 mod handed_rooms;
 mod host;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod host_files;
 mod inbox_publication;
 mod introduction_client;
 mod invitation_client;
 mod membership;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod native_files;
 mod operator_views;
 mod reconciliation;
 mod registration_client;

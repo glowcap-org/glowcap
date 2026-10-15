@@ -20,13 +20,15 @@ pub const scheduleDeferredSessionWork = pump_schedule.scheduleDeferredSessionWor
 pub const scheduleFeedResume = pump_schedule.scheduleFeedResume;
 pub const hasInternalWork = pump_schedule.hasInternalWork;
 pub const removeDirtySession = pump_schedule.removeDirtySession;
+pub const flushHeldReleases = pump_schedule.flushHeldReleases;
+pub const removeHeldReleases = pump_schedule.removeHeldReleases;
 pub const removeFreshSessionActions = pump_schedule.removeFreshSessionActions;
 pub const queueHostAction = pump_schedule.queueHostAction;
 pub const UniqueSessionActionTag = pump_schedule.UniqueSessionActionTag;
 const queueUniqueSessionAction = pump_schedule.queueUniqueSessionAction;
 
 /// The tail of every top-level verb: encode and pump until quiescent. A nested
-/// verb returns immediately. A Host callback or native Vat execution owns that
+/// verb returns immediately. A Host callback or Zig Vat execution owns that
 /// boundary. The next top-level Host tail picks up queued effects.
 pub fn finishVerb(self: *Host) !void {
     if (self.withinCallback()) return;
@@ -118,6 +120,7 @@ fn drainWork(self: *Host) !void {
                             return err;
                         },
                     };
+                    if (session.served.port.peer.holdsAnswerReleases()) pump_schedule.holdReleases(self, session);
                     if (progress == .more_pending) {
                         // The Host quantum is only a scheduler slice. Per-session
                         // amplification has its own resumable counter in `Served` and

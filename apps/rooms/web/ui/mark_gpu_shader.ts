@@ -1,9 +1,9 @@
 // The mark as a lit 3D scene: the shaders, assembled.
 //
-// The flat mark's shapes drawn with a graphics device behind them looked like
-// the flat mark with a glow on it. If the mark is going to cost a device, the
-// device has to buy something the drawing cannot have, and that is a real
-// object with a real light inside it. So this is a mushroom in three
+// A flat mark drawn with a graphics device behind it would be the flat mark
+// with a glow on it. If the mark costs a device, the device has to buy
+// something the drawing cannot have, and that is a real object with a real
+// light inside it. So this is a mushroom in three
 // dimensions, sphere-traced, drawn the way the flat mark is drawn: two flat
 // tones and an amber line, with windows in the cap that are dark before the
 // light and lamps after it. The light is what the device is for. Its beams

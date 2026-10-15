@@ -1,8 +1,7 @@
 //! The closed voice-debt list: `apps/` files still carrying the
 //! which-is-what justification tic when the ban landed. Nothing joins this
 //! list. A file leaves it by having its instances rewritten in the same
-//! change that retires its row, and the destination is an empty list, the
-//! same contract as the file-length exception inventory.
+//! change that retires its row, and the destination is an empty list.
 
 pub const justification_tic = [_][]const u8{
     "apps/accountability-on-glowcap/deno/identity.ts",

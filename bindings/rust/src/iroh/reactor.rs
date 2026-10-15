@@ -276,7 +276,7 @@ impl IrohLoop {
 			dials.extend(st.dials.drain().map(|(_, sender)| sender));
 		}
 		for sender in dials {
-			// A failed send means the dial future was cancelled. Its native
+			// A failed send means the dial future was cancelled. Its FFI
 			// request was cancelled above or reached its sole terminal event, and
 			// this map no longer owns a connection handle.
 			drop(sender.send(Err(Error::from_code(sys::ERR_CLOSED))));

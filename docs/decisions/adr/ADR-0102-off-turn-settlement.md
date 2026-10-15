@@ -20,7 +20,7 @@ Accepted and fully implemented.
   `Vat.breakVow`) and `Turn.forwardVow`: `test/actors/resolver_vow_test.zig`.
 - Stage 2, Host-tier deferral (`Host.deferTurn`, the settle verbs, the
   session-less vow row) and its C exports: `test/driver/core_host/defer_test.zig`
-  and `test/c_abi/host_test.zig`.
+  and `test/c_abi/host/callback_test.zig`.
 - Stage 3, the bindings: TypeScript and Python defer a behavior that returns a
   promise or awaitable. Rust (`Host::defer_turn`) and Racket
   (`host-defer-turn`) use the explicit resolver. Each binding's smoke settles

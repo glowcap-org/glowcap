@@ -21,8 +21,8 @@ API. Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
 `on`, `bcom`, and `methods`. `host-publish-durable` mints a durable swiss name.
 The optional second argument is retained entropy, and the same bytes restore
 the same name on a Host reconstructed from the same seed.
-`session-wait-closed` waits for retirement without requesting close or starting
-`session-serve`. Breaking the waiting thread leaves the session running.
+`session-wait-closed` waits for the session to end without asking it to close
+or starting `session-serve`. Breaking the waiting thread leaves the session running.
 
 ## Modules
 
@@ -30,9 +30,10 @@ the same name on a Host reconstructed from the same seed.
 | --- | --- |
 | [`glowcap.rkt`](glowcap.rkt) | Sessions, hosts, actors, generic connection management, locators, and values. |
 | [`glowcap-iroh.rkt`](glowcap-iroh.rkt) | Optional encrypted QUIC provider/connector and `listen-iroh`. |
+| [`glowcap-webrtc.rkt`](glowcap-webrtc.rkt) | Optional WebRTC dial and listen. `webrtc-provider` dials a `webrtc` locator and `listen-webrtc` answers inbound offers, both through signaling the application supplies with `make-webrtc-signaling`. Each signaling procedure takes the exchange id first, and the calls that open a route also take a `webrtc-target` naming the peer and the session that introduced it. |
 | [`glowcap-onion.rkt`](glowcap-onion.rkt) | Tor-backed provider/connector, `listen-onion` / `connect-onion`, and raw onion netlayer handles. |
 | [`glowcap-relay.rkt`](glowcap-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers, managed listeners, and keyed byte connector. |
-| [`glowcap-tcp.rkt`](glowcap-tcp.rkt) | TCP locators, explicit provider/connector values, native listeners, and blocking netlayer handles. |
+| [`glowcap-tcp.rkt`](glowcap-tcp.rkt) | TCP locators, explicit provider/connector values, driver-backed listeners, and blocking netlayer handles. |
 | [`glowcap-inproc.rkt`](glowcap-inproc.rkt) | Explicit in-process byte connector and blocking connections. |
 
 The wire codec is chosen for a host. `open-runtime` and every listener accept
@@ -51,38 +52,34 @@ and return the same server shape as the TCP listeners. `server-uri` renders the
 relay route partners use, and `accept` yields ordinary sessions. They take the
 TCP listeners' `#:seed`, `#:host`, `#:codec`, `#:captp-version`, and
 `#:features` with the same meaning, plus `#:trust-pem` for the relay's
-certificate. They also take `#:options`, but the relay package defines no per-listen
-options, so the listener refuses any non-empty value when it opens.
+certificate. They also take `#:options`, with the refusal rule under
+[The driver loop](#the-driver-loop).
 
 ## The driver loop
 
 Every `runtime-connect` and `listen` that uses a transport provider runs on
-glowcap's driver loop. `libglowcap_host` supplies the Host, and
-`libglowcap_driver` supplies only the loop. The driver adopts the Host through
-`glowcap_driver_take_host`, starts with no providers, and receives the TCP
-package from `libglowcap_net_transport_tcp` through the common provider ABI.
+glowcap's driver loop, which owns the socket and the pumping of every accepted
+session. The binding parks one green thread until the loop has work, then
+steps it. [Developing a binding](../DEVELOPING.md)
+explains the loop.
 
-- The library owns the socket, the readiness set, and the pumping of every
-  accepted session. The binding parks one green thread on the loop's readiness
-  descriptor and steps the loop.
 - A bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial creates
   one loop per connection. `listen` binds the loop's listener, and a dial that
   shares a loop-backed server's Host runs on that same loop.
 - A supplied Host moves into the loop in one step, keeping its identity and
-  authority.
+  capabilities.
 - A byte-fed dial needs a connector registered on the Host. That connector is
   also the only byte-fed path a later handoff redeem can use.
 
 `open-runtime` accepts `#:adopt-host` to transfer an existing Host into the
-Runtime. `runtime-close!` is then that Host's terminal shutdown
-barrier.
+Runtime. `runtime-close!` is then that Host's terminal shutdown barrier.
 
 `listen`, `listen-keyed-tcp`, and `listen-noise-tcp` return the same kind of
 server. `server-locator` is its canonical locator, `server-uri` renders that
 locator as text, and `server-port` returns the port the provider bound.
 
 - Pass `#:seed` to keep a keyed identity across restarts, or `#:host` to have
-  a supplied Host own the same loop.
+  a supplied Host own the same loop. Passing both is refused.
 - `#:codec`, `#:captp-version`, and `#:features` set the profile of a newly
   created Host. If you leave them out, a listener uses the supplied Host's
   profile, or otherwise the generated default. A value that conflicts with a
@@ -97,10 +94,9 @@ locator as text, and `server-port` returns the port the provider bound.
 
 A hosted method runs on the pumping thread inside the current feed. It must not
 drive that same host again or block waiting for work that only another green
-thread can perform. Doing so can deadlock Racket CS while the callback is atomic.
-
-Return a value, `bcom`, or a forward. Hand longer work to another thread and
-settle it through an eventual send.
+thread can perform. Doing so can deadlock Racket CS while the callback is atomic. Return a value,
+`bcom`, or a forward. Hand longer work to another thread and settle it through
+an eventual send.
 
 For a deferred reply obtained with `host-defer-turn`, use `resolver-fulfill!`
 or `resolver-break!` once the worker completes. If the worker gives up, use
@@ -110,7 +106,7 @@ the hosted callback. `host-defer-turn-if-answer` returns a resolver for calls
 and `#f` for tells. A tell has no reply waiting on it, so the worker must keep
 itself alive.
 
-## Current semantic limits
+## Limits
 
 The actor API uses Goblins vocabulary (`spawn`, `$`, `<-`), but an existing
 Goblins program still needs glowcap's module names and Host wiring.
@@ -118,8 +114,8 @@ Goblins program still needs glowcap's module names and Host wiring.
 An inner actor state change is not rolled back when an outer actor later fails.
 Local time travel is available only on the TCP and onion listeners through the
 listener's `#:time-travel?` policy. Dialing sessions, iroh, and the relay
-listeners do not expose it. `listen` and `listen-keyed-tcp` use the driver's
-admission policy. A wildcard bind requires `#:advertised-host`, the Host route
+listeners do not expose it. `listen` and `listen-keyed-tcp` accept connections
+under the driver's limits. A wildcard bind requires `#:advertised-host`, the Host route
 partners dial.
 
 ## Checks
@@ -132,7 +128,7 @@ zig build racket-goblins-interop
 
 [`zig-smoke.rkt`](zig-smoke.rkt) aggregates the independently loadable
 scenario families under `test/zig-smoke/`, which the package omits. Together
-they exercise handshakes, pipelining, projections, proxies,
+they exercise handshakes, pipelining, result indexing, proxies,
 Cap'n Proto, garbage collection, and the TCP, in-process, and onion transports.
 Racket must be on `PATH`. The devcontainer includes it. The onion section needs
 no Tor: [`zig-smoke-fake-tor.rkt`](zig-smoke-fake-tor.rkt) answers the requests

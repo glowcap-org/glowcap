@@ -1,6 +1,15 @@
+---
+type: static
+description: How bindings find the C archives in a checkout and how the archives are packaged for publishing.
+sources:
+  - resource: /bindings/
+  - resource: /bindings/c-abi-resolve.json
+  - resource: /tools/c-abi/
+---
+
 # Finding and publishing the C archives
 
-The bindings are not published yet. In a checkout, run `zig build`. The
+No binding package is published. In a checkout, run `zig build`. The
 bindings find the resulting libraries under `zig-out/lib`.
 
 The machine-readable contract is
@@ -17,8 +26,9 @@ Every binding uses the same order:
 4. the operating system's library search on Unix.
 
 Windows does not use a bare DLL name, because its search order can load a
-library from an unintended directory. Use `GLOWCAP_LIB_DIR` or a populated
-cache there.
+library from an unintended directory. Packaging targets Linux and macOS, so
+Windows needs `GLOWCAP_LIB_DIR` or an in-tree build until its runtime and
+release path exist.
 
 Rust resolves its static libraries at build time. TypeScript, Python, and
 Racket resolve shared libraries when they load. iroh is a separate
@@ -48,9 +58,6 @@ Target names match `zig build release-pack`, such as `x86_64-linux` and
 [`../tools/c-abi/c-abi-host-aliases.json`](../tools/c-abi/c-abi-host-aliases.json).
 Rust begins with `CARGO_CFG_TARGET_ARCH` and `CARGO_CFG_TARGET_OS`. The other
 bindings normalize common aliases such as `amd64`, `arm64`, and `darwin`.
-
-Linux and macOS are the current packaging targets. Windows needs
-`GLOWCAP_LIB_DIR` or an in-tree build until its runtime and release path exist.
 
 ## Building release archives
 
@@ -102,10 +109,10 @@ client is linked privately into `libglowcap_net_transport_relay`, so a binding
 discovers and distributes no second runtime library. Packages that omit the
 relay archive carry no TLS artifact or dependency.
 
-The release workflow uses the same archive set. A manual workflow run builds
-artifacts without publishing a GitHub release.
+The release workflow uses the same archive set. A manual run builds artifacts
+without publishing a GitHub release.
 
-## Publishing C archives: publication and enablement checklist
+## Publishing C archives
 
 `releases_published` controls whether consumers try the hosted archive URL. It
 does not authorize the release workflow to create those archives. Change it

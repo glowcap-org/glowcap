@@ -157,7 +157,7 @@ async fn manager_client_validates_authority_and_executes_real_host_calls() {
 }
 
 #[tokio::test]
-async fn native_deadline_drops_an_unanswered_observation() {
+async fn host_deadline_drops_an_unanswered_observation() {
 	use rooms_glowcap::client::Deadline as _;
 	struct Dropped(Rc<Cell<bool>>);
 	impl Drop for Dropped {

@@ -181,9 +181,9 @@ fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const dri
     };
     parts[2] = .{ .boolean = result.resync };
     parts[3] = .{ .boolean = result.changed };
-    const flags = try call.arena().alloc(driver.Value, @intFromBool(result.notices.access) + @as(usize, @intFromBool(result.notices.target)) + @intFromBool(result.notices.inventory) + @intFromBool(result.notices.management));
+    const flags = try call.arena().alloc(driver.Value, @intFromBool(result.notices.access) + @as(usize, @intFromBool(result.notices.target)) + @intFromBool(result.notices.inventory) + @intFromBool(result.notices.management) + @intFromBool(result.notices.subtree));
     var count: usize = 0;
-    inline for (.{ "access", "target", "inventory", "management" }) |field| if (@field(result.notices, field)) {
+    inline for (.{ "access", "target", "inventory", "management", "subtree" }) |field| if (@field(result.notices, field)) {
         flags[count] = .{ .symbol = field };
         count += 1;
     };

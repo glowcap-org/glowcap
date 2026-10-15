@@ -43,7 +43,7 @@ export async function run(managed: Runtime): Promise<void> {
 		};
 		using ctx = Context.withAllocator(allocator);
 		const captpHost = new Host(undefined, { context: ctx });
-		// Release is a close request, not permission to invalidate a live native
+		// Release is a close request, not permission to invalidate a live FFI
 		// handle. It refuses new families immediately and retires the allocator only
 		// after the Host gives back its lease.
 		ctx.release();
@@ -257,6 +257,39 @@ export async function run(managed: Runtime): Promise<void> {
 
 		await Promise.all([client(), hosted]);
 		ok("a capnp session opens and big-integer + keyword args round-trip");
+	}
+
+	// A BigInt64Array argument crosses as one ARG_INTEGERS run and arrives as a list.
+	{
+		await using runHost = new Host();
+		runHost.publish("run", (verb, args) => {
+			assert(verb === "sum", `integer-run server expected sum, got ${verb}`);
+			const list = args[0];
+			assert(
+				Array.isArray(list) && list.length === 3 && list[0] === 7n && list[1] === -8n && list[2] === 9n,
+				"a BigInt64Array arrives as a list of 7, -8, 9",
+			);
+			return new BigInt64Array([4n, -5n]);
+		});
+		const server = await tcp.listen("127.0.0.1", 0, { host: runHost });
+		const port = server.port;
+		const hosted = (async () => {
+			for await (const session of server) {
+				session.serve().catch(() => {});
+				break;
+			}
+		})();
+		const session = await managed.connect(tcp.locator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const run = await session.fetch("run");
+		const reply = await session.send(run, "sum", [new BigInt64Array([7n, -8n, 9n])]);
+		assert(
+			Array.isArray(reply) && reply.length === 2 && reply[0] === 4n && reply[1] === -5n,
+			"a BigInt64Array reply arrives as a list",
+		);
+		await session.close();
+		await hosted;
+		ok("a BigInt64Array argument crosses as one integer run and arrives as a list");
 	}
 
 	// Session surface: an outstanding `send` rejects when the wire drops

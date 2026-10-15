@@ -2,24 +2,9 @@
 const std = @import("std");
 const Lmdb = @import("loam_lmdb").Lmdb;
 const f = @import("compaction_fixture.zig");
+const Temp = @import("engine_fixture").Temp;
 extern "c" fn dup(c_int) c_int;
 extern "c" fn close(c_int) c_int;
-
-const Temp = struct {
-    dir: std.testing.TmpDir,
-    path: [:0]u8,
-    fn init() !Temp {
-        var dir = std.testing.tmpDir(.{});
-        errdefer dir.cleanup();
-        const path = try std.Io.Dir.realPathFileAlloc(dir.dir, std.testing.io, ".", std.testing.allocator);
-        defer std.testing.allocator.free(path);
-        return .{ .dir = dir, .path = try std.testing.allocator.dupeSentinel(u8, path, 0) };
-    }
-    fn deinit(self: *Temp) void {
-        std.testing.allocator.free(self.path);
-        self.dir.cleanup();
-    }
-};
 
 test "loam LMDB compaction preserves the complete store and shrinks reclaimed pages" {
     var tmp = try Temp.init();
@@ -40,7 +25,7 @@ test "loam LMDB compaction preserves the complete store and shrinks reclaimed pa
     try std.testing.expectError(error.Closed, db.inspect());
     try std.testing.expectError(error.Busy, db.close());
     try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(tmp.path, .{ .mode = .{ .open = f.id } }));
-    // Refuse the native directory sync after rename, then retry with a live
+    // Refuse the LMDB directory sync after rename, then retry with a live
     // descriptor. This exercises the unknown-outcome contract without a
     // production test hook or re-running the copy/installation effects.
     const retry_directory = dup(replacement.files.directory);

@@ -98,6 +98,33 @@ pub const GlowcapTransportOperationOptions = extern struct {
     size: usize,
 };
 
+/// Where one dial came from, borrowed for the start callback. A handoff dial
+/// follows a reference an open session handed over, and `introducer` is the
+/// designator that session's partner signed in its hello. A provider whose
+/// connect needs an outside party, as WebRTC signaling does, routes by it. The
+/// driver passes a null origin for a dial the application started itself, for
+/// a handoff whose introducing session has closed, and for a partner that
+/// signed no designator.
+pub const GlowcapDialOrigin = extern struct {
+    introducer: ?[*]const u8,
+    introducer_len: usize,
+};
+
+/// Project a driver dial origin into its C layout, or null when it names no
+/// introducer.
+pub fn projectDialOrigin(origin: anytype, storage: *GlowcapDialOrigin) ?*const GlowcapDialOrigin {
+    const introducer = origin.introducer orelse return null;
+    storage.* = .{ .introducer = introducer.ptr, .introducer_len = introducer.len };
+    return storage;
+}
+
+/// The introducer a start callback received, or null.
+pub fn dialOriginIntroducer(origin: ?*const GlowcapDialOrigin) ?[]const u8 {
+    const value = origin orelse return null;
+    const ptr = value.introducer orelse return null;
+    return ptr[0..value.introducer_len];
+}
+
 /// Structured failure output for provider callbacks that expose this output.
 /// The callback receives caller-owned storage and must leave it empty on success.
 /// On failure, `result` matches the returned GLOWCAP_ERR_* status and

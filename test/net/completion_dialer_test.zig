@@ -27,7 +27,7 @@ fn serverPeer(allocator: std.mem.Allocator) !engine.Peer {
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
-    try peer.sendCopying(startSession("server"));
+    try peer.sendBorrowed(startSession("server"));
     return peer;
 }
 
@@ -123,7 +123,7 @@ fn makeClientPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engin
     var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
-    try peer.sendCopying(startSession("client"));
+    try peer.sendBorrowed(startSession("client"));
     return peer;
 }
 
@@ -409,6 +409,11 @@ const FailingConnectBackend = struct {
         _ = self;
         _ = user_data;
         _ = fd;
+    }
+
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *FailingConnectBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
     }
 
     pub fn poll(self: *FailingConnectBackend, out: []completion.Completion, timeout_ms: i32) !usize {

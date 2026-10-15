@@ -55,7 +55,7 @@ let doorsOpen = false;
  * not inherit that directory. A caller that names the variable in
  * `options.env` is asking for a specific directory and keeps it.
  *
- * Every native child links or opens glowcap's shared libraries, so the install
+ * Every child process links or opens glowcap's shared libraries, so the install
  * prefix is named for all of them here, once, unless the build or the caller
  * already said where they are. */
 function childEnv(extra?: Record<string, string>): Record<string, string> {
@@ -63,7 +63,7 @@ function childEnv(extra?: Record<string, string>): Record<string, string> {
 		...Deno.env.toObject(),
 		...extra,
 		// A hand-run proof gets the same IRC safety boundary as a build-owned
-		// test: the native dialer rejects public hosts before DNS.
+		// test: the host dialer rejects public hosts before DNS.
 		GLOWCAP_TEST_IRC_LOOPBACK_ONLY: "1",
 	};
 	env.LD_LIBRARY_PATH ??= LIB_DIR;

@@ -69,7 +69,6 @@ impl ReferenceRequest {
 		check(
 			// SAFETY: this query takes no handle; `bytes` is a local out-parameter the callee writes.
 			unsafe { ffi::glowcap_loam_reference_call_size_bound(restores, saves, uri_bytes, &mut bytes) },
-			false,
 		)?;
 		Ok(bytes)
 	}
@@ -79,7 +78,6 @@ impl ReferenceRequest {
 		check(
 			// SAFETY: this query takes no handle; `bytes` is a local out-parameter the callee writes.
 			unsafe { ffi::glowcap_loam_reference_uri_call_size_bound(count, uri_bytes, &mut bytes) },
-			false,
 		)?;
 		Ok(bytes)
 	}
@@ -192,7 +190,6 @@ impl Call<'_> {
 			unsafe {
 				ffi::glowcap_loam_call_accounting_path(self.raw, buffer.as_mut_ptr().cast(), buffer.len(), &mut count)
 			},
-			false,
 		)?;
 		Ok(count)
 	}
@@ -206,7 +203,6 @@ impl Call<'_> {
 			// returns; the `to_sys()` temporary lives to the end of this statement and the callee only reads it;
 			// `session` is an out-parameter the callee fills.
 			unsafe { ffi::glowcap_loam_call_live_dependent_exporter(self.raw, &facet.to_sys()?, &mut session) },
-			false,
 		)?;
 		Ok(self.owner.host.exporter_session(session)?.map(crate::Session::view))
 	}
@@ -222,7 +218,6 @@ impl Call<'_> {
 			// returns; the `to_sys()` temporary lives to the end of this statement and the callee only reads it; `raw`
 			// is an out-parameter the callee fills.
 			unsafe { ffi::glowcap_loam_call_retain_prepared_reference(self.raw, &reference.to_sys()?, &mut raw) },
-			false,
 		)?;
 		Ok(super::continuation::owned_reference(self.owner, raw))
 	}
@@ -236,7 +231,7 @@ impl Call<'_> {
 		// SAFETY: `self.raw` is the call handle the C side passed to the enclosing `invoke`/`admit_forward` callback;
 		// `Call`'s lifetime ties this borrow to that callback, which keeps the handle live until it returns; `raw` is
 		// an out-parameter the callee fills.
-		check(unsafe { ffi::glowcap_loam_call_source(self.raw, &mut raw) }, false)?;
+		check(unsafe { ffi::glowcap_loam_call_source(self.raw, &mut raw) })?;
 		Ok(super::continuation::owned_reference(self.owner, raw))
 	}
 	pub fn append_reference(&mut self, reference: &Ref) -> Result<()> {
@@ -245,7 +240,6 @@ impl Call<'_> {
 			// callback; `Call`'s lifetime ties this borrow to that callback, which keeps the handle live until it
 			// returns; the `to_sys()` temporary lives to the end of this statement and the callee only reads it.
 			unsafe { ffi::glowcap_loam_call_append_reference(self.raw, &reference.to_sys()?) },
-			false,
 		)
 	}
 	/// Borrow the facet from this call's matching prepared declaration. Shared
@@ -267,7 +261,6 @@ impl Call<'_> {
 					&mut reference,
 				)
 			},
-			false,
 		)?;
 		Ok(Ref::from_sys(&reference))
 	}
@@ -289,7 +282,6 @@ impl Call<'_> {
 					&mut matches,
 				)
 			},
-			false,
 		)?;
 		Ok(matches != 0)
 	}
@@ -299,7 +291,6 @@ impl Call<'_> {
 			// callback; `Call`'s lifetime ties this borrow to that callback, which keeps the handle live until it
 			// returns; the `to_sys()` temporary lives to the end of this statement and the callee only reads it.
 			unsafe { ffi::glowcap_loam_call_replace_reference(self.raw, field, &reference.to_sys()?) },
-			false,
 		)
 	}
 	pub fn remove_reference(&mut self, field: usize) -> Result<()> {
@@ -308,7 +299,6 @@ impl Call<'_> {
 			// callback; `Call`'s lifetime ties this borrow to that callback, which keeps the handle live until it
 			// returns.
 			unsafe { ffi::glowcap_loam_call_remove_reference(self.raw, field) },
-			false,
 		)
 	}
 	pub fn replace(&mut self, payload: &[u8]) -> Result<()> {
@@ -318,7 +308,6 @@ impl Call<'_> {
 			// returns; `payload` is a borrowed slice whose pointer and length stay live for the call, and the callee
 			// copies it into the call arena before returning.
 			unsafe { ffi::glowcap_loam_call_replace_copying(self.raw, payload.as_ptr(), payload.len()) },
-			false,
 		)
 	}
 	pub fn disclose(&mut self, field: usize, dependent: bool) -> Result<Argument> {
@@ -330,7 +319,6 @@ impl Call<'_> {
 			// callback; `Call`'s lifetime ties this borrow to that callback, which keeps the handle live until it
 			// returns; `value` is an out-parameter the callee fills.
 			unsafe { ffi::glowcap_loam_call_disclose(self.raw, field, u32::from(dependent), &mut value) },
-			false,
 		)?;
 		// SAFETY: `value` was filled by the successful `disclose` call above and borrows the call arena, which lives
 		// until the callback returns, as `arg_from_sys` requires.
@@ -515,7 +503,7 @@ pub(super) unsafe extern "C" fn references(
 					ffi::glowcap_loam_references_save_live_dependent(raw, &source.to_sys()?, &target.to_sys()?)
 				},
 			};
-			check(code, false)?;
+			check(code)?;
 		}
 		Ok(())
 	})
@@ -561,7 +549,7 @@ pub(super) unsafe extern "C" fn invoke(
 		// The setter copies all bytes and child arrays before the Rust reply dies.
 		// SAFETY: `raw` is the call handle the C side passed to this callback and stays live until it returns; `value`
 		// borrows `reply`, which outlives the call, and the callee copies it into the call arena before returning.
-		check(unsafe { ffi::glowcap_loam_call_reply(raw, &value) }, false)
+		check(unsafe { ffi::glowcap_loam_call_reply(raw, &value) })
 	})
 }
 

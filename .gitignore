@@ -30,6 +30,7 @@ apps/rooms/clients/rust/target/
 apps/rooms/rust/proofs/browser/node_modules/
 bench/langs/clients/rust_bench/Cargo.lock
 bench/langs/clients/rust_bench/target/
+bench/capnp/rust/target/
 # transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
 # the sidecar's external dependency tree must resolve identically everywhere.
 transports/iroh/target/
@@ -58,6 +59,7 @@ bindings/python/glowcap_python.egg-info/
 # accountability-on-glowcap writes its durable Episode log + transparency root
 # here at run time; generated state, never committed.
 apps/accountability-on-glowcap/.data/
+apps/tasks/.data/
 # The Goblins-side kernel and three-vat demos write the same shape, including
 # per-AID KERI key files; one early round of them survives only in history,
 # named in that app's README.
@@ -107,6 +109,17 @@ apps/rooms/web/deploy/previous-image
 
 # captured stderr from a redirected demo/test run; scratch, never committed
 *.err
+# Core dumps a crashed process leaves in the working directory: the kernel's
+# `core` and `core.<pid>`, valgrind's `vgcore.<pid>`, and the profiles the
+# valgrind tools write beside the binary. Scratch, never committed.
+core
+# A source directory named core, such as Loam's, is not a dump.
+!core/
+core.[0-9]*
+vgcore.[0-9]*
+callgrind.out.*
+cachegrind.out.*
+massif.out.*
 
 # ocapnviz runs on its own Deno toolchain; its dependency and build caches
 # are generated state.

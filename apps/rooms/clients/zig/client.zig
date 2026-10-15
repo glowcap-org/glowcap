@@ -1,4 +1,4 @@
-//! A rooms chat client, written on glowcap actors in native Zig. Zig is the home
+//! A rooms chat client, written on glowcap actors in Zig. Zig is the home
 //! language; this runs on the same core every binding wraps, and it drives the
 //! real netlayers glowcap ships.
 //!
@@ -116,10 +116,11 @@ const State = struct {
 const Inbox = struct {
     state: *State,
 
-    pub fn handle(self: *Inbox, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Inbox, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
         _ = turn;
         if (!std.mem.eql(u8, verb, proto.notify)) return error.NoSuchMethod;
-        try applyNotify(self.state, args);
+        try applyNotify(self.state, arg_values);
         return .{ .boolean = true };
     }
 };
@@ -174,41 +175,40 @@ fn printRoomEvent(nick: []const u8, event_kind: []const u8, room: wire.RoomInfo)
 const Watcher = struct {
     nick: []const u8,
 
-    pub fn handle(self: *Watcher, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Watcher, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
         _ = turn;
         if (!std.mem.eql(u8, verb, proto.notify)) return error.NoSuchMethod;
-        if (try wire.watchEvent(args)) |room| printRoomEvent(self.nick, args[0].string, room);
+        if (try wire.watchEvent(arg_values)) |room| printRoomEvent(self.nick, arg_values[0].string, room);
         return .{ .boolean = true };
     }
 };
 
-/// Every dial this client makes wears the core-authored native profile and the
+/// Every dial this client makes wears the core-authored glowcap profile and the
 /// same finite waits, so they are named once here rather than respelled per
 /// transport.
 fn roomsSessionOpts() driver.SessionOptions {
     return .{
         .frame_cap = frame_cap,
-        .codec = model.Preference.native.codec,
-        .captp_version = model.Preference.native.captp_version,
+        .codec = model.Preference.glowcap.codec,
+        .captp_version = model.Preference.glowcap.captp_version,
         .handshake = .{ .ms = 10_000 },
         .settle = .{ .ms = 10_000 },
     };
 }
 
-/// Print a list/watch snapshot without turning unknown foreign occupancy into 0.
+/// Print the first room page without turning unknown foreign occupancy into 0.
 fn printRooms(nick: []const u8, arg: driver.Value) !void {
+    const listed = wire.roomPage(arg) orelse return error.InvalidRoomList;
     std.debug.print("[{s}] rooms:", .{nick});
-    var any = false;
-    if (arg != .list) return error.InvalidRoomList;
-    for (arg.list) |item| {
-        if (item != .list) return error.InvalidRoomList;
-        const room = wire.roomInfo(item.list) orelse return error.InvalidRoomList;
+    for (listed.rows) |item| {
+        const room = wire.roomInfo(item.list).?;
         std.debug.print(" {s} (", .{room.name});
         if (room.count) |count| std.debug.print("{d}", .{count}) else std.debug.print("unknown", .{});
         std.debug.print(")", .{});
-        any = true;
     }
-    if (!any) std.debug.print(" (none yet)", .{});
+    if (listed.rows.len == 0) std.debug.print(" (none yet)", .{});
+    if (listed.next != null) std.debug.print(" and more", .{});
     std.debug.print("\n", .{});
 }
 

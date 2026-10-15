@@ -60,7 +60,7 @@ Deno.test("abandoning a public promise drops its pending completion row", async 
 	}
 });
 
-Deno.test("promise adoption parks native release at every post-mint failure", () => {
+Deno.test("promise adoption parks FFI release at every post-mint failure", () => {
 	for (const failing of ["mint", "attend", "schedule", "track"] as const) {
 		const failure = new Error(failing);
 		const parked: bigint[] = [];
@@ -92,7 +92,7 @@ Deno.test("promise adoption parks native release at every post-mint failure", ()
 			observed = error;
 		}
 		assert(observed === failure, `${failing}: adoption replaced its failure`);
-		assert(parked.length === 1 && parked[0] === 19n, `${failing}: native vow was not released`);
+		assert(parked.length === 1 && parked[0] === 19n, `${failing}: FFI vow was not released`);
 	}
 });
 
@@ -105,7 +105,7 @@ Deno.test("send admission preserves the exact failure through every dependent ha
 			},
 		} as unknown as SessionApplication;
 		// Admission must return a handle even for a non-Error raised value. No
-		// argument projection or native effect can happen after this refusal.
+		// argument projection or FFI effect can happen after this refusal.
 		const pending = SessionApplication.prototype.send.call(session, refFromId(1n), "get");
 		const dependent = pending.untag("row").index(0).get("value");
 		const pipelined = SessionApplication.prototype.send.call(

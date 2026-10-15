@@ -2,9 +2,8 @@
 
 The lead chooses the simplest pattern that fits the assignment's dependencies
 and acceptance criteria, announces the chosen id (or hybrid) in the room, and
-re-chooses when the mission shape changes.
-
-Aliases in parentheses are the same pattern under another common name.
+re-chooses when the mission shape changes. A slash in the Pattern column
+separates other common names for the same pattern.
 
 ## Catalog
 
@@ -53,13 +52,14 @@ Aliases in parentheses are the same pattern under another common name.
 
 ## Hybrids
 
-Compose freely when the mission has phases. Name both parts, e.g.:
+Compose patterns when the mission has phases, and name both parts:
 
-- `plan_then_execute` + `critic` — plan gate, then maker-checker on the patch
-- `hierarchical` + `debate` — managers debate approach, then workers execute
-- `supervisor` + `pipeline` — lead assigns; each assignment is a mini-pipeline
-- `adaptive` + `hitl` — ledger evolves with human checkpoints
-- `concurrent` + `ensemble` — parallel specialists, then vote/synthesize
+- `plan_then_execute` + `critic`: a plan gate, then maker-checker on the patch.
+- `hierarchical` + `debate`: managers debate the approach, then workers execute.
+- `supervisor` + `pipeline`: the lead assigns, and each assignment is a
+  mini-pipeline.
+- `adaptive` + `hitl`: the ledger evolves with human checkpoints.
+- `concurrent` + `ensemble`: parallel specialists, then a vote or synthesis.
 
 ## Choice checklist
 

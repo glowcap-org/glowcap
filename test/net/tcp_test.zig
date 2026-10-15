@@ -5,7 +5,7 @@
 //! the client on the test fiber. We prove (1) the handshake drives both peers to
 //! `open` over the wire, and (2) a bootstrap fetch. That fetch is an
 //! `op:deliver` answered by an auto-`op:resolve` that round-trips end to end,
-//! the same oracle scenario framed by `recvStreamPrefix` over a byte stream.
+//! the same oracle scenario carried in envelopes over a byte stream.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -51,7 +51,7 @@ fn serveOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) ServerError!
     var conn = try listener.accept(&peer, read_buf, write_buf, .{});
     defer conn.deinit();
 
-    try peer.sendCopying(startSession("server"));
+    try peer.sendBorrowed(startSession("server"));
 
     while (true) {
         const progress = conn.pump() catch |err| switch (err) {

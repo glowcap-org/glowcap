@@ -11,10 +11,10 @@ type DiagnosedCall = (
 	outErrorLen: Uint8Array,
 ) => Promise<number>;
 
-/** Caller-owned storage that brings one worker thread's native diagnostic back
+/** Caller-owned storage that brings one worker thread's FFI diagnostic back
  * with the status it describes. Reuse one slot only behind `SingleFlight`;
  * concurrent operations need distinct slots. */
-export class NativeDiagnostic {
+export class FfiDiagnostic {
 	readonly #family: string;
 	readonly #bytes = new Uint8Array(ERROR_BYTES);
 	readonly #length = new Uint8Array(8);
@@ -44,5 +44,5 @@ export function checkDiagnosedCall(
 	operation: string,
 	call: DiagnosedCall,
 ): Promise<void> {
-	return new NativeDiagnostic(family).check(operation, call);
+	return new FfiDiagnostic(family).check(operation, call);
 }

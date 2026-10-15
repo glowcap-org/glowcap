@@ -1,5 +1,5 @@
 // Presentation rows for read-only archive facets another member handed over.
-// Live references and their sessions remain in net/archive_shares.ts.
+// Live references and their sessions remain in session/managed/archive_shares.ts.
 
 import type { ArchiveShareView } from "../archive_model.ts";
 import type { PageProjection } from "./core.ts";

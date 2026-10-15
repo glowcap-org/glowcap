@@ -224,15 +224,11 @@ fn captured_snapshot_contract() {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
-fn native_snapshot_constructs_binding_arguments() {
+fn host_snapshot_constructs_binding_arguments() {
 	let fixture: Value = serde_json::from_str(include_str!("../fixtures/snapshots.json")).unwrap();
 	let snapshot = read(&fixture["rows"][0]["raw"]).unwrap();
 	let args = snapshot.encode::<rooms_glowcap::snapshot::Arguments>().unwrap();
 	let values: Vec<_> = rooms_glowcap::values(&args).collect();
 	let decoded = Snapshot::read(&values, &rooms_glowcap::routes::CheckpointRoutes).unwrap();
-	same(
-		decoded.encode::<Output>().unwrap(),
-		&fixture["rows"][0]["raw"],
-		"native",
-	);
+	same(decoded.encode::<Output>().unwrap(), &fixture["rows"][0]["raw"], "host");
 }

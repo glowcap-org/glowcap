@@ -59,17 +59,15 @@ const frame_cap: usize = 1 << 16;
 // ── Conformance actors ───────────────────────────────────────────────────────
 
 const Echo = struct {
-    pub fn handle(self: *Echo, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Echo, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
-        _ = turn;
-        return .{ .list = msg.args };
+        return .{ .list = try msg.args.toOwnedSlice(turn.arena) };
     }
 };
 
 const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
-        if (msg.args.len < 1) return error.BadGreet;
         const target: actors.Ref = switch (try msg.arg(0)) {
             .reference => |reference| switch (reference) {
                 .far => |far_ref| .{ .far = far_ref },
@@ -83,7 +81,7 @@ const Greeter = struct {
 };
 
 const CarFactoryBuilder = struct {
-    pub fn handle(self: *CarFactoryBuilder, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *CarFactoryBuilder, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = msg;
         const factory = try turn.spawn(CarFactory, .{});
@@ -93,20 +91,19 @@ const CarFactoryBuilder = struct {
 };
 
 const CarFactory = struct {
-    pub fn handle(self: *CarFactory, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *CarFactory, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
-        if (msg.args.len < 1) return error.BadArgs;
         const items = switch (try msg.arg(0)) {
             .list => |l| l,
             else => return error.BadArgs,
         };
-        if (items.len < 2) return error.BadArgs;
-        const color = switch (items[0]) {
+        if (try items.len() < 2) return error.BadArgs;
+        const color = switch (try items.at(0)) {
             .symbol => |s| s,
             .string => |s| s,
             else => return error.BadArgs,
         };
-        const name = switch (items[1]) {
+        const name = switch (try items.at(1)) {
             .symbol => |s| s,
             .string => |s| s,
             else => return error.BadArgs,
@@ -120,7 +117,7 @@ const CarFactory = struct {
 
 const Car = struct {
     response: []const u8,
-    pub fn handle(self: *Car, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Car, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         _ = msg;
         return .{ .string = self.response };
@@ -137,7 +134,7 @@ const Car = struct {
 const PromiseResolver = struct {
     conf: *ConfCtx,
 
-    pub fn handle(self: *PromiseResolver, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *PromiseResolver, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = msg;
         const peer = (turn.port orelse return error.NotConnected).peer;
         // This value crosses as desc:import-promise, so its authoritative
@@ -171,7 +168,7 @@ const PromiseResolver = struct {
 /// `handoff.tryGifterEnliven` before Vat dispatch. Reaching this actor means the
 /// message named the reserved bootstrap object but was not that wire form.
 const InterceptedSturdyrefEnlivener = struct {
-    pub fn handle(self: *InterceptedSturdyrefEnlivener, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *InterceptedSturdyrefEnlivener, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = turn;
         _ = msg;
@@ -307,8 +304,8 @@ const AcceptQueue = struct {
 fn tryPromiseResolve(conf: *ConfCtx, event: *engine.Event) !bool {
     const peer = conf.session.served.port.peer;
     const allocator = conf.shared.allocator;
-    const body = event.view() catch return false;
-    const deliver = switch (body) {
+    const body = event.view();
+    const deliver = switch (body.*) {
         .deliver => |d| d,
         else => return false,
     };

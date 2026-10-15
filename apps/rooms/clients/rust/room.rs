@@ -40,8 +40,8 @@ use crate::protocol_gen::{
 	WATCH_PUBLICATIONS,
 };
 use crate::wire::{
-	Presence, RoomInfo, membership_ended_fits, membership_seat, parse_rooms, parse_watch_event, parse_watch_rooms,
-	read_presence,
+	Presence, RoomInfo, RoomPage, membership_ended_fits, membership_seat, parse_room_page, parse_watch_event,
+	parse_watch_rooms, read_presence,
 };
 
 /// The most lines the room may retain for a reader that has stopped reading.
@@ -117,14 +117,16 @@ impl Directory {
 		room_ref(arg, ENTER)
 	}
 
-	/// The directory's exact live local and foreign room publications.
-	pub async fn list(&self) -> Result<Vec<RoomInfo>, String> {
+	/// One page of the directory's live local and foreign room publications.
+	/// Pass nothing for the first page and the page's `next` for the one after.
+	pub async fn list(&self, cursor: Option<&str>) -> Result<RoomPage, String> {
+		let args: Vec<Argument> = cursor.map(Into::into).into_iter().collect();
 		let arg = self
 			.session
-			.send(&self.directory, LIST_PUBLICATIONS, &[])
+			.send(&self.directory, LIST_PUBLICATIONS, &args)
 			.await
 			.map_err(reason)?;
-		parse_rooms(&arg)
+		parse_room_page(&arg)
 	}
 
 	/// Follow the live room list: spawn an observer the directory calls back with
@@ -211,14 +213,14 @@ async fn dial(locator: &str) -> Result<(Runtime, Session), String> {
 
 /// Mint a Host for a rooms peer.
 ///
-/// Every rooms peer selects the core-authored native profile. Rust's `connect`
+/// Every rooms peer selects the core-authored glowcap profile. Rust's `connect`
 /// takes no profile argument, so the host is what names it.
 ///
 /// Minting one draws the Host's identity seed from the system, which can fail,
 /// so this answers with the failure rather than panicking inside a client whose
 /// callers already carry their own errors.
 fn rooms_host() -> Result<glowcap::Host, String> {
-	glowcap::Host::with_options(glowcap::HostOptions::with_profile(glowcap::HostProfile::Native))
+	glowcap::Host::with_options(glowcap::HostOptions::with_profile(glowcap::HostProfile::Glowcap))
 		.map_err(|e| format!("rooms host: {e:?}"))
 }
 

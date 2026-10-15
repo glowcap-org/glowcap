@@ -5,7 +5,7 @@
 ;; profile, `glowcap-next` over Cap'n Proto. A Goblins vat speaks the OCapN v1.0
 ;; baseline over Syrup and sends no glowcap-private preference. Under ADR-0103,
 ;; an absent preference means baseline-only, so the pair settles on the baseline
-;; while glowcap members on the same server keep the native profile among
+;; while glowcap members on the same server keep the glowcap profile among
 ;; themselves. The vat still joins the room as an ordinary member.
 ;;
 ;; This module is the wire protocol of `apps/rooms/lib/protocol.ts` in Goblins

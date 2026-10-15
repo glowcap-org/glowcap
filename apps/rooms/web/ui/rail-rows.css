@@ -163,9 +163,9 @@
    would hold nothing and add its own height to every captioned row. */
 #roomList .hash,
 #dmList .avatar-presence {
-	/* The rail gradient's base tone: the pip's ring is a box-shadow, and a
+	/* The flat tone the rail reads as: the pip's ring is a box-shadow, and a
 	   shadow takes a colour, not a gradient. */
-	--presence-ring: var(--paper-raised);
+	--presence-ring: var(--rail-tone);
 }
 #dmList .avatar-chip {
 	grid-area: mark;

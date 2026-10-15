@@ -216,9 +216,13 @@ pub const PreparedListenerDrain = struct {
     reserved: usize = 0,
     target_retains: usize = 0,
     reinstall_prepared: ?session.Session.PreparedListenerBatch = null,
+    /// A drain's inventory of the stored tree every fire carries, taken at
+    /// prepare so the infallible commit records each fire's mentions from it.
+    inventory: session.Inventory = .none,
 
     pub fn abandon(self: *PreparedListenerDrain, peer: *Peer) void {
         const source = self.source;
+        self.inventory.deinit(peer.allocator);
         if (self.reservation) |reservation| {
             for (0..self.reserved) |_| peer.cancelPendingReservation(reservation);
         }
@@ -242,7 +246,7 @@ pub const PreparedListenerDrain = struct {
                 .fire => |position| {
                     var args: [2]model.Argument = undefined;
                     const message = borrowedListenerFire(position, terminalBreak(reason), &args);
-                    peer.session_state.commitPreparedListenerFire(message);
+                    peer.session_state.commitPreparedListenerFire(message, .none, &args[1]);
                     peer.pushPendingAssume(self.reservation.?, .{ .listener_fire = .{
                         .listener_position = position,
                         .target = .{ .static_break = reason },
@@ -256,7 +260,7 @@ pub const PreparedListenerDrain = struct {
                     .fire => |position| {
                         var args: [2]model.Argument = undefined;
                         const message = borrowedListenerFire(position, stored.resolution, &args);
-                        peer.session_state.commitPreparedListenerFire(message);
+                        peer.session_state.commitPreparedListenerFire(message, self.inventory, &args[1]);
                         peer.pushPendingAssume(self.reservation.?, .{ .listener_fire = .{
                             .listener_position = position,
                             .target = .{ .store = stored.target },
@@ -267,6 +271,7 @@ pub const PreparedListenerDrain = struct {
             },
         }
         if (self.listeners.len != 0) peer.allocator.free(self.listeners);
+        self.inventory.deinit(peer.allocator);
         self.* = undefined;
     }
 };
@@ -333,7 +338,8 @@ fn prepareListenerDrainPlan(
                 .discard => {},
             };
             if (fire_count == 0) return prepared;
-            try peer.session_state.ensureSentResolutionExportCapacity(stored.resolution);
+            prepared.inventory = try peer.session_state.inventoryResolution(stored.resolution);
+            try peer.session_state.ensureSentResolutionExportCapacity(stored.resolution, prepared.inventory);
             var batch = try peer.beginPendingBatch(fire_count);
             for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, stored.resolution)) {
                 .fire => |position| {

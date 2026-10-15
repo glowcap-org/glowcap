@@ -217,7 +217,7 @@ try {
 	await bubble(second, "After managed process restart");
 	await proveSharedRoomAuthorityRotation(first);
 	await namedRoomRow(first, "mirror-two").click();
-	// The native process has no browser cookie. Public ingress must refuse its
+	// The host process has no browser cookie. Public ingress must refuse its
 	// upgrade, while the configured alias reaches the same registry internally.
 	const refusal = await fetch(`${ingress.relay.replace("ws:", "http:")}?rendezvous=${"a".repeat(64)}`, {
 		headers: { Upgrade: "websocket" },

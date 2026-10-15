@@ -53,7 +53,7 @@ class _LifecycleMixin:
     def serve(self) -> "asyncio.Task":
         """Run the inbound loop as a background task, started once.
 
-        A loop-backed session has no byte pump of its own: the native loop
+        A loop-backed session has no byte pump of its own: the driver loop
         reads, feeds, and drains, so its serve task only awaits closure.
         """
         self._host._assert_owner()
@@ -178,7 +178,7 @@ class _LifecycleMixin:
     async def _coordinate_terminal(
         self, result: Optional[Awaitable[None]] = None
     ) -> None:
-        """Own native result, physical retirement, serve join, and publication.
+        """Own FFI result, physical retirement, serve join, and publication.
 
         This task is retained by the Session. Callers shield this one task, so
         cancelling a waiter never abandons a transport coroutine or turns that
@@ -358,8 +358,8 @@ class _LifecycleMixin:
         else:
             future.set_result(None)
 
-    def _native_owner_did_release(self) -> None:
-        """Commit wrapper retirement after the native loop was released."""
+    def _ffi_owner_did_release(self) -> None:
+        """Commit wrapper retirement after the driver loop was released."""
         self._closing = True
         self._released = True
         self._release_pending = False
@@ -373,7 +373,7 @@ class _LifecycleMixin:
                 self.record_wire_failure(error)
 
     def close_transport(self) -> None:
-        """Retire this session's transport and native handle exactly once."""
+        """Retire this session's transport and FFI handle exactly once."""
         if self._host._schedule_cleanup(self.close_transport):
             return
         self._host._assert_owner()
@@ -392,7 +392,7 @@ class _LifecycleMixin:
         def commit_release(p=ptr):
             try:
                 if loop_ref is not None:
-                    loop_ref._native_session_release(p)
+                    loop_ref._ffi_session_release(p)
                 else:
                     _check_host(_host.glowcap_host_session_release(p))
             except BaseException as error:

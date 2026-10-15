@@ -16,7 +16,7 @@ pub(super) async fn run(
 		.await
 		.unwrap();
 	let reader = worker.directory_reader().await.unwrap();
-	let rooms = reader.list().await.unwrap();
+	let rooms = reader.list(None).await.unwrap().rooms;
 	assert_eq!(rooms.len(), 1);
 	assert_eq!(rooms[0].name.text().as_str(), Some("room"));
 	assert_eq!(reader.advertised_location().await.unwrap(), "ocapn://member.id");
@@ -64,14 +64,14 @@ pub(super) async fn run(
 	);
 	publication_results::lifecycle(host, &other_control, "pause").await;
 	assert!(viewer.directory_reader("directory").await.is_err());
-	assert!(viewer_reader.list().await.is_err());
+	assert!(viewer_reader.list(None).await.is_err());
 	assert_eq!(
-		reader.list().await.unwrap().len(),
+		reader.list(None).await.unwrap().rooms.len(),
 		1,
 		"viewer pause does not pause the directory worker"
 	);
 	publication_results::lifecycle(host, &other_control, "resume").await;
-	assert_eq!(viewer_reader.list().await.unwrap().len(), 1);
+	assert_eq!(viewer_reader.list(None).await.unwrap().rooms.len(), 1);
 	let denied = rooms_glowcap::policy::descriptor()
 		.unwrap()
 		.value_for_kind(session::KIND, &[], &[])
@@ -100,9 +100,9 @@ pub(super) async fn run(
 		}
 	}
 	publication_results::lifecycle(host, control, "pause").await;
-	assert!(reader.list().await.is_err());
+	assert!(reader.list(None).await.is_err());
 	publication_results::lifecycle(host, control, "resume").await;
-	assert_eq!(reader.list().await.unwrap().len(), 1);
+	assert_eq!(reader.list(None).await.unwrap().rooms.len(), 1);
 	// Replacement affects fresh acquisition. The retained reader keeps the
 	// exact target originally selected; it must not discover another directory.
 	owner
@@ -117,9 +117,9 @@ pub(super) async fn run(
 	changed.directories.as_mut_slice()[0].access =
 		custody::FieldKey::new(NonZeroU64::new(83).unwrap(), NonZeroU64::new(1).unwrap());
 	owner.replace_workspace(&changed).await.unwrap();
-	assert_eq!(reader.list().await.unwrap().len(), 1);
+	assert_eq!(reader.list(None).await.unwrap().rooms.len(), 1);
 	assert_eq!(
-		viewer_reader.list().await.unwrap().len(),
+		viewer_reader.list(None).await.unwrap().rooms.len(),
 		1,
 		"retained viewer reader keeps its original target"
 	);
@@ -128,9 +128,10 @@ pub(super) async fn run(
 			.directory_reader("directory")
 			.await
 			.unwrap()
-			.list()
+			.list(None)
 			.await
 			.unwrap()
+			.rooms
 			.is_empty()
 	);
 	assert!(
@@ -139,7 +140,7 @@ pub(super) async fn run(
 	);
 	owner.replace_workspace(&original).await.unwrap();
 	publication_results::lifecycle(host, &other_control, "revoke").await;
-	assert!(viewer_reader.list().await.is_err());
+	assert!(viewer_reader.list(None).await.is_err());
 	assert!(viewer.directory_reader("directory").await.is_err());
 	super::directory_ingress::run(host, owner, source, replacement).await;
 }

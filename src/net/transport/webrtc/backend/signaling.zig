@@ -61,11 +61,16 @@ pub const DialResolver = struct {
     }
 };
 
+/// How the backend's offers, answers, and candidates reach the far peer.
+/// `sendOffer` carries a dial's offer to the peer `designator` names, and
+/// `sendAnswer` carries an accept's answer back to the offerer `designator`
+/// names. `fd` is the exchange both sides route later candidates by.
 /// Signaling implementors are unknown at this declaration, so the send verbs
 /// keep `anyerror` return sets.
 pub const SignalingAuthority = struct {
     ctx: *anyopaque,
     sendOffer: *const fn (ctx: *anyopaque, fd: i32, designator: []const u8, sdp: []const u8) anyerror!void,
+    sendAnswer: *const fn (ctx: *anyopaque, fd: i32, designator: []const u8, sdp: []const u8) anyerror!void,
     sendCandidate: *const fn (ctx: *anyopaque, fd: i32, ice: []const u8) anyerror!void,
 };
 
@@ -119,6 +124,8 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
             return fd;
         }
 
+        /// Reserve one inbox seat and one payload slot for a queued answer or
+        /// candidate. `publishSignalIn` consumes both.
         pub fn reserveSignalPayload(self: *Self) !u8 {
             self.signal_mutex.lock();
             defer self.signal_mutex.unlock();
@@ -128,19 +135,42 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
             return slot;
         }
 
-        pub fn publishSignalPayload(self: *Self, item: SignalIn) error{WakeNudgeFailed}!void {
+        /// Reserve one inbox seat and mint the exchange fd for an adoption.
+        /// `publishSignalIn` consumes the seat, and `releaseSignalSeat` gives
+        /// it back when the adoption is abandoned before publication.
+        fn reserveAdopt(self: *Self) !Fd {
+            self.signal_mutex.lock();
+            defer self.signal_mutex.unlock();
+            const fd = self.next_fd;
+            if (fd == std.math.maxInt(Fd)) return error.OutOfFds;
+            if (self.signal_in.items.len + self.signal_reservations >= max_signal_in) return error.WouldBlock;
+            self.next_fd += 1;
+            self.signal_reservations += 1;
+            return fd;
+        }
+
+        fn releaseSignalSeat(self: *Self) void {
+            self.signal_mutex.lock();
+            defer self.signal_mutex.unlock();
+            std.debug.assert(self.signal_reservations > 0);
+            self.signal_reservations -= 1;
+        }
+
+        /// Queue one reserved row and wake the loop. The reservation is
+        /// consumed on every outcome. A failed wake releases a payload slot
+        /// here, while an adopted peer stays with the caller, which closes it.
+        pub fn publishSignalIn(self: *Self, item: SignalIn) error{WakeNudgeFailed}!void {
             self.signal_mutex.lock();
             defer self.signal_mutex.unlock();
             std.debug.assert(self.signal_reservations > 0);
             std.debug.assert(self.signal_in.items.len < max_signal_in);
             self.signal_reservations -= 1;
             _ = self.signal_wake.nudge() catch |err| {
-                const slot = switch (item) {
-                    .answer => |value| value.slot,
-                    .candidate => |value| value.slot,
-                    .adopt => unreachable,
-                };
-                self.signal_payloads.release(slot);
+                switch (item) {
+                    .answer => |value| self.signal_payloads.release(value.slot),
+                    .candidate => |value| self.signal_payloads.release(value.slot),
+                    .adopt => {},
+                }
                 self.signal_wake_failure.record(err);
                 return err;
             };
@@ -177,39 +207,46 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
         }
 
         /// Adopt an answerer peer a signaling owner brought up against an inbound
-        /// offer. Thread-safe. Returns the exchange fd: route the offerer's later
-        /// candidates to it with `provideRemoteCandidate`, and expect the
-        /// backend's own `sendCandidate` calls under it. Ownership of `peer`
-        /// transfers to the backend on entry, including failure: overload or fd
-        /// exhaustion closes it here rather than returning a half-owned sidecar
-        /// peer to the signaling layer.
+        /// offer by hand. Thread-safe. Returns the exchange fd: route the
+        /// offerer's later candidates to it with `provideRemoteCandidate`, and
+        /// expect the backend's own `sendCandidate` calls under it. Ownership of
+        /// `peer` transfers to the backend on entry, including failure: overload
+        /// or fd exhaustion closes it here rather than returning a half-owned
+        /// sidecar peer to the signaling layer.
         pub fn adoptAnswerer(self: *Self, peer: Peer) !Fd {
             var owned = peer;
-            self.signal_wake_failure.check() catch |err| {
-                owned.deinit();
+            errdefer owned.deinit();
+            try self.signal_wake_failure.check();
+            const fd = try reserveAdopt(self);
+            try publishSignalIn(self, .{ .adopt = .{ .fd = fd, .peer = owned } });
+            return fd;
+        }
+
+        /// Answer an inbound offer from the peer `designator` names: create the
+        /// answerer, scope the exchange to that designator (ADR-0105), set the
+        /// offer, produce the answer, hand it to the authority's `sendAnswer`
+        /// under the reserved fd, and adopt the peer. Thread-safe. Returns the
+        /// exchange fd: route the offerer's later candidates to it with
+        /// `provideRemoteCandidate`, and expect the backend's own `sendCandidate`
+        /// calls under it. The accept completion fires when the channel opens.
+        /// A refusal commits nothing: the far peer saw no answer, or saw one for
+        /// a channel this backend closed before adopting it.
+        pub fn startAnswer(self: *Self, designator: []const u8, sdp: []const u8) !Fd {
+            try self.signal_wake_failure.check();
+            const key = crypto.PeerKey.fromDesignator(designator) orelse return error.InvalidAddress;
+            var peer = self.resident.newPeer(false) catch return error.AcceptFailed;
+            errdefer peer.deinit();
+            peer.authorizeRemote(key);
+            try peer.setRemoteOffer(sdp);
+            var answer_buf: [signaling_frame_bytes]u8 = undefined;
+            var answer_len: usize = 0;
+            const answer = try peer.createAnswer(&answer_buf, &answer_len);
+            const fd = try reserveAdopt(self);
+            self.signaling.sendAnswer(self.signaling.ctx, fd, designator, answer) catch |err| {
+                releaseSignalSeat(self);
                 return err;
             };
-            self.signal_mutex.lock();
-            const fd = self.next_fd;
-            if (fd == std.math.maxInt(Fd)) {
-                self.signal_mutex.unlock();
-                owned.deinit();
-                return error.OutOfFds;
-            }
-            if (self.signal_in.items.len + self.signal_reservations >= max_signal_in) {
-                self.signal_mutex.unlock();
-                owned.deinit();
-                return error.WouldBlock;
-            }
-            self.next_fd += 1;
-            _ = self.signal_wake.nudge() catch |err| {
-                self.signal_wake_failure.record(err);
-                self.signal_mutex.unlock();
-                owned.deinit();
-                return err;
-            };
-            self.signal_in.appendAssumeCapacity(.{ .adopt = .{ .fd = fd, .peer = owned } });
-            self.signal_mutex.unlock();
+            try publishSignalIn(self, .{ .adopt = .{ .fd = fd, .peer = peer } });
             return fd;
         }
 
@@ -221,7 +258,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
                 self,
             );
             @memcpy(self.signal_payloads.bytes(slot, sdp.len), sdp);
-            try publishSignalPayload(self, .{ .answer = .{ .fd = fd, .slot = slot, .len = @intCast(sdp.len) } });
+            try publishSignalIn(self, .{ .answer = .{ .fd = fd, .slot = slot, .len = @intCast(sdp.len) } });
         }
 
         /// Deliver one far ICE candidate for the exchange `fd` names. Thread-safe.
@@ -232,7 +269,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
                 self,
             );
             @memcpy(self.signal_payloads.bytes(slot, ice.len), ice);
-            try publishSignalPayload(self, .{ .candidate = .{ .fd = fd, .slot = slot, .len = @intCast(ice.len) } });
+            try publishSignalIn(self, .{ .candidate = .{ .fd = fd, .slot = slot, .len = @intCast(ice.len) } });
         }
 
         /// Wake a parked `poll` so an owner-thread stop flag can be observed without

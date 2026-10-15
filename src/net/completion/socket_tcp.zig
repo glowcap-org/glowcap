@@ -342,10 +342,8 @@ fn closeFd(comptime os: Os, fd: i32) void {
 }
 
 /// The typed setup-fault set both OS siblings speak: the actionable errno axis
-/// plus the per-operation fallback. The Linux path once collapsed every
-/// unrecognized fault to one `SyscallFailed`, losing which syscall failed while
-/// the kqueue sibling already named each. `checkLinux` takes the operation's
-/// fallback so both name the operation (ADR-0081, contract 1).
+/// plus the per-operation fallback. `checkLinux` takes the operation's
+/// fallback so both siblings name the syscall that failed (ADR-0081, contract 1).
 const CheckError = error{
     AddressInUse,
     PermissionDenied,

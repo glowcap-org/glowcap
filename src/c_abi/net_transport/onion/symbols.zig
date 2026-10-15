@@ -33,7 +33,7 @@ pub const symbols = [_]Symbol{
     //
     // Onion has no runtime-native Tor equivalent, so its ergonomic surface
     // dispatches these calls away from Deno's event loop. TCP and inproc use the
-    // same rule for their raw native frame shuttles, while their high-level hosts
+    // same rule for their raw Zig frame shuttles, while their high-level hosts
     // prefer runtime-native async transports.
     // Every release is a completion barrier and is dispatched off-thread:
     // netlayer release joins connect/listen tasks, connection release joins

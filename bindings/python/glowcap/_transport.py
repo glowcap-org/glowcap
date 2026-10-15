@@ -1,7 +1,7 @@
 """Generic transport composition values.
 
 The binding core knows only these two seams. Transport modules construct
-providers for the native driver or connectors for an embedder-owned byte
+providers for the FFI driver or connectors for an embedder-owned byte
 channel. This module never names a concrete transport.
 """
 
@@ -54,7 +54,7 @@ def _rollback_failed_provider(
 
 @dataclass(frozen=True, slots=True)
 class Provider:
-    """One explicitly composed native provider package.
+    """One explicitly composed FFI provider package.
 
     ``installer`` owns archive loading, configuration, registration, and
     resident lifetime. The driver registry is the sole transport-symbol

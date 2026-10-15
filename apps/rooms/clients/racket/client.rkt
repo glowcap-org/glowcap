@@ -1,5 +1,5 @@
 #lang racket/base
-;; A rooms chat client, written on glowcap actors in native Racket.
+;; A rooms chat client, written on glowcap actors in Racket.
 ;;
 ;; It enters the named room, waits until everyone it expects is present, posts
 ;; one line, and collects each expected member's line as the room pushes it back.
@@ -45,7 +45,9 @@
 ;; if new) and subscribe as `nick`.
 (define (join-room locator room-name nick)
   (define d (room-connect locator))
-  (printf "[~a] rooms: ~a\n" nick (format-rooms (dir-list d)))
+  (define live (dir-list d))
+  (printf "[~a] rooms: ~a~a\n" nick (format-rooms (room-page-rooms live))
+          (if (room-page-next live) " and more" ""))
   (flush-output)
   (dir-watch d (lambda (kind room)
                  (printf "[~a] directory: ~a ~a (~a)\n"

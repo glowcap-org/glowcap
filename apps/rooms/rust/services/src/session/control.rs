@@ -18,6 +18,9 @@ use tokio::{
 	sync::{Notify, watch},
 };
 
+/// The longest a `tick` may wait for new events.
+const MAX_TICK_WAIT_SECS: u64 = 30;
+
 pub type Report = Rc<dyn Fn(Failure)>;
 pub struct Control {
 	listener: UnixListener,
@@ -45,7 +48,7 @@ request::request! {
 		Acquire => "acquire" { id: String, request: Box<acquisitions::Request> },
 		ReleaseAcquisition => "release-acquisition" { id: String },
 		CommandResult => "command-result" { id: String, base: u64, name: String, args: Vec<String> },
-		DirectoryRead => "directory-read" { id: String, peer: Option<String> },
+		DirectoryRead => "directory-read" { id: String, peer: Option<String>, #[serde(default)] name: Option<String> },
 		Resume => "resume" {},
 		Stop => "stop" {},
 	}
@@ -202,7 +205,7 @@ impl Control {
 				Ok(json!({"ok":true,"result":serde_json::from_str::<Value>(data)?,
 					"adopted":command.adopted().await.map_err(peer_failure)?}))
 			}
-			RequestBody::DirectoryRead { id, peer } => {
+			RequestBody::DirectoryRead { id, peer, name } => {
 				let reader = app.workspace.directory_reader(&id).await.map_err(peer_failure)?;
 				let registration = match peer {
 					Some(peer) => Some(
@@ -215,9 +218,15 @@ impl Control {
 					),
 					None => None,
 				};
+				// A name lookup also finds a dormant managed room, so it can tell
+				// a caller whether the public name is already claimed.
+				let rooms = match name {
+					Some(name) => Some(reader.named_rooms(&name).await.map_err(peer_failure)?),
+					None => None,
+				};
 				Ok(
 					json!({"ok":true,"location":reader.advertised_location().await.map_err(peer_failure)?,
-					"rooms":reader.list().await.map_err(peer_failure)?,"registration":registration}),
+					"rooms":rooms,"registration":registration}),
 				)
 			}
 			RequestBody::ReleaseCommand { id } => {
@@ -247,8 +256,10 @@ impl Control {
 				)
 			}
 			RequestBody::Tick { wait, after, after_id } => {
-				if wait > 30 {
-					return Err(Failure::invalid("wait must be 0..30 seconds"));
+				if wait > MAX_TICK_WAIT_SECS {
+					return Err(Failure::invalid(format!(
+						"wait must be 0..{MAX_TICK_WAIT_SECS} seconds"
+					)));
 				}
 				let deadline = tokio::time::Instant::now() + Duration::from_secs(wait);
 				let mut updates = self.feed.inbox.updates();

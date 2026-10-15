@@ -15,14 +15,17 @@
          "ffi-shared.rkt"
          "layouts-gen.rkt"
          "lib-resolve.rkt")
-(provide webrtc-fn
+(provide webrtc-fn make-GlowcapTransportProvider
          _GlowcapWebrtcReadyEvent
          GlowcapWebrtcReadyEvent-subject GlowcapWebrtcReadyEvent-events
-         _GlowcapWebrtcStringView
+         _GlowcapWebrtcStringView make-GlowcapWebrtcStringView
          GlowcapWebrtcStringView-ptr GlowcapWebrtcStringView-len
-         _GlowcapWebrtcIceServer
+         _GlowcapWebrtcIceServer make-GlowcapWebrtcIceServer
          GlowcapWebrtcIceServer-urls GlowcapWebrtcIceServer-url-count
          GlowcapWebrtcIceServer-username GlowcapWebrtcIceServer-credential
+         _GlowcapWebrtcSignaling make-GlowcapWebrtcSignaling
+         _GlowcapWebrtcSendOfferFn _GlowcapWebrtcSendAnswerFn _GlowcapWebrtcSendCandidateFn
+         _GlowcapWebrtcExchangeDoneFn
          _GlowcapWebrtcConfig _GlowcapWebrtcConfig-pointer make-GlowcapWebrtcConfig
          WEBRTC-EV-OPEN WEBRTC-EV-CANDIDATE WEBRTC-EV-READABLE
          WEBRTC-EV-WRITABLE WEBRTC-EV-CLOSED)
@@ -46,11 +49,36 @@
 (pin-layout! '_GlowcapWebrtcIceServer _GlowcapWebrtcIceServer
              GLOWCAP-WEBRTC-ICE-SERVER-SIZE GLOWCAP-WEBRTC-ICE-SERVER-LAYOUT)
 
+;; The signaling callbacks a netlayer calls while it runs an exchange for the
+;; driver. Each runs atomically on the thread that steps the driver and returns
+;; at once, so no other Racket thread can reach the netlayer while a step is on
+;; the C stack. A callback slot holds a function pointer, so the struct pins as
+;; five pointers.
+(define _GlowcapWebrtcSendOfferFn
+  (_fun #:atomic? #t _pointer _uint64 _pointer _size _pointer _size _pointer _size -> _int32))
+(define _GlowcapWebrtcSendAnswerFn
+  (_fun #:atomic? #t _pointer _uint64 _pointer _size _pointer _size -> _int32))
+(define _GlowcapWebrtcSendCandidateFn
+  (_fun #:atomic? #t _pointer _uint64 _pointer _size -> _int32))
+(define _GlowcapWebrtcExchangeDoneFn
+  (_fun #:atomic? #t _pointer _uint64 -> _void))
+
+(define-cstruct _GlowcapWebrtcSignaling
+  ([ctx _pointer]
+   [send-offer _pointer]
+   [send-answer _pointer]
+   [send-candidate _pointer]
+   [done _pointer])
+  #:malloc-mode 'atomic-interior)
+(pin-layout! '_GlowcapWebrtcSignaling _GlowcapWebrtcSignaling
+             GLOWCAP-WEBRTC-SIGNALING-SIZE GLOWCAP-WEBRTC-SIGNALING-LAYOUT)
+
 (define-cstruct _GlowcapWebrtcConfig
   ([ice-servers _pointer]
    [ice-server-count _size]
    [include-loopback-candidates _uint32]
-   [worker-threads _uint32])
+   [worker-threads _uint32]
+   [signaling _GlowcapWebrtcSignaling])
   #:malloc-mode 'atomic-interior)
 (pin-layout! '_GlowcapWebrtcConfig _GlowcapWebrtcConfig
              GLOWCAP-WEBRTC-CONFIG-SIZE GLOWCAP-WEBRTC-CONFIG-LAYOUT)

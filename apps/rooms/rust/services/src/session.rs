@@ -8,6 +8,7 @@ mod notice;
 mod peer;
 mod readiness;
 mod transports;
+mod webrtc;
 
 pub use config::{Config, HELP, Transport};
 pub use error::{Error, Worker};

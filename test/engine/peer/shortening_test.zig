@@ -53,7 +53,7 @@ test "a private shortening callback rewrites future sends and subscribes to the 
     try std.testing.expectEqual(model.ListenMode.shortening_only, recursive_body.listen.mode);
     try std.testing.expect(peer.takeOutbound() == null);
 
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.promise(5) },
         .args = &.{.{ .integer = 1 }},
     } });
@@ -83,7 +83,7 @@ test "a shortened deliver moves to the new position and stays on one wire" {
     }
 
     const before_args = [_]model.Argument{.{ .symbol = "before" }};
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.promise(5) },
         .args = &before_args,
     } });
@@ -113,7 +113,7 @@ test "a shortened deliver moves to the new position and stays on one wire" {
     );
 
     const after_args = [_]model.Argument{.{ .symbol = "after" }};
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.promise(5) },
         .args = &after_args,
     } });
@@ -151,7 +151,7 @@ test "a delayed shortening callback cannot rewrite a reused import position" {
 
     const positions = [_]u64{5};
     const deltas = [_]u64{1};
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -189,7 +189,7 @@ test "a delayed shortening callback cannot rewrite a reused import position" {
         var frame = frame_in;
         frame.deinit();
     }
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.promise(5) },
         .args = &.{},
     } });
@@ -326,7 +326,7 @@ test "a shortening callback crossing source release returns its introduced promi
 
     const source_positions = [_]u64{5};
     const source_deltas = [_]u64{1};
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -406,7 +406,7 @@ test "releasing a shortened source also releases the callback-introduced target"
 
     const source_positions = [_]u64{5};
     const source_deltas = [_]u64{1};
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
     try std.testing.expect(!peer.session_state.holdsImport(.from(5)));
     try std.testing.expect(!peer.session_state.holdsImport(.from(6)));
 

@@ -16,7 +16,7 @@
 ;; pump (vat, session-* verbs, events) is the core's; only the transport differs.
 ;;
 ;; Explicit provider/connector values keep iroh out of TCP-only programs; `listen-iroh` registers the
-;; endpoint as a provider with the native loop; the raw `iroh-endpoint` byte
+;; endpoint as a provider with the driver loop; the raw `iroh-endpoint` byte
 ;; path remains for consumers that run their own protocol.
 
 (require ffi/unsafe
@@ -228,7 +228,7 @@
 
 ;; The dedicated readiness thread: park on the netlayer's readiness fd, and on
 ;; each wake drain the records and post them to the waiting connections. The park
-;; is native: `unsafe-file-descriptor->semaphore` registers the fd with the
+;; is FFI: `unsafe-file-descriptor->semaphore` registers the fd with the
 ;; place's poller and posts the semaphore when it is readable, so the thread
 ;; sleeps without freezing the place.
 (define (loop-run lp)
@@ -396,7 +396,7 @@
 ;; relay pipes the bytes between its legs and keys nothing itself (ADR-0086),
 ;; and a foreign CapTP (a Spritely Goblins vat running its own protocol over a
 ;; netlayer written for it) frames those bytes its own way. Neither wants the
-;; native driver listener to bring up CapTP on its behalf.
+;; FFI driver listener to bring up CapTP on its behalf.
 ;;
 ;; The shape is `byte-channel`: `read` answers the next chunk or eof, `write`
 ;; sends one by admitting bounded prefixes and waiting only when the sidecar has
@@ -516,7 +516,7 @@
      ;; Collection has no caller to receive the retained loop failure. Explicit
      ;; close remains its observing barrier; the finalizer only guarantees
      ;; release and must not raise on the collector's thread.
-     (run-native-finalizer! "iroh-endpoint.finalize" (lambda () (iroh-endpoint-close! q)) #:layer 'transport)))
+     (run-ffi-finalizer! "iroh-endpoint.finalize" (lambda () (iroh-endpoint-close! q)) #:layer 'transport)))
   e)
 
 ;; Internal fault projection used by the resident loop and binding dogfood.

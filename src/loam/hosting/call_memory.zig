@@ -10,8 +10,8 @@ const driver = @import("driver_core");
 pub fn inputAllocationBound(shape: values.Bounds, verb_bytes: usize, dependent: bool) !AllocationBound {
     var bound = try values.allocationBound(driver.Value, shape);
     try bound.include(verb_bytes, 1, 1);
-    try bound.include(try std.math.mul(usize, shape.capabilities, @sizeOf(driver.Host.StagedCapabilityRetain)), @alignOf(driver.Host.StagedCapabilityRetain), 1);
-    if (dependent) try bound.include(@sizeOf(driver.Host.StagedCapabilityRetain), @alignOf(driver.Host.StagedCapabilityRetain), 1);
+    try bound.include(try std.math.mul(usize, shape.capabilities, @sizeOf(driver.Capability)), @alignOf(driver.Capability), 1);
+    if (dependent) try bound.include(@sizeOf(driver.Capability), @alignOf(driver.Capability), 1);
     return bound;
 }
 
@@ -76,8 +76,7 @@ pub const Memory = struct {
     /// frames and every preparation restart. Working storage ends only after
     /// borrowed callbacks, reads and preparation retire. The arenas acquire
     /// incremental fixed blocks, charged with headers, alignment and growth slack.
-    /// This replaces the eager ceiling-sized buffer without another payload copy.
-    /// The existing whole-call reservation still owns admission and fairness.
+    /// The whole-call reservation still owns admission and fairness.
     pub fn init(self: *Memory, allocator: Allocator, limit: usize) void {
         self.backing = .{ .child = allocator, .limit = limit };
         self.input = .{ .backing = &self.backing };

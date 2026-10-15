@@ -19,9 +19,12 @@ test "Node action extraction preserves the inline Node footprint" {
     // each hash map carries one more. One further word counts the queue seats
     // promised to actions the Host has parked off the queue (ADR-0145). The
     // list of batches staged for an open provisional window adds one more
-    // array list (ADR-0194).
+    // array list (ADR-0194). The root of the sessions' wire-hash secrets
+    // adds one word (ADR-0218). The peer table is a handle table: its rows
+    // are an array list, and a free chain head and two counts replace the
+    // monotonic handle counter (ADR-0225).
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 992), @sizeOf(Node));
+    try std.testing.expectEqual(@as(usize, 1016), @sizeOf(Node));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));
 }
 
@@ -276,7 +279,10 @@ test "peer handle exhaustion rejects owned and borrowed registration before acqu
     const allocator = live.allocator();
     var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x1b)));
     defer node.deinit();
-    node.next_peer_handle = std.math.maxInt(u64);
+    // Every index spent: the table's row count is the next index, and the
+    // rows are given back before `deinit` walks them.
+    node.peers.rows.items.len = glowcap.foundation.handle_table.row_limit;
+    defer node.peers.rows.items.len = 0;
 
     const owned_baseline = live.liveBytes();
     try std.testing.expectError(error.CapabilitySpaceExhausted, node.registerPeer(.{}));
@@ -573,4 +579,17 @@ test "registerPeer yields stable, non-reused ids and node-owned peers" {
     const c = try node.registerPeer(.{});
     try std.testing.expect(c != a);
     try std.testing.expect(c != b);
+}
+
+test "a removed peer's handle finds nothing after a later peer takes its row" {
+    var node = Node.init(std.testing.allocator, @as([crypto.SEED_BYTES]u8, @splat(0x1c)));
+    defer node.deinit();
+    const first = try node.registerPeer(.{});
+    node.removePeer(first);
+    const second = try node.registerPeer(.{});
+    try std.testing.expect(first != second);
+    try std.testing.expectEqual(glowcap.foundation.handle_table.index(first), glowcap.foundation.handle_table.index(second));
+    try std.testing.expect(node.peer(first) == null);
+    try std.testing.expect(node.peer(second) != null);
+    try std.testing.expectEqual(@as(usize, 1), node.peers.count());
 }

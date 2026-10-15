@@ -25,9 +25,10 @@
 	display: grid;
 	place-items: center;
 	padding: 24px;
-	/* The ground the body already stands on, so the fade takes away the mark and
-	   the words and leaves the colour exactly where it was. */
-	background: var(--page-bg);
+	/* No ground of its own. The body's ground and the mycelium in it show
+	   through, and the interface waits unseen under it instead (below), so the
+	   fade takes away the mark and the words and leaves the ground exactly as
+	   it was. */
 	/* boot.ts rides the end of this fade to take the element out of the
 	   document, so a transition removed from here is a screen left behind. It
 	   would be an invisible, untouchable one, which is why nothing breaks, but
@@ -39,6 +40,14 @@
 :root[data-boot="done"] .boot {
 	opacity: 0;
 	pointer-events: none;
+}
+/* The interface is drawn under the opening screen and stays unseen until the
+   handover, then rises through the same fade the screen leaves by. */
+#root {
+	transition: opacity .3s ease;
+}
+:root:not([data-boot="done"]):not([data-boot="leaving"]) #root {
+	opacity: 0;
 }
 /* A reload that has already committed. The opening element is gone, so the
    body itself wears the sheet until the next parse puts a real one up. */

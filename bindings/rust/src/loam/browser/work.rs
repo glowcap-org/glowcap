@@ -21,7 +21,7 @@ impl Drop for Custody {
 		}
 		if !self.started {
 			// No transaction was submitted, so non-commit is established.
-			if let Err(error) = check(unsafe { ffi::glowcap_loam_work_finish(self.raw, 1) }, false) {
+			if let Err(error) = check(unsafe { ffi::glowcap_loam_work_finish(self.raw, 1) }) {
 				self.owner.host.record_background_failure(error);
 			}
 		}
@@ -44,7 +44,7 @@ pub(crate) async fn execute(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLo
 			let (mut custody, kind, terminal) = retained(async move {
 				let mut custody = custody;
 				let mut kind = 0;
-				check(unsafe { ffi::glowcap_loam_work_kind(raw, &mut kind) }, false)?;
+				check(unsafe { ffi::glowcap_loam_work_kind(raw, &mut kind) })?;
 				custody.started = true;
 				let terminal = owner
 					.store
@@ -53,7 +53,7 @@ pub(crate) async fn execute(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLo
 						Ok(unsafe { ffi::glowcap_loam_work_plan(raw, Some(callback), plan.context()) })
 					})
 					.await;
-				check(unsafe { ffi::glowcap_loam_work_finish(raw, terminal.outcome) }, false)?;
+				check(unsafe { ffi::glowcap_loam_work_finish(raw, terminal.outcome) })?;
 				Ok((custody, kind, terminal))
 			})
 			.await?;
@@ -61,9 +61,9 @@ pub(crate) async fn execute(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLo
 			let rc = unsafe { ffi::glowcap_loam_work_complete(raw, &mut completed) };
 			// Snapshot the completion diagnostic before release or another task
 			// clears its thread-local slot. Only owned errors cross the relay.
-			let completion = check(rc, false);
+			let completion = check(rc);
 			if completed != 0 {
-				check(unsafe { ffi::glowcap_loam_work_release(raw) }, false)?;
+				check(unsafe { ffi::glowcap_loam_work_release(raw) })?;
 				custody.released = true;
 			}
 			if let Some(error) = terminal.failure {
@@ -96,11 +96,11 @@ pub(crate) fn finish_retired(owner: &Rc<AttachmentInner>, raw: *mut ffi::Glowcap
 	if code != crate::sys::OK
 		&& code != ffi::GLOWCAP_LOAM_ERR_STALE_COMPLETION
 		&& code != ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED
-		&& let Err(error) = check(code, false)
+		&& let Err(error) = check(code)
 	{
 		owner.host.record_background_failure(error);
 	}
-	if let Err(error) = check(unsafe { ffi::glowcap_loam_work_release(raw) }, false) {
+	if let Err(error) = check(unsafe { ffi::glowcap_loam_work_release(raw) }) {
 		owner.host.record_background_failure(error);
 		return false;
 	}

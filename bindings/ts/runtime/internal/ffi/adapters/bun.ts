@@ -10,8 +10,8 @@
 import { dlopen as bunDlopen, FFIType, JSCallback, ptr, toArrayBuffer } from "bun:ffi";
 import { socketConnect, socketListen } from "./node_net.ts";
 import type {
-	NativeCallback,
-	NativeType,
+	FfiCallback,
+	FfiType,
 	NetConn,
 	NetListener,
 	Ptr,
@@ -23,7 +23,7 @@ import type {
 } from "../runtime.ts";
 import { type PtrBridge, wrapCallbackFn, wrapSymbols } from "./ptr_wrap.ts";
 
-function bunType(t: NativeType): FFIType {
+function bunType(t: FfiType): FFIType {
 	switch (t) {
 		case "void":
 			return FFIType.void;
@@ -78,7 +78,7 @@ const ffi: RuntimeFfi = {
 	makeCallback(
 		def: SymbolDef,
 		fn: (...args: unknown[]) => unknown,
-	): NativeCallback {
+	): FfiCallback {
 		const cb = new JSCallback(wrapCallbackFn(def, fn, bridge), bunDef(def));
 		return {
 			pointer: bridge.toPtr(cb.ptr),
@@ -93,13 +93,13 @@ const ffi: RuntimeFfi = {
 
 	readMemory(p: Ptr, len: number): ArrayBuffer {
 		if (p === 0n || len === 0) return new ArrayBuffer(0);
-		// toArrayBuffer is a view onto native memory; slice keeps the copy owned.
+		// toArrayBuffer is a view onto FFI memory; slice keeps the copy owned.
 		return toArrayBuffer(Number(p), 0, len).slice(0);
 	},
 
 	writeMemory(p: Ptr, bytes: Uint8Array): void {
 		if (p === 0n || bytes.length === 0) return;
-		// toArrayBuffer (unsliced) is a live view onto native memory.
+		// toArrayBuffer (unsliced) is a live view onto FFI memory.
 		new Uint8Array(toArrayBuffer(Number(p), 0, bytes.length)).set(bytes);
 	},
 

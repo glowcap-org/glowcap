@@ -59,7 +59,7 @@ pub fn takeWithdrawCount(peer: *engine.Peer) !u64 {
     defer frame.deinit();
     const body = try codec.syrup.decodeBodyForProfile(peer.session_state.captp_version, frame.view());
     if (body != .deliver) return error.UnexpectedMessage;
-    const handoff = (try body.deliver.args.at(1)).handoff;
+    const handoff = try (try body.deliver.args.at(1)).handoff.project();
     if (handoff != .receive) return error.UnexpectedMessage;
     return handoff.receive.handoff_count;
 }

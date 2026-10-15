@@ -1,10 +1,17 @@
 //! Measure-then-fill storage for Syrup record writers.
 //!
-//! One generic writer drives both passes. The count pass cannot allocate, the
-//! fill pass owns exactly one slice, and a short or long fill is a returned
-//! invariant failure rather than uninitialized bytes or an out-of-bounds write.
+//! One generic writer drives both passes. The count pass allocates nothing
+//! for a tree of owned or parsed values (a lazy codec hint list is the one
+//! exception, named at `signing.writePeerLocatorRecord`), the fill pass owns
+//! exactly one slice, and a short or long fill is a returned invariant failure
+//! rather than uninitialized bytes or an out-of-bounds write.
+//!
+//! A sink takes a byte, a slice, or a decimal with its delimiter. The decimal is its own verb
+//! because every length prefix and position is one: the count pass measures
+//! its width without forming digits, and the fill pass writes them in place.
 
 const std = @import("std");
+const decimal = @import("foundation").decimal;
 const WalkError = @import("shared.zig").WalkError;
 
 const CountSink = struct {
@@ -19,6 +26,12 @@ const CountSink = struct {
 
     pub fn appendSlice(self: *CountSink, bytes: []const u8) error{}!void {
         self.total += bytes.len;
+    }
+
+    /// Reserve the digits and their Syrup delimiter together.
+    pub fn appendTerminatedDecimal(self: *CountSink, value: u64, suffix: u8) error{}!void {
+        _ = suffix;
+        self.total += decimal.width(value) + 1;
     }
 };
 
@@ -40,6 +53,16 @@ const SliceSink = struct {
         @memcpy(self.buf[self.cursor..][0..bytes.len], bytes);
         self.cursor += bytes.len;
     }
+
+    /// Reserve the digits and their Syrup delimiter together.
+    pub fn appendTerminatedDecimal(self: *SliceSink, value: u64, suffix: u8) error{EncoderInvariantViolation}!void {
+        const width = decimal.width(value);
+        if (self.cursor > self.buf.len or self.buf.len - self.cursor < width + 1)
+            return error.EncoderInvariantViolation;
+        decimal.fill(self.buf[self.cursor..][0..width], value);
+        self.buf[self.cursor + width] = suffix;
+        self.cursor += width + 1;
+    }
 };
 
 /// Growable sink used only for canonical-collection emit scratch.
@@ -55,6 +78,14 @@ pub const ListSink = struct {
 
     pub fn appendSlice(self: *ListSink, bytes: []const u8) std.mem.Allocator.Error!void {
         try self.list.appendSlice(self.allocator, bytes);
+    }
+
+    /// Reserve the digits and their Syrup delimiter together.
+    pub fn appendTerminatedDecimal(self: *ListSink, value: u64, suffix: u8) std.mem.Allocator.Error!void {
+        const width = decimal.width(value);
+        const bytes = try self.list.addManyAsSlice(self.allocator, width + 1);
+        decimal.fill(bytes[0..width], value);
+        bytes[width] = suffix;
     }
 };
 

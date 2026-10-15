@@ -7,7 +7,7 @@ const engine = @import("engine");
 /// the turn-borrowed value the vat should resolve with.
 pub const Outcome = union(enum) {
     claimed,
-    resolve: model.Argument,
+    resolve: model.view.Argument,
 };
 
 /// A served reply's interceptor. Host integration uses this seam to turn a
@@ -21,6 +21,6 @@ pub const Interceptor = struct {
     func: *const fn (
         ctx: ?*anyopaque,
         answer: engine.AnswerTarget,
-        fulfilled: model.Argument,
+        fulfilled: model.view.Argument,
     ) anyerror!Outcome,
 };

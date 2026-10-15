@@ -61,6 +61,9 @@ pub const Buffers = support.Buffers;
 /// Borrowed provider configuration. The selected provider owns validation.
 pub const OperationOptions = support.OperationOptions;
 
+/// Where a dial came from: the introducing session's designator for a handoff.
+pub const DialOrigin = support.DialOrigin;
+
 /// Pinned shim reader/writer storage for userspace byte transports.
 pub const PinnedStream = support.PinnedStream;
 

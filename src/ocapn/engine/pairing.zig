@@ -10,7 +10,7 @@
 //! `open` state (both handshake halves observed) with the bootstrap export
 //! installed at id 0.
 //!
-//! Offer jobs: `paired` runs `Offer.native()` (prefers `next` / Cap'n Proto).
+//! Offer jobs: `paired` runs `Offer.glowcap()` (prefers `next` / Cap'n Proto).
 //! `pairedV1_0Syrup` and `pairedWithKeys` run `Offer.v1_0Syrup()` (`v1_0` / Syrup).
 //! Callers that need an arbitrary intersected offer use `negotiate` then
 //! `pairedNegotiated`.
@@ -104,12 +104,12 @@ pub fn shuttleUntilQuiescent(p1: *Peer, p2: *Peer) !ShuttleOutcome {
 
 /// Construct a paired pair and drive the in-process handshake with stub-zero
 /// `session_pubkey` / `acceptable_location_sig` (the no-crypto fixture path).
-/// Settles `Offer.native()`, typically `next` / `"glowcap-next"` over Cap'n
+/// Settles `Offer.glowcap()`, typically `next` / `"glowcap-next"` over Cap'n
 /// Proto. V1.0-floor (`v1_0` / Syrup) fixtures use `pairedV1_0Syrup` instead. Both peers reach
 /// `open` with handshake bookkeeping populated. The handshake-artifact events
 /// are drained so the caller sees empty event queues.
 pub fn paired(allocator: std.mem.Allocator) !Pair {
-    return pairedWithOffers(allocator, engine.negotiation.Offer.native(model.FeatureSet.full()), engine.negotiation.Offer.native(model.FeatureSet.full()));
+    return pairedWithOffers(allocator, engine.negotiation.Offer.glowcap(model.FeatureSet.full()), engine.negotiation.Offer.glowcap(model.FeatureSet.full()));
 }
 
 /// Construct a paired pair from an already-negotiated handshake outcome.
@@ -149,7 +149,7 @@ fn offersShareCaptpVersion(local: engine.negotiation.Offer, remote: engine.negot
 
 /// As `paired`, but both peers run `codec_id` under `v1_0` (full feature
 /// set). Cross-codec V1.0 parity uses this so resolver-callback
-/// translation stays on. Native Cap'n Proto without V1.0 translation goes
+/// translation stays on. glowcap's Cap'n Proto without V1.0 translation goes
 /// through `paired` / `pairedWithOffers`.
 pub fn pairedWithCodec(allocator: std.mem.Allocator, codec_id: model.CodecId) !Pair {
     return pairedWithCaptpVersionCodecAndFeatures(allocator, .v1_0, codec_id, model.FeatureSet.full());
@@ -245,7 +245,7 @@ pub fn pairedWithKeys(
     p2_seed: [crypto.SEED_BYTES]u8,
 ) !Pair {
     // Keyed handshake is the authenticated `"1.0"` interop path (ADR-0006,
-    // the one live Goblins interop rides): `v1_0` + Syrup. Native CapNP
+    // the one live Goblins interop rides): `v1_0` + Syrup. glowcap CapNP
     // keyed pairs go through `pairedWithOffers`
     // + `sendKeyedStartSession`.
     const negotiated = engine.negotiation.negotiate(
@@ -318,7 +318,7 @@ fn queueStartSession(
     pubkey: []const u8,
     sig: []const u8,
 ) !void {
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .start_session = .{
             // The baseline, like every hello: the preference rides the hints
             // `advertisedLocator` just stamped.
@@ -341,8 +341,8 @@ fn verifyAndDrainEvents(allocator: std.mem.Allocator, peer: *Peer) !void {
     while (peer.pollEvent()) |event| {
         var e = event;
         defer e.deinit();
-        const view = try e.view();
-        switch (view) {
+        const view = e.view();
+        switch (view.*) {
             .start_session => |ss| {
                 engine.verifyPartnerStartSession(allocator, ss) catch |err| switch (err) {
                     error.InvalidStartSessionSignature => return Error.InvalidStartSessionSignature,

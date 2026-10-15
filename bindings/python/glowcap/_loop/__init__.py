@@ -1,8 +1,8 @@
 """Internal: the asyncio face of the driver archive (ADR-0112).
 
-One thread drives one native loop and drains its events into asyncio futures.
+One thread drives one driver loop and drains its events into asyncio futures.
 The loop owns provider packages and adopts a real ``GlowcapHost`` handle, so
-sessions opened by native transports use the same ``glowcap_host_*`` verbs as
+sessions opened by FFI transports use the same ``glowcap_host_*`` verbs as
 byte-fed Hosts.
 """
 
@@ -44,7 +44,7 @@ from .sessions import _SessionsMixin
 class DriverLoop(
     _LifecycleMixin, _SessionsMixin, _ProgressMixin, _DialingMixin, _ListenersMixin
 ):
-    """One stepping native loop over one multi-session host.
+    """One stepping driver loop over one multi-session host.
 
     Construct with :meth:`open` on the asyncio thread that will drive it,
     ``start()`` to park on the readiness descriptor, and ``close()`` before
@@ -78,6 +78,7 @@ class DriverLoop(
         self._release_attempted = False
         self._terminal_failure: "Optional[GlowcapError]" = None
         self._terminal_failures: "list[BaseException]" = []
+        self._retained: "list[object]" = []
         self._terminal_failure_count = 0
         self._closing = False
         self._close_task: "Optional[asyncio.Task[None]]" = None
@@ -115,6 +116,7 @@ class DriverLoop(
         handshake_ms: int = _c.DRIVER_DEFAULT_HANDSHAKE_MS,
         listener_setup_ms: int = _c.DRIVER_DEFAULT_LISTENER_SETUP_MS,
         settle_ms: int = _c.DRIVER_DEFAULT_SETTLE_MS,
+        busy_poll_ns: int = _c.DRIVER_DEFAULT_BUSY_POLL_NS,
     ) -> "DriverLoop":
         """Create the loop. ``seed`` is the host constructor's 64-byte
         contract (durable identity, then a fresh session-key root). ``None``
@@ -125,6 +127,7 @@ class DriverLoop(
             handshake_ms,
             listener_setup_ms,
             settle_ms,
+            busy_poll_ns,
         )
         material = seed if seed is not None else secrets.token_bytes(64)
         if len(material) != 64:
@@ -186,13 +189,14 @@ class DriverLoop(
         handshake_ms: int = _c.DRIVER_DEFAULT_HANDSHAKE_MS,
         listener_setup_ms: int = _c.DRIVER_DEFAULT_LISTENER_SETUP_MS,
         settle_ms: int = _c.DRIVER_DEFAULT_SETTLE_MS,
+        busy_poll_ns: int = _c.DRIVER_DEFAULT_BUSY_POLL_NS,
     ) -> "DriverLoop":
-        """Transfer a byte-fed Host into a native driver transactionally.
+        """Transfer a byte-fed Host into an FFI driver transactionally.
 
         ``glowcap_driver_take_host`` is called before the Python Host changes
         state. On failure the caller still owns the original Host. On success
         this exact Host wrapper becomes the loop's application face and the
-        loop becomes its sole native release authority.
+        loop becomes its sole FFI release authority.
         """
         if host.driver_loop is not None:
             raise GlowcapError(
@@ -205,6 +209,7 @@ class DriverLoop(
             handshake_ms,
             listener_setup_ms,
             settle_ms,
+            busy_poll_ns,
         )
         out = ctypes.c_void_p(None)
         _check(
@@ -299,7 +304,7 @@ class DriverLoop(
             return
         self._release_attempted = True
         release_attempt = self._release_owner.release(
-            "driver-loop.background.release", self._retire_native_release
+            "driver-loop.background.release", self._retire_ffi_release
         )
         if release_attempt.error is not None and not release_attempt.consumed:
             release_error = release_attempt.error
@@ -318,7 +323,7 @@ class DriverLoop(
             return None
         session = self.adopt_session(ptr)
         # Serving releases application frames parked behind the handshake and
-        # may invoke a hosted behavior before the native call returns.
+        # may invoke a hosted behavior before the FFI call returns.
         prior = _enter_host_deliver(self._wrapper)
         try:
             _check(_driver.glowcap_driver_session_serve(self._h, ctypes.c_void_p(ptr)))
@@ -328,6 +333,15 @@ class DriverLoop(
         return session
 
     # ── Extension transports ────────────────────────────────────────────────
+
+    def _retain_until_teardown(self, value: object) -> None:
+        """Keep ``value`` alive as long as this loop.
+
+        A provider whose C side calls back into Python parks the objects behind
+        those callbacks here, because the driver holds their addresses for as
+        long as it holds the provider.
+        """
+        self._retained.append(value)
 
     def _install_provider(self, prepare) -> None:
         """Install one package while its archive-owned construction owner is live.
@@ -354,7 +368,7 @@ class DriverLoop(
             active = False
 
     def _has_transport(self, transport: Union[str, bytes]) -> bool:
-        """Ask the native provider registry whether ``transport`` is owned."""
+        """Ask the FFI provider registry whether ``transport`` is owned."""
         name = transport.encode() if isinstance(transport, str) else transport
         present = ctypes.c_uint8(0)
         _check(

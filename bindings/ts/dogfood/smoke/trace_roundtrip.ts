@@ -2,7 +2,7 @@ import * as tcp from "@glowcap/tcp";
 import { Host, type Runtime } from "../../runtime/mod.ts";
 import { assert, ok } from "./support.ts";
 
-/** Prove the native trace veneer produces one coherent consumer timeline. */
+/** Prove the FFI trace veneer produces one coherent consumer timeline. */
 export async function runTraceRoundtrip(managed: Runtime): Promise<void> {
 	const { annotateSession, enableTrace } = await import("@glowcap/runtime");
 	const events: import("@glowcap/runtime").TraceEvent[] = [];

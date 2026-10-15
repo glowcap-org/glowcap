@@ -53,7 +53,7 @@ pub const Row = struct {
             arena: std.heap.ArenaAllocator,
             verb: []const u8,
             values: []const value_mod.Value,
-            retained_capabilities: []Host.StagedCapabilityRetain,
+            retained_capabilities: []capability.Ref,
             release_head: usize = 0,
         };
 

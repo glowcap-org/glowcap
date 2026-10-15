@@ -10,15 +10,15 @@ pub const Peers = struct {
     web_build: *std.Build.Step,
 };
 
-pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *std.Build.Step, native_archives: []const *std.Build.Step) Peers {
-    const proof_compile = compileWithProfile(b, iroh_abi, native_archives, &.{ "rooms-web", "rooms-server" }, "browser-proof", "apps/rooms/rust/target/browser-server-proof");
+pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *std.Build.Step, zig_archives: []const *std.Build.Step) Peers {
+    const proof_compile = compileWithProfile(b, iroh_abi, zig_archives, &.{ "rooms-web", "rooms-server" }, "browser-proof", "apps/rooms/rust/target/browser-server-proof");
     const proof_web = b.addInstallFileWithDir(b.path("apps/rooms/rust/target/browser-server-proof/browser-proof/rooms-web"), .prefix, "libexec/rooms-web-proof");
     proof_web.step.dependOn(&proof_compile.step);
     const proof_server = b.addInstallFileWithDir(b.path("apps/rooms/rust/target/browser-server-proof/browser-proof/rooms-server"), .prefix, "libexec/rooms-server-proof");
     proof_server.step.dependOn(&proof_compile.step);
     proof_server.step.dependOn(&proof_web.step);
-    const browser_compile = compilePeers(b, iroh_abi, native_archives, &.{ "rooms-web", "rooms-server" });
-    const compile = compilePeers(b, iroh_abi, native_archives, &.{ "rooms-archive", "rooms-session", "rooms-irc-bridge", "rooms-irc-front", "rooms-chat" });
+    const browser_compile = compilePeers(b, iroh_abi, zig_archives, &.{ "rooms-web", "rooms-server" });
+    const compile = compilePeers(b, iroh_abi, zig_archives, &.{ "rooms-archive", "rooms-session", "rooms-irc-bridge", "rooms-irc-server", "rooms-chat" });
     // These groups share Cargo's output directory. Complete product builds
     // serialize them; browser builds never enter the unrelated second group.
     compile.step.dependOn(&browser_compile.step);
@@ -50,16 +50,16 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     web_build.dependOn(&web_install.step);
     server_install.step.dependOn(&web_install.step);
     web_build.dependOn(&server_install.step);
-    const front_install = b.addInstallFileWithDir(b.path("apps/rooms/rust/target/release/rooms-irc-front"), .prefix, "libexec/rooms-irc-front");
-    front_install.step.dependOn(&compile.step);
-    install.step.dependOn(&front_install.step);
-    b.step("rooms-irc-front-build", "Build and install the IRC client front (needs cargo)").dependOn(&front_install.step);
-    const front_run = execution.addSystemCommand(b, .service, &.{"env"});
-    front_run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-front" } });
-    front_run.setCwd(b.path("."));
-    front_run.addPassthruArgs();
-    front_run.step.dependOn(&front_install.step);
-    b.step("rooms-irc-front", "Serve a Rooms directory to ordinary IRC clients through the front").dependOn(&front_run.step);
+    const irc_server_install = b.addInstallFileWithDir(b.path("apps/rooms/rust/target/release/rooms-irc-server"), .prefix, "libexec/rooms-irc-server");
+    irc_server_install.step.dependOn(&compile.step);
+    install.step.dependOn(&irc_server_install.step);
+    b.step("rooms-irc-server-build", "Build and install the Rooms IRC server (needs cargo)").dependOn(&irc_server_install.step);
+    const irc_server_run = execution.addSystemCommand(b, .service, &.{"env"});
+    irc_server_run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-server" } });
+    irc_server_run.setCwd(b.path("."));
+    irc_server_run.addPassthruArgs();
+    irc_server_run.step.dependOn(&irc_server_install.step);
+    b.step("rooms-irc-server", "Serve a Rooms directory to ordinary IRC clients as an IRC server").dependOn(&irc_server_run.step);
     b.step("rooms-irc-bridge-build", "Build and install the standalone IRC bridge (needs cargo)").dependOn(&bridge_install.step);
     const bridge_run = execution.addSystemCommand(b, .service, &.{"env"});
     bridge_run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-bridge" } });
@@ -89,14 +89,14 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     const compile_tests = execution.addSystemCommand(b, .build_tool, &.{"env"});
     compile_tests.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
     compile_tests.addArgs(&.{
-        "cargo",          "test",          "--quiet",          "--locked",        "--no-run",     "--manifest-path", "apps/rooms/rust/Cargo.toml",
-        "-p",             "rooms-product", "--test",           "archive_process", "--test",       "session_process", "--test",
-        "server_process", "--test",        "postgres_process", "--test",          "chat_process", "--bin",           "rooms-session",
+        "cargo",          "test",          "--quiet",      "--locked",        "--no-run",      "--manifest-path", "apps/rooms/rust/Cargo.toml",
+        "-p",             "rooms-product", "--test",       "archive_process", "--test",        "session_process", "--test",
+        "server_process", "--test",        "chat_process", "--bin",           "rooms-session",
     });
     compile_tests.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
     compile_tests.setCwd(b.path("."));
     compile_tests.step.dependOn(iroh_abi);
-    for (native_archives) |archive| compile_tests.step.dependOn(archive);
+    for (zig_archives) |archive| compile_tests.step.dependOn(archive);
     const service_unit_args: []const []const u8 = &.{ "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "-p", "rooms-services", "--features", "processes", "--lib" };
     const compile_units = execution.addSystemCommand(b, .build_tool, &.{"env"});
     compile_units.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
@@ -106,11 +106,11 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     compile_units.setCwd(b.path("."));
     compile_units.step.dependOn(&compile_tests.step);
     // Unit semantics and installed-process behavior are two separately bounded
-    // subjects. Combining them let a successful 177-test library run spend the
-    // whole deterministic budget before any process proof began.
-    // Host execution adapters moved to rooms-platform. Keep their client
-    // contracts in this focused gate instead of leaving a services filter that
-    // silently selects no tests.
+    // subjects, so a long library run cannot spend the deadline a process
+    // proof needs.
+    // The host execution adapters and the directory signaling adapter live in
+    // rooms-platform. Their client contracts run in this focused step, because
+    // a services filter would silently select no tests.
     // Compile without a deadline first, as for the other units, so the timed
     // run measures the tests rather than a rebuild after a binding change.
     const platform_unit_args: []const []const u8 = &.{ "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "-p", "rooms-platform", "--lib" };
@@ -125,8 +125,8 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     platform_unit.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
     platform_unit.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
     platform_unit.addArgs(platform_unit_args);
-    platform_unit.addArgs(&.{"execution::"});
     platform_unit.addDirectoryArg2(b.path("apps/rooms/rust/target"), .{ .prefix = "--target-dir=", .make_absolute = true });
+    platform_unit.addArgs(&.{ "--", "execution::", "signaling::" });
     platform_unit.setCwd(b.path("."));
     platform_unit.step.dependOn(&compile_platform.step);
 
@@ -184,31 +184,21 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     const agent_test = b.step("rooms-agent-test", "Exercise the Rooms agent skill across rooms, DMs, restart and acknowledgement");
     agent_test.dependOn(&agent_run.step);
     runtime_gate.add(agent_test);
-    // The database is an explicit opt-in dependency, never a network service
-    // a default check silently assumes. Its URL names a disposable database.
-    const postgres = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{"env"});
-    postgres.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "LD_LIBRARY_PATH=", .make_absolute = true });
-    postgres.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_TEST_BIN=", .make_absolute = true });
-    postgres.addArgs(&.{ "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "-p", "rooms-product", "--test", "postgres_process", "--", "--ignored" });
-    postgres.setCwd(b.path("."));
-    postgres.step.dependOn(&server_install.step);
-    postgres.step.dependOn(&compile_tests.step);
-    b.step("rooms-postgres-test", "Opt-in: prove the installed Rooms server's PostgreSQL history, restart and exclusive custody (set GLOWCAP_ROOMS_STORAGE_LIVE_URL to a disposable local database)").dependOn(&postgres.step);
     return .{ .installed = &install.step, .browser_installed = &proof_server.step, .web_build = web_build };
 }
 
-fn compilePeers(b: *std.Build, iroh_abi: *std.Build.Step, native_archives: []const *std.Build.Step, binaries: []const []const u8) *std.Build.Step.Run {
-    return compileWithProfile(b, iroh_abi, native_archives, binaries, "release", "apps/rooms/rust/target");
+fn compilePeers(b: *std.Build, iroh_abi: *std.Build.Step, zig_archives: []const *std.Build.Step, binaries: []const []const u8) *std.Build.Step.Run {
+    return compileWithProfile(b, iroh_abi, zig_archives, binaries, "release", "apps/rooms/rust/target");
 }
 
-fn compileWithProfile(b: *std.Build, iroh_abi: *std.Build.Step, native_archives: []const *std.Build.Step, binaries: []const []const u8, profile: []const u8, target_dir: []const u8) *std.Build.Step.Run {
+fn compileWithProfile(b: *std.Build, iroh_abi: *std.Build.Step, zig_archives: []const *std.Build.Step, binaries: []const []const u8, profile: []const u8, target_dir: []const u8) *std.Build.Step.Run {
     const compile = execution.addSystemCommand(b, .build_tool, &.{"env"});
     compile.addDirectoryArg2(.{ .relative = .{ .base = .install_lib } }, .{ .prefix = "GLOWCAP_LIB_DIR=", .make_absolute = true });
     compile.addArgs(&.{ "cargo", "build", "--quiet", "--locked", "--profile", profile, "--manifest-path", "apps/rooms/rust/Cargo.toml", "-p", "rooms-product" });
     for (binaries) |binary| compile.addArgs(&.{ "--bin", binary });
     compile.addDirectoryArg2(b.path(target_dir), .{ .prefix = "--target-dir=", .make_absolute = true });
     compile.setCwd(b.path("."));
-    for (native_archives) |archive| compile.step.dependOn(archive);
+    for (zig_archives) |archive| compile.step.dependOn(archive);
     compile.step.dependOn(iroh_abi);
     return compile;
 }

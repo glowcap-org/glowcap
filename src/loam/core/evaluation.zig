@@ -6,17 +6,28 @@ const names = @import("names.zig");
 const collection = @import("collection.zig");
 
 /// The immutable batch and its bytes stay at stable addresses until evaluation
-/// retires. Only get may return RecordUnloaded. Writes must synchronously consume
+/// retires. Only get and next may return RecordUnloaded. Writes must synchronously consume
 /// their borrows. A resume keeps scalars and batch-owned views, never a backend
 /// row borrow. Earlier emissions remain in the same atomic KV transaction.
-/// Fixed cursor state replaces repeated fingerprint/validation/write passes.
+/// One cursor carries the validation and write passes.
+///
+/// A commit verifies the strong edges it introduces: each must reach a record
+/// at or before this revision. An edge the record's committed revision already
+/// held was verified when that revision committed and is not fetched again.
+/// Every strong edge still answers for a target the same batch removes.
 pub const Evaluation = struct {
     batch: *const tx.Batch,
-    phase: enum { fingerprint, metadata, change, previous, edges, account, writes, index, name, source, barrier, collect, finish, done, failed } = .fingerprint,
+    phase: enum { metadata, change, previous, edges, account, writes, index, name, source, barrier, collect, finish, done, failed } = .metadata,
     next: tx.Metadata = undefined,
     index: usize = 0,
     view: ?records.View = null,
     edge_cursor: usize = 0,
+    edge_index: usize = 0,
+    /// The change's strong edges its committed revision did not hold, by
+    /// edge index. Decided while the previous revision is in hand, so a
+    /// suspended target read resumes without fetching it again.
+    introduced: std.StaticBitSet(records.Limits.max_edges_bound) = .empty,
+    collection_resume: collection.Resume = .{},
 
     pub fn init(batch: *const tx.Batch) Evaluation {
         return .{ .batch = batch };
@@ -33,10 +44,6 @@ pub const Evaluation = struct {
     fn run(self: *Evaluation, kv: anytype) !tx.Metadata {
         const batch = self.batch;
         while (true) switch (self.phase) {
-            .fingerprint => {
-                if (!std.mem.eql(u8, &batch.digest, &tx.Batch.fingerprint(batch.ticket, batch.changes, batch.collection))) return error.Corrupt;
-                self.phase = .metadata;
-            },
             .metadata => {
                 const old = try tx.Metadata.decode((try kv.get(tx.metadata_key)) orelse return error.Corrupt);
                 if (old.store != batch.ticket.store or old.incarnation != batch.ticket.incarnation) return error.StaleWriter;
@@ -60,6 +67,7 @@ pub const Evaluation = struct {
             },
             .previous => {
                 const change = batch.changes[self.index];
+                self.introduced = .empty;
                 if (try kv.get(&change.id.key())) |bytes| {
                     const old = try records.View.decode(bytes, batch.limits, batch.schemas);
                     if (!old.id.eql(change.id) or old.revision > batch.ticket.revision) return error.Corrupt;
@@ -68,32 +76,30 @@ pub const Evaluation = struct {
                         if (!std.meta.eql(try names.of(old, batch.schemas), try names.of(replacement, batch.schemas))) return error.NameChanged;
                     }
                     if (change.bytes == null and old.rooted) return error.Rooted;
+                    if (self.view) |replacement| self.introduced = introducedEdges(old, replacement);
                     self.next.record_bytes = std.math.sub(u64, self.next.record_bytes, bytes.len) catch return error.Corrupt;
                     self.next.objects = std.math.sub(u64, self.next.objects, 1) catch return error.Corrupt;
                     self.next.roots = std.math.sub(u64, self.next.roots, @intFromBool(old.rooted)) catch return error.Corrupt;
-                } else if (change.expected != null or change.bytes == null) return error.Gone;
+                } else if (change.expected != null or change.bytes == null) return error.Gone else if (self.view) |created| {
+                    self.introduced.setRangeValue(.{ .start = 0, .end = created.edge_count }, true);
+                }
                 if (self.view) |view| {
                     if (!view.id.eql(change.id) or view.revision != self.next.revision) return error.Corrupt;
                     if (change.expected == null and change.id.incarnation != self.next.incarnation) return error.StaleWriter;
                 }
                 self.edge_cursor = 0;
+                self.edge_index = 0;
                 self.phase = .edges;
             },
             .edges => {
                 if (self.view) |view| {
                     var edges = view.edges();
                     edges.cursor = self.edge_cursor;
-                    if (edges.next()) |edge| {
-                        if (edge.strength == .strong) {
-                            const target = blk: {
-                                for (batch.changes) |candidate| if (candidate.id.eql(edge.target)) break :blk candidate.bytes;
-                                break :blk try kv.get(&edge.target.key());
-                            } orelse return error.DanglingReference;
-                            const target_view = try records.View.decode(target, batch.limits, batch.schemas);
-                            if (!target_view.id.eql(edge.target) or target_view.revision > self.next.revision) return error.Corrupt;
-                        }
+                    // A suspended target read resumes at this edge.
+                    while (edges.next()) |edge| {
+                        if (edge.strength == .strong) try verifyEdge(self, kv, edge.target, self.introduced.isSet(self.edge_index));
                         self.edge_cursor = edges.cursor;
-                        continue;
+                        self.edge_index += 1;
                     }
                 }
                 self.phase = .account;
@@ -151,14 +157,9 @@ pub const Evaluation = struct {
                 self.phase = .index;
             },
             .collect => {
-                // Cursor-driven collection still requires synchronous KV walks.
-                // The embedding ABI explicitly has no collection submission.
-                if (batch.collection) |request| collection.apply(request, &self.next, kv, batch.limits, batch.schemas) catch |err| {
-                    if (err == error.RecordUnloaded) return error.UnsupportedCollection;
-                    return err;
-                };
+                // A suspended read inside the sweep resumes the same step.
+                if (batch.collection) |request| try collection.apply(request, &self.next, kv, batch.limits, batch.schemas, &self.collection_resume);
                 self.next.last_sequence = batch.ticket.sequence;
-                self.next.last_digest = batch.digest;
                 self.phase = .finish;
             },
             .finish => {
@@ -171,6 +172,54 @@ pub const Evaluation = struct {
         };
     }
 };
+
+/// A target this batch rewrites was validated by its own change, and one it
+/// removes is dangling. Only an introduced edge fetches and decodes its target.
+fn verifyEdge(self: *Evaluation, kv: anytype, target: records.ObjectId, introduced: bool) !void {
+    const batch = self.batch;
+    for (batch.changes) |candidate| if (candidate.id.eql(target)) {
+        if (candidate.bytes == null) return error.DanglingReference;
+        return;
+    };
+    if (!introduced) return;
+    const bytes = (try kv.get(&target.key())) orelse return error.DanglingReference;
+    const view = try records.View.decode(bytes, batch.limits, batch.schemas);
+    if (!view.id.eql(target) or view.revision > self.next.revision) return error.Corrupt;
+}
+
+/// The strong edges of `new` that `old` does not hold, by index in `new`.
+fn introducedEdges(old: records.View, new: records.View) std.StaticBitSet(records.Limits.max_edges_bound) {
+    var introduced: std.StaticBitSet(records.Limits.max_edges_bound) = .empty;
+    var cursor: usize = 0;
+    var edges = new.edges();
+    var index: usize = 0;
+    while (edges.next()) |edge| : (index += 1) {
+        if (edge.strength == .strong and !keeps(old, edge.target, &cursor)) introduced.set(index);
+    }
+    return introduced;
+}
+
+/// Whether `old` holds a strong edge to `target`. An edit keeps the edges'
+/// relative order, so the search resumes after the last match and wraps
+/// once.
+fn keeps(old: records.View, target: records.ObjectId, cursor: *usize) bool {
+    const start = cursor.*;
+    var edges = old.edges();
+    edges.cursor = start;
+    while (edges.next()) |edge| if (edge.strength == .strong and edge.target.eql(target)) {
+        cursor.* = edges.cursor;
+        return true;
+    };
+    edges = old.edges();
+    while (edges.cursor < start) {
+        const edge = edges.next() orelse break;
+        if (edge.strength == .strong and edge.target.eql(target)) {
+            cursor.* = edges.cursor;
+            return true;
+        }
+    }
+    return false;
+}
 
 /// Helpers for names and collection use this same seam. A partially emitted
 /// write cannot become a resumable read refusal, regardless of callback policy.

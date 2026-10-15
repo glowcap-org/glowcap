@@ -12,7 +12,7 @@ const core = glowcap.driver.core;
 const actors = glowcap.actors;
 
 const LocalActor = struct {
-    pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Message) !model.Argument {
+    pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Delivery) !model.Argument {
         return .{ .void = {} };
     }
 };
@@ -127,6 +127,22 @@ test "Host direct lower and lift admit exactly the model depth limit" {
             nestedArgument(&argument_over, model.max_value_depth + 1),
         ),
     );
+
+    // Lowering and retention bound the child sequence even when it is empty.
+    const integer = [_]core.Value{.{ .integer = 7 }};
+    for ([_]core.Value{
+        .{ .integers = &.{7} }, .{ .list = &integer },
+        .{ .integers = &.{} },  .{ .list = &.{} },
+    }) |leaf| {
+        _ = nestedValue(&value_exact, model.max_value_depth);
+        value_exact[model.max_value_depth][0] = leaf;
+        try std.testing.expectError(error.NestingTooDeep, host.lowerValue(session, arena.allocator(), value_exact[0][0]));
+        try std.testing.expectError(error.NestingTooDeep, host.retainValueCapabilities(arena.allocator(), &value_exact[0]));
+        _ = nestedValue(&value_exact, model.max_value_depth - 1);
+        value_exact[model.max_value_depth - 1][0] = leaf;
+        _ = try host.lowerValue(session, arena.allocator(), value_exact[0][0]);
+        try std.testing.expectEqual(@as(usize, 0), (try host.retainValueCapabilities(arena.allocator(), &value_exact[0])).len);
+    }
 }
 
 test "overdeep lower rolls back preceding Port and Node projections" {
@@ -146,6 +162,8 @@ test "overdeep lower rolls back preceding Port and Node projections" {
 
     const exports_before = destination.served.port.exports.count();
     const routes_before = host.node.foreign_imports.count();
+    const remote_retains_before = host.capabilities.retainCount(remote).?;
+    const local_retains_before = host.capabilities.retainCount(local).?;
     var over_backing: [model.max_value_depth + 2][1]core.Value = undefined;
     const values = [_]core.Value{
         .{ .capability = local },
@@ -161,8 +179,44 @@ test "overdeep lower rolls back preceding Port and Node projections" {
 
     try std.testing.expectEqual(exports_before, destination.served.port.exports.count());
     try std.testing.expectEqual(routes_before, host.node.foreign_imports.count());
+    // The walk staged a lease on the routed reference before the overdeep
+    // value refused it, and the failed transaction gave that retain back.
+    try std.testing.expectEqual(remote_retains_before, host.capabilities.retainCount(remote).?);
+    try std.testing.expectEqual(local_retains_before, host.capabilities.retainCount(local).?);
     try std.testing.expect(home.served.port.peer.session_state.foreignRouteIdFor(.from(7)) == null);
     try std.testing.expect(destination.served.port.peer.sessionIsOpen());
+}
+
+test "a routed reference's staging retain returns when no batch claims it" {
+    var host = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x64)), .{});
+    defer host.deinit();
+    var home_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x74)), .{});
+    defer home_partner.deinit();
+    var destination_partner = test_host.init(std.testing.allocator, @as([32]u8, @splat(0x75)), .{});
+    defer destination_partner.deinit();
+    const home = (try host_pair.openPair(&host, &home_partner, "127.0.0.1:9764")).a;
+    const destination = (try host_pair.openPair(&host, &destination_partner, "127.0.0.1:9765")).a;
+    try home.served.port.peer.importObject(7);
+    const remote = try host.liftCapability(home, .{ .far = model.FarRef.object(7) });
+    defer host.releaseCapability(remote, 1) catch unreachable;
+    const local = try host.spawn(destination, LocalActor, .{});
+    defer host.releaseCapability(local, 1) catch unreachable;
+
+    const remote_retains_before = host.capabilities.retainCount(remote).?;
+    const local_retains_before = host.capabilities.retainCount(local).?;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const lowered = try host.lowerValues(destination, arena.allocator(), &.{
+        .{ .capability = local },
+        .{ .capability = remote },
+    });
+    try std.testing.expect(lowered[0].reference == .near);
+    try std.testing.expect(lowered[1].reference == .routed);
+    // A direct lowering opens no lease window, so the retain the walk took
+    // for the routed reference came back at commit. The near reference never
+    // took one.
+    try std.testing.expectEqual(remote_retains_before, host.capabilities.retainCount(remote).?);
+    try std.testing.expectEqual(local_retains_before, host.capabilities.retainCount(local).?);
 }
 
 fn rejectedValues(_: void, _: []const core.Value) error{Rejected}!void {
@@ -190,7 +244,7 @@ test "direct mixed lift retires references around an inline give failure" {
 
     try std.testing.expectError(
         error.UnsupportedValue,
-        host.liftValues(session, arena.allocator(), &args),
+        host.liftValues(session, arena.allocator(), .fromOwnedSlice(&args)),
     );
     try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
     try std.testing.expectEqual(@as(u64, 0), session.served.port.peer.session_state.importRefcount(.from(7)));
@@ -218,7 +272,7 @@ test "projection callback failure counts inline gives separately from references
 
     try std.testing.expectError(
         error.Rejected,
-        host.projectValues(session, arena.allocator(), &args, {}, rejectedValues),
+        host.projectValues(session, arena.allocator(), .fromOwnedSlice(&args), {}, rejectedValues),
     );
     try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
     try std.testing.expectEqual(@as(u64, 0), session.served.port.peer.session_state.importRefcount(.from(7)));
@@ -243,7 +297,7 @@ test "overdeep failed-lift cleanup condemns the source session" {
 
     try std.testing.expectError(
         error.NestingTooDeep,
-        host.liftValues(session, arena.allocator(), &args),
+        host.liftValues(session, arena.allocator(), .fromOwnedSlice(&args)),
     );
     try std.testing.expect(!session.served.port.peer.sessionIsOpen());
 }
@@ -270,7 +324,7 @@ test "allocation failure cleanup stays bounded over an overdeep remainder" {
 
     try std.testing.expectError(
         error.OutOfMemory,
-        host.liftValues(session, failing.allocator(), &args),
+        host.liftValues(session, failing.allocator(), .fromOwnedSlice(&args)),
     );
     try std.testing.expectEqual(@as(usize, 0), host.capabilities.liveCount());
     try std.testing.expectEqual(@as(u64, 0), session.served.port.peer.session_state.importRefcount(.from(7)));
@@ -333,4 +387,22 @@ test "unresolved-promise clone rejects overdepth without retain or queue mutatio
     );
     try std.testing.expectEqual(retains_before, host.capabilities.retainCount(argument).?);
     try std.testing.expectEqual(queued_before, host.capability_promises.get(promise_id).?.operations.items.len);
+
+    const integer = [_]core.Value{.{ .integer = 7 }};
+    for ([_]core.Value{
+        .{ .integers = &.{7} }, .{ .list = &integer },
+        .{ .integers = &.{} },  .{ .list = &.{} },
+    }) |leaf| {
+        _ = nestedValue(&over_backing, model.max_value_depth);
+        over_backing[model.max_value_depth][0] = leaf;
+        try std.testing.expectError(error.NestingTooDeep, host.queueSendValues(
+            session,
+            promise,
+            "poke",
+            &.{ .{ .capability = argument }, over_backing[0][0] },
+            call_arena.allocator(),
+        ));
+        try std.testing.expectEqual(retains_before, host.capabilities.retainCount(argument).?);
+        try std.testing.expectEqual(queued_before, host.capability_promises.get(promise_id).?.operations.items.len);
+    }
 }

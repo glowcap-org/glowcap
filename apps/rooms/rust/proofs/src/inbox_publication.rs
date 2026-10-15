@@ -73,7 +73,7 @@ pub fn run() {
 	assert!(second.live());
 	let retired = ledger.retirements();
 	assert_eq!(retired.len(), 1);
-	// A failed native remove changes neither authority nor capacity. Retrying
+	// A failed host remove changes neither authority nor capacity. Retrying
 	// returns the same exact alias instead of losing its bookkeeping.
 	assert_eq!(ledger.held(), 2);
 	assert_eq!(ledger.retirements()[0].alias(), first.alias());

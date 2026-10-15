@@ -18,7 +18,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // one of them is about what a reader can see or reach, and a stylesheet read on
 // its own says nothing about either.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives
 // (the web front and room server run Rust), and a Playwright Chromium
 // (the devcontainer image ships one).
 // Run: `zig build rooms-web-page`.

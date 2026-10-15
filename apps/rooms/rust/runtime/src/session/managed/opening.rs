@@ -3,7 +3,7 @@
 use super::Session;
 use glowcap::{
 	Argument, CaptpVersion, Host, Locator, Ref, Result,
-	loam::{self, Attachment, ControlPowers, LiveMarker, Resource, Store},
+	loam::{self, Attachment, ControlPowers, LiveMarker, Resource, Scope, Store},
 };
 use rooms_application::content::session;
 use rooms_glowcap::client::{Deadline, Tasks, access::Control, workspace::Workspace};
@@ -149,7 +149,11 @@ impl<P: Tasks + Deadline + Clone + 'static> Opened<P> {
 		// clients issue descendants through the returned control, never this root.
 		let reply = self
 			.host
-			.send(&root, "derive-managed", &wide.managed_derive_arguments(1, 3, powers))
+			.send(
+				&root,
+				"derive-managed",
+				&wide.managed_derive_arguments(1, Scope::Object, 3, powers),
+			)
 			.await?;
 		let Some([Argument::Reference(access), Argument::Reference(control)]) = reply.as_list() else {
 			return Err(loam::refusal("session startup returned no public branch"));

@@ -1,4 +1,4 @@
-//! Native relay provider composition for the async driver loop.
+//! Relay archive provider composition for the async driver loop.
 //!
 //! One crate-private `Runtime` owns the archive runtime and installs one
 //! provider package that advertises both `keyed-relay` and `noise-relay`. The
@@ -79,7 +79,7 @@ pub mod noise {
 	}
 
 	/// Register this listener's durable key at the relay and accept
-	/// Noise_XK-sealed sessions. The native relay provider holds the
+	/// Noise_XK-sealed sessions. The relay archive's provider holds the
 	/// registration socket. The driver owns admission, handshakes, and
 	/// session lifetime. The driver's provider registry holds one relay
 	/// configuration per loop: a second listen naming the same routes rides
@@ -103,7 +103,7 @@ pub struct ListenOptions<'a> {
 }
 
 /// A registered relay listener, the relay sibling of [`crate::tcp::Server`].
-/// The native driver loop owns the registration socket, admission, and every
+/// The FFI driver loop owns the registration socket, admission, and every
 /// accepted session. This type is only the public listener view.
 pub struct Server {
 	listener: crate::server::LoopListener,
@@ -167,14 +167,14 @@ async fn listen_relay_profile(
 	let (listener, ()) = crate::server::bind_loop_listener(
 		options.identity,
 		transport,
-		|_host, lp| std::future::ready(install_provider(&lp, config).map(|()| String::new())),
-		|_lp, _listener, _designator| Ok(()),
+		|_host, lp| std::future::ready(install_provider(&lp, config).map(|()| (String::new(), ()))),
+		|_lp, _listener, _designator, ()| Ok(()),
 	)
 	.await?;
 	Ok(Server { listener })
 }
 
-/// Immutable trust snapshot used by the native secure relay carrier.
+/// Immutable trust snapshot used by the relay archive's TLS carrier.
 #[derive(Clone, Copy, Debug, Default)]
 pub enum Trust<'a> {
 	/// Load the process platform's trust roots once during construction.
@@ -184,7 +184,7 @@ pub enum Trust<'a> {
 	CopiedPem(&'a [u8]),
 }
 
-/// URLs and trust used to construct the shared native relay provider.
+/// URLs and trust used to construct the shared relay archive provider.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<'a> {
 	/// The relay WebSocket URL used for outbound keyed/noise legs.
@@ -243,7 +243,7 @@ impl<'a> Config<'a> {
 }
 
 /// Owns one relay provider runtime for the window between construction and
-/// provider installation. It has no connection children because the native
+/// provider installation. It has no connection children because the FFI
 /// driver owns all connection and listener handles after registration, and it
 /// stays crate-private because [`provider`] and the listen spine are the only
 /// composers of that lease.
@@ -277,7 +277,7 @@ impl Runtime {
 		})
 	}
 
-	/// Consume the constructor lease and report the native teardown barrier.
+	/// Consume the constructor lease and report the FFI teardown barrier.
 	/// After provider installation this normally releases only that lease. The
 	/// driver reports final asynchronous teardown when it closes.
 	pub(crate) fn close(mut self) -> Result<()> {
@@ -346,7 +346,7 @@ pub fn provider(config: Config<'_>) -> crate::driver_loop::Provider {
 	})
 }
 
-/// Configure a dial-only native provider from a routed relay locator.
+/// Configure a dial-only FFI provider from a routed relay locator.
 /// Locator interpretation remains in this transport package rather than the
 /// generic dial path or application.
 pub fn provider_for(locator: &Locator) -> Result<crate::driver_loop::Provider> {

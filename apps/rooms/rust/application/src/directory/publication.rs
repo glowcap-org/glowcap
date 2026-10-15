@@ -5,7 +5,9 @@ use crate::{
 	text::DocumentText,
 };
 use serde::{Deserialize, Serialize};
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Where a publication comes from. The order is the order a directory lists
+/// in: its own rooms, then the foreign ones, then the bridged channels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PublicationKind {
 	Local,
@@ -39,14 +41,19 @@ impl OriginProof {
 		}
 	}
 }
+/// Longest publication id, in bytes.
+pub const MAX_PUBLICATION_ID: usize = 128;
+/// Longest publication origin, in bytes.
+pub const MAX_ORIGIN: usize = 256;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoomInfo {
-	pub id: Text<128, true>,
+	pub id: Text<MAX_PUBLICATION_ID, true>,
 	pub name: Text<32, true>,
 	pub kind: PublicationKind,
 	pub count: Nullable<SafeInteger>,
-	pub origin: Text<256>,
+	pub origin: Text<MAX_ORIGIN>,
 	pub proof: OriginProof,
 	pub offers: Nullable<MembershipKind>,
 }

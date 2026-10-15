@@ -20,8 +20,8 @@ import { spawnWeb } from "../support/web_front.ts";
 //   bo   is at a different page, and joins ada's room by its locator.
 //   bo   starts the direct message.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives
-// (serve.ts's room server is native), and a Playwright Chromium.
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives
+// (serve.ts's room server is the Rust process), and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/dm_foreign_room_test.ts`.
 
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright";

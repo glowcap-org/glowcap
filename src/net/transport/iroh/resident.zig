@@ -307,8 +307,8 @@ pub const Resident = struct {
     /// finish call. A connect that won the race is closed instead of leaked.
     pub fn loopCancelConnect(self: *Resident, request_id: usize) void {
         self.loopRequestConnectCancel(request_id);
-        // The row is consumed for its handle only: a canceled dial's code is
-        // the whole fact, and no caller waits on its text.
+        // tolerant: the row is consumed for its handle only, so a canceled
+        // dial's code is the whole fact and no caller waits on its text.
         if (self.loopFinishConnect(request_id, null)) |conn| self.loopConnClose(conn) else |_| {}
     }
 

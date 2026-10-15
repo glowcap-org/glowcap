@@ -45,6 +45,7 @@ function greeter(verb: string): string | null {
 async function runAccepts(server: AsyncIterable<Session>, served: Session[]): Promise<void> {
 	for await (const session of server) {
 		session.publish("greeter", greeter);
+		// tolerant: a session's serve rejects when its partner hangs up, which is that session's normal end.
 		session.serve().catch(() => {});
 		served.push(session);
 	}

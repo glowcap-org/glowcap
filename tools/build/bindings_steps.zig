@@ -39,7 +39,7 @@ pub const dogfoods = [_]struct {
     },
     .{
         .step_name = "bun-dogfood",
-        .description = "Run the Bun C ABI dogfood against the glowcap C ABI archives — same multi-runtime binding as Deno (needs bun)",
+        .description = "Run the Bun C ABI dogfood against the glowcap C ABI archives, the same multi-runtime binding as Deno (needs bun)",
         .argv = &.{ "bun", "run", "bindings/ts/dogfood/zig_smoke.ts" },
         .needs_iroh_abi = true,
         .posture = .{ .deterministic = 15 },
@@ -148,6 +148,7 @@ pub fn register(
         "bindings/python/test/action_drain_test.py",
         "bindings/python/test/relay_provider_test.py",
         "bindings/python/test/relay_test.py",
+        "bindings/python/test/webrtc_provider_test.py",
     };
     for (python_unit_tests) |test_file| {
         const run = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
@@ -227,6 +228,8 @@ pub fn register(
         "conformance/goblins-peer/racket/rooms-client.rkt",
         "conformance/goblins-peer/racket/rooms-dm.rkt",
         "bindings/racket/private/gc.rkt",
+        "bindings/racket/private/webrtc/runtime-test.rkt",
+        "bindings/racket/private/webrtc/surface.rkt",
         "bindings/racket/private/driver-failure.rkt",
         "bindings/racket/private/host.rkt",
         "bindings/racket/private/lib-resolve.rkt",
@@ -252,7 +255,7 @@ pub fn register(
     bindings_step.dependOn(site_reg.python_examples_check);
     bindings_step.dependOn(site_reg.rust_examples_check);
     bindings_step.dependOn(site_reg.racket_examples_check);
-    const bindings_onion_step = b.step("bindings-onion", "Run the onion provider proof in every native language binding (needs cargo + deno + python3 + racket)");
+    const bindings_onion_step = b.step("bindings-onion", "Run the onion provider proof in every language binding (needs cargo + deno + python3 + racket)");
 
     // Glowcap-only three-party handoff: glowcap is exporter, gifter, and
     // recipient over loopback TCP. A broker introduces a recipient to an
@@ -368,7 +371,7 @@ pub fn registerChecks(
         const write = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--all", "--manifest-path", manifest });
         write.has_side_effects = true;
         bindings_fmt_step.dependOn(&write.step);
-        const check = addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--all", "--check", "--manifest-path", manifest });
+        const check = common.rustFmtCheck(b, manifest);
         bindings_fmt_check_step.dependOn(&check.step);
         // Rooms has its own feature-complete workspace lint step, the binding
         // has the async whole-target leg registered above, and the Loam browser
@@ -463,10 +466,19 @@ pub fn registerChecks(
         "runtime/test/terminal_release_test.ts",
         "runtime/test/driver_failure_test.ts",
         "runtime/test/value_test.ts",
-        "runtime/test/native_handle_test.ts",
+        "runtime/test/ffi_handle_test.ts",
         "runtime/test/websocket_stack_test.ts",
         "runtime/test/cancellation_test.ts",
+        "runtime/test/dial_test.ts",
+        "runtime/test/rendezvous_test.ts",
+        "runtime/test/websocket_test.ts",
         "relay/test/relay_test.ts",
+        "relay/test/ws_relay_test.ts",
+        "relay/test/deno_channels_test.ts",
+        "relay/test/transport_test.ts",
+        "webrtc/test/channel_test.ts",
+        "webrtc/test/peer_test.ts",
+        "webrtc/test/listener_test.ts",
     });
     const deno_stack_cache = execution.addSystemCommand(b, .build_tool, &.{
         "deno",
@@ -477,25 +489,44 @@ pub fn registerChecks(
         "runtime/test/terminal_release_test.ts",
         "runtime/test/driver_failure_test.ts",
         "runtime/test/value_test.ts",
-        "runtime/test/native_handle_test.ts",
+        "runtime/test/ffi_handle_test.ts",
         "runtime/test/websocket_stack_test.ts",
         "runtime/test/cancellation_test.ts",
+        "runtime/test/dial_test.ts",
+        "runtime/test/rendezvous_test.ts",
+        "runtime/test/websocket_test.ts",
         "relay/test/relay_test.ts",
+        "relay/test/ws_relay_test.ts",
+        "relay/test/deno_channels_test.ts",
+        "relay/test/transport_test.ts",
+        "webrtc/test/channel_test.ts",
+        "webrtc/test/peer_test.ts",
+        "webrtc/test/listener_test.ts",
     });
     deno_stack_test.setCwd(b.path("bindings/ts"));
     deno_stack_cache.setCwd(b.path("bindings/ts"));
     deno_stack_test.step.dependOn(&deno_stack_cache.step);
     bindings_fmt_check_step.dependOn(&deno_stack_test.step);
-    // These tests touch native FFI but open no sockets; keep that capability out
+    // These tests touch FFI but open no sockets; keep that capability out
     // of the otherwise pure stack suite.
-    const deno_native_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts",
+    const deno_ffi_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/ffi_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts", "bindings/ts/runtime/test/driver_loop_teardown_test.ts",
     });
-    const deno_native_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
-        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/native_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts",
+    const deno_ffi_runtime_cache = addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/ffi_frame_test.ts", "bindings/ts/runtime/test/host_vows_test.ts", "bindings/ts/runtime/test/driver_loop_retire_test.ts", "bindings/ts/runtime/test/driver_loop_teardown_test.ts",
     });
-    deno_native_runtime_test.step.dependOn(&deno_native_runtime_cache.step);
-    bindings_fmt_check_step.dependOn(&deno_native_runtime_test.step);
+    deno_ffi_runtime_test.step.dependOn(&deno_ffi_runtime_cache.step);
+    bindings_fmt_check_step.dependOn(&deno_ffi_runtime_test.step);
+    // The WebRTC driver adapter's exchange book, driven by fakes. It imports
+    // the C loader but never opens the library.
+    const deno_webrtc_driver_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
+        "deno", "test", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/webrtc/test/driver_test.ts",
+    });
+    const deno_webrtc_driver_cache = addRootedSystemCommand(b, .build_tool, &.{
+        "deno", "test", "--no-run", "--allow-ffi", "--allow-read", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/webrtc/test/driver_test.ts",
+    });
+    deno_webrtc_driver_test.step.dependOn(&deno_webrtc_driver_cache.step);
+    bindings_fmt_check_step.dependOn(&deno_webrtc_driver_test.step);
     const deno_runtime_test = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
         "deno", "test", "--allow-ffi", "--allow-read", "--allow-net=127.0.0.1", "--allow-env=GLOWCAP_LIB_DIR", "bindings/ts/runtime/test/runtime_test.ts",
     });
@@ -526,7 +557,7 @@ pub fn registerChecks(
     // The test loads the Host and driver archives as well as onion. Depending
     // only on the onion install lets a focused run pair a freshly generated
     // fingerprint mirror with stale core archives left in zig-out. The full
-    // install is the native artifact set this binding process consumes.
+    // install is the Zig artifact set this binding process consumes.
     deno_onion_test.step.dependOn(b.getInstallStep());
     deno_onion_test.step.dependOn(onion_dynamic_install);
     bindings_fmt_check_step.dependOn(&deno_onion_test.step);

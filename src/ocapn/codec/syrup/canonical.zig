@@ -29,7 +29,7 @@ pub fn canonicalLocationSignedBytes(
     allocator: std.mem.Allocator,
     location: model.PeerLocator,
 ) ![]u8 {
-    return render.renderRecordExact(allocator, signing.writeMyLocationRecord, .{ allocator, location });
+    return render.renderRecordExact(allocator, signing.writeMyLocationRecord, .{ allocator, model.view.PeerLocator.fromOwned(&location) });
 }
 
 /// As `canonicalLocationSignedBytes`, but wraps the *exact received*
@@ -55,16 +55,14 @@ pub fn canonicalHandoffGiveSignedBytes(
     allocator: std.mem.Allocator,
     give: model.HandoffGive,
 ) ![]u8 {
-    if (give.raw_signed) |raw| {
-        return handoffGiveSignedPayloadBytes(allocator, raw);
-    }
-    return render.renderRecordExact(allocator, signing.writeHandoffGiveRecord, .{ allocator, give });
+    return canonicalHandoffGiveViewSignedBytes(allocator, model.view.HandoffGive.fromOwned(&give));
 }
 
 /// Canonical signed bytes for a borrowed handoff give. The view remains
-/// borrowed throughout. Only a lazy hint list, when present, is materialized as
-/// canonical-encoding scratch and freed before return. A Syrup-forwarded give
-/// carries its exact signed envelope, so that path reads no typed hints at all.
+/// borrowed throughout. Only a lazy hint list, when present, is projected once
+/// as canonical-encoding scratch shared by both render passes and freed before
+/// return. A Syrup-forwarded give carries its exact signed envelope, so that
+/// path reads no typed hints at all.
 pub fn canonicalHandoffGiveViewSignedBytes(
     allocator: std.mem.Allocator,
     give: model.view.HandoffGive,
@@ -72,31 +70,28 @@ pub fn canonicalHandoffGiveViewSignedBytes(
     if (give.raw_signed) |raw| {
         return handoffGiveSignedPayloadBytes(allocator, raw);
     }
-    var owned_hints: ?model.Hints = null;
-    defer if (owned_hints) |hints| model.freeHints(allocator, hints);
-    const hints = switch (give.exporter.hints) {
-        .empty => |wire_form| model.Hints{ .wire_form = wire_form },
-        .projected => |projected| projected,
-        .lazy => blk: {
-            const materialized = try give.exporter.hints.toOwned(allocator);
-            owned_hints = materialized;
-            break :blk materialized;
-        },
-    };
-    const projected: model.HandoffGive = .{
-        .recipient_key = give.recipient_key,
-        .exporter = .{
-            .transport = give.exporter.transport,
-            .designator = give.exporter.designator,
-            .hints = hints,
-        },
-        .gifter_exporter_session = give.gifter_exporter_session,
-        .gifter_side = give.gifter_side,
-        .gift_id = give.gift_id,
-        .signature = "",
-    };
-    return canonicalHandoffGiveSignedBytes(allocator, projected);
+    var scratch: ProjectedHints = .{};
+    defer scratch.deinit(allocator);
+    var projected = give;
+    projected.exporter.hints = try scratch.project(allocator, give.exporter.hints);
+    return render.renderRecordExact(allocator, signing.writeHandoffGiveRecord, .{ allocator, projected });
 }
+
+/// One projection of a lazy hint list, held across both render passes so the
+/// signing domain of a decoded give is parsed once, not once per pass.
+const ProjectedHints = struct {
+    owned: ?model.Hints = null,
+
+    fn project(self: *ProjectedHints, allocator: std.mem.Allocator, hints: model.view.BorrowedHints) !model.view.BorrowedHints {
+        if (hints != .lazy) return hints;
+        self.owned = try hints.toOwned(allocator);
+        return .{ .projected = self.owned.? };
+    }
+
+    fn deinit(self: *ProjectedHints, allocator: std.mem.Allocator) void {
+        if (self.owned) |owned| model.freeHints(allocator, owned);
+    }
+};
 
 /// Build the inner `<desc:handoff-give ...>` record taking the exporter location as
 /// verbatim Syrup bytes (see `signing.writeHandoffGiveRecordRawLocation`). The
@@ -140,63 +135,25 @@ pub fn canonicalHandoffReceiveSignedBytes(
     allocator: std.mem.Allocator,
     receive: model.HandoffReceive,
 ) ![]u8 {
-    return render.renderRecordExact(allocator, signing.writeHandoffReceiveRecord, .{ allocator, receive });
+    return canonicalHandoffReceiveViewSignedBytes(allocator, model.view.HandoffReceive.fromOwned(&receive));
 }
 
-/// Canonical signed bytes for a borrowed handoff receive. The signed give is
-/// projected only for the duration of the encoder call. No owned receive is
-/// built. Syrup's split signature is joined in a fixed stack buffer. A Syrup
-/// receive also carries the give's exact signed envelope. When present, the
-/// encoder uses it verbatim and typed give hints/signature are not materialized.
+/// Canonical signed bytes for a borrowed handoff receive. No owned receive is
+/// built: the embedded give is written from the view, and a Syrup receive
+/// carrying the give's exact signed envelope embeds it verbatim, so its typed
+/// hints and signature are never read. A lazy hint list on a typed give is
+/// projected once for both render passes.
 pub fn canonicalHandoffReceiveViewSignedBytes(
     allocator: std.mem.Allocator,
     receive: model.view.HandoffReceive,
 ) ![]u8 {
-    var owned_hints: ?model.Hints = null;
-    defer if (owned_hints) |hints| model.freeHints(allocator, hints);
-    const hints = if (receive.signed_give.raw_signed != null)
-        model.Hints.emptyFalse()
-    else switch (receive.signed_give.exporter.hints) {
-        .empty => |wire_form| model.Hints{ .wire_form = wire_form },
-        .projected => |projected| projected,
-        .lazy => blk: {
-            const materialized = try receive.signed_give.exporter.hints.toOwned(allocator);
-            owned_hints = materialized;
-            break :blk materialized;
-        },
-    };
-    var signature_buffer: [64]u8 = undefined;
-    const give_signature = if (receive.signed_give.raw_signed != null)
-        ""
-    else switch (receive.signed_give.signature) {
-        .raw => |raw| raw,
-        .halves => |halves| blk: {
-            if (halves.r.len + halves.s.len != signature_buffer.len) return Error.MalformedFrame;
-            @memcpy(signature_buffer[0..halves.r.len], halves.r);
-            @memcpy(signature_buffer[halves.r.len..], halves.s);
-            break :blk signature_buffer[0..];
-        },
-    };
-    const projected: model.HandoffReceive = .{
-        .receiving_session = receive.receiving_session,
-        .receiving_side = receive.receiving_side,
-        .handoff_count = receive.handoff_count,
-        .signed_give = .{
-            .recipient_key = receive.signed_give.recipient_key,
-            .exporter = .{
-                .transport = receive.signed_give.exporter.transport,
-                .designator = receive.signed_give.exporter.designator,
-                .hints = hints,
-            },
-            .gifter_exporter_session = receive.signed_give.gifter_exporter_session,
-            .gifter_side = receive.signed_give.gifter_side,
-            .gift_id = receive.signed_give.gift_id,
-            .signature = give_signature,
-            .raw_signed = receive.signed_give.raw_signed,
-        },
-        .signature = "",
-    };
-    return canonicalHandoffReceiveSignedBytes(allocator, projected);
+    var scratch: ProjectedHints = .{};
+    defer scratch.deinit(allocator);
+    var projected = receive;
+    if (receive.signed_give.raw_signed == null) {
+        projected.signed_give.exporter.hints = try scratch.project(allocator, receive.signed_give.exporter.hints);
+    }
+    return render.renderRecordExact(allocator, signing.writeHandoffReceiveRecord, .{ allocator, projected });
 }
 
 /// Recover the inner `<desc:handoff-give …>` payload bytes from a verbatim signed
@@ -205,12 +162,12 @@ pub fn canonicalHandoffReceiveViewSignedBytes(
 fn handoffGiveSignedPayloadBytes(allocator: std.mem.Allocator, raw_signed: []const u8) ![]u8 {
     var cursor: usize = 0;
     try decode.readByte(raw_signed, &cursor, '<');
-    const envelope_tag = try decode.readSymbol(raw_signed, &cursor);
+    const envelope_tag = try decode.readLabel(raw_signed, &cursor);
     if (!std.mem.eql(u8, envelope_tag, "desc:sig-envelope")) return Error.MalformedFrame;
 
     const payload_start = cursor;
     try decode.readByte(raw_signed, &cursor, '<');
-    const payload_tag = try decode.readSymbol(raw_signed, &cursor);
+    const payload_tag = try decode.readLabel(raw_signed, &cursor);
     if (!std.mem.eql(u8, payload_tag, "desc:handoff-give")) return Error.MalformedFrame;
 
     cursor = payload_start;

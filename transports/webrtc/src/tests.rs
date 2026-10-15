@@ -77,7 +77,11 @@ fn test_shared(
 		})),
 		outbound_ready: Arc::new(Notify::new()),
 		open,
-		local_candidates: Arc::new(Mutex::new(LocalCandidates::new())),
+		local_candidates: Arc::new(Mutex::new(CandidateQueue::new())),
+		remote_candidates: Mutex::new(RemoteCandidates {
+			description_set: false,
+			early: CandidateQueue::new(),
+		}),
 	})
 }
 
@@ -292,27 +296,39 @@ fn outbound_admits_whole_packets_only() {
 
 #[test]
 fn local_candidate_queue_bounds_retained_candidate_text() {
-	let mut queue = LocalCandidates::new();
+	let mut queue = CandidateQueue::new();
 	let candidate = "x".repeat(MAX_ICE_CANDIDATE_BYTES);
-	while queue.queued_bytes + candidate.len() <= LOCAL_CANDIDATE_QUEUE_BYTES {
+	while queue.queued_bytes + candidate.len() <= CANDIDATE_QUEUE_BYTES {
 		assert!(queue.admit(candidate.clone()));
 	}
 	assert!(!queue.admit("x".to_string()));
 
-	let mut count_bound = LocalCandidates::new();
-	for _ in 0..MAX_PENDING_LOCAL_CANDIDATES {
+	let mut count_bound = CandidateQueue::new();
+	for _ in 0..MAX_PENDING_CANDIDATES {
 		assert!(count_bound.admit("x".to_string()));
 	}
 	assert!(!count_bound.admit("x".to_string()));
-	let mut empty = LocalCandidates::new();
+	let mut empty = CandidateQueue::new();
 	assert!(!empty.admit(String::new()));
-	let mut oversized = LocalCandidates::new();
+	let mut oversized = CandidateQueue::new();
 	assert!(!oversized.admit("x".repeat(MAX_ICE_CANDIDATE_BYTES + 1)));
 }
 
 #[test]
+fn taking_every_held_candidate_frees_the_whole_queue_budget() {
+	let mut queue = CandidateQueue::new();
+	assert!(queue.admit("first".to_string()));
+	assert!(queue.admit("second".to_string()));
+	let taken: Vec<String> = queue.take_all().into();
+	assert_eq!(taken, ["first", "second"]);
+	assert_eq!(queue.queued_bytes, 0);
+	assert!(queue.items.is_empty());
+	assert!(queue.admit("x".repeat(MAX_ICE_CANDIDATE_BYTES)));
+}
+
+#[test]
 fn next_local_candidate_retries_without_releasing_the_front() {
-	let mut queue = LocalCandidates::new();
+	let mut queue = CandidateQueue::new();
 	assert!(queue.admit("abcdef".to_string()));
 	let mut short = [0u8; 3];
 	let mut required: usize = 0;

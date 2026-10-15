@@ -130,6 +130,7 @@ for (const compiler of ["configured", "deno"] as const) {
 				sources.set(entry.name, bundle);
 			}
 			if (!files.has("page.js")) throw new Error("the Rooms browser bundle produced no page entry");
+			if (!files.has("ground.js")) throw new Error("the Rooms browser bundle produced no ground entry");
 			for (const prefix of NAMED_CHUNKS) {
 				if (namedSize(files, prefix) === 0) {
 					throw new Error(`the Rooms browser bundle produced no ${prefix}* chunk`);

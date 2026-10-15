@@ -61,6 +61,7 @@
 //!   low-level embedder has not reclaimed the stale map row yet.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 const slot = @import("slot.zig");
 
@@ -84,9 +85,9 @@ pub const ImportRow = struct {
 /// installed live at count 1 with its `Row`. The owning table's release verb
 /// decrements by the wire delta and retires the row at zero. Underflow or an
 /// unknown position is a loud error, never a silent clamp.
-fn WireDeltaTable(comptime Row: type) type {
+fn WireDeltaTable(comptime Row: type, comptime provenance: foundation.identity_hash.Provenance) type {
     return struct {
-        rows: std.AutoHashMapUnmanaged(u64, Row) = .empty,
+        rows: foundation.identity_hash.MapOf(provenance, u64, Row),
 
         const Self = @This();
 
@@ -96,7 +97,16 @@ fn WireDeltaTable(comptime Row: type) type {
             GcUnderflow,
         };
 
-        pub const empty: Self = .{};
+        /// A table of positions this side allocates needs no secret. A table of
+        /// positions the peer chooses starts under the public constant this way
+        /// and is keyed before it holds a row (`Session.keyWireTables`).
+        pub const empty: Self = .{ .rows = if (provenance == .local) .empty else .keyed(foundation.identity_hash.default_multiplier) };
+
+        /// A table of positions the peer chooses hashes them under `multiplier`.
+        /// A table of positions this side allocates has no use for it.
+        pub fn keyed(multiplier: u64) Self {
+            return .{ .rows = if (provenance == .local) .empty else .keyed(multiplier) };
+        }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.rows.deinit(allocator);
@@ -161,10 +171,10 @@ fn WireDeltaTable(comptime Row: type) type {
 /// partner can do to grow it without bound, and `register`/`retain` therefore
 /// take no cap.
 pub const ExportTable = struct {
-    slots: WireDeltaTable(ExportRow) = .empty,
+    slots: WireDeltaTable(ExportRow, .local) = .empty,
 
     pub const Id = model.ExportPosition;
-    pub const Error = WireDeltaTable(ExportRow).Error;
+    pub const Error = WireDeltaTable(ExportRow, .local).Error;
     pub const empty: ExportTable = .{};
 
     pub fn deinit(self: *ExportTable, allocator: std.mem.Allocator) void {
@@ -263,7 +273,7 @@ pub const ExportTable = struct {
 /// a refcount bump and never trips the cap, because it adds no row. There is no
 /// `register`: imports are only ever retained.
 pub const ImportTable = struct {
-    slots: WireDeltaTable(ImportRow) = .empty,
+    slots: WireDeltaTable(ImportRow, .wire),
     /// Optional identities attached to live import rows: the Node routing
     /// route id (ADR-0069) and the opaque Host capability id (ADR-0096). Both die
     /// with the import row, so partner reuse of one numeric position cannot
@@ -286,13 +296,18 @@ pub const ImportTable = struct {
     comptime {
         if (@sizeOf(Identity) > identity_budget_bytes) @compileError("import identity memo exceeded its three-word retained-row budget");
     }
-    pub const IdentityMap = std.AutoHashMapUnmanaged(u64, Identity);
+    pub const IdentityMap = foundation.identity_hash.MapOf(.wire, u64, Identity);
     pub const Id = model.ImportPosition;
-    pub const Error = WireDeltaTable(ImportRow).Error;
+    pub const Error = WireDeltaTable(ImportRow, .wire).Error;
     /// Adding a new import row can hit the partner-import cap. Everything else
     /// an import table does (decrement, lookup) shares the wire-delta errors.
     pub const RetainError = std.mem.Allocator.Error || Error || error{ImportCapExceeded};
-    pub const empty: ImportTable = .{};
+
+    /// An import position is the peer's export position, so the table hashes
+    /// under the session's wire multiplier.
+    pub fn keyed(wire_hash_multiplier: u64) ImportTable {
+        return .{ .slots = .keyed(wire_hash_multiplier) };
+    }
 
     pub fn deinit(self: *ImportTable, allocator: std.mem.Allocator) void {
         self.slots.deinit(allocator);
@@ -533,7 +548,7 @@ pub const ImportTable = struct {
     fn identityMap(self: *ImportTable, allocator: std.mem.Allocator) !*IdentityMap {
         return self.identities orelse map: {
             const fresh = try allocator.create(IdentityMap);
-            fresh.* = .empty;
+            fresh.* = .keyed(self.slots.rows.multiplier);
             self.identities = fresh;
             break :map fresh;
         };

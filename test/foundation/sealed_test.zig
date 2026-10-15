@@ -6,7 +6,10 @@
 //! `park` hands the channel an arbitrary unread wire suffix, and that suffix
 //! is allowed to hold whole records, not just the front of one. A partner
 //! that pipelines deliveries behind its hello in one segment produces exactly
-//! that shape at the host's hello pause boundary.
+//! that shape at the host's hello pause boundary. The scratch a record opens
+//! into is also pinned here: a record body shorter than its tag retires the
+//! channel, and the wipe before the next open covers the previous plaintext
+//! exactly.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -124,4 +127,67 @@ test "a parked suffix ending mid-record finishes from fresh bytes" {
     responder.releasePlaintext();
 
     try std.testing.expect(!responder.hasStagedInbound());
+}
+
+fn openedPair(initiator: *sealed.SealedChannel, responder: *sealed.SealedChannel, seeds: [4]u8) !void {
+    const initiator_identity = crypto.SecretKey.fromSeed(@splat(seeds[0]));
+    const responder_identity = crypto.SecretKey.fromSeed(@splat(seeds[1]));
+    initiator.* = try sealed.SealedChannel.initInitiator(
+        &initiator_identity,
+        responder_identity.publicKey(),
+        @splat(seeds[2]),
+        transport,
+    );
+    responder.* = try sealed.SealedChannel.initResponder(
+        &responder_identity,
+        @splat(seeds[3]),
+        transport,
+    );
+    try openPair(initiator, responder);
+}
+
+test "a record body shorter than its tag retires the channel" {
+    const gpa = std.testing.allocator;
+    var initiator: sealed.SealedChannel = undefined;
+    var responder: sealed.SealedChannel = undefined;
+    try openedPair(&initiator, &responder, .{ 9, 10, 11, 12 });
+    defer initiator.deinit(gpa);
+    defer responder.deinit(gpa);
+
+    // A header claiming five body bytes: no room for the sixteen-byte tag,
+    // so there is nothing to authenticate and the open is refused before
+    // any cipher state moves.
+    const wire = [_]u8{ 0, 5, 1, 2, 3, 4, 5 };
+    try std.testing.expectError(error.MessageTooShort, responder.ingest(gpa, &wire));
+    try std.testing.expect(!responder.isOpen());
+}
+
+test "the wipe before the next open covers the previous plaintext exactly" {
+    const gpa = std.testing.allocator;
+    var initiator: sealed.SealedChannel = undefined;
+    var responder: sealed.SealedChannel = undefined;
+    try openedPair(&initiator, &responder, .{ 13, 14, 15, 16 });
+    defer initiator.deinit(gpa);
+    defer responder.deinit(gpa);
+
+    const long_len = 300;
+    var wire: std.ArrayList(u8) = .empty;
+    defer wire.deinit(gpa);
+    try initiator.sealBytes(gpa, &wire, &(@as([long_len]u8, @splat('a'))));
+    const first = try responder.ingest(gpa, wire.items);
+    try std.testing.expectEqual(wire.items.len, first.consumed);
+    try std.testing.expectEqual(@as(usize, long_len), first.event.plaintext.len);
+    try std.testing.expectEqual(@as(u32, long_len), responder.plain_used);
+    responder.releasePlaintext();
+
+    wire.clearRetainingCapacity();
+    try initiator.sealBytes(gpa, &wire, "tiny");
+    const second = try responder.ingest(gpa, wire.items);
+    try std.testing.expectEqualStrings("tiny", second.event.plaintext);
+    responder.releasePlaintext();
+
+    // The long record's bytes past the short one are gone, and the written
+    // span now names only the short record.
+    try std.testing.expectEqual(@as(u32, 4), responder.plain_used);
+    for (responder.plain[4..long_len]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
 }

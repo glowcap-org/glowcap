@@ -44,14 +44,14 @@ fn interceptFulfilled(
     node: *engine.Node,
     peer_handle: engine.PeerHandle,
     answer: engine.AnswerTarget,
-    fulfilled: model.Argument,
+    fulfilled: model.view.Argument,
 ) !actors.InterceptOutcome {
     if (fulfilled != .reference) return .{ .resolve = fulfilled };
     const reference = fulfilled.reference;
     if (reference == .routed) {
         const route_id = reference.routed.id;
         if (try node.proxyForeignPromiseFulfill(peer_handle, route_id)) |proxy|
-            return .{ .resolve = .{ .reference = proxy } };
+            return .{ .resolve = .{ .reference = model.view.Reference.fromOwned(&proxy) } };
         if (try node.interceptFulfilledRouteNamed(peer_handle, answer, route_id))
             return .claimed;
         return .{ .resolve = fulfilled };
@@ -73,7 +73,7 @@ pub fn interceptFulfilledReference(
     answer: engine.AnswerTarget,
     reference: model.Reference,
 ) !actors.InterceptOutcome {
-    return interceptFulfilled(&self.node, session.peer_handle, answer, .{ .reference = reference });
+    return interceptFulfilled(&self.node, session.peer_handle, answer, .{ .reference = model.view.Reference.fromOwned(&reference) });
 }
 
 /// The before-serve hook on every Host CapTP session. Cross-file `pub` is
@@ -82,16 +82,16 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
     _ = served;
     const session: *HostSession = @ptrCast(@alignCast(ctx.?));
     const host = session.host;
-    const body = try event.view();
+    const body = event.view();
     // Every event notices a just-opened session. An inbound deliver also
     // reports its verb; a deliver without one is protocol traffic we skip.
     host.traceNoteOpen(session);
-    if (host.trace_sink != null and body == .deliver) trace_verb: {
+    if (host.trace_sink != null and body.* == .deliver) trace_verb: {
         const args = body.deliver.args;
         const first = args.at(0) catch break :trace_verb;
         if (first == .symbol) host.traceMessage(session, false, first.symbol, event.bytes());
     }
-    if (body == .start_session) {
+    if (body.* == .start_session) {
         if (session.role == .accepted)
             try crossed_hellos.tiebreakInbound(host, session, body.start_session);
         try sessions.refuseDuplicatePartnerKey(host, session, body.start_session);
@@ -105,11 +105,9 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
         {
             const advertised = host.node.acceptableLocator() orelse
                 return HostError.MissingAdvertisedLocator;
-            try session.served.port.peer.answerDeferredHello(
-                body.start_session,
-                advertised,
-                session.sessionSecret(),
-            );
+            var secret = session.sessionSecret();
+            defer std.crypto.secureZero(u8, std.mem.asBytes(&secret));
+            try session.served.port.peer.answerDeferredHello(body.start_session, advertised, secret);
         }
         return false;
     }
@@ -117,10 +115,10 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
     // choreography, not a Vat deliver.
     if (try claimProxyListenerFire(host, session.peer_handle, event)) {
         // A converged subscription may also carry application answer aliases.
-        if (body != .resolve) return true;
+        if (body.* != .resolve) return true;
     }
-    if (body != .resolve) {
-        switch (body) {
+    if (body.* != .resolve) {
+        switch (body.*) {
             .deliver, .listen, .get, .index, .untag => host.node.exporterApplicationOwned(session.peer_handle),
             .resolve, .gc_export, .gc_answer, .start_session, .abort => {},
         }
@@ -129,10 +127,11 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
     const resolve = body.resolve;
     if (resolve.resolution == .fulfill) {
         const value = resolve.resolution.fulfill;
-        if (value == .handoff and value.handoff == .give) {
+        const handoff: ?model.view.Handoff = if (value == .handoff) try value.handoff.project() else null;
+        if (handoff != null and handoff.? == .give) {
             var projected = try engine.handoff_recipient.projectGiveForRedeem(
                 host.allocator,
-                value.handoff.give,
+                handoff.?.give,
             );
             defer projected.deinit(host.allocator);
             // Projection failure still claims: acceptGive breaks the answer
@@ -162,7 +161,7 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
 pub fn hostResolveInterceptor(
     ctx: ?*anyopaque,
     answer: engine.AnswerTarget,
-    fulfilled: model.Argument,
+    fulfilled: model.view.Argument,
 ) anyerror!actors.InterceptOutcome {
     const session: *HostSession = @ptrCast(@alignCast(ctx.?));
     return interceptFulfilled(&session.host.node, session.peer_handle, answer, fulfilled);
@@ -173,7 +172,7 @@ pub fn hostResolveInterceptor(
 /// been identified.
 fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *const engine.Event) !bool {
     const body = event.wireView();
-    if (body != .deliver) return false;
+    if (body.* != .deliver) return false;
     const deliver = body.deliver;
     const export_pos = switch (deliver.target) {
         .near => |near| near.export_position.int(),
@@ -236,12 +235,6 @@ fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *c
             _ = context.arena.reset(.{ .retain_with_limit = steady_proxy_recipient_arena_bytes });
             const allocator = context.arena.allocator();
             const values = [_]value_mod.Value{context.value.*};
-            const retained = capability_lower.retainValueCapabilities(
-                context.host,
-                allocator,
-                &values,
-            ) catch return; // best-effort: the armed terminal break fires instead
-            defer capability_lower.releaseUntransferredCapabilityRetains(context.host, retained);
             var prepared = capability_lower.prepareValues(
                 context.host,
                 recipient_session,
@@ -249,14 +242,9 @@ fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *c
                 &values,
             ) catch return; // best-effort: the armed terminal break fires instead
             defer prepared.deinit();
-            const leases = capability_lower.beginOutboundStagingLeases(
-                context.host,
-                allocator,
-                prepared.values,
-                retained,
-            ) catch return; // best-effort: the armed terminal break fires instead
+            prepared.beginStaging();
             const adopted = relay.adopt(.{ .fulfill = prepared.values[0] });
-            capability_lower.finishOutboundStagingLeases(context.host, retained, leases);
+            prepared.endStaging();
             if (adopted) _ = prepared.commit();
         }
     };

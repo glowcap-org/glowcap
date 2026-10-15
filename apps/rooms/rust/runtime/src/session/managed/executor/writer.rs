@@ -80,7 +80,7 @@ impl Writer {
 			.send(
 				&root,
 				"derive-managed",
-				&terms.managed_derive_arguments(sequence, depth, powers),
+				&terms.managed_derive_arguments(sequence, Scope::Object, depth, powers),
 			)
 			.await?;
 		let Some([access, control]) = result.as_list() else {

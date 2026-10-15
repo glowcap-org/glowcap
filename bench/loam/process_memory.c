@@ -1,7 +1,9 @@
-/* OS accounting for the entire benchmark process, independent of Zig allocators. */
+/* Process accounting and CPU placement, independent of Zig allocators. */
+#define _GNU_SOURCE
 #include <stdint.h>
 #include <sys/resource.h>
 #if defined(__linux__)
+#include <sched.h>
 #include <stdio.h>
 #include <unistd.h>
 #elif defined(__APPLE__)
@@ -50,4 +52,18 @@ int glowcap_bench_memory(uint64_t *resident, uint64_t *virtual_bytes,
     *minor = (uint64_t)usage.ru_minflt;
     *major = (uint64_t)usage.ru_majflt;
     return 0;
+}
+
+/* Linux-only placement for the single-threaded Tasks comparison. */
+int glowcap_bench_pin_cpu(unsigned cpu) {
+#if defined(__linux__)
+    if (cpu >= CPU_SETSIZE) return -1;
+    cpu_set_t allowed;
+    CPU_ZERO(&allowed);
+    CPU_SET(cpu, &allowed);
+    return sched_setaffinity(0, sizeof allowed, &allowed);
+#else
+    (void)cpu;
+    return -1;
+#endif
 }

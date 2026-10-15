@@ -7,7 +7,7 @@ decision: "A Rooms deployment keeps three durable stores with one job each. Dire
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0216]
 ---
 
 # ADR-0208 Rooms retention storage split
@@ -68,8 +68,7 @@ continuing from storage whose outcome no longer matches the live index.
 
 This record owns the current split and its reasons. Whether the planned
 Loam content store's message and conversation records subsume the
-`room_lines` seam is undecided. The
-[storage and budget contract](../../planning/rooms.md) names
+`room_lines` seam is undecided. The Rooms storage and budget contract names
 that boundary. Private rooms and direct messages are not retained by the
 directory at all. Member-owned archives (ADR-0129, ADR-0130) are a separate
 store with their own records.
@@ -108,8 +107,6 @@ whether scrollback is in the persistence plan's scope.
 state documents, the file history backend, index policy bounds, session
 platform storage, and the shared persistence-failure contracts. `zig build
 rooms-server-test` proves the hermetic server and UI contract behavior.
-`zig build rooms-postgres-test` proves the installed server against a live
-PostgreSQL: exclusive custody against a rival server, restore across
-restart, edits, withdrawals, and integrity refusal. `zig build
+`zig build
 rooms-peers-test` proves server and session identity stability across
 restart and signal shutdown.

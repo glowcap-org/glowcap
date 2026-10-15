@@ -482,7 +482,7 @@ pub fn drawHelpModal(win: Window, frame: std.mem.Allocator) void {
     const lines = [_]struct { []const u8, vaxis.Style }{
         .{ "Ctrl-O   transcript browse", theme.styleBody() },
         .{ "F1       this help", theme.styleBody() },
-        .{ "?        tip at prompt; help in browse", theme.styleBody() },
+        .{ "?        tip at the prompt, help in browse", theme.styleBody() },
         .{ "{ }      prev/next user turn (browse)", theme.styleBody() },
         .{ "Tab      complete", theme.styleBody() },
         .{ "wheel / Shift↑↓ / PgUp·PgDn  scroll", theme.styleBody() },

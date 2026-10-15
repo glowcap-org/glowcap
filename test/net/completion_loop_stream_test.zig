@@ -22,7 +22,7 @@ const frame_cap = fixtures.frame_cap;
 const fixtures = @import("../support/completion_loop_fixtures.zig");
 const startSession = fixtures.startSession;
 const makeServerPeer = fixtures.makeServerPeer;
-const drainOutboundBytes = fixtures.drainOutboundBytes;
+const pumpStream = fixtures.pumpStream;
 const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 const FakeBackend = fixtures.FakeBackend;
 const FakeEvent = fixtures.FakeEvent;
@@ -177,6 +177,11 @@ const ScriptBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *ScriptBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     pub fn poll(self: *ScriptBackend, out: []completion.Completion, timeout_ms: i32) !usize {
         _ = timeout_ms;
         // The loop stalled with no completion to deliver: a loop bug, a
@@ -202,15 +207,12 @@ fn buildClientScript(
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
 
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
-    var server_ss: std.ArrayList(u8) = .empty;
-    defer server_ss.deinit(allocator);
-    try drainOutboundBytes(&server_twin, allocator, &server_ss);
-    _ = try client.recvStreamPrefix(server_ss.items);
+    _ = try pumpStream(&server_twin, &client, allocator);
     fetch_pump.drainEvents(&client);
 
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, "thermostat");
@@ -455,6 +457,11 @@ const HeldSendBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *HeldSendBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     pub fn poll(self: *HeldSendBackend, out: []completion.Completion, timeout_ms: i32) !usize {
         _ = timeout_ms;
         if (self.ready_len == 0) {
@@ -489,15 +496,12 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
 
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
-    var server_ss: std.ArrayList(u8) = .empty;
-    defer server_ss.deinit(allocator);
-    try drainOutboundBytes(&server_twin, allocator, &server_ss);
-    _ = try client.recvStreamPrefix(server_ss.items);
+    _ = try pumpStream(&server_twin, &client, allocator);
     fetch_pump.drainEvents(&client);
 
     const fetch_count = 4;
@@ -544,7 +548,7 @@ fn makeBigFramePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!eng
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = big_frame_max;
     _ = try peer.registerBootstrapCap("thermostat");
-    try peer.sendCopying(startSession("server"));
+    try peer.sendBorrowed(startSession("server"));
     return peer;
 }
 
@@ -565,15 +569,12 @@ fn buildBigDeliverScript(
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = big_frame_max;
 
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, client_ss);
 
     var server_twin = try makeBigFramePeer(null, allocator);
     defer server_twin.deinit();
-    var server_ss: std.ArrayList(u8) = .empty;
-    defer server_ss.deinit(allocator);
-    try drainOutboundBytes(&server_twin, allocator, &server_ss);
-    _ = try client.recvStreamPrefix(server_ss.items);
+    _ = try pumpStream(&server_twin, &client, allocator);
     fetch_pump.drainEvents(&client);
 
     // A fetch is an op:deliver to the bootstrap; padding the swissnum makes the

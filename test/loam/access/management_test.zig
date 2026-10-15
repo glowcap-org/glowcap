@@ -200,7 +200,7 @@ const GrantInspection = struct {
 fn drainWithStaleCompletions(server: *h.Hosted, backend: anytype) !usize {
     const Worker = h.loam.hosting.Worker;
     var slot: [1]Worker.Slot = undefined;
-    var worker: Worker = .init(&slot);
+    var worker: Worker = .init(&slot, backend.readerCapacity());
     var rejected: usize = 0;
     for (0..256) |_| {
         _ = try server.host.vat.driveIngressBudgeted(.local, 64);

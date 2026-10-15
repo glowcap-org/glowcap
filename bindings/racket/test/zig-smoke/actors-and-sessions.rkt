@@ -2,6 +2,7 @@
 ;; One independently loadable family from the Racket binding dogfood.
 
 (require net/base64
+         (only-in ffi/vector list->s64vector)
          (only-in ffi/unsafe ctype-sizeof)
          racket/random
          racket/runtime-path
@@ -20,7 +21,7 @@
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
          (only-in "../../private/finalizer-diagnostics.rkt"
-                  record-runtime-failure! run-native-finalizer!)
+                  record-runtime-failure! run-ffi-finalizer!)
          (only-in "../../private/ws-transport.rkt" ws-transport)
          (only-in "../../relay.rkt" relay-pump exn:fail:relay?
                   exn:fail:relay-primary exn:fail:relay-secondary)
@@ -42,7 +43,7 @@
                   driver-loop-has-transport?
                   loop-listen! loop-listener-ready! loop-listener-locator
                   loop-listener-close!)
-         "../../private/native-parent.rkt"
+         "../../private/ffi-parent.rkt"
          (only-in "../../private/value.rkt" make-ref/internal)
          "support.rkt"
          racket/tcp)
@@ -309,7 +310,7 @@
 (printf "racket zig-smoke OK: high-level listen/accept hosted a keyed session\n")
 
 ;; ── The live timeline producer ────────────────────────────────────────────────
-;; The veneer stamps and forwards the native tap's facts, one flat record per
+;; The veneer stamps and forwards the FFI tap's facts, one flat record per
 ;; fact: session-opened with the codec the handshake negotiated,
 ;; the same verb outbound at the client and inbound at the server, and
 ;; session-closed. Endpoint labeling belongs to the consumer, so the records
@@ -322,7 +323,7 @@
                    (set-box! trace-events (cons ev (unbox trace-events)))
                    (raise trace-callback-failure))
                  #:self-label "smoke"))
-;; The native host retains a C function pointer, so the binding must retain the
+;; The FFI host retains a C function pointer, so the binding must retain the
 ;; actual callback object, not only the Racket procedure it was made from.
 (collect-garbage)
 (collect-garbage)
@@ -447,7 +448,7 @@
 (semaphore-wait rv-ready)
 (define rv-worker (session-fetch rv-session "worker"))
 
-;; The served wire callback has an actual native turn, unlike a near call
+;; The served wire callback has an actual FFI turn, unlike a near call
 ;; between Goblins actors. Tells retain no answer; calls below retain one.
 (session-tell rv-session rv-worker 'notice)
 (semaphore-wait rv-parked-ready)
@@ -609,7 +610,8 @@
        (session-publish hsession "board"
                      (lambda (bcom)
                        (methods
-                        [(echo big k bs record err) (list big k bs record err)])))
+                        [(echo big k bs record err) (list big k bs record err)]
+                        [(ints xs) (equal? xs '(7 -8 9))])))
        (semaphore-post cx-ready)
        (session-serve hsession)
        (channel-put cx-ch 'served)))))
@@ -622,6 +624,8 @@
 (expect (equal? (list cx-big (kw "prio") #"hi" cx-struct cx-error)
                 (session-send cx-session cx-svc 'echo cx-big (kw "prio") #"hi" cx-struct cx-error))
         "capnp: big-integer + keyword + bytes + Struct + Error args round-trip a Cap'n Proto session")
+(expect (eq? #t (session-send cx-session cx-svc 'ints (list->s64vector '(7 -8 9))))
+        "capnp: an s64vector argument arrives as a list of 7, -8, 9")
 (session-close! cx-session)
 (define cx-host-result (channel-get cx-ch))
 (when (exn? cx-host-result) (raise cx-host-result))

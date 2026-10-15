@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The Python driver-provider parity proof (ADR-0112): the binding's byte-fed
-iroh surface serves while its native-loop surface dials the same live
+iroh surface serves while its driver-loop surface dials the same live
 endpoint through the common provider ABI — both halves in one process,
 one asyncio thread.
 
@@ -104,7 +104,7 @@ async def main() -> None:
 
     print(
         "python-iroh-driver-provider: OK — the byte-fed surface served while the "
-        "native loop dialed the same endpoint through the provider ABI"
+        "driver loop dialed the same endpoint through the provider ABI"
     )
 
 

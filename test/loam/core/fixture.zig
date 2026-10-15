@@ -19,7 +19,7 @@ pub const Fixture = struct {
 
     pub fn deinit(self: *Fixture) void {
         self.store.deinit() catch unreachable;
-        self.backend.close();
+        self.backend.close() catch unreachable;
         self.backend.deinit();
     }
 };

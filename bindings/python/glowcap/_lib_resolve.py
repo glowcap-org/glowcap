@@ -208,7 +208,7 @@ def _require_https(base: str) -> None:
 
 def _download(url: str, dest: pathlib.Path, *, max_bytes: int, user_agent: str) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": user_agent})
-    with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 — HTTPS gated
+    with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310 - HTTPS gated
         length = resp.headers.get("Content-Length")
         if length is not None and int(length) > max_bytes:
             raise OSError(

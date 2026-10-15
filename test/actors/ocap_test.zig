@@ -12,6 +12,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const capture = @import("../support/capture.zig");
 const cross_peer = @import("../support/cross_peer.zig");
 
@@ -21,7 +22,7 @@ const cross_peer = @import("../support/cross_peer.zig");
 const Counter = struct {
     n: i64,
 
-    pub fn handle(self: *Counter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *Counter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "add")) {
@@ -209,7 +210,7 @@ test "a local eventual proxy defers to a far target and preserves no-answer tell
     while (pair.p2.pollEvent()) |event| {
         var owned = event;
         defer owned.deinit();
-        if ((try owned.view()) == .deliver) {
+        if (owned.view().* == .deliver) {
             delivered = true;
             try std.testing.expect(owned.deliverAnswerTarget() == null);
         }

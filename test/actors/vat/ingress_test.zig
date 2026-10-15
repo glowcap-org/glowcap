@@ -10,6 +10,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
 const poison = @import("../../support/poison.zig");
@@ -74,7 +75,7 @@ const OrderActor = struct {
     order: [16]u8 = undefined,
     len: usize = 0,
 
-    pub fn handle(self: *OrderActor, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *OrderActor, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "record")) {
             self.order[self.len] = @intCast(try msg.argInt(0));
@@ -218,7 +219,7 @@ const CloseDuringTurn = struct {
     ingress: actors.IngressId,
     saw_busy: bool = false,
 
-    pub fn handle(self: *CloseDuringTurn, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *CloseDuringTurn, turn: *Turn, msg: Delivery) !model.Argument {
         _ = msg;
         turn.vat.closeIngress(self.ingress) catch |err| {
             if (err != actors.Error.IngressBusy) return err;
@@ -246,7 +247,7 @@ const CausalFanout = struct {
     sink: actors.Ref,
     refused: bool = false,
 
-    pub fn handle(self: *CausalFanout, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *CausalFanout, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "fan")) {
             _ = try turn.send(self.sink, .{ .verb = "increment" });
             _ = turn.send(self.sink, .{ .verb = "increment" }) catch |err| {
@@ -308,7 +309,7 @@ const ReentrantChunkBorrow = struct {
     observed: [16]u8 = undefined,
     observed_len: usize = 0,
 
-    pub fn handle(self: *ReentrantChunkBorrow, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *ReentrantChunkBorrow, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "outer")) {
             // Drain the next row in this same chunk. Once it exhausts the chunk,
             // enqueue again to force an incorrect early spare to be reused and

@@ -1,5 +1,5 @@
 //! Deployment route aliases select the same registry before carrier opening.
-//! Both native execution paths share this policy. Peer hints remain untrusted.
+//! Both Zig execution paths share this policy. Peer hints remain untrusted.
 const std = @import("std");
 const glowcap = @import("glowcap");
 const admission = @import("../../support/keyed_relay_admission.zig");

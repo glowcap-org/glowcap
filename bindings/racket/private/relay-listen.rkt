@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Managed relay listeners over the generic driver loop: register a durable
-;; key at the relay and accept sessions through the native driver. The
+;; key at the relay and accept sessions through the FFI driver. The
 ;; provider registers as the listener opens, so a ready listener means the
 ;; relay answered and holds this peer's sockets. The driver's provider
 ;; registry holds one relay configuration per loop: a second listen naming

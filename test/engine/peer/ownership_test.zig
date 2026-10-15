@@ -1,7 +1,7 @@
 //! What a Peer owns at its boundary: originated handoffs need distinct
 //! sessions, the outbound waterline refuses before authority moves,
-//! feedOwned transfers and recvBorrowed copies exactly once, sendCopying
-//! owns its bytes before the caller can mutate them, and no failed
+//! feedOwned transfers and recvBorrowed copies exactly once, sendBorrowed
+//! encodes a deliver before the caller can mutate its bytes, and no failed
 //! allocation advances session state.
 
 const std = @import("std");
@@ -68,7 +68,7 @@ test "failed withdraw construction does not consume its handoff count" {
     var frame = pair.p1.takeOutbound().?;
     defer frame.deinit();
     const body = try codec.syrup.decodeBodyForProfile(.v1_0, frame.view());
-    const receive = (try body.deliver.args.at(1)).handoff.receive;
+    const receive = (try (try body.deliver.args.at(1)).handoff.project()).receive;
     try std.testing.expectEqual(@as(u64, 0), receive.handoff_count);
 }
 
@@ -80,7 +80,7 @@ test "outbound waterline refuses one arbitrarily large producer before authority
     try peer.session_state.registerImport(.from(7));
 
     const oversized = @as([512]u8, @splat(0x5a));
-    try std.testing.expectError(error.OutboundBackpressure, peer.sendCopying(.{ .deliver = .{
+    try std.testing.expectError(error.OutboundBackpressure, peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{.{ .bytes = &oversized }},
         .answer = .from(19),
@@ -104,7 +104,7 @@ test "one inbound frame admits its maintenance carriers as one outbound producer
     // line, but the second must not be mistaken for a new producer and refuse
     // the otherwise atomic inbound transaction.
     const ballast = @as([512]u8, @splat(0x5a));
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(9) },
         .args = &.{.{ .bytes = &ballast }},
     } });
@@ -167,7 +167,7 @@ test "outbound admission backpressure remains retryable and does not abort" {
     try peer.session_state.registerImport(.from(7));
 
     peer.outbound_budget = 0;
-    try std.testing.expectError(error.OutboundBackpressure, peer.sendCopying(.{ .deliver = .{
+    try std.testing.expectError(error.OutboundBackpressure, peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{.{ .bytes = "retry" }},
     } }));
@@ -176,7 +176,7 @@ test "outbound admission backpressure remains retryable and does not abort" {
     try std.testing.expect(peer.takeOutbound() == null);
 
     peer.outbound_budget = std.math.maxInt(usize);
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{.{ .bytes = "retry" }},
     } });
@@ -196,7 +196,7 @@ test "an admitted carrier encodes across the waterline instead of deadlocking" {
     defer peer.deinit();
     try peer.session_state.registerImport(.from(7));
 
-    try peer.sendCopying(.{ .deliver = .{
+    try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{.{ .bytes = "retry" }},
     } });
@@ -234,7 +234,15 @@ test "borrowed inbound retains its own copy of the wire bytes exactly once" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    counter.count_size = deliver_bytes.len;
+    // The one block holds the parse's head and its argument views in front
+    // of the copied bytes.
+    counter.count_size = glowcap.foundation.Frame.headedBlockLen(
+        engine.events.Head,
+        model.view.Argument,
+        engine.events.headViewsFor(deliver_bytes.len),
+        deliver_bytes.len,
+        .byte,
+    );
     try peer.recvBorrowed(.{ .bytes = deliver_bytes, .shape = .byte });
     try std.testing.expectEqual(@as(usize, 1), counter.matching_allocs);
 
@@ -244,21 +252,24 @@ test "borrowed inbound retains its own copy of the wire bytes exactly once" {
     try std.testing.expectEqualStrings(deliver_bytes, event.bytes());
 }
 
-test "sendCopying copies caller argument bytes exactly once" {
+test "a borrowed deliver copies no argument bytes" {
     var counter = CountingAllocator{ .backing = std.testing.allocator };
     var peer = engine.Peer.init(counter.allocator());
     defer peer.deinit();
     try peer.session_state.registerImport(.from(7));
 
+    // The one allocation of the payload's size would be its clone. The
+    // deliver is encoded at admission instead, so none happens.
     counter.count_size = "hello".len;
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{.{ .bytes = "hello" }},
             .answer = .from(42),
         },
     });
-    try std.testing.expectEqual(@as(usize, 1), counter.matching_allocs);
+    try std.testing.expectEqual(@as(usize, 0), counter.matching_allocs);
+    try std.testing.expect(peer.pending_send.peek().?.item == .encoded);
 }
 
 test "peer step encodes pending outbound message" {
@@ -267,7 +278,7 @@ test "peer step encodes pending outbound message" {
     defer peer.deinit();
     try peer.session_state.registerImport(.from(7));
 
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{.{ .bytes = "hello" }},
@@ -295,7 +306,7 @@ test "peer step uses session CapTP version for outbound encoding" {
     try peer.session_state.registerImport(.from(7));
     try peer.session_state.registerExport(.from(99));
 
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{.{ .bytes = "hello" }},
@@ -316,7 +327,7 @@ test "peer step uses session CapTP version for outbound encoding" {
     );
 }
 
-test "peer sendCopying owns queued argument bytes before caller mutation" {
+test "a borrowed deliver's frame is complete before the caller mutates its arguments" {
     const allocator = std.testing.allocator;
     var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
@@ -325,7 +336,7 @@ test "peer sendCopying owns queued argument bytes before caller mutation" {
     var arg_bytes = [_]u8{ 'h', 'e', 'l', 'l', 'o' };
     const args = [_]model.Argument{.{ .bytes = arg_bytes[0..] }};
 
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = args[0..],
@@ -346,7 +357,7 @@ test "peer sendCopying owns queued argument bytes before caller mutation" {
     );
 }
 
-test "peer sendCopying deep-copies rich argument payloads" {
+test "peer sendBorrowed deep-copies rich argument payloads" {
     const allocator = std.testing.allocator;
     var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
@@ -362,7 +373,7 @@ test "peer sendCopying deep-copies rich argument payloads" {
         .{ .set = set_values[0..] },
     };
 
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = args[0..],
@@ -384,7 +395,7 @@ test "peer sendCopying deep-copies rich argument payloads" {
     );
 }
 
-test "peer sendCopying does not advance session state when clone allocation fails" {
+test "peer sendBorrowed does not advance session state when clone allocation fails" {
     var buffer: [512]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
     var peer = engine.Peer.init(fixed.allocator());
@@ -394,7 +405,7 @@ test "peer sendCopying does not advance session state when clone allocation fail
     const too_large = @as([4096]u8, @splat('x'));
     const args = [_]model.Argument{.{ .bytes = too_large[0..] }};
 
-    try std.testing.expectError(error.OutOfMemory, peer.sendCopying(.{
+    try std.testing.expectError(error.OutOfMemory, peer.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = args[0..],
@@ -422,7 +433,7 @@ test "recvBorrowed dispatches abort without retaining inbound bytes" {
     var event = peer.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.abort, event.kind());
-    try std.testing.expectEqualStrings("bye", (try event.view()).abort.message);
+    try std.testing.expectEqualStrings("bye", event.view().abort.message);
 }
 
 test "feedOwned transfers an owned frame and defers dispatch until step" {
@@ -441,7 +452,7 @@ test "feedOwned transfers an owned frame and defers dispatch until step" {
     var event = peer.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.abort, event.kind());
-    try std.testing.expectEqualStrings("bye", (try event.view()).abort.message);
+    try std.testing.expectEqualStrings("bye", event.view().abort.message);
 }
 
 test "feedOwned and recvBorrowed apply decoded messages through the same session path" {
@@ -483,7 +494,7 @@ test "recvBorrowed surfaces inbound deliver as an application event" {
     var event = peer.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
-    const deliver = (try event.view()).deliver;
+    const deliver = event.view().deliver;
     // `<desc:export 7>` (deliver to our export) decodes to `.near` post-flip.
     try std.testing.expectEqual(@as(u64, 7), deliver.target.near.export_position.int());
     try std.testing.expectEqualStrings("hello", (try deliver.args.at(0)).bytes);
@@ -547,7 +558,7 @@ test "recvBorrowed surfaces inbound get, index, and listen events" {
         var event = peer.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.get, event.kind());
-        try std.testing.expectEqualStrings("name", (try event.view()).get.field);
+        try std.testing.expectEqualStrings("name", event.view().get.field);
     }
     // The responder (ADR-0050) exports the projected answer immediately. The
     // receiver here is a plain export, which can never settle to a value, so
@@ -559,7 +570,7 @@ test "recvBorrowed surfaces inbound get, index, and listen events" {
         var event = peer.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.index, event.kind());
-        try std.testing.expectEqual(@as(i64, 5), (try event.view()).index.index.integer);
+        try std.testing.expectEqual(@as(i64, 5), event.view().index.index.integer);
     }
     // Likewise op:index is surfaced and its projected answer exported.
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
@@ -570,7 +581,7 @@ test "recvBorrowed surfaces inbound get, index, and listen events" {
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.listen, event.kind());
         // `<desc:import-object 9>` listener decodes to `.far` post-flip.
-        try std.testing.expectEqual(@as(u64, 9), (try event.view()).listen.listener.far.import_position.int());
+        try std.testing.expectEqual(@as(u64, 9), event.view().listen.listener.far.import_position.int());
     }
     // Live object export 7 has no inbound answer row: CapTP already-settled
     // target fires fulfill(near 7) to the listener immediately.

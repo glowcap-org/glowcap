@@ -10,7 +10,7 @@ paths:
 # glowcap — Product CapTP Waits
 
 `SessionOptions.handshake` and `.settle` are `driver.Budget` with no default.
-`.unbounded` compiles and is correct only for an in-process pair; anywhere a
+`.unbounded` compiles and is correct only for an in-process pair. Anywhere a
 partner can go silent it parks the process. A `.ms` of zero or less has already
 expired.
 

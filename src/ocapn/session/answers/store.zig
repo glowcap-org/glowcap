@@ -5,6 +5,7 @@
 //! concrete answer rows, lazy payload, snapshots, and cleanup mechanics.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 const slot = @import("../slot.zig");
 
@@ -221,7 +222,7 @@ pub const DetachedAnswer = struct {
 };
 
 pub const DetachedAnswerStore = struct {
-    rows: std.AutoHashMapUnmanaged(u64, DetachedAnswer) = .empty,
+    rows: foundation.identity_hash.MapOf(.wire, u64, DetachedAnswer),
 };
 
 /// One answer row plus its lazily allocated consequence payload.
@@ -296,13 +297,23 @@ pub const AnswerView = struct {
 
 /// Typed-name-keyed answer table. Inbound rows preserve wire-versus-virtual
 /// provenance. Outbound rows carry only real wire answer positions.
-pub fn AnswerTable(comptime IdType: type) type {
+pub fn AnswerTable(comptime IdType: type, comptime provenance: foundation.identity_hash.Provenance) type {
     return struct {
-        rows: std.AutoHashMapUnmanaged(IdType, AnswerCell) = .empty,
+        rows: foundation.identity_hash.MapOf(provenance, IdType, AnswerCell),
 
         pub const Id = IdType;
         const Self = @This();
-        pub const empty: Self = .{};
+
+        /// A table of positions this side allocates needs no secret. A table of
+        /// positions the peer chooses starts under the public constant this way
+        /// and is keyed before it holds a row (`Session.keyWireTables`).
+        pub const empty: Self = .{ .rows = if (provenance == .local) .empty else .keyed(foundation.identity_hash.default_multiplier) };
+
+        /// A table of positions the peer chooses hashes them under `multiplier`.
+        /// A table of positions this side allocates has no use for it.
+        pub fn keyed(multiplier: u64) Self {
+            return .{ .rows = if (provenance == .local) .empty else .keyed(multiplier) };
+        }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             var it = self.rows.valueIterator();
@@ -351,8 +362,8 @@ pub fn AnswerTable(comptime IdType: type) type {
     };
 }
 
-pub const InboundAnswerTable = AnswerTable(model.AnswerName);
-pub const OutboundAnswerTable = AnswerTable(model.AnswerPosition);
+pub const InboundAnswerTable = AnswerTable(model.AnswerName, .wire);
+pub const OutboundAnswerTable = AnswerTable(model.AnswerPosition, .local);
 
 /// Borrow the answer's payload, allocating it on first use.
 pub fn ensureAnswerPayload(allocator: std.mem.Allocator, cell: *AnswerCell) !*AnswerPayload {
@@ -426,8 +437,8 @@ pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayloa
     return resolution_charge;
 }
 
-/// Allocation-free admission result for one stored resolution. It measures the
-/// owned tree once, computes replacement delta and the durable-byte ceiling,
+/// Allocation-free admission result for one stored resolution. It takes the
+/// owned tree's measured charge, computes replacement delta and the durable-byte ceiling,
 /// and resolves promise identity before any capacity reservation or authority
 /// mutation. Preparation below only materializes a missing lazy payload.
 pub const ResolutionStorePlan = struct {
@@ -461,10 +472,10 @@ pub fn planResolutionStoreNamed(
     self: anytype,
     answer: model.AnswerName,
     resolution: model.Resolution,
+    charge: usize,
 ) !ResolutionStorePlan {
     const entry = self.inbound_answers.getPtr(answer) orelse
         return error.InvalidReference;
-    const charge = try model.measureResolutionOwnedBytes(resolution);
     const prior_charge = if (entry.payload) |payload| payload.resolution_charge else 0;
     std.debug.assert(self.retained_sent_answer_bytes >= prior_charge);
     const without_prior = self.retained_sent_answer_bytes - prior_charge;
@@ -516,10 +527,10 @@ pub fn planResolutionStoreTarget(
     target: AnswerTarget,
     payload: *AnswerPayload,
     resolution: model.Resolution,
+    charge: usize,
 ) !ResolutionStorePlan {
     const found = self.answerPayloadForTarget(target) orelse return error.InvalidReference;
     if (found != payload or payload.resolution != null) return error.UnexpectedMessage;
-    const charge = try model.measureResolutionOwnedBytes(resolution);
     std.debug.assert(self.retained_sent_answer_bytes >= payload.resolution_charge);
     const without_prior = self.retained_sent_answer_bytes - payload.resolution_charge;
     const next_retained = std.math.add(usize, without_prior, charge) catch
@@ -544,7 +555,11 @@ pub fn planResolutionStoreTarget(
 /// Session's retained-answer aggregate. Replacement computes its complete
 /// accounting result before releasing the prior value.
 pub fn storeResolutionNamed(self: anytype, answer: model.AnswerName, resolution: model.Resolution) !void {
-    const plan = planResolutionStoreNamed(self, answer, resolution) catch |err| {
+    const charge = model.measureResolutionOwnedBytes(resolution) catch |err| {
+        model.freeResolution(self.allocator, resolution);
+        return err;
+    };
+    const plan = planResolutionStoreNamed(self, answer, resolution, charge) catch |err| {
         model.freeResolution(self.allocator, resolution);
         return err;
     };

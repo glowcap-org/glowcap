@@ -1,7 +1,7 @@
 //! Completion-loop configuration and embedder callback vocabulary.
 //!
 //! This module owns policy and callback shapes only. Runtime state remains
-//! inline in \`Loop\`, and the supported completion namespace aliases these
+//! inline in `Loop`, and the supported completion namespace aliases these
 //! declarations without exporting this internal leaf. The callback types keep
 //! `anyerror` return sets: their implementors are application code unknown at
 //! these declarations.
@@ -126,8 +126,7 @@ pub const Options = struct {
     /// `max_conns * (@sizeOf(engine.Peer) + conn_slot_overhead_bytes)` bytes up
     /// front, and a dial or accept past it is refused rather than queued. At the
     /// 500k destination that reservation is the loop's own footprint, separate
-    /// from the outbound queues each live connection grows (`docs/ladder.md`
-    /// step 2).
+    /// from the outbound queues each live connection grows.
     max_conns: usize = 1024,
     /// Slots held exclusively for dials explicitly admitted as `.reserved`.
     /// Ordinary dials and accepts cannot consume them. Reserved dials cannot

@@ -1,9 +1,9 @@
 //! An allocator that runs out of memory at a point the fuzzer picks.
 //!
 //! Running out of memory partway through building something is the case this
-//! codebase documents most and tests least. `.agents/rules/memory.md` names
-//! roughly twenty-five allocations as bounded, owned, or freed on every path,
-//! and each of those claims has an unwind behind it that only runs when an
+//! codebase documents most and tests least. `.agents/rules/memory.md` has the
+//! owner that allocates release on every path, and each of those
+//! claims has an unwind behind it that only runs when an
 //! allocation fails. A parse can only fail where the bytes are wrong. An
 //! allocation can fail anywhere, including halfway down a tree with a boxed arm
 //! already built and nothing left to build the next one with.

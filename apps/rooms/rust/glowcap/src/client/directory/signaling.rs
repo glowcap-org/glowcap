@@ -32,6 +32,11 @@ impl<D: Deadline> Route<D> {
 	pub fn host(&self) -> glowcap::Host {
 		self.caller.host()
 	}
+	/// Whether `other` is a clone of this route rather than another route,
+	/// even one through the same directory.
+	pub fn same(&self, other: &Self) -> bool {
+		self.signaling.same(&other.signaling)
+	}
 	pub fn platform(&self) -> &D {
 		self.caller.platform()
 	}
@@ -164,6 +169,17 @@ impl<D: Deadline + Tasks + Clone + 'static> Route<D> {
 			policy::CANDIDATE,
 			id.as_str(),
 			candidate.as_str(),
+		)
+	}
+	/// Give up answering the offer `id`, so its offerer hears `reason` at once
+	/// instead of waiting out the signaling deadline.
+	pub fn signal_decline(&self, id: &policy::Id, reason: &policy::Reason) -> Result<(), Error> {
+		tell(
+			&self.caller,
+			&self.reference,
+			policy::DECLINE,
+			id.as_str(),
+			reason.as_str(),
 		)
 	}
 }

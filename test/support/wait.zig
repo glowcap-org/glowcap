@@ -1,4 +1,4 @@
-//! Shared deadline-guarded waits for multi-thread driver tests (bridge today, loop waits later).
+//! Shared deadline-guarded waits for multi-thread driver tests.
 //!
 //! An undeadlined `while (!flag.load) sleep(2ms)` is a silent hang: a wedged
 //! accept or a malformed give leaves the suite parked with no location and

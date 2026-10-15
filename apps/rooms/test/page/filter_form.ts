@@ -12,6 +12,7 @@
 // straight on to answer the questions in it.
 
 import type { Page } from "playwright";
+import { waitForFiniteAnimations } from "../support/animations.ts";
 import { fail } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
 
@@ -157,7 +158,7 @@ export async function run(
 	// one it is going to. Read immediately, the row that had just been turned off
 	// still answered in the ink it wore while it was in view, which reads exactly
 	// like a stylesheet that never distinguished the two.
-	await tab.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+	await waitForFiniteAnimations(tab);
 	const wells = await tab.evaluate(() =>
 		[...document.querySelectorAll("#railFilterPanel .filter-ask")]
 			.filter((ask) => ask.querySelector(".filter-choice") !== null)
@@ -267,7 +268,7 @@ export async function run(
 		const tooFaint: string[] = [];
 		for (const appearance of ["light", "dark"] as const) {
 			await tab.evaluate((t) => document.documentElement.setAttribute("data-theme", t), appearance);
-			await tab.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+			await waitForFiniteAnimations(tab);
 			for (const [what, selector] of FILTER_INK) {
 				const measured = await inkContrast(tab, selector);
 				if (measured === null) tooFaint.push(`${what} could not be measured in ${appearance}`);

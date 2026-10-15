@@ -10,6 +10,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
 const poison = @import("../../support/poison.zig");
@@ -38,7 +39,7 @@ const PersistentCounter = harness.PersistentCounter;
 const CloneCounter = struct {
     n: i64,
 
-    pub fn handle(self: *CloneCounter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *CloneCounter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "increment")) {
@@ -137,7 +138,7 @@ const Ledger = struct {
     label: []u8,
     n: i64 = 0,
 
-    pub fn handle(self: *Ledger, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *Ledger, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "label")) return .{ .bytes = self.label };
         if (std.mem.eql(u8, msg.verb, "relabel")) {
@@ -219,7 +220,7 @@ const ChainLink = struct {
     next: ?actors.Ref,
     n: i64,
 
-    pub fn handle(self: *const ChainLink, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const ChainLink, turn: *Turn, msg: Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "go")) return error.NoSuchMethod;
         // Stage before descending, so every frame in the chain has a become
         // pending before the first one installs.
@@ -280,7 +281,7 @@ test "restore publishes its actor table before discarded state cleanup reenters"
         trace: *Trace,
         armed: bool = false,
         grow: bool,
-        pub fn handle(self: *const @This(), turn: *Turn, msg: Message) !model.Argument {
+        pub fn handle(self: *const @This(), turn: *Turn, msg: Delivery) !model.Argument {
             if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = @intFromBool(self.armed) };
             var next = self.*;
             next.armed = true;

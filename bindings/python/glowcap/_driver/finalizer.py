@@ -1,4 +1,4 @@
-"""Surviving authority for implicit native driver retirement."""
+"""Surviving authority for implicit FFI driver retirement."""
 
 from __future__ import annotations
 

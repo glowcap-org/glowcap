@@ -20,12 +20,14 @@ test "access owner dependencies round trip within the maximum descriptor budget"
     var constraints: [16]f.core.Policy.Constraint = undefined;
     for (&keys, 0..) |*key, i| key.* = @fromBackingInt(std.math.maxInt(u64) - 63 + i);
     for (&constraints, 0..) |*field, i| field.* = .{ .key = @fromBackingInt(std.math.maxInt(u64) - 15 + i), .operator = .lower_bound };
-    const vocabulary = try f.core.Policy.init(.{ .id = @fromBackingInt(std.math.maxInt(u128)), .permissions = &keys, .constraints = &constraints });
+    var policy = try f.core.Policy.init(.{ .id = @fromBackingInt(std.math.maxInt(u128)), .permissions = &keys, .constraints = &constraints });
     var masks: [64]u64 = undefined;
     for (&masks, 0..) |*mask, i| mask.* = std.math.maxInt(u64) ^ (@as(u64, 1) << @intCast(i));
     var kinds: [f.core.Policy.max_kinds]f.core.Policy.KindRule = undefined;
     for (&kinds, 0..) |*rule, i| rule.* = .{ .kind = @fromBackingInt(std.math.maxInt(u64) - kinds.len + 1 + i), .permissions = std.math.maxInt(u64), .subtree_permissions = std.math.maxInt(u64) };
-    const header: records.OwnerRecord = .{ .owner = @fromBackingInt(std.math.maxInt(u128)), .policy = try (try vocabulary.withPrerequisiteMasks(masks)).withKinds(&kinds), .version = .{ .resources = @fromBackingInt(std.math.maxInt(u64)), .grants = @fromBackingInt(std.math.maxInt(u64)) }, .control_revision = std.math.maxInt(u64), .next_resource = records.OwnerRecord.max_slots, .next_grant = records.OwnerRecord.max_slots, .next_identity = records.OwnerRecord.max_slots, .max_grant_children = std.math.maxInt(u32) };
+    try policy.setPrerequisiteMasks(&masks);
+    try policy.setKinds(&kinds);
+    const header: records.OwnerRecord = .{ .owner = @fromBackingInt(std.math.maxInt(u128)), .policy = policy, .version = .{ .resources = @fromBackingInt(std.math.maxInt(u64)), .grants = @fromBackingInt(std.math.maxInt(u64)) }, .control_revision = std.math.maxInt(u64), .next_resource = records.OwnerRecord.max_slots, .next_grant = records.OwnerRecord.max_slots, .next_identity = records.OwnerRecord.max_slots, .max_grant_children = std.math.maxInt(u32) };
     const payload = try header.encodeAlloc(a);
     defer a.free(payload);
     try std.testing.expect(payload.len <= 4096);
@@ -80,7 +82,7 @@ test "access owner descriptor preserves stable keys and bound operators after en
 }
 
 test "access directory bitmap ranks all digits and rejects edge count and strength corruption" {
-    var page: Page = .{ .owner = @fromBackingInt(71), .family = .resource, .level = 3, .prefix = 0x12345600 };
+    var page: Page = .{ .header = .{ .owner = @fromBackingInt(71), .family = .resource, .level = 3, .prefix = 0x12345600 } };
     var i: usize = 256;
     while (i != 0) {
         i -= 1;
@@ -97,7 +99,7 @@ test "access directory bitmap ranks all digits and rejects edge count and streng
     const bytes = try encode(records.profile.directory, payload, &page.targets);
     defer a.free(bytes);
     const decoded = try Page.decode(try view(bytes));
-    try std.testing.expectEqual(page.mask, decoded.mask);
+    try std.testing.expectEqual(page.header.mask, decoded.header.mask);
     try std.testing.expectEqualDeep(page.targets, decoded.targets);
     const wrong_count = try encode(records.profile.directory, payload, page.targets[0..255]);
     defer a.free(wrong_count);

@@ -1,4 +1,4 @@
-//! The command owner runs unchanged in the native and portable Wasm contracts.
+//! The command owner runs unchanged in the host and portable Wasm contracts.
 use rooms_application::{
 	session::{
 		controller::{Authority, Commands, Error, MAX_RETAINED_RESULTS, Pending, Step},

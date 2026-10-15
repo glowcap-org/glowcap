@@ -18,16 +18,7 @@ pub const Inventory = struct {
 
     /// Scalar copies survive the next model lookup. No use endpoint, bearer
     /// secret or owner's unrelated grant population participates in this page.
-    pub const Item = struct {
-        id: core.GrantId,
-        revision: core.Revision,
-        label: core.GrantLedger.Label,
-        status: core.GrantLedger.Status,
-        effective_status: core.GrantLedger.Status,
-        ceiling: core.Policy.Value,
-        configured: core.Policy.Value,
-        delegation_depth: u16,
-    };
+    pub const Item = @import("inspected_grant.zig").InspectedGrant;
 
     pub fn init(operation: *op.Operation, floor: u64) !Inventory {
         _ = try operation.inspectGrant(null);
@@ -42,12 +33,10 @@ pub const Inventory = struct {
         const own = try self.operation.inspectGrant(null);
         if (self.done) return .ready;
         if (self.query == null) {
-            const binding = (try state.read.?.binding(.{ .grant = own.id })).?;
-            const row = (try read_mod.Read.rowFor(state.binding.owner.store, binding)).?.view;
-            var fixed = std.heap.FixedBufferAllocator.init(state.read.?.grantScratch());
-            var record = try records.GrantRecord.decodeOwned(fixed.allocator(), row.payload);
-            defer record.deinit(fixed.allocator());
-            self.query = Query.initAt(&state.read.?, record.value.children, .grant, self.floor);
+            var grants = try state.read.?.grantView();
+            _ = try grants.borrow(own.id);
+            defer grants.release();
+            self.query = Query.initAt(&state.read.?, state.read.?.heldRow().children, .grant, self.floor);
         }
         if (self.entry == null) {
             const step = try self.query.?.advance();
@@ -68,18 +57,16 @@ pub const Inventory = struct {
 
     pub fn take(self: *Inventory) !?Item {
         const state = op.state(self.operation);
-        _ = try self.operation.inspectGrant(null);
+        const inherited = (try self.operation.inspectGrant(null)).effective_status;
         if (self.entry == null) return null;
         const lease = self.lease orelse return error.NotPrepared;
         const store = state.binding.owner.store;
-        var fixed = std.heap.FixedBufferAllocator.init(state.read.?.grantScratch());
+        var fixed = std.heap.FixedBufferAllocator.init(try state.read.?.grantScratch());
         var decoded = try records.GrantRecord.decodeOwned(fixed.allocator(), (try store.currentView(lease)).payload);
         defer decoded.deinit(fixed.allocator());
-        const value = decoded.value.grant;
+        const value = &decoded.value.grant;
         if (value.id.slot != self.entry.?.slot or value.parent == null or !value.parent.?.eql(state.descriptor.grant)) return error.InvalidRecord;
-        const inherited = (try self.operation.describeControl()).grant_status;
-        const status: core.GrantLedger.Status = if (inherited == .revoked or value.status == .revoked) .revoked else if (inherited == .paused or value.status == .paused) .paused else .active;
-        const result: Item = .{ .id = value.id, .revision = value.revision, .label = value.label, .status = value.status, .effective_status = status, .ceiling = value.ceiling.policy, .configured = value.configured.policy, .delegation_depth = value.delegation_depth };
+        const result = Item.of(value, inherited);
         self.floor = @as(u64, value.id.slot) + 1;
         try store.release(lease);
         self.lease = null;

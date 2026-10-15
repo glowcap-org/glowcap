@@ -1,18 +1,18 @@
 ---
 .title = "Racket",
-.description = "Use glowcap from Racket with native values, green threads, and a Goblins-shaped actor API tested against a Goblins vat.",
+.description = "Use glowcap from Racket with Racket values, green threads, and a Goblins-shaped actor API tested against a Goblins vat.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
 The Racket binding gives you a Goblins-shaped `Runtime` and `session` API with
-native values
+Racket values
 ([`glowcap.rkt`](https://github.com/jimisaacs/glowcap/blob/main/bindings/racket/glowcap.rkt)).
 The transport modules are `glowcap-iroh.rkt`, `glowcap-onion.rkt`,
 `glowcap-relay.rkt`, `glowcap-tcp.rkt`, and `glowcap-inproc.rkt`. The
-[Bindings]($link.page('bindings')) page covers install,
-and [modules]($link.page('modules')) has the actor vocabulary.
+[Bindings]($link.page('bindings')) page covers install, and
+[modules]($link.page('modules')) has the actor vocabulary.
 
 # The same round-trip
 
@@ -34,6 +34,24 @@ The [Start building]($link.page('start')) round-trip reads like this in Racket:
 > (define runtime
 >   (open-runtime
 >    #:providers (list (iroh-provider (make-iroh-config IROH-REACH-DISCOVERY)))))
+> ```
+> **webrtc**
+> ```scheme
+> (require "glowcap.rkt"
+>          "glowcap-webrtc.rkt")
+>
+> ;; Your signaling carries the offer and each candidate to the peer the locator
+> ;; names, over a path you already hold, such as an OCapN capability both peers
+> ;; can reach, and brings the answer and the peer's candidates back.
+> (define signaling
+>   (make-webrtc-signaling
+>    #:offer (lambda (exchange peer sdp) (error "send the offer, return the answer"))
+>    #:answer (lambda (exchange peer sdp) (error "send the answer to an inbound offer"))
+>    #:candidate (lambda (exchange ice) (error "send one candidate"))
+>    #:on-candidate (lambda (exchange peer sink) (error "call sink with each far candidate"))))
+> (define partner (webrtc-locator "<64 lowercase hex characters from the peer>"))
+>
+> (define runtime (open-runtime #:providers (list (webrtc-provider signaling))))
 > ```
 > **noise-tcp**
 > ```scheme
@@ -215,17 +233,20 @@ From here, the CapTP workflow is the same for every transport:
 
 # A Goblins-style actor API
 
-The verbs follow Goblins. The vat and the wire are glowcap, so an existing
-Goblins program will not run unchanged. You define an actor constructor with
-`(define (^name bcom arg ...) ...)`, return its `methods` behavior, and then
-`spawn` it. You call it near with `$`, send it eventually with `<-` or `<-np`,
-observe a promise with `on`, and become a new behavior with `bcom`, all inside
-`with-vat`. On top of that, `runtime-connect`, `session-fetch`, and `session-send` reach
-a partner.
+The verbs follow Goblins, but the vat and the wire are glowcap's, so an
+existing Goblins program will not run unchanged. Inside `with-vat`, you:
+
+- define an actor constructor with `(define (^name bcom arg ...) ...)`, return
+  its `methods` behavior, and `spawn` it
+- call it near with `$`, or send it eventually with `<-` or `<-np`
+- observe a promise with `on`
+- become a new behavior with `bcom`
+
+`runtime-connect`, `session-fetch`, and `session-send` then reach a partner.
 
 > **`$` and `<-`**, near-call and eventual-send, come straight from the
-> [E language](https://web.archive.org/web/20241231230559/http://erights.org/), and [The modules]($link.page('modules'))
-> page defines both. Across a session only `<-` works, since a partner's object
+> [E language](https://web.archive.org/web/20241231230559/http://erights.org/),
+> and [The modules]($link.page('modules')) page defines both. Across a session only `<-` works, since a partner's object
 > is never in your vat.
 
 # Async

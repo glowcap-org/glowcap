@@ -252,7 +252,7 @@ mod tests {
 	}
 
 	#[test]
-	fn unknown_native_action_kind_is_a_returned_callback_failure() {
+	fn unknown_ffi_action_kind_is_a_returned_callback_failure() {
 		let mut parked = Vec::new();
 		// SAFETY: `GlowcapHostAction` is a plain C struct of integers, null pointers, and nested plain C structs;
 		// all-zero is a valid value, and this test sets the discriminant fields it exercises before the arm reads them.

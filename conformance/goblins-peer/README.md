@@ -1,12 +1,10 @@
 # conformance/goblins-peer
 
-A slim Spritely Goblins OCapN peer for glowcap conformance work. It gives
-glowcap a real Goblins peer for wire-shape lookup, local demos, and the
-upstream OCapN test suite target.
+A slim Spritely Goblins OCapN peer. glowcap uses it as a real Goblins peer for
+wire-shape lookup, local demos, and the upstream OCapN test suite target.
 
-This is not Spritely Goblins itself. The Goblins source lives in the
-`../spritely-goblins/upstream/` submodule, and this directory holds glowcap's
-wrappers and small Racket programs around its API.
+The Goblins source lives in the `../spritely-goblins/upstream/` submodule. This
+directory holds glowcap's wrappers and small Racket programs around its API.
 
 ## Files
 
@@ -17,8 +15,10 @@ wrappers and small Racket programs around its API.
 | `racket/tcp-netlayer.rkt` | Testing TCP netlayer for loopback OCapN runs.      |
 | `racket/iroh-netlayer.rkt` | iroh netlayer: the same vats over encrypted QUIC, through the glowcap Racket binding's byte-channel surface. |
 | `racket/session-trace.rkt` | The CapTP session facts a netlayer sees at the wire, reported to a trace sink. Shared by both netlayers. |
+| `racket/captp-message-procs.rkt` | CapTP message framing over Racket ports, so a transport close reads as end of stream and not as a Syrup decode error. |
 | `racket/ocapn-names.rkt`  | The Public Identifier and Session ID both ends of a session derive alike. |
 | `racket/trace-publish.rkt` | Publishes a vat's own sessions to a live timeline endpoint.        |
+| `racket/smoke.sh`         | Boots `seven-caps-peer.rkt`, checks its printed URL and TCP port, and stops it. |
 | `run.sh`                  | Launcher using the devcontainer's `racket`. |
 
 ### Demos and suite target
@@ -37,6 +37,8 @@ wrappers and small Racket programs around its API.
 | `racket/goblins-host.rkt`         | Echo + Struct host glowcap dials as client (NDJSON readiness).                               |
 | `racket/goblins-iroh-host.rkt`    | The same echo host over iroh: a vat reachable at an `iroh` locator, announcing its endpoint id and direct addresses (`goblins-iroh`). |
 | `racket/glowcap-iroh-caller.rkt`  | Goblins client over iroh: dials a glowcap peer by endpoint id, calls its actor, and prints what its netlayer proved about the partner (`goblins-iroh`). |
+| `racket/goblins-onion-host.rkt`   | The same echo host over upstream Goblins' own onion netlayer, reachable at a Tor onion address (`goblins-onion`). |
+| `racket/glowcap-onion-caller.rkt` | Goblins client over the onion netlayer: calls a glowcap actor across a hidden service circuit (`goblins-onion`). |
 | `racket/gc-echo-host.rkt`         | Echo host with a background collect loop, so `op:gc-exports` fires within `goblins-gc`'s deadline. |
 | `racket/gc-probe.rkt` | Shared Goblins object factory for Zig and all four binding clients. A weak reference observes reclamation after both capability occurrences and their answer are released, with the client session still open. |
 | `racket/glowcap-actor-call.rkt`   | Goblins client: settle-call a glowcap-hosted actor.                                          |
@@ -80,8 +82,8 @@ bash conformance/ocapn-conformance/run.sh test \
 
 ## The transports these vats speak
 
-Goblins ships the standardized onion netlayer. This repository supplies the
-TCP testing and iroh adapters used by the other conformance vats.
+Goblins ships the standardized onion netlayer. This directory supplies the TCP
+testing and iroh netlayers.
 
 | Path | Transport symbol | Who dials whom |
 | ---- | ---------------- | -------------- |
@@ -90,23 +92,22 @@ TCP testing and iroh adapters used by the other conformance vats.
 | Live Goblins over Tor (`zig build goblins-onion`) | `onion` (upstream Goblins netlayer, glowcap `net.onion`) | Real Goblins ↔ glowcap CapTP over onion circuits, both directions |
 | Upstream OCapN suite target (`seven-caps-peer`, `ocapn-conformance`) | `tcp-testing-only` in printed URLs | Suite harness ↔ glowcap or seven-caps peer |
 
-The suite netlayer is not the Goblins parity path.
+`tcp-testing-only` serves the suite only, not Goblins parity.
 
 ## How glowcap uses this
 
-- **As an external peer.** Goblins emits OCapN/Syrup bytes that glowcap must
-  parse and answer.
-- **As a conformance-suite target.** `seven-caps-peer.rkt` supplies the target
-  capabilities the upstream Python suite expects.
-- **As a wire-shape lookup.** When the Zig implementation needs evidence for a
+- **External peer.** Goblins emits OCapN/Syrup bytes that glowcap must parse and
+  answer.
+- **Suite target.** `seven-caps-peer.rkt` supplies the capabilities the upstream
+  Python suite expects.
+- **Wire-shape lookup.** When the Zig implementation needs evidence for a
   Goblins shape, this peer produces it on the wire.
 
 ## Posture
 
-- The demos are glowcap's own wrappers and are editable.
+- The demos are glowcap's own and are editable.
 - `seven-caps-peer.rkt` stays compatible with the capabilities the upstream
   suite expects.
-- The testing TCP netlayer is cleartext loopback infrastructure. The iroh
-  netlayer beside it is encrypted and names its peer by key, but it is interop
-  scaffolding and not a Spritely product: it has no graceful shutdown and no
-  reconnect.
+- The testing TCP netlayer is cleartext loopback. The iroh netlayer is encrypted
+  and names its peer by key, but it is interop scaffolding, not a Spritely
+  product, with no graceful shutdown and no reconnect.

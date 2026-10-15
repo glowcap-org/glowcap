@@ -1,7 +1,7 @@
 """Managed runtime and the byte-fed handoff dial seam.
 
 ``Runtime`` is the public composition boundary. It owns one Host and either a
-native DriverLoop with installed providers or a byte-fed connector set. The
+FFI DriverLoop with installed providers or a byte-fed connector set. The
 per-operation path only selects the already-retained authority for a locator.
 Transport configuration never re-enters the dial call.
 """
@@ -16,8 +16,8 @@ from . import _constants as _abi
 from ._abi_value import (
     _INTEROP_CAPTP_VERSION,
     _INTEROP_CODEC,
-    _NATIVE_CAPTP_VERSION,
-    _NATIVE_CODEC,
+    _OWN_CAPTP_VERSION,
+    _OWN_CODEC,
 )
 from ._errors import GlowcapError, _check_host, _retain_terminal_failure
 from ._ffi_host import _host
@@ -145,7 +145,7 @@ class Runtime:
         codec: Optional[str] = None,
         handshake_timeout_ms: Optional[int] = _abi.HANDSHAKE_TIMEOUT_MS,
     ) -> "Runtime":
-        """Construct a runtime. Native setup is completed on first await/use.
+        """Construct a runtime. FFI setup is completed on first await/use.
 
         Singular ``provider=`` and ``connector=`` are the idiomatic Python
         spelling. The plural aliases allow one runtime to compose several
@@ -170,14 +170,14 @@ class Runtime:
             _validate_composition(selected_providers, Provider, "provider")
         else:
             _validate_composition(selected_connectors, Connector, "connector")
-        if profile not in (None, "interop", "native"):
+        if profile not in (None, "interop", "glowcap"):
             raise GlowcapError(_ERR_INVALID_ARGUMENT, f"unknown Host profile {profile!r}")
         if profile is not None and codec is not None:
             raise GlowcapError(_ERR_INVALID_ARGUMENT, "profile cannot be combined with codec")
         if adopt_host is not None and profile is not None:
             wanted = (
-                (_NATIVE_CODEC, _NATIVE_CAPTP_VERSION)
-                if profile == "native"
+                (_OWN_CODEC, _OWN_CAPTP_VERSION)
+                if profile == "glowcap"
                 else (_INTEROP_CODEC, _INTEROP_CAPTP_VERSION)
             )
             if wanted != (adopt_host.codec, adopt_host.captp_version):
@@ -245,7 +245,7 @@ class Runtime:
                 for provider in self._providers:
                     await provider.install(loop)
                 managed_host = loop.wrapper_host()
-                # The native provider registry is the lifetime authority;
+                # The FFI provider registry is the lifetime authority;
                 # Runtime keeps no parallel provider table.
                 self._host = managed_host
                 self._loop = loop
@@ -297,7 +297,7 @@ class Runtime:
             if handshake_timeout_ms is not None and timeout != self._handshake_timeout_ms:
                 raise GlowcapError(
                     _ERR_INVALID_ARGUMENT,
-                    "native Runtime handshake_timeout_ms is configured at Runtime.open",
+                    "FFI Runtime handshake_timeout_ms is configured at Runtime.open",
                 )
             from ._loop import dial_shared_loop
 

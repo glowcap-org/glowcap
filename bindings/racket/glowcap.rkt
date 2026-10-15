@@ -12,7 +12,7 @@
 ;; three-party (gift origination, transparent redemption, cross-session
 ;; routing) happens inside the library; the binding moves bytes and answers
 ;; the host's action queue. `GlowcapHost` is the sole C CapTP application
-;; surface; the native Zig engine peer is not mirrored into the ABI.
+;; surface; the Zig engine peer is not mirrored into the ABI.
 (require "private/ffi-ocapn.rkt"
          "private/errors.rkt"
          "private/value.rkt"
@@ -58,8 +58,8 @@
 
 ;; ── Session: the CapTP partner application surface ───────────────────────────
 ;; One object an application holds. It bundles the pump, an adapter-local Racket
-;; vat, and the shared native Host, so a consumer never wires them by hand. The
-;; native Host owns the callback actors and their cross-Port lifetime; the
+;; vat, and the shared FFI Host, so a consumer never wires them by hand. The
+;; FFI Host owns the callback actors and their cross-Port lifetime; the
 ;; Racket vat supplies the language's local actor verbs. `connect`/`listen`/`accept`
 ;; construct a session; the operations on one are `session-` prefixed
 ;; (`session-fetch`/`session-publish`/`session-spawn`/`session-send`/`session-tell`/`session-serve`),

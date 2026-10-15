@@ -54,7 +54,7 @@ pub(super) async fn run(
 		.unwrap()
 		.as_i64()
 		.unwrap() as u32;
-	let derivation = terms.managed_derive_arguments(sequence, 1, ControlPowers::default());
+	let derivation = terms.managed_derive_arguments(sequence, Scope::Object, 1, ControlPowers::default());
 	let (source, _) = owner.derive(terms, 1, ControlPowers::default()).await.unwrap();
 	for role in [
 		custody::Role::RoomControl,

@@ -401,7 +401,7 @@ fn runNestedForeignArguments(codec_id: model.CodecId) !void {
         .{ .reference = foreign },
         .{ .@"struct" = &.{.{ .key = "nested", .value = .{ .reference = foreign } }} },
     };
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .list = &list }},
     } });
@@ -438,9 +438,9 @@ fn runNestedForeignArguments(codec_id: model.CodecId) !void {
     )).deliver;
     const nested = (try delivered.args.at(0)).list;
     try std.testing.expect((try nested.at(0)) == .handoff);
-    try std.testing.expect((try nested.at(0)).handoff == .give);
+    try std.testing.expect((try (try nested.at(0)).handoff.project()) == .give);
     const structured = (try nested.at(1)).@"struct";
-    try std.testing.expect((try structured.at(0)).value.handoff == .give);
+    try std.testing.expect((try (try structured.at(0)).value.handoff.project()) == .give);
     try std.testing.expect(recipient.takeOutbound() == null);
 
     try exporter.stepToIdle();

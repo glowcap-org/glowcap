@@ -314,7 +314,7 @@ test "driver close initiation succeeds under allocator pressure" {
     try std.testing.expect(counting.balanced());
 }
 
-test "driver close waits for committed C event delivery after native teardown" {
+test "driver close waits for committed C event delivery after Zig teardown" {
     const owned = try newLoop(0x3a);
     defer owned.deinit();
     const loop = owned.raw;

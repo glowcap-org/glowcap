@@ -16,7 +16,7 @@ const transport_close_ms: i32 = 5_000;
 
 pub fn progressCarrierCloseDeadlines(self: *HostRuntime) void {
     const nearest = self.nearest_carrier_close_ms orelse return;
-    const now_ms = net.clock.nowMs(self.io);
+    const now_ms = self.nowMs();
     if (now_ms < nearest) return;
     var next_nearest: ?i64 = null;
     var wires = self.wires.valueIterator();
@@ -90,7 +90,7 @@ pub fn freeWire(self: *HostRuntime, wire: *Wire) void {
 }
 
 pub fn dropWire(self: *HostRuntime, peer_handle: engine.PeerHandle) void {
-    if (self.wires.fetchRemove(peer_handle)) |kv| retireConsumedWire(self, kv.value);
+    if (self.wires.fetchRemove(peer_handle)) |wire| retireConsumedWire(self, wire);
 }
 
 /// A session released before its carrier completed reports no close: give the
@@ -174,7 +174,7 @@ fn closeWireFailure(self: *HostRuntime, wire: *Wire, failure: ?OperationFailure)
     if (failure) |reported| noteWireCloseFailure(wire, reported);
     if (!wire.closed) {
         wire.closed = true;
-        armCarrierCloseDeadline(self, wire, net.clock.nowMs(self.io) +| transport_close_ms);
+        armCarrierCloseDeadline(self, wire, self.nowMs() +| transport_close_ms);
         const reason = if (wire.close_failure) |value| value.primaryName() else "connection closed";
         wire.session.host.transportClosed(wire.session, reason) catch |err|
             Internal.noteTerminalFailure(self, err);
@@ -199,7 +199,7 @@ fn noteWireCloseChain(wire: *Wire, later: foundation.FailureChain) void {
 pub fn progressWireCarrierClose(self: *HostRuntime, wire: *Wire) void {
     if (!wire.closed or wire.carrierClosed()) return;
     const expired = if (wire.carrier_close_deadline_ms) |deadline|
-        net.clock.nowMs(self.io) >= deadline
+        self.nowMs() >= deadline
     else
         false;
     if (expired) {

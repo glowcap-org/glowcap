@@ -6,63 +6,36 @@
 .draft = false,
 ---
 
-Hosting Rooms means securing three separate things: the web address people
+Hosting Rooms means setting up three separate things: the web address people
 open, the room server their sessions join, and the routes two peers use to
-talk directly. Decide each one on its own. Putting the page behind HTTPS
-does not make every peer route reachable, and changing how direct messages
-travel does not change how sessions are shared.
+talk directly. Decide each one on its own. HTTPS on the page does not make
+every peer route reachable, and changing how direct messages travel does not
+change how sessions are shared.
 
 # Choose the shape
 
 For local development, `zig build rooms-web` serves the page on your machine
-and runs the room server over encrypted iroh in a temporary data directory
-with nothing minted. `zig build rooms-dev` keeps state under
-`.local/.state/rooms` and mints every admin capability. A server that should
-keep its identity and settings names its own directory:
+and runs the room server over encrypted iroh in a temporary data directory.
+`zig build rooms-dev` keeps its state between runs and turns on every
+admin capability.
 
-```sh
-GLOWCAP_ROOMS_STATE=/var/lib/glowcap/rooms \
-  zig build rooms-web
-```
-
-To host it, install the complete glowcap product and Docker with Compose. The
-deployment runs the page, an iroh room server, one durable session service, and
-a PostgreSQL database for kept room lines. The image holds the glowcap and
-Rooms runtimes, browser assets, skills, and iroh library, with no checkout or
-compiler. The database is reachable only on the stack's private network, and
-its password is passed as a Docker secret.
+To host it, install the glowcap product and Docker with Compose, then run:
 
 ```sh
 ./glowcap apps rooms deployment up
 ```
 
-From a Linux checkout, this builds the current source with `rooms-release`
-(ReleaseSafe, baseline CPU) into an image. The first `up` saves that image,
-creates the network and database secret, writes the Compose file, waits for
-health, and prints the room locator and capabilities. Later starts keep the
-same image. Pass `--image` to choose a tag, digest, or local image. Without it,
-the CLI names a versioned GHCR image, which has not been published yet.
+That starts the page, an iroh room server, and one durable session service.
+The image needs no checkout or compiler. The same command can check the stack,
+show its logs, stop it, and reset one part of it after saying what will be
+lost.
 
-Deployment state lives in `glowcap/rooms-deployment` under `$XDG_STATE_HOME`,
-or under `$HOME/.local/state` when that is unset or empty. `--dir` picks
-another configuration directory, but not another stack: container, network,
-and volume names are fixed per Docker daemon. Keep your own settings in
-`docker-compose.override.yml`, which `up` preserves.
-
-The example override publishes the page on host loopback. Put an HTTPS reverse
-proxy or private network in front of it for broader access. A loopback HTTP
-address does not restrict the separately authenticated iroh directory.
-
-The deployment command also has `doctor`, `status`, `logs`, `down`, and
-`reset`. `doctor` is read-only. `down` keeps data. `reset` takes the part to
-wipe, such as `session` or `directory`, says what will be lost, and asks
-first. Commands that change state lock the configuration directory.
-
-On a tailnet, Tailscale Serve can terminate HTTPS and forward the local
-Rooms port. For a public server, use the container guide and an ordinary
-TLS proxy. The
-[deployment README](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md)
-lists every environment variable and health check.
+The example settings expose the page only on the host's loopback address. To
+share it, put an HTTPS reverse proxy or a private network in front of it. That
+proxy does not guard the room server, which people reach over iroh with its
+own authentication. The
+[deployment guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md) covers images, where state lives,
+your own Compose settings, every environment variable, and the health checks.
 
 # Choose how people reach it
 
@@ -77,14 +50,14 @@ The room server's transport decides how sessions reach it:
 The server prints an address you can paste only after it has opened its
 listener and loaded its saved identity. If that identity cannot be used, or
 another process already owns the data directory, the server stops instead
-of quietly minting a new one.
+of quietly making a new one.
 
 # Make sessions reachable
 
 The web server carries bytes between a session on the page and the room
-server over a WebSocket on the page's own address. A rendezvous route lets
-another peer call that session through the relay. The encrypted connection is
-still between the two peers.
+server over a WebSocket on the page's own address. The same relay lets another
+peer reach that session. The encrypted connection is still between the two
+peers.
 
 Direct messages over WebRTC need ICE servers. STUN helps two peers find a
 direct route, and TURN carries the traffic when a network will not allow
@@ -94,27 +67,28 @@ secret.
 
 If two peers exchange an offer but no route can be found, switching direct
 messages to the relay usually brings the conversation back. It does not
-change **Share session** or **Attach session**. A shared session advertises
-its own routes, so trouble there is reported on its own.
+change **Share this session** or **Attach to another session**. A shared
+session advertises its own routes, so trouble there is reported on its own.
 
 # Run the session service
 
-On its own, a session lives on one device. To open the same session, with
+Without it, a session lives on one device. To open the same session, with
 the same identity, from anywhere, run the session service:
 
 ```sh
 glowcap apps rooms session serve --dir=.local/.state/rooms
 ```
 
-The command prints a workspace link. Open it from the Session tab in Settings.
+The command prints a link to the session. Open it from the **Session** tab in Settings.
 The service keeps the rooms, conversations, drafts, saved capabilities, and
 history choices. Attaching does not copy the browser's previous session into
 it. Every device that opens the link sees the same rooms, conversations, and
 drafts.
 
-Management is separate. Its link is in `control.sturdyref` in the state
-directory. Hold that link in **Session access** to create access for a person
-or device, change its permissions, pause it, or revoke it. The new link grants
+Management is separate. Its link is kept in the service's state directory,
+and the [operating guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/operating.md#the-session-service) says where. Hold
+that link in **Session access** to create access for a person or device,
+change its permissions, pause it, or revoke it. The new link grants
 only the use you select, and you can share a separately limited management
 link. Reading history and reading files are separate permissions.
 
@@ -126,11 +100,11 @@ restart.
 
 # Keep the data directory together
 
-Only one process may use a Rooms data directory at a time. Copy or restore
-it as a whole. It holds the server's saved state, the record of unfinished
-work, its identity, the randomness it publishes with, bridge settings, and
-saved credentials. A partial copy can pair old settings with a new identity,
-which the server cannot repair.
+Only one process may use a Rooms data directory at a time. Stop the server,
+then copy or restore the directory as a whole. It holds the server's saved
+state, the record of unfinished work, its identity, bridge settings, saved credentials, and kept room history. A
+partial copy can pair old settings with a new identity, which the server cannot
+repair.
 
 The session and archive services have data directories of their own, with
 the same rule: one process, copied as a whole, and stop the service before
@@ -147,35 +121,34 @@ Three places can keep history:
 - An archive service can keep messages and files beyond any device or
   server.
 
-History on the server follows the limits you set. History in a session or
-an archive follows what each member chose. A shared archive link can be
+History on the server is capped for each room and for the whole server.
+History in a session or an archive follows what each member chose. A shared archive link can be
 read without letting the reader write to it or administer it.
 
-Files and PostgreSQL apply the same limits per room and per line. A write
-counts as saved only once it is acknowledged. A cut-short last record is
-repaired when the log shows what came before it. Damage that cannot be put in
-order safely stops recovery rather than guessing.
+A kept line counts as saved only once storage acknowledges it, and recovery
+stops rather than guessing when the stored history is damaged.
 
 # Hand out admin links
 
 Diagnostics, listener administration, peering, IRC, the operator page, and
-the live wire view each have their own secret, minted when the server starts
+the live wire view each have their own secret, created when the server starts
 with that feature on. The web address alone gives you none of them. Paste a
-secret into the Holdings tab in Settings and the matching page appears under
+secret into the **Holdings** tab in Settings and the matching page appears under
 `/ops`.
 
 [The server page under /ops, opened with the admin secret. It lists what the admin can change: room links, registered names, live connections, and the references each one holds, with a remove or disconnect button beside every row.]($image.siteAsset('rooms-operations-dark.webp'))
 
 [The server page under /ops, opened with the admin secret. It lists what the admin can change: room links, registered names, live connections, and the references each one holds, with a remove or disconnect button beside every row.]($image.siteAsset('rooms-operations-light.webp'))
 
-The live wire view sends wire traffic to ocapnviz. A server can show full room
+The live wire view sends wire traffic to ocapnviz, glowcap's
+protocol viewer. A server can show full room
 traffic. For a person's direct messages it shows only who talked to whom,
 when, which call, and how many bytes, because the other person never agreed to
 let a viewer read them.
 
 The full
 [operating guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/operating.md)
-covers each flag, the saved files, the PostgreSQL schema, the IRC forms, and
+covers each flag, the saved files, the IRC forms, and
 how to set up the live view.
 
 # Read failures as they are
@@ -188,18 +161,3 @@ state and reason.
 Your session does the same. A request still in progress stays marked in
 progress, a known refusal offers the next step, and a request nobody can
 confirm is never shown as cleanly undone.
-
-# Check a deployment
-
-The focused test suite for the services is:
-
-```sh
-zig build rooms-peers-test
-```
-
-The browser tests drive Chromium through joining, connecting, reconnecting,
-direct messages, files, WebRTC, shared sessions, archives, and the admin
-pages. The
-[development guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/developing.md)
-lists each scenario and what it needs installed. Start with
-`zig build rooms-web-page`, which runs one whole conversation in a browser.

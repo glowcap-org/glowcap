@@ -30,16 +30,15 @@ pub fn writeOutbound(self: *HostRuntime, wire: *Wire) !void {
     if (rl.pending != null) {
         if (!try pushPendingResident(resident, rl)) return;
     }
-    while (try wire.session.takeTransportOutbound()) |value| {
-        var outbound = value;
-        var pending = Wire.Link.PendingOut{
+    while (try wire.session.takeTransportOutbound()) |outbound| {
+        // The whole fixed prefix buffer moves as one array, a few word
+        // stores, where copying `prefix_len` bytes would call memcpy.
+        rl.pending = .{
             .frame = outbound.payload,
-            .prefix = undefined,
+            .prefix = outbound.prefix,
             .prefix_len = outbound.prefix_len,
             .offset = 0,
         };
-        @memcpy(pending.prefix[0..pending.prefix_len], outbound.prefixBytes());
-        rl.pending = pending;
         if (!try pushPendingResident(resident, rl)) return;
     }
 }
@@ -79,6 +78,11 @@ pub fn drainActions(self: *HostRuntime) !void {
 pub fn drainActionsWith(self: *HostRuntime, effect_mode: ExternalEffectMode) !void {
     self.enterDriver();
     defer self.leaveDriver();
+    // The stepped face parks outside the runtime, so a held answer release
+    // has no later message of ours to ride before that park: every drain
+    // here sends it. The blocking face flushes at its own park instead
+    // (`waitAnySource`), where the next verb's message may still carry it.
+    if (self.drive == .stepped) _ = try self.core.flushHeldReleases();
     // The blocking front has no shared reactor turn to yield to, so finite
     // scheduler slices continue here. Outbound pressure is different: the
     // resident window can move only after this call returns to readiness.
@@ -172,7 +176,7 @@ fn answerDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: us
     };
 }
 
-/// Interrupt the native redeem dial named by the core's cancellation action.
+/// Interrupt the Zig redeem dial named by the core's cancellation action.
 fn cancelRedeemDial(self: *HostRuntime, ticket: engine.Node.PendingId, route_index: usize) void {
     for (self.pending_opens.items, 0..) |row, index| switch (row.outcome) {
         .redeem => |pending| if (pending.ticket == ticket and pending.route_index == route_index) {

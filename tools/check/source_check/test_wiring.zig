@@ -3,7 +3,7 @@
 const std = @import("std");
 const appendViolation = @import("util.zig").appendViolation;
 
-const suite_roots = [_][]const u8{ "test/all_test.zig", "test/oracle_check.zig", "test/loam_lmdb_test.zig" };
+const suite_roots = [_][]const u8{ "test/all_test.zig", "test/oracle_check.zig", "test/loam_lmdb_test.zig", "test/loam_sqlite_test.zig" };
 
 const Separate = struct {
     test_path: []const u8,
@@ -15,7 +15,8 @@ const Separate = struct {
 const separately_registered = [_]Separate{
     .{ .test_path = "c_abi/loam_execution_test.zig", .owner_path = "tools/build/loam_abi.zig" },
     .{ .test_path = "c_abi/loam_test.zig", .owner_path = "tools/build/loam_abi.zig" },
-    .{ .test_path = "loam_lmdb_test.zig", .owner_path = "tools/build/loam.zig" },
+    .{ .test_path = "loam_lmdb_test.zig", .owner_path = "tools/build/loam/lmdb.zig" },
+    .{ .test_path = "loam_sqlite_test.zig", .owner_path = "tools/build/loam/sqlite.zig" },
     .{ .test_path = "net/completion_loop_deadlines_test.zig", .owner_path = "tools/build/gates.zig" },
     .{ .test_path = "onion_loop_test.zig", .owner_path = "tools/build/gates.zig" },
     .{ .test_path = "onion_pending_test.zig", .owner_path = "tools/build/gates.zig" },
@@ -24,6 +25,8 @@ const separately_registered = [_]Separate{
     .{ .test_path = "net/iroh_sidecar_internal_test.zig", .owner_path = "tools/build/iroh.zig" },
     .{ .test_path = "net/mbedtls_engine_test.zig", .owner_path = "tools/build/mbedtls.zig" },
     .{ .test_path = "net/webrtc_internal_test.zig", .owner_path = "tools/build/webrtc.zig" },
+    .{ .test_path = "net/webrtc_provider_dial_test.zig", .owner_path = "tools/build/webrtc.zig" },
+    .{ .test_path = "net/webrtc_provider_accept_test.zig", .owner_path = "tools/build/webrtc.zig" },
 };
 
 pub fn check(
@@ -32,7 +35,7 @@ pub fn check(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    try checkRoomsTypeScript(io, gpa, root, violations);
+    try checkTypeScript(io, gpa, root, violations);
 
     var root_contents: [suite_roots.len][]const u8 = undefined;
     var loaded: usize = 0;
@@ -101,31 +104,50 @@ pub fn check(
 /// `Deno.test` file under the test directory does not make any build step run
 /// it, so `rooms.zig` and its subject modules are the one authority this
 /// inventory checks.
-fn checkRoomsTypeScript(
+/// A directory of TypeScript tests and the build files that run them. A step
+/// names each test by its path from the repository root, or from `dir` itself
+/// when the step runs there.
+const TypeScriptSuite = struct {
+    dir: []const u8,
+    owners: []const []const u8,
+    runs_inside: bool = false,
+};
+
+const typescript_suites = [_]TypeScriptSuite{
+    .{ .dir = "apps/rooms/test", .owners = &.{ "tools/build/rooms.zig", "tools/build/rooms/" } },
+    .{ .dir = "bindings/ts", .owners = &.{"tools/build/"}, .runs_inside = true },
+};
+
+fn checkTypeScript(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const owner_path = "tools/build/rooms.zig + tools/build/rooms/";
-    const parent = root.readFileAlloc(io, "tools/build/rooms.zig", gpa, .limited(4 << 20)) catch |err| {
-        try appendViolation(
-            gpa,
-            violations,
-            "{s}: failed to read Rooms test owner with {s}",
-            .{ owner_path, @errorName(err) },
-        );
-        return;
-    };
-    defer gpa.free(parent);
-    const children = (try @import("util.zig").readSourceSubject(io, gpa, root, "tools/build/rooms/")) orelse {
-        try appendViolation(gpa, violations, "{s}: failed to read Rooms test owner package", .{owner_path});
-        return;
-    };
-    defer gpa.free(children);
+    for (typescript_suites) |suite| try checkTypeScriptSuite(io, gpa, root, suite, violations);
+}
 
-    var test_dir = root.openDir(io, "apps/rooms/test", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "apps/rooms/test: failed to open for test wiring check with {s}", .{
+fn checkTypeScriptSuite(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    suite: TypeScriptSuite,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var owners: std.ArrayList(u8) = .empty;
+    defer owners.deinit(gpa);
+    for (suite.owners) |owner| {
+        const body = (try @import("util.zig").readSourceSubject(io, gpa, root, owner)) orelse {
+            try appendViolation(gpa, violations, "{s}: failed to read the owner of the {s} tests", .{ owner, suite.dir });
+            return;
+        };
+        defer gpa.free(body);
+        try owners.appendSlice(gpa, body);
+    }
+
+    var test_dir = root.openDir(io, suite.dir, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for test wiring check with {s}", .{
+            suite.dir,
             @errorName(err),
         });
         return;
@@ -135,18 +157,21 @@ fn checkRoomsTypeScript(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, "_test.ts")) continue;
-        var needle_buf: [256]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "\"apps/rooms/test/{s}\"", .{entry.path}) catch {
-            try appendViolation(gpa, violations, "apps/rooms/test/{s}: path too long for test wiring check", .{
-                entry.path,
-            });
+        var rooted_buf: [256]u8 = undefined;
+        var inside_buf: [256]u8 = undefined;
+        const rooted = std.fmt.bufPrint(&rooted_buf, "\"{s}/{s}\"", .{ suite.dir, entry.path }) catch null;
+        const inside = std.fmt.bufPrint(&inside_buf, "\"{s}\"", .{entry.path}) catch null;
+        if (rooted == null or inside == null) {
+            try appendViolation(gpa, violations, "{s}/{s}: path too long for test wiring check", .{ suite.dir, entry.path });
             continue;
-        };
-        if (std.mem.indexOf(u8, parent, needle) == null and std.mem.indexOf(u8, children, needle) == null) try appendViolation(
+        }
+        const named = std.mem.indexOf(u8, owners.items, rooted.?) != null or
+            (suite.runs_inside and std.mem.indexOf(u8, owners.items, inside.?) != null);
+        if (!named) try appendViolation(
             gpa,
             violations,
-            "apps/rooms/test/{s}: not registered in {s}, so no build step runs it",
-            .{ entry.path, owner_path },
+            "{s}/{s}: no build step names it, so it never runs",
+            .{ suite.dir, entry.path },
         );
     }
 }

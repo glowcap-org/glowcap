@@ -1,13 +1,13 @@
 import { spawnWeb } from "../support/web_front.ts";
 // The rooms browser-peer proof:
 // a wasm browser peer drives the real room-directory capabilities through
-// serve.ts's `/relay` byte pipe, with no native dlopen anywhere in this process.
+// serve.ts's `/relay` byte pipe, with no C library loaded anywhere in this process.
 //
 // This slice retires the one real risk in
 // moving the browser onto the runtime. Like `bindings/ts/web/test/web_peer_test.ts`,
-// it is its own process so the wasm adapter and any native runtime never share a
+// it is its own process so the wasm adapter and any host runtime never share a
 // module graph: this process loads ONLY `@glowcap/web`; the room server and
-// serve.ts's relay run as child processes with their own native graphs. If this
+// serve.ts's relay run as child processes with their own library graphs. If this
 // is green, the served-page work that remains (bundle the graph, swap the
 // DOM wiring, delete the JSON bridge) is wiring over a proven mechanism.
 //

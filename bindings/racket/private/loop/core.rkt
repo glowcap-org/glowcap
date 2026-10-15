@@ -1,5 +1,5 @@
 #lang racket/base
-;; The Racket-owned native loop state and event-driving authority. Transport
+;; The Racket-owned driver loop state and event-driving authority. Transport
 ;; packages compose around this module; it owns the one stepping thread, event
 ;; queue projection, and failure fanout.
 
@@ -41,7 +41,7 @@
          driver-loop-has-transport?
          check/driver
          loop-running?
-         loop-native-live?
+         loop-ffi-live?
          loop-drain!
          pop-events!
          dispatch-events!
@@ -64,7 +64,7 @@
 
 ;; ── The loop ─────────────────────────────────────────────────────────────────
 
-;; One stepping native loop over one multi-session host. `handle` is the
+;; One stepping driver loop over one multi-session host. `handle` is the
 ;; GlowcapDriverLoop*; `host` is the adopted wrapper `host` whose
 ;; `driver-loop` field points back here; `event-buf` is the one reused
 ;; `_GlowcapDriverEvent` pop
@@ -73,7 +73,7 @@
 ;; setup event and accepted-session queue for each listener; `closed-ptrs` records a
 ;; SESSION_CLOSED handle no wrapper had claimed yet, retaining its exact failure
 ;; so a later wrap starts closed instead of parking on a dead wire; `state` is binding lifetime only:
-;; open, retiring while the native driver owns the session barrier, stopping
+;; open, retiring while the FFI driver owns the session barrier, stopping
 ;; while teardown joins the park thread, or released after the handle is freed.
 (struct driver-loop
   ([handle #:mutable]
@@ -109,7 +109,7 @@
 (define (loop-running? lp)
   (memq (unbox (driver-loop-state lp)) '(open retiring)))
 
-(define (loop-native-live? lp)
+(define (loop-ffi-live? lp)
   (not (eq? (unbox (driver-loop-state lp)) 'released)))
 
 (define (run-loop-failure-effect! m effect)
@@ -179,7 +179,7 @@
         #f
         (host-bump-progress! m)
         (semaphore-post (driver-loop-stop-sema lp))
-        (host-release-after-native-close/async! m))))))
+        (host-release-after-ffi-close/async! m))))))
 
 ;; ── Transport providers ─────────────────────────────────────────────────────
 
@@ -205,7 +205,7 @@
 ;; ── Parking and stepping ─────────────────────────────────────────────────────
 
 ;; Arm the readiness descriptor and stand up the park thread. From here the
-;; loop steps whenever native work is ready, with no verb in flight.
+;; loop steps whenever FFI work is ready, with no verb in flight.
 (define (driver-loop-start! lp)
   (unless (driver-loop-fd lp)
     (define-values (rc fd) (glowcap_driver_readiness_fd (driver-loop-handle lp)))
@@ -218,7 +218,7 @@
 ;; running), and on each wake run the ordinary drain (GC, parked releases,
 ;; one zero-timeout step, the event dispatch, the post-lock effects, and the
 ;; progress bump every parked pump waits on). Descriptor readiness advances
-;; I/O; the timeout comes from the native driver's complete nearest-deadline
+;; I/O; the timeout comes from the FFI driver's complete nearest-deadline
 ;; calculation, so Racket never re-encodes which operation needs a clock.
 (define (park-run lp)
   (define m (driver-loop-host lp))
@@ -245,9 +245,9 @@
               (sync sema stop progress)
               (sync/timeout (/ wait-ms 1000.0) sema stop progress)))
         (loop))))
-  ;; After a native release the fd is gone (release-from-a-fire deregisters
+  ;; After an FFI release the fd is gone (release-from-a-fire deregisters
   ;; it first, in `loop-prestop!`'s self arm); deregister only a live one.
-  (when (loop-native-live? lp)
+  (when (loop-ffi-live? lp)
     (unsafe-file-descriptor->semaphore fd 'remove)))
 
 ;; The loop arm of `drain-host-actions!` (installed below): bracketed
@@ -373,7 +373,7 @@
          (cond
            [listener (async-channel-put (loop-listener-accepts listener) ptr)]
            [else
-            ;; An ACCEPTED handle always has an owner. The native close
+            ;; An ACCEPTED handle always has an owner. The FFI close
             ;; contract makes this unreachable after an orderly listener
             ;; drain; release and fail loudly if routing state regresses.
             (loop-session-release! lp ptr)
@@ -399,7 +399,7 @@
          (cond
            [c
            ;; The pump's EOF choreography, one tier up: record local teardown,
-            ;; then retire the dead handle post-lock. The native close already
+            ;; then retire the dead handle post-lock. The FFI close already
             ;; broke the far vows and classified their FAIL completions.
             (when failure
               (set-box! (session-close-result c) failure)
@@ -529,12 +529,12 @@
   (check/driver rc)
   wait-ms)
 
-;; A loop-owned session's release: through the loop, so the native tier
-;; unhooks the wire it is polling. After native teardown the handles are
+;; A loop-owned session's release: through the loop, so the FFI tier
+;; unhooks the wire it is polling. After FFI teardown the handles are
 ;; already freed with the loop; the guard keeps a straggling finalizer from
 ;; touching them.
 (define (loop-session-release! lp ptr)
-  (when (loop-native-live? lp)
+  (when (loop-ffi-live? lp)
     (check/driver (glowcap_driver_session_release (driver-loop-handle lp) ptr))
     (hash-remove! (driver-loop-closed-ptrs lp) (session-key ptr))))
 

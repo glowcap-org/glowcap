@@ -1,6 +1,6 @@
 //! One consumer trace for both TCP/LMDB and Chromium/IndexedDB. Zig's grant
 //! scenarios own semantics. This trace catches projection and persistence drift.
-use super::{Argument, ControlPowers, Policy, Ref, Session};
+use super::{Argument, ControlPowers, Policy, Ref, Scope, Session};
 
 pub async fn revision(session: &Session, control: &Ref) -> u64 {
 	let reply = session.send(control, "describe-control", &[]).await.unwrap();
@@ -11,6 +11,7 @@ fn request(policy: &Policy) -> Vec<Argument> {
 	let wide = policy.value(&[10, 20], &[]).unwrap();
 	wide.managed_derive_arguments(
 		3,
+		Scope::Object,
 		1,
 		ControlPowers {
 			policy_ceiling: Some(wide),
@@ -76,7 +77,7 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 			.send(
 				root,
 				"derive-managed",
-				&wide.managed_derive_arguments(3, 1, ControlPowers::default())
+				&wide.managed_derive_arguments(3, Scope::Object, 1, ControlPowers::default())
 			)
 			.await
 			.is_err(),
@@ -90,13 +91,13 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 		"use does not imply management"
 	);
 	let grandchild = session
-		.send(&child, "derive", &wide.derive_arguments(1, 0))
+		.send(&child, "derive", &wide.derive_arguments(1, Scope::Object, 0))
 		.await
 		.unwrap();
 	let grandchild = Ref::try_from(&grandchild).unwrap();
 	assert!(
 		session
-			.send(&grandchild, "derive", &wide.derive_arguments(1, 0))
+			.send(&grandchild, "derive", &wide.derive_arguments(1, Scope::Object, 0))
 			.await
 			.is_err(),
 		"depth bounds descendant issuance"
@@ -109,6 +110,7 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 				"derive-managed",
 				&narrow.managed_derive_arguments(
 					2,
+					Scope::Object,
 					0,
 					ControlPowers {
 						policy_ceiling: Some(wide),
@@ -126,6 +128,7 @@ pub async fn exercise(session: &Session, root: &Ref, root_control: &Ref, policy:
 			"derive-managed",
 			&narrow.managed_derive_arguments(
 				2,
+				Scope::Object,
 				0,
 				ControlPowers {
 					pause: true,
@@ -395,7 +398,10 @@ pub async fn reopen(session: &Session, root: &Ref, policy: &Policy, swiss: &str)
 		.send(
 			&child,
 			"derive",
-			&policy.value(&[10, 20], &[]).unwrap().derive_arguments(1, 0),
+			&policy
+				.value(&[10, 20], &[])
+				.unwrap()
+				.derive_arguments(1, Scope::Object, 0),
 		)
 		.await
 		.unwrap();

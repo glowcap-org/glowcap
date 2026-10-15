@@ -79,18 +79,10 @@ pub fn Machine(comptime Self: type) type {
                     .cancelling, .cancelled => {},
                 }
             }
-            if (self.wake_armed and !self.wake_cancel_submitted) {
-                try self.backend.submitCancel(
-                    userData(.wake, completions.wake_cancel),
-                    userData(.wake, completions.wake_poll),
-                    self.wake.read,
-                );
-                self.wake_cancel_submitted = true;
-            }
         }
 
         fn owesCompletions(self: *const Self) bool {
-            if (self.wake_armed or self.closing_listeners != 0 or self.listen_waits != 0) return true;
+            if (self.closing_listeners != 0 or self.listen_waits != 0) return true;
             var conns = self.conns.valueIterator();
             while (conns.next()) |conn| if (conn.inflight != 0) return true;
             var dials = self.dials.valueIterator();

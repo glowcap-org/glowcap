@@ -180,18 +180,18 @@ Deno.test("rooms-dev serves source modules and finishes retirement across repeat
 		await Deno.remove(fixture.root, { recursive: true });
 		assertEquals(result.code, 0, `rooms-dev failed:\n${output}\n${errors}`);
 		assert(retiring, "the repeated signal must arrive during backend retirement");
-		assert(output.includes("native backend"), "rooms-dev did not label its internal listener");
+		assert(output.includes("web server"), "rooms-dev did not label its internal listener");
 		assert(!output.includes("web ui"), "rooms-dev exposed the internal listener as the browser address");
 		assert(
 			launchArguments.includes("--no-browser-assets\n"),
 			"rooms-dev loaded an unused production asset generation",
 		);
-		assert(!launchArguments.includes("--prepared\n"), "rooms-dev launched the native production publisher");
-		assert(backendRetired, "rooms-dev did not retire its native backend");
+		assert(!launchArguments.includes("--prepared\n"), "rooms-dev launched the production publisher");
+		assert(backendRetired, "rooms-dev did not retire its web server");
 	}
 });
 
-Deno.test("rooms-dev retires its native backend when Vite cannot take the public port", async () => {
+Deno.test("rooms-dev retires its web server when Vite cannot take the public port", async () => {
 	const fixture = await createBackendFixture();
 	const occupied = Deno.listen({ hostname: "127.0.0.1", port: 0 });
 	const port = (occupied.addr as Deno.NetAddr).port;

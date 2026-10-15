@@ -51,7 +51,7 @@ impl LoopShared {
 				Err(error) => return Err(error),
 			}
 		}
-		// A pass that ran at least one native step advanced state a close
+		// A pass that ran at least one FFI step advanced state a close
 		// driver may be parked on. An idle pass stays silent, which keeps a
 		// parked driver's own quiescent re-step from waking itself in an
 		// endless exchange.
@@ -88,7 +88,7 @@ impl LoopShared {
 				}
 				LoopEvent::OpenFailed { operation_id, failure } => {
 					if let Some(waiter) = self.pending_dials.borrow_mut().remove(&operation_id) {
-						// Failure has no associated native session. If the receiver went
+						// Failure has no associated FFI session. If the receiver went
 						// away, cancellation is its terminal observation.
 						drop(waiter.send(Err(driver_event_failure(failure, "dial"))));
 					}
@@ -113,7 +113,7 @@ impl LoopShared {
 				LoopEvent::ListenerFailed { listener, failure } => {
 					let error = driver_event_failure(failure, "listener");
 					if let Some(waiter) = self.pending_listeners.borrow_mut().remove(&listener) {
-						// Native listener setup already terminated; a dropped receiver is
+						// FFI listener setup already terminated; a dropped receiver is
 						// therefore caller cancellation, with no cleanup left to lose.
 						drop(waiter.send(Err(error)));
 					} else if self.listeners.borrow_mut().remove(&listener) {
@@ -143,7 +143,7 @@ impl LoopShared {
 				LoopEvent::SessionClosed { session, failure } => {
 					// The pump's EOF choreography, one tier up: record local
 					// teardown, then retire the shell so a later verb refuses
-					// ERR_CLOSED. The native side already broke the far vows
+					// ERR_CLOSED. The FFI side already broke the far vows
 					// and classified their FAIL completions.
 					let shell = host
 						.as_ref()
@@ -216,7 +216,7 @@ impl LoopShared {
 		let (waiter, outcome) = oneshot::channel();
 		self.pending_dials.borrow_mut().insert(operation_id, waiter);
 		// The park task may have read "no deadline" before this operation was
-		// admitted. Make it rebuild its native-authoritative progress clock.
+		// admitted. Make it rebuild its FFI-authoritative progress clock.
 		self.note_step_activity();
 		self.schedule_step();
 		match outcome.await {
@@ -228,7 +228,13 @@ impl LoopShared {
 	/// Await the next accepted session handle (bind a listener first). Fails
 	/// with the typed `ERR_CLOSED` once the loop closes, so a server
 	/// iteration ends rather than parking forever.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+	#[cfg(any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	))]
 	pub(crate) async fn accept(self: &Rc<Self>, listener: u64) -> Result<*mut ffi_host::GlowcapHostSession> {
 		loop {
 			let notified = self.accept_wake.notified();
@@ -254,7 +260,13 @@ impl LoopShared {
 
 	/// Bind one listener on an added transport. Accepted sessions arrive
 	/// through [`LoopShared::accept`].
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+	#[cfg(any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	))]
 	pub(crate) async fn listen(self: &Rc<Self>, transport: &str, designator: &str) -> Result<u64> {
 		self.guard_handle()?;
 		self.ensure_started()?;

@@ -14,7 +14,8 @@ shapes a lint cannot see.
 
 - A lifecycle held as parallel `Option` fields on one struct is an enum whose
   variants carry the phase's data (`Phase` in the runtime's
-  `uploads/transfer.rs`, `Watch` in `watching.rs`), so no method reads a
+  `session/managed/uploads/transfer.rs`, `Watch` in
+  `session/managed/watching.rs`), so no method reads a
   field another method is trusted to have set. A new struct with two or more
   `Option` fields that are set and cleared together is the same shape.
 - A value a constructor validated and a method re-reads lives in a newtype

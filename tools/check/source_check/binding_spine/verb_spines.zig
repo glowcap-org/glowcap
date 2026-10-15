@@ -370,7 +370,7 @@ pub fn checkBindingDialSpine(
     const provider_symbol_mirrors = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/ts/runtime/transport.ts", .needle = "interface DriverProvider {\n\treadonly transports" },
         .{ .path = "bindings/python/glowcap/_transport.py", .needle = "class Provider:\n" ++
-            "    \"\"\"One explicitly composed native provider package." ++
+            "    \"\"\"One explicitly composed FFI provider package." ++
             "\n\n    transports:" },
         .{ .path = "bindings/rust/src/driver_loop/provider.rs", .needle = "pub struct Provider {\n\ttransports:" },
         .{ .path = "bindings/racket/private/transport.rkt", .needle = "(struct driver-provider (transports" },

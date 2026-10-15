@@ -58,6 +58,10 @@ pub fn popHead(
     allocator: std.mem.Allocator,
     steady_bytes: usize,
 ) ?T {
+    // The queue is empty. Keep its buffer between messages so steady traffic
+    // allocates nothing. Give the buffer back only when it grew past the
+    // steady size, so one burst cannot pin that memory for the life of the
+    // connection. The cost is one new allocation when the next burst arrives.
     if (head.* >= list.items.len) {
         list.clearRetainingCapacity();
         head.* = 0;

@@ -1,12 +1,12 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
-const native_relay = @import("native_relay");
+const relay_tls = @import("relay_tls");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
-    var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+    var tls = switch (relay_tls.initTlsOwner(io, allocator, .system)) {
         .ready => |ready| ready.owner,
         .failed => return error.RelayUnavailable,
     };
@@ -42,10 +42,10 @@ pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 
 // From here, the CapTP workflow is transport-independent.
 const Greeter = struct {
-    pub fn handle(_: *Greeter, ht: *glowcap.driver.HostTurn, verb: []const u8, args: []const glowcap.driver.Value) !glowcap.driver.Value {
+    pub fn handle(_: *Greeter, ht: *glowcap.driver.HostTurn, verb: []const u8, args: glowcap.driver.Args) !glowcap.driver.Value {
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
-        if (args.len != 1 or args[0] != .string) return error.BadInvocation;
-        return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{args[0].string}) };
+        if ((try args.len()) != 1) return error.BadInvocation;
+        return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{try args.string(0)}) };
     }
 };
 

@@ -335,7 +335,7 @@ Deno.test("onion: a malformed designator is refused before dialing", async () =>
 		}
 		assert(
 			error.detail?.includes("not a well-formed version 3 onion service id"),
-			"off-thread failure lost its native diagnostic",
+			"off-thread failure lost its FFI diagnostic",
 		);
 	} finally {
 		net.release();

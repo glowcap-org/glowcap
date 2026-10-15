@@ -104,7 +104,10 @@ await runCrossLangDemo(
 		label: "tools",
 		serverNoun: "coordinator",
 		clientNoun: "agent",
-		serverScript: `${ROOT}/apps/tools/deno/coordinator.ts`,
+		server: {
+			cmd: "deno",
+			args: (pinPort) => [...DENO_FLAGS, `${ROOT}/apps/tools/deno/coordinator.ts`, String(pinPort)],
+		},
 		listenPattern: /TOOLS-SERVER-LISTENING (\d+)/,
 		listenMiss: "coordinator never announced its port",
 		roster,

@@ -1,4 +1,4 @@
-"""The native loop-backed Session transport lifetime."""
+"""The driver loop-backed Session transport lifetime."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 class _LoopTransport:
     """The loop-backed :class:`glowcap.Session` transport duck: no byte verbs
-    (the native loop owns the wire), one closed event the serve task and
+    (the driver loop owns the wire), one closed event the serve task and
     ``wait_closed`` share, and the back-reference `Session`'s branched arms
     dispatch on. Constructed on the asyncio thread that drives the loop."""
 

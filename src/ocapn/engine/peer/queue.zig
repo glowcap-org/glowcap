@@ -32,6 +32,11 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         }
 
         pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, count: usize) !void {
+            // Reserve room for `count` more rows. If the space already owned
+            // is not enough, slide the live rows to the front first, so the
+            // buffer is reused before it grows. A queue keeps its buffer
+            // between messages, and `pop` frees it only when it grew past the
+            // steady size.
             if (count > self.items.capacity - self.items.items.len) fifo.compactHead(T, &self.items, &self.head);
             try self.items.ensureUnusedCapacity(allocator, count);
         }

@@ -1,8 +1,8 @@
-//! Process-owned native relay construction and deterministic close reporting.
+//! Process-owned Mbed TLS relay construction and deterministic close reporting.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
-const native_relay = @import("native_relay");
+const relay_tls = @import("relay_tls");
 const Ctx = @import("../ctx.zig").Ctx;
 
 const RelayOptions = glowcap.driver.Transports.RelayOptions;
@@ -48,7 +48,7 @@ pub fn init(
 ) !void {
     var trust_pem: ?[]u8 = null;
     defer if (trust_pem) |pem| ctx.gpa.free(pem);
-    const trust: native_relay.Trust = if (ctx.environ.get("GLOWCAP_RELAY_CA_FILE")) |path| copied: {
+    const trust: relay_tls.Trust = if (ctx.environ.get("GLOWCAP_RELAY_CA_FILE")) |path| copied: {
         if (path.len == 0) {
             ctx.logErr("GLOWCAP_RELAY_CA_FILE names no file", .{});
             return error.RelayTrustReadFailed;
@@ -57,7 +57,7 @@ pub fn init(
             ctx.io,
             path,
             ctx.gpa,
-            .limited(native_relay.max_trust_bytes),
+            .limited(relay_tls.max_trust_bytes),
         ) catch |err| {
             ctx.logErr("cannot read relay CA file {s}: {s}", .{ path, @errorName(err) });
             return error.RelayTrustReadFailed;
@@ -66,7 +66,7 @@ pub fn init(
     } else .system;
     glowcap.net.relay.validateConfigurationUrls(relay_url, register_url orelse "") catch
         return error.InvalidRendezvousUrl;
-    switch (native_relay.initTlsOwner(ctx.io, ctx.gpa, trust)) {
+    switch (relay_tls.initTlsOwner(ctx.io, ctx.gpa, trust)) {
         .ready => |ready| provider.* = .{ .relay_url = relay_url, .register_url = register_url, .tls = ready.owner },
         .failed => |failure| {
             const chain = failure.chain();

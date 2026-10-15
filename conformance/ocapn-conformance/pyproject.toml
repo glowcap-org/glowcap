@@ -3,7 +3,9 @@ name = "glowcap-ocapn-conformance-environment"
 version = "0.0.0"
 requires-python = "==3.14.*"
 dependencies = [
+    # dep cryptography: Signing in the OCapN test suite.
     "cryptography==50.0.2",
+    # dep stem: Tor control for the test suite's onion runs.
     "stem==1.8.2",
 ]
 

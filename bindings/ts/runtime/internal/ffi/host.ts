@@ -15,7 +15,7 @@
 // `../../pump.ts`. The wasm browser build keeps importing the byte-fed
 // `c_abi_host` root only; its injected adapter ignores the stem here.
 //
-// Callback discipline: the ONE native callback in the whole binding, the
+// Callback discipline: the ONE FFI callback in the whole binding, the
 // shared behavior trampoline (`../../trampoline.ts`), fires synchronously
 // on the thread executing the enclosing `glowcap_host_*` call. Deno and Bun
 // both register callbacks globally, so it is minted through the runtime

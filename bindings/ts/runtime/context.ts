@@ -3,7 +3,7 @@
 // and `ContextAllocator`.
 
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
-import { ffi, type NativeCallback, NULL, type Ptr } from "./internal/ffi/runtime.ts";
+import { ffi, type FfiCallback, NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { outPointer, outUsize, readBytes } from "./internal/seam.ts";
 import { L } from "./internal/layout.ts";
 import {
@@ -72,7 +72,7 @@ const failureEventDecoder = new TextDecoder("utf-8", { fatal: true });
  * ordinary returned failures must never also pass through this function. */
 function reportValidatedFailure(context: Context, input: FailureReport): void {
 	const state = stateFor(context);
-	// Releasing refuses new native families, but a retained Host still owns
+	// Releasing refuses new FFI families, but a retained Host still owns
 	// this Context and its diagnostic queue until it gives back its lease.
 	if (state.raw === NULL) throw new Error("glowcap Context is released");
 	const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -156,8 +156,8 @@ export function recordProcessBindingFailure(operation: string, error: unknown): 
 
 interface ContextState {
 	raw: Ptr;
-	allocCb: NativeCallback | null;
-	freeCb: NativeCallback | null;
+	allocCb: FfiCallback | null;
+	freeCb: FfiCallback | null;
 	handleCount: number;
 	releaseRequested: boolean;
 }
@@ -183,7 +183,7 @@ function stateFor(context: Context): ContextState {
 	return state;
 }
 
-/** Retain the allocation policy for one native handle family. Package-internal. */
+/** Retain the allocation policy for one FFI handle family. Package-internal. */
 export function retainContext(context: Context): Ptr {
 	const state = stateFor(context);
 	if (state.releaseRequested || state.raw === NULL) {
@@ -193,7 +193,7 @@ export function retainContext(context: Context): Ptr {
 	return state.raw;
 }
 
-/** End one native handle family's borrow. Package-internal. */
+/** End one FFI handle family's borrow. Package-internal. */
 export function releaseContext(context: Context): void {
 	const state = stateFor(context);
 	if (state.handleCount === 0) throw new Error("glowcap Context ownership underflow");
@@ -215,7 +215,7 @@ export interface ContextAllocator {
 
 /** An allocation scope. A host created in it (`new Host(seed, { context })`)
  * routes every byte it owns through it. Releasing the Context stops new handle
- * creation immediately and frees its native policy after existing handles end. */
+ * creation immediately and frees its FFI policy after existing handles end. */
 export class Context {
 	private constructor() {
 		states.set(this, {

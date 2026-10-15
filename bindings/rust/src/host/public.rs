@@ -9,7 +9,7 @@ use crate::{CaptpVersion, Session};
 /// (ADR-0072). This is the host-idiom residue over it: the session registry,
 /// the vow table, the action drain that performs the I/O the host asks for
 /// (dial, flush, settle, entropy), and the iroh redeem posture. Cloning shares
-/// the same Host. The native host is released when the last clone (and last
+/// the same Host. The FFI host is released when the last clone (and last
 /// session) drops.
 #[derive(Clone)]
 pub struct Host {
@@ -29,7 +29,13 @@ pub enum ListenerIdentity {
 	Host(Host),
 }
 
-#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+#[cfg(any(
+	feature = "tcp",
+	feature = "iroh",
+	feature = "onion",
+	feature = "relay",
+	feature = "webrtc"
+))]
 impl ListenerIdentity {
 	pub(crate) fn into_host(self) -> Result<Host> {
 		match self {
@@ -90,14 +96,14 @@ pub struct SessionLimitOptions {
 }
 
 impl Host {
-	/// Close every session this host holds, then release the native Host and its
+	/// Close every session this host holds, then release the FFI Host and its
 	/// hosted callbacks. Every clone becomes closed. When called by a hosted
 	/// behavior, teardown is parked until that callback returns.
 	///
 	/// Closing a [`Session`](crate::Session) closes that one connection and
 	/// nothing else, so this is how an application that shares one host across
 	/// several sessions tears the whole thing down. The returned future is the
-	/// completion barrier for Host-owned work and native state.
+	/// completion barrier for Host-owned work and FFI state.
 	pub async fn close(&self, pending: PendingWork) -> Result<()> {
 		crate::finalizer::drain();
 		self.shared.close_host(pending)?;
@@ -120,7 +126,7 @@ impl Host {
 	/// Host property, so every session minted against a shared Host speaks
 	/// the same grammar. Pass the Host to
 	/// [`RuntimeConfig::adopt_host`](crate::RuntimeConfig::adopt_host),
-	/// or, with native TCP enabled, to `tcp::listen` through `tcp::ListenOptions`.
+	/// or, with FFI TCP enabled, to `tcp::listen` through `tcp::ListenOptions`.
 	pub fn with_codec(codec: Codec) -> Result<Host> {
 		Host::with_options(HostOptions::with_codec(codec))
 	}
@@ -238,7 +244,7 @@ impl Host {
 	}
 
 	/// A Host with a fresh durable identity inside a caller-supplied
-	/// allocation scope: every native allocation the Host makes routes through
+	/// allocation scope: every FFI allocation the Host makes routes through
 	/// the context's allocator, and the Host must be dropped before the
 	/// context. This is the same attachment the Python and TypeScript bindings
 	/// offer at Host construction.

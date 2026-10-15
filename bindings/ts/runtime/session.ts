@@ -56,7 +56,7 @@ export interface Channel {
 	read(): Promise<Uint8Array | null>;
 	/** Write every byte of `data`, awaiting the runtime's flush/backpressure. */
 	write(data: Uint8Array): Promise<void>;
-	/** Stop I/O immediately. A returned promise is the native release barrier. */
+	/** Stop I/O immediately. A returned promise is the FFI release barrier. */
 	close(): void | Promise<void>;
 }
 
@@ -81,7 +81,7 @@ export interface SendRedeemingResult {
 	via: Session | null;
 }
 
-/** What a loop-minted `Session` needs from the native loop that owns it
+/** What a loop-minted `Session` needs from the driver loop that owns it
  * (ADR-0112). Declared here and implemented by `driver_loop.ts`'s `DriverLoop`,
  * so the Session arms can dispatch on it without importing the loop tier. */
 export interface DriverLoopHandle {
@@ -92,26 +92,26 @@ export interface DriverLoopHandle {
 	/** Schedule one deferred step and join its complete effect drain. */
 	settleStep(): Promise<void>;
 	/** Release one loop-owned session through the loop's own verb. */
-	nativeSessionRelease(ptr: Ptr): void;
+	ffiSessionRelease(ptr: Ptr): void;
 	/** Start delivering one loop-owned session's inbound: setup is done. */
 	serveSession(ptr: Ptr): void;
 	/** Resolve and claim the exporter session for a Host capability. */
 	claimReferenceExporter(reference: Uint8Array): Ptr | null;
-	/** Close one loop-owned session through the loop's native barrier. */
+	/** Close one loop-owned session through the loop's FFI barrier. */
 	closeSession(ptr: Ptr, options?: CloseOptions): Promise<void>;
-	/** Release the loop and everything it owns, to the native barrier. */
+	/** Release the loop and everything it owns, to the FFI barrier. */
 	close(options?: CloseOptions): Promise<void>;
 	/** Wrap a loop-minted session handle as the public `Session`. */
 	adoptSession(ptr: Ptr): Session;
 }
 
-/** The loop-backed `Channel` (ADR-0112): the native loop owns the wire, so it
+/** The loop-backed `Channel` (ADR-0112): the driver loop owns the wire, so it
  * carries no byte verbs the pump would drive. It has only the closed event the serve
  * promise awaits and the loop back-reference the Session arms dispatch on. */
 export interface LoopChannel extends Channel {
 	readonly driverLoop: DriverLoopHandle;
 	waitClosed(): Promise<void>;
-	/** Settle the loop-backed serve boundary from the native SESSION_CLOSED
+	/** Settle the loop-backed serve boundary from the FFI SESSION_CLOSED
 	 * event before generic transport retirement runs. */
 	finishClosed(error: GlowcapError | null): void;
 }

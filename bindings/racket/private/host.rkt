@@ -3,7 +3,7 @@
 ;; `driver_core.Host` (ADR-0072 / ADR-0079). The host owns an `engine.Node`
 ;; (the sans-io handoff router). Goblins `mycapn` is two roles, not one type:
 ;; the product maps to this Host; the router tables map to `engine.Node`. What lives
-;; here is only what the embedder contract leaves to the binding: native Host
+;; here is only what the embedder contract leaves to the binding: FFI Host
 ;; construction and release, profile and close-option projection, gift-id
 ;; entropy, C-facing Host verbs, and publication. The Racket-owned handle
 ;; state, reentrant lock, diagnostics, registries, loop hooks, and iroh redeem
@@ -55,7 +55,7 @@
                             grace-mode
                             grace-value))
 
-;; `#:profile` selects the core-authored `native` or `interop` codec/version
+;; `#:profile` selects the core-authored `glowcap` or `interop` codec/version
 ;; pair. The individual `#:codec` and `#:captp-version` knobs remain available
 ;; when no profile is named; `#:features` completes this host's signed offer.
 ;; Each session settles version and codec with its partner,
@@ -74,7 +74,7 @@
     (raise-glowcap 'make-host ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
   (define-values (selected-codec selected-captp-version)
     (host-profile-values 'make-host profile codec captp-version))
-  ;; Keep an owned copy so caller mutation cannot split the native identity from
+  ;; Keep an owned copy so caller mutation cannot split the FFI identity from
   ;; the seed used to derive the host's designator.
   (define durable-seed (bytes->immutable-bytes (bytes-copy seed)))
   ;; The durable identity followed by a session-key root drawn here, at this
@@ -104,7 +104,7 @@
                        (with-handlers ([(lambda (_) #t) values])
                          (check/host cleanup-code)
                          #f))
-                     ;; A pre-commit refusal leaves a native Host borrowing
+                     ;; A pre-commit refusal leaves an FFI Host borrowing
                      ;; this Context. Leak the pair rather than free its
                      ;; allocator policy under the still-live Host.
                      (when (release-consumed? cleanup-code)
@@ -136,20 +136,20 @@
              #:features features
              #:local-turn-budget local-turn-budget))
 
-;; A close requested inside a native callback records policy in native state
+;; A close requested inside an FFI callback records policy in FFI state
 ;; immediately. This set retains only which Host needs its release executor
 ;; after the callback unwinds; it never mirrors or replays close policy.
 (define host-release-pending (make-hasheq))
 
 ;; One shared completion barrier per Host release. Repeated explicit close
-;; forwards its request to native state, then joins this barrier and observes
+;; forwards its request to FFI state, then joins this barrier and observes
 ;; the same result as the executor.
 (struct release-barrier (done result [worker #:mutable]) #:transparent)
 (struct release-result (error) #:transparent)
 (define host-release-active (make-hasheq))
 
 (define (publish-host-release! m barrier outcome)
-  ;; Once the native pointer moves, result publication and waiter wakeup are one
+  ;; Once the FFI pointer moves, result publication and waiter wakeup are one
   ;; uninterruptible binding transition. Remove only this barrier: a failed
   ;; worker may already have allowed a later caller to install its retry.
   (parameterize-break
@@ -182,7 +182,7 @@
              (unless (or (= close-code OK) (= close-code ERR-TIMEOUT))
                (check/host close-code)))
            ;; Stop stepping and join the park thread OUTSIDE the host lock,
-           ;; after the native barrier projected every terminal event.
+           ;; after the FFI barrier projected every terminal event.
            (when lp ((unbox loop-prestop-hook) lp close-sessions?)))
          (call-with-host/allow-released
           m
@@ -194,7 +194,7 @@
                    [lp (host-loop-of m)])
               (define-values (release-code release-error)
                 (if lp
-                    ((unbox loop-native-release-hook) lp)
+                    ((unbox loop-ffi-release-hook) lp)
                     (let ([code (glowcap_host_release ptr)])
                       (values
                        code
@@ -261,16 +261,16 @@
                      #:grace-ms [grace-ms grace-unspecified])
   (host-release/options! m (close-options 'host-close! pending grace-ms) #t))
 
-;; Native loop retirement has already crossed its close barrier. Release the
+;; driver loop retirement has already crossed its close barrier. Release the
 ;; loop/Host allocation without beginning a second policy request.
-(define (host-release-after-native-close! m)
+(define (host-release-after-ffi-close! m)
   (host-release/options! m #f #f))
 
 ;; A failed loop has already stopped ordinary stepping, so it cannot drive a
-;; second native close policy. Install its memory-only release barrier before
+;; second FFI close policy. Install its memory-only release barrier before
 ;; returning to the failing park/retirement thread, but leave that thread free
 ;; to exit: the release worker joins it during `loop-prestop!`.
-(define (host-release-after-native-close/async! m)
+(define (host-release-after-ffi-close/async! m)
   (call-with-host/terminal
    m
    (lambda ()
@@ -282,10 +282,10 @@
   (void))
 
 ;; A finalizer runs on the collector's thread, where touching a port is unsafe.
-;; An unreachable Host has no reachable session wrapper; native release owns
+;; An unreachable Host has no reachable session wrapper; FFI release owns
 ;; the remaining physical cleanup.
 (define (host-finalize! m)
-  (run-native-finalizer!
+  (run-ffi-finalizer!
    "host.finalizer.release"
    (lambda () (host-release/options! m #f #f))))
 
@@ -294,7 +294,7 @@
     (call-with-host/terminal
      m
      (lambda ()
-       ;; No break may land between the native request and installing its one
+       ;; No break may land between the FFI request and installing its one
        ;; retained driver. The worker itself remains interruptible while it
        ;; waits; only its terminal publication is protected.
        (parameterize-break
@@ -313,7 +313,7 @@
                   (begin-host-close/locked! m options))
                 (if (inside-turn?) '(deferred) (list 'wait barrier)))]
           [(inside-turn?)
-           ;; Native close records the admission barrier under the callback latch;
+           ;; FFI close records the admission barrier under the callback latch;
            ;; only effect driving and release wait for the enclosing turn to unwind.
            (when options (begin-host-close/locked! m options))
            (define already-pending? (hash-has-key? host-release-pending m))
@@ -365,16 +365,16 @@
 
 (module+ test
   (require rackunit)
-  (define-values (native-codec native-version)
-    (host-profile-values 'test 'native #f #f))
-  (check-equal? native-codec NATIVE-CODEC-SYMBOL)
-  (check-equal? native-version NATIVE-CAPTP-VERSION-SYMBOL)
+  (define-values (glowcap-codec glowcap-version)
+    (host-profile-values 'test 'glowcap #f #f))
+  (check-equal? glowcap-codec OWN-CODEC-SYMBOL)
+  (check-equal? glowcap-version OWN-CAPTP-VERSION-SYMBOL)
   (define-values (interop-codec interop-version)
     (host-profile-values 'test 'interop #f #f))
   (check-equal? interop-codec INTEROP-CODEC-SYMBOL)
   (check-equal? interop-version INTEROP-CAPTP-VERSION-SYMBOL)
   (check-exn exn:fail:glowcap?
-             (lambda () (host-profile-values 'test 'native 'syrup #f)))
+             (lambda () (host-profile-values 'test 'glowcap 'syrup #f)))
   (define failed 0)
   (answer-gift-id!
    (lambda () (error 'entropy "unavailable"))

@@ -49,6 +49,29 @@ pub fn glowcap_loam_store_plan(raw: ?*c.GlowcapLoamStore, recovery: u32, callbac
     execution.startupPlan(owner, recovery == 1, &kv) catch |err| return common.code(err);
     return shared.GLOWCAP_OK;
 }
+/// Evaluate one bounded collection batch in the adapter's atomic transaction.
+/// It runs at most `work_limit` steps plus the steps that finish its open unit,
+/// and `glowcap_loam_store_finish(raw, 0, outcome)` retires it. An attachment
+/// refuses it.
+pub fn glowcap_loam_store_collect_plan(raw: ?*c.GlowcapLoamStore, work_limit: usize, callback: ?execution.GlowcapLoamKvFn, context: ?*anyopaque) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const owner = common.store(raw) catch |err| return common.code(err);
+    var kv: execution.Kv = .{ .callback = callback orelse return shared.GLOWCAP_ERR_NULL_POINTER, .context = context };
+    var guard: common.EvaluationGuard = .{};
+    guard.enter(owner) catch |err| return common.code(err);
+    defer guard.leave();
+    execution.collectPlan(owner, work_limit, &kv) catch |err| return common.code(err);
+    return shared.GLOWCAP_OK;
+}
+/// Report with 1 that a collection cycle is in progress, and 0 when none is.
+pub fn glowcap_loam_store_collecting(raw: ?*c.GlowcapLoamStore, out_collecting: ?*u32) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const out = out_collecting orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    out.* = 0;
+    const owner = common.store(raw) catch |err| return common.code(err);
+    out.* = @intFromBool(owner.value.metadata.collection.phase != .idle);
+    return shared.GLOWCAP_OK;
+}
 pub fn glowcap_loam_store_finish(raw: ?*c.GlowcapLoamStore, recovery: u32, outcome: u32) callconv(.c) i32 {
     shared.lastErrorClear();
     if (recovery > 1) return common.code(error.InvalidArgument);

@@ -1,7 +1,9 @@
 //! Host value lifting: the complete transaction that turns one bounded
-//! session Argument tree into application Values, commits or rolls back every
+//! argument tree into application Values, commits or rolls back every
 //! capability observation, and retires every occurrence a failed projection
-//! did not expose.
+//! did not expose. The walk reads borrowed views (`model.view.Argument`), so
+//! a wire deliver lifts straight off the frame's bytes, and an owned value
+//! projects into a view at the door at no cost.
 
 const std = @import("std");
 
@@ -68,10 +70,10 @@ fn rollbackCapabilityLifts(self: *Host, lifts: []const CapabilityLift) void {
 fn discardUnprojectedArgumentReferences(
     self: *Host,
     session: *HostSession,
-    arg: model.Argument,
+    arg: model.view.Argument,
     skip: *usize,
     depth: usize,
-) error{NestingTooDeep}!void {
+) error{ NestingTooDeep, MalformedView }!void {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     switch (arg) {
         .reference => |reference| {
@@ -80,20 +82,33 @@ fn discardUnprojectedArgumentReferences(
             else
                 identity.discardCapabilityObservation(self, session, reference);
         },
-        .list, .set => |items| for (items) |item|
-            try discardUnprojectedArgumentReferences(self, session, item, skip, depth + 1),
-        .tagged => |tagged| for (tagged.value) |item|
-            try discardUnprojectedArgumentReferences(self, session, item, skip, depth + 1),
-        .@"struct" => |entries| for (entries) |entry|
-            try discardUnprojectedArgumentReferences(self, session, entry.value, skip, depth + 1),
+        .list, .set => |items| try discardUnprojectedSequence(self, session, items, skip, depth),
+        .tagged => |tagged| try discardUnprojectedSequence(self, session, tagged.value, skip, depth),
+        .@"struct" => |entries| {
+            var it = entries.iterator();
+            while (try it.next()) |entry|
+                try discardUnprojectedArgumentReferences(self, session, entry.value, skip, depth + 1);
+        },
         else => {},
     }
+}
+
+fn discardUnprojectedSequence(
+    self: *Host,
+    session: *HostSession,
+    items: model.view.Args,
+    skip: *usize,
+    depth: usize,
+) error{ NestingTooDeep, MalformedView }!void {
+    var it = items.iterator();
+    while (try it.next()) |item|
+        try discardUnprojectedArgumentReferences(self, session, item, skip, depth + 1);
 }
 
 fn failValuesProjection(
     self: *Host,
     session: *HostSession,
-    args: []const model.Argument,
+    args: model.view.Args,
     lifts: *const CapabilityLiftReceipts,
 ) void {
     const items = lifts.items();
@@ -107,11 +122,11 @@ fn failValuesProjection(
     // Inline gives have rollback receipts too, but counting them here would
     // skip a later reference and strand invisible wire authority.
     var skip = lifts.reference_count;
-    for (args) |arg| discardUnprojectedArgumentReferences(self, session, arg, &skip, 0) catch {
-        // An overdeep source cannot be enumerated safely under the same stack
-        // bound. Completed observations above are already retired; condemn the
-        // source so terminal session teardown remains the last owner of any
-        // unvisited wire retains.
+    discardUnprojectedSequence(self, session, args, &skip, 0) catch {
+        // An overdeep or unprojectable source cannot be enumerated safely
+        // under the same bounds. Completed observations above are already
+        // retired; condemn the source so terminal session teardown remains
+        // the last owner of any unvisited wire retains.
         host_pump.condemnAndClose(
             self,
             session,
@@ -126,10 +141,10 @@ fn failValuesProjection(
 fn failValueProjection(
     self: *Host,
     session: *HostSession,
-    arg: model.Argument,
+    arg: model.view.Argument,
     lifts: *const CapabilityLiftReceipts,
 ) void {
-    failValuesProjection(self, session, &.{arg}, lifts);
+    failValuesProjection(self, session, .fromViews(&.{arg}), lifts);
 }
 
 /// Retire an unexposed borrowed value without materializing its representation.
@@ -137,7 +152,7 @@ fn failValueProjection(
 /// projection. The caller retains no reference from the value afterward.
 pub fn discardValueObservation(self: *Host, session: *HostSession, arg: model.Argument) void {
     const lifts = CapabilityLiftReceipts{};
-    failValueProjection(self, session, arg, &lifts);
+    failValueProjection(self, session, .fromOwned(&arg), &lifts);
 }
 
 const ByteOwnership = enum {
@@ -155,8 +170,10 @@ pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, ar
     var lifts = CapabilityLiftReceipts{};
     // Receipt spill is temporary; the action arena retains only its Value.
     defer lifts.spill.deinit(self.allocator);
-    const value = liftValueInner(self, session, arena, arg, &lifts, 0, .owned) catch |err| {
-        failValueProjection(self, session, arg, &lifts);
+    var value: value_mod.Value = undefined;
+    const view = model.view.Argument.fromOwned(&arg);
+    liftValueInner(self, session, arena, view, &lifts, 0, .owned, &value) catch |err| {
+        failValueProjection(self, session, view, &lifts);
         return err;
     };
     commitCapabilityLifts(self, lifts.items());
@@ -167,22 +184,26 @@ pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, ar
 /// mutually recursive, which this toolchain refuses to resolve as inferred
 /// sets, and the walk's true set mirrors the actor-turn error vocabulary
 /// reached through `liftCapabilityTracked`.
+/// Writes the lifted value into `out` so each arm lands in place: a result
+/// returned through an error union is copied out of it by the caller, and a
+/// value is wide enough for that copy to be a call.
 fn liftValueInner(
     self: *Host,
     session: *HostSession,
     arena: std.mem.Allocator,
-    arg: model.Argument,
+    arg: model.view.Argument,
     lifts: *CapabilityLiftReceipts,
     depth: usize,
     comptime bytes: ByteOwnership,
-) anyerror!value_mod.Value {
+    out: *value_mod.Value,
+) anyerror!void {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
-    return switch (arg) {
+    out.* = switch (arg) {
         .bytes => |v| .{ .bytes = try bytes.materialize(arena, v) },
         .symbol => |v| .{ .symbol = try bytes.materialize(arena, v) },
         .reference => |reference| blk: {
             try lifts.ensureOne(if (bytes == .owned) self.allocator else arena);
-            const lifted = try identity.liftCapabilityTracked(self, session, reference);
+            const lifted = try identity.liftCapabilityTracked(self, session, try identity.callableReference(reference));
             lifts.appendAssumeCapacity(lifted, .reference);
             break :blk .{ .capability = lifted.ref };
         },
@@ -201,14 +222,18 @@ fn liftValueInner(
         .keyword => |v| .{ .keyword = try bytes.materialize(arena, v) },
         .big_integer => |v| .{ .big_integer = .{ .negative = v.negative, .digits = try bytes.materialize(arena, v.digits) } },
         .@"struct" => |entries| blk: {
-            const out = try arena.alloc(value_mod.Value.StructEntry, entries.len);
-            for (entries, 0..) |entry, i| out[i] = .{
-                .key = try bytes.materialize(arena, entry.key),
-                .value = try liftValueInner(self, session, arena, entry.value, lifts, depth + 1, bytes),
-            };
-            break :blk .{ .@"struct" = out };
+            const lifted = try arena.alloc(value_mod.Value.StructEntry, try entries.len());
+            var filled: usize = 0;
+            var it = entries.iterator();
+            while (try it.next()) |entry| : (filled += 1) {
+                if (filled >= lifted.len) return error.MalformedView;
+                lifted[filled].key = try bytes.materialize(arena, entry.key);
+                try liftValueInner(self, session, arena, entry.value, lifts, depth + 1, bytes, &lifted[filled].value);
+            }
+            if (filled != lifted.len) return error.MalformedView;
+            break :blk .{ .@"struct" = lifted };
         },
-        .handoff => |handoff| switch (handoff.*) {
+        .handoff => |handoff| switch (try handoff.project()) {
             .give => |give| blk: {
                 try lifts.ensureOne(if (bytes == .owned) self.allocator else arena);
                 const lifted = try capability_promise.liftInlineGive(self, session, give);
@@ -217,7 +242,7 @@ fn liftValueInner(
             },
             // A receive is an exporter bootstrap request, never an
             // application Passable value.
-            .receive => error.UnsupportedValue,
+            .receive => return error.UnsupportedValue,
         },
     };
 }
@@ -226,15 +251,20 @@ fn liftValuesInner(
     self: *Host,
     session: *HostSession,
     arena: std.mem.Allocator,
-    args: []const model.Argument,
+    args: model.view.Args,
     lifts: *CapabilityLiftReceipts,
     depth: usize,
     comptime bytes: ByteOwnership,
 ) anyerror![]value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
-    const out = try arena.alloc(value_mod.Value, args.len);
-    for (args, 0..) |arg, i|
-        out[i] = try liftValueInner(self, session, arena, arg, lifts, depth, bytes);
+    const out = try arena.alloc(value_mod.Value, try args.len());
+    var filled: usize = 0;
+    var it = args.iterator();
+    while (try it.next()) |arg| : (filled += 1) {
+        if (filled >= out.len) return error.MalformedView;
+        try liftValueInner(self, session, arena, arg, lifts, depth, bytes, &out[filled]);
+    }
+    if (filled != out.len) return error.MalformedView;
     return out;
 }
 
@@ -248,9 +278,20 @@ pub fn liftValue(
     arena: std.mem.Allocator,
     arg: model.Argument,
 ) anyerror!value_mod.Value {
+    return liftView(self, session, arena, .fromOwned(&arg));
+}
+
+/// `liftValue` over one borrowed view, read where it lies.
+pub fn liftView(
+    self: *Host,
+    session: *HostSession,
+    arena: std.mem.Allocator,
+    view: model.view.Argument,
+) anyerror!value_mod.Value {
     var lifts = CapabilityLiftReceipts{};
-    const value = liftValueInner(self, session, arena, arg, &lifts, 0, .borrowed) catch |err| {
-        failValueProjection(self, session, arg, &lifts);
+    var value: value_mod.Value = undefined;
+    liftValueInner(self, session, arena, view, &lifts, 0, .borrowed, &value) catch |err| {
+        failValueProjection(self, session, view, &lifts);
         return err;
     };
     commitCapabilityLifts(self, lifts.items());
@@ -274,12 +315,14 @@ pub fn projectValue(
     comptime project: anytype,
 ) anyerror!projectedValueType(project) {
     var lifts = CapabilityLiftReceipts{};
-    const value = liftValueInner(self, session, arena, arg, &lifts, 0, .borrowed) catch |err| {
-        failValueProjection(self, session, arg, &lifts);
+    var value: value_mod.Value = undefined;
+    const view = model.view.Argument.fromOwned(&arg);
+    liftValueInner(self, session, arena, view, &lifts, 0, .borrowed, &value) catch |err| {
+        failValueProjection(self, session, view, &lifts);
         return err;
     };
     const projected = project(context, value) catch |err| {
-        failValueProjection(self, session, arg, &lifts);
+        failValueProjection(self, session, view, &lifts);
         return err;
     };
     commitCapabilityLifts(self, lifts.items());
@@ -292,7 +335,7 @@ pub fn projectValues(
     self: *Host,
     session: *HostSession,
     arena: std.mem.Allocator,
-    args: []const model.Argument,
+    args: model.view.Args,
     context: anytype,
     comptime project: anytype,
 ) anyerror!projectedValueType(project) {
@@ -310,12 +353,14 @@ pub fn projectValues(
 }
 
 /// `liftValue` over a whole argument list, under one receipts scope: a
-/// failure anywhere retires every completed and unvisited observation.
+/// failure anywhere retires every completed and unvisited observation. The
+/// views are read where they lie, so a delivered frame's leaves reach the
+/// handler's values with no copy between the wire and the application.
 pub fn liftValues(
     self: *Host,
     session: *HostSession,
     arena: std.mem.Allocator,
-    args: []const model.Argument,
+    args: model.view.Args,
 ) anyerror![]value_mod.Value {
     var lifts = CapabilityLiftReceipts{};
     const values = liftValuesInner(self, session, arena, args, &lifts, 0, .borrowed) catch |err| {

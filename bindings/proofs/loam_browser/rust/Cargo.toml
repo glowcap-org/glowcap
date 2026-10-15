@@ -10,8 +10,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 glowcap = { package = "glowcap-rust-dogfood", path = "../../../rust", default-features = false, features = ["loam"] }
+# dep wasm-bindgen: The browser storage proof's WebAssembly build.
 wasm-bindgen = "=0.2.129"
+# dep wasm-bindgen-futures: Runs the proof's futures on the browser's event loop.
 wasm-bindgen-futures = "=0.4.79"
+# dep js-sys: JavaScript built-ins, IndexedDB results among them.
 js-sys = "=0.3.106"
+# dep serde_json: The JSON results the browser storage proof reports.
 serde_json = "1"
+# dep tokio: Async tasks inside the browser storage proof.
 tokio = { version = "1", default-features = false, features = ["rt", "io-util", "sync", "macros"] }

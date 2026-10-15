@@ -70,7 +70,7 @@ these:
    dial to it: a relay rendezvous keyed by the browser's identity. *Relay-
    necessary.* Built for any peer on a shared relay:
    `zig build rooms-web-dm-tabs` drives one browser tab cold-dialing another by
-   identity through the relay rendezvous, and `zig build rooms-web-dm-native`
+   identity through the relay rendezvous, and `zig build rooms-web-dm-deno`
    drives a native Deno peer cold-dialing the tab through the same leg.
    Cross-relay dial also ships through locator-carried rendezvous advice.
    `bindings-keyed-relay-rendezvous` checks it, as the cold-dial section below
@@ -238,7 +238,7 @@ Limits:
   already prescribes.
 
 **Status:** built for same-relay and cross-relay dialers. `zig build
-rooms-web-dm-native` proves the sealed Rooms form: a Deno peer on the dlopen
+rooms-web-dm-deno` proves the sealed Rooms form: a Deno peer on the dlopen
 stack redeems a room introduction and cold-dials the tab over `noise-relay`,
 then the tab replies on that arriving connection. `zig build web-peer-test`
 separately audits the browser Noise carrier for plaintext. `zig build
@@ -255,7 +255,7 @@ locator's route instead of its dead local mapping.
 | Redeem handoff + direct DM to a member | necessary (byte carrier) | shipped | `rooms-web-dm` |
 | Redeemed-introduction back-channel reply | relay-less | shipped | `rooms-web-dm`, `demo-rooms-dm-back` |
 | Cold-dialed by another browser (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-noise` |
-| Cold-dialed by a native peer (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-native` |
+| Cold-dialed by a Deno peer (shared relay) | necessary (rendezvous) | shipped | `rooms-web-dm-deno` |
 | Cold-dialed across relays | necessary (rendezvous) | shipped | `bindings-keyed-relay-rendezvous` |
 
 ## Alternatives Considered
@@ -290,7 +290,7 @@ connection works for a non-listening caller, and `currentSession()` enables it.
   (`src/ocapn/engine/node.zig`, `src/driver/core/host.zig`,
   `src/c_abi/host/host.zig`). The rooms client's `DirectMessage`
   (`apps/rooms/lib/room/client.ts`). Proofs `apps/rooms/demos/dm_back_demo.ts`
-  (native), `apps/rooms/test/dm_reredeem_test.ts` (deterministic re-redeem
+  (native), `apps/rooms/test/proofs/dm_reredeem_proof.ts` (deterministic re-redeem
   attribution), and `apps/rooms/test/proofs/dm_proof.ts` (browser).
 - Cold-dial rendezvous: `Rendezvous` (identity → held buffering channel) and
   `webSocketChannel` in `@glowcap/relay` (`bindings/ts/relay/rendezvous.ts`,
@@ -304,8 +304,8 @@ connection works for a non-listening caller, and `currentSession()` enables it.
   rooms relay endpoints and browser transport wiring (`apps/rooms/rust/services/src/web/relay.rs`,
   `apps/rooms/rust/services/src/web/http.rs`, `apps/rooms/rust/browser/src/transport.rs`). Proofs
   `apps/rooms/test/proofs/dm_tabs_proof.ts` (`zig build rooms-web-dm-tabs`) and
-  `apps/rooms/test/proofs/dm_native_dial_proof.ts`
-  (`zig build rooms-web-dm-native`).
+  `apps/rooms/test/proofs/dm_deno_dial_proof.ts`
+  (`zig build rooms-web-dm-deno`).
 - Cross-runtime route proof: `bindings/proofs/keyed_relay_rendezvous/`, run by
   `zig build bindings-keyed-relay-rendezvous`. Native registration proof:
   `zig build zig-keyed-relay-register`.

@@ -182,6 +182,11 @@ const FanInBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *FanInBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     pub fn poll(self: *FanInBackend, out: []completion.Completion, timeout_ms: i32) !usize {
         _ = timeout_ms;
         if (self.ready_len == 0) {
@@ -221,7 +226,7 @@ test "completion loop: fan_in_throttle parks a drained source while a sink is ov
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
@@ -283,7 +288,7 @@ test "completion loop: a condemned sink releases the fan-in sources it throttled
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);

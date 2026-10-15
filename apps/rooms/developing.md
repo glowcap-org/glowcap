@@ -1,14 +1,25 @@
+---
+type: static
+description: How to build, check and run Rooms by hand, what objects travel on its wire, and where its code lives.
+sources:
+  - resource: /apps/rooms/lib/
+  - resource: /apps/rooms/rust/
+  - resource: /apps/rooms/web/
+  - resource: /apps/rooms/test/
+  - resource: /tools/build/rooms/
+---
+
 # Developing Rooms
 
-This guide is for changing Rooms: how it is built and checked, how to run the
-pieces by hand, what the objects on the wire are, and where the code lives.
-The [Rooms overview](README.md) runs the application, [Operating Rooms](operating.md)
+This guide is for changing Rooms: build and check steps, running the pieces by
+hand, the objects on the wire, and the source map. The
+[Rooms overview](README.md) runs the application, [Operating Rooms](operating.md)
 covers the server's grants and services, and the
 [browser page's design contract](web/ui/README.md) covers the interface.
 
 ## Build steps
 
-Every Rooms command is a `zig build` step. The ones a developer reaches for:
+Every Rooms command is a `zig build` step:
 
 | Command | Does | Needs |
 | --- | --- | --- |
@@ -29,92 +40,81 @@ including which ride `zig build check`, `runtime-check`, or `check-external`.
 The devcontainer image carries the Chromium the browser proofs use.
 
 Component edits use React Fast Refresh. Changes that reach page startup reload
-the document: its Host, session and React root each belong to one document
-lifetime. Refreshing startup in place would leave controls attached to an
-earlier session. The development process tests check both update boundaries.
+the document, because its Host, session and React root each live as long as
+one document.
 
 The browser proofs run concurrently, so name every proof you need in one
 `zig build` invocation, or run the whole family with `rooms-web-proofs`. The
-build prepares the browser assets once. Each proof starts `rooms-web` with
-that immutable generation for its entire journey. Source compilation and
-development refresh have separate process contracts. A change to a Rust crate
-the browser module links needs `zig build rooms-browser-build` first.
+build prepares the browser assets once, and each proof starts `rooms-web` with
+that immutable generation. A change to a Rust crate the browser module links
+needs `zig build rooms-browser-build` first.
 
-### Browser gesture ownership
+### Cancelling a join in the browser
 
-Room admission acquires a conversation without selecting it. The browser's
-[opening owner](web/ui/session/managed/openings.ts) holds cancellation and
-cleanup for each attempt. Before admission, cancellation releases preparation.
-After dispatch, the original receipt remains held. If that cancelled attempt
-later acquires membership, its owner releases that membership through an exact
-departure command. Reconnecting a saved direct conversation closes its new
-route while preserving saved messages and drafts.
+Joining a room adds the conversation without opening it. The
+[openings module](web/ui/session/managed/openings.ts) cancels and cleans up
+each attempt, and hands off to
+[navigation](web/ui/session/managed/navigation.ts) before the open
+conversation changes. When a join is cancelled and its outcome is unknown:
 
-Cancellation already supplies the decision for an uncertain admission. The
-retained receipt owner continues it once automatically and releases acquired
-membership. Command result adoption and departure cleanup settle separately,
-so a lost departure reply resumes that departure without repeating admission.
-A failed automatic continuation retains its diagnostic for explicit recovery.
-Projection uses the receipt owner's cancelled result identity to exclude the
-new room while departure is pending or refused. Cancellation also invalidates
-projection without a workspace revision, so a late snapshot cannot present
-that room as joined. Existing conversations remain independently owned.
+- Cancelling before the join is sent releases what was prepared. After it is
+  sent, the original receipt stays.
+- The receipt's owner finishes the join once on its own. If the cancelled
+  join did get a membership, it leaves through an exact departure command.
+- Saving the join's result and cleaning up the departure settle separately,
+  so a lost departure reply resumes the departure without joining again.
+- If finishing on its own fails, the diagnostic stays so the person can
+  recover by hand.
+- While the departure is pending or refused, the room stays off the screen,
+  so a late snapshot cannot show it as joined.
+- Navigation saves what is on screen separately, so hiding a successful form
+  cannot cancel its receipt. A choice the person makes leaves the directory
+  view at once, and selections saved in the background keep that view and
+  its draft.
 
-The opening hands off to [navigation](web/ui/session/managed/navigation.ts)
-before changing selection. Navigation saves the visible choice independently,
-so hiding a successful form cannot cancel its receipt. A form observes its own
-attempt, and a sidebar row observes the opening's target. The session tests and
-browser departure and responsiveness scenes exercise these lifetime boundaries.
-An explicit local choice leaves the directory view immediately. Background
-selection saves preserve that view and its draft.
+Reconnecting a saved direct conversation closes its new route and keeps saved
+messages and drafts. The session tests and the browser departure and
+responsiveness scenes exercise these rules.
 
 ### Browser compiler boundary
 
-`web/compiler.json` selects the production Deno invocation. Its `args` are
-passed directly to Deno from `web/`, with `{outdir}` replaced by the publisher's
-empty temporary directory. Its `inputs` list additional files that affect
-compilation, including any helpers imported by the compiler configuration.
-The recipe, those files, `deno.json`, and the lockfile participate in source
-identity alongside the application sources and assets.
+`web/compiler.json` selects the production Deno invocation. Its `args` go to
+Deno from `web/`, with `{outdir}` replaced by the publisher's empty temporary
+directory. Its `inputs` list further files that affect compilation, such as
+helpers the compiler configuration imports. The recipe, those files,
+`deno.json`, and the lockfile join the application sources and assets in the
+source identity.
 
-The compiler must emit `page.js` and its minified ESM chunks as sibling files.
-Static and literal dynamic imports must resolve within that output. Browser
-journeys exercise runtime-computed imports that inspection cannot resolve.
-The publisher adds the page, CSS, fonts, Wasm, and revision metadata, then publishes the complete
-generation atomically. It also owns compiler cancellation and the build
-deadline. A bundler change therefore leaves serving and deployment intact.
+The compiler must emit `page.js`, `ground.js`, and their minified ESM chunks as
+sibling files, and static and literal dynamic imports must resolve within that output. The
+publisher adds the page, CSS, fonts, Wasm, and revision metadata, publishes the
+complete generation atomically, and owns compiler cancellation and the build
+deadline. A bundler change leaves serving and deployment intact.
 
-The shared source entry `ui/page.js` gives both Vite and Deno the required
-output name. To try `deno bundle`, replace the recipe with:
+The shared source entries `ui/page.js` and `ui/ground.js` give both Vite and
+Deno the required output names. To try `deno bundle`, replace the recipe with:
 
 ```json
 {
-  "args": ["bundle", "--config", "deno.json", "--platform", "browser", "--minify", "--code-splitting", "--outdir", "{outdir}", "ui/page.js"],
+  "args": ["bundle", "--config", "deno.json", "--platform", "browser", "--minify", "--code-splitting", "--outdir", "{outdir}", "ui/page.js", "ui/ground.js"],
   "inputs": []
 }
 ```
 
 `zig build rooms-server-test` applies the same publication and payload checks
-to the selected compiler and an isolated Deno build with Vite's dependencies
-removed. `zig build rooms-web-page` exercises the selected output in Chromium.
+to the selected compiler and to an isolated Deno build without Vite's
+dependencies. `zig build rooms-web-page` exercises the selected output in
+Chromium.
 
-Development can also serve compiled generations:
+`zig build rooms-dev -Dhot-reload=false` serves compiled generations in
+development with the same state, grants, and transport. It recompiles changed
+sources on request and reloads the page instead of using React Fast Refresh.
 
-```sh
-zig build rooms-dev -Dhot-reload=false
-```
-
-That path keeps the same state, operator grants, transport, and build
-dependencies. It recompiles changed sources on requests and uses page reloads
-instead of React Fast Refresh. Production compiler selection stays in the
-recipe, independently of which development server serves the page.
-
-Removing Vite entirely means retaining this generation launch in
-`tools/build/rooms/browser_front.zig`, deleting the Vite launch and `web/dev.ts`
-supervisor with their tests, and removing `web/vite.config.ts` and the Vite
-imports from `web/deno.json`. Update the app's check task and regenerate its
-lockfile after removing those imports. Publication, deployment, and the
-compiler-independent payload tests remain in place.
+To remove Vite entirely, keep the generation launch in
+`tools/build/rooms/browser_front.zig`, delete the Vite launch, the `web/dev.ts`
+supervisor and their tests, remove `web/vite.config.ts` and the Vite imports
+from `web/deno.json`, then update the app's check task and regenerate its
+lockfile.
 
 ## Running the pieces by hand
 
@@ -125,10 +125,10 @@ zig build rooms-server -- --transport=tcp --port=9099
 zig build rooms-chat -- 127.0.0.1:9099 general alice
 ```
 
-The server prints `ROOMS-SERVER-LISTENING 9099`. In the client, lines are
-sent on Enter, room notices begin with `*`, and Ctrl-D leaves. `/list`
-shows populated rooms, `/open <name>` creates and enters one, `/enter <name>`
-enters an existing one, `/leave` leaves.
+The server prints `ROOMS-SERVER-LISTENING 9099`. In the client, Enter sends a
+line, room notices begin with `*`, and Ctrl-D leaves. `/list` shows populated
+rooms, `/open <name>` creates and enters one, `/enter <name>` enters an
+existing one, and `/leave` leaves.
 
 The one-shot clients take a locator, room, nickname, message, and expected
 roster. Naming only the sender as the roster means "post and exit":
@@ -145,32 +145,31 @@ Each client also accepts the `ocapn://…` locator an iroh server prints.
 
 ### On a LAN
 
-The TCP room binds loopback. Two flags open it to a local network, on the
-web launcher or as `GLOWCAP_ROOMS_BIND` and `GLOWCAP_ROOMS_ANNOUNCE_HOST` on
-the server:
+The TCP room binds loopback. Two flags open it to a local network, on the web
+launcher or as `GLOWCAP_ROOMS_BIND` and `GLOWCAP_ROOMS_ANNOUNCE_HOST` on the
+server:
 
 ```sh
 zig build rooms-web -Dtransport=tcp -- --bind=0.0.0.0 --announce-host=192.168.1.20
 ```
 
-`--bind` is where the server listens. `--announce-host` is the name it
-prints and advertises. TCP is cleartext, so a room exposed this way is
-readable by everyone on that network. Keep the page itself on a trustworthy
-origin: from another machine, forward the web port
-(`ssh -N -L 8080:127.0.0.1:8080 development-host`) and open
-`http://localhost:8080`. A page served over bare network HTTP could be
-replaced before it becomes a peer, and browsers withhold APIs Rooms needs
-there, so the page refuses that origin and says so. On a Tailscale host,
-`tailscale serve --bg 8080` gives the page an HTTPS name inside the tailnet.
-Beyond a trusted LAN, use iroh.
+`--bind` is where the server listens. `--announce-host` is the name it prints
+and advertises. TCP is cleartext, so everyone on that network can read the
+room. Beyond a trusted LAN, use iroh.
 
-The Vite dev server behind `zig build rooms-dev` answers to a tailnet name
-too. It checks the Host header and, on its own, allows an address or
-`localhost`. Any other name has to be listed. Names under `ts.net` are listed
-by default, so a MagicDNS name and `tailscale serve` both reach it.
-`GLOWCAP_ROOMS_DEV_ALLOWED_HOSTS` replaces that list with a comma-separated
-one of your own, and `GLOWCAP_ROOMS_DEV_HOST` is where it listens, which the
-devcontainer already sets to `0.0.0.0`.
+Serve the page from a trustworthy origin. Bare network HTTP could be replaced
+before the page becomes a peer, and browsers withhold APIs Rooms needs there,
+so the page refuses that origin and says so. From another machine, forward the
+web port (`ssh -N -L 8080:127.0.0.1:8080 development-host`)
+and open `http://localhost:8080`. On a Tailscale host,
+`tailscale serve --bg 8080` gives the page an HTTPS name inside the tailnet.
+
+The Vite dev server behind `zig build rooms-dev` checks the Host header. It
+allows an address or `localhost`, and names under `ts.net` by default, so a
+MagicDNS name and `tailscale serve` both reach it. Any other name has to be
+listed: `GLOWCAP_ROOMS_DEV_ALLOWED_HOSTS` replaces the default with a
+comma-separated list, and `GLOWCAP_ROOMS_DEV_HOST` is where it listens (the
+devcontainer sets `0.0.0.0`).
 
 ### As an onion service
 
@@ -192,10 +191,9 @@ onion service, while the page itself is still served over HTTP.
 
 ### With a Goblins vat
 
-A Spritely Goblins vat speaks the OCapN v1.0 baseline and joins the same
-room as the glowcap members, each connection on the profile its two ends
-agree on. [Bringing a Goblins vat into the room](goblins-vat.md) is the
-walkthrough.
+A Spritely Goblins vat speaks the OCapN v1.0 baseline and joins the same room
+as the glowcap members, each connection on the profile its two ends agree on.
+[Bringing a Goblins vat into the room](goblins-vat.md) is the walkthrough.
 
 ## The browser peer and the relay
 
@@ -211,57 +209,68 @@ browser peer ──WebSocket /relay──▶ rooms-web ──TCP, iroh, or onion
 The relay does not parse CapTP and holds no application references, but the
 browser has to trust it. The browser leg is cleartext, so the relay could read
 every frame. On an iroh route, the relay's QUIC connection checks the far
-node's key, and the browser takes its word for it. It admits only destinations the
-deployment allows: the supervised directory, an operator-listed TCP peer
-(`GLOWCAP_RELAY_TCP_PEERS`), any key-verified iroh node, the supervised
-onion service's own local endpoint, or a peer registered for rendezvous. It
-refuses a dial whose `Origin` names a host other than the one it was asked
+node's key and the browser takes its word.
+
+The relay admits only destinations the deployment allows:
+
+- the supervised directory
+- an operator-listed TCP peer (`GLOWCAP_RELAY_TCP_PEERS`)
+- any key-verified iroh node
+- the supervised onion service's own local endpoint
+- a peer registered for rendezvous
+
+It refuses a dial whose `Origin` names a host other than the one it was asked
 on, so a page from elsewhere cannot use a reader's relay. A request with no
 `Origin` (every non-browser client) passes.
 
 Browser peers also register a rendezvous identity with the relay, so another
-browser tab or another process can open a fresh connection to the held
-WebSocket. That makes a cold dial possible without putting the room in the
-message path. A page opened with `?dm=webrtc`, or with that choice made in
-Settings, advertises a WebRTC identity instead: direct messages then cross a
-DataChannel between the two tabs, and the directory carries only the offer,
-answer, and candidates as ordinary capability messages.
+tab or process can open a fresh connection to the held WebSocket without the
+room in the message path. By default a page advertises a WebRTC identity:
+direct messages cross a DataChannel between the two tabs, and the directory
+carries only the offer, answer, and candidates. A page opened with `?dm=relay`,
+or with that choice made in Settings, sends them through the relay as Noise
+ciphertext.
 
 ## Validation boundaries
 
-The page parses JSON at three boundaries, and each boundary has its own proof
-strength. Peer wire payloads are fully validated at ingress: the zod schemas
-in `lib/` (the `zod/mini` idioms of `lib/schema.ts`) prove shape and content
-limits together, and the TypeScript type derives from the schema. Rust-to-
-TypeScript projections come from the same build, so their schemas prove the
-envelope the runtime fabricates: kind tags, strings, booleans, enums,
-numbers and coordinates. Payloads Rust already holds as typed values ride
-through as `z.custom<T>` with their owning lib schema named in a comment.
-Re-checking a payload's peer-wire content limits at that boundary could only
-drop a notice Rust already accepted. Values the page itself produced and
-reads back later, such as retained commands and flat string receipts,
-use plain type guards. A receipt whose Rust producer is a tagged enum
-(`results::Direct` is the one today) has a field set per variant: prove the
-tag first, then prove only the variant's own fields. A pending receipt
-carries nothing but its tag. At every boundary a malformed answer names a
-defect in the shared build: it throws, or a live-stream notice degrades to
-no effect, and it is never cast into place. Mocks in `apps/rooms/test/`
-mirror the producer's canonical serialization. The retained
-command tuple's base revision is a JSON number, as
-`application/src/session/command.rs` writes it. Match the producer's exact
-field names and nullable `Option` values too. The activity reader supplies
-`history: null` for unrecorded messages, and discovery snapshots carry an
-`omitted` count. A page interface is not the serialization authority.
+The page parses JSON at three boundaries, each with its own proof strength:
 
-`ActivityDelivery` validates each notice once before readiness and presentation
-share it. Its carrier and transient handles retain their identities across
-the custody transfer. Result completion prepares the original request and
-receipt once per completion attempt. Workspace conflicts recompose the delta
-around that input. They do not decode another request or redispatch the effect.
+- **Peer wire payloads** are fully validated at ingress. The zod schemas in
+  `lib/` (the `zod/mini` idioms of `lib/schema.ts`) prove shape and content
+  limits together, and the TypeScript type derives from the schema.
+- **Rust-to-TypeScript projections** come from the same build, so their
+  schemas prove only the envelope the runtime fabricates: kind tags, strings,
+  booleans, enums, numbers and coordinates. Payloads Rust already holds as
+  typed values ride through as `z.custom<T>` with their owning lib schema named
+  in a comment. Re-checking peer-wire content limits here could only drop a
+  notice Rust already accepted.
+- **Values the page produced and reads back later**, such as retained commands
+  and flat string receipts, use plain type guards. A receipt whose Rust
+  producer is a tagged enum (such as `results::Direct`) has a field set per
+  variant: prove the tag first, then only that variant's fields. A pending
+  receipt carries nothing but its tag.
+
+At every boundary a malformed answer names a defect in the shared build. It
+throws, or a live-stream notice degrades to no effect, and it is never cast
+into place.
+
+Mocks in `apps/rooms/test/` mirror the producer's canonical serialization,
+because a page interface is not the serialization authority. The retained
+command tuple's base revision is a JSON number, as
+`application/src/session/command.rs` writes it. Match the producer's field
+names and nullable `Option` values too: the activity reader supplies
+`history: null` for unrecorded messages, and discovery snapshots carry an
+`omitted` count.
+
+`ActivityDelivery` validates each notice once, and readiness and presentation
+then share the same value. Handles inside it keep their identities on the way
+through. Completing a result prepares the original request and receipt once per
+attempt. A workspace conflict rebuilds the change around that same input, and
+it never decodes a second request or sends the effect again.
 
 Compose schemas without annotating them: `z.ZodMiniType<T>` erases the
 internals `z.discriminatedUnion` needs at composition time. Let the use site
-hold a schema's output to its hand-written type instead.
+hold a schema's output to its hand-written type.
 
 ## The objects
 
@@ -323,22 +332,19 @@ and client projections, so a new notification kind is one edit.
 ## Media
 
 The composer keeps selected files local. Send asks the room for one upload
-reference per file, publishes their records as one message, then fills those
-references concurrently in 64 KiB chunks. Every member can start reading the
-room-hosted blob at once. A read at the moving edge parks and wakes when the
-next bytes arrive. Holding an upload reference is the authority to fill
-that file, so `write` never names who is uploading.
+reference per file, publishes their records as one message, then fills the
+references concurrently in chunks of `files::CHUNK_BYTES`. Every member can
+start reading the room-hosted blob at once, and a read at the moving edge parks
+until the next bytes arrive. Holding an upload reference is the authority to
+fill that file, so `write` never names who is uploading.
 
-The room hosts the bytes itself instead of relaying a blob the sender hosts.
-Sender-hosted files would mean every recipient dials the sender, which a
-browser tab cannot answer without signaling per viewer, and the picture
-would disappear when the sender's tab closed. Room-hosted files work for
-every client and outlive the person who posted them.
-
-The cost is that the server has limits to enforce:
+The room hosts the bytes because a sender-hosted file would need every
+recipient to dial the sender, which a browser tab cannot answer without
+signaling per viewer, and the file would vanish when the sender's tab closed.
+The server therefore enforces limits:
 
 - `FileLimits` in `rust/application/src/files.rs` bounds pending bytes, held
-  bytes, and file counts, both server-wide and per room.
+  bytes, and file counts, server-wide and per room.
 - `UPLOAD_IDLE_MS` reclaims an upload that declared a size and then wrote
   nothing.
 - A dropped file's reference stays valid and answers `blob-expired`.
@@ -349,25 +355,22 @@ The cost is that the server has limits to enforce:
 
 ## Present boundaries
 
-- The session chooser shows a third option, "Sign in", marked "Coming soon"
-  and with no action. Server-kept sessions that any device can reach with an
-  account are not built yet.
-- `web/ui/emoji.ts` is a curated table and the one authority the tray,
-  `:code:` substitution, and completion derive from. The widening path is a
-  generator over a pinned CLDR-backed dataset, keeping the runtime
-  dependency-free.
-- Every filterable list in the page owns its own input except the composer's
-  inline completion, which keeps focus in the textarea. A command palette, a
-  searchable emoji picker, and settings search are where a combobox
-  primitive would earn its place. None exists, and the page's only
-  runtime dependency is React.
+- The session chooser shows **Sign in**, marked **Not available**, with no
+  action. Server-kept sessions reachable from any device with an account do not
+  exist.
+- `web/ui/emoji.ts` is a curated table, the one authority the tray, `:code:`
+  substitution, and completion derive from. Widening it means a generator over
+  a pinned CLDR-backed dataset, so the runtime stays dependency-free.
+- Every filterable list in the page owns its input except the composer's inline
+  completion, which keeps focus in the textarea. No combobox primitive exists,
+  and the page's only runtime dependency is React.
 - IRC stays at the application edge. Carrying CapTP itself over IRC is
   refused: a 512-byte line protocol with a server that may inject cannot keep
   an OCapN session insertable only by its participants.
   [ADR-0128](../../docs/decisions/adr/ADR-0128-room-links-peering-and-irc-edges.md)
   records the edges.
 - Peering is one handed authority, not a server link. A room's sturdyref is
-  enlivened once on the source, and the destination keeps one foreign row
+  restored once on the source, and the destination keeps one foreign row
   until its lease revokes it or the publisher's session ends.
 
 ## Source map
@@ -377,7 +380,7 @@ The cost is that the server has limits to enforce:
 | `rust/application/` | Portable policy: documents, grants, the room protocol, files, the archive, the session, the server |
 | `rust/glowcap/` | The Rooms protocol clients over the Rust binding |
 | `rust/runtime/` | Shared execution and its typed failure boundary: session commands, directory supervision, rooms, direct messages, archives |
-| `rust/platform/` | Tokio, entropy, leased storage, listeners, TLS, WebSocket channels |
+| `rust/platform/` | Tokio, entropy, leased storage, listeners, TLS, WebSocket channels, WebRTC signaling through a directory |
 | `rust/services/` | The room server, session peer, archive peer, IRC edges, web server, and interactive client |
 | `rust/browser/` | The Wasm application: session controllers, storage, signaling, transport |
 | `rust/proofs/` | The application contracts replayed from fixtures, in a process and in Wasm |

@@ -1,7 +1,7 @@
 // The cold-dial rendezvous (ADR-0088 capability 5). A peer that cannot be dialed
 // (a browser opens no listening socket) registers its keyed identity here
 // together with a held inbound WebSocket. A dialer that names that identity is
-// bridged onto the held socket, the mirror of the browser-dials-native leg
+// bridged onto the held socket, the mirror of the browser-dials-FFI leg
 // (`webSocketRelay`): the relay matches an identity to a held socket and forwards
 // bytes, still parsing nothing and holding no capability. The keyed handshake
 // runs end to end between the dialer and the registered peer through two relay
@@ -14,16 +14,7 @@
 
 import type { RelayChannel } from "./relay.ts";
 import { MAX_RELAY_WEBSOCKET_MESSAGE_BYTES, webSocketChannel } from "./ws_relay.ts";
-import { recordProcessBindingFailure, retainSecondaryFailure } from "@glowcap/runtime/transport";
-
-const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
-
-/** Whether `value` is the canonical Ed25519 key designator keyed-relay names.
- * Validate before an HTTP upgrade so untrusted map keys stay both
- * semantically meaningful and fixed-size. */
-export function isRendezvousDesignator(value: string): boolean {
-	return KEY_DESIGNATOR.test(value);
-}
+import { isKeyDesignator, recordProcessBindingFailure, retainSecondaryFailure } from "@glowcap/runtime/transport";
 
 /** A rendezvous table keyed by peer identity (the designator a `keyed-tcp` /
  * iroh locator would name). Server-side state a relay embedder owns; the byte
@@ -69,7 +60,7 @@ export class Rendezvous {
 	 * leaves no ghost and a corpse never sits ahead of a live sibling. */
 	register(designator: string, socket: WebSocket): boolean {
 		if (
-			!isRendezvousDesignator(designator) ||
+			!isKeyDesignator(designator) ||
 			this.#closed ||
 			Rendezvous.#socketClosing(socket)
 		) return false;
@@ -153,7 +144,7 @@ export class Rendezvous {
 	 * session.
 	 */
 	take(designator: string): RelayChannel | undefined {
-		if (!isRendezvousDesignator(designator)) return undefined;
+		if (!isKeyDesignator(designator)) return undefined;
 		const queue = this.#held.get(designator);
 		if (queue === undefined || queue.length === 0) return undefined;
 		const entry = queue.shift()!;

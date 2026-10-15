@@ -31,13 +31,13 @@ class _SessionsMixin(DriverLoopMixinBase):
     ):
         """Dial through the loop and wrap the opened session as the public
         :class:`glowcap.Session`, over the adopted wrapper Host: every session
-        verb, promise, and trampoline works on it, with the native loop as
+        verb, promise, and trampoline works on it, with the driver loop as
         the transport and the drain."""
         ptr = await self.dial(locator)
         return self.adopt_session(ptr)
 
     def adopt_session(self, ptr: int):
-        """Transfer one event-delivered native handle into a Session wrapper."""
+        """Transfer one event-delivered FFI handle into a Session wrapper."""
         from .._session import Session
 
         host = self.wrapper_host()
@@ -58,7 +58,7 @@ class _SessionsMixin(DriverLoopMixinBase):
 
     def wrapper_host(self) -> "Host":
         """The public :class:`glowcap.Host` wrapper adopted over this loop's
-        native host (ADR-0112): application verbs, publish trampolines, and
+        FFI host (ADR-0112): application verbs, publish trampolines, and
         ``RemotePromise`` settles all work on it, while the loop stays the one
         action drain and the one release authority. Built on first call. Call
         it on the driving thread."""
@@ -98,7 +98,7 @@ class _SessionsMixin(DriverLoopMixinBase):
     async def close_session(
         self, session: ctypes.c_void_p, options: _CloseOptions
     ) -> None:
-        """Close one loop-owned session through the native completion barrier."""
+        """Close one loop-owned session through the FFI completion barrier."""
         aio = self._started_loop()
         key = session.value
         if key is None:
@@ -135,7 +135,7 @@ class _SessionsMixin(DriverLoopMixinBase):
     async def _drive_session_close(
         self, session: int, future: "asyncio.Future[None]"
     ) -> None:
-        """The deadline-stepper behind one session's native close barrier: a
+        """The deadline-stepper behind one session's FFI close barrier: a
         grace expiry takes effect only inside a step, so this driver steps on
         every loop-activity or deadline wake until the session's lifecycle
         turns terminal. Escalating repeats of :meth:`close_session` share
@@ -166,7 +166,7 @@ class _SessionsMixin(DriverLoopMixinBase):
         )
         if rc not in (_c.OK, _c.ERR_TIMEOUT):
             self._session_closes.pop(session, None)
-            future.set_exception(GlowcapError(rc, "native session close failed"))
+            future.set_exception(GlowcapError(rc, "FFI session close failed"))
             return
         if not _lifecycle_closed(state.value):
             return

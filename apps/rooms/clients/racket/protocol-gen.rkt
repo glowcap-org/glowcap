@@ -22,6 +22,7 @@
   OPEN
   ENTER
   LIST-PUBLICATIONS
+  NAMED-PUBLICATIONS
   WATCH-PUBLICATIONS
   UNWATCH-PUBLICATIONS
   REGISTER
@@ -43,6 +44,7 @@
   PUBLICATION-FIELDS
   REGISTRATION-EVENT-FIELDS
   TRUNCATED-FIELDS
+  LIST-PAGE-FIELDS
   WATCH-SNAPSHOT-FIELDS
   REGISTRATION-ROW-FIELDS
   SUBSCRIBE-ANSWER-FIELDS
@@ -73,6 +75,7 @@
 (define OPEN 'open)
 (define ENTER 'enter)
 (define LIST-PUBLICATIONS 'listPublications)
+(define NAMED-PUBLICATIONS 'namedPublications)
 (define WATCH-PUBLICATIONS 'watchPublications)
 (define UNWATCH-PUBLICATIONS 'unwatchPublications)
 (define REGISTER 'register)
@@ -122,6 +125,12 @@
 (define TRUNCATED-FIELDS
   (list
    (field "omitted" 'natural #f '())))
+
+;; What listPublications answers: one page of publication rows, and the cursor that asks for the page after it, null on the last page. The cursor is the directory's own word: pass it back exactly.
+(define LIST-PAGE-FIELDS
+  (list
+   (field "rooms" 'list #f '())
+   (field "next" 'text #t '())))
 
 ;; What watchPublications answers: the baseline a watcher folds deltas into.
 (define WATCH-SNAPSHOT-FIELDS

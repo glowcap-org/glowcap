@@ -1,4 +1,4 @@
-// Generic native-driver listener surfaces. The driver owns the socket,
+// Generic driver listener surfaces. The driver owns the socket,
 // admission, handshake, events, and terminal release; this module only
 // projects listener metadata and accepted handles into the TypeScript API.
 
@@ -51,7 +51,7 @@ export type KeyedListenOptions =
 		readonly seed?: never;
 	});
 
-/** A native-driver listener. Its Host is the driver's Host wrapper, which is
+/** A driver listener. Its Host is the driver's Host wrapper, which is
  * either minted by the loop or the exact supplied wrapper transferred through
  * `glowcap_driver_take_host`. */
 export class Server extends DriverServer {
@@ -119,9 +119,6 @@ async function listenProfile(
 	options: ListenOptions,
 	seed?: Uint8Array,
 ): Promise<Server> {
-	if (seed != null && seed.length !== 32) {
-		throw new GlowcapError(INVALID_ARGUMENT, `${transport} listen: seed must be 32 bytes`);
-	}
 	await ensureRuntimeReady();
 	if (!loopTierAvailable()) throw listenerLoopUnavailable();
 	let prepared: { loop: DriverLoop; ownsLoop: boolean } | null = null;
@@ -163,7 +160,7 @@ export function listen(
 	return listenProfile(TRANSPORT_TCP, bindHost, port, options);
 }
 
-/** Bind a native-loop `noise-tcp` server. Reuse the optional 32-byte `seed`
+/** Bind a driver-loop `noise-tcp` server. Reuse the optional 32-byte `seed`
  * across restarts to keep the same durable key designator; a fresh per-process
  * session-key root is still drawn. */
 export function listenNoise(

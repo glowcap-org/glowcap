@@ -1,4 +1,4 @@
-"""loam-compaction-crash-test: verify process loss and a native file-size limit.
+"""loam-lmdb-compaction-crash-test: verify process loss and an LMDB file-size limit.
 
 The build supplies one probe executable. Each child has a deadline and is reaped;
 temporary stores are removed on every outcome. No environment or repository cwd

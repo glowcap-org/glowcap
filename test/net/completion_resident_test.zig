@@ -26,8 +26,7 @@ const Events = struct {
         while (true) {
             if (try self.take(subject, events)) return;
             if (net.clock.nowMonotonicMs() >= deadline) return error.RecordNeverArrived;
-            var fds = [_]std.posix.pollfd{.{ .fd = self.resident.readinessFd(), .events = std.posix.POLL.IN, .revents = 0 }};
-            _ = try std.posix.poll(&fds, 10);
+            _ = try park(self.resident, 10);
         }
     }
     /// Drain the records ready now and claim one naming `subject` with any of
@@ -57,8 +56,7 @@ fn open() !Resident {
     });
 }
 
-/// `docs/ladder.md` records this row. Weigh any growth there too. Stated
-/// under runtime safety, where each staging list header carries std's
+/// Weigh any growth before raising it. Stated under runtime safety, where each staging list header carries std's
 /// one-word pointer-stability lock.
 const completion_resident_connection_state_bytes: usize = 152;
 
@@ -105,7 +103,7 @@ fn connectPair(
     };
     errdefer model.freePeerLocator(allocator, locator);
 
-    try std.testing.expect(client_ops.dial.?.start_connect(client, 2, locator, .{}) == .admitted);
+    try std.testing.expect(client_ops.dial.?.start_connect(client, 2, locator, .{}, .application) == .admitted);
     try client_events.await(2, er.ev_connect);
     const client_conn = switch (client_ops.dial.?.finish_connect(client, 2)) {
         .connected => |id| id,
@@ -126,6 +124,7 @@ fn roundTrip(client: *Resident, client_conn: usize, server: *Resident, server_co
     const server_ops = server.resident().vtable;
     try std.testing.expectEqual(@as(isize, @intCast(chunk.len)), client_ops.try_write(client, client_conn, chunk));
     client_ops.flush_writes.?(client, client_conn);
+    client.resident().beforeWait(.caller);
     var received: [1024]u8 = undefined;
     var read: usize = 0;
     while (read < chunk.len) {
@@ -158,22 +157,22 @@ test "completion resident reads a receive that completed since its last pump wit
     const client_ops = client.resident().vtable;
     const server_ops = server.resident().vtable;
 
-    // Consume one held receive completely, which re-arms the row.
+    // Consume one held receive completely, which queues the row's re-arm
+    // for the park.
     var chunk: [1024]u8 = undefined;
     fill(&chunk, 0);
     try roundTrip(&client, pair.client_conn, &server, pair.server_conn, &server_events, &chunk);
-    try std.testing.expect(server.conns.get(pair.server_conn).?.recv == .armed);
+    try std.testing.expect(server.conns.get(pair.server_conn).?.recv == .queued);
 
-    // The next bytes complete the armed receive. Once the server's readiness
+    // The next bytes complete the receive the park arms. Once the server's readiness
     // descriptor reports the completion, one `try_read` copies them: the
     // resident pumps before answering instead of owing a would-block turn.
     fill(&chunk, chunk.len);
     try std.testing.expectEqual(@as(isize, chunk.len), client_ops.try_write(&client, pair.client_conn, &chunk));
     client_ops.flush_writes.?(&client, pair.client_conn);
+    client.resident().beforeWait(.caller);
     const deadline = net.clock.nowMonotonicMs() + wait_budget_ms;
-    while (true) {
-        var fds = [_]std.posix.pollfd{.{ .fd = server.resident().readinessFd(), .events = std.posix.POLL.IN, .revents = 0 }};
-        if (try std.posix.poll(&fds, 10) > 0) break;
+    while (!try park(server.resident(), 10)) {
         if (net.clock.nowMonotonicMs() >= deadline) return error.ReceiveNeverCompleted;
     }
     var received: [1024]u8 = undefined;
@@ -181,6 +180,236 @@ test "completion resident reads a receive that completed since its last pump wit
     try std.testing.expect(n > 0);
     const got: usize = @intCast(n);
     try std.testing.expectEqualSlices(u8, chunk[0..got], received[0..got]);
+}
+
+test "completion resident reports records it holds between a verb and its service" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+
+    var server = try open();
+    defer retire(&server);
+    var client = try open();
+    defer retire(&client);
+    var server_events = Events{ .resident = server.resident() };
+    defer server_events.deinit();
+    var client_events = Events{ .resident = client.resident() };
+    defer client_events.deinit();
+    const pair = try connectPair(allocator, &server, &client, &server_events, &client_events);
+    defer model.freePeerLocator(allocator, pair.locator);
+    const client_ops = client.resident().vtable;
+    const server_ops = server.resident().vtable;
+
+    var chunk: [256]u8 = undefined;
+    fill(&chunk, 0);
+    try std.testing.expectEqual(@as(isize, chunk.len), client_ops.try_write(&client, pair.client_conn, &chunk));
+    client_ops.flush_writes.?(&client, pair.client_conn);
+    client.resident().beforeWait(.caller);
+    const deadline = net.clock.nowMonotonicMs() + wait_budget_ms;
+    while (!try park(server.resident(), 10)) {
+        if (net.clock.nowMonotonicMs() >= deadline) return error.ReceiveNeverCompleted;
+    }
+
+    // A service with no room reaps the completion and keeps its record. The
+    // descriptor is quiet now, because the kernel holds nothing, so the
+    // resident reports the record it holds instead.
+    var none: [0]er.ReadyEvent = undefined;
+    try std.testing.expectEqual(@as(usize, 0), try server_ops.drain_ready(&server, &none));
+    try std.testing.expect(server.resident().readyPending());
+    try std.testing.expect(!try readableNow(server.resident().readinessFd()));
+
+    // A service that takes every record leaves nothing to report.
+    var out: [4]er.ReadyEvent = undefined;
+    const taken = try server_ops.drain_ready(&server, &out);
+    try std.testing.expectEqual(@as(usize, 1), taken);
+    try std.testing.expectEqual(pair.server_conn, out[0].subject);
+    try std.testing.expect(!server.resident().readyPending());
+    try std.testing.expect(!try readableNow(server.resident().readinessFd()));
+}
+
+test "a consumed receive re-arms at the park, not as the verb returns" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+    var server = try open();
+    defer retire(&server);
+    var client = try open();
+    defer retire(&client);
+    var server_events = Events{ .resident = server.resident() };
+    defer server_events.deinit();
+    var client_events = Events{ .resident = client.resident() };
+    defer client_events.deinit();
+    const pair = try connectPair(allocator, &server, &client, &server_events, &client_events);
+    defer model.freePeerLocator(allocator, pair.locator);
+    const client_ops = client.resident().vtable;
+    const server_ops = server.resident().vtable;
+
+    // One chunk through: the server consumes it, which frees its receive
+    // slot inside a verb.
+    var chunk: [64]u8 = undefined;
+    fill(&chunk, 0);
+    try roundTrip(&client, pair.client_conn, &server, pair.server_conn, &server_events, &chunk);
+
+    // The verb returns to its caller. A second chunk lands in the server's
+    // socket, where no receive is armed to complete for it: the descriptor
+    // stays quiet however long the caller stays away.
+    server.resident().beforeWait(.caller);
+    try std.testing.expectEqual(@as(isize, chunk.len), client_ops.try_write(&client, pair.client_conn, &chunk));
+    client_ops.flush_writes.?(&client, pair.client_conn);
+    client.resident().beforeWait(.caller);
+    try std.testing.expect(!try readableNow(server.resident().readinessFd()));
+    try std.testing.expect(!server.resident().readyPending());
+
+    // The park arms it, and the chunk the socket already holds completes.
+    const deadline = net.clock.nowMonotonicMs() + wait_budget_ms;
+    while (!try park(server.resident(), 10)) {
+        if (net.clock.nowMonotonicMs() >= deadline) return error.ReceiveNeverCompleted;
+    }
+    var received: [64]u8 = undefined;
+    try std.testing.expectEqual(@as(isize, chunk.len), server_ops.try_read(&server, pair.server_conn, &received));
+    try std.testing.expectEqualSlices(u8, &chunk, &received);
+}
+
+/// The runtime's park, in miniature: hand staged work to the kernel, take a
+/// record the resident already holds, else wait on the descriptor. True
+/// means a service would find something.
+fn park(resident: net.MultiplexedResident, timeout_ms: i32) !bool {
+    resident.beforeWait(.park);
+    if (resident.readyPending()) return true;
+    var fds = [_]std.posix.pollfd{.{ .fd = resident.readinessFd(), .events = std.posix.POLL.IN, .revents = 0 }};
+    return try std.posix.poll(&fds, timeout_ms) > 0;
+}
+
+/// Whether `fd` reports readable without waiting.
+fn readableNow(fd: std.posix.fd_t) !bool {
+    var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
+    return try std.posix.poll(&fds, 0) > 0;
+}
+
+test "completion resident parks in its own queue and a watched descriptor wakes it" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    var resident = try open();
+    defer retire(&resident);
+    const wake = try net.wake_channel.WakeChannel.open();
+    defer wake.deinit();
+    const ops = resident.resident();
+    try std.testing.expect(ops.parks());
+    try ops.watch(wake.read);
+
+    // Nothing armed but the watch: a bounded park ends on its bound.
+    ops.beforeWait(.park);
+    const started = net.clock.nowMonotonicMs();
+    try std.testing.expect(!ops.park(20));
+    try std.testing.expect(net.clock.nowMonotonicMs() - started >= 15);
+
+    // A nudge from another thread ends the park. The watch consumed
+    // nothing: the channel still reads ready for the owner to drain.
+    const nudger = try std.Thread.spawn(.{}, struct {
+        fn run(channel: net.wake_channel.WakeChannel) void {
+            std.Io.sleep(std.testing.io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+            _ = channel.nudge() catch {};
+        }
+    }.run, .{wake});
+    defer nudger.join();
+    try std.testing.expect(ops.park(@intCast(wait_budget_ms)));
+    try std.testing.expect(!ops.readyPending());
+    try std.testing.expect(try readableNow(wake.read));
+    try wake.drain();
+
+    // The next park arms the watch again as it begins, so a nudge that
+    // landed before it, even one a verb's reap already saw, ends it at once.
+    _ = try wake.nudge();
+    ops.beforeWait(.park);
+    ops.reap();
+    try std.testing.expect(ops.park(@intCast(wait_budget_ms)));
+    try wake.drain();
+}
+
+test "completion resident holds every flushed batch of a turn for one send at the park" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+
+    var server = try open();
+    defer retire(&server);
+    var client = try open();
+    defer retire(&client);
+    var server_events = Events{ .resident = server.resident() };
+    defer server_events.deinit();
+    var client_events = Events{ .resident = client.resident() };
+    defer client_events.deinit();
+    const client_ops = client.resident().vtable;
+    const pair = try connectPair(allocator, &server, &client, &server_events, &client_events);
+    defer model.freePeerLocator(allocator, pair.locator);
+
+    // Two batches in one turn, as a reply and the release that follows it.
+    const first = "<10'op:deliver>";
+    const second = "<13'op:gc-exports>";
+    try std.testing.expectEqual(@as(isize, first.len), client_ops.try_write(&client, pair.client_conn, first));
+    client_ops.flush_writes.?(&client, pair.client_conn);
+    try std.testing.expectEqual(@as(isize, second.len), client_ops.try_write(&client, pair.client_conn, second));
+    client_ops.flush_writes.?(&client, pair.client_conn);
+    const conn = client.conns.getPtr(pair.client_conn).?;
+    try std.testing.expect(!conn.sending);
+    try std.testing.expectEqual(first.len + second.len, conn.back.items.len);
+
+    // The park is the one place a send starts, and it takes the whole
+    // staged batch.
+    client.resident().beforeWait(.caller);
+    try std.testing.expect(!conn.send_queued);
+    try std.testing.expectEqual(@as(usize, 0), conn.back.items.len);
+
+    const server_ops = server.resident().vtable;
+    var received: [64]u8 = undefined;
+    var read: usize = 0;
+    while (read < first.len + second.len) {
+        const n = server_ops.try_read(&server, pair.server_conn, received[read..]);
+        if (n == er.would_block) {
+            try server_events.await(pair.server_conn, er.ev_readable);
+            continue;
+        }
+        try std.testing.expect(n > 0);
+        read += @intCast(n);
+    }
+    try std.testing.expectEqualStrings(first ++ second, received[0..read]);
+}
+
+test "a close sends the batch it flushed before it shuts the socket" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+    const allocator = std.testing.allocator;
+
+    var server = try open();
+    defer retire(&server);
+    var client = try open();
+    defer retire(&client);
+    var server_events = Events{ .resident = server.resident() };
+    defer server_events.deinit();
+    var client_events = Events{ .resident = client.resident() };
+    defer client_events.deinit();
+    const client_ops = client.resident().vtable;
+    const pair = try connectPair(allocator, &server, &client, &server_events, &client_events);
+    defer model.freePeerLocator(allocator, pair.locator);
+
+    // An abort and the close that follows it in one turn: the batch is
+    // still staged for the park when the close shuts the socket.
+    const abort = "<8'op:abort>";
+    try std.testing.expectEqual(@as(isize, abort.len), client_ops.try_write(&client, pair.client_conn, abort));
+    client_ops.flush_writes.?(&client, pair.client_conn);
+    try std.testing.expect(client.conns.getPtr(pair.client_conn).?.send_queued);
+    try std.testing.expect(client_ops.conn_close(&client, pair.client_conn) == .complete);
+
+    // The partner reads the abort, then end of stream.
+    const server_ops = server.resident().vtable;
+    var received: [64]u8 = undefined;
+    var read: usize = 0;
+    while (true) {
+        const n = server_ops.try_read(&server, pair.server_conn, received[read..]);
+        if (n == er.would_block) {
+            try server_events.await(pair.server_conn, er.ev_readable);
+            continue;
+        }
+        if (n == 0) break;
+        try std.testing.expect(n > 0);
+        read += @intCast(n);
+    }
+    try std.testing.expectEqualStrings(abort, received[0..read]);
 }
 
 test "completion resident bounds its send window, owes writable, and drains on close" {
@@ -204,7 +433,7 @@ test "completion resident bounds its send window, owes writable, and drains on c
 
     // A user-authored option the resident cannot honor is refused, not dropped.
     const keepalive: u8 = 1;
-    try std.testing.expect(client_ops.dial.?.start_connect(&client, 1, pair.locator, .{ .data = &keepalive, .size = 1 }) == .failed);
+    try std.testing.expect(client_ops.dial.?.start_connect(&client, 1, pair.locator, .{ .data = &keepalive, .size = 1 }, .application) == .failed);
 
     // Write without reading until the kernel's socket buffers and the
     // window fill and the resident refuses.
@@ -215,6 +444,7 @@ test "completion resident bounds its send window, owes writable, and drains on c
         fill(&chunk, written);
         const n = client_ops.try_write(&client, client_conn, &chunk);
         client_ops.flush_writes.?(&client, client_conn);
+        client.resident().beforeWait(.caller);
         if (n == er.would_block) break;
         try std.testing.expect(n > 0 and n <= chunk.len);
         written += @intCast(n);
@@ -238,6 +468,7 @@ test "completion resident bounds its send window, owes writable, and drains on c
             const want = @min(chunk.len, total - written);
             const sent = client_ops.try_write(&client, client_conn, chunk[0..want]);
             client_ops.flush_writes.?(&client, client_conn);
+            client.resident().beforeWait(.caller);
             if (sent == er.would_block) break;
             written += @intCast(sent);
         }
@@ -276,4 +507,63 @@ test "completion resident bounds its send window, owes writable, and drains on c
 
     // The server's connection and listener stay open for `retire`, whose
     // drain closes them and waits for every owed operation.
+}
+
+test "a listener stops accepting at the unclaimed bound and resumes on a claim" {
+    // A flood of connections costs the listener a bounded number of accepted
+    // sockets the runtime has not claimed. Past the bound the resident leaves
+    // arrivals in the kernel's listen backlog, and one claim re-arms it.
+    const allocator = std.testing.allocator;
+    var server = try open();
+    defer retire(&server);
+    var client = try open();
+    defer retire(&client);
+    var server_events: Events = .{ .resident = server.resident() };
+    defer server_events.deinit();
+    var client_events: Events = .{ .resident = client.resident() };
+    defer client_events.deinit();
+    const server_ops = server.resident().vtable;
+    const client_ops = client.resident().vtable;
+
+    const route = 9;
+    const listener = switch (server_ops.listen.?.listen(&server, route, model.transport.tcp, .{ .designator = "127.0.0.1:0" })) {
+        .admitted => |admitted| admitted.ready,
+        .failed => |failure| return failure.cause,
+    };
+    const locator = switch (server_ops.listen.?.local_locator(&server, listener, model.transport.tcp, allocator)) {
+        .locator => |locator| locator,
+        .failed => |failure| return failure.cause,
+    };
+    defer model.freePeerLocator(allocator, locator);
+
+    const bound = Resident.max_unclaimed_accepts;
+    const arrivals = bound + 4;
+    for (0..arrivals) |i| {
+        try std.testing.expect(client_ops.dial.?.start_connect(&client, 100 + i, locator, .{}, .application) == .admitted);
+    }
+    for (0..arrivals) |i| {
+        try client_events.await(100 + i, er.ev_connect);
+        switch (client_ops.dial.?.finish_connect(&client, 100 + i)) {
+            .connected => {},
+            .failed => |failure| return failure.chain.cause,
+        }
+    }
+    for (0..bound) |_| try server_events.await(route, er.ev_accept);
+
+    // Every later arrival stays in the kernel: a few more parks accept
+    // nothing more, and the listener is not armed.
+    const row: *Resident.Listener = @ptrCast(@alignCast(listener));
+    for (0..3) |_| _ = try park(server.resident(), 20);
+    try std.testing.expect(!try server_events.take(route, er.ev_accept));
+    try std.testing.expectEqual(bound, row.accepted.items.len);
+    try std.testing.expect(!row.accept_armed);
+
+    // One claim makes room and the next arrival is accepted.
+    switch (server_ops.listen.?.finish_accept(&server, listener)) {
+        .connection => |id| try std.testing.expect(id != null),
+        .failed => |failure| return failure.chain.cause,
+    }
+    try std.testing.expect(row.accept_armed);
+    try server_events.await(route, er.ev_accept);
+    try std.testing.expectEqual(bound, row.accepted.items.len);
 }

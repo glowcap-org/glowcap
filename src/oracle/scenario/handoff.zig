@@ -146,7 +146,7 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
 
     try recipient_to_gifter.session_state.registerImport(.from(7));
     try gifter_to_recipient.session_state.registerExport(.from(7));
-    try recipient_to_gifter.sendCopying(.{ .deliver = .{
+    try recipient_to_gifter.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{.{ .symbol = "introduce" }},
         .answer = .from(42),
@@ -191,14 +191,14 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
     {
         var event = recipient_to_gifter.pollEvent() orelse return error.MissingGiveResolve;
         defer event.deinit();
-        const view = try event.view();
+        const view = event.view();
         try appendTraceLine(allocator, &out, "recipient=event:resolve:answer={d}:fulfill={s}\n", .{
             view.resolve.answer,
             @tagName(view.resolve.resolution.fulfill),
         });
         var projected = try engine.handoff_recipient.projectGiveForRedeem(
             allocator,
-            view.resolve.resolution.fulfill.handoff.give,
+            (try view.resolve.resolution.fulfill.handoff.project()).give,
         );
         defer projected.deinit(allocator);
         redeem_give = try allocator.dupe(u8, projected.bytes() orelse return error.GiveProjectionFailed);
@@ -241,7 +241,7 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
         });
     }
 
-    try recipient_to_exporter.sendCopying(.{ .deliver = .{
+    try recipient_to_exporter.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(direct_import) } },
         .args = &.{.{ .symbol = "read" }},
         .answer = .from(2),
@@ -252,13 +252,13 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
     {
         var event = exporter_to_recipient.pollEvent() orelse return error.MissingRedeemedDeliver;
         defer event.deinit();
-        const view = try event.view();
-        if (view != .deliver or view.deliver.target != .near) return error.MalformedRedeemedDeliver;
+        const view = event.view();
+        if (view.* != .deliver or view.deliver.target != .near) return error.MalformedRedeemedDeliver;
         if (view.deliver.target.near.export_position != (seams.projected_position orelse return error.GiftWasNotProjected))
             return error.RedeemedWrongTarget;
         try out.appendSlice(allocator, "exporter=event:deliver\n");
     }
-    try exporter_to_recipient.sendCopying(.{ .resolve = .{
+    try exporter_to_recipient.sendBorrowed(.{ .resolve = .{
         .answer = .from(2),
         .resolution = .{ .fulfill = .{ .string = "72F" } },
     } });

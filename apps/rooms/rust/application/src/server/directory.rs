@@ -380,7 +380,8 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 			.registry
 			.signaling_target(designator)
 			.ok_or_else(|| Refusal::coded(FailureCode::PeerOffline, "no signaling inbox for that designator"))?;
-		Ok(self.exchanges.offer(connection, reply, target_key, target, now))
+		let from = self.registry.host_key_of(connection).map(Into::into);
+		Ok(self.exchanges.offer((connection, from), reply, target_key, target, now))
 	}
 	pub fn signal_answer(&self, connection: C, id: &str) -> Result<Option<Route<C, R>>, Refusal> {
 		self.exchanges
@@ -402,6 +403,11 @@ impl<C: Copy + Ord, R: Clone> Directory<C, R> {
 	}
 	pub fn signal_done(&mut self, connection: C, id: &str) -> Option<Dropped<C, R>> {
 		self.exchanges.done(connection, id)
+	}
+	pub fn signal_decline(&mut self, connection: C, id: &str, reason: &str) -> Result<Option<Dropped<C, R>>, Refusal> {
+		let registry = &self.registry;
+		self.exchanges
+			.decline(connection, id, reason, |key| registry.registrar(key))
 	}
 	/// An exchange the target's delivery could not reach.
 	pub fn signal_failed(&mut self, id: &str, what: &str) -> Option<Dropped<C, R>> {

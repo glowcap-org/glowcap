@@ -11,7 +11,8 @@ interoperability checks measure protocol behavior, which is not the same
 thing.
 
 The core bounds inbound frames, nesting, and partner-driven session tables.
-A deployment still has to:
+The [threat model](docs/threat-model.md) names each untrusted input with the
+parser, bound, search, and proof behind it. A deployment still has to:
 
 - Choose the channel it needs: `tcp`, `keyed-tcp`, and `keyed-relay` carry
   cleartext CapTP. iroh, WebRTC, `noise-tcp`, `noise-relay`, and `onion` encrypt
@@ -35,7 +36,7 @@ days. Reports of broken protocol invariants take priority.
 
 ## What counts as a security issue
 
-Each heading below is an invariant. A report showing any of them broken is a
+Each item below is an invariant. A report showing any of them broken is a
 security issue, not a feature request, even if it needs an unusual configuration
 to trigger:
 
@@ -79,9 +80,9 @@ only. That stub is never a production default on an untrusted network. A
 deployment that swaps it in for live traffic accepts unverified handoff
 certificates, so a report about that belongs to the deployment.
 
-## Native relay TLS maintenance
+## Relay TLS maintenance
 
-The optional native `wss` carrier compiles a private, minimal Mbed TLS release.
+The optional `wss` carrier compiles a private, minimal Mbed TLS release.
 [`tools/deps/fetch-mbedtls.sh`](tools/deps/fetch-mbedtls.sh) is the single
 version, release URL, archive-size ceiling, and SHA-256 authority. Updating it
 is a security-sensitive dependency change:
@@ -92,18 +93,18 @@ is a security-sensitive dependency change:
    directory allowlist, the compiled source inventory in
    `tools/build/mbedtls.zig`, and both minimal configuration headers under
    `src/net/tls/` for newly required or newly reachable code.
-3. Run `zig build native-tls-build` and `zig build check`, then run the static
-   and shared packaging checks on every supported native platform. The native
+3. Run `zig build relay-tls-build` and `zig build check`, then run the static
+   and shared packaging checks on every supported platform. The
    TLS check must retain exact success, hostname, CA, expiry, alert, malformed
    record, truncation, close-notify, and symbol-isolation evidence.
 4. Update `LICENSE-THIRD-PARTY`, build-step documentation, and the public pin
    description in the same change. Never silently float the release or accept
    an unverified archive.
 
-The committed localhost certificate chain is test-only. The native TLS check
-verifies its authority and fails when the leaf has fewer than 180 days left.
+The committed localhost certificate chain is test-only. The TLS check
+verifies its authority and fails when the leaf nears expiry.
 Renew the entire root and leaf together into a new directory with
-`tools/check/generate-native-tls-fixture.sh`, inspect the subjects, SAN,
+`tools/check/generate-relay-tls-fixture.sh`, inspect the subjects, SAN,
 validity, and private-key diff, then replace the three files under
 `test/net/fixtures/` in one reviewed commit. Do not preserve the old root key,
 reuse these keys outside tests, or weaken the expiry check to buy time.

@@ -6,6 +6,8 @@ tags: [codec, capnp, wire-profile, zero-copy, view]
 decision: The Cap'n Proto codec is hand-rolled in Zig against the wire format directly: no schema compiler, no generated code. It emits and accepts single-segment messages, defines struct/list layout in code, and decodes view-first (a borrowed `MessageView` over the frame bytes) so the codec honors the zero-copy projection contract before any op is grown in.
 supersedes: []
 superseded_by: []
+amends: []
+amended_by: [ADR-0243, ADR-0245]
 ---
 
 # ADR-0026 Hand-rolled Cap'n Proto codec

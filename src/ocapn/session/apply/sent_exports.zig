@@ -16,17 +16,16 @@ const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 /// Retain a wire reference for every `near` export this outbound message puts
 /// on the wire. This is the outbound mirror of inbound introduced-import
 /// installation.
-pub fn retainMessage(self: *Session, message: model.Message) !void {
+pub fn retainMessage(self: *Session, message: model.Message, inventory: session.Inventory) !void {
     switch (message) {
         .deliver => |deliver| {
             try retainRef(self, deliver.target);
             if (deliver.resolve_me_desc) |reference| try retainRef(self, reference);
-            try retainArgs(self, deliver.args, 0);
+            try recordMentions(self, inventory, null, true);
         },
-        .resolve => |resolve| switch (resolve.resolution) {
-            .fulfill => |arg| try retainArg(self, arg, 0),
-            .@"break" => {},
-        },
+        // A sent resolution moves into the answer store through
+        // `applySentResolve`, which records its mentions itself.
+        .resolve => unreachable,
         .listen => |listen| {
             try retainRef(self, listen.target);
             try retainRef(self, listen.listener);
@@ -42,28 +41,78 @@ pub fn retainMessage(self: *Session, message: model.Message) !void {
     }
 }
 
-/// Release exactly the retains `retainMessage` took for `message`, which never
-/// reached the wire (ADR-0194). Every row it names is live with this retain on
-/// top of its baseline, so no decrement can underflow or retire the row.
-pub fn releaseMessage(self: *Session, message: model.Message) void {
-    switch (message) {
-        .deliver => |deliver| {
-            releaseRef(self, deliver.target);
-            if (deliver.resolve_me_desc) |reference| releaseRef(self, reference);
-            for (deliver.args) |arg| releaseArg(self, arg);
-        },
-        // A promise proxy's home listen, withdrawn with the turn whose send
-        // created it.
-        .listen => |listen| {
-            releaseRef(self, listen.target);
-            releaseRef(self, listen.listener);
-        },
-        // Retraction covers the far sends a turn makes and the listens they
-        // queue; another kind here is a caller bug. The guarantee is the
-        // callers' own shapes: `retractSend` only ever reads a `.deliver` and
-        // `retractPreparedListen` asserts `.listen` in the same dispatch.
-        else => unreachable,
+/// The positions `retainMessage` retains for `message`, in the same order,
+/// for a carrier that gives up the tree at admission and must still hand
+/// them back through `releaseExports` (ADR-0236). Empty, with no allocation,
+/// for a message that mentions no near export.
+pub fn listSentExports(
+    self: *const Session,
+    allocator: std.mem.Allocator,
+    message: model.Message,
+    inventory: session.Inventory,
+) ![]model.ExportPosition {
+    _ = self;
+    var count: usize = 0;
+    var list: ?[]model.ExportPosition = null;
+    // Two identical passes over the mentions: the first counts, the second
+    // fills, so the list is one exact allocation or none.
+    for (0..2) |pass| {
+        var index: usize = 0;
+        var mentions = Mentions{ .list = list, .index = &index };
+        switch (message) {
+            .deliver => |deliver| {
+                mentions.add(deliver.target);
+                if (deliver.resolve_me_desc) |reference| mentions.add(reference);
+                for (inventory.slots) |slot| switch (slot.read(null).*) {
+                    .reference => |reference| mentions.add(reference),
+                    else => {},
+                };
+            },
+            .get => |get| mentions.add(get.receiver),
+            .index => |projection| mentions.add(projection.receiver),
+            .untag => |untag| mentions.add(untag.receiver),
+            // The kinds that leave at admission. A listen keeps its tree and
+            // withdraws through `releaseMessage`.
+            else => unreachable,
+        }
+        if (pass == 0) {
+            count = index;
+            if (count == 0) return &.{};
+            list = try allocator.alloc(model.ExportPosition, count);
+        } else std.debug.assert(index == count);
     }
+    return list.?;
+}
+
+const Mentions = struct {
+    list: ?[]model.ExportPosition,
+    index: *usize,
+
+    fn add(self: *Mentions, reference: model.Reference) void {
+        const position = reference.exportPosition() orelse return;
+        if (position.int() == BOOTSTRAP_POSITION) return;
+        if (self.list) |list| list[self.index.*] = position;
+        self.index.* += 1;
+    }
+};
+
+/// Release exactly the retains `retainMessage` took for a message that left
+/// at admission and never reached the wire (ADR-0194): the positions
+/// `listSentExports` listed for it. Every row is live with this retain on top
+/// of its baseline, so no decrement can underflow or retire the row.
+pub fn releaseExports(self: *Session, exports: []const model.ExportPosition) void {
+    for (exports) |position| {
+        std.debug.assert(self.exports.count(position) >= 2);
+        self.exports.decrement(position, 1) catch unreachable;
+    }
+}
+
+/// Release exactly the retains `retainMessage` took for a queued `listen`
+/// that never reached the wire: a promise proxy's home listen, withdrawn with
+/// the turn whose send created it. `retractPreparedListen` asserts the kind.
+pub fn releaseMessage(self: *Session, message: model.Message) void {
+    releaseRef(self, message.listen.target);
+    releaseRef(self, message.listen.listener);
 }
 
 fn releaseRef(self: *Session, reference: model.Reference) void {
@@ -73,16 +122,6 @@ fn releaseRef(self: *Session, reference: model.Reference) void {
             self.exports.decrement(near.export_position, 1) catch unreachable;
         },
         else => {},
-    }
-}
-
-fn releaseArg(self: *Session, arg: model.Argument) void {
-    switch (arg) {
-        .reference => |reference| releaseRef(self, reference),
-        .list, .set => |items| for (items) |item| releaseArg(self, item),
-        .tagged => |tagged| for (tagged.value) |item| releaseArg(self, item),
-        .@"struct" => |entries| for (entries) |entry| releaseArg(self, entry.value),
-        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }
 }
 
@@ -115,39 +154,17 @@ fn establishRef(self: *Session, near: model.NearRef) !void {
     try self.exports.registerCell(self.allocator, near.export_position, cell);
 }
 
-fn retainArgs(self: *Session, args: []const model.Argument, depth: usize) RecvViewError!void {
-    return recordArgs(self, args, depth, true);
-}
-
-fn retainArg(self: *Session, arg: model.Argument, depth: usize) RecvViewError!void {
-    return recordArg(self, arg, depth, true);
-}
-
-pub fn recordResolutionArg(
+/// Record every `near` export the inventory's references name: a wire mention
+/// takes the wire-delta retain, and a stored-only mention establishes the
+/// local baseline so a later listener callback can retain exactly its own
+/// mention. `root` resolves the inventory's by-value root.
+pub fn recordMentions(
     self: *Session,
-    arg: model.Argument,
+    inventory: session.Inventory,
+    root: ?*const model.Argument,
     wire_mention: bool,
 ) RecvViewError!void {
-    return recordArg(self, arg, 0, wire_mention);
-}
-
-fn recordArgs(
-    self: *Session,
-    args: []const model.Argument,
-    depth: usize,
-    wire_mention: bool,
-) RecvViewError!void {
-    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
-    for (args) |arg| try recordArg(self, arg, depth, wire_mention);
-}
-
-fn recordArg(
-    self: *Session,
-    arg: model.Argument,
-    depth: usize,
-    wire_mention: bool,
-) RecvViewError!void {
-    switch (arg) {
+    for (inventory.slots) |slot| switch (slot.read(root).*) {
         .reference => |reference| switch (reference) {
             .near => |near| if (wire_mention)
                 try retainRef(self, reference)
@@ -155,47 +172,25 @@ fn recordArg(
                 try establishRef(self, near),
             else => {},
         },
-        .list, .set => |items| try recordArgs(self, items, depth + 1, wire_mention),
-        .tagged => |tagged| try recordArgs(self, tagged.value, depth + 1, wire_mention),
-        .@"struct" => |entries| {
-            if (depth + 1 > self.limits.max_nesting_depth) return Error.NestingTooDeep;
-            for (entries) |entry| try recordArg(self, entry.value, depth + 1, wire_mention);
-        },
-        // Exhaustive: a new Argument arm must decide whether it can
-        // name an export, see `session/validate/passable.zig`'s argument walk.
-        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
-    }
+        .set, .handoff => {},
+        else => unreachable,
+    };
 }
 
 /// Preallocate the export-table rows a stored resolution can first establish
 /// when listener fires are committed. Counting mentions rather than distinct
 /// positions may overreserve, but leaves later commits allocation-free.
-pub fn ensureResolutionCapacity(self: *Session, resolution: model.Resolution) !void {
-    const mentions = switch (resolution) {
-        .fulfill => |arg| countNearMentions(arg),
-        .@"break" => 0,
+pub fn ensureResolutionCapacity(
+    self: *Session,
+    resolution: model.Resolution,
+    inventory: session.Inventory,
+) !void {
+    const root: ?*const model.Argument = if (resolution == .fulfill) &resolution.fulfill else null;
+    var mentions: usize = 0;
+    for (inventory.slots) |slot| switch (slot.read(root).*) {
+        .reference => |reference| mentions += @intFromBool(reference == .near and
+            reference.near.export_position.int() != BOOTSTRAP_POSITION),
+        else => {},
     };
     try self.exports.ensureUnusedCapacity(self.allocator, mentions);
-}
-
-fn countNearMentions(arg: model.Argument) usize {
-    return switch (arg) {
-        .reference => |reference| @intFromBool(reference == .near and reference.near.export_position.int() != BOOTSTRAP_POSITION),
-        .list, .set => |items| blk: {
-            var count: usize = 0;
-            for (items) |item| count +|= countNearMentions(item);
-            break :blk count;
-        },
-        .tagged => |tagged| blk: {
-            var count: usize = 0;
-            for (tagged.value) |item| count +|= countNearMentions(item);
-            break :blk count;
-        },
-        .@"struct" => |entries| blk: {
-            var count: usize = 0;
-            for (entries) |entry| count +|= countNearMentions(entry.value);
-            break :blk count;
-        },
-        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => 0,
-    };
 }

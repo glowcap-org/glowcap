@@ -21,7 +21,6 @@ impl ValueBounds {
 			// SAFETY: this query takes no handle; `&self.raw()` is a temporary `GlowcapLoamValueBounds` that lives to
 			// the end of this statement, and `reply_bytes` and `call_bytes` are local out-parameters the callee writes.
 			unsafe { ffi::glowcap_loam_forwarding_size_bound(&self.raw(), &mut reply_bytes, &mut call_bytes) },
-			false,
 		)?;
 		Ok((reply_bytes, call_bytes))
 	}
@@ -71,7 +70,6 @@ impl InvocationBounds {
 			// SAFETY: this query takes no handle; `&raw` is a local `GlowcapLoamInvocationBounds` borrowed for the call
 			// and read only during it, and `bytes` is a local out-parameter the callee writes.
 			unsafe { ffi::glowcap_loam_invocation_call_size_bound(&raw, &mut bytes) },
-			false,
 		)?;
 		Ok(bytes)
 	}

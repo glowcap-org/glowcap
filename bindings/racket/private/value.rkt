@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the public value vocabulary, meaning the reference and event structs the
-;; marshalling, the vat, and the session surface exchange as native Racket
+;; marshalling, the vat, and the session surface exchange as plain Racket
 ;; values. Pure data; imports nothing. `glowcap.rkt` re-provides the public
 ;; subset.
 

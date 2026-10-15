@@ -143,7 +143,7 @@ dependency in the plan. A local ID cannot substitute for it. No CapTP messages,
 wire schemas, persistent formats, C ABI, or Rust bindings change here. Rooms
 continues to use its existing grant machinery.
 
-The [implementation plan](../../planning/rooms.md) owns the remaining work. This
+The [roadmap](../../roadmap.md) tracks the remaining work. This
 record advances the local grant boundary of ADR-0153 and leaves its resource
 identity and containment decisions unchanged.
 

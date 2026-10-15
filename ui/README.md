@@ -2,8 +2,8 @@
 
 The documentation site and rooms app share the product palette, typefaces, the
 single-color mark, the mark's play, the logotype lockup, and the product
-vocabulary built from the palette (text-safe accent and teal ink, control
-radii, overlay cover, chrome frost):
+vocabulary built from the palette (text-safe accent and teal ink, control radii,
+overlay cover, chrome frost):
 
 ```text
 tokens.css   palette, type, the mark's two readings, and shared product tokens
@@ -14,30 +14,42 @@ fonts/       IBM Plex Sans and IBM Plex Mono
 Each surface keeps its own layout and component styles. The site is static
 HTML, and Rooms is React.
 
-Controls that look alike are not shared CSS. A theme button or a tab strip
-does a different job on each surface (folder tabs on a code listing, a mode
-switch in settings), and one shared class would be wrong for one of them.
-Extract a shared control only when a third glowcap surface needs it. The
-wordmark lockup has already earned that: the Rooms rail and the site header
-show the same logotype. Shared token *names* still describe separate widgets.
-`--accent-ink` means readable accent text on both surfaces.
+Controls that look alike are not shared CSS. A theme button or a tab strip does
+a different job on each surface (folder tabs on a code listing, a mode switch in
+settings), and one shared class would be wrong for one of them. Extract a shared
+control only when a third glowcap surface needs it. The wordmark lockup is
+shared because the Rooms sidebar and the site header show the same logotype.
+Shared token *names* still describe separate widgets: `--accent-ink` means
+readable accent text on both surfaces.
 
 ## What belongs here
 
 - **Core tokens:** colors, typefaces, and the mark. Define them once in
   `tokens.css`.
-- **Product tokens:** meanings both surfaces share, still in `tokens.css`.
-  `--accent-ink` / `--teal-ink` for words. `--accent-fill` / `--on-accent` for
-  a filled amber control. `--page-bg` for the warm ground. `--type-tiny` through
-  `--type-display` for chrome. `--radius-control` and its siblings.
-  `--cover` / `--cover-blur` for a layer over the page (always darkness, not
-  theme ink). `--frost` for chrome. `zig build source-check` refuses a
-  stylesheet that never closes a comment, string, or brace. It also refuses one
-  that hides a `--token:` declaration inside a comment, because the browser
-  would drop everything after a dropped `*/`. It refuses a surface that restates
-  `--accent-ink` or `--on-accent` or never uses them, `--page-bg`, `--frost`, or
-  `--radius-card`, and a rooms sheet that never uses `--type-ui`. Site article
-  type stays in rem. Those names are for application chrome.
+- **Product tokens:** meanings both surfaces share, still in `tokens.css`:
+  - `--accent-ink` / `--teal-ink` for words
+  - `--accent-fill` / `--on-accent` for a filled amber control
+  - `--page-bg` for the warm ground
+  - `--type-tiny` through `--type-display` for application chrome (site article
+    type stays in rem)
+  - `--radius-control` and its siblings
+  - `--cover` / `--cover-blur` for a layer over the page (always darkness, not
+    theme ink)
+  - `--frost` for chrome
+  - `--mycelium` / `--mycelium-pulse` for the threads under both pages and the
+    light that runs through them
+
+  `zig build source-check` refuses:
+  - a stylesheet that never closes a comment, string, or brace
+  - a stylesheet that hides a `--token:` declaration inside a comment, because
+    the browser would drop everything after a dropped `*/`
+  - a surface that restates `--accent-ink` or `--on-accent`, or never uses them,
+    `--page-bg`, `--frost`, or `--radius-card`
+  - a rooms sheet that never uses `--type-ui`
+- **Mycelium:** `apps/rooms/web/ui/mycelium.ts` grows the network of threads
+  behind every page of both surfaces, and both call its `startMycelium()`. A
+  surface that paints its own full-page ground hides it, so a page shows the
+  body's `--page-bg` instead of repainting it.
 - **Mark lockup:** `mark.css` owns where the still mushroom sits in its box,
   the bloom it takes under the pointer, and the `.wordmark` drawing. A new
   home takes those classes. It does not copy the numbers.
@@ -50,8 +62,7 @@ show the same logotype. Shared token *names* still describe separate widgets.
 Do not repeat a core value. Use `var(--accent)`, for example, rather than its
 hex value. `zig build source-check` catches repeated core colors, including
 equivalent `rgb()` and `rgba()` forms. The rooms avatar ramp is exempt because
-its ten fixed tints must support white initials. `page.css` documents that
-exception.
+its fixed tints must support white initials, and `page.css` documents that.
 
 ## How the files are shared
 
@@ -62,11 +73,11 @@ Both consumers use symlinks:
 - `apps/rooms/web/ui/tokens.css`, `apps/rooms/web/ui/mark.css`, and its
   `fonts/*` point here.
 
-Zine only installs assets referenced by a template. Each font therefore needs
-a `<link>` in `site/layouts/templates/base.shtml`. A `url()` inside
-`tokens.css` is not enough. Without that link the browser silently synthesizes
-the missing face because the font uses `font-display: swap`. The same is true
-of `mark.css`: name it from the template or Zine will not ship it.
+Zine only installs assets referenced by a template. Each font therefore needs a
+`<link>` in `site/layouts/templates/base.shtml`, because a `url()` inside
+`tokens.css` is not enough. Without the link the browser silently synthesizes
+the missing face, since the font uses `font-display: swap`. Name `mark.css` from
+the template too, or Zine will not ship it.
 
 The rooms server exposes the linked files through an allowlist. Both surfaces
 serve `tokens.css` at their root with `fonts/` beside it, so the relative font
@@ -111,18 +122,16 @@ The generated files are:
   project README uses it.
 - **The mark blocks in `tokens.css`**, described below.
 
-The still artwork is traced from the shader's own render in its settled pose,
-so it matches the shader exactly. That render is cel-shaded: its brightness
-falls into four flat tones with almost nothing between them. So the artwork is
-exactly four flat fills, not a simplification of a shaded image.
+The still artwork is traced from the shader's own render in its settled pose.
+That render is cel-shaded, with brightness in four flat tones and almost nothing
+between them, so the artwork is exactly four flat fills.
 
 ### The lit version
 
 The lamps in `mark-lit.svg` are not a fifth tone. The generator finds them by
-comparing the lit render with the unlit one and keeping what the light added.
-That is the only way to capture the line of light under the brim, which
-matches none of the unlit tones. The lamp color is measured from the same
-comparison.
+comparing the lit render with the unlit one and keeping what the light added,
+which is the only way to capture the line of light under the brim. The lamp
+color is measured from the same comparison.
 
 SVG has no emission or bloom, so the glow is drawn as passes of the lamp
 shape: a wide, soft wash and a tight, bright one, under the lamps themselves.
@@ -140,9 +149,9 @@ masks keeps the drawing as one geometry, so a theme is just four colors and
 there are never two whole drawings to keep in step.
 
 The tones are measured from the shader in each theme. The shader keeps one
-mushroom and lights it differently, so on the cream background the flesh and
-rim come up warm and open. The windows stay as dark as they are at night,
-because they are holes, not surfaces.
+mushroom and lights it differently, so on the cream background the flesh and rim
+come up warm and open. The windows stay as dark as at night, because they are
+holes, not surfaces.
 
 **Linework.** `--mark-line` is the same trace as one-color line art.
 
@@ -169,11 +178,10 @@ The picture is a fifth larger than the box it is given, because the shader's
 canvas is too. The four percentages on `.mark-piece` in `mark.css` keep a
 lockup from shifting when the shader replaces the still mark.
 
-The still mark's only motion is a bloom under the pointer. Light and its
-timing belong to the shader. The artwork's tones are measured from the render,
-not chosen, so they are literal values in the artwork with no theme variants.
-The mushroom is something seen at night, and its flesh and rim keep their
-night colors in both themes.
+The still mark's only motion is a bloom under the pointer. Light and its timing
+belong to the shader. The artwork's tones are measured from the render, so they
+are literal values with no theme variants. The mushroom is seen at night, and
+its flesh and rim keep their night colors in both themes.
 
 ## Light and dark values
 

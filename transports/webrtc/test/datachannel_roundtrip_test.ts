@@ -1,27 +1,27 @@
-// Phase-1 de-risk proof for the WebRTC DataChannel netlayer (ADR-0089).
+// Browser-interop proof for the WebRTC DataChannel netlayer (ADR-0089).
 //
 // A real headless Chromium is the browser peer (the offerer). It creates a
-// reliable, ordered RTCDataChannel to the native Rust peer
+// reliable, ordered RTCDataChannel to the Rust probe peer
 // (`glowcap-webrtc-datachannel-probe`, the answerer over the `webrtc` crate),
-// and this focused phase-1 harness ferries the signaling, the SDP offer/answer
+// and this focused harness ferries the signaling, the SDP offer/answer
 // and trickled ICE candidates, between the two out of band, over the probe's
 // stdio. The capability-routed signaling shape is covered by
 // `webrtc-signaling-captp`; stdio exists here only to bring the channel up so
 // the byte path itself can be proven.
 //
-// Once the DataChannel opens, the browser sends bytes and the native peer
-// replies. The proof asserts BOTH directions: the native peer reports it
-// received the browser's bytes (its `native_recv`/`result` line), and the
-// browser reports it received the native peer's reply (its resolved verdict).
-// This de-risks the whole transport in this environment, the `webrtc` crate,
-// the browser RTCDataChannel API, ICE on loopback in a headless container, and
-// the DTLS channel, before any Zig, C ABI, or engine integration exists.
+// Once the DataChannel opens, the browser sends bytes and the probe peer
+// replies. The proof asserts BOTH directions: the probe peer reports it
+// received the browser's bytes (its `probe_recv`/`result` line), and the
+// browser reports it received the probe peer's reply (its resolved verdict).
+// This exercises the transport's whole byte path in this environment, the
+// `webrtc` crate, the browser RTCDataChannel API, ICE on loopback in a headless
+// container, and the DTLS channel, with no Zig, C ABI, or engine involved.
 //
 // Signaling is relay-less: no STUN, no TURN. Both peers gather loopback/host
-// candidates on the same host and connect directly. The native peer includes
-// its loopback candidate (`set_include_loopback_candidate(true)`); Chromium is
+// candidates on the same host and connect directly. The probe peer includes
+// its loopback candidate (`with_include_loopback_candidate(true)`); Chromium is
 // launched with mDNS host-candidate obfuscation disabled so its host candidates
-// are raw IPs the native peer can reach.
+// are raw IPs the probe peer can reach.
 //
 // Needs deno, the probe binary (`zig build webrtc-lib`, or `cargo build
 // --release` in transports/webrtc), and a Playwright Chromium
@@ -46,7 +46,7 @@ const ROOT = new URL("../../../", import.meta.url).pathname;
 const PROBE = `${ROOT}transports/webrtc/target/release/glowcap-webrtc-datachannel-probe`;
 
 const PING = "ping-from-browser";
-const EXPECTED_REPLY = `pong-from-native:${PING}`;
+const EXPECTED_REPLY = `pong-from-probe:${PING}`;
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -89,7 +89,7 @@ window.startProbe = async () => {
 		}
 	};
 
-	// Signaling from the native peer, fed in by the harness.
+	// Signaling from the probe peer, fed in by the harness.
 	window.applySignal = async (line) => {
 		const m = JSON.parse(line);
 		if (m.type === "answer") {
@@ -121,7 +121,7 @@ window.startProbe = async () => {
 
 const deadline = setTimeout(() => fail("scenario timed out after 60s"), 60_000);
 
-// The native peer: the webrtc-crate answerer. Piped stdio carries signaling.
+// The probe peer: the webrtc-crate answerer. Piped stdio carries signaling.
 const probe = new Deno.Command(PROBE, {
 	stdin: "piped",
 	stdout: "piped",
@@ -141,15 +141,15 @@ Deno.serve(
 );
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
-let nativeReceived = false;
-let nativeVerdict: boolean | null = null;
+let probeReceived = false;
+let probeVerdict: boolean | null = null;
 
 try {
 	browser = await chromium.launch({
 		args: [
 			"--no-sandbox",
 			// Force raw host-IP candidates instead of Chromium's privacy mDNS
-			// (.local) names the native crate cannot resolve on loopback.
+			// (.local) names the Rust crate cannot resolve on loopback.
 			"--disable-features=WebRtcHideLocalIpsWithMdns",
 		],
 	});
@@ -157,12 +157,12 @@ try {
 	page.on("console", (m) => console.error("  [browser]", m.text()));
 	page.on("pageerror", (e) => console.error("  [browser error]", e.message));
 
-	// Pump the native peer's stdout: route signaling into the browser, record
+	// Pump the probe peer's stdout: route signaling into the browser, record
 	// the terminal lines.
 	// Assigned by the executor below, which runs synchronously; the definite
 	// assignment says so, since the compiler cannot see through the closure.
-	let nativeDone!: () => void;
-	const nativeSettled = new Promise<void>((res) => (nativeDone = res));
+	let probeDone!: () => void;
+	const probeSettled = new Promise<void>((res) => (probeDone = res));
 	(async () => {
 		const dec = new TextDecoder();
 		let buf = "";
@@ -185,18 +185,18 @@ try {
 						line,
 					)
 						.catch(() => {});
-				} else if (m.type === "native_recv") {
-					if (m.text === PING) nativeReceived = true;
+				} else if (m.type === "probe_recv") {
+					if (m.text === PING) probeReceived = true;
 				} else if (m.type === "result") {
-					nativeVerdict = m.ok === true;
-					nativeDone();
+					probeVerdict = m.ok === true;
+					probeDone();
 				}
 			}
 		}
-		nativeDone();
+		probeDone();
 	})();
 
-	// Browser → native signaling.
+	// Browser to probe signaling.
 	await page.exposeFunction("harnessSignal", (line: string) => {
 		toProbe(line).catch(() => {});
 	});
@@ -215,17 +215,17 @@ try {
 		fail(`browser did not receive the expected reply: ${verdict.reason ?? "(none)"}`);
 	}
 
-	// Confirm the native side too, so both directions are proven, not just the
+	// Confirm the probe side too, so both directions are proven, not just the
 	// browser's receive.
 	await Promise.race([
-		nativeSettled,
+		probeSettled,
 		new Promise((res) => setTimeout(res, 5_000)),
 	]);
-	if (!nativeReceived) fail("native peer never reported receiving the browser's bytes");
-	if (nativeVerdict === false) fail("native peer reported an unexpected message");
+	if (!probeReceived) fail("probe peer never reported receiving the browser's bytes");
+	if (probeVerdict === false) fail("probe peer reported an unexpected message");
 
 	console.log(
-		"PASS: a headless Chromium RTCDataChannel carried bytes both directions to a native " +
+		"PASS: a headless Chromium RTCDataChannel carried bytes both directions to a Rust " +
 			"webrtc-crate peer on loopback (direct, no STUN/TURN); the keyed session's byte path is proven",
 	);
 } finally {

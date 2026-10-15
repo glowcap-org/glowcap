@@ -133,20 +133,25 @@ pub fn seedDepth(store: *loam.core.Store, backend: anytype, depth: u16) !Data {
     return seedPolicy(store, backend, depth, try c.core.Policy.init(f.vocabulary.descriptor), &.{});
 }
 pub fn seedPolicy(store: *loam.core.Store, backend: anytype, depth: u16, policy: c.core.Policy, bounds: []const c.core.Policy.Bound) !Data {
-    return seedConfigured(store, backend, depth, policy, bounds, false, @fromBackingInt(81));
+    return seedConfigured(store, backend, depth, policy, bounds, false, @fromBackingInt(81), false);
+}
+/// A root whose grant covers the subtree under it, for calls that create and
+/// move resources below the root.
+pub fn seedSubtree(store: *loam.core.Store, backend: anytype, depth: u16) !Data {
+    return seedConfigured(store, backend, depth, try c.core.Policy.init(f.vocabulary.descriptor), &.{}, false, @fromBackingInt(81), true);
 }
 pub fn seedIndependentTarget(store: *loam.core.Store, backend: anytype) !Data {
-    return seedConfigured(store, backend, 0, try c.core.Policy.init(f.vocabulary.descriptor), &.{}, true, @fromBackingInt(81));
+    return seedConfigured(store, backend, 0, try c.core.Policy.init(f.vocabulary.descriptor), &.{}, true, @fromBackingInt(81), false);
 }
 pub fn seedAuthority(store: *loam.core.Store, backend: anytype, owner_id: c.core.OwnerId) !Data {
-    return seedConfigured(store, backend, 0, try c.core.Policy.init(f.vocabulary.descriptor), &.{}, false, owner_id);
+    return seedConfigured(store, backend, 0, try c.core.Policy.init(f.vocabulary.descriptor), &.{}, false, owner_id, false);
 }
-fn seedConfigured(store: *loam.core.Store, backend: anytype, depth: u16, policy: c.core.Policy, bounds: []const c.core.Policy.Bound, independent_target: bool, owner_id: c.core.OwnerId) !Data {
+fn seedConfigured(store: *loam.core.Store, backend: anytype, depth: u16, policy: c.core.Policy, bounds: []const c.core.Policy.Bound, independent_target: bool, owner_id: c.core.OwnerId, subtree: bool) !Data {
     try store.begin();
     const owner = try c.storage.stage.createOwner(store, owner_id, policy, .{});
     try f.commit(store, backend);
     const resource = try f.resource(store, backend, owner, null);
-    const terms: c.core.Terms = .{ .scope = .{ .objects = &.{resource} }, .policy = try policy.value(policy.permission_keys[0..policy.permission_count], bounds) };
+    const terms: c.core.Terms = .{ .scope = if (subtree) .{ .owned_subtree = resource } else .{ .objects = &.{resource} }, .policy = try policy.value(policy.permission_keys[0..policy.permission_count], bounds) };
     const ancestor = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, if (independent_target) 1 else depth) })).?.grant;
     const grant = if (independent_target)
         (try f.change(store, backend, owner, .{ .derive = .{ .parent = ancestor, .request = f.vocabulary.issue(terms, 0) } })).?.grant
@@ -324,14 +329,14 @@ fn retry(_: ?*anyopaque, verb: []const u8, _: []const driver.Value) !access.Retr
     return if (std.mem.eql(u8, verb, "get") or std.mem.startsWith(u8, verb, "share") or std.mem.startsWith(u8, verb, "smuggle")) .read_only else .receipt;
 }
 
-fn resourceAction(_: ?*anyopaque, _: std.mem.Allocator, input: access.ContentInvocation) !?c.storage.ResourceChange.Action {
+fn resourceAction(_: ?*anyopaque, _: std.mem.Allocator, input: access.ContentInvocation) !?access.ResourceEffect {
     const resource = input.bound_resource.id;
     const verb = input.verb;
     const args = input.args;
-    if (std.mem.eql(u8, verb, "delete-resource")) return .delete_leaf;
+    if (std.mem.eql(u8, verb, "delete-resource")) return .{ .action = .delete_leaf };
     if (std.mem.eql(u8, verb, "move-resource")) {
-        if (args[0].integer < 0) return .{ .move = null };
-        return .{ .move = .{ .owner = resource.owner, .slot = std.math.cast(u32, args[0].integer) orelse return error.InvalidArguments, .generation = 1 } };
+        if (args[0].integer < 0) return .{ .action = .{ .move = null } };
+        return .{ .action = .{ .move = .{ .owner = resource.owner, .slot = std.math.cast(u32, args[0].integer) orelse return error.InvalidArguments, .generation = 1 } } };
     }
     return null;
 }

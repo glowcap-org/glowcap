@@ -10,8 +10,9 @@ const a = std.testing.allocator;
 const schemas = f.schemas ++ [_]f.loam.core.Schema{ refs.schema, f.hosting.LiveEpoch.schema };
 
 const Echo = struct {
-    pub fn handle(_: *Echo, turn: *f.driver.HostTurn, _: []const u8, args: []const f.driver.Value) !f.driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(_: *Echo, turn: *f.driver.HostTurn, _: []const u8, args: f.driver.Args) !f.driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         return .{ .integer = 42 };
     }
 };

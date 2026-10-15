@@ -13,6 +13,7 @@
 // sweeps have enough to sweep.
 
 import type { Page } from "playwright";
+import { waitForFiniteAnimations } from "../support/animations.ts";
 import { fail } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
 
@@ -143,7 +144,7 @@ export async function run(tab: Page): Promise<void> {
 		// taken straight after the switch is of a half-drawn panel, and it lands
 		// near one to one however the colours are set. That is what a colour bug
 		// looks like from here, and it does not move when you fix colours.
-		await tab.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+		await waitForFiniteAnimations(tab);
 		for (const [what, selector] of RAIL_INK) {
 			const measured = await inkContrast(tab, selector);
 			// A refusal is a failure of its own. Every one of these is on screen here,

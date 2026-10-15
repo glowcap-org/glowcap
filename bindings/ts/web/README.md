@@ -2,12 +2,12 @@
 
 The browser entry for the glowcap runtime. A browser tab becomes an OCapN peer: the same I/O-free
 protocol core the Zig archives link, compiled to `wasm32`, with the byte channel on a WebSocket.
-This is [ADR-0070] Milestone 1: the `@glowcap/runtime` surface every dlopen runtime uses, on a
-swapped runtime adapter, with no protocol reimplemented in JavaScript. The build check covers
+It offers the same `@glowcap/runtime` API that Deno and Bun use, through a browser adapter, and
+reimplements no protocol in JavaScript ([ADR-0070]). The build check covers
 the keyed handshake, fetch and call, a call back into a wasm-hosted object, both wire grammars
 (Syrup and Cap'n Proto), and a non-browser peer cold-dialing a Chromium-hosted object over
-`noise-relay`. `zig build rooms-web-dm-noise` additionally has one browser redeem a room
-introduction by dialing another browser over that sealed relay path, then carries the reply back.
+`noise-relay`. `zig build rooms-web-dm-noise` also has one browser redeem a room introduction by
+dialing another browser over that sealed relay path, then carry the reply back.
 
 [ADR-0070]: ../../../docs/decisions/adr/ADR-0070-browser-binding-via-wasm.md
 
@@ -23,8 +23,8 @@ console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
 `init` instantiates `glowcap_host.wasm` (built by `zig build wasm-driver`), builds the runtime
-adapter over it, installs the adapter, and only then loads `@glowcap/runtime`, which binds to it
-instead of probing for Deno or Bun. The returned value is the runtime module plus its managed
+adapter over it, installs the adapter, and only then loads `@glowcap/runtime`, which binds to the
+adapter instead of probing for Deno or Bun. The returned value is the runtime module plus its managed
 default `Runtime`, so [`@glowcap/runtime`'s README](../runtime/README.md) applies in full: `Session`,
 `spawn`, `publish`, pipelining, proxies, three-party redemption.
 
@@ -36,10 +36,9 @@ supplies four things Deno and Bun get from the operating system:
 - **FFI over linear memory.** The Wasm module exports the same `glowcap_*` C
   ABI that Deno and Bun load. JavaScript cannot lend Wasm a view of its
   own buffers, so every buffer argument is copied into linear memory before a
-  call and copied back afterwards. That is how C out-parameters return. Both
-  copies are the cost of crossing into linear memory. Staged copies live
-  in an arena that is freed two calls later, because a call's returned views
-  may point into its staged inputs.
+  call and copied back afterwards, which is also how C out-parameters return.
+  Staged copies live in an arena that is freed two calls later, because a
+  call's returned views may point into its staged inputs.
 - **Struct layout from the module itself.** Field offsets differ between the
   64-bit targets and wasm32, so the adapter reads the module's own
   layout descriptor (`glowcap_wasm_abi_layout`) and gives the runtime a layout
@@ -67,8 +66,8 @@ supplies four things Deno and Bun get from the operating system:
 ## Byte-transparent relay
 
 Browser peers cannot dial TCP sockets directly. A relay endpoint accepts a WebSocket connection
-and forwards bytes without parsing CapTP frames, so the keyed or Noise handshake and session
-authority run end to end unchanged. Pass `wsUrl` to `init()` with a function that maps
+and forwards bytes without parsing CapTP frames, so the keyed or Noise handshake and the session run end
+to end unchanged. Pass `wsUrl` to `init()` with a function that maps
 `(host, port)` to the relay's URL, for example `` (h, p) => `ws://relay/relay?to=${h}:${p}` ``. The
 reference relay ships as [`@glowcap/relay`](../relay/README.md). The rooms app wraps it at
 [`apps/rooms/rust/services/src/web/relay.rs`](../../../apps/rooms/rust/services/src/web/relay.rs), which allow-lists the room server's
@@ -76,7 +75,7 @@ own port for TCP targets, checks the `Origin` header on the upgrade, caps live s
 idle pairs, and bounds bytes per session. `zig build deno-relay-test` checks a keyed OCapN session
 from this binding through that relay to a TCP host.
 
-## The proof
+## What the checks cover
 
 `zig build web-peer-test` runs [`test/web_peer_test.ts`](test/web_peer_test.ts): a dlopen-runtime host
 ([`test/serve_ws_host.ts`](test/serve_ws_host.ts)) accepts WebSocket connections straight into
@@ -85,7 +84,7 @@ module, linear-memory FFI, WebSocket channel, and no `Deno.dlopen` anywhere in i
 completes the keyed handshake, fetches and calls a published object, and receives a call back into
 an object it hosts. The same check then launches Chromium, registers the page's Wasm Host at the
 reference relay under `noise-relay`, and has the installed CLI cold-dial and call it.
-That rendezvous leg is WSS with a test authority supplied independently to the browser and native
+That rendezvous leg is WSS with a test certificate authority supplied independently to the browser and the CLI
 process. The relay also audits a plaintext canary.
 
 [`test/wasm_handshake_smoke.ts`](test/wasm_handshake_smoke.ts) (`zig build

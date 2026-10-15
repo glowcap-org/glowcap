@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The register half of the rendezvous, natively (ADR-0088).
+# The register half of the rendezvous, from the Zig CLI (ADR-0088).
 #
 # The sibling rows prove the *dialing* half: a consumer cold-dials a peer that
-# registered at a relay. This proves the other side: a native glowcap CLI is
+# registered at a relay. This proves the other side: the Zig glowcap CLI is
 # the peer that registers. It binds no listening socket at all; it holds an
 # inbound socket at the relay under its key designator, prints the
 # `keyed-relay` locator that names it, and answers a partner that arrives
@@ -70,7 +70,7 @@ out=$(GLOWCAP_STATE="$client_state" GLOWCAP_RENDEZVOUS="ws://127.0.0.1:1/relay" 
 	./zig-out/bin/glowcap --json ocapn call "$locator" greeter greet registered 2>&1) || true
 case "$out" in
 *"Hello, registered"*)
-		echo "PASS: a native CLI registered at the relay and answered a cold dial through locator-carried route advice"
+		echo "PASS: the Zig CLI registered at the relay and answered a cold dial through locator-carried route advice"
 	exit 0
 	;;
 esac

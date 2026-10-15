@@ -1,6 +1,6 @@
 //! Three-party redeem over WebRTC: a recipient's runtime dials the exporter's
 //! bare webrtc designator through its configured signaling authority, inside
-//! the call that receives the introduction (ADR-0089). The native mirror of
+//! the call that receives the introduction (ADR-0089). The Zig mirror of
 //! the rooms app's `rooms-web-dm-webrtc` proof.
 //!
 //!   E (exporter)   `driver.Server`, publishes the widget
@@ -47,7 +47,7 @@ const Widget = harness.StaticReplyBehavior("poke", poked);
 const Introducer = struct {
     widget: driver.Capability,
 
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = ht;
         _ = args;
         if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;
@@ -57,11 +57,11 @@ const Introducer = struct {
 
 // ── The in-process signaling hub ─────────────────────────────────────────────
 //
-// It routes each offer to the target node's backend, creating and adopting
-// the answerer there, pairs the two exchange fds, and ferries answers and
-// candidates between the paired backends through their thread-safe entries.
-// Entries run on whichever node's runtime thread is dialing; the hub's own
-// tables take a SpinLock.
+// It hands each offer to the target node's backend, which builds the
+// answerer and sends the answer back through its own authority. The hub pairs
+// the two exchange fds there and ferries answers and candidates between the
+// paired backends through their thread-safe entries. Entries run on whichever
+// node's runtime thread is dialing; the hub's own tables take a SpinLock.
 
 /// One party: its WebRTC sidecar, its completion resident, and its key.
 const Node = struct {
@@ -77,6 +77,7 @@ const Node = struct {
         self.key = key;
         self.port = .{ .hub = hub, .self_node = self };
         self.sidecar = try webrtc.Resident.init(.{ .include_loopback_candidates = true });
+        // best-effort: this unwind returns the backend's init error, and a failed sidecar close would only mask it.
         errdefer self.sidecar.deinit() catch {};
         const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
         self.resident = try WebrtcResident.init(
@@ -116,13 +117,34 @@ const Hub = struct {
     mutex: glowcap.net.sync.SpinLock = .{},
     nodes: [3]?*Node = .{ null, null, null },
     pairs: std.AutoHashMap(u64, PairEnd),
+    /// The exchange each offering node waits on an answer for. One dial is in
+    /// flight per node at a time in this scenario.
+    offers: std.AutoHashMap(*Node, i32),
 
     fn init(allocator: std.mem.Allocator) Hub {
-        return .{ .pairs = std.AutoHashMap(u64, PairEnd).init(allocator) };
+        return .{
+            .pairs = std.AutoHashMap(u64, PairEnd).init(allocator),
+            .offers = std.AutoHashMap(*Node, i32).init(allocator),
+        };
     }
 
     fn deinit(self: *Hub) void {
         self.pairs.deinit();
+        self.offers.deinit();
+    }
+
+    fn expectAnswer(self: *Hub, offerer: PairEnd) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        if (self.offers.contains(offerer.node)) return error.OfferInFlight;
+        try self.offers.put(offerer.node, offerer.fd);
+    }
+
+    fn takeExpectedAnswer(self: *Hub, offerer: *Node) ?PairEnd {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        const kv = self.offers.fetchRemove(offerer) orelse return null;
+        return .{ .node = offerer, .fd = kv.value };
     }
 
     fn pairKey(node: *Node, fd: i32) u64 {
@@ -172,29 +194,29 @@ const Port = struct {
     self_node: *Node,
 
     fn authority(self: *Port) webrtc.SignalingAuthority {
-        return .{ .ctx = self, .sendOffer = sendOffer, .sendCandidate = sendCandidate };
+        return .{ .ctx = self, .sendOffer = sendOffer, .sendAnswer = sendAnswer, .sendCandidate = sendCandidate };
     }
 
-    /// Bring up the answerer at the target and route the answer back: the
-    /// whole exchange the room carries in the rooms app, inlined.
+    /// Carry the offer to the target, whose backend answers it under this
+    /// node's designator: the whole exchange the room carries in the rooms
+    /// app, inlined. The target's `sendAnswer` fires inside `startAnswer`, so
+    /// the offering exchange is filed first.
     fn sendOffer(ctx: *anyopaque, fd: i32, designator: []const u8, sdp: []const u8) anyerror!void {
         const port: *Port = @ptrCast(@alignCast(ctx));
         const target = port.hub.byDesignator(designator) orelse return error.UnknownPeer;
-        var answerer = try target.sidecar.newPeer(false);
-        errdefer answerer.deinit();
-        try answerer.setRemoteOffer(sdp);
-        var answer_buf: [webrtc.max_signal_bytes]u8 = undefined;
-        var answer_len: usize = 0;
-        const answer = try answerer.createAnswer(&answer_buf, &answer_len);
-        // The exchange is scoped to the offerer's durable identity: the
-        // authenticated-transport binding the target's accepted session pins.
-        answerer.authorizeRemote(port.self_node.key);
-        const target_fd = try target.backend().adoptAnswerer(answerer);
-        try port.hub.pair(
-            .{ .node = port.self_node, .fd = fd },
-            .{ .node = target, .fd = target_fd },
-        );
-        try port.self_node.backend().provideAnswer(fd, answer);
+        try port.hub.expectAnswer(.{ .node = port.self_node, .fd = fd });
+        errdefer _ = port.hub.takeExpectedAnswer(port.self_node);
+        _ = try target.backend().startAnswer(port.self_node.designator[0..], sdp);
+    }
+
+    /// Route the answer this node's backend produced to the offerer the
+    /// exchange is scoped to, and pair the two exchange fds for candidates.
+    fn sendAnswer(ctx: *anyopaque, fd: i32, designator: []const u8, sdp: []const u8) anyerror!void {
+        const port: *Port = @ptrCast(@alignCast(ctx));
+        const offerer_node = port.hub.byDesignator(designator) orelse return error.UnknownPeer;
+        const offerer = port.hub.takeExpectedAnswer(offerer_node) orelse return error.UnexpectedAnswer;
+        try port.hub.pair(offerer, .{ .node = port.self_node, .fd = fd });
+        try offerer_node.backend().provideAnswer(offerer.fd, sdp);
     }
 
     fn sendCandidate(ctx: *anyopaque, fd: i32, ice: []const u8) anyerror!void {

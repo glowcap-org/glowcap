@@ -3,8 +3,9 @@
 This benchmark asks what a client written in each supported language pays to run
 the same application against one Zig glowcap host.
 
-The host and task-board workload stay fixed. The client changes between Deno,
-Python, Rust, Racket, Zig, and Spritely Goblins as a reference CapTP peer.
+The host and task-board workload stay fixed, and the client changes between
+languages, with Spritely Goblins as a reference CapTP peer. The usage line in
+[`orchestrator.zig`](orchestrator.zig) names the clients.
 Each row measures a whole consumer stack: runtime, binding, garbage collector,
 and the application written in that language. The rows mix glowcap's wire cost
 with that language's runtime, and results describe one machine and one run.
@@ -49,9 +50,6 @@ flight.
 Memory is an operating-system RSS delta. A managed runtime can absorb
 connection buffers inside an existing heap without changing RSS, so compare a
 row with itself across runs, not against a different runtime class.
-
-The local-turn `via_host` figure measures the loopback route through the C
-host, including wire encoding.
 
 Read [Methodology and caveats](methodology.md) before comparing results. The
 exact client protocol is in [`contract.md`](contract.md).

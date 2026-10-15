@@ -45,12 +45,12 @@ fn queueGiftThenPlain(fixture: *Fixture, profile: model.CaptpVersion, provisiona
     const foreign = try fixture.node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
     fixture.answer = if (provisional) .from(try fixture.recipient.allocateAnswer()) else null;
     if (provisional) fixture.recipient.openProvisional();
-    try fixture.recipient.sendCopying(.{ .deliver = .{
+    try fixture.recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
         .answer = fixture.answer,
     } });
-    try fixture.recipient.sendCopying(.{ .deliver = .{
+    try fixture.recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .symbol = "plain" }},
     } });

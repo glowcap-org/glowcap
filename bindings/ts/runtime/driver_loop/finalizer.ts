@@ -35,7 +35,7 @@ function releaseDriverLoopFinalizerState(state: DriverLoopFinalizerState): void 
 				primaryName: outcome.failure?.primaryName ??
 					(consumed ? "DriverLoopReleaseFailed" : "DriverLoopReleaseRefused"),
 				primaryResult: outcome.error.code,
-				primaryMessage: outcome.error.detail ?? `native driver release failed (code ${rc})`,
+				primaryMessage: outcome.error.detail ?? `driver release failed (code ${rc})`,
 				secondaryName: outcome.failure?.secondaryName,
 				secondaryResult: outcome.failure?.secondaryResult,
 				secondaryCount: outcome.failure?.secondaryCount,
@@ -66,7 +66,7 @@ export function registerDriverLoopFinalizer(
 	return state;
 }
 
-/** Mark the native lease consumed before unregistering the implicit owner. */
+/** Mark the FFI lease consumed before unregistering the implicit owner. */
 export function retireDriverLoopFinalizer(
 	owner: object,
 	state: DriverLoopFinalizerState | null,

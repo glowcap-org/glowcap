@@ -27,6 +27,7 @@ pub const OwnerRecord = struct {
     observations: ?loam.ObjectId = null,
     identities: ?loam.ObjectId = null,
     pub const max_edges = 6;
+    pub const max_encoded_bytes = 4096;
 
     pub const max_slots: u64 = @as(u64, 1) << 32;
 
@@ -45,7 +46,7 @@ pub const OwnerRecord = struct {
     }
 
     pub fn decode(view: loam.View) !OwnerRecord {
-        if (view.schema != profile.owner or view.schema_version != 1 or view.payload.len > 4096) return error.InvalidRecord;
+        if (view.schema != profile.owner or view.schema_version != 1 or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
         const b = view.payload;
         var c: usize = 0;
         try s.readByte(b, &c, '<');
@@ -60,7 +61,7 @@ pub const OwnerRecord = struct {
         try s.readByte(b, &c, '[');
         var prerequisite_masks: [core.Policy.max_permissions]u64 = @splat(0);
         for (prerequisite_masks[0..@intCast(key_count)]) |*mask| {
-            const encoded = try s.readBytesLimited(b, &c, b.len);
+            const encoded = try s.readBytes(b, &c);
             if (encoded.len != 8) return error.InvalidRecord;
             mask.* = std.mem.readInt(u64, encoded[0..8], .big);
         }
@@ -70,7 +71,7 @@ pub const OwnerRecord = struct {
         var kind_count: usize = 0;
         while (c < b.len and b[c] != ']') {
             if (kind_count == kinds.len) return error.PolicyLimit;
-            const encoded = try s.readBytesLimited(b, &c, b.len);
+            const encoded = try s.readBytes(b, &c);
             if (encoded.len != 24) return error.InvalidRecord;
             kinds[kind_count] = .{
                 .kind = @fromBackingInt(std.mem.readInt(u64, encoded[0..8], .big)),
@@ -87,10 +88,9 @@ pub const OwnerRecord = struct {
             field.key = @fromBackingInt(try s.readPositiveInt(b, &c));
             field.operator = if (try s.readBool(b, &c)) .lower_bound else .upper_bound;
         }
-        const vocabulary = try core.Policy.init(.{ .id = schema, .permissions = keys[0..@intCast(key_count)], .constraints = constraints[0..@intCast(count)] });
         var result: OwnerRecord = .{
             .owner = owner,
-            .policy = try (try vocabulary.withPrerequisiteMasks(prerequisite_masks)).withKinds(kinds[0..kind_count]),
+            .policy = try core.Policy.init(.{ .id = schema, .permissions = keys[0..@intCast(key_count)], .constraints = constraints[0..@intCast(count)] }),
             .version = .{ .resources = @fromBackingInt(try s.readPositiveInt(b, &c)), .grants = @fromBackingInt(try s.readPositiveInt(b, &c)) },
             .control_revision = try s.readPositiveInt(b, &c),
             .next_resource = try s.readPositiveInt(b, &c),
@@ -118,21 +118,20 @@ pub const OwnerRecord = struct {
         if (roots.next() != null) return error.InvalidRecord;
         try s.readByte(b, &c, '>');
         try s.expectEnd(b, c);
+        try result.policy.setPrerequisiteMasks(&prerequisite_masks);
+        try result.policy.setKinds(kinds[0..kind_count]);
         try result.validate();
         return result;
     }
 
-    fn validate(self: OwnerRecord) !void {
+    fn validate(self: *const OwnerRecord) !void {
         if (self.maintenance.cursor > max_slots) return error.InvalidRecord;
         if ((self.maintenance.sequence == 0) != (self.maintenance.last == .none)) return error.InvalidRecord;
         if (self.lifecycle == .retired and (self.maintenance.phase != .idle or self.resources != null or self.grants != null or self.history != null or self.roots != null or self.observations != null or self.identities != null)) return error.InvalidRecord;
         if (self.max_resource_depth > 64 or self.max_grant_depth > 64) return error.InvalidRecord;
         if (self.next_resource > max_slots or self.next_grant > max_slots or self.next_identity > max_slots) return error.InvalidRecord;
         if ((self.next_resource == 0 and self.resources != null) or (self.next_grant == 0 and self.grants != null) or (self.next_identity == 0 and self.identities != null)) return error.InvalidRecord;
-        // Validate active descriptor fields rather than serializing in-memory arrays.
-        if (self.policy.permission_count > core.Policy.max_permissions or self.policy.constraint_count > core.Policy.max_constraints or self.policy.kind_count > core.Policy.max_kinds) return error.InvalidRecord;
-        const vocabulary = try core.Policy.init(.{ .id = self.policy.id, .permissions = self.policy.permission_keys[0..self.policy.permission_count], .constraints = self.policy.constraint_fields[0..self.policy.constraint_count] });
-        _ = try (try vocabulary.withPrerequisiteMasks(self.policy.prerequisite_masks)).withKinds(self.policy.kind_rules[0..self.policy.kind_count]);
+        try self.policy.check();
     }
 
     fn write(sink: anytype, self: OwnerRecord) !void {

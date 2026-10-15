@@ -66,8 +66,8 @@ pub fn checkSignalAndIceCaps(
         "const MAX_PACKET_BYTES: usize = constants_gen::TRANSPORT_WEBRTC_MAX_PACKET_BYTES;",
         "const MAX_SIGNAL_BYTES: usize = constants_gen::MAX_SIGNAL_BYTES;",
         "const MAX_ICE_CANDIDATE_BYTES: usize = constants_gen::MAX_ICE_CANDIDATE_BYTES;",
-        "const MAX_PENDING_LOCAL_CANDIDATES: usize = constants_gen::MAX_PENDING_ICE_CANDIDATES;",
-        "const LOCAL_CANDIDATE_QUEUE_BYTES: usize = constants_gen::PENDING_ICE_CANDIDATE_QUEUE_BYTES;",
+        "const MAX_PENDING_CANDIDATES: usize = constants_gen::MAX_PENDING_ICE_CANDIDATES;",
+        "const CANDIDATE_QUEUE_BYTES: usize = constants_gen::PENDING_ICE_CANDIDATE_QUEUE_BYTES;",
         "const INBOUND_BUFFER_BOUND: usize = constants_gen::DATA_CHANNEL_QUEUE_BYTES;",
         "const SCTP_RECEIVE_BUFFER_BOUND: usize = constants_gen::SCTP_RECEIVE_BUFFER_BYTES;",
         "const OUTBOUND_BUFFER_BOUND: usize = constants_gen::DATA_CHANNEL_QUEUE_BYTES;",
@@ -97,8 +97,14 @@ pub fn checkSignalAndIceCaps(
     try expectFileContains(io, gpa, root, violations, "bindings/ts/webrtc/connector.ts", &.{
         "Session.establishDialedLocator(",
         "request.handshakeTimeoutMs,",
-        "// Directory signaling was scoped to this designator; DTLS binds",
+        "// Directory signaling was scoped to this designator, and DTLS binds",
         "locator.designator,",
+    });
+    try expectFileContains(io, gpa, root, violations, "bindings/ts/webrtc/listener.ts", &.{
+        "Session.establishAccepted(host, {",
+        "// The signaling authority scoped this exchange to the offerer, and",
+        "verifiedChannelKey: designator,",
+        "WEBRTC_MAX_ACCEPTS_IN_FLIGHT",
     });
     if (try fileContains(io, gpa, root, ts_peer_path, "TEXT_UNITS")) {
         try appendViolation(gpa, violations, "{s}: forbidden `TEXT_UNITS` - WebRTC candidate caps are UTF-8 byte caps", .{ts_peer_path});

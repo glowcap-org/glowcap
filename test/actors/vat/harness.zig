@@ -6,13 +6,14 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 
 /// A counter whose `self` *is* its state, `increment`/`add` mutate it in place,
 /// the Zig-native "become".
 pub const Counter = struct {
     n: i64,
 
-    pub fn handle(self: *Counter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *Counter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "increment")) {
@@ -31,7 +32,7 @@ pub const Counter = struct {
 /// `turn.arena`, the per-turn allocator the vat reclaims, proving a handler can
 /// return heap-allocated storage without leaking and without freeing it itself.
 pub const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *Greeter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = self;
         const greeting = try std.fmt.allocPrint(turn.arena, "hello, {s}", .{try msg.argBytes(0)});
         return .{ .bytes = greeting };
@@ -49,7 +50,7 @@ pub const PersistentCounter = struct {
     pub const snapshot_persistent = true;
     n: i64,
 
-    pub fn handle(self: *const PersistentCounter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const PersistentCounter, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "increment")) {
             try turn.become(PersistentCounter, .{ .n = self.n + 1 });
@@ -71,7 +72,7 @@ pub const LabelHolder = struct {
     allocator: std.mem.Allocator,
     label: []u8,
 
-    pub fn handle(self: *LabelHolder, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *LabelHolder, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .bytes = self.label };
         if (std.mem.eql(u8, msg.verb, "relabel")) {
@@ -95,7 +96,7 @@ pub const Sink = struct {
     buf: [64]u8 = undefined,
     len: usize = 0,
 
-    pub fn handle(self: *Sink, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *Sink, turn: *Turn, msg: Delivery) !model.Argument {
         const filler = try turn.arena.alloc(u8, 256);
         @memset(filler, 'Z');
         const bytes = try msg.argBytes(0);
@@ -141,7 +142,7 @@ pub const MutateThenRead = struct {
 pub const Forwarder = struct {
     sink: actors.Ref,
 
-    pub fn handle(self: *Forwarder, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *Forwarder, turn: *Turn, msg: Delivery) !model.Argument {
         const payload = try std.fmt.allocPrint(turn.arena, "payload-{s}", .{try msg.argBytes(0)});
         _ = try turn.send(self.sink, .{ .verb = "store", .args = &.{.{ .bytes = payload }} });
         return .{ .void = {} };

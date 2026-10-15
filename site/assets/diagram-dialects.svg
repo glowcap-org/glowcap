@@ -4,7 +4,7 @@
   width="760"
   height="280"
   role="img"
-  aria-label="Two interop situations. Talking to a Goblins peer, glowcap speaks the canonical dialect, CapTP 1.0 over Syrup, the interop floor. Talking to another glowcap peer, both ends can choose glowcap's native profile and the Cap'n Proto codec, and still drop to 1.0 over Syrup."
+  aria-label="Two interop situations. Talking to a Goblins peer, glowcap speaks the canonical dialect, CapTP 1.0 over Syrup, the interop floor. Talking to another glowcap peer, both ends can choose glowcap's own profile and the Cap'n Proto codec, and still drop to 1.0 over Syrup."
 >
   <defs>
     <marker
@@ -165,7 +165,7 @@
     y="66"
     text-anchor="middle"
     class="label muted"
-  >the native dialect, when both ends can speak it</text>
+  >glowcap's own dialect, when both ends speak it</text>
 
   <rect
     x="420"

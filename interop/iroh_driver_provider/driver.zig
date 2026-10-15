@@ -181,6 +181,7 @@ fn newLoop(seed_byte: u8) !?*cdrv.GlowcapDriverLoop {
         .handshake_ms = 15_000,
         .listener_setup_ms = 15_000,
         .settle_ms = 15_000,
+        .busy_poll_ns = 0,
     };
     try expectOk(cdrv.glowcap_driver_take_host(
         host,

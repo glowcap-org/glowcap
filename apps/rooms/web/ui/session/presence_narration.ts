@@ -4,6 +4,9 @@ import { connectionChanges, offlineMember } from "../../../lib/text/admission.ts
 import { MAX_ROSTER_SEEN } from "../../../lib/limits.ts";
 import type { Presence } from "../../../lib/room/presence.ts";
 
+/** How long connection churn for one member folds into one notice. */
+export const PRESENCE_WINDOW_MS = 5000;
+
 interface Notice {
 	readonly id: number;
 	readonly started: number;
@@ -11,7 +14,7 @@ interface Notice {
 }
 export class PresenceNarration {
 	readonly #notices = new Map<string, Notice>();
-	constructor(readonly windowMs = 5000) {}
+	constructor(readonly windowMs = PRESENCE_WINDOW_MS) {}
 	present(
 		conversation: string,
 		presence: Presence | undefined,

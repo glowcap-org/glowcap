@@ -1,6 +1,6 @@
 ---
 .title = "Object-capability RPC for OCapN, in Zig",
-.description = "glowcap is a Zig library for OCapN and CapTP: object-capability RPC with no ambient authority to fall back on.",
+.description = "glowcap is a Zig library for OCapN and CapTP: object-capability RPC where holding a reference is the permission to use it.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "index.shtml",
 .draft = false,
@@ -8,7 +8,7 @@
 
 glowcap is a [Zig](https://ziglang.org/) library for
 [OCapN](https://github.com/ocapn/ocapn). Two programs hand each other
-references to objects and call them across a session, under the same rule as a
+references to objects and call them across a network, under the same rule as a
 local call: a peer can use the references it was given and cannot forge others.
 
 glowcap is built with AI coding assistants. The maintainer directs the work
@@ -18,15 +18,17 @@ records how.
 
 If capabilities are new to you, [Why OCapN]($link.page('why')) compares them
 with the bearer tokens and login tables you already use.
+[What about identity?]($link.page('identity')) covers where people, bots,
+and AI agents fit, and what keys can and cannot answer.
 
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
-[Rooms]($link.page('rooms')) is a chat app built on this idea, where the
-peers are people: open a room, pick a member, and press Message. Native peers
-connect over [iroh]($link.page('transports/iroh')), which is encrypted QUIC
-that uses the node id as the peer's identity.
+[Rooms]($link.page('rooms')) is a chat app built on this idea. Pick a member in a
+room and press **Message *name* directly**, and your messages go straight to
+that person instead of through the room.
 
-A native Zig fetch-and-call over sealed TCP:
+A Zig program dials a peer over encrypted TCP, fetches a capability it published,
+and calls it:
 
 ```zig
 var hint_storage: [1]glowcap.ocapn.model.HintEntry = undefined;
@@ -51,9 +53,8 @@ defer arena.deinit();
 const settled = try session.call(greeter, "greet", &.{.{ .string = "world" }}, arena.allocator());
 ```
 
-Dial the peer, fetch a capability it published, and call it.
-[Start building]($link.page('start')) shows the other languages and
-transports.
+[Start building]($link.page('start')) shows the listening side, the other
+languages, and the other transports.
 
 Pin a commit, and expect the API to move.
 [What you can depend on]($link.page('stability')) separates checked behavior
@@ -70,11 +71,11 @@ in your program where you can see them. Peers can meet over encrypted discovery
 
 Objects can also outlive their process. [Loam]($link.page('loam')), the
 storage layer, keeps objects and the capabilities they hold on disk. An actor
-nobody is calling can sleep there, and a peer's sturdyref still reaches it
+nobody is calling can sleep there, and a saved link to it still works
 after a restart. Loam's full API is in Zig. C and Rust get a narrower
-profile, and Rust's also runs in the browser on IndexedDB.
+subset, and Rust's also runs in the browser on IndexedDB.
 
-Use the library as a Zig package, a plain C ABI, or a native binding (Rust,
+Use the library as a Zig package, a plain C ABI, or a binding (Rust,
 TypeScript, Python, Racket). The TypeScript binding also compiles to
 WebAssembly, so the same session runs in the browser. The [CapTP
 CLI]($link.page('cli')) exposes the same operations from a shell. `zig build`

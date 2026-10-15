@@ -311,9 +311,9 @@ Named costs are:
   recursive walk
 - queue widening pays only the costs accepted and measured by ADR-0099
 
-The `HostSession` ceiling is 528 bytes. The Vat is charged once per Host.
-[The footprint table](../../ladder.md#2-performance-at-scale) records the current
-session and Host costs.
+The `HostSession` ceiling is `host_session_struct_budget_bytes`. The Vat is charged once per Host.
+The [performance page](../../../site/content/performance.smd) charts the
+current session and Host costs.
 The warmed-session footprint, allocation budgets, and ordinary-send
 performance tripwire keep their ceilings. The saving is not headroom for eager
 routing tables.
@@ -344,7 +344,7 @@ These production-Host scenarios hold the decision:
    separately prove that fresh-key peer/session selection preserves convergence.
 8. Close a session, reuse its numeric ranges, and prove every stale Host ref
    fails closed.
-9. Run the identity and gift cases through native Zig, the C ABI, Wasm, and
+9. Run the identity and gift cases through Zig, the C ABI, Wasm, and
    every binding. Strengthen the live Goblins exporter fixture to mutate and
    invoke the withdrawn object instead of checking only descriptor shape.
 10. Restore a Host Vat while two sessions remain live and remove a target still

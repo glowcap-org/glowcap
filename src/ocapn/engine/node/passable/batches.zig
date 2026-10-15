@@ -47,7 +47,7 @@ pub const Destination = union(enum) {
     relayed: proxy_topology.Recipient,
 };
 
-const Batch = struct {
+pub const Batch = struct {
     recipient_peer: PeerHandle,
     allocator: std.mem.Allocator,
     payload: passable.Payload,
@@ -60,7 +60,7 @@ const Batch = struct {
     ready: usize = 0,
     terminal_action_reservations: usize,
 
-    fn deinit(self: *Batch, node: *Node) void {
+    pub fn deinit(self: *Batch, node: *Node) void {
         // `removePeer` retires a recipient's batches before the Peer goes, and
         // `Node.deinit` retires every batch before any Peer; the occurrence row
         // was counted when the batch was staged.
@@ -101,202 +101,6 @@ const Batch = struct {
         self.* = undefined;
     }
 };
-
-/// Adopt an outbound carrier only when it needs cross-session projection.
-pub fn stageOutbound(
-    self: *Node,
-    recipient_peer: PeerHandle,
-    semantic: *passable.Outbound,
-) engine.node_services.OutboundStagingError!bool {
-    const failure_target = semantic.failureTarget();
-    var payload: passable.Payload = .{ .outbound = semantic.* };
-    var destination: Destination = .outbound;
-    const staged = stage(self, recipient_peer, &payload, &destination, failure_target) catch |err| {
-        semantic.* = payload.outbound;
-        return err;
-    };
-    if (!staged) semantic.* = payload.outbound;
-    return staged;
-}
-
-/// One recursive staging transaction for every Passable tree crossing a
-/// session boundary. Ordinary outbound messages and relayed promise
-/// settlements differ only at their terminal owner.
-pub fn stage(
-    self: *Node,
-    recipient_peer: PeerHandle,
-    payload: *passable.Payload,
-    destination: *Destination,
-    failure_target: ?passable.FailureTarget,
-) engine.node_services.OutboundStagingError!bool {
-    const recipient = self.peer(recipient_peer) orelse return error.RouteNotLowerable;
-    // This shared model walk both measures the retained message and rejects
-    // trees beyond the hard recursion ceiling before the staging passes.
-    const message_charge = try payload.retainedBytes();
-    const counts = try walk.count(self, recipient_peer, payload.*);
-    const projection_count = try counts.total();
-    if (projection_count == 0) return false;
-    if (projection_count > recipient.limits().queue_cap or counts.objects > std.math.maxInt(u32))
-        return error.QueueCapExceeded;
-    const batches = &self.inline_passable_batches;
-    const current_occurrences = batches.occurrences_by_recipient.get(recipient_peer) orelse 0;
-    const next_occurrences = std.math.add(usize, current_occurrences, projection_count) catch
-        return error.QueueCapExceeded;
-    if (next_occurrences > recipient.limits().queue_cap or
-        batches.rows.count() >= recipient.limits().queue_cap)
-        return error.QueueCapExceeded;
-    if (batches.next_id == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
-    try batches.rows.ensureUnusedCapacity(self.allocator, 1);
-    try gift_tickets.ensureUnusedCapacity(self, @intCast(counts.objects));
-    if (current_occurrences == 0)
-        try batches.occurrences_by_recipient.ensureUnusedCapacity(self.allocator, 1);
-    // Completion needs one Host-retain release per projection, exporter/home
-    // flushes, one future promise-settlement flush, and for ordinary outbound
-    // one recipient flush. Failure uses that final correlated terminal seat.
-    const object_completion = std.math.mul(usize, counts.objects, 2) catch
-        return error.OutOfMemory;
-    const promise_completion = std.math.mul(usize, counts.promises, 3) catch
-        return error.OutOfMemory;
-    const completion_without_recipient = std.math.add(
-        usize,
-        object_completion,
-        promise_completion,
-    ) catch return error.OutOfMemory;
-    const recipient_completion: usize = if (destination.* == .outbound) 1 else 0;
-    const terminal_reservations = std.math.add(
-        usize,
-        completion_without_recipient,
-        recipient_completion,
-    ) catch return error.OutOfMemory;
-    const action_reservations = std.math.add(usize, counts.objects, terminal_reservations) catch
-        return error.OutOfMemory;
-    try actions.reserve(self, action_reservations);
-
-    const staging_reservation = try recipient.reserveInlinePassableStaging(message_charge);
-    var staging_reservation_owned = true;
-    errdefer if (staging_reservation_owned)
-        recipient.cancelInlinePassableStaging(staging_reservation);
-
-    const gifts = try recipient.allocator.alloc(passable.Gift, counts.objects);
-    var gifts_owned = true;
-    errdefer if (gifts_owned) recipient.allocator.free(gifts);
-    const promises = try recipient.allocator.alloc(passable.PromiseProjection, counts.promises);
-    var promises_owned = true;
-    errdefer if (promises_owned) recipient.allocator.free(promises);
-    try walk.collect(self, recipient_peer, payload.*, gifts, promises);
-    var claimed_leases: usize = 0;
-    errdefer {
-        var remaining = claimed_leases;
-        for (gifts) |gift| {
-            if (remaining == 0) break;
-            Internal.unclaimOutboundStagingLease(self, gift.route_id, gift.capability_lease.?);
-            remaining -= 1;
-        }
-        for (promises) |promise| {
-            if (remaining == 0) break;
-            Internal.unclaimOutboundStagingLease(self, promise.route_id, promise.capability_lease.?);
-            remaining -= 1;
-        }
-    }
-    if (self.outbound_staging_leases != null) {
-        for (gifts) |*gift| {
-            gift.capability_lease = Internal.claimOutboundStagingLease(self, gift.route_id) orelse
-                return error.RouteNotLowerable;
-            claimed_leases += 1;
-        }
-        for (promises) |*promise| {
-            promise.capability_lease = Internal.claimOutboundStagingLease(self, promise.route_id) orelse
-                return error.RouteNotLowerable;
-            claimed_leases += 1;
-        }
-    }
-
-    // An outbound carrier keeps its place in the recipient's queue while it
-    // stages, so later sends to that recipient cannot overtake it.
-    const staged_row: ?engine.Peer.PendingReservation = if (destination.* == .outbound)
-        try recipient.reserveStagedRow()
-    else
-        null;
-    var staged_row_owned = staged_row != null;
-    errdefer if (staged_row_owned) recipient.cancelPendingReservation(staged_row.?);
-    const staged_deliver = switch (payload.*) {
-        .outbound => |carrier| carrier == .message and carrier.message == .deliver,
-        .relayed_resolution => false,
-    };
-
-    const staged_answer = switch (payload.*) {
-        .outbound => |carrier| if (carrier == .message and carrier.message == .deliver)
-            carrier.message.deliver.answer
-        else
-            null,
-        .relayed_resolution => null,
-    };
-
-    // This is the last fallible step before publication. The Node-wide ticket
-    // range commits once, then every batch row/action below publishes
-    // infallibly without wrapping into an older effect generation.
-    const first_ticket = try actions.claimTicketRange(self, counts.objects);
-    const batch_id: passable.BatchId = @fromBackingInt(@intCast(batches.next_id));
-    batches.rows.putAssumeCapacity(batch_id, .{
-        .recipient_peer = recipient_peer,
-        .allocator = recipient.allocator,
-        .payload = payload.*,
-        .destination = destination.*,
-        .failure_target = failure_target,
-        .staging_reservation = staging_reservation,
-        .gifts = gifts,
-        .promises = promises,
-        .terminal_action_reservations = terminal_reservations,
-    });
-    if (current_occurrences == 0)
-        batches.occurrences_by_recipient.putAssumeCapacity(recipient_peer, next_occurrences)
-    else
-        batches.occurrences_by_recipient.getPtr(recipient_peer).?.* = next_occurrences;
-    staging_reservation_owned = false;
-    gifts_owned = false;
-    promises_owned = false;
-    payload.* = undefined;
-    destination.* = undefined;
-    batches.next_id += 1;
-    batches.action_reservations += terminal_reservations;
-    if (staged_row) |row| {
-        recipient.pushPendingAssume(row, .{ .staged = .{ .batch = batch_id, .deliver = staged_deliver, .answer = staged_answer } });
-        staged_row_owned = false;
-    }
-
-    for (gifts, 0..) |gift, index| {
-        const ticket = first_ticket + @as(u64, @intCast(index));
-        gift_tickets.publishInlineAssumeCapacity(self, ticket, recipient_peer, gift.route_id, .{
-            .batch = batch_id,
-            .gift_index = @intCast(index),
-        });
-        actions.pushReserved(self, .{ .need_gift_id = .{ .ticket = ticket } });
-    }
-    if (gifts.len == 0) {
-        finish(self, batch_id) catch |err| {
-            // `finish` removes the row only after its last refusal point.
-            const failed = batches.rows.getPtr(batch_id) orelse unreachable;
-            if (!failed.payload_owned) {
-                // Peer consumed the message before its final refusal. No
-                // caller-owned value remains; use the correlated barrier.
-                fail(self, batch_id, err);
-                return true;
-            }
-            var restored = (batches.rows.fetchRemove(batch_id) orelse unreachable).value;
-            // The caller gets its carrier back, so no row holds its place.
-            std.debug.assert(recipient.removeStagedRow(batch_id) != .absent);
-            spendTerminalReservations(self, &restored);
-            unclaimProjectionLeases(self, &restored);
-            payload.* = restored.payload;
-            restored.payload_owned = false;
-            destination.* = restored.destination;
-            restored.destination = .outbound;
-            restored.deinit(self);
-            return err;
-        };
-    }
-    return true;
-}
 
 /// A provisional window on `peer_handle` closed. Each proxy recipient its sends
 /// committed is kept or, on retraction, withdrawn newest first, after the
@@ -404,7 +208,7 @@ const ExporterPreparation = struct {
     batch: ?engine.Peer.PendingBatch = null,
 };
 
-fn spendTerminalReservations(self: *Node, batch: *Batch) void {
+pub fn spendTerminalReservations(self: *Node, batch: *Batch) void {
     std.debug.assert(self.inline_passable_batches.action_reservations >=
         batch.terminal_action_reservations);
     self.inline_passable_batches.action_reservations -= batch.terminal_action_reservations;
@@ -421,7 +225,7 @@ fn queuePromiseLeaseReleases(self: *Node, promises: []const passable.PromiseProj
         actions.pushReserved(self, .{ .release_capability = capability_raw });
 }
 
-fn unclaimProjectionLeases(self: *Node, batch: *Batch) void {
+pub fn unclaimProjectionLeases(self: *Node, batch: *Batch) void {
     for (batch.gifts) |*gift| if (gift.capability_lease) |capability_raw| {
         Internal.unclaimOutboundStagingLease(self, gift.route_id, capability_raw);
         gift.capability_lease = null;
@@ -469,7 +273,7 @@ fn takeForTerminal(self: *Node, batch_id: passable.BatchId) ?Batch {
     return batch;
 }
 
-fn finish(self: *Node, batch_id: passable.BatchId) !void {
+pub fn finish(self: *Node, batch_id: passable.BatchId) !void {
     const batch = self.inline_passable_batches.rows.getPtr(batch_id) orelse return;
     if (batch.ready != batch.gifts.len) return;
     const recipient = self.peer(batch.recipient_peer) orelse return error.RouteNotLowerable;
@@ -534,29 +338,35 @@ fn finish(self: *Node, batch_id: passable.BatchId) !void {
         .outbound => {
             switch (batch.payload.outbound) {
                 .message => |message| {
-                    // Validate while the batch owns the message. Peer.send
+                    // Validate while the batch owns the message. The enqueue
                     // consumes on every outcome, so refusal precedes that edge.
+                    const inventory = try recipient.session_state.inventoryMessage(message);
+                    defer inventory.deinit(recipient.allocator);
                     try recipient.session_state.admits(model.view.Body.fromOwned(&message));
-                    try session_mod.validate.validateSend(&recipient.session_state, message);
+                    try session_mod.validate.validateSend(&recipient.session_state, message, inventory);
                     recipient.cancelInlinePassableStaging(batch.staging_reservation.?);
                     batch.staging_reservation = null;
                     const rows_before = recipient.pending_send.pending().len;
-                    const send_result = recipient.send(message);
+                    const send_result = outbound.enqueueInventoried(recipient, message, inventory);
                     batch.payload_owned = false;
                     projections_rewritten = false;
                     try send_result;
                     recipient.fillStagedRow(batch_id, recipient.pending_send.pending().len - rows_before);
                 },
                 .answer_settlement => |settlement| {
+                    const inventory = try recipient.session_state.inventoryResolution(settlement.resolution);
+                    defer inventory.deinit(recipient.allocator);
                     try recipient.session_state.validateAnswerSettlement(
                         settlement.target,
                         settlement.payload,
                         settlement.resolution,
+                        inventory,
                     );
                     const rows_before = recipient.pending_send.pending().len;
                     const enqueue_result = outbound.enqueueStagedAnswerSettlementOwned(
                         recipient,
                         settlement,
+                        inventory,
                         &batch.staging_reservation,
                     );
                     batch.payload_owned = false;
@@ -574,7 +384,9 @@ fn finish(self: *Node, batch_id: passable.BatchId) !void {
         },
         .relayed => |*proxy_recipient| {
             const resolution = batch.payload.relayed_resolution;
-            try recipient.session_state.validateStoredResolution(resolution);
+            const inventory = try recipient.session_state.inventoryResolution(resolution);
+            defer inventory.deinit(recipient.allocator);
+            try recipient.session_state.validateStoredResolution(resolution, inventory);
             const imported = recipient.session_state.findImportedPromise(
                 .from(proxy_recipient.import_pos),
             ) orelse return error.InvalidReference;

@@ -25,7 +25,7 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
             if (mode == .skills) {
                 const path = try std.fs.path.join(alloc, &.{ root, "share/glowcap/skills" });
                 if (!runtime.exists(ctx, path)) {
-                    log.err(ctx.io, "missing installed skills; install the complete glowcap package", .{});
+                    log.err(ctx.io, "missing installed skills. Install the complete glowcap package", .{});
                     return 1;
                 }
                 try @import("../../argv.zig").writeStdout(ctx.io, try std.fmt.allocPrint(alloc, "{s}\n", .{path}));
@@ -41,7 +41,7 @@ pub fn run(comptime name: []const u8, comptime mode: Mode) *const fn (*Ctx, *Par
                 try arguments.append(alloc, try std.fmt.allocPrint(alloc, "--server={s}", .{server}));
                 const assets = parsed.flagString("assets") orelse try std.fs.path.join(alloc, &.{ root, "share/glowcap/rooms" });
                 if (!runtime.exists(ctx, assets)) {
-                    log.err(ctx.io, "missing prepared browser assets at {s}; install the complete glowcap package (contributors: zig build rooms-build)", .{assets});
+                    log.err(ctx.io, "missing prepared browser assets at {s}. Install the complete glowcap package (contributors: zig build rooms-build)", .{assets});
                     return 1;
                 }
                 try arguments.appendSlice(alloc, &.{ "--prepared", try std.fmt.allocPrint(alloc, "--assets={s}", .{assets}) });

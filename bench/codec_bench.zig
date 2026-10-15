@@ -36,6 +36,41 @@ fn benchMessage() model.Message {
     } };
 }
 
+/// The `report` call the round-trip benches send (`bench/iroh_bench.zig`): a
+/// source name, eight tags, sixty-four integer readings, and a timestamp.
+/// Its cost is per value, so it shows what the decoder pays for each element
+/// of a list rather than for the frame.
+const report_tags = [_]model.Argument{
+    .{ .string = "site:north-shed" },
+    .{ .string = "unit:percent" },
+    .{ .string = "calibrated" },
+    .{ .string = "interval:1s" },
+    .{ .string = "sensor:sht45" },
+    .{ .string = "firmware:2.4.1" },
+    .{ .string = "battery:ok" },
+    .{ .string = "quality:raw" },
+};
+const report_samples = blk: {
+    var samples: [64]model.Argument = undefined;
+    for (&samples, 0..) |*sample, i| sample.* = .{ .integer = 349_000 + @as(i64, @intCast(i)) * 37 };
+    break :blk samples;
+};
+const report_args = [_]model.Argument{
+    .{ .symbol = "report" },
+    .{ .string = "sensor-17/humidity" },
+    .{ .list = &report_tags },
+    .{ .list = &report_samples },
+    .{ .integer = 1_760_400_000 },
+};
+
+fn reportMessage() model.Message {
+    return .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(5) },
+        .args = &report_args,
+        .answer = .from(7),
+    } };
+}
+
 /// Monotonic clock read in nanoseconds. `.awake` is `CLOCK_MONOTONIC`.
 fn nowNs(io: std.Io) f64 {
     return @floatFromInt(std.Io.Clock.now(.awake, io).nanoseconds);
@@ -47,6 +82,7 @@ fn benchEncode(
     io: std.Io,
     allocator: std.mem.Allocator,
     codec_id: model.CodecId,
+    call: []const u8,
     message: model.Message,
     iters: usize,
 ) !void {
@@ -62,7 +98,7 @@ fn benchEncode(
         std.mem.doNotOptimizeAway(frame.bytes().len);
         frame.deinit();
     }
-    report("encode", codec_id, iters, frame_len, nowNs(io) - start);
+    report("encode", codec_id, call, iters, frame_len, nowNs(io) - start);
 }
 
 /// Decode (project a borrowed view of) the same encoded frame `iters` times.
@@ -71,6 +107,7 @@ fn benchDecode(
     io: std.Io,
     allocator: std.mem.Allocator,
     codec_id: model.CodecId,
+    call: []const u8,
     message: model.Message,
     iters: usize,
 ) !void {
@@ -85,7 +122,36 @@ fn benchDecode(
         const body = try codec.dispatch.decodeBody(codec_id, view);
         std.mem.doNotOptimizeAway(&body);
     }
-    report("decode", codec_id, iters, frame_len, nowNs(io) - start);
+    report("decode", codec_id, call, iters, frame_len, nowNs(io) - start);
+}
+
+/// Decode the same frame `iters` times into the argument room the engine
+/// lends a frame of this size (`engine.events.headViewsFor`), the
+/// production shape: every list is parsed once into views, so this is the
+/// decoder's whole per-value cost and nothing is left for a later walk.
+fn benchDecodeInto(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    codec_id: model.CodecId,
+    call: []const u8,
+    message: model.Message,
+    iters: usize,
+) !void {
+    var frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, message);
+    defer frame.deinit();
+    const frame_len = frame.bytes().len;
+    const view = frame.view();
+    const views = try allocator.alloc(model.view.Argument, engine.events.headViewsFor(frame_len));
+    defer allocator.free(views);
+
+    const start = nowNs(io);
+    var i: usize = 0;
+    while (i < iters) : (i += 1) {
+        var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(views));
+        const body = try codec.dispatch.decodeBodyInto(codec_id, model.CaptpVersion.v1_0, view, &slab);
+        std.mem.doNotOptimizeAway(&body);
+    }
+    report("decode-into", codec_id, call, iters, frame_len, nowNs(io) - start);
 }
 
 /// Steady-state inbound dispatch: feed a borrowed `op:deliver` to a live export
@@ -141,13 +207,15 @@ fn benchSparseExportTable(io: std.Io, allocator: std.mem.Allocator, count: usize
     );
 }
 
-fn report(op: []const u8, codec_id: model.CodecId, iters: usize, frame_len: usize, elapsed_ns: f64) void {
+/// One structured line per measurement. The site report reads the `greet`
+/// lines by their leading fields (`bench/site_report.rkt`), so `call` trails.
+fn report(op: []const u8, codec_id: model.CodecId, call: []const u8, iters: usize, frame_len: usize, elapsed_ns: f64) void {
     const ns_per: f64 = elapsed_ns / @as(f64, @floatFromInt(iters));
     const total_bytes: f64 = @floatFromInt(iters * frame_len);
     const mb_per_sec: f64 = (total_bytes / 1_000_000.0) / (elapsed_ns / 1_000_000_000.0);
     std.debug.print(
-        "{s} codec={s} iters={d} frame_bytes={d} ns_per_op={d:.1} mb_per_sec={d:.0} mode={s}\n",
-        .{ op, @tagName(codec_id), iters, frame_len, ns_per, mb_per_sec, @tagName(builtin.mode) },
+        "{s} codec={s} iters={d} frame_bytes={d} ns_per_op={d:.1} mb_per_sec={d:.0} mode={s} call={s}\n",
+        .{ op, @tagName(codec_id), iters, frame_len, ns_per, mb_per_sec, @tagName(builtin.mode), call },
     );
 }
 
@@ -161,8 +229,14 @@ pub fn main() !void {
 
     const codec_iters: usize = 200_000;
     for ([_]model.CodecId{ .syrup, .capnp }) |codec_id| {
-        try benchEncode(io, allocator, codec_id, message, codec_iters);
-        try benchDecode(io, allocator, codec_id, message, codec_iters);
+        try benchEncode(io, allocator, codec_id, "greet", message, codec_iters);
+        try benchDecode(io, allocator, codec_id, "greet", message, codec_iters);
+        try benchDecodeInto(io, allocator, codec_id, "greet", message, codec_iters);
+    }
+    const report_message = reportMessage();
+    for ([_]model.CodecId{ .syrup, .capnp }) |codec_id| {
+        try benchEncode(io, allocator, codec_id, "report", report_message, codec_iters);
+        try benchDecodeInto(io, allocator, codec_id, "report", report_message, codec_iters);
     }
 
     try benchDispatch(io, allocator, 50_000);

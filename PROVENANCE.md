@@ -61,18 +61,13 @@ A paid commercial forge avoids both conflicts.
 protocol fixtures, and allocation budgets written inside this repository.
 Those checks show that glowcap agrees with its own expectations.
 
-External evidence is separate:
-
-- `zig build ocapn-conformance` runs every portable upstream OCapN test module
-  except its TCP-reset-sensitive `op:abort` case, then runs glowcap's stricter
-  pre-setup abort and handshake-refusal probe against the same peer.
-- `zig build goblins-interop` runs a two-way conversation with a live
-  [Spritely Goblins](https://spritely.institute/goblins/) vat.
-- `zig build goblins-handoff`, `goblins-gift`, and `goblins-exporter` exercise
-  glowcap in each three-party handoff role against Goblins.
+External evidence is separate. [Community review](docs/community-review.md)
+lists each check against the upstream OCapN suite and live
+[Spritely Goblins](https://spritely.institute/goblins/) peers, and what each
+one proves.
 
 The external checks pin their direct inputs rather than pulling whatever a
-package catalog serves today:
+package catalog serves:
 
 - OCapN conformance dependencies and the Python WebSocket proofs use committed
   `uv` locks.
@@ -86,7 +81,6 @@ package catalog serves today:
   major tag is kept beside each one only to help review, and an upgrade
   changes both together.
 
-[Community review](docs/community-review.md) distinguishes in-tree evidence
-from outside evidence. [Known boundaries](docs/boundaries.md) records what the
-checks do not establish. If a named check does not support the claim attached
+[Known limitations](docs/boundaries.md) records what the checks do not
+establish. If a named check does not support the claim attached
 to it, please report that as a bug.

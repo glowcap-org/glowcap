@@ -140,7 +140,7 @@
 ;; every actor in this vat into a retained, revisable behavior history reachable
 ;; through `vat-snapshot` / `vat-restore!`; the default vat keeps no history and
 ;; its turn path is the in-place box write below, unchanged. This is the
-;; adapter-local Racket actor runtime, not the native Vat owned by GlowcapHost. A
+;; adapter-local Racket actor runtime, not the FFI Vat owned by GlowcapHost. A
 ;; connection builds one and installs the far half; an application uses
 ;; `session-vat`.
 (define (make-vat #:time-travel? [time-travel? #f])

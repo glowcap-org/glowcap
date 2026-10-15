@@ -1,5 +1,5 @@
 //! Bounded discovery retained by one session directory owner. Insertion order
-//! is presentation order. Lookup scans at most 128 admitted rows.
+//! is presentation order. Lookup scans at most `MAX_ROWS` admitted rows.
 use super::fields::Id;
 use crate::{
 	directory::{Event, Member, MemberChange, RoomChange, RoomInfo, Snapshot},

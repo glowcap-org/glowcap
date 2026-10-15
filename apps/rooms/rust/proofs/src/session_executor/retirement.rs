@@ -519,7 +519,7 @@ async fn run_case(scenario: Scenario, mode: &str) {
 					.send(
 						&root,
 						"derive-managed",
-						&terms.managed_derive_arguments(sequence, 1, powers),
+						&terms.managed_derive_arguments(sequence, Scope::Object, 1, powers),
 					)
 					.await
 					.unwrap();

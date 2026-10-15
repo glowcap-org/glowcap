@@ -20,4 +20,5 @@ path = "src/main.rs"
 # relative to its own manifest.
 [dependencies]
 glowcap = { path = "../../../../bindings/rust", package = "glowcap-rust-dogfood", default-features = false, features = ["async", "tcp"] }
+# dep tokio: The async runtime for the Rust benchmark client.
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

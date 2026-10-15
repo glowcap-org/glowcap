@@ -1,7 +1,7 @@
 // The archive record as the Rust runtime writes it: one JSON document per
 // record, keyed as its disk archive and its browser projection key it.
-// `protocol.ts` owns the wire row the archive verbs carry and the validator
-// behind it. This module owns the document in both directions, so a record
+// `protocol.ts` owns the wire row the archive verbs carry, and `record.ts`
+// owns the validator behind both. This module owns the document in both directions, so a record
 // crossing from the wasm session is parsed at that boundary and not trusted
 // across it, and a record handed back for its bytes is written in the form the
 // runtime reads.

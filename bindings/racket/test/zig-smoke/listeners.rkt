@@ -21,7 +21,7 @@
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
          (only-in "../../private/finalizer-diagnostics.rkt"
-                  record-runtime-failure! run-native-finalizer!)
+                  record-runtime-failure! run-ffi-finalizer!)
          (only-in "../../private/ws-transport.rkt" ws-transport)
          (only-in "../../relay.rkt" relay-pump exn:fail:relay?
                   exn:fail:relay-primary exn:fail:relay-secondary)
@@ -43,7 +43,7 @@
                   driver-loop-has-transport?
                   loop-listen! loop-listener-ready! loop-listener-locator
                   loop-listener-close!)
-         "../../private/native-parent.rkt"
+         "../../private/ffi-parent.rkt"
          (only-in "../../private/value.rkt" make-ref/internal)
          "support.rkt"
          racket/tcp)
@@ -92,8 +92,8 @@
 
 (printf "racket zig-smoke OK: a rude probe cannot close the listener\n")
 
-;; Host teardown owns the native loop. An accept at the public boundary must
-;; wake terminally before native Host state disappears, never retain the place.
+;; Host teardown owns the driver loop. An accept at the public boundary must
+;; wake terminally before FFI Host state disappears, never retain the place.
 (define hc-server (listen "127.0.0.1" 0))
 (define hc-started (make-semaphore 0))
 (define hc-result (make-channel))
@@ -113,7 +113,7 @@
         "Host release: a parked listener accept did not fail promptly")
 (thread-wait hc-accept)
 
-(printf "racket zig-smoke OK: Host release stops native listener admission\n")
+(printf "racket zig-smoke OK: Host release stops FFI listener admission\n")
 
 ;; A bare server owns the Host it created, but listener close is not permission
 ;; to revoke a session already yielded to the application. Retirement waits for
@@ -150,7 +150,7 @@
         "bare server did not retire its Host after the last yielded session")
 (printf "racket zig-smoke OK: bare server retirement waits for yielded sessions\n")
 
-;; A supplied Host is transferred into the native TCP loop, and listener close
+;; A supplied Host is transferred into the FFI TCP loop, and listener close
 ;; stops new admission without destroying a session already yielded to the
 ;; application. The exact wrapper identity is the authority proof.
 (define supplied-tcp-host (make-fresh-host))
@@ -252,7 +252,7 @@
     #f))
 (expect (and wildcard-error
              (= ERR-INVALID-ARGUMENT (exn:fail:glowcap-code wildcard-error)))
-        "native listener admission: a wildcard bind requires an advertised host")
+        "FFI listener admission: a wildcard bind requires an advertised host")
 (define ca-server
   (listen "0.0.0.0" 0
           #:advertised-host "127.0.0.1"))
@@ -277,22 +277,22 @@
        (open-test-session (tcp-locator "127.0.0.1" (server-port ca-server))))))))
 (define ca-session (sync/timeout 2 ca-client-ch))
 (expect (and ca-session (not (exn? ca-session)))
-        "native listener admission: a silent peer parked the next handshake")
+        "FFI listener admission: a silent peer parked the next handshake")
 (expect (sync/timeout 2 (semaphore-peek-evt ca-ready))
-        "native listener admission: the real peer was not published")
+        "FFI listener admission: the real peer was not published")
 (expect (equal? (partner-identity-designator (session-partner-identity ca-session))
                 (tcp-address-designator "127.0.0.1" (server-port ca-server)))
-        "native listener admission: the signed locator uses explicit reachability")
+        "FFI listener admission: the signed locator uses explicit reachability")
 (define ca-cap (session-fetch ca-session "svc"))
 (expect (equal? (sym "alive") (session-send ca-session ca-cap 'ping))
-        "native listener admission: the real peer remained usable")
+        "FFI listener admission: the real peer remained usable")
 (session-close! ca-session)
 (close-output-port ca-silent-out)
 (close-input-port ca-silent-in)
 (void (sync/timeout 2 (thread-dead-evt ca-host)))
 (server-close! ca-server)
 
-(printf "racket zig-smoke OK: native listener admission bypasses a silent peer and wildcard reachability is explicit\n")
+(printf "racket zig-smoke OK: FFI listener admission bypasses a silent peer and wildcard reachability is explicit\n")
 
 ;; ── Relay listeners honor the Host profile knobs ─────────────────────────────
 ;; The relay listeners walk the same setup spine as the TCP listeners, so a

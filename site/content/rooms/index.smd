@@ -11,9 +11,8 @@ session holds the rooms you are in and answers when someone messages you.
 Talk to another member and the room stays out of it. Take your session with
 you: keep it on this device, open it on another, or run it on a server so it
 is always on. Rooms also speaks [IRC](https://en.wikipedia.org/wiki/IRC) in
-both directions, and you can host it
-yourself, with history, admin controls, and a live view of what crosses the
-wire.
+both directions, and you can host it yourself, with history, admin controls,
+and a live view of what crosses the wire.
 
 [A team at work: one person and four bots in a room. On the left, the room and a direct conversation with the lead. In the middle, the plan and each member's findings. On the right, every member, each with a message button.]($image.siteAsset('rooms-conversation-dark.webp'))
 
@@ -22,9 +21,9 @@ wire.
 The four bots are ordinary members. Each one is a glowcap peer holding the
 same room the person holds, so a team of agents needs no bot API, no
 webhook, and no account. A bot joins by name, hears every line the room
-carries, and answers when you mention it. The [CapTP CLI]($link.page('cli')) ships that
-peer as `glowcap apps rooms session`, and the repository's rooms-team skill runs
-a whole roster of them under a human lead.
+carries, and answers when you mention it. The [CapTP CLI]($link.page('cli'))
+ships that peer as `glowcap apps rooms session`, so a script can start a whole
+team of them.
 
 # What you can do
 
@@ -45,7 +44,7 @@ a whole roster of them under a human lead.
 <h3>As a host</h3>
 <ul>
 <li>Serve rooms over encrypted iroh, as a Tor onion service, or over plain TCP while you develop.</li>
-<li>Keep room history in files or PostgreSQL, with limits you set and repair after a bad write.</li>
+<li>Keep room history in files, within fixed limits, with repair after an interrupted write.</li>
 <li>Bring an IRC channel in as a room, or let IRC users into your rooms.</li>
 <li>Hand out admin links for listeners, diagnostics, peering, IRC, the operator page, and the live wire view.</li>
 <li>Run the session and archive services with an identity that survives restarts.</li>
@@ -54,11 +53,10 @@ a whole roster of them under a human lead.
 </div>
 ```
 
-None of this needs an account. Registering gets you a name on one server.
-Joining a room gets you a seat you can speak from. Every line you post comes
-back with the one reference that can edit or delete it. Private rooms,
-invitations, moderation, shared history, and admin controls all work the same
-way: if you hold the reference, you can use it.
+None of this needs an account. Joining a room gets you a seat you can speak
+from, and every line you post comes back with the one reference that can edit
+or delete it. Private rooms, invitations, moderation, shared history, and admin
+controls work the same way: if you hold the reference, you can use it.
 
 The repository's
 [Rooms overview](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/README.md)
@@ -75,13 +73,13 @@ after it.
 
 That connection is WebRTC by default: the server passes along the connection
 details, and the messages go straight between the two of you. Where a
-network will not allow that, Settings offers a relay instead, encrypted the
-whole way, so the relay never sees a word.
-[Run Rooms]($link.page('rooms/start')) opens one, and
+network will not allow that, Settings offers **Through the room relay**,
+encrypted the whole way, so the relay never sees a word.
+[Run Rooms]($link.page('rooms/start')) opens a direct conversation, and
 [How Rooms works]($link.page('rooms/architecture')) follows the introduction
 step by step. It works the same way with people you meet in rooms on other
-servers, and [Rooms across directories]($link.page('rooms/directories'))
-shows how.
+servers, as [Rooms across directories]($link.page('rooms/directories'))
+shows.
 
 # Your session, wherever you go
 
@@ -92,7 +90,7 @@ other device can open it with the link, seeing the same rooms and the same
 conversations as they happen. Run the session service instead and your
 session is always on: it keeps your identity, your rooms, your connections,
 and your links, and wherever you open it, you are looking at the same thing.
-That includes every directory it holds, so rooms you joined on other servers
+That includes every Rooms server it has joined, so rooms on other servers
 come along too.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-dark.webp'))
@@ -111,10 +109,9 @@ session service.
 # What happens when you click
 
 A click is a request, not proof that it worked. Rooms writes down what you
-asked for, does it, and then shows you what happened. If it was
-refused before anything changed, you can try again. If nobody can say
-yet whether it worked, Rooms tells you that, rather than pretending it
-worked or quietly undoing it.
+asked for, does it, and then shows you what happened. If it was refused before
+anything changed, you can try again. If nobody can say yet whether it worked,
+Rooms tells you so.
 
 That rule covers joining, sending, editing, reconnecting, changing your name,
 keeping history, and sharing a session, in the browser and on the server alike.
@@ -123,7 +120,7 @@ keeping history, and sharing a session, in the browser and on the server alike.
 # Under the hood
 
 Rooms is written in Rust. The same crates run in your browser as
-WebAssembly and on the server as native services, so joining, sending, and
+WebAssembly and on the server as compiled programs, so joining, sending, and
 recovering mean the same thing in both places. Underneath sits glowcap's
 protocol core, written in Zig and reached through its C ABI, and TypeScript
 draws the screen. There is no API beyond OCapN itself: the server publishes

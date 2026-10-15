@@ -263,7 +263,7 @@ test "CapTP-normal desc:export listen on a proxied promise export installs a rel
 
     // Partner holds import N and listens with Goblins/suite encoding:
     // sender `.far` → wire `<desc:export N>` → holder receives `.near`.
-    try partner.sendCopying(.{ .listen = .{
+    try partner.sendBorrowed(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(export_pos.int()) },
         .listener = .{ .near = .{ .export_position = .from(9) } },
         .mode = .settling_only,
@@ -284,7 +284,7 @@ test "CapTP-normal desc:export listen on a proxied promise export installs a rel
 
     var fire_event = partner.pollEvent().?;
     defer fire_event.deinit();
-    const view = try fire_event.view();
+    const view = fire_event.view();
     try std.testing.expect(view.deliver.target == .near);
     try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
     try std.testing.expectEqualStrings("via-export", (try view.deliver.args.at(1)).bytes);
@@ -309,7 +309,7 @@ test "a listen on an already-resolved handoff-imported promise fires immediately
 
     // p1 listens; p2 installs the listener and fires it immediately from the
     // stored resolution.
-    try p1.sendCopying(.{ .listen = .{
+    try p1.sendBorrowed(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(export_pos.int()) },
         .listener = .{ .near = .{ .export_position = .from(9) } },
         .mode = .settling_only,
@@ -329,7 +329,7 @@ test "a listen on an already-resolved handoff-imported promise fires immediately
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
     var fire_event = p1.pollEvent().?;
     defer fire_event.deinit();
-    const view = try fire_event.view();
+    const view = fire_event.view();
     // The fire targets our own export 9, so it arrives as `.near` post-flip.
     try std.testing.expect(view.deliver.target == .near);
     try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
@@ -415,7 +415,7 @@ test "a second relay before the first fire encodes is refused and every listener
 
     // A late wire `op:listen` (installed after both relays) converges on the
     // same settled value: it fires immediately from the store with "first".
-    try p1.sendCopying(.{ .listen = .{
+    try p1.sendBorrowed(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(export_pos.int()) },
         .listener = .{ .near = .{ .export_position = .from(9) } },
         .mode = .settling_only,
@@ -455,7 +455,7 @@ test "a fire staled by row teardown and re-registration at the same import posit
     // Sending `op:gc-exports` for import 5 releases it fully; the imported-
     // promise row (and its stored payload) is co-evicted at record time,
     // while listener 9's carrier still sits in the send queue.
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
 
     // A *different* third-party promise is then registered at the reused
     // position and relays its own value before the stale carrier encodes.
@@ -510,7 +510,7 @@ test "a relayed resolution staled by row teardown and re-registration at the sam
     // row and its listener co-evict), then re-register a DIFFERENT third-party
     // promise (row R2, a fresh row id) at the reused position, with its own
     // listener.
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
     try peer.session_state.installThirdPartyImport(.from(5), "other-exporter");
     try peer.session_state.retainImportForSession(.from(11));
     try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(11) }, .mode = .settling_only });

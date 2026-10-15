@@ -176,6 +176,11 @@ const ScriptBackend = struct {
         return requested_ms;
     }
 
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *ScriptBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     pub fn poll(self: *ScriptBackend, out: []completion.Completion, _: i32) !usize {
         const n = @min(out.len, self.ready.items.len);
         @memcpy(out[0..n], self.ready.items[0..n]);
@@ -256,7 +261,7 @@ fn makePeer(_: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
     return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
 }
 
-test "native OnionLoop composes the onion adapter and completion Loop" {
+test "Zig OnionLoop composes the onion adapter and completion Loop" {
     if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
 
     comptime {

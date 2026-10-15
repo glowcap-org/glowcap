@@ -220,8 +220,10 @@ const discard_forms = [_][]const u8{
     "catch " ++ "{}",
     "catch |_| " ++ "{}",
     "catch " ++ "return;",
+    "catch " ++ "return,",
     "catch " ++ "continue;",
     "catch " ++ "break;",
+    "else |_| " ++ "{}",
 };
 
 /// The TypeScript discard forms: a rejection handler with an empty body, and
@@ -244,10 +246,13 @@ const ts_discard_forms = [_][]const u8{
 /// reported success, unjustified, it is indistinguishable from a bug.
 ///
 /// `tools/` is in scope because a checker that discards an error skips work
-/// it claims to have done, which is a false green. Vendored packages and
-/// generated trees are not first-party and are skipped.
+/// it claims to have done, which is a false green. `interop/`, `bench/`, and
+/// `conformance/` are in scope because a peer or bench that swallows a
+/// failure stalls until its deadline or reports a number it never measured.
+/// Vendored packages, pinned upstream submodules, and generated trees are not
+/// first-party and are skipped.
 ///
-/// First-party TypeScript under `apps/` and `tools/` is held to the same
+/// First-party TypeScript in the same trees is held to the same
 /// sentence: a `.catch(() => {})` or an empty `catch {}` marks a promise
 /// handled without naming who lost what. Test and proof files are the one
 /// named boundary, because their empty handlers sit in teardown after the
@@ -259,7 +264,7 @@ pub fn checkDiscardedErrors(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    for ([_][]const u8{ "src", "cli", "apps", "examples", "tools" }) |tree| {
+    for ([_][]const u8{ "src", "cli", "apps", "examples", "tools", "interop", "bench", "conformance" }) |tree| {
         var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to open for discarded-error check with {s}", .{ tree, @errorName(err) });
             continue;
@@ -299,10 +304,13 @@ fn firstPartyTypeScript(path: []const u8) bool {
         !std.mem.endsWith(u8, base, ".test.ts") and !std.mem.endsWith(u8, base, "_proof.ts");
 }
 
-/// Trees no first-party rule governs: extracted Zig packages, npm state, and
-/// build output that may sit under a scanned root.
+/// Trees no first-party rule governs: extracted Zig packages, npm state,
+/// pinned upstream submodules, and build output that may sit under a scanned
+/// root.
 fn vendoredOrGenerated(path: []const u8) bool {
     return std.mem.indexOf(u8, path, "zig-pkg/") != null or
+        std.mem.startsWith(u8, path, "upstream/") or
+        std.mem.indexOf(u8, path, "/upstream/") != null or
         std.mem.indexOf(u8, path, "node_modules/") != null or
         std.mem.indexOf(u8, path, ".zig-cache/") != null or
         std.mem.indexOf(u8, path, "zig-out/") != null;

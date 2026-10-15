@@ -14,6 +14,7 @@ const Vow = vat_mod.Vow;
 const VowLocation = vat_mod.VowLocation;
 const ListenerReservation = vat_mod.ListenerReservation;
 const Message = vat_mod.Message;
+const Delivery = vat_mod.Delivery;
 const IngressId = vat_mod.IngressId;
 const ResolveInterceptor = vat_mod.ResolveInterceptor;
 const Listener = vat_mod.Listener;
@@ -81,11 +82,55 @@ pub const Port = struct {
     }
 
     fn sendFarTo(self: *Port, vat: *Vat, target: model.Reference, msg: Message) Error!Vow {
-        const answer = model.AnswerPosition.from(self.peer.allocateAnswer() catch |err| switch (err) {
-            error.OutboundAnswerSpaceExhausted => return Error.ResourceExhausted,
-        });
+        const answer = try self.allocateAnswer();
         try farDeliverTo(vat, self, target, msg, answer);
         return .{ .far = answer };
+    }
+
+    /// `send` for a delivery whose arguments may be lent as views. The Port
+    /// decides how it leaves (ADR-0246): arguments behind an owned slice go
+    /// as that message, a far delivery whose views session validation
+    /// counted no reference in leaves as freight, certified and encoded in
+    /// place with nothing copied, and any other views are materialized once
+    /// into the vat's allocator and freed when the queue or the wire has
+    /// taken them.
+    pub fn sendDelivery(self: *Port, vat: *Vat, target: Ref, delivery: Delivery) Error!Vow {
+        return self.sendDeliveryFromIngress(vat, self.ingress, target, delivery);
+    }
+
+    pub fn sendDeliveryFromIngress(self: *Port, vat: *Vat, ingress: IngressId, target: Ref, delivery: Delivery) Error!Vow {
+        if (delivery.args.ownedSlice()) |args| return self.sendFromIngress(vat, ingress, target, .{ .verb = delivery.verb, .args = args });
+        if (ingress != self.ingress) return Error.UnknownIngress;
+        _ = try ingress_mod.ingressState(vat, ingress);
+        switch (target) {
+            .local => |id| return .{ .local = try enqueueLocalDelivery(vat, self, ingress, id, delivery, true) },
+            .far => |far| {
+                const answer = try self.allocateAnswer();
+                try farDeliverViews(vat, self, .{ .far = far }, delivery, answer);
+                return .{ .far = answer };
+            },
+        }
+    }
+
+    /// `sendDelivery` with no answer.
+    pub fn tellDelivery(self: *Port, vat: *Vat, target: Ref, delivery: Delivery) Error!void {
+        return self.tellDeliveryFromIngress(vat, self.ingress, target, delivery);
+    }
+
+    pub fn tellDeliveryFromIngress(self: *Port, vat: *Vat, ingress: IngressId, target: Ref, delivery: Delivery) Error!void {
+        if (delivery.args.ownedSlice()) |args| return self.tellFromIngress(vat, ingress, target, .{ .verb = delivery.verb, .args = args });
+        if (ingress != self.ingress) return Error.UnknownIngress;
+        _ = try ingress_mod.ingressState(vat, ingress);
+        switch (target) {
+            .local => |id| _ = try enqueueLocalDelivery(vat, self, ingress, id, delivery, false),
+            .far => |far| try farDeliverViews(vat, self, .{ .far = far }, delivery, null),
+        }
+    }
+
+    fn allocateAnswer(self: *Port) Error!model.AnswerPosition {
+        return .from(self.peer.allocateAnswer() catch |err| switch (err) {
+            error.OutboundAnswerSpaceExhausted => return Error.ResourceExhausted,
+        });
     }
 
     /// Promise-pipelined eventual-send through this Port's answer namespace.
@@ -267,40 +312,96 @@ pub const Port = struct {
     }
 };
 
-/// Encode one far `op:deliver` while the caller's message is borrowed. The
-/// outbound queue takes the one owned boundary clone. Only the verb-splice
-/// spine is scratch, stack-backed for the common arity. Inside a turn the Port
-/// enrolls first, so the send is retractable if the turn fails (ADR-0194).
-fn farDeliverTo(vat: *Vat, port: *Port, target: model.Reference, msg: Message, answer: ?model.AnswerPosition) Error!void {
+/// Views to a local actor are materialized once into the vat's allocator
+/// and freed after the queue copied them.
+fn enqueueLocalDelivery(vat: *Vat, port: *Port, ingress: IngressId, id: u64, delivery: Delivery, answered: bool) Error!u64 {
+    const message = try materialize(vat, delivery);
+    defer model.freeArgumentSlice(vat.allocator, message.args);
+    return ingress_mod.enqueueLocal(vat, ingress, port, id, message, answered);
+}
+
+fn materialize(vat: *Vat, delivery: Delivery) Error!Message {
+    return .{ .verb = delivery.verb, .args = delivery.args.toOwnedSlice(vat.allocator) catch |err| return switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        error.MalformedView => Error.MalformedView,
+    } };
+}
+
+/// Inside a turn the Port enrolls before a far send, so the send is
+/// retractable if the turn fails (ADR-0194), and an answered send reserves
+/// the break its retraction fires.
+fn enrollFarSend(vat: *Vat, port: *Port, answered: bool) Error!void {
     const peer = port.peer;
     if (vat.turn_depth != 0 and !peer.provisional) {
         try vat.enrollTurn(.{ .ctx = port, .commit = commitTurn, .abort = abortTurn });
         peer.openProvisional();
     }
-    const reserve_break = vat.turn_depth != 0 and answer != null;
-    if (reserve_break) try @import("turn_commit.zig").reserveBreak(vat);
-    errdefer if (reserve_break) {
-        vat.turn_break_reservations -= 1;
-    };
-    const has_verb = msg.verb.len > 0;
-    const total = msg.args.len + @intFromBool(has_verb);
+    if (vat.turn_depth != 0 and answered) try @import("turn_commit.zig").reserveBreak(vat);
+}
+
+fn releaseBreakReservation(vat: *Vat, answered: bool) void {
+    if (vat.turn_depth != 0 and answered) vat.turn_break_reservations -= 1;
+}
+
+/// The spine a far `op:deliver` is encoded from: the verb as a leading
+/// symbol, then `count` arguments the caller fills in from `head`. `buf`
+/// backs the common arity, and a longer spine comes from the vat's
+/// allocator, which the caller frees when the spine outgrew `buf`.
+fn verbSpine(comptime Elem: type, vat: *Vat, buf: []Elem, verb: []const u8, count: usize) Error!struct { spine: []Elem, head: usize } {
+    const has_verb = verb.len > 0;
+    const total = std.math.add(usize, count, @intFromBool(has_verb)) catch return Error.MalformedView;
+    const spine = if (total <= buf.len) buf[0..total] else try vat.allocator.alloc(Elem, total);
+    if (has_verb) spine[0] = .{ .symbol = verb };
+    return .{ .spine = spine, .head = @intFromBool(has_verb) };
+}
+
+/// Encode one far `op:deliver` while the caller's message is borrowed. The
+/// outbound queue takes the one owned boundary clone. Only the verb-splice
+/// spine is scratch.
+fn farDeliverTo(vat: *Vat, port: *Port, target: model.Reference, msg: Message, answer: ?model.AnswerPosition) Error!void {
+    const peer = port.peer;
+    try enrollFarSend(vat, port, answer != null);
+    errdefer releaseBreakReservation(vat, answer != null);
     var buf: [8]model.Argument = undefined;
-    const full = if (total <= buf.len)
-        buf[0..total]
-    else
-        try vat.allocator.alloc(model.Argument, total);
-    defer if (total > buf.len) vat.allocator.free(full);
-    var head: usize = 0;
-    if (has_verb) {
-        full[0] = .{ .symbol = msg.verb };
-        head = 1;
-    }
-    for (msg.args, 0..) |argument, i| full[head + i] = argument;
-    peer.sendCopying(.{ .deliver = .{
+    const spine = try verbSpine(model.Argument, vat, &buf, msg.verb, msg.args.len);
+    defer if (spine.spine.len > buf.len) vat.allocator.free(spine.spine);
+    for (msg.args, 0..) |argument, i| spine.spine[spine.head + i] = argument;
+    peer.sendBorrowed(.{ .deliver = .{
         .target = target,
-        .args = full,
+        .args = spine.spine,
         .answer = answer,
     } }) catch |err| return switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => Error.SendRejected,
+    };
+}
+
+/// `farDeliverTo` for a delivery lent as views. One session validation
+/// counted no reference in leaves as freight (ADR-0246): the verb is
+/// spliced ahead of the views in the same spine, and the peer certifies
+/// and encodes the tree in place. Any other views are materialized once,
+/// because the tree may name a reference the session must rewrite.
+fn farDeliverViews(vat: *Vat, port: *Port, target: model.Reference, delivery: Delivery, answer: ?model.AnswerPosition) Error!void {
+    if (delivery.reference_slots != 0) {
+        const message = try materialize(vat, delivery);
+        defer model.freeArgumentSlice(vat.allocator, message.args);
+        return farDeliverTo(vat, port, target, message, answer);
+    }
+    const peer = port.peer;
+    try enrollFarSend(vat, port, answer != null);
+    errdefer releaseBreakReservation(vat, answer != null);
+    var buf: [8]model.view.Argument = undefined;
+    const count = delivery.args.len() catch return Error.MalformedView;
+    const spine = try verbSpine(model.view.Argument, vat, &buf, delivery.verb, count);
+    defer if (spine.spine.len > buf.len) vat.allocator.free(spine.spine);
+    var head = spine.head;
+    var it = delivery.args.iterator();
+    while (it.next() catch return Error.MalformedView) |argument| : (head += 1) {
+        if (head == spine.spine.len) return Error.MalformedView;
+        spine.spine[head] = argument;
+    }
+    if (head != spine.spine.len) return Error.MalformedView;
+    peer.sendFreight(target, .fromViews(spine.spine), answer) catch |err| return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => Error.SendRejected,
     };

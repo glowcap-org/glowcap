@@ -8,11 +8,10 @@
 
 Rooms and [IRC](https://en.wikipedia.org/wiki/IRC), the chat protocol that
 has run open-source communities since 1988, connect both ways. A bridge
-follows an IRC channel and shows
-it in Rooms as a room. A gateway lets an ordinary IRC client join rooms on a
-Rooms server. Either way, the translation happens at the IRC connection and
-nowhere else. Inside Rooms, someone on IRC is a member like anyone else,
-with the same rooms, the same lines, and the same direct messages.
+follows an IRC channel and shows it in Rooms as a room. Rooms can also act as an IRC
+server, so an ordinary IRC client can join its rooms. Either way, the translation
+happens at the IRC connection and nowhere else. Inside Rooms, someone on IRC is
+a member like anyone else, with the same rooms, lines, and direct messages.
 
 # Follow an IRC channel as a room
 
@@ -39,7 +38,7 @@ server's problem log, and it is forgotten when you remove the bridge.
 # Join Rooms from an IRC client
 
 ```sh
-zig build rooms-irc-front -- --directory=127.0.0.1:9099
+zig build rooms-irc-server -- --directory=127.0.0.1:9099
 ```
 
 Point your IRC client at `127.0.0.1:6667`, pick a nickname, and join a
@@ -74,8 +73,8 @@ Lines marked `>` came from the client, and lines marked `<` came back:
 
 Each IRC connection gets its own references: to the server, to the rooms it
 joined, and to the direct conversations it was introduced into. So a private
-message from IRC is a real Rooms direct conversation. It ends at the gateway,
-because an IRC client cannot hold a reference itself, and the gateway makes no
+message from IRC is a real Rooms direct conversation. It ends at the IRC server,
+because an IRC client cannot hold a reference itself, and the server makes no
 claim about who is at the keyboard.
 
 Anything IRC cannot show arrives as a notice instead of half a message:
@@ -91,19 +90,19 @@ removing the network takes its channels and its saved settings with it.
 
 Names in Rooms are still just names on one server. The bridge can pair an
 IRC nickname with a Rooms member without turning either into an account. A
-direct conversation is tied to the registration it was opened with, so
-someone who later takes the same nickname does not inherit it.
+direct conversation belongs to the member it was opened with, so someone who
+later takes the same nickname does not inherit it.
 
-# What keeps it steady
+# Limits
 
-The gateway allows a limited number of clients, rooms, direct conversations,
+The IRC server allows a limited number of clients, rooms, direct conversations,
 and queued lines. The bridge limits how many channels it follows, how much
 it buffers, how long it waits to register, how fast it sends, and how it
 reconnects. Shutting down waits for work in progress and keeps both the
 original problem and anything that went wrong while cleaning up.
 
-The tests open real IRC and glowcap connections, and they run both
-directions against a real [Spritely Goblins](https://spritely.institute/)
+The tests open real IRC and glowcap connections and run both directions
+against a real [Spritely Goblins](https://spritely.institute/)
 program, including a direct message it answers. The
 [IRC README](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/irc/README.md)
 lists every flag, the ways to deploy it, how IRC maps onto Rooms, and the

@@ -1,5 +1,5 @@
 //! Transport-provider package layout shared by standalone archives and the
-//! optional native driver loop.
+//! optional FFI driver loop.
 
 use core::ffi::{c_int, c_uchar, c_uint, c_void};
 

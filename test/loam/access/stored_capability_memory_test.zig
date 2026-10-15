@@ -48,8 +48,9 @@ test "access stored loaded checks allocate nothing and operation quotas recover"
     const reference_bytes = failing.allocated_bytes;
     const use = try c.use(&caps, backend, id);
     defer use.release();
-    // Loading a descriptor may allocate its cache buffer separately.
-    try std.testing.expect(failing.allocated_bytes - reference_bytes <= f.limits.records.max_record_bytes + 96);
+    // Loading a descriptor may reserve a maximum-size read buffer and then keep
+    // a copy of the record at its real size.
+    try std.testing.expect(failing.allocated_bytes - reference_bytes <= 2 * f.limits.records.max_record_bytes + 96);
     const operation_bytes = failing.allocated_bytes;
     const op = try use.begin(4);
     // Independent Issue and Edit ceilings each retain 256 selected IDs in

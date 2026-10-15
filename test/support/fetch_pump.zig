@@ -37,7 +37,7 @@ pub fn handshakeToOpen(
     conn: *net.Connection,
     start_session: model.Message,
 ) !void {
-    try peer.sendCopying(start_session);
+    try peer.sendBorrowed(start_session);
     const progress = try conn.runUntil(isOpen, 0);
     if (progress == .closed and !isOpen(peer)) return error.ClosedBeforeOpen;
     drainEvents(peer);

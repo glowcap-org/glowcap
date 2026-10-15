@@ -70,8 +70,8 @@ pub fn checkOracleCorpusRegistry(
     }
 }
 
-/// The site's protocol cheatsheet (`site/content/protocol.smd`) is a living-state
-/// surface: it names every wire label glowcap speaks — the `op:` messages, the
+/// The site's protocol cheatsheet (`site/content/protocol.smd`) is a static
+/// doc: it names every wire label glowcap speaks — the `op:` messages, the
 /// `desc:` reference descriptors, and the `ocapn-` locator records that address a
 /// peer. The Syrup codec is the authority for that vocabulary — OCapN settles the
 /// wire as Syrup, so every such record label appears there as a string literal.

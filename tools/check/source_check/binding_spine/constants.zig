@@ -147,9 +147,9 @@ pub fn checkBindingConstants(
     }
 }
 
-/// Keep the public resource-knob table aligned with the executable default.
 /// HostRuntime derives its frame cap from driver_core.Host, whose default is
-/// the session limit mirrored as GLOWCAP_DEFAULT_FRAME_CAP.
+/// the session limit mirrored as GLOWCAP_DEFAULT_FRAME_CAP, so the two
+/// defaults cannot drift apart.
 pub fn checkArchitectureConstantClaims(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -158,9 +158,6 @@ pub fn checkArchitectureConstantClaims(
 ) !void {
     try expectFileContains(io, gpa, root, violations, "src/driver/host_runtime/contract.zig", &.{
         "const default_frame_cap = (driver_core.Host.Options{}).limits.max_frame_bytes;",
-    });
-    try expectFileContains(io, gpa, root, violations, "docs/architecture.md", &.{
-        "| `driver.HostRuntime.Options.frame_cap` | Protocol admission for sessions the owning face creates. | 1 MiB |",
     });
 }
 

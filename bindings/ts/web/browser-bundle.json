@@ -1,5 +1,5 @@
 {
-	"//": "The browser-adapter base config. It maps the runtime FFI subpath to the wasm adapter's stem-only resolver, keeping the native archive cascade out of a browser graph. The node:net and bun:ffi stubs cover adapters a bundler may discover through the dynamic import even though the injected web adapter never selects them. Applications extend this config and add their own dependencies.",
+	"//": "The browser-adapter base config. It maps the runtime FFI subpath to the wasm adapter's stem-only resolver, keeping the FFI archive cascade out of a browser graph. The node:net and bun:ffi stubs cover adapters a bundler may discover through the dynamic import even though the injected web adapter never selects them. Applications extend this config and add their own dependencies.",
 	"imports": {
 		"@glowcap/web": "./mod.ts",
 		"@glowcap/runtime": "../runtime/mod.ts",

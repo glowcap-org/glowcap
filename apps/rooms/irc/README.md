@@ -1,10 +1,10 @@
 # IRC on Rooms
 
-The two IRC edges of Rooms are Rust executables. The bridge reads an
-IRC channel as an ordinary Rooms room. The gateway lets an ordinary IRC client
-enter rooms that live on a Rooms directory. Both run over the same
-CapTP machinery as every other Rooms client. IRC is a projection at the edge,
-not a second protocol inside.
+Rooms connects to IRC in two directions, and each is a Rust executable. The
+bridge shows an IRC channel as an ordinary Rooms room. The IRC server lets an
+ordinary IRC client enter the rooms on a Rooms directory. Both talk to Rooms
+over CapTP like any other client, so IRC is only how people see Rooms, not a
+second protocol inside it.
 
 ## The bridge: an IRC channel as a room
 
@@ -15,8 +15,8 @@ zig build rooms-irc-bridge -- \
 
 The command builds and runs the `rooms-irc-bridge` executable.
 `zig build rooms-irc-bridge-build` installs it without starting a service.
-The default endpoint follows Libera's `#ocapn` over TLS and serves the resulting
-`libera/#ocapn` room on a loopback CapTP listener. The command prints the
+By default it follows Libera's `#ocapn` over TLS and offers a `libera/#ocapn`
+room on a CapTP listener bound to the loopback address. The command prints the
 listener port and the room name. Join them with any Rooms client. IRC members
 appear as `irc/<nick>`, which keeps their origin visible everywhere.
 
@@ -36,8 +36,8 @@ bridge cannot check any of the following for you:
 
 - An administrator must get channel-operator permission for every configured
   channel, including permission for the history the bridge makes visible in
-  Rooms. The Operations join form records the operator's statement that
-  permission was given before it admits a channel, but the bridge cannot get
+  Rooms. The join form on the operations **IRC** page records the operator's statement that
+  permission was given before it adds a channel, but the bridge cannot get
   or verify that permission itself.
 - A bridge administrator must be connected directly to Libera.
 - Channel operators must tell IRC users before making history public, and
@@ -74,13 +74,13 @@ network's rules.
 
 The bridge is read-only by default, and the room says so in terms every Rooms
 client already understands. A read-only bridge seats each reader as an
-observer, so the browser's composer shows the room is read-only before
+observer, so the browser's message box shows the room is read-only before
 anything is typed, rather than refusing a line afterwards.
 
 In either mode, the room offers no file upload, because IRC cannot carry
 files, and it says it keeps no link previews and relays no typing. The page
 follows those statements: the attach control is hidden, a pasted or dropped
-file gets an explanation in the log, no preview is offered, and the About tab
+file gets an explanation in the log, no preview is offered, and the **About** tab
 of the room's card says what messages there can carry.
 
 A registered bridge nick can send Rooms messages back to IRC when its SASL
@@ -93,28 +93,31 @@ zig build rooms-irc-bridge -- \
 ```
 
 Two-way mode requires TLS. It sends Rooms lines as `<nick> text`, paces them
-at one every 1.2 seconds, and retains at most 64 complete IRC lines (32 KiB)
-across a reconnect. A post answers after its socket write succeeds. A write
-with an uncertain outcome is refused instead of replayed. Shutdown refuses
-every admitted line that did not reach the socket. The bridge joins IRC when its first Rooms reader arrives
-and parts after the last reader and queued line leave. An operator-held
-gateway keeps its network capabilities apart from its channel leases, and a
-network with no channels owns no socket. Each channel publication has a
-source-owned durable entry and a separately issued Rooms moderator capability
-the Rooms directory cannot forge. Parting retires both live publications, and
-recreating the channel receives a fresh generation. Bridge moderation removes
-Rooms memberships and carries no IRC operator privilege.
+at one every <!-- value ../rust/services/src/irc/feed.rs INTERVAL seconds -->1.2 seconds<!-- /value -->, and retains at most
+<!-- value ../rust/services/src/irc_bridge/outbound.rs LINES -->64<!-- /value --> complete IRC lines across a reconnect.
+
+- A post is confirmed only after its write to the socket succeeds. A write that
+  may or may not have gone through is refused rather than sent again, and
+  shutdown refuses every accepted line that never reached the socket.
+- The bridge joins IRC when its first Rooms reader arrives and parts after the
+  last reader and queued line leave.
+- A network with no channels opens no socket.
+- Each channel gets a durable directory entry and its own moderator
+  capability, which the Rooms directory cannot forge. Leaving the channel
+  retires both, and adding it again starts fresh.
+- Bridge moderation removes Rooms memberships and carries no IRC operator
+  privilege.
 
 Options after `--` choose another network, channel, nick, IRC endpoint, or
 Rooms port. They are `--network`, `--channel`, `--irc-host`, `--irc-port`,
 `--irc-nick`, `--irc-realname`, `--mode`, and `--sasl-account`, plus `--bind`,
-`--announce-host`, `--port`, and `--tls`. Use `--tls=false` only against a private, read-only
-test server.
+`--announce-host`, `--port`, and `--tls`. Use `--tls=false` only against a
+private, read-only test server.
 
-## The gateway: an IRC client on Rooms
+## The IRC server: an IRC client on Rooms
 
 ```sh
-zig build rooms-irc-front -- --directory=127.0.0.1:9099
+zig build rooms-irc-server -- --directory=127.0.0.1:9099
 ```
 
 `--directory` takes the room server's locator in either form it prints: a
@@ -125,29 +128,30 @@ published it. A locator that carries direct addresses is dialed as written,
 with no relay and no lookup.
 
 Point the IRC client at `127.0.0.1:6667`, choose a nickname, and
-`JOIN #general`. The gateway supports channel and direct `PRIVMSG`, `NAMES`,
+`JOIN #general`. The server supports channel and direct `PRIVMSG`, `NAMES`,
 `LIST`, `PART`, `PING`, `TOPIC`, and `WHOIS`. A nickname is fixed for the
-connection: changing a name across several independently granted room
-memberships has no atomic capability operation, so reconnect to claim another
-one. `JOIN` enters an existing room and reports the directory's refusal when
-there is none, and a connection holds one membership per room, the same rule
-every Rooms member follows.
+connection, because each room granted its membership separately and nothing
+can rename all of them at once. Reconnect to use another one.
 
-Each IRC connection holds the Directory, Room, and introduced direct-message
-capabilities it acquired, so direct messages use the same introduction and
-retargeting rules as every other Rooms client. The endpoint another member
-redeems is Noise-sealed by default. The IRC client itself cannot retain a
-capability, so the gateway remains the endpoint and makes no end-to-end claim
-on its behalf. Files and overlong Rooms lines cannot be represented by IRC
+`JOIN` enters an existing room and reports the directory's refusal when there
+is none. A connection holds one membership per room, the same rule every Rooms
+member follows.
+
+Each IRC connection holds its own references to the directory, to its rooms,
+and to the direct conversations it was introduced into, so direct messages
+follow the same introduction rules as every other Rooms client. The connection
+that other members dial is encrypted with Noise by default. An IRC client
+cannot hold a reference itself, so the server is where that connection ends, and
+nothing is encrypted end to end on the IRC client's behalf. Files and overlong Rooms lines cannot be represented by IRC
 and produce a notice rather than a partial message. Rooms nicknames outside
-IRC's alphabet receive a connection-local `rooms-<hash>` alias that `WHOIS`
-relates back to the Rooms name.
+IRC's alphabet get an alias like `rooms-<hash>` that exists only for that connection, and
+`WHOIS` shows the real Rooms name.
 
 Cleartext IRC is accepted only on loopback. To expose the listener, provide a
 TLS keypair and a dialable address for the Noise direct-message endpoint:
 
 ```sh
-zig build rooms-irc-front -- \
+zig build rooms-irc-server -- \
   --directory=ROOMS_LOCATOR --bind=0.0.0.0 --port=6697 \
   --tls-cert=/run/rooms/fullchain.pem --tls-key=/run/rooms/private-key.pem \
   --dm-bind=0.0.0.0 --dm-announce-host=rooms.example
@@ -155,31 +159,35 @@ zig build rooms-irc-front -- \
 
 `--dm-transport=iroh` advertises an encrypted, endpoint-authenticated iroh
 locator instead. That is the setup to deploy when a Goblins vat should be able
-to dial in cold, through this repository's Goblins iroh netlayer.
+to dial in with no earlier contact, through this repository's Goblins iroh netlayer.
 `--dm-transport=tcp` is for local Goblins conformance testing, and it can only
 bind to loopback.
 
 ## Bounds
 
-The gateway admits at most 256 clients. One client holds at most 32 rooms and
-32 direct lines, 256 live inbox publications, 2,048 projected nicknames, and
-64 queued IRC writes totaling 32 KiB, so the shared Host ledger is bounded at
-65,536 live inboxes. Disconnect retires aliases, and a reconnect does not
-retarget an old capability.
+The IRC server admits at most <!-- value ../rust/application/src/server/irc/clients.rs CLIENTS -->256<!-- /value --> clients. One client
+holds at most <!-- value ../rust/application/src/server/irc/clients.rs ROOMS -->32<!-- /value --> rooms,
+<!-- value ../rust/application/src/server/irc/clients.rs DIRECTS -->32<!-- /value --> direct lines,
+<!-- value ../rust/application/src/direct/publication.rs DEFAULT_INBOX_LIMIT -->256<!-- /value --> live inbox
+publications, <!-- value ../rust/application/src/server/irc/clients.rs PROJECTED_NAMES -->2,048<!-- /value --> Rooms nicknames shown to IRC, and
+<!-- value ../rust/services/src/irc/socket.rs LINES -->64<!-- /value --> queued IRC writes totaling
+<!-- value ../rust/services/src/irc/socket.rs BYTES bytes -->32 KiB<!-- /value -->. So the shared Host holds at most
+clients times publications live inboxes. A disconnect retires that
+connection's aliases, and a reconnect never reuses its old inbox.
 
-## Evidence
+## Tests
 
 The in-tree tests (`../test/irc/`) run inside
-`zig build rooms-server-test`, which `zig build runtime-check` depends on. The gateway
-scenario starts the installed Rust server and gateway and proves channel traffic,
+`zig build rooms-server-test`, which `zig build runtime-check` depends on. The IRC server
+scenario starts the installed room server and IRC server and checks channel traffic,
 metadata, and introduced direct messages in both directions over Noise. TLS
-scenarios cover independent clients and rooms, sibling direct messages and
-departure with Noise, TCP and iroh inboxes. A reconnect reuses its nickname
-without reviving the previous connection's inbox. Native checks cover bounded
+scenarios cover separate clients and rooms, direct messages between two IRC
+clients, and leaving, with Noise over both TCP and iroh inboxes. A reconnect reuses its nickname
+without reviving the previous connection's inbox. Rust unit tests cover bounded
 nickname ownership and asynchronous socket failures reaching the direct sender.
 `zig build goblins-rooms-irc` runs both edges against
 a real Goblins vat: fixture IRC through the bridge both ways, ordinary IRC
-through the gateway with channel traffic and an IRC-initiated direct message
+through the IRC server with channel traffic and an IRC-initiated direct message
 the vat answers.
 
 ## Files
@@ -191,9 +199,9 @@ vocabulary they share stays between them.
   adapter, configuration, capability serving and outbound ownership.
   `../rust/application/src/server/irc/` owns portable IRC policy.
   `../rust/services/src/irc/` owns sockets, TLS and serialized writes.
-- `../rust/services/src/irc_front/`: the gateway's IRC listener, each client's
+- `../rust/services/src/irc_server/`: the IRC server's listener, each client's
   capability ownership, room pumps and direct-message receipts. Portable
-  naming and rendering policy lives in `../rust/application/src/server/irc/front/`.
+  naming and rendering policy lives in `../rust/application/src/server/irc/clients/`.
 - `protocol.ts`: the TypeScript test consumer's line parsing and encoding.
   Rust owns nickname and SASL admission plus the bounded write queue.
 

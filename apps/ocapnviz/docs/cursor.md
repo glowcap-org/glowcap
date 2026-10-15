@@ -1,18 +1,26 @@
+---
+type: static
+description: The single rule that picks the pointer cursor across the canvas and the timeline.
+sources:
+  - resource: /apps/ocapnviz/src/interactions/
+  - resource: /apps/ocapnviz/src/render/
+  - resource: /apps/ocapnviz/src/ui/Timeline/
+---
+
 # Cursor
 
-The interaction pipeline lives in [`interaction-model.md`](interaction-model.md).
-`cursor.ts` implements one cursor rule.
-
 `cursorFor` in `cursor.ts` is the app's one cursor authority. Sprites carry no
-cursor of their own and no component spells the rule a second time.
+cursor of their own and no component spells the rule a second time. The input
+pipeline is in [`interaction-model.md`](interaction-model.md).
 
 Three elements can carry a cursor, because the timeline's two DOM hosts sit
-above the canvas and take the pointer where they overlap it. Each has exactly
-one writer and each writes this function's answer. The Stage asks once per frame
-and hands the answer to `UnifiedCanvas.setCursor`, the only writer of the canvas
-cursor. The Scrubber and the Overview ask on every pointer move through
-`timeline-cursor.ts`, which turns a position on either host into a `Hit` and
-calls the same function.
+above the canvas and take the pointer where they overlap it. Each has one
+writer, and each writes this function's answer:
+
+- The Stage asks once per frame and hands the answer to
+  `UnifiedCanvas.setCursor`, the only writer of the canvas cursor.
+- The Scrubber and the Overview ask on every pointer move through
+  `timeline-cursor.ts`, which turns a position on either host into a `Hit`.
 
 The cursor is the tool's promise about what the next click will do, so it is
 derived from the same resolver that click goes through and the same machine
@@ -59,13 +67,13 @@ The cursors the verbs use:
 | `grab` | The Overview's pan. |
 | `crosshair` | A marquee. |
 
-The two horizontal cursors are not interchangeable: `ew-resize` moves along
-time, and `col-resize` changes a size.
+`ew-resize` moves along time and `col-resize` changes a size, so the two are
+not interchangeable.
 
 A row label reads `pointer` rather than a vertical resize cursor, because its
-click selects the row's entity and only its drag reorders the stack. The click
-is what the cursor is describing, and the reorder is a discovered affordance.
-While the row is moving, the in-flight step answers `grabbing`.
+click selects the row's entity and only its drag reorders the stack. The cursor
+describes the click. While the row is moving, the in-flight step answers
+`grabbing`.
 
 **`willPick` is supplied by the host.** Whether a two-click tool will take the
 node under the pointer depends on the pick it already holds, and that is a fact
@@ -82,13 +90,12 @@ the other end of that claim's session, and no `GestureContext` can see that.
   the resolver never needs it.
 
 **What the Stage feeds it.** The machine state, with one addition.
-`makeStageHit` returns null over a sprite, so the machine's hover is empty in
-exactly the places where the pointer is over something. The Pixi hover reports
-that same fact through the other route, and the Stage merges it in before
-asking.
-Modifiers come from the app's one keyboard listener rather than a pointer event,
-because a modifier pressed while the pointer sits still still changes what the
-next click would do.
+`makeStageHit` returns null over a sprite, so the machine's hover is empty
+exactly where the pointer is over something. The Pixi hover reports that fact
+through the other route, and the Stage merges it in before asking. Modifiers
+come from the app's one keyboard listener rather than a pointer event, because a
+modifier pressed while the pointer sits still changes what the next click would
+do.
 
 **What the timeline feeds it.** `timeline-cursor.ts` holds the geometry and none
 of the rule. `scrubberHoverAt` walks the Scrubber's zones in the order the
@@ -96,21 +103,20 @@ pointer-down handler reads them, the gutter seam, then the gutter controls, then
 the scrub zone, then the lanes, and `overviewHitAt` does the same for the strip.
 Each returns the hit the pointer is over, or null where a press would do
 nothing. In Live mode the scrub zone returns null rather than a ruler hit,
-because the feed only goes forward and the press is refused. The cursor falls to
-the no-hover step and reads `default`, because nothing will happen on click.
+because the feed only goes forward and the press is refused. The cursor then
+falls to the no-hover step and reads `default`.
 
 Both hosts pass the App's own `SurfaceGestureCtx`, the same value the Stage
-gets, so a modifier held over a lane previews the same selection edit it
-previews over the stage, and Space or Hand still carry their navigation cursor
-across the panel edge. A build tool's resting cursor does not: the timeline hosts
+gets. A modifier held over a lane previews the same selection edit it previews
+over the stage, and Space or Hand still carry their navigation cursor across the
+panel edge. A build tool's resting cursor does not cross: the timeline hosts
 narrow the tool through `navigationToolOf`, and `restingCursorOver` refuses any
-surface outside the stage. The one thing the timeline adds is a null
-`toolState`, because a two-click pick arms on a stage node and no timeline
-surface is one.
+surface outside the stage. The timeline also passes a null `toolState`, because
+a two-click pick arms on a stage node and no timeline surface is one.
 
 The in-flight step is the one thing these hosts cannot read off a hit, because
-they still run their own drag loops. Each names the verb it started with, in the
+they run their own drag loops. Each names the verb it started with, in the
 `interaction-model.md` § 4.5 vocabulary, and hands it back through
-`TimelineGesture`, so a scrub that wanders into the gutter still reads as a
-scrub and the answer comes out of the same table.
+`TimelineGesture`. A scrub that wanders into the gutter still reads as a scrub,
+and the answer comes out of the same table.
 

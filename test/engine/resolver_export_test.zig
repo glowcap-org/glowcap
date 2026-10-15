@@ -38,7 +38,7 @@ fn grantExport(holder: *engine.Peer, partner: *engine.Peer, position: u64) !void
 /// One `['fulfill|'break, payload]` deliver from `partner` to `holder`'s export
 /// at `position`, shuttled across and dispatched.
 fn fireAt(partner: *engine.Peer, holder: *engine.Peer, position: u64, args: []const model.Argument) !void {
-    try partner.sendCopying(.{ .deliver = .{
+    try partner.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(position) },
         .args = args,
         .answer = null,
@@ -65,7 +65,7 @@ test "a deliver to a resolver export re-tags as a resolve on every profile" {
         var event = pair.p1.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-        const view = try event.view();
+        const view = event.view();
         try std.testing.expectEqual(answer, view.resolve.answer);
         try std.testing.expectEqualStrings("relayed", view.resolve.resolution.fulfill.bytes);
     }
@@ -83,7 +83,7 @@ test "a resolver callback cannot open another answer" {
         try pair.p1.session_state.installOutboundResolver(answer, .from(resolver));
         try pair.p1.session_state.installOutboundAnswer(answer);
 
-        try pair.p2.sendCopying(.{ .deliver = .{
+        try pair.p2.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = model.FarRef.object(resolver) },
             .args = &.{ .{ .symbol = "fulfill" }, .{ .integer = 1 } },
             .answer = .from(99),
@@ -118,7 +118,7 @@ test "a deliver to an ordinary export is still a deliver" {
         var event = pair.p1.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
-        const view = try event.view();
+        const view = event.view();
         try std.testing.expectEqual(@as(u64, plain), view.deliver.target.near.export_position.int());
     }
 }

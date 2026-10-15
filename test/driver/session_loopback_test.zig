@@ -263,7 +263,7 @@ test "driver loopback: connect and listen own peers and buffers, fetch + call ro
 /// questioner-side pipelining path end to end.
 const Task = struct {
     done: bool = false,
-    pub fn handle(self: *Task, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Task, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = ht;
         _ = args;
         if (std.mem.eql(u8, verb, "assign")) return .{ .bytes = "assigned" };
@@ -277,7 +277,7 @@ const Task = struct {
 };
 
 const Board = struct {
-    pub fn handle(self: *Board, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Board, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = self;
         _ = args;
         if (!std.mem.eql(u8, verb, "create")) return error.NoSuchMethod;
@@ -347,7 +347,7 @@ test "driver loopback: promise pipelining drives create->assign->complete->statu
 /// The locally spawned actor for the local-call test: replies from its own
 /// state, so settling it needs no partner traffic at all.
 const LocalPing = struct {
-    pub fn handle(self: *LocalPing, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *LocalPing, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = self;
         _ = ht;
         _ = args;
@@ -400,7 +400,7 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
 /// marshals exactly one into its reply. The other's export position leaks only
 /// as an integer, which is data, not authority.
 const TwoSpawner = struct {
-    pub fn handle(self: *TwoSpawner, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *TwoSpawner, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = self;
         _ = args;
         if (!std.mem.eql(u8, verb, "make")) return error.NoSuchMethod;

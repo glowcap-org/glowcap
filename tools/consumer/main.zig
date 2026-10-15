@@ -7,7 +7,7 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
 const iroh = @import("iroh");
-const native_relay = @import("native_relay");
+const relay_tls = @import("relay_tls");
 
 pub fn main() !void {
     // Reach the types the README's first code block names, so a consumer-side
@@ -21,7 +21,7 @@ pub fn main() !void {
     // The iroh and relay tabs on Start building import these two modules.
     const partner = iroh.locator("<64 lowercase hex characters from the server>");
     std.mem.doNotOptimizeAway(&partner);
-    var relay: native_relay.Provider = undefined;
+    var relay: relay_tls.Provider = undefined;
     std.mem.doNotOptimizeAway(&relay);
 
     const bytes = try std.heap.page_allocator.dupe(u8, "glowcap");

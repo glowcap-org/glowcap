@@ -2,7 +2,7 @@
 //! tests drive: a scriptable platform backend whose dial, send, close, and
 //! receive arms can be told to fail or park, plus the WebSocket upgrade that
 //! opens a connection against it. Shared by the completion-adapter suites and
-//! the completion-loop rendezvous tests in `keyed_relay_test.zig`, so the
+//! the completion-loop rendezvous tests in `test/net/keyed_relay/`, so the
 //! adapter's behavior and the loop composed over it are proven against one
 //! platform stub.
 
@@ -185,6 +185,11 @@ pub const AdmissionPlatform = struct {
         }
         self.pending_close = .{ .user_data = user_data, .result = self.close_result };
     }
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *AdmissionPlatform, out: []net.completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     pub fn poll(self: *AdmissionPlatform, out: []net.completion.Completion, _: i32) !usize {
         self.poll_calls += 1;
         if (out.len == 0) return 0;

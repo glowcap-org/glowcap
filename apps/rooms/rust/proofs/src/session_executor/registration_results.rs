@@ -30,7 +30,7 @@ impl Content for Directory {
 			vec![loam::ReferenceRequest::Restore(1)]
 		} else if matches!(
 			input.verb,
-			"listPublications" | "advertisedLocation" | "memberRegistration"
+			"listPublications" | "namedPublications" | "advertisedLocation" | "memberRegistration"
 		) {
 			Vec::new()
 		} else {
@@ -49,12 +49,17 @@ impl Content for Directory {
 			return call.disclose(1, false);
 		}
 		match input.verb {
-			"listPublications" => {
-				return Ok(Argument::List(if input.payload == b"replacement" {
+			"listPublications" | "namedPublications" => {
+				let rooms = if input.payload == b"replacement" {
 					Vec::new()
 				} else {
 					vec![Argument::List(vec!["room".into(), 1.into()])]
-				}));
+				};
+				return Ok(if input.verb == "namedPublications" {
+					Argument::List(rooms)
+				} else {
+					Argument::List(vec![Argument::List(rooms), Argument::Void])
+				});
 			}
 			"advertisedLocation" => return Ok("ocapn://member.id".into()),
 			"memberRegistration" => {
@@ -114,6 +119,10 @@ fn registration(name: &Ref, count: &Rc<Cell<usize>>, wrong_nick: bool) -> Regist
 			},
 			Method {
 				verb: "listPublications".into(),
+				retry: Retry::ReadOnly,
+			},
+			Method {
+				verb: "namedPublications".into(),
 				retry: Retry::ReadOnly,
 			},
 			Method {

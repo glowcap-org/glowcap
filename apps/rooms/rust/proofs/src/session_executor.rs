@@ -69,7 +69,7 @@ use environment::{Database, Platform};
 use failure::AbortAfterAdmission;
 use glowcap::{
 	Argument, Host, PendingWork, Ref, Result,
-	loam::{self, Call, Content, ControlPowers, Invocation, Method, Registration, Requirement, Retry, Schema},
+	loam::{self, Call, Content, ControlPowers, Invocation, Method, Registration, Requirement, Retry, Schema, Scope},
 };
 use rooms_application::{
 	content::session::{self, custody, workspace::Intent},

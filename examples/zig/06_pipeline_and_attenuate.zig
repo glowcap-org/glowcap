@@ -25,7 +25,7 @@ const actors = glowcap.actors;
 const Record = struct {
     title: []const u8,
 
-    pub fn handle(self: *Record, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Record, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "play"))
             return .{ .string = try std.fmt.allocPrint(turn.arena, "spinning: {s}", .{self.title}) };
         if (std.mem.eql(u8, msg.verb, "eject")) return .{ .string = self.title };
@@ -34,7 +34,7 @@ const Record = struct {
 };
 
 const Desk = struct {
-    pub fn handle(self: *Desk, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Desk, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         if (!std.mem.eql(u8, msg.verb, "checkout")) return error.NoSuchMethod;
         // Spawn the record, then export only a play-attenuated view of it: the

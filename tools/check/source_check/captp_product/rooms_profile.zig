@@ -9,7 +9,7 @@ const expectFileContains = util.expectFileContains;
 
 /// Every rooms peer offers the same CapTP version and codec.
 ///
-/// `model.Preference.native` decides the pair. The C ABI reflects it into
+/// `model.Preference.glowcap` decides the pair. The C ABI reflects it into
 /// generated constants, every binding exposes a named profile, and Rooms code
 /// selects that profile without naming either wire axis.
 pub fn checkRoomsWireProfile(
@@ -19,18 +19,18 @@ pub fn checkRoomsWireProfile(
     violations: *std.ArrayList([]const u8),
 ) !void {
     try expectFileContains(io, gpa, root, violations, "src/ocapn/model/negotiated.zig", &.{
-        "pub const native: Preference",
+        "pub const glowcap: Preference",
         ".captp_version = .next",
         ".codec = .capnp",
     });
     try expectFileContains(io, gpa, root, violations, "src/c_abi/shared/profile.zig", &.{
         "GLOWCAP_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec)",
         "GLOWCAP_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version)",
-        "GLOWCAP_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec)",
-        "GLOWCAP_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version)",
+        "GLOWCAP_OWN_CODEC: u32 = codecToC(model.Preference.glowcap.codec)",
+        "GLOWCAP_OWN_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.glowcap.captp_version)",
     });
     try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/profile.ts", &.{
-        "? { profile: \"native\", features: \"full\" }",
+        "? { profile: \"glowcap\", features: \"full\" }",
         ": { profile: \"interop\", features: \"baseline\" }",
     });
     try expectFileContains(io, gpa, root, violations, "apps/rooms/lib/locator.ts", &.{
@@ -40,10 +40,10 @@ pub fn checkRoomsWireProfile(
     // read it from the tables `zig build gen-rooms-protocol` emits, and
     // `apps/rooms/test/protocol_gen_test.ts` holds those to `protocol.ts`.
     const profile_uses = [_]struct { path: []const u8, needle: []const u8 }{
-        .{ .path = "apps/rooms/clients/python/room_client.py", .needle = "Host(profile=\"native\")" },
-        .{ .path = "apps/rooms/clients/racket/room-client.rkt", .needle = "#:profile 'native" },
-        .{ .path = "apps/rooms/clients/rust/room.rs", .needle = "HostOptions::with_profile(glowcap::HostProfile::Native)" },
-        .{ .path = "apps/rooms/clients/zig/client.zig", .needle = "model.Preference.native" },
+        .{ .path = "apps/rooms/clients/python/room_client.py", .needle = "Host(profile=\"glowcap\")" },
+        .{ .path = "apps/rooms/clients/racket/room-client.rkt", .needle = "#:profile 'glowcap" },
+        .{ .path = "apps/rooms/clients/rust/room.rs", .needle = "HostOptions::with_profile(glowcap::HostProfile::Glowcap)" },
+        .{ .path = "apps/rooms/clients/zig/client.zig", .needle = "model.Preference.glowcap" },
     };
     for (profile_uses) |use| try expectFileContains(io, gpa, root, violations, use.path, &.{use.needle});
 }

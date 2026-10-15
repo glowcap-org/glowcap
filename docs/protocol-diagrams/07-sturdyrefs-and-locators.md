@@ -1,3 +1,13 @@
+---
+type: static
+description: Diagrams of sturdyref anatomy, locators, and fetching an object by swiss number.
+sources:
+  - resource: /src/ocapn/engine/sturdyref.zig
+  - resource: /src/ocapn/engine/fetch.zig
+  - resource: /src/ocapn/session/sturdyref_cache.zig
+  - resource: /src/ocapn/model/peer_locator.zig
+---
+
 # Sturdyrefs and locators
 
 These diagrams follow the OCapN Locators specification and the CapTP

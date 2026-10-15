@@ -422,15 +422,22 @@ pre > code {
 	   field for that frame. Measured at the band's resting height and rounded up,
 	   because erring high leaves a hair of paper and erring low hides a line. */
 	--composer-h-rest: 118px;
+	/* How much of the two full-height columns is paper. The rest lets the
+	   mycelium under the page show faintly through them. */
+	--rail-solid: 50%;
+	/* The flat tone the columns read as over the page, for what can only take
+	   a colour, such as the ring a box-shadow draws. */
+	--rail-tone: color-mix(in srgb, var(--paper-raised) var(--rail-solid), var(--paper));
 	/* Mirrors the page ground so the two full-height columns cool with it, at
 	   half the depth: a narrow strip shows a gradient more strongly than the
 	   wide field beside it, because its edges hand the eye a reference, so an
 	   equal journey here read stronger than the page's. */
-	--rail-fill: linear-gradient(180deg, var(--paper-raised), color-mix(in srgb,
-		var(--accent) 5%,
-		var(--paper-raised)) 55%, color-mix(in srgb, var(--paper-raised) 92%,
-		var(--raised-foot)) 78%, color-mix(in srgb, var(--paper-raised) 80%,
-		var(--raised-foot)) 94%);
+	--rail-fill: linear-gradient(180deg, color-mix(in srgb, var(--paper-raised)
+		var(--rail-solid), transparent), color-mix(in srgb, color-mix(in srgb, var(--accent) 5%,
+		var(--paper-raised)) var(--rail-solid), transparent) 55%, color-mix(in srgb,
+		color-mix(in srgb, var(--paper-raised) 92%, var(--raised-foot)) var(--rail-solid),
+		transparent) 78%, color-mix(in srgb, color-mix(in srgb, var(--paper-raised)
+		80%, var(--raised-foot)) var(--rail-solid), transparent) 94%);
 }
 /* "Syrup": the same warmth turned down to a dark roast, and the face this
    app wears. One arm, mirroring ui/tokens.css: a page nobody has stamped and

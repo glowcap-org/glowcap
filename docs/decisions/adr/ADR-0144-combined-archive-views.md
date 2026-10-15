@@ -36,7 +36,7 @@ side needs a merge policy, which this record defines.
 Reading combines. Writing never does. When a reader holds more than one
 archive, a history read asks each of them (the browser's device store beside
 a selected peer, the durable session's local backend beside its held peer)
-and `apps/rooms/lib/archive/merge.ts` coalesces the answers:
+and `apps/rooms/rust/application/src/archive/merge.rs` coalesces the answers:
 
 1. Identity is the record's coordinates (`archiveRecordKey`). Two accounts
    reporting one key are one account stored twice, never two records. No key
@@ -117,7 +117,7 @@ ADR-0140.
 `apps/rooms/test/archive/merge_test.ts` proves the coalescing rule: disjoint
 accounts contribute, one key never doubles, lifecycle rank outranks, the write
 target breaks content ties, and two recorder sources never merge.
-`apps/rooms/test/archive/target_test.ts` proves the page seam: a split
+`apps/rooms/rust/services/src/session_archive/tests.rs` proves the page seam: a split
 generation shows once under both keepers, an unavailable peer leaves the
 device account standing, and per-line attachment reads stay bound to their
 origin archive across a target swap. Native session-service archive scenarios
@@ -128,7 +128,7 @@ proves a file reader cannot retarget when its line is replaced and continues
 reading unchanged bytes after a metadata revision.
 `apps/rooms/test/store/archive_sections_test.ts` proves a re-read shared account
 revises file metadata and chronological sections without doubling lines or
-dividers. `apps/rooms/test/attached/archive_projection_test.ts` checks digest
+dividers. `apps/rooms/test/session/archive_reconciliation_test.ts` checks digest
 replacement, object-URL cleanup, unchanged custody, and recovery without
 archive writes. `zig build rooms-web-archive` drives the browser proof: a
 conversation generation split across the device store and the iroh peer reads

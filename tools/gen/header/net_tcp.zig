@@ -108,7 +108,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
 
     try emitDoc(&b, gpa,
         \\Orientation: the low-level endpoint API is blocking, cleartext TCP for
-        \\a byte-fed GlowcapHost. The same archive also owns the complete native
+        \\a byte-fed GlowcapHost. The same archive also owns the complete
         \\TCP provider package: tcp, keyed-tcp, and noise-tcp. Read a frame with
         \\glowcap_tcp_conn_read_frame, feed its bytes to the Host, and
         \\write Host output with glowcap_tcp_conn_write_frame. The netlayer owns
@@ -165,9 +165,9 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "glowcap_tcp_accept", &.{ "listener", "options", "codec", "max_frame_bytes", "out_conn", "out_error", "error_cap", "out_error_len" }, "Block until a client connects, returning an owned connection framing on\n`codec`. `options` has the same inherit-or-override contract as\nglowcap_tcp_connect.\n\n" ++ optional_diagnostic_doc);
     try emitFn(&b, gpa, "glowcap_tcp_conn_read_frame", &.{ "conn", "out_frame", "out_error", "error_cap", "out_error_len" }, "Block for one whole frame as an owned managed frame. Returns GLOWCAP_ERR_CLOSED\non graceful EOF, GLOWCAP_ERR_IO on a socket fault.\n\n" ++ optional_diagnostic_doc);
     try emitFn(&b, gpa, "glowcap_tcp_conn_write_frame", &.{ "conn", "frame", "out_error", "error_cap", "out_error_len" }, "Write one frame's borrowed bytes and flush. Returns GLOWCAP_ERR_CLOSED after\nshutdown begins.\n\n" ++ optional_diagnostic_doc);
-    try emitFn(&b, gpa, "glowcap_tcp_conn_shutdown", &.{"conn"}, "Seal native admission and interrupt blocked reads and writes without freeing\nthe connection. May race operations; join the embedding's leases before release.\nIdempotent. Returns GLOWCAP_ERR_IO when the socket cannot be interrupted; the\ntransport last-error slot names the cause.");
+    try emitFn(&b, gpa, "glowcap_tcp_conn_shutdown", &.{"conn"}, "Seal admission and interrupt blocked reads and writes without freeing\nthe connection. May race operations; join the embedding's leases before release.\nIdempotent. Returns GLOWCAP_ERR_IO when the socket cannot be interrupted; the\ntransport last-error slot names the cause.");
     try emitFn(&b, gpa, "glowcap_tcp_conn_release", &.{ "conn", "out_error", "error_cap", "out_error_len" }, "After stopping new calls, invoke shutdown, join admitted operations, and free\nthe handle. Returns the shutdown outcome after completing the ownership sweep.\nRelease must not race call initiation.\n\n" ++ optional_diagnostic_doc);
-    try emitFn(&b, gpa, "glowcap_tcp_listener_shutdown", &.{"listener"}, "Seal native accept admission and interrupt a blocked accept without freeing the\nlistener. May race operations; join the embedding's leases before release.\nIdempotent; the listener's pre-opened wake channel makes this operation infallible.");
+    try emitFn(&b, gpa, "glowcap_tcp_listener_shutdown", &.{"listener"}, "Seal accept admission and interrupt a blocked accept without freeing the\nlistener. May race operations; join the embedding's leases before release.\nIdempotent; the listener's pre-opened wake channel makes this operation infallible.");
     try emitFn(&b, gpa, "glowcap_tcp_listener_release", &.{"listener"}, "After stopping new calls, invoking shutdown, and joining the embedding's\noperation leases, close and free the listener. Release must not race call initiation.");
 
     try emitFn(&b, gpa, "glowcap_tcp_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last TCP-transport error into out_buf, the tcp\nsibling of glowcap_last_error, reading this archive's own per-thread slot. A\nglowcap_tcp_* call that returns GLOWCAP_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set." ++ header_emit.last_error_freshness_doc);

@@ -32,7 +32,7 @@ async fn local_callback_retains_and_retires_its_received_capability_occurrence()
 			host.send(&receiver, "barrier", &[]).await.unwrap();
 			assert!(
 				released.get(),
-				"dropping the received occurrence releases its native retain"
+				"dropping the received occurrence releases its FFI retain"
 			);
 			drop(receiver);
 			host.close(PendingWork::Cancel).await.unwrap();
@@ -58,10 +58,10 @@ async fn hosted_callback_uses_its_registered_host_without_an_adapter_bracket() {
 				})
 				.unwrap();
 			host.tell(&factory, "make", &[]).unwrap();
-			// Native settlement and release may pump callbacks synchronously.
-			// Drive the same native pump without the adapter's TLS bracket.
+			// FFI settlement and release may pump callbacks synchronously.
+			// Drive the same FFI pump without the adapter's TLS bracket.
 			crate::action::park(&host.shared).unwrap();
-			assert!(called.get(), "native callback must find its registration owner");
+			assert!(called.get(), "FFI callback must find its registration owner");
 			drop(factory);
 			host.close(PendingWork::Cancel).await.unwrap();
 		})

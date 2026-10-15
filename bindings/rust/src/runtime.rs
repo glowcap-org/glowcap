@@ -282,7 +282,7 @@ mod tests {
 				assert_eq!(error.code(), sys::ERR_INTERNAL);
 				assert!(
 					observed.borrow().as_ref().is_some_and(|loop_| loop_.is_released()),
-					"failed setup returned before its created native loop released"
+					"failed setup returned before its created driver loop released"
 				);
 			})
 			.await;
@@ -308,7 +308,7 @@ mod tests {
 				assert_eq!(error.code(), sys::ERR_INTERNAL);
 				assert!(
 					host.shared().driver_loop().is_some(),
-					"failed setup released the adopted Host's native loop"
+					"failed setup released the adopted Host's driver loop"
 				);
 
 				let runtime = Runtime::open(

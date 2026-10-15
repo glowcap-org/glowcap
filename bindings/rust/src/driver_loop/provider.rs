@@ -3,7 +3,7 @@
 use super::*;
 type InstallFuture = Pin<Box<dyn Future<Output = Result<()>>>>;
 
-/// A configured transport package that can install itself into a native loop.
+/// A configured transport package that can install itself into a driver loop.
 /// Transport modules construct this value. The driver registry alone records
 /// which transport symbols the package registered.
 #[derive(Clone)]
@@ -12,7 +12,13 @@ pub struct Provider {
 }
 
 impl Provider {
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+	#[cfg(any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	))]
 	pub(crate) fn new<F, Fut>(install: F) -> Self
 	where
 		F: Fn(Rc<LoopShared>) -> Fut + 'static,

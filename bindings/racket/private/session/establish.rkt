@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: bounded Session establishment over a byte channel already chosen
-;; by a transport companion. Native handshake semantics stay in the Host; this
+;; by a transport companion. FFI handshake semantics stay in the Host; this
 ;; leaf owns establishment/cleanup choreography and exact error retention.
 
 (require ffi/unsafe

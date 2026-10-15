@@ -2,7 +2,7 @@
 //!
 //! This file implements the completion-backend interface documented in
 //! `completion.Loop` (`loop.zig`). The portable connection orchestration lives
-//! there. This file provides only the platform completion primitive and native
+//! there. This file provides only the platform completion primitive and Zig
 //! TCP socket primitives. Linux selects between the io_uring and
 //! epoll siblings through `linux.zig`. The server logic does not change between
 //! them.
@@ -220,6 +220,11 @@ pub const Backend = struct {
 
     /// Submissions register with kqueue as they are made. Nothing waits.
     pub fn flush(_: *Backend) !void {}
+
+    /// Nothing here queues a submission, so a peek is a zero-timeout poll.
+    pub fn peek(self: *Backend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
 
     /// Nothing here waits on a timer: every completion arrives through the
     /// descriptor.
@@ -439,8 +444,11 @@ pub const Backend = struct {
         return address.port;
     }
 
+    /// Close a descriptor the loop never submitted a close for. Its pending
+    /// row goes with it: no completion will ever settle those operations,
+    /// and a reused descriptor number must start from an idle row.
     pub fn closeFd(self: *Backend, fd: Fd) void {
-        _ = self;
+        _ = self.pending.remove(fd); // idempotent: a descriptor with no armed operation has no row
         _ = close(fd);
     }
 

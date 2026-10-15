@@ -261,6 +261,12 @@ pub const Backend = union(Selection) {
         };
     }
 
+    pub fn peek(self: *Backend, out: []completion.Completion) !usize {
+        return switch (self.*) {
+            inline else => |*backend| backend.peek(out),
+        };
+    }
+
     pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[32]u8 {
         return switch (self.*) {
             inline else => |*backend| backend.verifiedChannelKey(fd),

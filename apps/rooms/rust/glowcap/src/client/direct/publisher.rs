@@ -44,7 +44,7 @@ impl<D: Deadline + Entropy + Clone> Publisher<D> {
 	}
 	/// Retry exact retired aliases, including dropped offerers. A failed remove
 	/// keeps its ledger row and capacity. This operation is cancellation-safe.
-	/// Every completed native remove is reflected before another await.
+	/// Every completed host remove is reflected before another await.
 	pub async fn reconcile(&self) -> Result<(), Error> {
 		outside_turn().await;
 		let retired = self.ledger.borrow_mut().retirements();
@@ -94,7 +94,7 @@ impl<D: Deadline + Entropy + Clone> Offerer<D> {
 	/// Publish on a separate inbox Host and import through an established
 	/// connection to it before offering the capability to the directory.
 	/// `exporter` and `importer` are the two ends of that connection. Their
-	/// native owner establishes and retains the pair. The importer must belong
+	/// host owner establishes and retains the pair. The importer must belong
 	/// to the directory Host. Its exporter locator must name the public inbox
 	/// endpoint, since the directory will redeem the resulting handoff there.
 	pub async fn offer_via(

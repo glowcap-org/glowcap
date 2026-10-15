@@ -1,3 +1,12 @@
+---
+type: static
+description: How the Rust, TypeScript, Python and Racket bindings load the Host and driver archives, for binding maintainers.
+sources:
+  - resource: /bindings/
+  - resource: /src/c_abi/
+  - resource: /tools/c-abi/
+---
+
 # Developing a binding
 
 This page is for maintainers of the Rust, TypeScript, Python, and Racket
@@ -5,7 +14,7 @@ bindings. Application authors should start with the
 [binding overview](README.md).
 
 The Host and driver are separate, symbol-disjoint archives. Every binding that
-loads native libraries loads `libglowcap_host` for the `glowcap_host_*` family
+loads the C libraries loads `libglowcap_host` for the `glowcap_host_*` family
 and `libglowcap_driver` for the `glowcap_driver_*` family. The driver adopts a
 quiescent Host and neither re-exports nor duplicates Host state. Transport
 archives contribute packages through `glowcap_driver_add_provider`: the TCP
@@ -14,7 +23,7 @@ iroh package owns both dial and listener execution. A binding loads and
 registers a package and mirrors none of its profiles, implementation tables,
 socket choreography, or callback lifetime.
 
-Python, Rust, TypeScript, and Racket use that driver path for native TCP and
+Python, Rust, TypeScript, and Racket use that driver path for TCP and
 iroh. The binding parks on the driver's one readiness descriptor, steps, and
 drains one event queue. The byte-fed Host is the path for wasm and for channels
 an embedder supplies, including the keyed-relay bridge. TypeScript has one
@@ -29,7 +38,7 @@ After a top-level `glowcap_host_*` call succeeds, drain the work it created.
 On the byte-fed path, Rust, Python, and Racket use `glowcap_host_pump_drain`
 with synchronous park-only hooks. TypeScript uses the
 `glowcap_host_next_action` pull queue because browser Wasm has no general
-C-callback seam. On a loop-owned host, `glowcap_host_pump_drain` never runs:
+C callbacks. On a loop-owned host, `glowcap_host_pump_drain` never runs:
 `glowcap_driver_step` executes transport-shaped actions itself and forwards
 the application-visible ones as loop events, so the binding's drain there is
 one step plus the event queue. The byte-fed drain can request:
@@ -44,28 +53,31 @@ no external effect, and the same action remains first for the next drain call.
 Once a hook copies, parks, or otherwise takes responsibility for an action, it
 returns OK even when the asynchronous work it scheduled may later fail.
 
-Ignoring an action can strand a call or handoff. Every action therefore has a
-terminal path: `DIAL` reports success/failure, and `NEED_GIFT_ID` reports
-provided/failed. The shared Zig helper
-`embedder_pump`, the generated action inventory, and the C pull queue keep this
-loop from drifting across runtimes.
+Ignoring an action can strand a call or handoff, so every action has a
+terminal path: `DIAL` reports success or failure, and `NEED_GIFT_ID` reports
+provided or failed. The shared Zig helper `embedder_pump`, the generated action
+inventory, and the C pull queue keep this loop the same across runtimes.
 
-The same commit discipline applies to work created by a language finalizer or a
-detached progress task. Capability-GC finalizers only park opaque Host ref IDs.
-They never call the C ABI. The pumping thread calls `glowcap_host_ref_release`,
-removes a token only after `GLOWCAP_OK`, and leaves the refused token and
-unattempted tail owned for retry. A scheduled drain has no immediate caller, so
-the Host wrapper retains its exact typed failure and surfaces it at the next
-verb head. Bindings do not classify capability-release failures or invent release
-semantics. The C ABI guarantees that a non-OK ref release committed no
-release, and the core defines what a release means.
+The same commit rule covers work created by a language finalizer or a detached
+progress task:
+
+- Capability-GC finalizers only park opaque Host ref IDs. They never call the C
+  ABI.
+- The pumping thread calls `glowcap_host_ref_release`, removes a token only
+  after `GLOWCAP_OK`, and keeps the refused token and the unattempted tail for
+  retry.
+- A scheduled drain has no immediate caller, so the Host wrapper retains its
+  exact typed failure and surfaces it at the next verb head.
+- Bindings do not classify release failures or define release semantics. The C
+  ABI guarantees that a non-OK release committed nothing, and the core defines
+  what a release means.
 
 Inbound byte streams go through `glowcap_host_session_feed_bytes`. The host
 unwraps canonical Syrup byte strings, retains a split prefix or body, and
 applies the declared-body limit. A binding should not add another scanner or
 tail buffer. `GLOWCAP_ERR_WOULD_BLOCK` from `feed_bytes` is outbound
-backpressure, not a protocol refusal: drain actions / outbound frames and retry
-the same byte chunk. On output, prefix each bare `take_outbound` frame with its
+backpressure, not a protocol refusal: drain actions and outbound frames, then
+retry the same byte chunk. On output, prefix each bare `take_outbound` frame with its
 decimal byte length and `:`. Write the prefix and frame separately.
 
 When a feed fails, read the typed abort, drain again so the abort is written,
@@ -91,9 +103,8 @@ await:
   provides caretaker/attenuate and spawn/publish
 - Rust's `session_shared` holds state shared by its session handles
 
-The files use each language's naming conventions, and the division is the same
-in all four bindings. The embedder-spine module split is complete.
-`zig build source-check` rejects a missing module, a direct action-pop loop, or
+The files follow each language's naming conventions, and the division is the
+same in all four bindings. `zig build source-check` rejects a missing module, a direct action-pop loop, or
 a binding that bypasses the generated action decoder.
 
 ### TypeScript package surface
@@ -108,7 +119,7 @@ cannot ship them. `zig build source-check` refuses `*_test.ts`, `*_smoke.ts`,
 and a publish block that includes TypeScript without excluding `test/**`.
 
 Host action tags and layouts are generated from one Zig table. Callback bodies
-remain handwritten because they cross into language-specific I/O.
+are handwritten because they cross into language-specific I/O.
 
 ## Callback rules
 
@@ -118,14 +129,16 @@ exporter locations. They may not recursively drive the host by feeding bytes,
 taking outbound frames, opening sessions, publishing, fetching, or releasing
 the current session.
 
-A behavior that closes its own session must park the release until the callback
-returns. A reachable Host stays on its owning thread. Once a language finalizer
-has exclusive terminal ownership, `glowcap_host_release` may run on that
-finalizer thread. It cannot race a Host call or leave a live verb to migrate.
-Terminal Host and driver release use a different result contract from
-capability-GC release. Only a pre-consumption refusal keeps the native handle
-live for retry. Every teardown outcome consumes it and leaves any failure at
-the terminal close or diagnostic owner.
+- A behavior that closes its own session parks the release until the callback
+  returns.
+- A reachable Host stays on its owning thread. Once a language finalizer has
+  exclusive terminal ownership, `glowcap_host_release` may run on that
+  finalizer thread, because it cannot race a Host call or leave a live verb to
+  migrate.
+- Terminal Host and driver release differ from capability-GC release. Only a
+  pre-consumption refusal keeps the C handle live for retry. Every
+  teardown outcome consumes it and leaves any failure at the terminal close or
+  diagnostic owner.
 
 Every vow-producing function returns its vow ID. Insert that ID into the
 binding's promise table immediately. Its result later arrives as a `SETTLE` or
@@ -150,10 +163,10 @@ A C layout change must update every hand-written mirror in the same change.
 iroh is a separate optional library, `libglowcap_net_transport_iroh`. On the
 loop tier a binding loads `libglowcap_driver`, registers the archive-owned
 provider package, and parks on the loop's one aggregate readiness descriptor.
-The archive drains the sidecar. On the byte-fed
-path that serves iroh listen and the named loop exceptions, the library
-exposes a readiness file descriptor and non-blocking accept, connect, read,
-and write calls, and each runtime waits on that descriptor in its own way:
+The archive drains the provider. On the byte-fed path that serves iroh listen
+and the named loop exceptions, the library exposes a readiness file descriptor
+and non-blocking accept, connect, read, and write calls. Each runtime waits on
+that descriptor in its own way, with no polling thread:
 
 | Binding | Wait mechanism (byte-fed iroh path) |
 | --- | --- |
@@ -162,7 +175,7 @@ and write calls, and each runtime waits on that descriptor in its own way:
 | Rust | Tokio `AsyncFd` |
 | Racket | `unsafe-file-descriptor->semaphore` |
 
-There is no polling thread. A hint-less handoff uses the host's configured iroh
+A hint-less handoff uses the host's configured iroh
 reachability policy. Direct-address hints use a direct dial. Keep the exporter
 session pumping after a redemption because withdrawal and settlement continue
 on that connection.
@@ -171,10 +184,12 @@ WebRTC's optional companion follows the same descriptor rules after a peer is
 created: one endpoint fd reports stable peer-id open, candidate, readable,
 writable, and closed events, and try-I/O never parks the runtime. Unlike iroh,
 peer creation and signaling submissions are synchronous control operations, and
-a bare locator has no authority to perform them. Only Rust, Python, and Racket
-expose the raw family. TypeScript uses `RTCPeerConnection` directly and does
-not load the companion. Its browser package owns the application-level
-adapter.
+a bare locator has no authority to perform them. Every server binding dials
+through `webrtc.provider(signaling)`, which hands the library the signaling
+callbacks and lets the driver run the exchange. Rust also listens through
+`webrtc::listen` with the same callbacks. Rust, Python, and Racket also
+expose the raw family. The Deno entry loads the library for that dial only, and
+the browser package uses `RTCPeerConnection` directly and never loads it.
 
 ## Checks
 

@@ -7,7 +7,7 @@ decision: "Managed endpoints prepare current authority and content through the e
 supersedes: []
 superseded_by: []
 amends: [ADR-0168]
-amended_by: [ADR-0170, ADR-0171, ADR-0172, ADR-0173]
+amended_by: [ADR-0170, ADR-0171, ADR-0172, ADR-0173, ADR-0227]
 ---
 
 # ADR-0169 Managed Host turns

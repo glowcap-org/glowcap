@@ -17,19 +17,10 @@ const served = @import("../served.zig");
 
 const Host = host_mod.Host;
 
-/// Bootstrap / sturdyref registry durability (ADR-0082). `ephemeral` is the
-/// process-lifetime registry. `durable_bootstrap` names the embedder-store
-/// posture. Selecting it is refused until a store is wired (no silent ephemeral
-/// twin).
-pub const BootstrapDurability = enum { ephemeral, durable_bootstrap };
-
 /// Construction refusals happen before a Host is published. Embedders decide
 /// whether they are process-fatal. The core never makes that policy choice with
 /// a panic.
-pub const InitError = error{
-    DurableBootstrapUnavailable,
-    InvalidHostWorkQuantum,
-};
+pub const InitError = error{InvalidHostWorkQuantum};
 
 pub const Options = struct {
     /// Full CapTP session limits applied to every minted peer (ADR-0082).
@@ -39,10 +30,6 @@ pub const Options = struct {
     /// from a shared 16 KiB pool (ADR-0054), not from `max_frame_bytes`, so
     /// raising the admission cap costs no per-session memory.
     limits: engine.SessionLimits = .{},
-    /// Registry durability posture (ADR-0082). `.ephemeral` is live.
-    /// `.durable_bootstrap` fails closed at `Host.init` until an embedder store
-    /// lands.
-    bootstrap_durability: BootstrapDurability = .ephemeral,
     /// Verify the partner's `op:start-session` signature. This is the secure
     /// default a real peer keeps.
     verify_partner: bool = true,
@@ -56,7 +43,7 @@ pub const Options = struct {
     /// one decision rather than two knobs, and both default to
     /// `model.Preference.default_offer`.
     ///
-    /// `next` is a wire difference rather than a label: V1.0 has no native
+    /// `next` is a wire difference rather than a label: V1.0 has no Zig
     /// `op:resolve`, so an answer settles through a `resolve_me_desc` callback
     /// there and through a resolve on `next`. A hello states this preference in
     /// its locator hints and the two sides settle from the pair, so a host may
@@ -89,7 +76,7 @@ pub const Options = struct {
     /// always yields, so one hot session cannot hold the pump.
     host_work_quantum: usize = 64,
     /// Optional core issuer for capability ids projected without their
-    /// Registry pointer. Native `Ref` equality carries that pointer and leaves
+    /// Registry pointer. Zig `Ref` equality carries that pointer and leaves
     /// this null.
     capability_id_issuer: ?capability.IdIssuer = null,
     /// Retained outbound-work waterline for one byte-fed session. A producer
@@ -157,7 +144,7 @@ pub fn setIngressLimits(self: *Host, limits: actors.QueueLimits) error{ Reentere
     try admission.admitConfigurationMutation(self);
     if (limits.max_pending_turns == 0 or limits.max_chunk_bytes == 0 or
         limits.max_chunk_bytes > limits.max_pending_bytes) return error.InvalidArgument;
-    if (self.vat.next_ingress != 1 or self.next_vow != 1 or self.vat.next_vow != 1)
+    if (self.vat.ingresses.rowCount() != 0 or self.next_vow != 1 or self.vat.next_vow != 1)
         return error.HostNotQuiescent;
     self.vat.queue_limits = limits;
 }

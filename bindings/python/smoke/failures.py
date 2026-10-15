@@ -1,4 +1,4 @@
-"""Native failure observability: stale archives refuse before use, release
+"""FFI failure observability: stale archives refuse before use, release
 refusals stay owned, async close and settlement failures reach their Host
 seam, finalizer and allocator-callback exceptions stay nonfatal."""
 
@@ -30,7 +30,7 @@ from glowcap import (
     GlowcapError,
     Runtime,
 )
-from glowcap._native import NativeHandle
+from glowcap._ffi import FfiHandle
 from glowcap._ws import _WebSocketTransport
 from glowcap._constants import (
     DEFAULT_FAILURE_PAYLOAD_CAP,
@@ -45,7 +45,7 @@ _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
 )
 
 
-def _gift_id_completion_preserves_native_refusal() -> None:
+def _gift_id_completion_preserves_ffi_refusal() -> None:
     entropy_failure = RuntimeError("entropy unavailable")
     failed = 0
 
@@ -101,9 +101,9 @@ def _stale_archive_is_refused_before_use() -> None:
         )
     except RuntimeError as error:
         assert "callable surface does not match" in str(error), error
-        assert "rebuild the native libraries" in str(error), error
+        assert "rebuild the FFI libraries" in str(error), error
     else:
-        raise AssertionError("stale native archive was admitted")
+        raise AssertionError("stale FFI archive was admitted")
 
     class _MissingArchive:
         pass
@@ -340,7 +340,7 @@ async def _local_tell_failure_belongs_to_host() -> None:
         await host.close()
 
 
-def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
+def _ffi_finalizer_failure_is_nonfatal_and_observable() -> None:
     one_slot = _RuntimeFailureQueue(1)
     one_slot.record(FailureLayer.BINDING, "x" * 600, RuntimeError("first"))
     one_slot.record(FailureLayer.BINDING, "second", RuntimeError("second"))
@@ -388,8 +388,8 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     assert normalized.secondary_name == "", normalized
 
     glowcap.take_runtime_failures()
-    explicit_failure = RuntimeError("explicit native release failed")
-    release_failure = RuntimeError("explicit native release cleanup failed")
+    explicit_failure = RuntimeError("explicit FFI release failed")
+    release_failure = RuntimeError("explicit FFI release cleanup failed")
 
     def fail_shutdown(_raw) -> None:
         raise explicit_failure
@@ -397,7 +397,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     def fail_release(_raw) -> None:
         raise release_failure
 
-    explicit = NativeHandle(
+    explicit = FfiHandle(
         object(), fail_release, fail_shutdown, label="explicit-test"
     )
     try:
@@ -405,7 +405,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     except BaseException as observed:
         assert observed is explicit_failure, "explicit release replaced its failure"
     else:
-        raise AssertionError("explicit native release failure disappeared")
+        raise AssertionError("explicit FFI release failure disappeared")
     assert explicit.terminal_failures == (
         explicit_failure,
         release_failure,
@@ -420,12 +420,12 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         "explicit close leaked into finalizer diagnostics"
     )
 
-    finalizer_failure = RuntimeError("finalizer native release failed")
+    finalizer_failure = RuntimeError("finalizer FFI release failed")
 
     def fail_finalizer(_raw) -> None:
         raise finalizer_failure
 
-    abandoned = NativeHandle(object(), fail_finalizer, label="finalizer-test")
+    abandoned = FfiHandle(object(), fail_finalizer, label="finalizer-test")
     del abandoned
     gc.collect()
     diagnostics = glowcap.take_runtime_failures()
@@ -468,7 +468,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
     try:
         _driver_finalizer._release_driver_finalizer_state(refused_state)
         assert refused_state.handle is not None, (
-            "refused final release lost its native lease"
+            "refused final release lost its FFI lease"
         )
         assert len(reports) == 1, reports
         assert reports[0]["operation"] == "driver-loop.finalize.release", reports
@@ -481,7 +481,7 @@ def _native_finalizer_failure_is_nonfatal_and_observable() -> None:
         boundary = Host()
         asyncio.run(boundary.close())
         assert refused_state.handle is None, (
-            "successful retry retained the native lease"
+            "successful retry retained the FFI lease"
         )
         assert len(reports) == 1, "release retry duplicated its diagnostic"
     finally:

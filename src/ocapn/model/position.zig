@@ -134,4 +134,13 @@ pub const AnswerName = union(enum) {
     pub fn fromVirtual(answer: VirtualAnswer) AnswerName {
         return .{ .virtual = answer };
     }
+
+    /// The one word an identity-keyed table hashes: the position, with the
+    /// low bit saying which arm named it.
+    pub fn identityKey(self: AnswerName) u64 {
+        return switch (self) {
+            .wire => |position| @backingInt(position) << 1,
+            .virtual => |answer| (@backingInt(answer) << 1) | 1,
+        };
+    }
 };

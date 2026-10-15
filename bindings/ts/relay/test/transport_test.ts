@@ -85,7 +85,7 @@ Deno.test("relay routing refuses ambiguous and unbounded inputs", () => {
 	rejects(() => dialUrl("wss://user:secret@relay.example.test/", DESIGNATOR), "credentials or a fragment");
 });
 
-Deno.test("managed relay routing matches the binding-neutral native corpus", () => {
+Deno.test("managed relay routing matches the binding-neutral FFI corpus", () => {
 	assert(routeCorpus.designator === DESIGNATOR, "route corpus designator drifted");
 	for (const testCase of routeCorpus.accepted) {
 		const expected = `${testCase.route}${testCase.route.includes("?") ? "&" : "?"}rendezvous=${DESIGNATOR}`;

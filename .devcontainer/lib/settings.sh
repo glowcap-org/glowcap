@@ -20,10 +20,6 @@ glowcap_devcontainer_validate_pins() {
         echo "pins.sh: DEBIAN_BASE_DIGEST must be sha256:<64 hex>, got '${DEBIAN_BASE_DIGEST:-}'" >&2
         return 1
     fi
-    if ! [[ "${POSTGRES_IMAGE_PIN:-}" =~ ^[0-9]+\.[0-9]+-alpine@sha256:[0-9a-f]{64}$ ]]; then
-        echo "pins.sh: POSTGRES_IMAGE_PIN must be <major>.<minor>-alpine@sha256:<64 hex>, got '${POSTGRES_IMAGE_PIN:-}'" >&2
-        return 1
-    fi
     if ! [[ "${PYTHON_VERSION:-}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         echo "pins.sh: PYTHON_VERSION must be a stable version triple, got '${PYTHON_VERSION:-}'" >&2
         return 1
@@ -79,7 +75,7 @@ glowcap_devcontainer_host_state_rows() {
         .serena:/home/vscode/.serena
 }
 
-# Container build defaults shared by the front and checked against Compose.
+# Container build defaults shared by bin/run.sh and checked against Compose.
 glowcap_devcontainer_build_env_rows() {
     printf '%s\n' \
         "CARGO_BUILD_BUILD_DIR:${ZIG_WORK_CACHE_DIR}/cargo/{workspace-path-hash}" \
@@ -99,7 +95,7 @@ glowcap_devcontainer_host_cache_layout() {
 
 glowcap_devcontainer_host_cache_layout_text() {
     cat <<'EOF'
-glowcap caches — same tree on the host (~/.cache/glowcap) and in the
+glowcap caches: the same tree on the host (~/.cache/glowcap) and in the
 container (/home/vscode/.cache/glowcap). See .devcontainer/README.md
 (Persistent paths).
 
@@ -137,7 +133,7 @@ glowcap_devcontainer_tools_platform() {
 
 # The variables Compose reads for a checkout's identity, named once. The guard
 # below refuses an inherited value that disagrees with `.env`, and the host
-# tests have to clear the same set before building checkouts of their own, two
+# tests have to clear the same set before building checkouts of their own. Two
 # lists would drift, and the drift would show up as a test that passes on a host
 # and fails in a devcontainer.
 glowcap_devcontainer_compose_variables() {

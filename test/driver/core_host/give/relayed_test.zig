@@ -110,7 +110,7 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
         .{ .symbol = "fulfill" },
         .{ .@"struct" = &nested_entries },
     };
-    try home_pair.b.served.port.peer.sendCopying(.{ .deliver = .{
+    try home_pair.b.served.port.peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(listener_position.int()) },
         .args = &resolver_args,
         .resolve_me_desc = null,

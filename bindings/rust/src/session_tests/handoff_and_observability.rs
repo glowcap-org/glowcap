@@ -68,7 +68,7 @@ async fn send_redeeming_matches_send_and_reports_no_exporter_without_a_handoff()
 // Off-turn settlement: a behavior atomically defers onto a resolver vow
 // (`Host::defer_turn`) and returns; the caller's reply arrives only
 // when the parked resolver settles later, after real awaited work, as its
-// own top-level event. A successful settle consumes the native authority, so
+// own top-level event. A successful settle consumes the FFI authority, so
 // the broken arm exercises a second call's fresh resolver.
 #[tokio::test]
 async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
@@ -150,7 +150,7 @@ async fn an_async_worker_defers_its_answer_onto_a_resolver_vow() {
 		.await;
 }
 
-// The same off-turn deferral with the worker hosted on a native-loop server
+// The same off-turn deferral with the worker hosted on a driver-loop server
 // (ADR-0112): the behavior fires inside a `glowcap_driver_step`, so
 // `defer_turn` must find the turn latched to the loop's adopted Host (the
 // step's deliver bracket), and the top-level resolver settle must reach the
@@ -226,7 +226,7 @@ fn b64_decode(s: &str) -> Vec<u8> {
 	out
 }
 
-// The live trace: the veneer stamps and forwards the native tap's facts, one
+// The live trace: the veneer stamps and forwards the FFI tap's facts, one
 // flat record per fact: session-opened with the codec the handshake
 // negotiated, the same verb outbound at the client and inbound at the server,
 // and session-closed. Endpoint labeling belongs to the consumer, so the

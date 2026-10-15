@@ -31,30 +31,19 @@ The Rooms deployment's example override publishes its web surface on host
 loopback port 8080. It shares `glowcap-rooms-net` with the devcontainer.
 Development bindings cannot use host port 8080, even when production is down.
 
-Development host ports come from one baseline table plus a worktree offset.
-The web baseline is 9080: main uses offset 0, while offsets 10000, 20000,
-and 30000 give web ports 19080, 29080, and 39080. These sets do not overlap.
-The devcontainer reserves its published host ports for its whole lifetime,
-even when no development server runs inside it.
+Development host ports come from the baseline table in
+[`lib/settings.sh`](../lib/settings.sh) plus a worktree offset. Offsets that
+are multiples of 10000 never overlap. The devcontainer reserves its published
+host ports for its whole lifetime, even when no development server runs
+inside it.
 
-Existing ignored `.devcontainer/.env` files keep their assignments when
-`configure.sh` runs. To adopt the development baselines, set the primary
-checkout's entries to:
-
-```dotenv
-GLOWCAP_ROOMS_WEB_HOST_PORT=9080
-GLOWCAP_ROOMS_CAPTP_HOST_PORT=10099
-GLOWCAP_ROOMS_RELAY_HOST_PORT=10200
-GLOWCAP_ROOMS_TRACE_HOST_PORT=10300
-GLOWCAP_OCAPNVIZ_HOST_PORT=6173
-GLOWCAP_DOCS_HOST_PORT=2990
-```
-
-For each linked worktree, add its offset to all six values above. Preserve
-every checkout's other configuration, including its paths and egress network.
-Check the proposed ports against the host's running containers and listeners,
-then run `bash .devcontainer/bin/up.sh --rebuild` from each changed checkout on
-the host. This recreates that devcontainer and disconnects its sessions.
+`configure.sh` never rewrites an existing `.devcontainer/.env`. To move a
+checkout's ports, set each `GLOWCAP_*_HOST_PORT` entry to its baseline plus
+that checkout's offset, and keep its other configuration, including its paths
+and egress network. Check the proposed ports against the host's running
+containers and listeners, then run `bash .devcontainer/bin/up.sh --rebuild`
+from each changed checkout on the host. This recreates that devcontainer and
+disconnects its sessions.
 It does not change the Rooms deployment or its volumes. Editing `.env` alone
 does not release the old host bindings.
 

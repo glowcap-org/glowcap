@@ -20,32 +20,37 @@ You reach a peer through an OCapN locator:
 ocapn://<designator>.<transport>
 ```
 
-The **designator** is the peer's name for that transport. The keyed and sealed
-transports use an Ed25519 public key. iroh uses a node id. Onion uses a Tor
-service id. Plain `tcp` uses a `host:port` and is testing-only. Optional hints
-can carry routing help, such as the bound address for a key-addressed listener,
-but a hint is never permission. [Concepts]($link.page('concepts')) covers
-locators and sturdyrefs in full.
+The **designator** is the peer's name for that transport:
+
+- The keyed and sealed transports use an Ed25519 public key.
+- iroh uses a node id.
+- Onion uses a Tor service id.
+- Plain `tcp` uses a `host:port` and is testing-only.
+
+Optional hints can carry routing help, such as the bound address for a
+key-addressed listener, but a hint is never permission.
+[Concepts]($link.page('concepts')) covers locators and sturdyrefs in full.
 
 # What proves who answered
 
 Every CapTP session signs its hello with a fresh key. That signature holds the
 handshake together but does not prove who the durable peer is. The channel has
-to supply that. On
-[Noise]($link.page('transports/noise')), completing the handshake proves the
-dialed key. On [iroh]($link.page('transports/iroh')), the QUIC handshake
-authenticates the node id. On [WebRTC]($link.page('transports/webrtc')), the
-signaling authority binds the peer to the DataChannel. On
-[onion]($link.page('transports/onion')), Tor proves the dialed service. A key
-written into a cleartext locator is only a dial target until something like
-that proves possession of it.
+to supply that:
+
+- On [Noise]($link.page('transports/noise')), completing the handshake proves the dialed key.
+- On [iroh]($link.page('transports/iroh')), the QUIC handshake authenticates the node id.
+- On [WebRTC]($link.page('transports/webrtc')), the signaling service vouches for which peer is on the DataChannel.
+- On [onion]($link.page('transports/onion')), Tor proves the dialed service.
+
+A key written into a cleartext locator is only a dial target until one of
+these proves possession of it.
 
 # Picking one
 
 CapTP works the same on every netlayer, but on a cleartext one anyone who can
 see the path can read and alter every frame.
 [Choosing a transport]($link.page('transports/choosing')) is the decision
-table. A browser that cannot open a native socket uses the
+table. A browser that cannot open a raw socket uses the
 [relay]($link.page('relay')).
 
 One program can listen on several of these at once, but a standard locator

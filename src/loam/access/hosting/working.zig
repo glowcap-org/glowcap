@@ -11,6 +11,8 @@ const sharing = @import("sharing.zig");
 const ContentDelta = @import("content_delta.zig").ContentDelta;
 const graph = @import("content_graph.zig");
 const Mutation = @import("mutation.zig").Mutation;
+const Participants = @import("participants.zig").Participants;
+const Creation = @import("creation.zig").Creation;
 
 /// Add the view inventory used by graph reference preparation. Private managed
 /// state, mutation receipts, application storage and held fields are separate.
@@ -31,9 +33,21 @@ pub const InvocationBounds = struct {
     held_occurrences: usize = 0,
     receipt: bool = false,
     dependent: bool = false,
+    /// Further resources a method declares. Zig hosting only.
+    participants: usize = 0,
+    /// The method creates a child, so its reply is that child's facet. Its
+    /// staging holds two more retains: the child endpoint and the facet.
+    /// Zig hosting only.
+    creates: bool = false,
 };
 
-pub fn invocationAllocationBound(shape: InvocationBounds) !hosting.references.AllocationBound {
+pub fn invocationAllocationBound(declared: InvocationBounds) !hosting.references.AllocationBound {
+    var shape = declared;
+    if (shape.creates) {
+        shape.reply.capabilities = try std.math.add(usize, shape.reply.capabilities, 1);
+        shape.reply.values = @max(shape.reply.values, shape.reply.capabilities);
+        shape.held_occurrences = try std.math.add(usize, shape.held_occurrences, 2);
+    }
     try shape.arguments.validate();
     try shape.reply.validate();
     if (shape.reply.values == 0) return error.InvalidArguments;
@@ -42,6 +56,7 @@ pub fn invocationAllocationBound(shape: InvocationBounds) !hosting.references.Al
     const captured = try std.math.add(usize, shape.reply.capabilities, if (shape.receipt) shape.arguments.capabilities else 0);
     try bound.merge(try hosting.Call.heldAllocationBound(try std.math.add(usize, shape.held_occurrences, captured)));
     if (shape.receipt) try bound.merge(try Mutation.allocationBound(shape.arguments, shape.reply, shape.dependent));
+    try bound.merge(try Participants.allocationBound(shape.participants));
     return bound;
 }
 
@@ -60,7 +75,7 @@ const BoundContent = struct {
     resource: ?storage.Operation.BoundResource = null,
 };
 
-const State = struct {
+pub const State = struct {
     config: *service.Service,
     call: *hosting.Call,
     arena: std.mem.Allocator,
@@ -79,8 +94,12 @@ const State = struct {
     changed: bool = false,
     control_prepared: bool = false,
     retry: service.RetryMode = .read_only,
-    resource_action: ?storage.ResourceChange.Action = null,
+    effects_declared: bool = false,
+    resource_effect: ?service.ResourceEffect = null,
     resource_prepared: bool = false,
+    participants: ?Participants = null,
+    participants_ready: bool = false,
+    creation: ?Creation = null,
     mutation: ?*Mutation = null,
     action_prepared: bool = false,
     ready: bool = false,
@@ -95,8 +114,22 @@ const State = struct {
         return Request.prepare(value);
     }
 
-    fn store(self: *State) *loam.Store {
+    pub fn store(self: *State) *loam.Store {
         return self.config.capabilities.store;
+    }
+
+    /// Every managed effect of one call stages through one operation, so the
+    /// call commits one owner header and one change batch. A dependent call
+    /// stages through its target's operation.
+    pub fn staging(self: *State) *storage.Operation {
+        return self.dependent_operation orelse self.operation.?;
+    }
+
+    pub fn effectTarget(self: *State, bound: core.ResourceId) !core.ResourceId {
+        return switch (self.resource_effect.?.target) {
+            .bound => bound,
+            .participant => |index| (self.participants orelse return error.NoSuchParticipant).resource(index),
+        };
     }
 
     /// Source-mediated facades recheck their original intent against current
@@ -227,7 +260,6 @@ const State = struct {
                 } else {
                     self.requirement = try behavior.requirement(behavior.context, self.arena, input);
                     self.retry = try behavior.retry(behavior.context, self.verb, self.args);
-                    if (behavior.resource) |decode| self.resource_action = try decode(behavior.context, self.arena, input);
                 }
             }
             if (bound_content) |bound| {
@@ -272,20 +304,76 @@ const State = struct {
 
             if (self.dependent_operation) |target_operation| {
                 const target = self.dependent_endpoint.?.content.?;
-                target_operation.require(target.resource, self.requirement.?) catch |err| {
+                target_operation.require(target.resource, self.requirement orelse .{ .permissions = &.{} }) catch |err| {
                     if (err == error.RecordUnloaded) continue;
                     return err;
                 };
             }
             if (self.request.invokes() and self.retry == .receipt and self.mutation == null) return error.RetryRequired;
-            if (self.resource_action) |action| if (!self.resource_prepared and (self.mutation == null or self.mutation.?.sequence == self.endpoint.mutations.next)) {
-                if (self.dependent_object != null) return error.InvalidMutation;
-                self.changed = operation.prepareResourceCopying(bound_content.?.resource, action, self.requirement.?) catch |err| {
+            // A replay answers from its receipt, so only a fresh call resolves
+            // participants and effects against current content.
+            const fresh = self.mutation == null or self.mutation.?.sequence == self.endpoint.mutations.next;
+            if (self.request == .content and self.content != null and fresh) {
+                if (!self.effects_declared and self.participants == null) if (self.content.?.behavior.participants) |declare| {
+                    if (self.content.?.behavior.graph != null) return error.NotReferenceField;
+                    const input = try self.invocation();
+                    const declared = try declare(self.content.?.behavior.context, self.arena, input);
+                    if (declared.len != 0) self.participants = try .init(self.arena, self.call.attachment, declared, input.content, self.args);
+                };
+                if (self.participants) |*participants| if (!self.participants_ready) {
+                    switch (try participants.advance(self.arena, self.store(), bound_content.?.resource.owner, bound_content.?.resource, .{ operation, self.dependent_operation }, self.staging())) {
+                        .more => continue,
+                        .waiting => return .waiting,
+                        .read => |read| {
+                            self.pending = .{ .ticket = read.ticket, .owner = .store };
+                            return .{ .read = read };
+                        },
+                        .ready => {
+                            // A participant's content takes plain field edits.
+                            for (participants.loaded) |view| if ((try self.config.contentBehavior(view.content)).graph != null) return error.NotReferenceField;
+                            self.participants_ready = true;
+                        },
+                    }
+                };
+                if (!self.effects_declared) {
+                    const behavior = self.content.?.behavior;
+                    const input = try self.invocation();
+                    if (behavior.resource) |decode| self.resource_effect = try decode(behavior.context, self.arena, input);
+                    if (behavior.create) |decode| if (try decode(behavior.context, self.arena, input)) |declared| {
+                        self.creation = .{ .declared = declared };
+                    };
+                    if (self.creation != null and (self.resource_effect != null or self.mutation == null)) return error.InvalidMutation;
+                    // A child's home is a plain strong field of the bound content.
+                    if (self.creation != null and behavior.graph != null) return error.NotReferenceField;
+                    self.effects_declared = true;
+                }
+            }
+            if (self.resource_effect) |effect| if (!self.resource_prepared and fresh) {
+                const target = try self.effectTarget(bound_content.?.resource);
+                // The staging operation admits source and both parents, and
+                // the invoking grant of a dependent call admits the same three.
+                if (self.dependent_operation != null) operation.requireStructural(target, effect.action, self.requirement.?) catch |err| {
+                    if (err == error.RecordUnloaded) continue;
+                    return err;
+                };
+                self.changed = self.staging().prepareResourceCopying(target, effect.action, self.requirement.?) catch |err| {
                     if (err == error.RecordUnloaded) continue;
                     return err;
                 };
                 self.resource_prepared = true;
                 continue;
+            };
+            if (self.creation) |*creation| if (!creation.prepared and fresh) {
+                const describe = self.config.child_descriptor orelse return error.NoSuchMethod;
+                const descriptor = describe(self.config.context, bound_content.?.resource.owner) orelse return error.NotUsable;
+                switch (try creation.prepare(self.store(), descriptor, self.staging(), bound_content.?.resource, self.requirement.?)) {
+                    .ready, .more => continue,
+                    .waiting => return .waiting,
+                    .read => |read| {
+                        self.pending = .{ .ticket = read.ticket, .owner = .store };
+                        return .{ .read = read };
+                    },
+                }
             };
             if (self.request == .control and self.request.control != .revoke) operation.requireManagement() catch |err| {
                 if (err == error.RecordUnloaded) continue;
@@ -321,11 +409,11 @@ const State = struct {
                 self.control_prepared = true;
             }
             if (self.request == .content and self.retry != .read_only and bound_content != null) {
-                const content_operation = self.dependent_operation orelse operation;
-                storage.stage.prepareContent(content_operation, bound_content.?.resource) catch |err| {
+                storage.stage.prepareContent(self.staging(), bound_content.?.resource) catch |err| {
                     if (err == error.RecordUnloaded) continue;
                     return err;
                 };
+                if (self.participants) |*participants| if (try participants.prepareContent(self.staging()) == .more) continue;
             }
             if (self.request == .derive) switch (try self.request.derive.advance(operation)) {
                 .more => continue,
@@ -397,9 +485,10 @@ const State = struct {
         return error.ActivationLimit;
     }
 
-    fn invocation(self: *State) !service.ContentInvocation {
+    pub fn invocation(self: *State) !service.ContentInvocation {
         const bound = self.content.?;
-        return .{ .bound_resource = bound.resource.?, .delivery = if (self.request == .forward) .forwarding else .local, .content = try self.store().currentView(bound.lease), .graph = if (self.content_graph) |prepared| prepared.snapshot else null, .verb = self.verb, .args = self.args };
+        const participants: []const service.ParticipantView = if (self.participants_ready) self.participants.?.loaded else &.{};
+        return .{ .bound_resource = bound.resource.?, .delivery = if (self.request == .forward) .forwarding else .local, .content = try self.store().currentView(bound.lease), .graph = if (self.content_graph) |prepared| prepared.snapshot else null, .participants = participants, .verb = self.verb, .args = self.args };
     }
 
     fn acquire(self: *State, id: loam.ObjectId) !union(enum) { ready: loam.Lease, read: loam.Read, waiting } {
@@ -439,7 +528,7 @@ pub fn prepare(call: *hosting.Call, verb: []const u8, args: []const driver.Value
     return .{ .context = value, .advanceFn = advance, .completeFn = complete, .deinitFn = deinit };
 }
 
-fn state(context: *anyopaque) *State {
+pub fn state(context: *anyopaque) *State {
     return @ptrCast(@alignCast(context));
 }
 fn advance(context: *anyopaque) !hosting.Preparation.Step {
@@ -475,107 +564,6 @@ fn deinit(context: *anyopaque) void {
     if (value.content) |bound| value.store().release(bound.lease) catch unreachable;
     if (value.dependent_endpoint_lease) |lease| value.store().release(lease) catch unreachable;
     if (value.publication) |lease| value.store().release(lease) catch unreachable;
-}
-
-pub fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const driver.Value) !driver.Value {
-    const value = state(call.preparation.?.context);
-    if (!value.ready) return error.RecordUnloaded;
-    switch (value.request) {
-        .forward => {
-            const bound = value.content.?;
-            const intent = call.dispatch orelse hosting.Call.Intent{ .verb = value.verb, .args = value.args };
-            if (bound.behavior.admit_forward) |admit| {
-                const view = try value.store().currentView(bound.lease);
-                var admission_call = service.ContentCallState.init(call, view, .{ .verb = value.verb, .args = value.args }, false, value.retry);
-                admission_call.operation = value.operation;
-                admission_call.graph = value.content_graph;
-                try admit(bound.behavior.context, admission_call.handle(), try service.ForwardWork.measure(value.verb, intent));
-                if (admission_call.replacement != null or admission_call.edits.items.len != 0 or admission_call.appended.items.len != 0 or admission_call.graph_replaced) return error.InvalidMutation;
-            }
-            call.forward = .{ .target = call.dependent_target.?, .verb = intent.verb, .args = intent.args };
-            return .{ .void = {} };
-        },
-        .derive => |share| return share.invoke(),
-        .observe => |registration| return registration.invoke(),
-        .mutation_sequence => return .{ .integer = @intCast(value.endpoint.mutations.next) },
-        .sequence => return .{ .integer = std.math.cast(i64, value.endpoint.derivations.next) orelse return error.SequenceExhausted },
-        .durable_name => return .{ .string = value.swiss.slice() },
-        .describe_control => |description| return @import("description.zig").control(call.arena(), description.*),
-        .inspect_access => |inspection| return @import("inventory.zig").encode(call.arena(), &inspection.policy, inspection.item),
-        .describe, .inspect_fixed => |description| return @import("description.zig").encode(call.arena(), description.*),
-        .inventory => |page| return page.result.?,
-        .content, .control => {},
-    }
-    if (value.mutation) |mutation| if (mutation.lease != null) return mutation.replay();
-    if (value.content) |bound| {
-        const view = try value.store().currentView(bound.lease);
-        const behavior = bound.behavior;
-        var content_call = service.ContentCallState.init(call, view, .{ .verb = value.verb, .args = value.args }, value.mutation != null, value.retry);
-        content_call.graph = value.content_graph;
-        content_call.operation = value.operation;
-        const reply = try behavior.invoke(behavior.context, content_call.handle(), try value.invocation());
-        if (value.retry == .read_only and (content_call.replacement != null or content_call.edits.items.len != 0 or content_call.appended.items.len != 0 or content_call.graph_replaced or value.resource_action != null)) return error.InvalidMutation;
-        if (value.content_graph != null and content_call.replacement != null) return error.InvalidMutation;
-        if (value.mutation) |mutation| {
-            try mutation.retainResult(reply);
-            call.transaction = .{ .context = value, .stage = stage };
-        }
-        value.content_delta = try ContentDelta.prepare(value.arena, view, content_call.replacement, content_call.edits.items, content_call.appended.items);
-        value.graph_delta = content_call.graph_delta;
-        if (value.content_delta != null or value.graph_delta != null or value.changed) {
-            call.transaction = .{ .context = value, .stage = stage };
-        }
-        return reply;
-    }
-    if (value.request == .control and value.request.control == .attenuate) {
-        call.transaction = .{ .context = value, .stage = stage };
-        call.result = controlReply;
-        call.confirmation = .{ .context = value, .apply = confirmControl, .requires_commit = true };
-        return .{ .void = {} };
-    }
-    const result: driver.Value = .{ .boolean = value.changed };
-    if (value.mutation) |mutation| try mutation.retainResult(result);
-    if (value.changed or value.mutation != null) call.transaction = .{ .context = value, .stage = stage };
-    return result;
-}
-
-fn stage(context: *anyopaque, store: *loam.Store) !void {
-    const value = state(context);
-    if (store != value.store()) return error.ForeignStore;
-    if (value.content_delta) |delta| {
-        const view = try store.currentView(value.content.?.lease);
-        try store.putCopying(.{ .id = view.id, .revision = 0, .schema = view.schema, .schema_version = view.schema_version, .rooted = view.rooted, .payload = delta.payload, .edges = try delta.stageEdges(store, value.arena) }, view.revision);
-    }
-    if (value.graph_delta) |delta| try delta.stage(store);
-    if (value.request == .control and value.request.control == .attenuate) {
-        const descriptor = try value.config.capabilities.stageAttenuatedControl(value.operation.?, false);
-        const endpoint = try store.allocateId();
-        const publication = try hosting.publication.stageTarget(store, value.request.control.attenuate.entropy.?, endpoint);
-        try storage.stage.endpointAtOperation(value.operation.?, value.arena, endpoint, .{ .descriptor = descriptor, .administration = value.endpoint.administration, .publication = publication }, false);
-        const mutation = value.mutation orelse return error.RetryRequired;
-        value.request.control.attenuate.proposed = try mutation.call.propose(endpoint);
-        try mutation.retainResult(.{ .capability = value.request.control.attenuate.proposed.? });
-    } else if (value.request == .control and value.request.control == .revoke) {
-        _ = try value.operation.?.stageControlRevocation();
-    } else if (value.changed and !value.resource_prepared) _ = try value.config.capabilities.stage(value.operation.?, false);
-    if (value.resource_prepared) {
-        _ = try storage.stage.resourceWithContent(value.operation.?, value.content_delta != null or value.graph_delta != null);
-    } else if (value.content_delta != null or value.graph_delta != null) {
-        const operation = value.dependent_operation orelse value.operation.?;
-        const endpoint = value.dependent_endpoint orelse value.endpoint;
-        try storage.stage.content(operation, endpoint.content.?.resource);
-    }
-    if (value.mutation) |mutation| try mutation.stage(store);
-}
-
-fn controlReply(call: *hosting.Call) !driver.Value {
-    const value = state(call.preparation.?.context);
-    const control = &value.request.control.attenuate;
-    const capability = control.proposed orelse return error.NoPreparedChange;
-    if (control.reservation == null) control.reservation = try call.attachment.host.reserveDurableCapability(control.entropy.?, capability);
-    return .{ .capability = capability };
-}
-
-fn confirmControl(context: *anyopaque) void {
-    state(context).request.control.attenuate.reservation.?.commit();
+    if (value.participants) |*participants| participants.release(value.store());
+    if (value.creation) |*creation| creation.release(value.store());
 }

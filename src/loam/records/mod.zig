@@ -14,6 +14,13 @@ pub const ObjectId = struct {
         return std.meta.eql(a, b);
     }
 
+    /// The words an identity-keyed table hashes and compares: the store in
+    /// two, then the incarnation and the sequence.
+    pub fn identityWords(self: ObjectId) [4]u64 {
+        const store: u128 = @backingInt(self.store);
+        return .{ @truncate(store >> 64), @truncate(store), self.incarnation, self.sequence };
+    }
+
     pub fn key(self: ObjectId) [33]u8 {
         var bytes: [33]u8 = undefined;
         bytes[0] = 'o';
@@ -74,7 +81,14 @@ pub const Schema = struct {
         return std.math.add(usize, bytes, tail + 4);
     }
 };
-pub const Limits = struct { max_record_bytes: usize = 64 * 1024, max_edges: usize = 256 };
+pub const Limits = struct {
+    max_record_bytes: usize = 64 * 1024,
+    max_edges: usize = 256,
+
+    /// The most edges any store may allow one record, so a commit can keep
+    /// per-edge state in fixed scratch. `max_edges` above it is refused.
+    pub const max_edges_bound = 1024;
+};
 pub const Error = error{ Corrupt, UnsupportedSchema, RecordTooLarge, ForeignObject, InvalidRecord };
 
 pub const Record = struct {
@@ -178,14 +192,14 @@ pub const View = struct {
         try syntax.readByte(bytes, &cursor, '<');
         if (!std.mem.eql(u8, try syntax.readSymbol(bytes, &cursor), "loam:record")) return error.Corrupt;
         if (try syntax.readPositiveInt(bytes, &cursor) != 2) return error.Corrupt;
-        const id = try ObjectId.fromKey(try syntax.readBytesLimited(bytes, &cursor, bytes.len));
+        const id = try ObjectId.fromKey(try syntax.readBytes(bytes, &cursor));
         const revision = try syntax.readPositiveInt(bytes, &cursor);
         if (revision == 0) return error.Corrupt;
         const schema_id = try syntax.readPositiveInt(bytes, &cursor);
         const version = std.math.cast(u32, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.Corrupt;
         const schema = try findSchema(schemas, schema_id, version);
         const rooted = try syntax.readBool(bytes, &cursor);
-        const payload = try syntax.readBytesLimited(bytes, &cursor, bytes.len);
+        const payload = try syntax.readBytes(bytes, &cursor);
         if (payload.len > schema.max_payload) return error.RecordTooLarge;
         try syntax.readByte(bytes, &cursor, '[');
         const start = cursor;
@@ -194,7 +208,7 @@ pub const View = struct {
         while (cursor < bytes.len and bytes[cursor] != ']') {
             if (count >= @min(schema.max_edges, limits.max_edges)) return error.RecordTooLarge;
             const edge_start = cursor;
-            const target = try ObjectId.fromKey(try syntax.readBytesLimited(bytes, &cursor, bytes.len));
+            const target = try ObjectId.fromKey(try syntax.readBytes(bytes, &cursor));
             if (target.store != id.store) return error.Corrupt;
             _ = try syntax.readBool(bytes, &cursor);
             _ = try syntax.readBool(bytes, &cursor);
@@ -215,7 +229,7 @@ pub const EdgeIterator = struct {
 
     pub fn next(self: *EdgeIterator) ?Edge {
         if (self.cursor == self.bytes.len) return null;
-        const key = syntax.readBytesLimited(self.bytes, &self.cursor, self.bytes.len) catch unreachable;
+        const key = syntax.readBytes(self.bytes, &self.cursor) catch unreachable;
         const strong = syntax.readBool(self.bytes, &self.cursor) catch unreachable;
         const recipe = syntax.readBool(self.bytes, &self.cursor) catch unreachable;
         return .{ .target = ObjectId.fromKey(key) catch unreachable, .strength = if (strong) .strong else .weak, .restoration = if (recipe) .recipe else .object };

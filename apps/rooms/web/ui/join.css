@@ -19,7 +19,8 @@
 	inset: 0;
 	z-index: 3;
 	overflow-y: auto;
-	background: var(--paper);
+	/* The message log is hidden while this shows, so the page's ground stands
+	   in for paper here, and the mycelium in it. */
 	display: flex;
 	justify-content: center;
 	padding: 24px;

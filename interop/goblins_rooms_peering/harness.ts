@@ -57,7 +57,7 @@ try {
 
 			// Discovery and already-handed authority have different lifetimes.
 			await publication.revoke();
-			assert((await publisher.list()).length === 0, "revocation left the foreign listing discoverable");
+			assert((await publisher.list()).rooms.length === 0, "revocation left the foreign listing discoverable");
 			await owner.say(AFTER_REVOKE);
 
 			const result = await goblins;

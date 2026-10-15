@@ -33,6 +33,8 @@ import {
 	memberDirectMessages,
 	memberGrantedBy,
 	memberHereNow,
+	memberManageBridgeIdentity,
+	memberMessageDirectly,
 	memberNoDirectoryNamed,
 	memberNoDirectoryNamedYou,
 	memberNoNameYet,
@@ -314,7 +316,7 @@ function MemberDialog(
 										browser.manageBridgeIdentity();
 									}}
 								>
-									Manage your {view.bridgeBadge ?? "bridge"} identity…
+									{memberManageBridgeIdentity(view.bridgeBadge ?? "bridge")}
 								</Button>
 							</div>
 						)
@@ -327,7 +329,7 @@ function MemberDialog(
 										session.startDm(view.key);
 									}}
 								>
-									Message {view.name} directly
+									{memberMessageDirectly(view.name)}
 								</Button>
 							</div>
 						))}

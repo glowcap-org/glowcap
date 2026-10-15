@@ -41,7 +41,7 @@ pub fn runStage0Abort(allocator: std.mem.Allocator) ![]u8 {
         var event = event_value;
         defer event.deinit();
         if (event.kind() == .abort) {
-            const decoded = try event.view();
+            const decoded = event.view();
             try appendTraceLine(allocator, &out, "event=abort:{s}\n", .{decoded.abort.message});
         }
     }
@@ -62,7 +62,7 @@ pub fn runDrivenAbort(allocator: std.mem.Allocator) ![]u8 {
 
     try out.appendSlice(allocator, "scenario=driven_abort\n");
 
-    try p1.sendCopying(.{ .abort = .{ .kind = .other, .message = "bye" } });
+    try p1.sendBorrowed(.{ .abort = .{ .kind = .other, .message = "bye" } });
     _ = try p1.step();
     try out.appendSlice(allocator, "p1=sent:abort\n");
 
@@ -74,7 +74,7 @@ pub fn runDrivenAbort(allocator: std.mem.Allocator) ![]u8 {
         var event = event_value;
         defer event.deinit();
         if (event.kind() == .abort) {
-            const decoded = try event.view();
+            const decoded = event.view();
             try appendTraceLine(allocator, &out, "p2=event:abort:{s}\n", .{decoded.abort.message});
         }
     }
@@ -98,7 +98,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     errdefer out.deinit(allocator);
     try out.appendSlice(allocator, "scenario=driven_deliver_resolve\n");
 
-    try pair.p1.sendCopying(.{ .deliver = .{
+    try pair.p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(0) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(42),
@@ -117,7 +117,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
         try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
     }
 
-    try pair.p2.sendCopying(.{ .resolve = .{
+    try pair.p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .bytes = "pong" } },
     } });
@@ -132,7 +132,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     if (pair.p1.pollEvent()) |event_value| {
         var event = event_value;
         defer event.deinit();
-        const view = try event.view();
+        const view = event.view();
         try appendTraceLine(allocator, &out, "p1=event:{s}:answer={d}:fulfill={s}\n", .{
             @tagName(event.kind()),
             view.resolve.answer,
@@ -159,7 +159,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
     try pair.p2.session_state.registerExport(.from(7));
     try pair.p1.session_state.registerExport(.from(9));
 
-    try pair.p1.sendCopying(.{ .deliver = .{
+    try pair.p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
         .answer = .from(42),
@@ -177,7 +177,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
         try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
     }
 
-    try pair.p1.sendCopying(.{ .listen = .{
+    try pair.p1.sendBorrowed(.{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .listener = .{ .near = .{ .export_position = .from(9) } },
         .mode = .settling_only,
@@ -195,7 +195,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
         try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
     }
 
-    try pair.p2.sendCopying(.{ .resolve = .{
+    try pair.p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .bytes = "ok" } },
     } });
@@ -206,7 +206,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
         var event = event_value;
         defer event.deinit();
         if (event.kind() == .deliver) {
-            const view = try event.view();
+            const view = event.view();
             try appendTraceLine(allocator, &out, "p1=event:deliver:listener={d}:fulfill={s}\n", .{
                 view.deliver.target.near.export_position.int(),
                 (try view.deliver.args.at(1)).bytes,
@@ -323,7 +323,7 @@ pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) 
     // (op:get), 21 to a List (op:index), 31 to a Tagged (op:untag).
     const questions = [_]u64{ 11, 21, 31 };
     for (questions) |answer| {
-        try pair.p1.sendCopying(.{ .deliver = .{
+        try pair.p1.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{},
             .answer = .from(answer),
@@ -339,7 +339,7 @@ pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) 
         .{ .untag = .{ .receiver = .{ .promise = .{ .answer_position = .from(31) } }, .tag = "cm", .answer = .from(32) } },
     };
     for (projections) |message| {
-        try pair.p1.sendCopying(message);
+        try pair.p1.sendBorrowed(message);
         _ = try pair.p1.step();
         try appendTraceLine(allocator, &out, "p1=sent:{s}\n", .{@tagName(message)});
         try scenario_support.shuttleAndTraceEvents(allocator, &out, &pair.p1, &pair.p2, "p2");
@@ -359,7 +359,7 @@ pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) 
         } } } } },
     };
     for (resolutions) |message| {
-        try pair.p2.sendCopying(message);
+        try pair.p2.sendBorrowed(message);
         _ = try pair.p2.step();
         try appendTraceLine(allocator, &out, "p2=sent:resolve:answer={d}\n", .{message.resolve.answer.int()});
         try scenario_support.shuttleAndTraceEvents(allocator, &out, &pair.p2, &pair.p1, "p1");
@@ -385,7 +385,7 @@ pub fn runDrivenGcPair(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8
     try pair.p1.session_state.registerImport(.from(3));
     try pair.p2.session_state.registerExport(.from(3));
 
-    try pair.p1.sendCopying(.{ .deliver = .{
+    try pair.p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(3) } },
         .args = &.{},
         .answer = .from(21),
@@ -394,7 +394,7 @@ pub fn runDrivenGcPair(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8
     try out.appendSlice(allocator, "p1=sent:deliver:answer=21\n");
     try scenario_support.shuttleAndTraceEvents(allocator, &out, &pair.p1, &pair.p2, "p2");
 
-    try pair.p1.sendCopying(.{ .gc_export = .{ .positions = &.{3}, .deltas = &.{1} } });
+    try pair.p1.sendBorrowed(.{ .gc_export = .{ .positions = &.{3}, .deltas = &.{1} } });
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:gc_export:position=3:delta=1\n");
     try scenario_support.shuttleAndTraceEvents(allocator, &out, &pair.p1, &pair.p2, "p2");
@@ -408,7 +408,7 @@ pub fn runDrivenGcPair(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8
     pair.p2.session_state.releaseUnsharedExport(.from(3));
     try appendTraceLine(allocator, &out, "p2=released:baseline:export3_live={}\n", .{pair.p2.session_state.hasExport(.from(3))});
 
-    try pair.p1.sendCopying(.{ .gc_answer = .{ .positions = &.{21} } });
+    try pair.p1.sendBorrowed(.{ .gc_answer = .{ .positions = &.{21} } });
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:gc_answer:position=21\n");
     try scenario_support.shuttleAndTraceEvents(allocator, &out, &pair.p1, &pair.p2, "p2");
@@ -425,8 +425,8 @@ pub const InboundMode = enum { borrowed, owned };
 
 /// Drive one inbound frame through `mode` and trace the observable dispatcher
 /// output (rejection error, surfaced events, outbound frame count + byte length,
-/// session state). Both modes funnel through the same `dispatch_inbound`/abort
-/// machinery, so a parity test asserts byte-identical traces, which is the
+/// session state). `Peer.feedOwned` and `Peer.recvBorrowed` funnel through the
+/// same dispatch and abort machinery, so a parity test asserts byte-identical traces, which is the
 /// proof that the borrowed and owned entry points run one state machine, not
 /// two. The frame is a malformed one, so the trace also exercises the
 /// abort-projection path (`engine.abort_projection`) across both modes.

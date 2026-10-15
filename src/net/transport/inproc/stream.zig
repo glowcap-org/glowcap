@@ -6,7 +6,6 @@
 
 const std = @import("std");
 
-const codec = @import("codec");
 const foundation = @import("foundation");
 const model = @import("model");
 const frame_stream = @import("../../frame_stream.zig");
@@ -175,7 +174,6 @@ pub const FrameStream = struct {
     max_frame_bytes: usize,
     allocator: std.mem.Allocator,
     spill: frame_stream.Spill = .{},
-    scan: codec.framing.StreamScan = .{},
 
     pub fn readFrame(self: *FrameStream) frame_stream.FrameError!foundation.Frame {
         return frame_stream.readFrameFrom(
@@ -184,7 +182,6 @@ pub const FrameStream = struct {
             self.codec_id,
             self.max_frame_bytes,
             &self.spill,
-            &self.scan,
         );
     }
 

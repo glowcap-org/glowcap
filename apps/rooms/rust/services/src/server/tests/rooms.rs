@@ -24,6 +24,7 @@ use rooms_platform::HostPlatform;
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 type Line = Message<String, glowcap::Ref>;
+mod listing_pages;
 mod public_membership;
 
 async fn next(messages: &mut Messages) -> Line {
@@ -123,7 +124,7 @@ async fn rooms() {
 	assert_eq!(roster, ["Alice"]);
 	assert_eq!(alice_room.listed(), Some(true));
 	assert_eq!(alice_room.kind().unwrap(), MembershipKind::Participant);
-	let listed = bob_dir.list().await.unwrap();
+	let listed = bob_dir.list(None).await.unwrap().rooms;
 	assert_eq!(listed.len(), 1);
 	assert_eq!(listed[0].name.text().as_str(), Some("Garden"));
 	assert_eq!(listed[0].count.as_ref().unwrap().get(), 1);

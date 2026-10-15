@@ -14,3 +14,16 @@ pub const stageEndpoint = @import("service.zig").stageEndpoint;
 pub const stageDerivedEndpoint = @import("service.zig").stageDerivedEndpoint;
 pub const stagePublication = @import("service.zig").stagePublication;
 pub const RetryMode = @import("service.zig").RetryMode;
+pub const Participant = @import("service.zig").Participant;
+pub const ParticipantView = @import("service.zig").ParticipantView;
+pub const ResourceEffect = @import("service.zig").ResourceEffect;
+pub const Creation = @import("service.zig").Creation;
+pub const max_participants = @import("service.zig").max_participants;
+pub const Owner = @import("owner.zig").Owner;
+pub const StagedOwner = @import("owner.zig").Staged;
+pub const stageOwner = @import("owner.zig").stageOwner;
+pub const vocabulary = @import("vocabulary.zig");
+/// The records every managed hosting store declares beside its application
+/// content schemas.
+pub const system_schemas = @import("loam_access_records").profile.schemas ++ [_]@import("loam_core").Schema{ hosting.publication.schema, hosting.references.schema, hosting.LiveEpoch.schema };
+const hosting = @import("loam_hosting");

@@ -21,7 +21,7 @@ const vat_mod = @import("mod.zig");
 const Error = vat_mod.Error;
 const FarOutcome = vat_mod.FarOutcome;
 const Listener = vat_mod.Listener;
-const Message = vat_mod.Message;
+const Delivery = vat_mod.Delivery;
 const Ref = vat_mod.Ref;
 const Resolution = vat_mod.Resolution;
 const Turn = vat_mod.Turn;
@@ -35,9 +35,9 @@ const releaseBox = boxed.releaseBox;
 /// to this vat. If it did not, the caller handles it. The application polls
 /// the peer and hands events here.
 pub fn serveFromIngress(self: *Vat, port: *Port, ingress: vat_mod.IngressId, event: *engine.Event) !bool {
-    const body = event.view() catch return false;
-    return switch (body) {
-        .deliver => |deliver| serveDeliver(self, port, ingress, deliver, event.deliverAnswerTarget()),
+    const body = event.view();
+    return switch (body.*) {
+        .deliver => |deliver| serveDeliver(self, port, ingress, deliver, event.deliverAnswerTarget(), event.reference_slots),
         .resolve => |resolve| blk: {
             var handled = try serveResolve(self, port, resolve);
             for (event.resolveAliases()) |answer| {
@@ -60,6 +60,7 @@ fn serveDeliver(
     ingress: vat_mod.IngressId,
     deliver: model.view.Deliver,
     answer: ?engine.AnswerTarget,
+    reference_slots: ?u32,
 ) !bool {
     const export_position = deliver.target.exportPosition() orelse return false;
     // V1.0: a resolver-only deliver carries no wire answer but names a resolver
@@ -101,18 +102,17 @@ fn serveDeliver(
     // `running >= 1`, so the box `value` may alias is never freed
     // before the fulfill is sent.
     defer turn_mod.closeTurnFrame(self, local_id);
-    // Materialize the borrowed wire args *inside* the turn window:
-    // `beginTurn`'s depth-0 reset has already run, so the args land
-    // in the turn arena and the next outermost turn's reset reclaims
-    // them, bump-and-reset instead of a per-event allocate/free walk
-    // on the vat allocator. The handler contract is already
-    // turn-scoped (module header), so nothing may retain them past
-    // this window anyway; the reply (which may alias the args) stays
-    // valid until the next outermost turn, exactly as documented.
-    const args = try deliver.args.toOwnedSlice(arena);
+    // The handler reads the frame's views where they lie. The frame
+    // outlives this call, and the reply is copied onto the wire below,
+    // inside the turn, so a reply that aliases an argument is still
+    // valid when `resolveFulfill` reads it. A handler that keeps a
+    // value past its turn copies it (module header).
+    var delivery = try deliveryFor(deliver.args);
+    delivery.reference_slots = reference_slots;
     var turn = Turn{ .vat = self, .port = port, .self_ref = .{ .local = local_id }, .ingress = ingress, .arena = arena, .origin = .{ .served = answer } };
-    switch (box.handle(box.ptr, &turn, messageFor(args))) {
-        .returned => |value| {
+    switch (box.handle(box.ptr, &turn, delivery)) {
+        inline .returned, .viewed => |result| {
+            const value = if (@TypeOf(result) == model.Argument) model.view.Argument.fromOwned(&result) else result;
             if (turn.pending_become) |pending| boxed.promoteBecome(self, pending);
             // The turn's local sends are queued before its reply (ADR-0191).
             // Promotion may run a discarded state's destructor and stage sends.
@@ -147,12 +147,12 @@ fn serveDeliver(
                         // Resolve with what it returned, the original
                         // value, or a token rewritten to its wire
                         // reference.
-                        .resolve => |reply| try resolveFulfill(port, answer, reply),
+                        .resolve => |reply| try resolveFulfillView(port, answer, reply),
                     }
                     return true;
                 }
             }
-            try resolveFulfill(port, answer, value);
+            try resolveFulfillView(port, answer, value);
             return true;
         },
         .refused => |failure| {
@@ -230,10 +230,11 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
             // frame, so this is the one place it can be projected.
             // A give whose envelope or location does not project
             // falls through and fires as the plain argument.
-            if (value == .handoff and value.handoff == .give) {
+            const handoff: ?model.view.Handoff = if (value == .handoff) try value.handoff.project() else null;
+            if (handoff != null and handoff.? == .give) {
                 var projected = try engine.handoff_recipient.projectGiveForRedeem(
                     self.allocator,
-                    value.handoff.give,
+                    handoff.?.give,
                 );
                 defer projected.deinit(self.allocator);
                 if (projected.bytes()) |give_bytes| {
@@ -244,7 +245,7 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
                         listener.func(listener.ctx, .{ .give = .{
                             .give_bytes = give_bytes,
                             .exporter_locator_uri = locator_uri,
-                            .recipient_key = value.handoff.give.recipient_key,
+                            .recipient_key = handoff.?.give.recipient_key,
                         } });
                         return true;
                     }
@@ -353,8 +354,12 @@ pub fn refForExport(port: *const Port, position: u64) ?Ref {
 }
 
 pub fn resolveFulfill(port: *Port, answer: ?engine.AnswerTarget, reply: model.Argument) !void {
+    return resolveFulfillView(port, answer, model.view.Argument.fromOwned(&reply));
+}
+
+fn resolveFulfillView(port: *Port, answer: ?engine.AnswerTarget, reply: model.view.Argument) !void {
     const ans = answer orelse return;
-    try port.peer.sendAnswerTargetResolutionCopying(ans, .{ .fulfill = reply });
+    try port.peer.sendAnswerTargetResolutionViewCopying(ans, model.view.Resolution{ .fulfill = reply });
 }
 
 pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, message: []const u8) !void {
@@ -375,9 +380,10 @@ pub fn resolveBreak(port: *Port, answer: ?engine.AnswerTarget, message: []const 
 /// is read here as "the first symbol is the method." A vat hosting objects for a
 /// non-glowcap peer must agree on this verb-as-leading-symbol convention, or
 /// dispatch by inspecting the args directly rather than through this split.
-fn messageFor(args: []const model.Argument) Message {
-    if (args.len > 0 and args[0] == .symbol) {
-        return .{ .verb = args[0].symbol, .args = args[1..] };
+fn deliveryFor(args: model.view.Args) model.view.ProjectError!Delivery {
+    if ((try args.len()) > 0) {
+        const first = try args.at(0);
+        if (first == .symbol) return .{ .verb = first.symbol, .args = try args.from(1) };
     }
     return .{ .verb = "", .args = args };
 }

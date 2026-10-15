@@ -25,7 +25,6 @@ pub const Store = struct {
     creation_floor: u64 = 0,
     retain_committed: bool = false,
     ticket: ?transaction.Ticket = null,
-    digest: [32]u8 = @splat(0),
     phase: enum { idle, staging, prepared, writing, uncertain } = .idle,
 
     pub const Limits = struct {
@@ -50,7 +49,8 @@ pub const Store = struct {
     }
 
     /// Schemas are borrowed until deinit. Metadata comes from an exclusively
-    /// claimed backend. Constructing another Store with the same claim is invalid.
+    /// claimed backend, and the store continues the sequence that metadata
+    /// last committed. Two live Stores over one claim are invalid.
     pub fn init(allocator: std.mem.Allocator, metadata: transaction.Metadata, schemas: []const records.Schema, limits: Limits) !Store {
         if (metadata.incarnation == 0) return error.InvalidLimits;
         try validateConfiguration(schemas, limits);
@@ -59,7 +59,7 @@ pub const Store = struct {
         var retentions = try retention.Registry.init(allocator, limits.max_retentions);
         errdefer retentions.deinit(allocator) catch unreachable;
         const changes = try allocator.alloc(transaction.Mutation, limits.max_changes);
-        return .{ .allocator = allocator, .metadata = metadata, .cache = cache, .retentions = retentions, .changes = changes, .limits = limits };
+        return .{ .allocator = allocator, .metadata = metadata, .sequence = metadata.last_sequence, .cache = cache, .retentions = retentions, .changes = changes, .limits = limits };
     }
 
     /// Refuses while a write, read completion, or lease still owns store memory.
@@ -215,7 +215,6 @@ pub const Store = struct {
 
     pub fn prepare(self: *Store) !transaction.Ticket {
         if (self.phase != .staging or self.count == 0) return error.WrongPhase;
-        self.digest = transaction.Batch.fingerprint(self.ticket.?, self.changes[0..self.count], null);
         self.phase = .prepared;
         return self.ticket.?;
     }
@@ -278,7 +277,7 @@ pub const Store = struct {
     }
 
     fn batch(self: *Store) transaction.Batch {
-        return .{ .ticket = self.ticket.?, .digest = self.digest, .changes = self.changes[0..self.count], .limits = self.limits.records, .schemas = self.cache.schemas, .collection = self.collection_work };
+        return .{ .ticket = self.ticket.?, .changes = self.changes[0..self.count], .limits = self.limits.records, .schemas = self.cache.schemas, .collection = self.collection_work };
     }
 
     fn install(self: *Store, meta: transaction.Metadata) !void {
@@ -332,6 +331,7 @@ pub const Store = struct {
     /// Prepare a bounded tracing batch. Execute and settle it through the
     /// ordinary beginWrite/completeWrite/recovery path. New leases and live
     /// retention claims wait until completion. Existing leases remain usable.
+    /// A batch finishes the unit it started, so it can run two steps past `work_limit`.
     pub fn prepareCollection(self: *Store, work_limit: usize) !transaction.Ticket {
         if (work_limit == 0) return error.InvalidLimits;
         try self.begin();
@@ -343,7 +343,6 @@ pub const Store = struct {
             .work_limit = work_limit,
             .scratch = work.scratch,
         };
-        self.digest = transaction.Batch.fingerprint(self.ticket.?, &.{}, self.collection_work);
         self.phase = .prepared;
         return self.ticket.?;
     }

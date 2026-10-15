@@ -1,6 +1,6 @@
-// Outside-authority proof for both IRC product fronts. One phase puts a real
+// Outside-authority proof for both IRC edges. One phase puts a real
 // Goblins vat inside the shipped IRC-to-Rooms bridge; the other drives the
-// shipped Rooms-to-IRC front and proves channel plus introduced DM traffic with
+// shipped Rooms-to-IRC server and proves channel plus introduced DM traffic with
 // a real Goblins vat. No browser and no substitute glowcap peer stands in for
 // Goblins here.
 
@@ -193,6 +193,7 @@ async function bridgePhase(): Promise<void> {
 	// The Goblins process starts before the fixture is awaited. Attach the
 	// observer now so an early socket failure remains scenario evidence instead
 	// of becoming an unhandled-rejection process abort.
+	// tolerant: this observer only marks the rejection handled, and the scenario still awaits the fixture for its verdict.
 	void fixture.catch(() => {});
 
 	const bridge = new LiveChild(
@@ -252,13 +253,13 @@ async function bridgePhase(): Promise<void> {
 	}
 }
 
-async function frontPhase(): Promise<void> {
+async function serverPhase(): Promise<void> {
 	const room = new LiveChild(Deno.env.get("GLOWCAP_ROOMS_SERVER_BIN") || `${ROOT}/zig-out/libexec/rooms-server`, [
 		"--transport=tcp",
 		"--port=0",
 	]);
 	let goblins: LiveChild | null = null;
-	let front: LiveChild | null = null;
+	let ircServer: LiveChild | null = null;
 	let irc: Deno.Conn | null = null;
 	try {
 		const token = (await room.waitFor(/ROOMS-SERVER-LISTENING (\S+)/, "Rooms server announcement"))[1];
@@ -267,30 +268,30 @@ async function frontPhase(): Promise<void> {
 			"-y",
 			`${ROOT}/conformance/goblins-peer/racket/rooms-chat.rkt`,
 			locator,
-			"irc-front-live",
+			"irc-server-live",
 			"goblins-carol",
 			"0",
 		], { stdin: true });
-		await goblins.waitFor(/\* you are in irc-front-live/, "Goblins room join");
+		await goblins.waitFor(/\* you are in irc-server-live/, "Goblins room join");
 		await goblins.waitFor(/\* the room granted you the name goblins-carol/, "Goblins DM registration");
 
-		front = new LiveChild(
-			Deno.env.get("GLOWCAP_ROOMS_IRC_FRONT_BIN") || `${ROOT}/zig-out/libexec/rooms-irc-front`,
+		ircServer = new LiveChild(
+			Deno.env.get("GLOWCAP_ROOMS_IRC_SERVER_BIN") || `${ROOT}/zig-out/libexec/rooms-irc-server`,
 			[
 				`--directory=${locator}`,
 				"--port=0",
 				"--dm-transport=tcp",
 			],
 		);
-		const frontPort = Number(
-			(await front.waitFor(/ROOMS-IRC-FRONT-LISTENING (\d+) /, "IRC front announcement"))[1],
+		const serverPort = Number(
+			(await ircServer.waitFor(/ROOMS-IRC-SERVER-LISTENING (\d+) /, "IRC server announcement"))[1],
 		);
-		irc = await Deno.connect({ hostname: "127.0.0.1", port: frontPort });
+		irc = await Deno.connect({ hostname: "127.0.0.1", port: serverPort });
 		const lines = readIrcLines(irc.readable)[Symbol.asyncIterator]();
 		await writeAll(irc, encodeIrc("NICK", ["irc-alice"]));
 		await writeAll(irc, encodeIrc("USER", ["alice", "0", "*", "Alice over IRC"]));
 		await nextMatching(lines, (line) => line.command === "001", "IRC welcome");
-		await writeAll(irc, encodeIrc("JOIN", ["#irc-front-live"]));
+		await writeAll(irc, encodeIrc("JOIN", ["#irc-server-live"]));
 		await nextMatching(lines, (line) => line.command === "JOIN", "IRC room join");
 		await nextMatching(
 			lines,
@@ -298,13 +299,13 @@ async function frontPhase(): Promise<void> {
 			"Goblins in IRC NAMES",
 		);
 
-		await writeAll(irc, encodeIrc("PRIVMSG", ["#irc-front-live", "hello Goblins from IRC front"]));
-		await goblins.waitFor(/<irc-alice> hello Goblins from IRC front/, "IRC channel line at Goblins");
+		await writeAll(irc, encodeIrc("PRIVMSG", ["#irc-server-live", "hello Goblins from IRC server"]));
+		await goblins.waitFor(/<irc-alice> hello Goblins from IRC server/, "IRC channel line at Goblins");
 		await goblins.line("hello IRC from a real Goblins vat");
 		await nextMatching(
 			lines,
 			(line) =>
-				line.command === "PRIVMSG" && line.params[0] === "#irc-front-live" &&
+				line.command === "PRIVMSG" && line.params[0] === "#irc-server-live" &&
 				line.params[1] === "hello IRC from a real Goblins vat",
 			"Goblins channel line at IRC",
 		);
@@ -320,13 +321,13 @@ async function frontPhase(): Promise<void> {
 			"Goblins reply on the arriving DM session",
 		);
 		console.log(
-			"PASS (goblins-rooms-irc-front): IRC and real Goblins exchanged channel traffic, then Goblins replied on the IRC-initiated direct session over v1/Syrup TCP",
+			"PASS (goblins-rooms-irc-server): IRC and real Goblins exchanged channel traffic, then Goblins replied on the IRC-initiated direct session over v1/Syrup TCP",
 		);
 	} finally {
 		try {
 			irc?.close();
 		} catch { /* already closed */ }
-		await front?.stop();
+		await ircServer?.stop();
 		await goblins?.stop();
 		await room.stop();
 	}
@@ -334,8 +335,8 @@ async function frontPhase(): Promise<void> {
 
 try {
 	if (PHASE === "bridge") await bridgePhase();
-	else if (PHASE === "front") await frontPhase();
-	else fail("usage: harness.ts --phase=bridge|front");
+	else if (PHASE === "server") await serverPhase();
+	else fail("usage: harness.ts --phase=bridge|server");
 } catch (error) {
 	console.error(
 		`FAIL (goblins-rooms-irc-${PHASE ?? "unknown"}): ${error instanceof Error ? error.message : String(error)}`,

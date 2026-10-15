@@ -8,7 +8,7 @@ use rooms_glowcap::client::{Deadline, Tasks, directory::signaling::Route};
 use std::{io, time::Duration};
 use web_sys::Url;
 
-/// A trusted Rooms web deployment. In particular, its native iroh handshake
+/// A trusted Rooms web deployment. In particular, its host iroh handshake
 /// authenticates the remote node before forwarding opaque bytes to this page.
 /// Never construct this from a peer-supplied locator hint. The ordinary page
 /// uses deployment(). Explicit construction is for an embedding that chooses
@@ -98,7 +98,7 @@ impl WebFront {
 			return Err(invalid("Rooms web forwarding target exceeds its byte limit"));
 		}
 		// The full locator carries profile and routing hints. The front's
-		// admission policy is the authority for which native targets it serves.
+		// admission policy is the authority for which host targets it serves.
 		let encoded: String = js_sys::encode_uri_component(&target).into();
 		Ok(format!("{}?target={encoded}", self.0))
 	}

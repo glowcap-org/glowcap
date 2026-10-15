@@ -1,9 +1,9 @@
-//! The optional native TLS engine compiled against the pinned Mbed TLS source.
+//! The optional TLS engine compiled against the pinned Mbed TLS source.
 
 const std = @import("std");
 
 const mbedtls = @import("mbedtls");
-const native_relay = @import("native_relay");
+const relay_tls = @import("relay_tls");
 
 const root_pem = @embedFile("fixtures/tls_root.pem");
 const server_pem = @embedFile("fixtures/tls_server.pem");
@@ -85,10 +85,10 @@ test "system roots load once into an immutable runtime" {
     try std.testing.expect(ready.owner.deinitOutcome() == null);
 }
 
-test "the public native relay module owns TLS beneath both profiles" {
+test "the public relay TLS module owns TLS beneath both profiles" {
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
-    var provider: native_relay.Provider = undefined;
+    var provider: relay_tls.Provider = undefined;
     const summary = switch (provider.init(
         threaded.io(),
         std.testing.allocator,
@@ -97,7 +97,7 @@ test "the public native relay module owns TLS beneath both profiles" {
     )) {
         .ready => |value| value,
         .failed => |failure| {
-            std.debug.print("native relay init failed: {s}\n", .{failure.chain().primaryName()});
+            std.debug.print("relay TLS init failed: {s}\n", .{failure.chain().primaryName()});
             return error.UnexpectedInitializationFailure;
         },
     };
@@ -109,14 +109,14 @@ test "the public native relay module owns TLS beneath both profiles" {
     try std.testing.expect(provider.deinit() == null);
 }
 
-test "native relay equivalence compares parsed trust rather than only routes" {
+test "relay TLS equivalence compares parsed trust rather than only routes" {
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
-    var first: native_relay.Provider = undefined;
-    var same: native_relay.Provider = undefined;
-    var other: native_relay.Provider = undefined;
-    for ([_]struct { provider: *native_relay.Provider, pem: []const u8 }{
+    var first: relay_tls.Provider = undefined;
+    var same: relay_tls.Provider = undefined;
+    var other: relay_tls.Provider = undefined;
+    for ([_]struct { provider: *relay_tls.Provider, pem: []const u8 }{
         .{ .provider = &first, .pem = root_pem },
         .{ .provider = &same, .pem = root_pem },
         .{ .provider = &other, .pem = server_pem },

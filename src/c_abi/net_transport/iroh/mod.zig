@@ -17,7 +17,8 @@
 //! hands back a single OS readiness fd (`glowcap_iroh_netlayer_readiness_fd`) the
 //! host parks on with its own poller. When it signals,
 //! `glowcap_iroh_netlayer_drain_ready` drains the pending readiness records,
-//! `_try_accept` claims accepts, and `_conn_try_read` / `_conn_try_write` move
+//! `_try_accept` claims accepts, and `glowcap_iroh_conn_try_read` /
+//! `glowcap_iroh_conn_try_write` move
 //! raw bytes without ever parking on a connection. Because no call parks on a
 //! specific connection, releasing one cannot race a parked read. The host frames
 //! the raw bytes itself (the peer's stream-input path), the same shape the TCP
@@ -32,8 +33,9 @@
 //! Those same calls are the raw byte channel a byte-transparent relay needs for
 //! an iroh leg (ADR-0086). One leg composes `glowcap_iroh_netlayer_new`, its
 //! `readiness_fd` and `drain_ready`, the `_start_connect` /
-//! `_finish_connect` lifecycle, `_conn_try_read` / `_conn_try_write`, then
-//! `_conn_release` and `glowcap_iroh_netlayer_release`.
+//! `_finish_connect` lifecycle, `glowcap_iroh_conn_try_read` /
+//! `glowcap_iroh_conn_try_write`, then `glowcap_iroh_conn_release` and
+//! `glowcap_iroh_netlayer_release`.
 //! There is no channel object over them, because the wait a channel needs is
 //! your own reactor's, and only the caller can hold it.
 //!
@@ -375,9 +377,9 @@ fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, resident_config
         payload.threaded.deinit();
         alloc.destroy(payload);
         if (cleanup_failure) |err|
-            setLastError("iroh netlayer_new: sidecar could not arm the readiness loop; cleanup: {s}", .{@errorName(err)})
+            setLastError("iroh netlayer_new: the iroh library could not arm the readiness loop; cleanup: {s}", .{@errorName(err)})
         else
-            setLastError("iroh netlayer_new: sidecar could not arm the readiness loop", .{});
+            setLastError("iroh netlayer_new: the iroh library could not arm the readiness loop", .{});
         return GLOWCAP_ERR_IO;
     }
     slot.* = @ptrCast(payload);
@@ -434,7 +436,7 @@ pub export fn glowcap_iroh_netlayer_node_id(
     var buf: [iroh.node_id_len]u8 = undefined;
     const id = nl.resident.nodeId(&buf);
     if (id.len == 0) {
-        setLastError("node_id: sidecar reported no endpoint id", .{});
+        setLastError("node_id: the iroh library reported no endpoint id", .{});
         return GLOWCAP_ERR_IO;
     }
     if (cap < id.len) return GLOWCAP_ERR_BUFFER_TOO_SMALL;
@@ -462,7 +464,7 @@ pub export fn glowcap_iroh_netlayer_direct_addrs(
     const dest: []u8 = if (cap == 0) empty[0..] else (out orelse return GLOWCAP_ERR_NULL_POINTER)[0..cap];
 
     const addrs = nl.resident.directAddrs(dest) catch {
-        setLastError("direct_addrs: sidecar failed to report endpoint addresses", .{});
+        setLastError("direct_addrs: the iroh library did not report endpoint addresses", .{});
         return GLOWCAP_ERR_IO;
     };
     switch (addrs) {

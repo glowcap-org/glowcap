@@ -1,170 +1,188 @@
+---
+type: static
+description: How sleepy actors wake, schedule calls, and get evicted when Loam backs them on a Vat and Host.
+audience: human
+sources:
+  - resource: /src/loam/hosting/
+  - resource: /src/actors/
+---
+
 # Sleepy actors and durable hosting
 
-This contract owns actor activation, call scheduling, and eviction for Loam's
-integration with the Vat and Host. The [API contract](api.md) owns
-store and attachment lifetimes.
-
-A sleepy actor can release its state from memory while keeping its identity and
-callable references. An eventual send wakes it first. Ordinary actors still
-work without a store.
+A sleepy actor can drop its state from memory while its identity and the
+references to it keep working. An eventual call wakes it first. Ordinary
+actors still work without a store. This guide covers how actors wake, how
+their calls are ordered, and how they leave memory. The [API page](api.md)
+covers store and attachment lifetimes.
 
 Like the
 [Goblins persistence tutorial](https://files.spritely.institute/docs/guile-goblins/0.17.0/Persistence-tutorial.html),
-Loam separates a behavior's description from its storage. Loam also makes Zig
-borrowing, nonblocking loading, and commit visibility explicit.
+Loam keeps a behavior's description apart from its storage. Loam also makes
+Zig borrowing, loading without blocking, and when a commit becomes visible
+explicit.
 
-## Implemented profile
+## What is supported
 
-The [Loam usage guide](../loam.md#durable-actors) shows how to use what is
-implemented today on an existing Host and Vat:
+The [Loam guide](../loam.md#durable-actors) shows how to use this on an
+existing Host and Vat:
 
-- Record-backed behavior with bounded activation, local capability fields,
-  publication restoration and retirement, and replies that wait for commit
-  ([ADR-0163](../decisions/adr/ADR-0163-record-backed-sleepy-actors.md)).
-  Unreferenced cold records create no endpoint. Held references keep only
-  bounded routing metadata and any explicitly pinned state.
-- Call-owned working-set preparation and transaction participants
-  ([ADR-0169](../decisions/adr/ADR-0169-managed-host-turns.md)). Managed use
-  endpoints authorize a fixed resource and content binding. Controls prepare
-  permitted edits. Preparation restarts after intervening commits and retires
-  submitted reads before releasing its state.
-- Fixed-resource derivation and bounded receipts
-  ([ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md)). Records
-  stage in the Vat, publication custody is reserved at the top-level Host
-  boundary, and it activates only after confirmed commit.
-- Owned capability arguments, and local capability edges returned through
-  Host and CapTP. Typed [local and foreign fields](references.md) keep exact
-  authority and restoration dependencies.
-- Publication retirement through the attachment's write lane. Discovery is
-  removed at the commit outcome, fails closed on an unknown outcome, and comes
-  back when recovery proves the batch absent.
-- Opt-in cold publication lookup, which coalesces fetches through the same
-  cache and restores exact targets without scanning or creating endpoints
-  early ([ADR-0176](../decisions/adr/ADR-0176-on-demand-durable-publication-discovery.md)).
+- Behavior backed by a record, with bounded waking, local capability fields,
+  durable names that can be restored and retired, and replies that wait for
+  the commit ([ADR-0163](../decisions/adr/ADR-0163-record-backed-sleepy-actors.md)).
+  A stored record nobody references takes no endpoint. A held reference keeps
+  only a little routing data, plus any state you pin.
+- Calls that load the records they need and take part in transactions
+  ([ADR-0169](../decisions/adr/ADR-0169-managed-host-turns.md)). A managed use
+  endpoint is tied to one resource and its content, and a control prepares
+  the edits it permits. When another commit lands first, the call prepares
+  again, and it finishes any reads it submitted before releasing its state.
+- Sharing one resource, with bounded receipts
+  ([ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md)).
+  Records are prepared on the Vat, the new durable name's entry is reserved
+  when the Host finishes its turn, and the name works only after a confirmed
+  commit.
+- Capability arguments the call owns, and local capability edges returned
+  through the Host and CapTP. Typed [local and remote fields](references.md)
+  keep exactly the authority they saved and what restoring it depends on.
+- Retiring a durable name through the attachment's write queue. Lookups stop
+  once the retirement commits, stay stopped if the outcome is unknown, and
+  come back if recovery shows the retirement never landed.
+- Looking up a durable name only when a peer asks, which shares fetches
+  through the same cache and restores the exact target without scanning or
+  creating endpoints early
+  ([ADR-0176](../decisions/adr/ADR-0176-on-demand-durable-publication-discovery.md)).
 
-Volatile tests and an LMDB process proof cover sleep and wake, cycles,
-cancellation, allocation refusal, restart, and reopen and recovery. The
-[managed process proof](../../test/loam_managed_crash.zig) covers issuance,
-revocation, content changes, and reference removal through CapTP across
-commit, local installation, and undelivered-reply boundaries.
+In-memory tests and a process test on each disk engine cover sleeping and
+waking, cycles, cancellation, failed allocation, restart, reopen, and
+recovery. The [managed process test](../../test/loam_managed_crash.zig)
+covers grant issue, revocation, content changes, and removing references over
+CapTP, with the process killed around the commit, around the Store taking it
+in, and before the reply is sent.
 
-Not supported here: general attenuation of returned capabilities, durable
-event intentions, and borrow APIs in other languages. Timers, subscriptions,
-operating-system handles, and unresolved promises have no durable form, and
-pending calls are volatile. Browser fixed-resource execution has its own
-[consumer profile](browser.md). Workload and tail-latency measurements are still
-required, because functional tests do not show the scale goal is met.
+Not supported: general narrowing of returned capabilities, durable outgoing
+events, and borrow APIs in other languages. Timers, subscriptions, OS
+handles, and unresolved promises cannot be saved, and waiting calls live only
+in memory. The [browser guide](browser.md) covers the single-resource model
+in the browser. Functional tests do not show that the scale target is met, so
+workload and tail-latency measurements are still needed.
 
-## Identity, activation, and retention
+## Identity, waking, and what stays alive
 
-Resident actor entries track active state or a pending activation. Sleeping
-objects without live local or wire references need no resident entry. Held
-references retain bounded routing and custody metadata and not the target's
-state or reachable graph. Durable publications and stored reference
-edges retain their targets according to their own lifecycle contracts.
+Loam keeps an in-memory entry only for an actor that is awake or being woken.
+A sleeping object with no local or network references needs none. A held
+reference keeps a little routing data and its own holds, not the target's
+state or the graph it reaches. Durable names and stored edges keep their
+targets alive by their own rules.
 
-Loading is coalesced per object identity, generation, and store incarnation.
-Concurrent callers share one activation, with their waiting messages charged
-to existing ingress and owner budgets. Completion installs state only after
-validating the current generation and revision. Deleted objects, replaced
-owners, and late completions cannot resurrect state. A publication lookup also
-rechecks whether the publication remains active. Retiring a publication blocks
-new lookup through that name. It does not revoke previously issued references
-or delete a target retained through another edge.
-Storage failure is distinct from missing identity and never creates a fresh
-actor. Retries pass through the same admission limits.
+Loads are shared per object, per generation, and per Store. Callers that
+arrive together share one wake, and their waiting messages count against the
+existing per-source and per-owner limits. A load is taken in only if the
+generation and revision are still current, so a deleted object, a replaced
+owner, or a late load can never bring old state back. A storage failure is
+different from a missing object and never creates a fresh actor. Retries pass
+through the same limits.
 
-The reconstruction descriptor identifies behavior and schema versions, its
-stored fields, and its reference edges. Unknown versions refuse activation
-until an explicit supported upgrade runs. Reconstruction preserves sharing and
-cycles without recursively waking the graph. It performs no application
-initialization effects such as sending welcome messages or minting new grants.
-Cross-vat retained roots must be established before collection can reclaim
-objects during restart. Restoring vats in a different order cannot lose edges.
+Looking up a durable name also checks that the name is still published.
+Retiring a name stops new lookups through it. It does not revoke references
+already handed out or delete a target that something else keeps alive.
 
-## Calls and scheduling
+An actor's record names its behavior and schema versions, its stored fields,
+and its reference edges. An unknown version cannot wake until a supported
+upgrade runs. Waking keeps sharing and cycles intact without waking the whole
+graph, and it runs none of the application's setup effects, such as sending
+welcome messages or issuing new grants. Roots held across Vats must be in
+place before collection can free anything during a restart, so restoring
+Vats in a different order cannot lose edges.
 
-An eventual send to a sleeping actor retains admitted work and requests a load
-through the embedding executor. The Vat continues unrelated runnable work. Wake
-completion makes the admitted delivery runnable through existing queues, with no
-second scheduling order. The ordering each ingress promises holds, including
-for messages arriving during eviction. Pending activations and waiters are
-bounded before their state is allocated.
+## Calls and ordering
 
-A synchronous near call cannot transparently perform asynchronous disk I/O. Its
-fast path requires a resident target pinned for the call. Explicit asynchronous
-acquisition can establish that residency before entering the synchronous
-operation. A cold synchronous call reports a residency requirement without
-running the cold callee. It never blocks, suspends a stack, or replays a caller
-that may already have produced effects. Code that traverses an unbounded cold
-graph uses eventual operations or bounded prefetch.
+An eventual call to a sleeping actor keeps the call and asks your executor
+for a load, while the Vat goes on with other work. When the load completes,
+the call joins the Vat's existing queues, with no second ordering. Each call
+source keeps the order it promises, including for messages that arrive while
+the actor is going to sleep. Waiting calls and loads are counted against
+their limits before any memory is allocated for them.
 
-Cancellation retires the observer's interest under existing call semantics.
-It does not discard ownership of a running load or a possibly committed write.
-The final waiter leaving permits cancellation only when the adapter can prove
-the operation's terminal outcome. Pins and completion state stay charged until
-their owner can release them. CapTP promise pipelining uses the promise and
-reference machinery throughout activation and commitment.
+A near call cannot quietly wait on disk. Its fast path needs the target in
+memory and pinned for the call, and an asynchronous acquire can bring it into
+memory first. A near call to an actor on disk reports that the target must be
+loaded, without running it. It never blocks, pauses a stack, or runs a caller
+again that may already have had effects. Code that walks a large graph on
+disk uses eventual calls or bounded prefetching.
 
-## Eviction and durable visibility
+Canceling a call ends the caller's interest in it, as usual. It does not
+abandon a load in progress or a write that may have committed. When the last
+waiter leaves, the operation is canceled only if the worker can show how it
+ended. Pins and completion state stay charged until their owner can release
+them. CapTP promise pipelining works as usual while an actor wakes and its
+changes commit.
 
-An actor becomes eligible to sleep at a safe execution boundary after active
-borrows end. Its current state must have a committed reconstruction record
-before that state is released. A prepared or uncertain write cannot be treated
-as clean state. Eviction can reuse an unchanged committed version. A read-only
-wake need not produce a new write. New calls racing eviction either retain the
-resident state or wait for its committed version to load, with no lost delivery.
+## Sleeping and when changes become visible
 
-Sleep eligibility is explicit for timers, pending promises, subscriptions, and
-external handles. A runtime-owned continuation may survive outside the behavior
-if it targets stable identity and preserves required retention. Otherwise it
-pins the state or makes the actor ineligible. A stack, socket, or borrowed
-pointer has no automatic durable representation. Eviction cleanup releases
-resident allocations without invoking application deletion or revocation.
+An actor may sleep once nothing borrows it and it is between turns. Its
+current state must already be committed before Loam drops it, so a write that
+is prepared or whose outcome is unknown keeps the actor awake. If the state
+has not changed since the last commit, Loam can drop it with no new write,
+so a read-only wake writes nothing. A call that races with sleeping either
+finds the state still in memory or waits for the committed version to load,
+and no call is lost.
 
-Durable state changes become externally visible only after the selected
-transaction commits. Replies promising durability, new capability publication,
-and corresponding events wait for that acknowledgement. Recoverable event
-intentions persist with the change, and sequence and cursor handling permits
-replay and deduplication. A changed grant is checked from current authority when
-a cold call resumes and before a deferred protected disclosure. A cached content
-snapshot or an earlier event cannot substitute for that decision.
+Timers, pending promises, subscriptions, and outside handles each decide
+explicitly whether the actor may sleep. Work owned by the runtime can outlive
+the behavior if it targets a stable identity and keeps what it needs alive.
+Otherwise it pins the state or keeps the actor awake. A stack, socket, or
+borrowed pointer cannot be saved automatically. Putting an actor to sleep
+frees its memory without running the application's delete or revoke code.
 
-Sleep does not imply durable message acceptance, and pending calls can be lost
-on process failure. Durable inboxes and outbound intentions need their own
-receipt and retry contract before that stronger guarantee is exposed. Local
-snapshots never rewind authority already observed through the network.
-Snapshot-retained state is separately charged and can prevent physical RAM
-reclamation even after a live actor sleeps.
+Saved changes become visible to anyone only after the transaction commits.
+Replies that promise the change is saved, new durable names, and the matching
+change events all wait for the commit. Change events saved with the change
+carry sequence numbers and cursors, so they can be replayed and duplicates
+dropped. When a call on disk resumes, and before a deferred reply hands out a
+protected capability, Loam checks the grant as it is now. A cached copy of
+the content or an earlier event never stands in for that check.
 
-## Budgets and proof obligations
+Sleeping does not mean a message was durably accepted, and waiting calls can
+be lost if the process dies. A durable inbox or outbox would need its own
+receipt and retry rules before Loam could promise that. A local snapshot never
+takes back access that peers have already seen over the network. State kept
+by a snapshot is charged on its own and can keep memory in use even after the
+actor sleeps.
 
-The policies are a byte-budgeted least-recently-used policy over eligible actors
-and an every-eligible-turn policy for stress testing. Count-based limits alone
-do not bound memory when actors differ in size, so payload, metadata, dirty
-state, pins, activation queues, and backend residency are charged separately.
-Commit and cleanup keep progress capacity under pressure. If nothing can be
-evicted, bounded admission refusal applies and the budget holds. Reasons for
-ineligibility and load and eviction counters keep retained state diagnosable.
+## Limits and what the tests must show
 
-The acceptance suite must demonstrate:
+Two policies decide what sleeps: a byte-limited least-recently-used policy
+over actors that may sleep, and a policy that puts every eligible actor to
+sleep after each turn, for stress tests. Counting actors alone cannot bound
+memory when actors differ in size, so payloads, bookkeeping, uncommitted
+state, pins, wake queues, and engine memory are charged separately. Commits
+and cleanup keep enough room to make progress when memory is tight. If
+nothing can sleep, new calls are refused and the limit holds. Counters for
+loads and sleeps, and the reason an actor cannot sleep, show where memory
+went.
 
-1. The same held near and far references work through repeated sleep/wake cycles.
-   Supported durable references recover after process restart.
-2. Many sends to one cold target produce one activation. Slow reads, corrupt
-   records, cancellation, and a full cache preserve unrelated Vat progress.
-3. Cold synchronous calls never block or replay effects. Explicit pins prevent
-   eviction until release, including C and safe Rust borrow lifetimes.
-4. Grant edits, pauses, and revocations during loading or reply preparation
-   remain effective after wake, restart, and snapshot access.
-5. Crashes around state/edge/grant/event commitment restore one consistent
-   revision. Unknown outcomes retain their recovery owner and refuse unsafe use.
-6. Cycles, cross-vat roots, timers, promises, and subscriptions obey their
-   declared retention policy. Sleep never acts as deletion or revocation.
-7. Increasing cold object count does not allocate one resident actor per stored
-   record. Measure hot-path overhead, wake latency, dirty-write amplification,
-   pinned memory, cache thrashing, and shutdown with operations pending.
+The tests must show:
 
-Run the same scenarios through a volatile test store, a durable store with
-process restart, and the browser adapter. Sleep and wake latency and memory
-bounds need measurements, and a passing reference round trip is insufficient.
+1. The same near and far references keep working through repeated sleep and
+   wake cycles, and saved references come back after a process restart.
+2. Many calls to one sleeping actor wake it once. Slow reads, damaged records,
+   cancellation, and a full cache never stall unrelated work on the Vat.
+3. Near calls to an actor on disk never block or repeat effects. A pin keeps
+   an actor awake until it is released, including through C and safe Rust
+   borrows.
+4. Grant edits, pauses, and revocations made while an actor is loading or
+   preparing a reply still hold after waking, after a restart, and when
+   reading an old version.
+5. A crash around the commit of state, edges, grants, and events restores one
+   consistent revision. An unknown outcome keeps its recovery owner and
+   refuses unsafe use.
+6. Cycles, roots across Vats, timers, promises, and subscriptions follow their
+   declared rules for staying alive. Sleeping never deletes or revokes.
+7. More objects on disk never means one in-memory actor per stored record.
+   Measure the cost on the fast path, wake latency, extra writes, pinned
+   memory, cache churn, and shutdown with operations still pending.
+
+Run the same scenarios on the in-memory engine, on a disk engine with a
+process restart, and in the browser. Sleep and wake latency and memory limits
+need measurements, and one passing round trip through a reference is not
+enough.

@@ -54,7 +54,7 @@ test "access observation runtime quota reclaims after unclean reopen without ret
     // Host marker are the only actions that establish the ended lifetime.
     const opening = store.metadata.incarnation;
     try store.deinit();
-    backend.close();
+    try backend.close();
     store = try loam.core.Store.init(h.a, try backend.open(), &schemas, h.limits);
     try std.testing.expect(store.metadata.incarnation > opening);
     const prior = try h.c.load(&store, &backend, fresh.epoch.object);

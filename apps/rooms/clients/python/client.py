@@ -1,4 +1,4 @@
-"""A rooms chat client, written on glowcap actors in native Python.
+"""A rooms chat client, written on glowcap actors in Python.
 
 It enters the named room, waits until everyone it expects is present, posts one
 line, and collects each expected member's line as the room pushes it back. All
@@ -48,7 +48,8 @@ async def run_client(locator: str, room_name: str, nick: str, line: str, roster:
     # Discovery: show the rooms that already have people in them, then follow the
     # live list, both the snapshot (`list`) and the change feed (`watch`).
     live = await directory.list()
-    print(f"[{nick}] rooms: {_fmt_rooms(live)}", flush=True)
+    more = "" if live.next is None else " and more"
+    print(f"[{nick}] rooms: {_fmt_rooms(live.rooms)}{more}", flush=True)
     await directory.watch(
         lambda kind, room: print(
             f"[{nick}] directory: {kind} {room.name} ({room.count if room.count is not None else 'unknown'})",

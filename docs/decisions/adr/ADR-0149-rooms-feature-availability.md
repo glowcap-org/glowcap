@@ -68,7 +68,7 @@ retired. The fact answers it.
 
 The line capability a post answers with, the topic authority, and the steward
 are unchanged. Direct lines carry files and previews on their own inbox verbs
-and state nothing. The IRC front, an IRC client on native rooms, is the
+and state nothing. The IRC server, an IRC client on native rooms, is the
 reverse direction and keeps its existing notices for what IRC cannot show.
 
 ## Alternatives Considered
@@ -102,7 +102,7 @@ and `carries` beside `bridge`.
 shape and refuses the three-slot one. `rust/application/src/server/rooms/tests.rs`
 and `server/irc/room/tests.rs` pin the `carries` notice ahead of the arrival
 mark. `apps/rooms/test/room/facts_test.ts` reads the fact. `test/store/irc_test.ts`
-and `test/attached/projection_test.ts` draw the grant and the fact into the
+and `test/session/managed_projection_test.ts` draw the grant and the fact into the
 page. `zig build gen-rooms-protocol-check` holds the application and every
 client's grammar to the one table. `zig build rooms-rust-test` and
 `zig build rooms-server-test` run the rest.

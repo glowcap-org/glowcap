@@ -118,10 +118,10 @@ about what pointing at a row promises. */
 #members li:has(.dm-btn) .member-face {
 	grid-template-columns: 26px minmax(0, 1fr) minmax(var(--icon-button-small), auto);
 } /* The chip wears the presence pip on its corner, ringed by this panel's own
-ground: the rail gradient's base tone, because the ring is a box-shadow and
+ground: the flat tone the rail reads as, because the ring is a box-shadow and
 a shadow takes a colour, not a gradient. */
 #members .avatar-presence {
-	--presence-ring: var(--paper-raised);
+	--presence-ring: var(--rail-tone);
 }
 /* The chip's size, the name-over-status rows, and their type all live in
    rails.css: the rail's foot draws the same person lockup, so its geometry is

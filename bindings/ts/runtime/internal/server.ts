@@ -1,4 +1,4 @@
-// Binding-level projection of one generic native-driver listener. Transport
+// Binding-level projection of one generic driver listener. Transport
 // modules inherit this lifecycle and add only metadata they alone understand.
 
 import { DriverListener, DriverLoop } from "../driver_loop.ts";
@@ -78,7 +78,7 @@ export class DriverServer {
 
 	/** Stop admission. A server that minted its own loop requests that loop's
 	 * retirement without waiting for sessions already returned to the
-	 * application. Native release continues in the loop's close task. */
+	 * application. FFI release continues in the loop's close task. */
 	close(): Promise<void> {
 		if (this.#closePromise != null) return this.#closePromise;
 		this.#closePromise = (async () => {
@@ -105,37 +105,41 @@ export class DriverServer {
 	}
 }
 
-/** The refusal every native listener surface shares when this runtime cannot
+/** The refusal every FFI listener surface shares when this runtime cannot
  * park the loop between steps. */
 export function listenerLoopUnavailable(): GlowcapError {
 	return new GlowcapError(
 		INVALID_ARGUMENT,
-		"native driver listeners require a runtime that can park the loop",
+		"driver listeners require a runtime that can park the loop",
 	);
 }
 
-/** Resolve the loop a native listener binds through: the supplied Host's own
+/** Resolve the loop an FFI listener binds through: the supplied Host's own
  * loop (adopting the Host on first use, so its identity, publications, and
  * handoff router carry), or a fresh owned loop minted with `seed`/`codec`.
  * `ownsLoop` says whether closing the listener's server should close the
  * loop with it. Shared by every provider package's `listen`, so they cannot
- * disagree about how a Host meets the driver. */
+ * disagree about how a Host meets the driver or about the one identity-source
+ * rule: a 32-byte `seed` or a `host`, never both. */
 export function prepareListenerLoop(
 	host: Host | undefined,
 	seed: Uint8Array | undefined,
 	codec: Codec | undefined,
 ): { loop: DriverLoop; ownsLoop: boolean } {
+	if (seed != null && seed.length !== 32) {
+		throw new GlowcapError(INVALID_ARGUMENT, "listen: seed must be 32 bytes");
+	}
+	if (seed != null && host != null) {
+		throw new GlowcapError(
+			INVALID_ARGUMENT,
+			"listen: seed and host are alternative identity sources",
+		);
+	}
 	if (host != null) {
 		if (codec != null && codec !== host.codec) {
 			throw new GlowcapError(
 				INVALID_ARGUMENT,
 				`codec "${codec}" conflicts with the host's "${host.codec}"; mint the host with it instead`,
-			);
-		}
-		if (seed != null) {
-			throw new GlowcapError(
-				INVALID_ARGUMENT,
-				"seed and host are alternative identity sources",
 			);
 		}
 		return {

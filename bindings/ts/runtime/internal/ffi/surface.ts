@@ -1,6 +1,6 @@
 // Internal: the runtime-neutral half of `@glowcap/runtime/ffi`.
 //
-// Native programs pair this surface with `load.ts`; browser programs pair it
+// FFI programs pair this surface with `load.ts`; browser programs pair it
 // with `@glowcap/web`'s stem-only resolver. Keeping the split here means the
 // browser module graph never has to import a filesystem/archive cascade merely
 // to reach the shared symbol-table and marshalling seams.
@@ -27,4 +27,4 @@ export * from "../constants.ts";
 // error-slot helpers a companion transport marshals through. The public `.`
 // entry never exports these.
 export { ab, outPointer, readErrorSlot } from "../seam.ts";
-export { NativeDiagnostic } from "../../transport/diagnostic.ts";
+export { FfiDiagnostic } from "../../transport/diagnostic.ts";

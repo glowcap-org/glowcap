@@ -118,7 +118,7 @@ The C ABI carries a typed driving surface, so a non-Zig binding can drive OCapN
 directly: construct an `op:deliver` or `op:resolve`, and read a delivery or
 resolution as structured values instead of shuttling opaque frames. The
 outbound path marshals fixed-layout C structs (`GlowcapReference` /
-`GlowcapArgument`) into a model message through `Peer.sendCopying`, the named
+`GlowcapArgument`) into a model message through `Peer.sendBorrowed`, the named
 boundary copy. The inbound path materializes one event into a per-event arena
 and projects C views that alias it, released by a `*_free`. The struct layouts
 are frozen ABI.

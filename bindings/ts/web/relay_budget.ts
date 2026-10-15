@@ -1,4 +1,4 @@
-// Time a browser relay may spend finding a native iroh endpoint before it can
+// Time a browser relay may spend finding an FFI iroh endpoint before it can
 // forward the first end-to-end handshake byte.
 
 import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@glowcap/abi";

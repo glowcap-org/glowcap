@@ -49,7 +49,7 @@
   (printf "racket-goblins-interop: enlivened goblins echo cap, calling it\n")
 
   ;; The echo actor is `(lambda args args)`: it returns its argument list, so
-  ;; assert the content survived the round-trip (the native driver's bar).
+  ;; assert the content survived the round-trip (the Zig driver's bar).
   (define (assert-echoed reply expected)
     (unless (equal? reply (list expected))
       (error 'racket-goblins-interop

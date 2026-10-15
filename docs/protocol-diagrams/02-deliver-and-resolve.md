@@ -1,3 +1,13 @@
+---
+type: static
+description: Diagrams of op:deliver, the bootstrap object, op:get, and how answers resolve.
+sources:
+  - resource: /src/ocapn/session/answers/
+  - resource: /src/ocapn/engine/inbound/
+  - resource: /src/ocapn/engine/outbound/
+  - resource: /src/ocapn/engine/bootstrap/
+---
+
 # Deliver and resolve
 
 These diagrams follow the CapTP Specification sections op:deliver, The

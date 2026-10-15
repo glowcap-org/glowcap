@@ -20,7 +20,7 @@ pub const Reservation = opaque {
     pub fn target(self: *Reservation, index: usize) !driver.Capability {
         const value = reserved(self);
         if (index >= value.targets.len) return error.NoSuchTarget;
-        return value.targets[index].ref;
+        return value.targets[index];
     }
 };
 fn reserved(self: *Reservation) *State {
@@ -43,7 +43,7 @@ pub const Continuation = opaque {
     pub fn sizeBound(arguments: values.Bounds, verb_bytes: usize, targets: usize) !usize {
         var bound = try @import("call_memory.zig").inputAllocationBound(arguments, verb_bytes, false);
         try bound.include(try std.math.mul(usize, targets, @sizeOf(driver.Value)), @alignOf(driver.Value), 1);
-        try bound.include(try std.math.mul(usize, targets, @sizeOf(driver.Host.StagedCapabilityRetain)), @alignOf(driver.Host.StagedCapabilityRetain), 1);
+        try bound.include(try std.math.mul(usize, targets, @sizeOf(driver.Capability)), @alignOf(driver.Capability), 1);
         return std.math.add(usize, @sizeOf(State), try bound.physicalBytes());
     }
 
@@ -57,9 +57,7 @@ pub const Continuation = opaque {
         if (owner.closing) return error.AttachmentClosed;
         if (owner.continuations >= owner.options.max_continuations or targets.len > owner.options.max_continuation_targets) return error.ContinuationCapacity;
         if (owner.options.continuation_bytes <= @sizeOf(State)) return error.ContinuationCapacity;
-        const entry = for (owner.entries) |*candidate| {
-            if (candidate.actor != null and candidate.id.eql(call.view.id)) break candidate;
-        } else return error.NotDurable;
+        const entry = owner.liveEntry(call.view.id) orelse return error.NotDurable;
         const value = try owner.allocator.create(State);
         errdefer owner.allocator.destroy(value);
         value.* = .{ .owner = owner, .activation = activation };
@@ -70,11 +68,11 @@ pub const Continuation = opaque {
         const args = try arena.alloc(driver.Value, intent.args.len);
         for (args, intent.args) |*out, item| out.* = try values.copy(driver.Value, arena, item);
         const retained_args = try owner.host.retainValueCapabilities(arena, args);
-        errdefer owner.host.releaseUntransferredCapabilityRetains(retained_args);
+        errdefer owner.host.releaseCapabilityRetains(retained_args);
         const fields = try arena.alloc(driver.Value, targets.len);
         for (fields, targets) |*out, capability| out.* = .{ .capability = capability };
         const retained_targets = try owner.host.retainValueCapabilities(arena, fields);
-        errdefer owner.host.releaseUntransferredCapabilityRetains(retained_targets);
+        errdefer owner.host.releaseCapabilityRetains(retained_targets);
         const retained_source = try owner.host.retainLocalCapability(entry.actor.?);
         value.intent = .{ .verb = verb, .args = args };
         value.source = retained_source;
@@ -185,8 +183,8 @@ const State = struct {
     memory: memory.Memory = undefined,
     source: driver.Capability = undefined,
     intent: h.Call.Intent = undefined,
-    arguments: []driver.Host.StagedCapabilityRetain = &.{},
-    targets: []driver.Host.StagedCapabilityRetain = &.{},
+    arguments: []driver.Capability = &.{},
+    targets: []driver.Capability = &.{},
     activation: Continuation.Activation,
     references: usize = 1,
     read_references: usize = 0,
@@ -201,7 +199,7 @@ fn state(self: *Continuation) *State {
 }
 fn target(value: *State, index: usize) !driver.Capability {
     if (index >= value.targets.len) return error.NoSuchTarget;
-    return value.targets[index].ref;
+    return value.targets[index];
 }
 fn releaseState(value: *State, read_scope: bool) void {
     std.debug.assert(value.references != 0);
@@ -218,8 +216,8 @@ fn releaseState(value: *State, read_scope: bool) void {
     if (value.references != 0) return;
     const owner = value.owner;
     owner.host.releaseCapabilityTerminal(value.source, null);
-    for (value.arguments) |item| owner.host.releaseCapabilityTerminal(item.ref, null);
-    for (value.targets) |item| owner.host.releaseCapabilityTerminal(item.ref, null);
+    for (value.arguments) |item| owner.host.releaseCapabilityTerminal(item, null);
+    for (value.targets) |item| owner.host.releaseCapabilityTerminal(item, null);
     value.memory.deinit();
     owner.allocator.destroy(value);
     std.debug.assert(owner.continuations != 0);
@@ -242,18 +240,18 @@ const Endpoint = struct {
     index: usize,
     completion: calls.Completion,
 
-    pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         const value = state(self.continuation);
         if (!value.active) return error.ContinuationUnconfirmed;
-        try calls.admitContinuation(value.owner, value.source, turn, value.intent, try target(value, self.index), .{ .verb = verb, .args = args }, self.completion);
+        try calls.admitContinuation(value.owner, value.source, turn, value.intent, try target(value, self.index), .{ .verb = verb, .args = arg_values }, self.completion);
         return .{ .void = {} };
     }
-    pub fn handleLocal(self: *Endpoint, turn: *actors.Turn, message: actors.Message) !model.Argument {
+    pub fn handleLocal(self: *Endpoint, turn: *actors.Turn, message: actors.Delivery) !model.Argument {
         const value = state(self.continuation);
         if (!value.active) return error.ContinuationUnconfirmed;
-        const args = try turn.arena.alloc(driver.Value, message.args.len);
-        for (args, message.args) |*out, item| out.* = try values.copy(driver.Value, turn.arena, item);
+        const args = try values.copyArgs(turn.arena, message.args);
         try calls.admitLocalContinuation(value.owner, value.source, turn, value.intent, try target(value, self.index), .{ .verb = message.verb, .args = args });
         return .{ .void = {} };
     }

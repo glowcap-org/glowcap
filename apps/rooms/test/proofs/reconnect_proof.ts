@@ -49,7 +49,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // flight when the session dies, which should come back with a retry action.
 //
 // Needs deno, cargo for the iroh sidecar, the wasm module (`zig build
-// wasm-driver`), the native archives, and a Playwright Chromium.
+// wasm-driver`), the installed archives, and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/reconnect_test.ts`.
 
 /// <reference lib="dom" />
@@ -81,7 +81,7 @@ const web = spawnWeb({
 /** Kill the room server, and only it.
  *
  * It is a child of `serve.ts`, not of this test, so it is selected beneath that
- * exact parent and by its server entrypoint: the installed native executable. The page's own
+ * exact parent and by its server entrypoint: the installed executable. The page's own
  * server is left alone: the point is a lost room, not a lost page. */
 async function killRoomServer(): Promise<void> {
 	const entrypoint = SERVER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

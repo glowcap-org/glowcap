@@ -1,0 +1,34 @@
+[package]
+name = "capnp-echo-bench"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[[bin]]
+name = "capnp-echo-bench"
+path = "src/main.rs"
+
+[dependencies]
+# dep capnp: The Cap'n Proto runtime the generated schema code links.
+capnp = "0.27.2"
+# dep capnp-rpc: The Cap'n Proto RPC system under measurement.
+capnp-rpc = "0.27.0"
+# dep futures: Splits the compat stream into the reader and writer the vat network takes.
+futures = "0.3"
+# dep nix: Safe sched_setaffinity for --pin under forbid(unsafe_code).
+nix = { version = "0.31.3", default-features = false, features = ["sched"] }
+# dep tokio: The current-thread runtime and TCP provider for each bench thread.
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros"] }
+# dep tokio-util: Adapts tokio streams to the futures traits capnp-rpc uses.
+tokio-util = { version = "0.7", default-features = false, features = ["compat"] }
+
+[build-dependencies]
+# dep capnpc: Compiles echo.capnp into Rust at build time.
+capnpc = "0.27.0"

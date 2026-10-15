@@ -1,4 +1,4 @@
-// Public @glowcap/onion surface. Raw archive ownership lives in native.ts;
+// Public @glowcap/onion surface. Raw archive ownership lives in ffi_archive.ts;
 // provider.ts composes it with the generic driver.
 //
 // A service id is an address, not an identity: Tor proves the far circuit holds
@@ -20,7 +20,7 @@ export {
 	Netlayer,
 	type NetlayerOptions,
 	SERVICE_ID_LENGTH,
-} from "./native.ts";
+} from "./ffi_archive.ts";
 export { installProvider, listen, OnionServer, provider } from "./provider.ts";
 
 /** This package's one profile, in its own words (`ProfileInfo`). */

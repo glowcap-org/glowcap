@@ -43,7 +43,7 @@ pub const close_retry_ms: i32 = 50;
 
 /// Outbound queue capacity a drained `front` retains (ADR-0042). The iroh
 /// sidecar keeps the same bound for its own per-connection buffer, in Rust
-/// (`NB_STEADY_BYTES`), so the ladder's footprint budget cannot split between
+/// (`NB_STEADY_BYTES`), so the per-connection footprint cannot split between
 /// them. `source-check` holds the two numbers together.
 pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 
@@ -54,28 +54,23 @@ pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 /// ceiling. This guards the wrapper the loop allocates `max_conns` of, which
 /// nothing capped before. Isolating the overhead keeps a `Peer` change within
 /// its own ceiling from tripping this, while a new `Conn` field always does.
-/// The number lives here and in docs/ladder.md step 2 together. Move it only by
-/// weighing the bytes, never to route around the gate.
+/// Move it only by weighing the bytes, never to route around the check.
 ///
-/// The assertion below is an equality, not a ceiling.
-/// As a ceiling it said only "this much or less", so the overhead once grew to
-/// the ceiling while both this comment and the ladder went on claiming a
-/// smaller measured figure with a word of headroom, a stale figure no build
-/// could catch, in the two places an agent goes to find out whether a new
-/// field is affordable. An equality
-/// makes the constant the measurement: any change to `Conn` fails the build and
-/// is answered by moving the number here and in the ladder together, which is
-/// the process this comment already described and nothing enforced. It holds
-/// across backends because `Backend.Fd` is `i32` for TCP platform backends and
-/// iroh alike, so `Conn` carries no backend-dependent width.
+/// The assertion below is an equality, not a ceiling, so the constant is the
+/// measurement: any change to `Conn` fails the build and moves this number
+/// with it. A ceiling would let the overhead grow up to it while this comment
+/// claimed a smaller figure. It holds across backends because `Backend.Fd` is
+/// `i32` for TCP platform backends and iroh alike, so `Conn` carries no
+/// backend-dependent width.
 ///
 /// It exists to stop a field being *added* unnoticed, not to invite shaving
-/// bytes off it. For scale: 144 bytes is 72 MB at 500k connections, against the
-/// roughly 16 GiB of steady outbound queue the same connections carry
-/// (`docs/ladder.md` step 2). The two list headers and the spill header make up
-/// 88 of the 144, so the whole available saving is noise against the queues.
+/// bytes off it. At 500k connections the whole slot overhead is a small share
+/// of the steady outbound queues the same connections carry
+/// (`steady_outbound_bytes` each), and the two list headers and the spill
+/// header are most of it, so the whole available saving is noise against
+/// the queues.
 ///
-/// Like every footprint number in the ladder, this is the runtime-safety
+/// Like every footprint budget, this is the runtime-safety
 /// measurement: each of the two outbound `std.ArrayList` headers carries std's
 /// one-byte `pointer_stability` lock, padded to a word, in Debug and
 /// ReleaseSafe. ReleaseFast and ReleaseSmall make that lock zero-sized, and
@@ -165,9 +160,7 @@ pub fn Types(comptime Backend: type) type {
             peer: engine.Peer = undefined,
             /// Bounded overflow for a frame that does not complete within one
             /// recv completion's borrowed pool buffer. Inactive (and
-            /// allocation-free) while whole frames arrive per completion. The
-            /// scan that walks its frame rides on the `peer` above
-            /// (`engine.Peer.stream_scan`), which documents why.
+            /// allocation-free) while whole frames arrive per completion.
             spill: frame_stream.Spill = .{},
             /// The frozen half of the outbound queue. A submitted write borrows
             /// `front.items[front_off..]` until the backend reports it complete,

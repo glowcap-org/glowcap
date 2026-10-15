@@ -38,18 +38,16 @@ pub const DirectoryQuery = struct {
         self.entry = null;
         while (self.count != 0) {
             const level: u2 = @intCast(self.count - 1);
-            const frame = &self.frames[level];
-            const page = if (try self.view.store.proposed(frame.object)) |proposal| try records.DirectoryPage.decode(proposal.view) else page: {
-                const lease = switch (try self.load.acquire(self.view.store, frame.object)) {
+            const object = self.frames[level].object;
+            const result = if (try self.view.store.proposed(object)) |proposal| try self.advancePage(proposal.view, level) else result: {
+                const lease = switch (try self.load.acquire(self.view.store, object)) {
                     .read => |request| return .{ .read = request },
                     .waiting => return .waiting,
                     .ready => |lease| lease,
                 };
                 defer self.view.store.release(lease) catch unreachable;
-                // Decode before releasing; the page owns scalar target copies.
-                break :page try records.DirectoryPage.decode(try self.view.store.currentView(lease));
+                break :result try self.advancePage(try self.view.store.currentView(lease), level);
             };
-            const result = try self.advancePage(page, level);
             if (result == .ready and self.entry == null and !self.done) continue;
             return result;
         }
@@ -57,13 +55,16 @@ pub const DirectoryQuery = struct {
         return .ready;
     }
 
-    fn advancePage(self: *DirectoryQuery, value: records.DirectoryPage, level: u2) !Step {
+    /// Step to the page's next populated key, reading that one edge from the
+    /// view: descend into an inner page, yield a leaf, or pop an exhausted
+    /// page.
+    fn advancePage(self: *DirectoryQuery, view: loam.RecordView, level: u2) !Step {
         const frame = &self.frames[level];
-        if (value.owner != self.view.header.owner or value.family != self.family or value.level != level or value.prefix != frame.prefix) return error.InvalidRecord;
-        while (frame.digit < 256) {
-            const digit: u8 = @intCast(frame.digit);
-            frame.digit += 1;
-            const target = value.get(digit) orelse continue;
+        const page = try records.DirectoryPage.decodeHeader(view);
+        try page.expect(self.view.header.owner, self.family, level, frame.prefix);
+        while (page.nextKey(frame.digit)) |digit| {
+            frame.digit = @as(u16, digit) + 1;
+            const target = (try page.target(view, digit)).?;
             const prefix = frame.prefix | (@as(u32, digit) << (@as(u5, 3 - @as(u5, level)) * 8));
             const span: u64 = @as(u64, 1) << (@as(u6, 3 - @as(u6, level)) * 8);
             if (@as(u64, prefix) + span <= self.floor) continue;

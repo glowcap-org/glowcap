@@ -1,4 +1,4 @@
-"""Driver-loop native option validation and C projection."""
+"""Driver-loop FFI option validation and C projection."""
 
 import ctypes
 
@@ -13,6 +13,7 @@ def _driver_options(
     handshake_ms: int,
     listener_setup_ms: int,
     settle_ms: int,
+    busy_poll_ns: int,
 ) -> _DriverOptions:
     fields = (
         ("wire_buffer_bytes", wire_buffer_bytes, ctypes.c_size_t(-1).value),
@@ -20,6 +21,7 @@ def _driver_options(
         ("handshake_ms", handshake_ms, ctypes.c_uint32(-1).value),
         ("listener_setup_ms", listener_setup_ms, ctypes.c_uint32(-1).value),
         ("settle_ms", settle_ms, ctypes.c_uint32(-1).value),
+        ("busy_poll_ns", busy_poll_ns, ctypes.c_uint64(-1).value),
     )
     for name, value, maximum in fields:
         if (
@@ -40,4 +42,5 @@ def _driver_options(
         handshake_ms,
         listener_setup_ms,
         settle_ms,
+        busy_poll_ns,
     )

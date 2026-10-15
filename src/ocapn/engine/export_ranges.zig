@@ -21,7 +21,7 @@ const Node = node_mod.Node;
 /// A near reference is one integer, and it means whatever the session
 /// reading it says it means, so the same number names a different object on
 /// every session. An application holds capabilities from several sessions
-/// at once, `sendRedeeming` hands it two in one call, and offering one to
+/// at once, a call that redeems two handoffs hands it two, and offering one to
 /// the wrong session is a one-word mistake. Disjoint ranges make that
 /// mistake name a position no session holds, so the held-export check
 /// refuses it, instead of it landing on whatever that session keeps at the
@@ -69,6 +69,24 @@ comptime {
 pub fn initialExportBase(seed: [crypto.SEED_BYTES]u8) u64 {
     const node_slot: u64 = std.hash.Wyhash.hash(0, &seed) % export_node_slots;
     return (node_slot << export_node_shift) | export_range_span;
+}
+
+/// The root of the wire-hash multipliers, derived from the identity seed
+/// under its own domain so neither is recoverable from the other.
+pub fn wireHashSecret(seed: [crypto.SEED_BYTES]u8) u64 {
+    var out: [8]u8 = undefined;
+    var hasher = std.crypto.hash.Blake3.initKdf("glowcap wire hash v1", .{});
+    hasher.update(&seed);
+    hasher.final(&out);
+    return std.mem.readInt(u64, &out, .little);
+}
+
+/// One session's multiplier: the root mixed with the peer handle, so what a
+/// peer could learn about its own tables says nothing about another
+/// session's.
+pub fn wireHashMultiplier(secret: u64, peer_handle: u64) u64 {
+    const root = foundation.identity_hash.multiplierFromSeed(secret);
+    return foundation.identity_hash.multiplierFromSeed(foundation.identity_hash.wireHash(peer_handle, root));
 }
 
 /// Give `peer`'s session the next range, the one door a session's export

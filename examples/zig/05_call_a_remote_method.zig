@@ -2,7 +2,7 @@
 //!
 //! A phone calls `speaker.queue("Hot Knife")` on the kitchen speaker. This is
 //! the basic CapTP move: invoke a method on a remote object and read the
-//! answer back. This chapter sits one layer below everything chapters 01–04 ride:
+//! answer back. This chapter sits one layer below everything chapters 01 to 04 ride:
 //! the protocol peer, with manual exports and imports, explicit `step`, and
 //! hand-shuttled frames. Sessions open already authenticated on CapTP 1.0 over
 //! Syrup, the interop floor a live Goblins peer speaks.
@@ -29,7 +29,7 @@ pub fn main() !void {
     try speaker.exportObject(1);
     try phone.importObject(1);
 
-    try phone.sendCopying(.{ .deliver = .{
+    try phone.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(1) },
         .args = &.{ .{ .symbol = "queue" }, .{ .bytes = "Hot Knife" } },
         .answer = .from(42),
@@ -44,7 +44,7 @@ pub fn main() !void {
     }
 
     try speaker.exportObject(5);
-    try speaker.sendCopying(.{ .resolve = .{
+    try speaker.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(5) } } },
     } });
@@ -54,7 +54,7 @@ pub fn main() !void {
 
     var resolved = phone.pollEvent().?;
     defer resolved.deinit();
-    const body = try resolved.view();
+    const body = resolved.view();
     const fulfilled = switch (body.resolve.resolution) {
         .fulfill => |arg| arg,
         .@"break" => |err| {

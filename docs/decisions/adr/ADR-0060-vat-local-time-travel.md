@@ -87,7 +87,7 @@ one pointer indirection (`Cell` to `box` to `ptr`) and one branch per turn.
   state rollback shaped here. ADR-0191 makes a turn's local sends commit with
   it. A general "run a mutable turn against a copy and discard
   on failure" is not implemented.
-- **No C ABI exposure.** This is the native Zig `Vat` surface. Surfacing
+- **No C ABI exposure.** This is the Zig `Vat` surface. Surfacing
   snapshot/restore over the C ABI is separate work.
 
 ## Alternatives Considered

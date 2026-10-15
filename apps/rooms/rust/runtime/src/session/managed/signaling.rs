@@ -6,6 +6,7 @@ use rooms_application::content::{
 	session::{custody, workspace},
 };
 use rooms_glowcap::client::{Deadline, Tasks, directory::signaling::Route};
+use std::collections::BTreeMap;
 
 pub struct SignalingRegistration<P: Tasks + Deadline> {
 	lifetime: Membership<P>,
@@ -47,6 +48,27 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		.intent
 		.connection)
 	}
+	/// The checked signaling route through one directory this session is a
+	/// named member of, bound to the directory's session as its introducer. A
+	/// dial carries its offer, answer and candidates through it. The route is
+	/// checked once here, and the directory refuses a later exchange itself
+	/// when the name has expired or been replaced.
+	pub async fn signaling_route(&self, row: &workspace::Directory) -> Result<Route<P>> {
+		let selected = workspace::SignalingSelection::directory(row)
+			.ok_or_else(|| loam::refusal("signaling has no exact registered name and source"))?;
+		let source = self.directory_source(row).await?;
+		let mut route = source.workspace().signaling(&selected).await.map_err(error)?;
+		let directory = self
+			.restore_custody(&[custody::Coordinate {
+				role: custody::Role::DirectoryAccess,
+				key: custody::FieldKey::new(row.access.slot(), row.access.generation()),
+			}])
+			.await?
+			.remove(0);
+		route.retain_introducer(&directory).map_err(error)?;
+		route.check().await.map_err(error)?;
+		Ok(route)
+	}
 	pub async fn signaling_registration(&self, row: &workspace::Directory) -> Result<SignalingRegistration<P>> {
 		let _permit = supervision::Permit::reserve(&self.state.signaling_observers)?;
 		let selected = workspace::SignalingSelection::directory(row)
@@ -62,16 +84,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			return Err(loam::refusal("signaling is closing or already supervised"));
 		}
 		let source = self.directory_source(row).await?;
-		let mut route = source.workspace().signaling(&selected).await.map_err(error)?;
-		let directory = self
-			.restore_custody(&[custody::Coordinate {
-				role: custody::Role::DirectoryAccess,
-				key: custody::FieldKey::new(row.access.slot(), row.access.generation()),
-			}])
-			.await?
-			.remove(0);
-		route.retain_introducer(&directory).map_err(error)?;
-		route.check().await.map_err(error)?;
+		let route = self.signaling_route(row).await?;
 		// Concurrent startups may have installed this identity while we waited.
 		if self.state.closing.get() || self.state.signaling_observers.contains(&id) {
 			return Err(loam::refusal("signaling is closing or already supervised"));
@@ -140,6 +153,99 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			},
 		);
 		Ok(SignalingRegistration { lifetime, route })
+	}
+	/// Keep one checked signaling route per directory this session is a named
+	/// member of, for dials this session's Host makes through those
+	/// directories. `publish` receives the whole set, keyed by directory row id,
+	/// each time it changes. A route the directory refuses is reported through
+	/// the session's trouble report and tried again when the workspace changes
+	/// or a retry is asked for. Close the returned membership before the
+	/// session, as with every other supervised job.
+	pub fn follow_signaling_routes(
+		&self,
+		publish: impl Fn(BTreeMap<String, Route<P>>) + 'static,
+	) -> Result<Membership<P>> {
+		let _permit = supervision::Permit::reserve(&self.state.signaling_observers)?;
+		let id = "signaling-routes".to_owned();
+		if self.state.closing.get() || self.state.signaling_observers.contains(&id) {
+			return Err(loam::refusal("signaling routes are closing or already followed"));
+		}
+		let mut changes = self.state.changes.subscribe(&self.state)?;
+		let session = Session {
+			state: self.state.clone(),
+		};
+		let workspace = rooms_glowcap::client::workspace::Workspace::local(
+			self.state.writer.host.clone(),
+			self.state.platform.clone(),
+			self.state.writer.root()?,
+		);
+		Ok(supervision::spawn(
+			&self.state.platform,
+			&self.state.signaling_observers,
+			id,
+			None,
+			move |mut signals| async move {
+				let mut held = BTreeMap::<String, (workspace::SignalingSelection, Route<P>)>::new();
+				loop {
+					if *signals.stopping.borrow_and_update() {
+						return Ok(());
+					}
+					let followed = async {
+						changes.ready().await?;
+						let intent = workspace.snapshot().await.map_err(error)?.intent;
+						let mut selected = BTreeMap::new();
+						for row in intent.directories.as_slice() {
+							if let Some(selection) = workspace::SignalingSelection::directory(row) {
+								let id = row
+									.id
+									.text()
+									.as_str()
+									.ok_or_else(|| loam::refusal("invalid directory"))?;
+								selected.insert(id.to_owned(), (selection, row.clone()));
+							}
+						}
+						held.retain(|id, held| selected.get(id).is_some_and(|(now, _)| *now == held.0));
+						for (id, (selection, row)) in selected {
+							if held.contains_key(&id) {
+								continue;
+							}
+							match session.signaling_route(&row).await {
+								Ok(route) => {
+									held.insert(id, (selection, route));
+								}
+								Err(failure) => session.state.writer.report("Signaling routes", &failure),
+							}
+						}
+						publish(
+							held.iter()
+								.map(|(id, (_, route))| (id.clone(), route.clone()))
+								.collect(),
+						);
+						Ok::<(), glowcap::Error>(())
+					}
+					.await;
+					let failed = match followed {
+						Err(failure) => Some(failure),
+						Ok(()) => {
+							signals.ready.send_replace(Some(Ok(())));
+							tokio::select! { biased;
+								_ = signals.stopping.changed() => return Ok(()),
+								_ = signals.retrying.changed() => { changes.retry(); None },
+								changed = changes.changed() => changed.err(),
+							}
+						}
+					};
+					if let Some(failure) = failed {
+						session.state.writer.report("Signaling routes", &failure);
+						signals.ready.send_replace(Some(Err(failure)));
+						tokio::select! { biased;
+							_ = signals.stopping.changed() => return Ok(()),
+							_ = signals.retrying.changed() => changes.retry(),
+						}
+					}
+				}
+			},
+		))
 	}
 }
 fn error(error: rooms_glowcap::client::Error) -> glowcap::Error {

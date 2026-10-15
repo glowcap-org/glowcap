@@ -1,17 +1,11 @@
-//! First-party source-file length ratchet.
+//! First-party source-file length limit.
 //!
-//! A source file has one subject and must fit in one attentive read. New files
-//! stop at 650 lines. The exception inventory is closed legacy debt: no new
-//! path may enter it. Existing overages are pinned to their present size,
-//! growth fails, shrinkage lowers the ceiling, and reaching the project limit
-//! retires the exception.
-//!
-//! The destination is an empty inventory, and who owes it is settled: whoever
-//! opens the file. This is inherited work, not its authors' backlog, and a
-//! session that edits one of these files and leaves it the same length has
-//! declined a turn at it
-//! ([project-values](../../../.agents/rules/project-values.md)). The counts
-//! below are that debt, and they only ever go down.
+//! A source file has one subject and must fit in one attentive read, so no
+//! first-party source may exceed `max_lines`. There are no exceptions. A file
+//! that would cross the limit is split by subject before the change lands
+//! ([file-budget](../../../.agents/skills/file-budget/SKILL.md)). The check
+//! walks the whole repository, so a new directory is covered without an edit
+//! here.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -19,60 +13,6 @@ const util = @import("util.zig");
 const appendViolation = util.appendViolation;
 
 const max_lines: usize = 650;
-
-/// How many files are still over the limit. Exact, and it only ever goes down:
-/// retiring one lowers it, and nothing may raise it, because the list is closed.
-const exception_count: usize = 0;
-
-/// Every line the exceptions below hold above `max_lines`, added up. Exact, like
-/// the ceilings it sums: a split lowers it, and nothing raises it, so a
-/// reduction cannot be quietly spent by a later diff.
-const exception_debt_lines: usize = 0;
-
-const Exception = struct {
-    path: []const u8,
-    ceiling: usize,
-};
-
-/// Closed legacy debt, sorted largest first so the next split target is visible.
-/// Never add a row. A ceiling is an exact maximum for non-additive corrections,
-/// never headroom. Any shrink must pin the lower count in this table.
-const exceptions: []const Exception = &.{};
-
-const trees = [_][]const u8{
-    ".agents",
-    ".claude",
-    ".codex",
-    ".cursor",
-    ".devcontainer",
-    ".github",
-    ".serena",
-    "apps",
-    "bench",
-    "bindings",
-    "ci",
-    "cli",
-    "conformance",
-    "docs",
-    "examples",
-    "include",
-    "interop",
-    "site",
-    "src",
-    "test",
-    "tools",
-    "transports",
-    "ui",
-};
-
-const root_files = [_][]const u8{
-    "AGENTS.md",
-    "CONTRIBUTING.md",
-    "README.md",
-    "SECURITY.md",
-    "build.zig",
-    "build.zig.zon",
-};
 
 fn isSource(path: []const u8) bool {
     for ([_][]const u8{
@@ -85,15 +25,20 @@ fn isSource(path: []const u8) bool {
     return false;
 }
 
+/// Directories that hold no first-party source: build output, installed
+/// packages, outside sources, and local machine state.
 fn ignored(path: []const u8) bool {
     var parts = std.mem.splitScalar(u8, path, '/');
     while (parts.next()) |part| {
         for ([_][]const u8{
+            ".git",
+            ".local",
             ".venv",
             ".zig-cache",
             "dist",
             "node_modules",
             "target",
+            "third_party",
             "upstream",
             "vendor",
             "zig-out",
@@ -110,32 +55,12 @@ fn lineCount(contents: []const u8) usize {
     return std.mem.count(u8, contents, "\n") + @intFromBool(contents[contents.len - 1] != '\n');
 }
 
-fn exceptionIndex(path: []const u8) ?usize {
-    for (exceptions, 0..) |exception, i| {
-        if (std.mem.eql(u8, path, exception.path)) return i;
-    }
-    return null;
-}
-
-fn exceptionAt(rows: []const Exception, index: usize) Exception {
-    return rows[index];
-}
-
-fn hasDuplicateBefore(rows: []const Exception, index: usize) bool {
-    const current = exceptionAt(rows, index);
-    for (rows[0..index]) |earlier| {
-        if (std.mem.eql(u8, current.path, earlier.path)) return true;
-    }
-    return false;
-}
-
 fn checkFile(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     path: []const u8,
-    seen: []bool,
 ) !void {
     if (!isSource(path) or ignored(path)) return;
     const contents = root.readFileAlloc(io, path, gpa, .limited(16 << 20)) catch |err| {
@@ -144,32 +69,16 @@ fn checkFile(
     };
     defer gpa.free(contents);
 
-    // Generated files answer to their generator, not to this ratchet: their
-    // length is the generation shape's to fix, and a row here would invite
-    // hand-edits the GENERATED header forbids. The marker is the first-lines
-    // header every generated file in the tree carries.
+    // Generated files answer to their generator: their length is the
+    // generation shape's to fix. The marker is the first-lines header every
+    // generated file in the tree carries.
     const head = contents[0..@min(contents.len, 400)];
     if (std.mem.indexOf(u8, head, "GENERATED by") != null or
         std.mem.indexOf(u8, head, "Generated from") != null) return;
 
     const lines = lineCount(contents);
-    const exception_i = exceptionIndex(path);
-    if (exception_i) |i| seen[i] = true;
-    if (lines <= max_lines) {
-        if (exception_i != null) {
-            try appendViolation(gpa, violations, "{s}: now has {d} lines; remove its file-length exception because the project limit is {d}", .{ path, lines, max_lines });
-        }
-        return;
-    }
-    const i = exception_i orelse {
-        try appendViolation(gpa, violations, "{s}: has {d} lines; the exception inventory is closed, so split it by subject below the {d}-line project limit", .{ path, lines, max_lines });
-        return;
-    };
-    const ceiling = exceptionAt(exceptions, i).ceiling;
-    if (lines > ceiling) {
-        try appendViolation(gpa, violations, "{s}: grew from its explicit {d}-line ceiling to {d}; split it instead of growing the exception", .{ path, ceiling, lines });
-    } else if (lines < ceiling) {
-        try appendViolation(gpa, violations, "{s}: shrank from {d} to {d} lines; lower its exception ceiling now so those lines cannot return", .{ path, ceiling, lines });
+    if (lines > max_lines) {
+        try appendViolation(gpa, violations, "{s}: has {d} lines; split it by subject below the {d}-line limit", .{ path, lines, max_lines });
     }
 }
 
@@ -179,65 +88,15 @@ pub fn check(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    var seen: [exceptions.len]bool = @splat(false);
-
-    // The per-file ceiling alone lets a diff pay a toll instead of a debt: add
-    // three lines, delete three of your own comments, and the file is exactly as
-    // long as it was. These two counts are the debt itself, and both move one
-    // way, so a reduction is banked where nothing can spend it again.
-    if (exceptions.len > exception_count) {
-        try appendViolation(gpa, violations, "the exception inventory is closed and now has {d} rows against {d}; split the file instead of giving it a row, however large the split looks next to the change that needed it", .{ exceptions.len, exception_count });
-    } else if (exceptions.len < exception_count) {
-        try appendViolation(gpa, violations, "{d} files are still over the limit, against {d} recorded; lower `exception_count` to {d} so the retired row cannot come back", .{ exceptions.len, exception_count, exceptions.len });
-    }
-
-    var debt: usize = 0;
-    for (exceptions) |exception| {
-        if (exception.ceiling > max_lines) debt += exception.ceiling - max_lines;
-    }
-    if (debt > exception_debt_lines) {
-        try appendViolation(gpa, violations, "the exceptions now hold {d} lines above the {d}-line limit, over the {d} recorded; a ceiling may hold while a subject is extracted, never rise", .{ debt, max_lines, exception_debt_lines });
-    } else if (debt < exception_debt_lines) {
-        try appendViolation(gpa, violations, "the exceptions hold {d} lines above the {d}-line limit, under the {d} recorded; lower `exception_debt_lines` to {d} so the reduction cannot be spent again", .{ debt, max_lines, exception_debt_lines, debt });
-    }
-
-    for (exceptions, 0..) |exception, i| {
-        if (exception.ceiling <= max_lines) {
-            try appendViolation(gpa, violations, "{s}: file-length exception ceiling {d} is not above the {d}-line project limit; remove it", .{ exception.path, exception.ceiling, max_lines });
-        }
-        if (i > 0 and exception.ceiling > exceptionAt(exceptions, i - 1).ceiling) {
-            try appendViolation(gpa, violations, "{s}: file-length exceptions must stay largest-first so the next split target remains visible", .{exception.path});
-        }
-        if (hasDuplicateBefore(exceptions, i)) {
-            try appendViolation(gpa, violations, "{s}: duplicate file-length exception", .{exception.path});
-        }
-    }
-
-    for (root_files) |path| try checkFile(io, gpa, root, violations, path, seen[0..]);
-    for (trees) |tree| {
-        var dir = root.openDir(io, tree, .{ .iterate = true }) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to open for the file-length check with {s}", .{ tree, @errorName(err) });
+    var walker = try root.walkSelectively(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind == .directory) {
+            if (!ignored(entry.path)) try walker.enter(io, entry);
             continue;
-        };
-        defer dir.close(io);
-        var walker = try dir.walkSelectively(gpa);
-        defer walker.deinit();
-        while (try walker.next(io)) |entry| {
-            if (entry.kind == .directory) {
-                if (!ignored(entry.path)) try walker.enter(io, entry);
-                continue;
-            }
-            if (entry.kind != .file) continue;
-            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ tree, entry.path });
-            defer gpa.free(path);
-            try checkFile(io, gpa, root, violations, path, seen[0..]);
         }
-    }
-
-    for (exceptions, seen) |exception, found| {
-        if (!found) {
-            try appendViolation(gpa, violations, "{s}: file-length exception no longer names a checked source file; remove it", .{exception.path});
-        }
+        if (entry.kind != .file) continue;
+        try checkFile(io, gpa, root, violations, entry.path);
     }
 }
 
@@ -246,17 +105,4 @@ test "lineCount includes an unterminated final line" {
     try std.testing.expectEqual(@as(usize, 1), lineCount("one"));
     try std.testing.expectEqual(@as(usize, 1), lineCount("one\n"));
     try std.testing.expectEqual(@as(usize, 2), lineCount("one\ntwo"));
-}
-
-test "exception helpers remain valid with an empty live inventory" {
-    try std.testing.expectEqual(@as(usize, 0), exceptions.len);
-
-    const sample = [_]Exception{
-        .{ .path = "first.zig", .ceiling = 900 },
-        .{ .path = "second.zig", .ceiling = 800 },
-        .{ .path = "first.zig", .ceiling = 700 },
-    };
-    try std.testing.expectEqualStrings("second.zig", exceptionAt(&sample, 1).path);
-    try std.testing.expect(!hasDuplicateBefore(&sample, 1));
-    try std.testing.expect(hasDuplicateBefore(&sample, 2));
 }

@@ -1,6 +1,6 @@
 //! Tracing preserves current and historical authority while reclaiming cycles.
-//! The late-edge scenario was calibrated by disabling the sweep insertion
-//! barrier: it then lost both reachable descendants and failed its assertion.
+//! Disabling the sweep insertion barrier fails the late-edge scenario: it
+//! loses both reachable descendants.
 const std = @import("std");
 const f = @import("fixture.zig");
 const core = f.core;

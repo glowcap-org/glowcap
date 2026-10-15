@@ -110,7 +110,7 @@ centrally editable role definitions are outside the contract.
 
 ## Consequences
 
-The [Rooms plan](../../planning/rooms.md) owns permission keys, method
+The Rooms work on the [roadmap](../../roadmap.md) owns permission keys, method
 requirements, derived references and retirement ownership (operation authority),
 preset groups, public defaults and management/recipient interaction (access
 editor), schemas, transaction boundaries and acceptance budgets (storage and
@@ -120,7 +120,7 @@ implementation slice (consumers to replace), and content identity and audience
 
 ## Evidence and gate
 
-The [walkthroughs](../../planning/rooms.md) exercise the five opening
+Design walkthroughs exercise the five opening
 use cases through issuance, use, change, delegation, reconnect and revocation.
 They and the operation inventory are reviewable design acceptance, not executed
 Rooms proofs. `zig build source-check` validates this documentation change.

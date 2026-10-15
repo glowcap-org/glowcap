@@ -53,17 +53,21 @@ pub fn nominateResolverExport(self: *Session) !ResolverNomination {
 /// Allocate a fresh export of `kind` and link it to `answer` as that answer's
 /// resolver. All-or-none. A caller whose own later step fails rolls back with
 /// `abandonResolverExport` while the export is still unmentioned.
+///
+/// Every caller binds an answer no export serves yet: a fresh answer, or one
+/// `mintMentionedResolverExport` refused if it were linked. So the pair
+/// installs without the eviction lookups `installOutboundResolver` makes.
 pub fn bindFreshResolverExport(
     self: *Session,
     answer: model.AnswerPosition,
     kind: model.RefKind,
 ) !model.ExportPosition {
+    try self.outbound_resolver_link.ensureUnusedCapacity(self.allocator, 1);
     const resolver_export = switch (kind) {
         .object => try self.allocateExport(),
         .promise => try self.allocatePromiseExport(),
     };
-    errdefer self.releaseUnsharedExport(resolver_export);
-    try installOutboundResolver(self, answer, resolver_export);
+    self.outbound_resolver_link.putAssumeNoClobber(resolver_export, .{ .application_answer = answer });
     return resolver_export;
 }
 
@@ -193,13 +197,12 @@ pub fn completeNodeSettlingResolverCallback(
         entry.settling_listener_export = .from(0);
         entry.settling_node_claimed = false;
     }
-    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{
-        .retired = .{
-            .resolver_export = resolver_export,
-            .state = .complete,
-        },
-    });
-    releaseRetiredResolverIfUnmentioned(self, resolver_export);
+    const retired: session.RetiredResolver = .{
+        .resolver_export = resolver_export,
+        .state = .complete,
+    };
+    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{ .retired = retired });
+    releaseRetiredIfUnmentioned(self, retired);
     if (node.settling_source) |source| {
         if (!self.hasImport(source.position)) self.releaseShorteningSourceAuthority(source);
     }
@@ -228,14 +231,13 @@ pub fn retireNodeSettlingResolver(
                     }
                 }
             }
-            self.outbound_resolver_link.replaceValueForKey(resolver_export, .{
-                .retired = .{
-                    .resolver_export = resolver_export,
-                    .settling_source = node.settling_source,
-                    .state = .pending,
-                },
-            });
-            releaseRetiredResolverIfUnmentioned(self, resolver_export);
+            const retired: session.RetiredResolver = .{
+                .resolver_export = resolver_export,
+                .settling_source = node.settling_source,
+                .state = .pending,
+            };
+            self.outbound_resolver_link.replaceValueForKey(resolver_export, .{ .retired = retired });
+            releaseRetiredIfUnmentioned(self, retired);
         },
         else => {},
     }
@@ -254,14 +256,13 @@ pub fn retireApplicationResolver(
     const resolver_export = self.outbound_resolver_link.getByValue(.{
         .application_answer = answer,
     }) orelse return;
-    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{
-        .retired = .{
-            .resolver_export = resolver_export,
-            .settling_source = settling_source,
-            .state = state,
-        },
-    });
-    releaseRetiredResolverIfUnmentioned(self, resolver_export);
+    const retired: session.RetiredResolver = .{
+        .resolver_export = resolver_export,
+        .settling_source = settling_source,
+        .state = state,
+    };
+    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{ .retired = retired });
+    releaseRetiredIfUnmentioned(self, retired);
 }
 
 pub fn retiredResolverState(
@@ -291,14 +292,13 @@ pub fn completeRetiredResolverCallback(
     };
     std.debug.assert(retired.state == .pending);
     clearRetiredSettlingClaim(self, resolver_export, retired.settling_source);
-    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{
-        .retired = .{
-            .resolver_export = resolver_export,
-            .settling_source = retired.settling_source,
-            .state = .complete,
-        },
-    });
-    releaseRetiredResolverIfUnmentioned(self, resolver_export);
+    const complete: session.RetiredResolver = .{
+        .resolver_export = resolver_export,
+        .settling_source = retired.settling_source,
+        .state = .complete,
+    };
+    self.outbound_resolver_link.replaceValueForKey(resolver_export, .{ .retired = complete });
+    releaseRetiredIfUnmentioned(self, complete);
 }
 
 /// Release a retired resolver's local baseline once no partner wire mention
@@ -308,16 +308,25 @@ pub fn releaseRetiredResolverIfUnmentioned(
     resolver_export: model.ExportPosition,
 ) void {
     const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse return;
-    const retired = switch (purpose) {
-        .retired => |retired| retired,
-        else => return,
-    };
-    if (!self.exports.contains(resolver_export)) {
+    switch (purpose) {
+        .retired => |retired| releaseRetiredIfUnmentioned(self, retired),
+        else => {},
+    }
+}
+
+/// The form for a caller that just wrote `retired` into the link, so the
+/// row is not read back. One count read answers both whether the export row
+/// is still there and whether the partner still holds a mention of it.
+fn releaseRetiredIfUnmentioned(self: *Session, retired: session.RetiredResolver) void {
+    const resolver_export = retired.resolver_export;
+    const held = self.exports.count(resolver_export);
+    if (held == 0) {
         clearRetiredSettlingClaim(self, resolver_export, retired.settling_source);
         std.debug.assert(self.outbound_resolver_link.removeByKey(resolver_export));
         return;
     }
-    if (self.exports.wireHeld(resolver_export) != 0) return;
+    // Our own baseline retain is one. Anything above it is the partner's.
+    if (held != 1) return;
     clearRetiredSettlingClaim(self, resolver_export, retired.settling_source);
     self.releaseUnsharedExport(resolver_export);
     std.debug.assert(self.outbound_resolver_link.removeByKey(resolver_export));

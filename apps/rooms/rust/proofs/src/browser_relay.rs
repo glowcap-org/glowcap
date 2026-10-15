@@ -1,4 +1,4 @@
-//! Rust relay profiles over the actual native web front's rendezvous service.
+//! Rust relay profiles over the actual Rooms web server's rendezvous service.
 use glowcap::{Argument, HintValue, Host, Locator, PendingWork, browser::relay};
 use rooms_browser::{ice, platform::Platform, transport};
 use std::time::Duration;
@@ -73,7 +73,7 @@ pub async fn rooms_browser_relay_contract(
 			caller.publish("callback", || Box::new(|_, _| Ok(true.into()))).unwrap();
 			let accepting = relay::accept(&receiver, &locator, &register, Duration::from_secs(5));
 			let dialing = async {
-				// The fixture observes the native registration's WebSocket OPEN,
+				// The fixture observes the host registration's WebSocket OPEN,
 				// which follows admission. No timing delay guesses that it is ready.
 				js_sys::futures::JsFuture::from(registered).await.unwrap();
 				runtime.connect(&locator, Default::default()).await.unwrap()

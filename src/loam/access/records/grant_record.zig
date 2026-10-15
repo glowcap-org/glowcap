@@ -18,6 +18,9 @@ pub const GrantRecord = struct {
     pub const format_version: u64 = 2;
     /// Two 256-member selections, fixed identities, and 32 optional bounds.
     pub const max_encoded_bytes: usize = 32 * 1024;
+    /// Bounds the parent edge, the resources both scopes select, and the
+    /// children root.
+    pub const max_edges = 515;
     pub const Error = error{ MalformedRecord, UnsupportedVersion, InvalidRecord, RecordTooLarge };
     pub const DecodeError = Error || std.mem.Allocator.Error;
     const label = "access:grant";
@@ -115,7 +118,7 @@ pub const GrantRecord = struct {
         const status = try fields.readStatus(bytes, &cursor);
         const depth = std.math.cast(u16, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.InvalidRecord;
         const children = std.math.cast(u32, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.InvalidRecord;
-        const grant_label = @import("loam_access_core").GrantLedger.Label.init(try syntax.readBytesLimited(bytes, &cursor, bytes.len)) catch return error.InvalidRecord;
+        const grant_label = @import("loam_access_core").GrantLedger.Label.init(try syntax.readBytes(bytes, &cursor)) catch return error.InvalidRecord;
         const authority = try Stamp.read(bytes, &cursor);
         const inventory = try Stamp.read(bytes, &cursor);
         const lifecycle = try Stamp.read(bytes, &cursor);

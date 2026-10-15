@@ -160,7 +160,19 @@ impl<C: Copy + PartialEq, R: Clone> Foreign<C, R> {
 		ids.iter().filter_map(|id| self.forget(id)).collect()
 	}
 	pub fn listed(&self) -> impl Iterator<Item = RoomInfo> + '_ {
-		self.entries.values().filter(|entry| entry.is_live()).map(Entry::info)
+		self.listed_after(None).map(|(_, room)| room)
+	}
+	/// The live foreign rooms in key order, each with the key it is held
+	/// under, starting after `after` when a page cursor names one.
+	pub fn listed_after(&self, after: Option<&str>) -> impl Iterator<Item = (&str, RoomInfo)> + '_ {
+		let from = match after {
+			Some(key) => core::ops::Bound::Excluded(key),
+			None => core::ops::Bound::Unbounded,
+		};
+		self.entries
+			.range::<str, _>((from, core::ops::Bound::Unbounded))
+			.filter(|(_, entry)| entry.is_live())
+			.map(|(key, entry)| (key.as_str(), entry.info()))
 	}
 	pub fn entries(&self) -> impl Iterator<Item = &Entry<C, R>> {
 		self.entries.values()

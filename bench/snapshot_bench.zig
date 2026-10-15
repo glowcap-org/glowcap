@@ -3,8 +3,8 @@
 //! The snapshot half of the glowcap-vs-Goblins suite (`bench/goblins/`).
 //! snapshot/restore is a *local* `actors.Vat` API, not a wire conversation, and
 //! it is not projected over the C ABI the Racket binding drives, so the two
-//! runtimes are measured natively, side by side: glowcap here in Zig, Goblins in
-//! `bench/goblins/snapshot.rkt`. Because that pits native Zig against native
+//! runtimes are measured in-process, side by side: glowcap here in Zig, Goblins in
+//! `bench/goblins/snapshot.rkt`. Because that pits Zig against
 //! Racket/Chez, compare the *shape* of each cost and the *algorithmic tradeoff*,
 //! not the absolute nanoseconds.
 //!
@@ -50,7 +50,7 @@ const Blob = struct {
     allocator: std.mem.Allocator,
     data: []u8,
 
-    pub fn handle(self: *Blob, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Blob, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (msg.verb.len > 0 and msg.verb[0] == 't') {
             self.data[0] +%= 1;
@@ -73,7 +73,7 @@ const MapMut = struct {
     allocator: std.mem.Allocator,
     entries: []u64,
 
-    pub fn handle(self: *MapMut, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *MapMut, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (msg.verb.len > 0 and msg.verb[0] == 't') {
             self.entries[0] +%= 1;
@@ -96,7 +96,7 @@ const MapPersistent = struct {
     pub const snapshot_persistent = true;
     map: PMap,
 
-    pub fn handle(self: *const MapPersistent, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *const MapPersistent, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         if (msg.verb.len > 0 and msg.verb[0] == 't') {
             var next = try self.map.put(0, (self.map.get(0) orelse 0) +% 1);
             turn.become(MapPersistent, .{ .map = next }) catch |e| {
@@ -426,6 +426,6 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, data: ReportData) !void {
     try b.appendSlice(gpa, "\n");
 
     var dir = std.Io.Dir.cwd();
-    dir.createDirPath(io, "zig-out/bench-reports") catch {};
+    try dir.createDirPath(io, "zig-out/bench-reports");
     try dir.writeFile(io, .{ .sub_path = "zig-out/bench-reports/snapshot.md", .data = b.items });
 }

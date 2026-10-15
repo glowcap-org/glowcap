@@ -30,6 +30,8 @@ pub const Context = struct {
     driver_abi_mod: *std.Build.Module,
     interop_harness_mod: *std.Build.Module,
     check_step: *std.Build.Step,
+    /// The site's Zig example tabs compile under this step.
+    site_zig_examples_check: *std.Build.Step,
     browser_preflight: *std.Build.Step,
     wasm_driver_install: *std.Build.Step,
 };
@@ -39,6 +41,12 @@ pub const Context = struct {
 /// modules over the same resident instance.
 pub const Registered = struct {
     resident_mod: *std.Build.Module,
+    /// `webrtc-abi`: the shared C library every binding's live dial links.
+    abi_step: *std.Build.Step,
+    /// `webrtc-answerer`: the Zig peer those dials reach over stdio signaling.
+    answerer_install_step: *std.Build.Step,
+    /// `webrtc-offerer`: the Zig peer the binding listeners accept the same way.
+    offerer_install_step: *std.Build.Step,
 };
 
 /// The webrtc C ABI module: `common.transportAbiModule` over
@@ -83,6 +91,15 @@ const LiveDriver = struct {
     root_source: []const u8,
     imports: DriverImports = .{},
     posture: execution.Posture = .{ .deterministic = 30 },
+};
+
+/// A standalone Zig WebRTC peer that speaks stdio signaling with a harness
+/// (`interop/webrtc_common/stdio.zig`).
+const StdioPeer = struct {
+    step_name: []const u8,
+    description: []const u8,
+    exe_name: []const u8,
+    root_source: []const u8,
 };
 
 const BrowserProof = struct {
@@ -172,7 +189,7 @@ pub fn register(ctx: Context) Registered {
     const webrtc_probe_build = common.addRootedSystemCommand(b, .build_tool, &.{
         "cargo", "build", "--release", "--manifest-path", "transports/webrtc/Cargo.toml",
     });
-    const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and phase-1 probe binary (ADR-0089; needs cargo)");
+    const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and probe binary (ADR-0089, needs cargo)");
     webrtc_lib_step.dependOn(&webrtc_probe_build.step);
 
     const webrtc_datachannel_test = execution.addSystemCommand(b, .{ .browser_proof = 90 }, &.{
@@ -186,7 +203,7 @@ pub fn register(ctx: Context) Registered {
     webrtc_datachannel_test.has_side_effects = true;
     webrtc_datachannel_test.step.dependOn(ctx.browser_preflight);
     webrtc_datachannel_test.step.dependOn(&webrtc_probe_build.step);
-    const webrtc_datachannel_test_step = b.step("webrtc-datachannel-test", "Prove a headless Chromium RTCDataChannel carries bytes both directions to a native webrtc-crate peer on loopback (ADR-0089 phase 1; needs cargo + deno + a Playwright Chromium)");
+    const webrtc_datachannel_test_step = b.step("webrtc-datachannel-test", "Prove a headless Chromium RTCDataChannel carries bytes both directions to a Rust webrtc-crate peer on loopback (ADR-0089, needs cargo + deno + a Playwright Chromium)");
     webrtc_datachannel_test_step.dependOn(&webrtc_datachannel_test.step);
 
     // The phase-2 resident compiles as its own module over the same layer
@@ -209,34 +226,37 @@ pub fn register(ctx: Context) Registered {
         .root_module = webrtc_resident_mod,
     });
     check_step.dependOn(&webrtc_resident_check.step);
-    b.step("webrtc-resident-check", "Type-check the WebRTC DataChannel netlayer resident (ADR-0089 phase 2), compile-only, no cargo").dependOn(&webrtc_resident_check.step);
+    b.step("webrtc-resident-check", "Type-check the WebRTC DataChannel netlayer resident (ADR-0089), compile-only, no cargo").dependOn(&webrtc_resident_check.step);
+
+    // The site's Zig dial tab: `driver.connect` over the completion resident,
+    // with the application's signaling authority, as `webrtc_redeem` runs it.
+    common.addSiteZigExampleCompile(b, target, optimize, "site-dial-webrtc", "site/examples/dial/webrtc.zig", &.{ .{ .name = "glowcap", .module = lib_mod }, .{ .name = "webrtc", .module = webrtc_resident_mod } }, ctx.site_zig_examples_check);
 
     // Internal owner evidence imports the leaves directly: cross-file `pub`
-    // is not a reason to widen the supported `webrtc` facade.
-    const webrtc_internal_test_mod = b.createModule(.{
-        .root_source_file = b.path("test/net/webrtc_internal_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    webrtc_internal_test_mod.addImport("net", ctx.net_mod);
-    webrtc_internal_test_mod.addImport("foundation", ctx.foundation_mod);
-    webrtc_internal_test_mod.addImport("webrtc", webrtc_resident_mod);
-    webrtc_internal_test_mod.addImport("c_abi_shared", ctx.c_abi_shared_mod);
-    webrtc_internal_test_mod.addImport("c_abi_net_transport_webrtc", abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod));
-    const webrtc_internal_tests = b.addTest(.{
-        .name = "webrtc-internal-test",
-        .root_module = webrtc_internal_test_mod,
-    });
-
-    const webrtc_internal_test_step = b.step("webrtc-internal-test", "Run WebRTC resident ownership and bounded-signaling tests");
-    for ([_]*std.Build.Step.Compile{webrtc_internal_tests}) |tests| {
+    // is not a reason to widen the supported `webrtc` facade. All three files
+    // link the scripted sidecar in `test/net/webrtc_sidecar_stub.zig`, so
+    // they run without cargo.
+    const webrtc_internal_test_step = b.step("webrtc-internal-test", "Run WebRTC resident ownership, bounded-signaling, managed-dial, and managed-accept tests against a scripted sidecar");
+    const webrtc_abi_mod = abiModule(b, target, optimize, ctx.foundation_mod, ctx.c_abi_shared_mod, webrtc_resident_mod);
+    for ([_][]const u8{ "test/net/webrtc_internal_test.zig", "test/net/webrtc_provider_dial_test.zig", "test/net/webrtc_provider_accept_test.zig" }, [_][]const u8{ "webrtc-internal-test", "webrtc-provider-dial-test", "webrtc-provider-accept-test" }) |source, name| {
+        const test_mod = b.createModule(.{
+            .root_source_file = b.path(source),
+            .target = target,
+            .optimize = optimize,
+        });
+        test_mod.addImport("net", ctx.net_mod);
+        test_mod.addImport("foundation", ctx.foundation_mod);
+        test_mod.addImport("webrtc", webrtc_resident_mod);
+        test_mod.addImport("c_abi_shared", ctx.c_abi_shared_mod);
+        test_mod.addImport("c_abi_net_transport_webrtc", webrtc_abi_mod);
+        const tests = b.addTest(.{ .name = name, .root_module = test_mod });
         const run = execution.addZigTest(b, tests, .unit_test);
         webrtc_internal_test_step.dependOn(&run.step);
     }
     check_step.dependOn(webrtc_internal_test_step);
 
     // The shared WebRTC interop core (interop/webrtc_common.zig): signaling
-    // inbox helpers plus the Host packet pump every native WebRTC proof uses.
+    // inbox helpers plus the Host packet pump every Zig WebRTC proof uses.
     const webrtc_common_mod = b.createModule(.{
         .root_source_file = b.path("interop/webrtc_common.zig"),
         .target = target,
@@ -245,41 +265,41 @@ pub fn register(ctx: Context) Registered {
     webrtc_common_mod.addImport("glowcap", lib_mod);
     webrtc_common_mod.addImport("webrtc", webrtc_resident_mod);
 
-    // Each live native proof has the same build shape: a cargo-free compile
+    // Each live Zig proof has the same build shape: a cargo-free compile
     // object rides `check`; a sidecar-linked executable remains an opt-in
     // sibling. Rows name only their imports and evidence.
     const live_drivers = [_]LiveDriver{
         .{
             .step_name = "webrtc-interop",
-            .description = "Live WebRTC: two native glowcap peers hold a keyed OCapN session over a real DataChannel (ADR-0089 phase 2; needs cargo)",
+            .description = "Live WebRTC: two Zig glowcap peers hold a keyed OCapN session over a real DataChannel (ADR-0089, needs cargo)",
             .exe_name = "glowcap-webrtc-interop",
             .root_source = "interop/webrtc_interop/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
         .{
             .step_name = "webrtc-mesh",
-            .description = "Live WebRTC signaling mesh: two native peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (ADR-0089 phase 5; needs cargo)",
+            .description = "Live WebRTC signaling mesh: two Zig peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (ADR-0089, needs cargo)",
             .exe_name = "glowcap-webrtc-mesh",
             .root_source = "interop/webrtc_mesh/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
         .{
             .step_name = "webrtc-loop",
-            .description = "Live WebRTC scale: many concurrent DataChannels served from one HostRuntime thread through the WebRTC completion resident (ADR-0089, ADR-0202; needs cargo)",
+            .description = "Live WebRTC scale: many concurrent DataChannels, each answered by the completion backend and served from one HostRuntime thread with the client's identity proved (ADR-0089, ADR-0202 and ADR-0232, needs cargo)",
             .exe_name = "glowcap-webrtc-loop",
             .root_source = "interop/webrtc_loop/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
         .{
             .step_name = "webrtc-redeem",
-            .description = "Live native three-party handoff over WebRTC: a recipient Session redeems a bare webrtc give through configured signaling authority (ADR-0089; needs cargo)",
+            .description = "Live three-party handoff over WebRTC: a recipient Session redeems a bare webrtc give through its signaling authority, and every exporter's backend answers the offer itself (ADR-0089 and ADR-0232, needs cargo)",
             .exe_name = "glowcap-webrtc-redeem",
             .root_source = "interop/webrtc_redeem/driver.zig",
             .imports = .{ .interop_harness = true },
         },
         .{
             .step_name = "webrtc-signaling-captp",
-            .description = "Live WebRTC signaling capability over CapTP: signaling opens the DataChannel, then the keyed session runs over it (ADR-0089 phase 5; needs cargo)",
+            .description = "Live WebRTC signaling capability over CapTP: signaling opens the DataChannel, then the keyed session runs over it (ADR-0089, needs cargo)",
             .exe_name = "glowcap-webrtc-signaling-captp",
             .root_source = "interop/webrtc_signaling_captp/driver.zig",
             .imports = .{ .webrtc_common = true },
@@ -287,51 +307,36 @@ pub fn register(ctx: Context) Registered {
     };
     for (live_drivers) |drv| addLiveDriver(ctx, webrtc_resident_mod, webrtc_common_mod, webrtc_probe_build, drv);
 
-    // The native answerer for the webrtc-browser-peer proof (ADR-0089):
-    // it serves a keyed session over the sidecar with signaling ferried over
-    // stdio, so a real browser (@glowcap/webrtc + the wasm Host) is the offerer.
-    // Rides `check` as a hermetic compile object; the sidecar-linked binary is
-    // installed for the Playwright harness (added with the webrtc-browser-peer
-    // step) to drive.
-    const webrtc_answerer_compile_mod = b.createModule(.{
-        .root_source_file = b.path("interop/webrtc_browser_peer/answerer.zig"),
-        .target = target,
-        .optimize = optimize,
+    // The standalone peers the browser proof and the binding proofs drive over
+    // stdio signaling. Each rides `check` as a hermetic compile object, and
+    // its sidecar-linked binary is installed by its own step.
+    const webrtc_answerer_install = addStdioPeer(ctx, webrtc_resident_mod, webrtc_common_mod, webrtc_probe_build, .{
+        .step_name = "webrtc-answerer",
+        .description = "Build the Zig answerer the webrtc-browser-peer proof and the binding dial proofs reach (ADR-0089, needs cargo)",
+        .exe_name = "glowcap-webrtc-answerer",
+        .root_source = "interop/webrtc_browser_peer/answerer.zig",
     });
-    webrtc_answerer_compile_mod.addImport("glowcap", lib_mod);
-    webrtc_answerer_compile_mod.addImport("webrtc", webrtc_resident_mod);
-    webrtc_answerer_compile_mod.addImport("webrtc_common", webrtc_common_mod);
-    const webrtc_answerer_compile = b.addObject(.{ .name = "glowcap-webrtc-answerer-compile", .root_module = webrtc_answerer_compile_mod });
-    check_step.dependOn(&webrtc_answerer_compile.step);
-
-    const webrtc_answerer_run_mod = b.createModule(.{
-        .root_source_file = b.path("interop/webrtc_browser_peer/answerer.zig"),
-        .target = target,
-        .optimize = optimize,
+    const webrtc_offerer_install = addStdioPeer(ctx, webrtc_resident_mod, webrtc_common_mod, webrtc_probe_build, .{
+        .step_name = "webrtc-offerer",
+        .description = "Build the Zig offerer the binding listen proofs accept (ADR-0232, needs cargo)",
+        .exe_name = "glowcap-webrtc-offerer",
+        .root_source = "interop/webrtc_driver_provider/offerer.zig",
     });
-    webrtc_answerer_run_mod.addImport("glowcap", lib_mod);
-    webrtc_answerer_run_mod.addImport("webrtc", webrtc_resident_mod);
-    webrtc_answerer_run_mod.addImport("webrtc_common", webrtc_common_mod);
-    linkSidecar(b, webrtc_answerer_run_mod, target);
-    const webrtc_answerer_exe = b.addExecutable(.{ .name = "glowcap-webrtc-answerer", .root_module = webrtc_answerer_run_mod });
-    webrtc_answerer_exe.step.dependOn(&webrtc_probe_build.step);
-    const webrtc_answerer_install = b.addInstallArtifact(webrtc_answerer_exe, .{});
-    b.step("webrtc-answerer", "Build the native answerer for the webrtc-browser-peer proof (ADR-0089 phase 6; needs cargo)").dependOn(&webrtc_answerer_install.step);
 
     const browser_proofs = [_]BrowserProof{
         .{
             .step_name = "webrtc-browser-peer",
-            .description = "Prove a real headless Chromium runs @glowcap/web + @glowcap/webrtc: a DataChannel to the native answerer carries a keyed OCapN session (ADR-0089 phase 6; needs cargo + deno + a Playwright Chromium)",
+            .description = "Prove a real headless Chromium runs @glowcap/web + @glowcap/webrtc: a DataChannel to the Zig answerer carries a keyed OCapN session (ADR-0089, needs cargo + deno + a Playwright Chromium)",
             .script = "interop/webrtc_browser_peer/browser_peer_test.ts",
             .needs_answerer = true,
         },
         .{
             .step_name = "webrtc-browser-to-browser",
-            .description = "Prove two real headless Chromium peers bring up a direct WebRTC DataChannel and hold a keyed OCapN session over it, the offerer dialing a bare webrtc locator through the signaling authority of its composed webrtc connector, the signaling host out of the byte path (ADR-0089; needs deno + a Playwright Chromium)",
+            .description = "Prove two real headless Chromium peers hold a keyed OCapN session over a direct WebRTC DataChannel, one dialing through the WebRTC connector and the other accepting through the WebRTC listener, the signaling host out of the byte path (ADR-0089, needs deno + a Playwright Chromium)",
             .script = "interop/webrtc_browser_to_browser/browser_to_browser_test.ts",
         },
     };
-    for (browser_proofs) |proof| addBrowserProof(ctx, proof, &webrtc_answerer_install.step);
+    for (browser_proofs) |proof| addBrowserProof(ctx, proof, webrtc_answerer_install);
 
     // The WebRTC established-connection seam: signaling stays in the raw
     // WebRTC C archive, then both peers are adopted by independent generic
@@ -368,7 +373,7 @@ pub fn register(ctx: Context) Registered {
         const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
         seam_run.setCwd(b.path("."));
         seam_run.has_side_effects = true;
-        b.step("webrtc-driver-provider", "Live WebRTC C-provider proof: raw C signaling transfers two open peers into generic driver loops (needs cargo)").dependOn(&seam_run.step);
+        b.step("webrtc-driver-provider", "Live WebRTC C-provider proof: the generic C driver dials and listens through the WebRTC provider's signaling callbacks, the offer is handed in with provide_offer, and releasing the loop cancels a dial still in flight (needs cargo)").dependOn(&seam_run.step);
     }
 
     // libglowcap_net_transport_webrtc: the WebRTC transport's public C ABI
@@ -401,7 +406,7 @@ pub fn register(ctx: Context) Registered {
     const webrtc_abi_install = b.addInstallArtifact(webrtc_abi_shared, .{});
     common.checkArchiveTls(ctx.b, webrtc_abi_shared, &webrtc_abi_install.step);
     const webrtc_abi_header_install = b.addInstallHeaderFile(b.path("include/glowcap_net_transport_webrtc.h"), "glowcap_net_transport_webrtc.h");
-    const webrtc_abi_step = b.step("webrtc-abi", "Build libglowcap_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0089 phase 3; needs cargo)");
+    const webrtc_abi_step = b.step("webrtc-abi", "Build libglowcap_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0089, needs cargo)");
     webrtc_abi_step.dependOn(&webrtc_abi_install.step);
     webrtc_abi_step.dependOn(&webrtc_abi_header_install.step);
     if (target.result.ofmt == .elf) {
@@ -412,5 +417,47 @@ pub fn register(ctx: Context) Registered {
         webrtc_abi_step.dependOn(&export_check.step);
     }
 
-    return .{ .resident_mod = webrtc_resident_mod };
+    return .{
+        .resident_mod = webrtc_resident_mod,
+        .abi_step = webrtc_abi_step,
+        .answerer_install_step = webrtc_answerer_install,
+        .offerer_install_step = webrtc_offerer_install,
+    };
+}
+
+/// Register one stdio peer: a cargo-free compile object under `check`, and
+/// the sidecar-linked executable its step installs. Returns the install step.
+fn addStdioPeer(
+    ctx: Context,
+    webrtc_resident_mod: *std.Build.Module,
+    webrtc_common_mod: *std.Build.Module,
+    webrtc_probe_build: *std.Build.Step.Run,
+    peer: StdioPeer,
+) *std.Build.Step {
+    const b = ctx.b;
+    const compile_mod = b.createModule(.{
+        .root_source_file = b.path(peer.root_source),
+        .target = ctx.target,
+        .optimize = ctx.optimize,
+    });
+    compile_mod.addImport("glowcap", ctx.lib_mod);
+    compile_mod.addImport("webrtc", webrtc_resident_mod);
+    compile_mod.addImport("webrtc_common", webrtc_common_mod);
+    const compile = b.addObject(.{ .name = b.fmt("{s}-compile", .{peer.exe_name}), .root_module = compile_mod });
+    ctx.check_step.dependOn(&compile.step);
+
+    const run_mod = b.createModule(.{
+        .root_source_file = b.path(peer.root_source),
+        .target = ctx.target,
+        .optimize = ctx.optimize,
+    });
+    run_mod.addImport("glowcap", ctx.lib_mod);
+    run_mod.addImport("webrtc", webrtc_resident_mod);
+    run_mod.addImport("webrtc_common", webrtc_common_mod);
+    linkSidecar(b, run_mod, ctx.target);
+    const exe = b.addExecutable(.{ .name = peer.exe_name, .root_module = run_mod });
+    exe.step.dependOn(&webrtc_probe_build.step);
+    const install = b.addInstallArtifact(exe, .{});
+    b.step(peer.step_name, peer.description).dependOn(&install.step);
+    return &install.step;
 }

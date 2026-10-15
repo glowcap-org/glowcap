@@ -1,4 +1,4 @@
-//! Raw FFI for the `glowcap_driver_*` native loop family.
+//! Raw FFI for the `glowcap_driver_*` driver loop family.
 //!
 //! Transport archives expose a small provider package header. The driver
 //! copies the package's private implementation tables, so this binding does
@@ -23,6 +23,7 @@ pub struct GlowcapDriverOptions {
 	pub handshake_ms: c_uint,
 	pub listener_setup_ms: c_uint,
 	pub settle_ms: c_uint,
+	pub busy_poll_ns: u64,
 }
 
 #[repr(C)]
@@ -54,6 +55,7 @@ const _: () = {
 	assert!(offset_of!(GlowcapDriverOptions, handshake_ms) == GLOWCAP_DRIVER_OPTIONS_HANDSHAKE_MS_OFF);
 	assert!(offset_of!(GlowcapDriverOptions, listener_setup_ms) == GLOWCAP_DRIVER_OPTIONS_LISTENER_SETUP_MS_OFF);
 	assert!(offset_of!(GlowcapDriverOptions, settle_ms) == GLOWCAP_DRIVER_OPTIONS_SETTLE_MS_OFF);
+	assert!(offset_of!(GlowcapDriverOptions, busy_poll_ns) == GLOWCAP_DRIVER_OPTIONS_BUSY_POLL_NS_OFF);
 };
 
 const _: () = {

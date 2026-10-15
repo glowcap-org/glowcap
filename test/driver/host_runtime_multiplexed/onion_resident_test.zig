@@ -95,7 +95,7 @@ test "onion listen admits pending and the loop serves a dial during its setup" {
         .hints = model.Hints.emptyFalse(),
     });
     defer model.freePeerLocator(allocator, dial_locator);
-    switch (mux.dialer().?.startDial(9, dial_locator, .inherit)) {
+    switch (mux.dialer().?.startDial(9, dial_locator, .inherit, .application)) {
         .admitted => {},
         .failed => |failure| return failure.chain.cause,
     }
@@ -119,6 +119,8 @@ test "onion listen admits pending and the loop serves a dial during its setup" {
                 return;
             }
         }
+        // The runtime's park: staged work reaches the kernel before the wait.
+        mux.beforeWait(.park);
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
     return error.PublishNeverFinished;

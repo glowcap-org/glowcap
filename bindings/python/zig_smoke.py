@@ -1,12 +1,13 @@
 """Python dogfood of the Zig glowcap C ABI archives, through the idiomatic
-``glowcap`` module: drive OCapN with native Python values, no FFI in sight.
-The public ``connect`` / ``listen`` scenarios run over the native loop
+``glowcap`` module: drive OCapN with plain Python values, no FFI in sight.
+The public ``connect`` / ``listen`` scenarios run over the driver loop
 archive (``libglowcap_driver``, ADR-0112). The keyed-relay byte seam is tested
 only through its explicit low-level adapter. This is the consumer ``zig build
 bindings`` runs."""
 
 from __future__ import annotations
 
+import array
 import asyncio
 from contextvars import ContextVar
 import gc
@@ -54,11 +55,46 @@ from smoke import (
     verbs,
     vow_lifetime,
 )
+from smoke.runtime import tcp_connect
 from smoke.verbs import pipeline
 
 _scenario_runtimes: ContextVar[list[Runtime] | None] = ContextVar(
     "scenario_runtimes", default=None
 )
+
+
+async def _typed_integer_array_sends_as_a_list() -> None:
+    """An array.array("q") argument leaves as one ARG_INTEGERS run and the
+    handler receives the same three integers as a list."""
+    server = await tcp.listen("127.0.0.1", 0)
+    published = asyncio.Event()
+    try:
+
+        async def serve_one() -> None:
+            async for session in server:
+
+                def svc(verb, args):
+                    assert verb == "probe", verb
+                    assert args[0] == [7, -8, 9], args
+                    assert isinstance(args[0], list), args
+                    return "ok"
+
+                session.publish("svc", svc)
+                published.set()
+                await session.serve()
+                break
+
+        hosted = asyncio.ensure_future(serve_one())
+        session = await tcp_connect(tcp.locator("127.0.0.1", server.port))
+        session.serve()
+        await asyncio.wait_for(published.wait(), timeout=5)
+        svc_ref = await session.fetch("svc")
+        reply = await session.send(svc_ref, "probe", [array.array("q", [7, -8, 9])])
+        assert reply == "ok", reply
+        await session.close()
+        await asyncio.wait_for(hosted, timeout=5)
+    finally:
+        await server.close()
 
 
 def main() -> int:
@@ -70,10 +106,10 @@ def main() -> int:
         except (GlowcapError, ValueError):
             pass
         else:
-            raise AssertionError("unknown native discriminant was normalized")
+            raise AssertionError("unknown FFI discriminant was normalized")
     failures._stale_archive_is_refused_before_use()
     failures._driver_failure_preserves_carrier_detail()
-    failures._gift_id_completion_preserves_native_refusal()
+    failures._gift_id_completion_preserves_ffi_refusal()
     vow_lifetime.gc_release_refusal_stays_owned()
     vow_lifetime.retired_gc_ignores_late_finalizers()
     asyncio.run(vow_lifetime.abandoned_vow_drops_pending_completion())
@@ -87,8 +123,8 @@ def main() -> int:
     print("python zig-smoke OK: iroh readiness faults settle every waiter exactly")
     asyncio.run(failures._local_tell_failure_belongs_to_host())
     print("python zig-smoke OK: local tell failure enters its Host diagnostic seam")
-    failures._native_finalizer_failure_is_nonfatal_and_observable()
-    print("python zig-smoke OK: native finalizer failures stay nonfatal and observable")
+    failures._ffi_finalizer_failure_is_nonfatal_and_observable()
+    print("python zig-smoke OK: FFI finalizer failures stay nonfatal and observable")
     allocator_failures._callback_exceptions_are_contained()
     print(
         "python zig-smoke OK: allocator callback exceptions stay nonfatal and observable"
@@ -167,7 +203,7 @@ def main() -> int:
         assert failure.secondary_message == "descriptor remained live", failure
         assert diagnostic_context.next_failure() is None
     print(
-        "python zig-smoke OK: Context preserves the cross-language native failure vector exactly once"
+        "python zig-smoke OK: Context preserves the cross-language FFI failure vector exactly once"
     )
 
     host_lifecycle.run()
@@ -189,13 +225,13 @@ def main() -> int:
         client.write_frame(b"<8'op:abort3\"bye>")
         thread.join()
         assert received == [b"<8'op:abort3\"bye>"], received
-    assert client._native.closed and listener._native.closed, (
+    assert client._ffi.closed and listener._ffi.closed, (
         "TCP netlayer release must retire its borrowed child handles first"
     )
     client.close()
     listener.close()
 
-    # A dropped wrapper still owns its native handle. Listener collection must
+    # A dropped wrapper still owns its FFI handle. Listener collection must
     # stop accepting, and endpoint collection must close the connected socket;
     # otherwise the parent's WeakSet silently forgets leaked C authority.
     with TcpNetlayer() as nl:
@@ -219,7 +255,7 @@ def main() -> int:
 
     # ctypes may release the GIL in every blocking transport call. Closing a
     # connection or its owner must interrupt a blocked read, join that lease,
-    # and only then free native storage.
+    # and only then free FFI storage.
     nl = TcpNetlayer()
     listener = nl.listen("127.0.0.1", 0)
     peer = socket.create_connection(("127.0.0.1", listener.port()), timeout=1)
@@ -237,7 +273,7 @@ def main() -> int:
     reader = threading.Thread(target=blocked_tcp_read, daemon=True)
     reader.start()
     assert entered.wait(1)
-    transports._wait_for_native_call(accepted, "TCP read")
+    transports._wait_for_ffi_call(accepted, "TCP read")
     assert reader.is_alive(), "the empty TCP connection did not block read"
     accepted.close()
     reader.join(timeout=2)
@@ -262,7 +298,7 @@ def main() -> int:
     accepter = threading.Thread(target=blocked_tcp_accept, daemon=True)
     accepter.start()
     assert entered.wait(1)
-    transports._wait_for_native_call(listener, "TCP accept")
+    transports._wait_for_ffi_call(listener, "TCP accept")
     assert accepter.is_alive(), "the empty TCP listener did not block accept"
     nl.release()
     accepter.join(timeout=2)
@@ -287,7 +323,7 @@ def main() -> int:
         client.write_frame(b"<8'op:abort3\"bye>")
         thread.join()
         assert received_inproc == [b"<8'op:abort3\"bye>"], received_inproc
-    assert client._native.closed and listener._native.closed, (
+    assert client._ffi.closed and listener._ffi.closed, (
         "inproc netlayer release must retire its borrowed child handles first"
     )
     client.close()
@@ -302,7 +338,7 @@ def main() -> int:
         except GlowcapError:
             pass
         else:
-            raise AssertionError("a collected inproc listener kept native authority")
+            raise AssertionError("a collected inproc listener kept FFI authority")
 
     nl = InprocNetlayer()
     listener = nl.listen("blocked-read")
@@ -321,7 +357,7 @@ def main() -> int:
     reader = threading.Thread(target=blocked_inproc_read, daemon=True)
     reader.start()
     assert entered.wait(1)
-    transports._wait_for_native_call(accepted, "in-process read")
+    transports._wait_for_ffi_call(accepted, "in-process read")
     assert reader.is_alive(), "the empty in-process connection did not block read"
     nl.release()
     reader.join(timeout=2)
@@ -344,7 +380,7 @@ def main() -> int:
     accepter = threading.Thread(target=blocked_inproc_accept, daemon=True)
     accepter.start()
     assert entered.wait(1)
-    transports._wait_for_native_call(listener, "in-process accept")
+    transports._wait_for_ffi_call(listener, "in-process accept")
     assert accepter.is_alive(), "the empty in-process listener did not block accept"
     nl.release()
     accepter.join(timeout=2)
@@ -384,6 +420,9 @@ def main() -> int:
     print(
         "python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip"
     )
+
+    runtime.run_managed(_typed_integer_array_sends_as_a_list())
+    print("python zig-smoke OK: an array.array('q') argument arrives as a list of integers")
 
     runtime.run_managed(conversation._empty_codec_is_not_the_default())
     print(
@@ -437,7 +476,7 @@ def main() -> int:
     print("python zig-smoke OK: canceled iroh startup joins and releases its endpoint")
 
     runtime.run_managed(lifecycle._iroh_close_joins_after_cancellation())
-    print("python zig-smoke OK: canceled iroh close still joins native teardown")
+    print("python zig-smoke OK: canceled iroh close still joins FFI teardown")
 
     runtime.run_managed(lifecycle._session_close_joins_owned_transport_release())
     print("python zig-smoke OK: Session.close joins owned transport teardown")
@@ -488,9 +527,9 @@ def main() -> int:
         "python zig-smoke OK: a loop finish close that outlives its finite grace reports the typed timeout"
     )
 
-    runtime.run_managed(lifecycle._silent_loop_dial_reaches_native_handshake_deadline())
+    runtime.run_managed(lifecycle._silent_loop_dial_reaches_ffi_handshake_deadline())
     print(
-        "python zig-smoke OK: a silent loop dial reaches glowcap's native handshake deadline"
+        "python zig-smoke OK: a silent loop dial reaches glowcap's FFI handshake deadline"
     )
 
     runtime.run_managed(lifecycle._host_close_shuts_a_still_open_listener())
@@ -552,7 +591,7 @@ def main() -> int:
     )
 
     runtime.run_managed(verbs._mid_turn_host_release_orders_sessions_before_host())
-    print("python zig-smoke OK: callback-time Host close records native intent")
+    print("python zig-smoke OK: callback-time Host close records FFI intent")
 
     runtime.run_managed(transports._send_redeeming_surfaces_the_direct_exporter())
     print(

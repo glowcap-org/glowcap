@@ -10,17 +10,11 @@ pub const render = @import("render.zig");
 const signing = @import("signing.zig");
 
 pub const Error = shared.Error;
+pub const EncodeError = shared.EncodeError;
 
 pub const decodeBody = decode.decodeBody;
 pub const decodeBodyForProfile = decode.decodeBodyForProfile;
-pub const decodePrefix = decode.decodePrefix;
-pub const decodePrefixForProfile = decode.decodePrefixForProfile;
-pub const framePrefix = decode.framePrefix;
-pub const scanStream = decode.scanStream;
-// Syrup's grammar is self-delimiting, so a partial frame must be scanned
-// incrementally; the registry checks this declaration against `scanStream`'s
-// presence.
-pub const self_delimiting = true;
+pub const decodeBodyInto = decode.decodeBodyInto;
 pub const decodeOwned = decode.decodeOwned;
 pub const readLocatorOwned = decode.readLocatorOwned;
 pub const readLocatorView = decode.readLocatorView;
@@ -28,6 +22,8 @@ pub const decodeSignedHandoffGiveOwned = decode.decodeSignedHandoffGiveOwned;
 
 pub const encodeMessage = encode.encodeMessage;
 pub const encodeMessageForProfile = encode.encodeMessageForProfile;
+pub const encodeBody = encode.encodeBody;
+pub const encodeBodyForProfile = encode.encodeBodyForProfile;
 pub const canonicalLocationSignedBytes = canonical.canonicalLocationSignedBytes;
 pub const canonicalLocationSignedBytesRaw = canonical.canonicalLocationSignedBytesRaw;
 pub const canonicalHandoffGiveSignedBytes = canonical.canonicalHandoffGiveSignedBytes;
@@ -46,7 +42,7 @@ pub const RecordSyntax = struct {
     pub const readByte = syntax.readByte;
     pub const readSymbol = syntax.readSymbol;
     pub const readPositiveInt = syntax.readPositiveInt;
-    pub const readBytesLimited = syntax.readBytesLimited;
+    pub const readBytes = syntax.readBytes;
     pub const readBool = syntax.readBool;
     pub const expectEnd = syntax.expectEnd;
     pub const beginRecord = scalar.beginRecord;

@@ -1,6 +1,6 @@
 //! Blocking framed-endpoint projection for the onion C archive.
 //
-// These handles adapt native onion streams to the shared managed-frame ABI.
+// These handles adapt Zig onion streams to the shared managed-frame ABI.
 // Tor configuration and the generic provider package have separate owners.
 
 const std = @import("std");

@@ -1,7 +1,7 @@
 //! Structural records reject corrupt, truncated, oversized, and unknown schemas
 //! before exposing a borrowed view. Encoding allocates only its measured bytes.
-//! Defect probes removed record/metadata checksum validation, the short-envelope
-//! guard, and the volatile overlay's allocation unwind. Each was detected.
+//! Removing record/metadata checksum validation, the short-envelope guard, or
+//! the volatile overlay's allocation unwind fails these tests.
 //! Exhaustive prefixes and metadata bit flips cover these fixtures, not arbitrary
 //! syntax or physical storage faults. Allocation enumeration covers the exercised
 //! create/read/update path, not every graph shape or native LMDB allocation.
@@ -110,6 +110,24 @@ fn allocationFailures(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqualStrings("new", (try store.view(next)).payload);
 }
 
+test "loam cache charges a loaded record its encoded size" {
+    var fixture = try f.Fixture.init(std.testing.allocator);
+    defer fixture.deinit();
+    const store = &fixture.store;
+    try store.begin();
+    const id = try store.allocateId();
+    try store.putCopying(f.record(id, "small"), null);
+    try f.commit(store, &fixture.backend);
+    store.evict();
+    try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
+    const lease = try f.load(store, &fixture.backend, id);
+    defer store.release(lease) catch unreachable;
+    // The read reserved a maximum-size buffer. Once loaded, the record is
+    // charged only its own bytes.
+    const charged = store.cache.allocated_bytes;
+    try std.testing.expect(charged > "small".len and charged < store.limits.records.max_record_bytes / 8);
+}
+
 test "loam allocation failure unwinds staging backend writes and cache loads" {
     try std.testing.checkAllAllocationFailures(std.testing.allocator, allocationFailures, .{});
 }
@@ -136,7 +154,8 @@ test "loam metadata detects corruption and refuses incarnation wrap" {
     try std.testing.expectEqualDeep(metadata, try f.core.Metadata.decode(&encoded));
     var old = encoded;
     old[7] = 2;
-    std.mem.writeInt(u32, old[170..174], std.hash.Crc32.hash(old[0..170]), .big);
+    const crc = f.core.Metadata.encoded_size - 4;
+    std.mem.writeInt(u32, old[crc..][0..4], std.hash.Crc32.hash(old[0..crc]), .big);
     try std.testing.expectError(error.Corrupt, f.core.Metadata.decode(&old));
     for (0..encoded.len) |i| {
         var bad = encoded;

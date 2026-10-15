@@ -164,7 +164,7 @@ pub fn run() {
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
-fn handed_invitations_use_native_routes() {
+fn handed_invitations_use_host_routes() {
 	handed(&fixture(), &rooms_glowcap::routes::CheckpointRoutes);
 }
 

@@ -597,7 +597,7 @@ test "listener close preserves an ACCEPTED event committed by an earlier step" {
     while (client_seen.dialed_session == null and rounds < 2_000) : (rounds += 1) {
         try expectStep(cdrv.glowcap_driver_step(client, 5));
         try drainEvents(client, &client_seen);
-        // Do not drain the server: ACCEPTED must remain native-
+        // Do not drain the server: ACCEPTED must remain Zig-
         // owned across listener close once the handshake commits it.
         try expectStep(cdrv.glowcap_driver_step(server, 5));
     }

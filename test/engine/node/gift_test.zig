@@ -97,11 +97,11 @@ test "one baseline exporter recipe stays concrete for every recipient" {
     try baseline.session_state.registerImport(.from(3));
     try exporter.session_state.registerImport(.from(4));
     const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
-    try next.sendCopying(.{ .deliver = .{
+    try next.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
     } });
-    try baseline.sendCopying(.{ .deliver = .{
+    try baseline.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(3) },
         .args = &.{.{ .reference = foreign }},
     } });
@@ -120,7 +120,7 @@ test "one baseline exporter recipe stays concrete for every recipient" {
         next.session_state.captp_version,
         next_frame.view(),
     )).deliver;
-    const next_exporter = (try next_deliver.args.at(0)).handoff.give.exporter;
+    const next_exporter = (try (try next_deliver.args.at(0)).handoff.project()).give.exporter;
     try std.testing.expectEqualStrings(model.transport.tcp, next_exporter.transport);
     try std.testing.expectEqualStrings("127.0.0.1:2", next_exporter.designator);
     try std.testing.expect((try next_exporter.hints.findNamed(model.transport.hint_via)) == null);
@@ -134,7 +134,7 @@ test "one baseline exporter recipe stays concrete for every recipient" {
         baseline.session_state.captp_version,
         baseline_frame.view(),
     )).deliver;
-    const baseline_exporter = (try baseline_deliver.args.at(0)).handoff.give.exporter;
+    const baseline_exporter = (try (try baseline_deliver.args.at(0)).handoff.project()).give.exporter;
     try std.testing.expectEqualStrings(model.transport.tcp, baseline_exporter.transport);
     try std.testing.expectEqualStrings("127.0.0.1:2", baseline_exporter.designator);
     try std.testing.expect((try baseline_exporter.hints.findNamed(model.transport.hint_via)) == null);
@@ -194,7 +194,7 @@ test "give lowering asks for the physical recipient transport instead of its adv
     try recipient.session_state.registerImport(.from(2));
     try exporter.session_state.registerImport(.from(3));
     const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(3) });
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
     } });
@@ -210,7 +210,7 @@ test "give lowering asks for the physical recipient transport instead of its adv
         recipient.session_state.captp_version,
         frame.view(),
     )).deliver;
-    const location = (try deliver.args.at(0)).handoff.give.exporter;
+    const location = (try (try deliver.args.at(0)).handoff.project()).give.exporter;
     try std.testing.expectEqualStrings(model.transport.iroh, location.transport);
     try std.testing.expectEqualStrings(key[0..], location.designator);
 }
@@ -250,7 +250,7 @@ test "inline gift staging refuses a complete message that exceeds the recipient 
     try std.testing.expect(retained_charge > 0);
     recipient.outbound_budget = retained_charge - 1;
 
-    try std.testing.expectError(error.OutboundBackpressure, recipient.sendCopying(message));
+    try std.testing.expectError(error.OutboundBackpressure, recipient.sendBorrowed(message));
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expectEqual(@as(usize, 0), recipient.queuedOutboundBytes());
@@ -290,9 +290,9 @@ test "inline gift occurrence admission is aggregate per recipient" {
         .args = &.{.{ .reference = foreign }},
     } };
 
-    try recipient.sendCopying(message);
-    try recipient.sendCopying(message);
-    try std.testing.expectError(error.QueueCapExceeded, recipient.sendCopying(message));
+    try recipient.sendBorrowed(message);
+    try recipient.sendBorrowed(message);
+    try std.testing.expectError(error.QueueCapExceeded, recipient.sendBorrowed(message));
     try std.testing.expectEqual(@as(usize, 2), node.pendingGiftEffects());
     const first = node.nextAction().?.need_gift_id.ticket;
     const second = node.nextAction().?.need_gift_id.ticket;
@@ -343,10 +343,14 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
         .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = &(@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0))) }, .{ .reference = wire } },
         .answer = null,
     } };
-    const one_charge = try model.measureMessageOwnedBytes(one_deposit);
+    // A deposit is queued as its frame (ADR-0236), so its charge is the
+    // frame's length: the gifted reference is far and lists no export.
+    var one_frame = try exporter.encodeOutbound(one_deposit);
+    defer one_frame.deinit();
+    const one_charge = one_frame.bytes().len;
     exporter.outbound_budget = one_charge * 2 - 1;
 
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = foreign }, .{ .reference = foreign } },
     } });
@@ -391,7 +395,7 @@ test "nested foreign promises share one prepared home listener" {
     try recipient.session_state.registerImport(.from(2));
     try home.session_state.registerImport(.from(4));
     const foreign = try node.enrollForeign(home_id, .{ .far = model.FarRef.promise(4) });
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .list = &.{
             .{ .reference = foreign },

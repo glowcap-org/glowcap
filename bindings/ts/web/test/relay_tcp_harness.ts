@@ -1,11 +1,11 @@
 import * as tcp from "@glowcap/tcp";
 // The TCP relay proof, parameterized over the relay program. A wasm browser peer
 // holds a keyed OCapN session when its WebSocket routes through a byte-transparent
-// relay to a native TCP host. One harness proves this for every runtime's relay
+// relay to an FFI TCP host. One harness proves this for every runtime's relay
 // (Deno, Python, Rust, …); the relay under test is named on the command line.
 // See `relay_harness_common.ts` for the argument shape.
 //
-// Three processes: a native TCP host, the relay forwarding WebSocket ↔ TCP, and
+// Three processes: an FFI TCP host, the relay forwarding WebSocket ↔ TCP, and
 // the browser peer (wasm) dialing through it. The relay never parses a frame, so
 // the keyed handshake and the greet round-trip succeed end to end.
 
@@ -15,7 +15,7 @@ import { fail, kill, parseHarnessArgs, readToken, spawnRelay, WASM } from "./rel
 const inv = parseHarnessArgs(Deno.args);
 const deadline = setTimeout(() => fail(`${inv.label} relay scenario timed out after 60s`), 60_000);
 
-// 1. Native host on an ephemeral loopback TCP port, printing its JSON line.
+// 1. FFI host on an ephemeral loopback TCP port, printing its JSON line.
 const hostProcess = new Deno.Command(Deno.execPath(), {
 	args: [
 		"run",

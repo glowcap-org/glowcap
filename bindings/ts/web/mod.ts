@@ -1,7 +1,7 @@
 // @glowcap/web: the browser entry for the glowcap runtime (ADR-0070).
 //
 // A browser tab becomes a real OCapN peer: the same sans-io protocol core the
-// native archives link, compiled to wasm32 (`zig build wasm-driver` →
+// FFI archives link, compiled to wasm32 (`zig build wasm-driver` →
 // `glowcap_host.wasm`), with the byte channel on a WebSocket. The proof
 // (`zig build web-peer-test`) covers the keyed handshake, fetch and call, and
 // a host call back into a wasm-hosted object. `init` instantiates the module,
@@ -65,10 +65,10 @@ export interface WebInitOptions extends WebRuntimeOptions {
 	/** Map a dial's host:port to its WebSocket URL; defaults to
 	 * `ws://host:port/` (the peer itself accepts WebSocket). */
 	wsUrl?: WsUrl;
-	/** Map an `ocapn://` locator (a native-only transport such as iroh) to the
+	/** Map an `ocapn://` locator (an FFI-only transport such as iroh) to the
 	 * WebSocket URL of a byte relay that dials it, e.g.
 	 * `` (loc) => `wss://example/relay?locator=${encodeURIComponent(loc)}` ``.
-	 * Without it, dialing a native-only locator refuses. Cold-dialing a
+	 * Without it, dialing an FFI-only locator refuses. Cold-dialing a
 	 * `keyed-relay` peer is not configured here: its locator carries the relay
 	 * route in its `rendezvous-relay` hint, which the `@glowcap/relay`
 	 * connector follows (ADR-0088). */
@@ -103,8 +103,8 @@ export { openWebSocketChannel, type RendezvousHandle, serveRendezvous, webSocket
 let loaded: Promise<WebRuntime> | null = null;
 let loadedOptions: WebInitOptions | null = null;
 
-/** The configured native-locator relay mapping, read by the browser dial path
- * for native-only transports (`browser_iroh_stub.ts`). Null before `init` or
+/** The configured relay mapping for FFI-only locators, read by the browser
+ * dial path for FFI-only transports (`browser_iroh_stub.ts`). Null before `init` or
  * when the page configured none. */
 export function _relayUrl(): ((locator: string) => string) | null {
 	return loadedOptions?.relayUrl ?? null;
@@ -140,7 +140,7 @@ async function initFresh(options: WebInitOptions): Promise<WebRuntime> {
 	}
 
 	// The module imports the two hosted-object callback shapes: behavior dispatch
-	// and native actor retirement. The adapter fills these late-bound slots when
+	// and FFI actor retirement. The adapter fills these late-bound slots when
 	// the runtime registers its shared trampolines.
 	let behaviorTrampoline:
 		| ((...args: number[]) => number)

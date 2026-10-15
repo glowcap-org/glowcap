@@ -210,7 +210,7 @@ pub const Queue = struct {
             .broken => |reason| {
                 if (std.mem.eql(u8, reason, "cancelled")) {
                     try store.setLine(active.block_idx, .error_line, "! cancelled");
-                    try store.appendLine(.tip, "tip: Esc cancels the active wait; queued CapTP turns still run");
+                    try store.appendLine(.tip, "tip: Esc cancels the active wait. Queued CapTP turns still run");
                 } else if (std.mem.eql(u8, reason, "wait timed out")) {
                     try store.setLine(active.block_idx, .error_line, "! WaitTimedOut");
                     try store.appendLine(.tip, "tip: fetch a name, then call #<cap> with the id it prints");
@@ -488,16 +488,14 @@ fn capIdFromFetch(session_opt: ?*driver.Session, settled: driver.Settled) !u64 {
 }
 
 fn runPublish(session: *driver.Session, tokens: []const []const u8, block_idx: usize, store: *blocks.Store, progress: *teach.Progress) !void {
-    if (tokens.len < 2) {
-        try store.setLine(block_idx, .error_line, "! publish needs a built-in name (greeter|echo)");
-        return;
-    }
-    ocapn.publishBuiltin(session, tokens[1]) catch |err| {
+    // Matches the command line: the name defaults to greeter.
+    const name = if (tokens.len < 2) "greeter" else tokens[1];
+    ocapn.publishBuiltin(session, name) catch |err| {
         try finishErr(store, block_idx, err);
         return;
     };
     var buf: [128]u8 = undefined;
-    const msg = std.fmt.bufPrint(&buf, "published {s}", .{tokens[1]}) catch "published";
+    const msg = std.fmt.bufPrint(&buf, "published {s}", .{name}) catch "published";
     try store.setLine(block_idx, .result, msg);
     if (progress.glossOnce("publish")) |g| {
         var gbuf: [256]u8 = undefined;
@@ -513,7 +511,7 @@ fn finishErr(store: *blocks.Store, block_idx: usize, err: anyerror) !void {
     const msg = std.fmt.bufPrint(&buf, "! {s}", .{@errorName(err)}) catch "! error";
     try store.setLine(block_idx, .error_line, msg);
     if (err == error.WaitTimedOut) {
-        try store.appendLine(.tip, "tip: Esc cancels; fetch a name, then call #<cap> with the id it prints");
+        try store.appendLine(.tip, "tip: Esc cancels. Fetch a name, then call #<cap> with the id it prints");
         return;
     }
     if (copy.tipForErrorDetail(@errorName(err))) |tip| {

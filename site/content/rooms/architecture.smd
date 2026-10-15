@@ -20,7 +20,7 @@ you are typing. Nobody can speak as you, because nobody else holds your
 seat.
 
 Every line you post comes back with its own reference for editing or
-deleting it. A private room opens from a link. An invitation works
+deleting it. A private room opens from a link, and an invitation works
 once. Admin and archive access are references too, so a host can hand out
 one narrow thing without adding roles to every message on the wire.
 
@@ -59,17 +59,17 @@ registration, or announcement is still unknown.
 
 # Why Rust
 
-To exercise a binding. Rooms is a working chat application built from Rust on
-glowcap's C ABI, so a product carries that ABI and not only examples. Zig
-could have done everything Rooms does, and would have needed neither the C ABI
-nor the WebAssembly boundary to do it. Using them is the point.
+Rooms is a working chat application built from Rust on glowcap's C ABI, so
+the ABI carries a real product and not only examples. Zig could have done
+everything Rooms does directly. Writing it in Rust tests the C ABI and the
+WebAssembly build the way an outside user would.
 
 The [application boundary](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
-keeps the application rules in a portable Rust crate that cannot perform I/O
-by importing the standard library. The services ship as binaries with no runtime
+keeps the application rules in a Rust crate built without the standard
+library, so it cannot touch files, sockets, or clocks. The services ship as binaries with no runtime
 to install.
 
-It costs bundle size and build time, and typed commands are copied where the
+The cost is bundle size, build time, and a copy of each typed command where the
 page meets WebAssembly.
 
 # How the code is divided
@@ -82,10 +82,10 @@ page meets WebAssembly.
 | `rooms-glowcap` | The clients for each Rooms reference, and the checks on what arrives over the wire, on top of glowcap's C ABI. |
 | `rooms-runtime` | The order work runs in, what gets accepted, recovery, cleanup, and turning saved state into what the screen shows. |
 | `rooms-platform` | Tokio, clocks, randomness, files, listening sockets, TLS, and WebSocket connections. |
-| `rooms-services` | The server programs: the room server, the session service, the archive, the web server, and the IRC bridge and gateway. |
+| `rooms-services` | The server programs: the room server, the session service, the archive, the web server, and the IRC bridge and IRC server. |
 | `rooms-browser` | Browser storage, WebRTC, the JavaScript side, the WebAssembly entry points, and the screen. |
 
-Checks in the build keep the arrows pointing one way. The shared crates
+Checks in the build keep each crate's imports going one way. The shared crates
 cannot import the platform, the services, or the browser. The browser cannot
 import the server side. The services may use the platform, but they cannot
 push server behavior back into the shared rules.
@@ -97,13 +97,12 @@ uses. JavaScript supplies the clock and the byte connections. The Rust
 browser code owns your session, what is saved, and WebRTC. TypeScript draws
 the screen and turns what you do into requests.
 
-To reach the room server, your browser talks through the web server's byte
-relay. The relay forwards bytes without parsing them and holds nothing of
-yours. It could still read those bytes, and on an iroh route it checks the
-room server's key on your behalf, so you are trusting the web server that
-gave you the page. For
-a direct message between two people, WebRTC puts their two peers on one
-channel, and the server only passes along the connection details.
+Your browser reaches the room server through the web server's byte relay. The
+relay forwards bytes without parsing them and holds nothing of yours. It could
+still read them, and on an iroh route it checks the room server's key on your
+behalf, so you are trusting the web server that gave you the page. For a direct
+message, WebRTC puts the two peers on one channel, and the server only passes
+along the connection details.
 
 # When something goes wrong
 

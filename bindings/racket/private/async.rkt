@@ -42,7 +42,7 @@
 ;; flush can reach the host from the pump handle alone.
 ;; `serve-hook` is a box holding a thunk `session-serve` runs once before its
 ;; first pump: how a loop-backed session announces post-open setup is done so
-;; the native loop starts delivering its inbound. Byte-fed connections keep
+;; the driver loop starts delivering its inbound. Byte-fed connections keep
 ;; the default no-op; their serve loop resumes retained input directly.
 (struct async-connection (transport tail-resumed? reader closed? released? session serve-hook) #:transparent)
 

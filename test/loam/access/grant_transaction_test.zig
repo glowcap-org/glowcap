@@ -27,7 +27,7 @@ test "access prepared grants stay private until their exact storage completion" 
     try std.testing.expectError(error.WrongPhase, ledger.finishWrite(ticket, .committed));
     const write = try ledger.beginWrite(ticket);
     try std.testing.expectEqualDeep(ticket, write.ticket);
-    try std.testing.expect(write.parent_record == null);
+    try std.testing.expect(write.parent == null);
     try std.testing.expectError(error.UnknownGrant, ledger.get(write.record.id));
     try std.testing.expectError(error.WrongPhase, ledger.beginWrite(ticket));
     try std.testing.expectError(error.WrongPhase, ledger.commitVolatile(ticket));
@@ -51,12 +51,14 @@ test "access prepared child writes include the atomic parent inventory update" {
     const before = ledger.version();
     const ticket = (try ledger.prepareCopying(before, .{ .derive = .{ .parent = parent, .request = f.issue(terms, 0) } })).?;
     const write = try ledger.beginWrite(ticket);
-    try std.testing.expectEqual(@as(u32, 1), write.parent_record.?.child_count);
-    try std.testing.expectEqual(write.version.grants, write.parent_record.?.revision);
+    try std.testing.expectEqual(@as(u32, 1), write.parent.?.child_count);
+    try std.testing.expectEqual(write.version.grants, write.parent.?.revision);
     try std.testing.expectEqual(@as(u32, 0), (try ledger.get(parent)).child_count);
     try ledger.require(parent, resource, .{ .permissions = &.{f.read} });
     _ = try ledger.finishWrite(ticket, .committed);
-    try std.testing.expectEqualDeep(write.parent_record.?, try ledger.get(parent));
+    const parent_row = try ledger.get(parent);
+    try std.testing.expectEqual(write.parent.?.child_count, parent_row.child_count);
+    try std.testing.expectEqual(write.parent.?.revision, parent_row.revision);
     try std.testing.expectEqualDeep(write.record, try ledger.get(write.record.id));
 }
 

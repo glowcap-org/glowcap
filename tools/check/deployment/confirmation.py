@@ -68,7 +68,7 @@ def reset_prompt(binary, scratch):
             calls = [json.loads(line) for line in log.read_text()[before:].splitlines()]
             removed = [a[-1] for a in calls if a[:2] == ["volume", "rm"]]
             if answer == b"yes\n":
-                assert removed == ["glowcap-rooms-session-state", "glowcap-rooms-directory-state", "glowcap-rooms-postgres"]
+                assert removed == ["glowcap-rooms-session-state", "glowcap-rooms-directory-state"]
                 assert any("up" in a for a in calls)
             else:
                 assert not removed and not any("down" in a or "up" in a for a in calls)

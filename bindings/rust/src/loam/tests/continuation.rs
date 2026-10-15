@@ -1,17 +1,13 @@
 //! The public owning bridge runs on a loop-adopted Host and actual LMDB work.
 use super::*;
 
-#[tokio::test]
-async fn receipt_continuations_own_confirmation_and_private_results() {
+async fn receipt_continuations_own_confirmation_and_private_results<E: Engine>(engine: EngineFn<E>) {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			tokio::time::timeout(std::time::Duration::from_secs(5), async {
 				let directory = Directory::new();
 				let mut store = Store::open(
-					&directory.0,
-					[3; 16],
-					true,
-					8 * 1024 * 1024,
+					engine(&directory.0, OpenMode::Create, 8 * 1024 * 1024),
 					&[SCHEMA],
 					Limits::default(),
 				)
@@ -59,17 +55,13 @@ async fn receipt_continuations_own_confirmation_and_private_results() {
 		.await;
 }
 
-#[tokio::test]
-async fn executor_abandonment_retires_unconsumed_confirmation() {
+async fn executor_abandonment_retires_unconsumed_confirmation<E: Engine>(engine: EngineFn<E>) {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			tokio::time::timeout(std::time::Duration::from_secs(5), async {
 				let directory = Directory::new();
 				let mut store = Store::open(
-					&directory.0,
-					[3; 16],
-					true,
-					8 * 1024 * 1024,
+					engine(&directory.0, OpenMode::Create, 8 * 1024 * 1024),
 					&[SCHEMA],
 					Limits::default(),
 				)
@@ -106,4 +98,28 @@ async fn executor_abandonment_retires_unconsumed_confirmation() {
 			.expect("executor abandonment releases actual kernel custody");
 		})
 		.await;
+}
+#[tokio::test]
+async fn lmdb_receipt_continuations_own_confirmation_and_private_results() {
+	receipt_continuations_own_confirmation_and_private_results(lmdb_engine).await;
+}
+#[tokio::test]
+async fn sqlite_receipt_continuations_own_confirmation_and_private_results() {
+	receipt_continuations_own_confirmation_and_private_results(sqlite_engine).await;
+}
+#[tokio::test]
+async fn lmdb_executor_abandonment_retires_unconsumed_confirmation() {
+	executor_abandonment_retires_unconsumed_confirmation(lmdb_engine).await;
+}
+#[tokio::test]
+async fn sqlite_executor_abandonment_retires_unconsumed_confirmation() {
+	executor_abandonment_retires_unconsumed_confirmation(sqlite_engine).await;
+}
+#[tokio::test]
+async fn volatile_receipt_continuations_own_confirmation_and_private_results() {
+	receipt_continuations_own_confirmation_and_private_results(volatile_engine).await;
+}
+#[tokio::test]
+async fn volatile_executor_abandonment_retires_unconsumed_confirmation() {
+	executor_abandonment_retires_unconsumed_confirmation(volatile_engine).await;
 }

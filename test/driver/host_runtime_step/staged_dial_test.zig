@@ -152,16 +152,21 @@ test "a staged dial against a silent partner fails HandshakeTimedOut on the step
     });
 
     // Long park timeouts: the staged deadline must clamp the park and wake
-    // the step to fail the dial, not wait out the caller's timeout.
+    // the step to fail the dial, not wait out the caller's timeout. The one
+    // step whose park ends on the deadline fires it before returning: a
+    // step that judged the deadline on the time it read before parking
+    // would return empty-handed and leave the failure to a second park.
     const started_ms = net.clock.nowMs(io);
     var rounds: usize = 0;
+    var parked_out: usize = 0;
     while (recorder.failed_err == null and rounds < 50) : (rounds += 1) {
-        _ = try client_runtime.stepAny(5_000);
+        if (try client_runtime.stepAny(5_000) == null) parked_out += 1;
     }
     const elapsed_ms = net.clock.nowMs(io) - started_ms;
     try std.testing.expectEqual(@as(u64, 9), recorder.failed_tag);
     try std.testing.expectEqual(@as(?anyerror, error.HandshakeTimedOut), recorder.failed_err);
     try std.testing.expect(elapsed_ms < 3_000);
+    try std.testing.expectEqual(@as(usize, 1), parked_out);
 }
 
 test "runtime cancel close interrupts an admitted transport open and seals admission" {

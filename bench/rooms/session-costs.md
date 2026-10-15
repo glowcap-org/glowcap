@@ -1,3 +1,12 @@
+---
+type: living
+description: Measured allocation and traversal counts for Rooms host routes, projection and admission.
+sources:
+  - resource: /bench/host_locator_bench.zig
+  - resource: /bench/rooms/
+  - resource: /apps/rooms/rust/
+---
+
 # Rooms session cost measurements
 
 Measured against baseline commit `25d35d380` on 2026-10-09, using the pinned
@@ -84,14 +93,16 @@ guarantee or statistical equivalence.
 | TCP directory, 64 posts to eight recipients | 2,200 (2,167–2,345) | 2,317 (2,282–2,317) |
 | Local shared session, four collaborators, 32 sequential commands | 35,221 (32,762–88,635) | 35,404 (35,366–48,489) |
 
-The TCP window covers acknowledged posts, including directory fan-out.
-The shared window covers snapshot, command admission, persistence, private
-forwarding and terminal observation. Each collaborator is warmed once before
-measurement. A real target receives every command exactly once. It has no
-external network hop. The baseline uses the identical scenario with the new
-startup configuration call omitted. The native medians differ by about 5%,
-within overlapping sample ranges. The shared medians differ by less than 1%.
-Neither result isolates admission CPU cost from scheduling and storage.
+- The TCP window covers acknowledged posts, including directory fan-out.
+- The shared window covers snapshot, command admission, persistence, private
+  forwarding and terminal observation. Each collaborator is warmed once before
+  measurement.
+- A real target receives every command exactly once, with no external network
+  hop. The baseline uses the identical scenario with the new startup
+  configuration call omitted.
+- The TCP medians differ by about 5%, within overlapping sample ranges. The
+  shared medians differ by less than 1%. Neither result isolates admission CPU
+  cost from scheduling and storage.
 
 `bench-rooms-admission` isolates portable policy cost in its optimized example:
 one admitted subject, message count and 32 bytes charged atomically, 100,000
@@ -101,7 +112,7 @@ Filling 8,192 rows with 33-byte keys requests 5,336,760 tree bytes cumulatively.
 That measures allocation requests, not RSS. Configured row caps and fixed keys
 bound retained policy memory.
 
-Acceptance also exercised 128 actual native peers and 381 posts. An unread
+Acceptance also exercised 128 actual peers and 381 posts. An unread
 application inbox reached its bounded overflow while the healthy reader kept
 receiving. Cleanup completed within the scenario's 25-second deadline. This
 tests an application slow reader. Host transport-pressure proofs own socket

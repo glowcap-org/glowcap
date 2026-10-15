@@ -6,7 +6,7 @@
 extern "C" {
 #endif
 typedef struct GlowcapLoamLmdb GlowcapLoamLmdb;
-#define GLOWCAP_LOAM_LMDB_ARCHIVE_FINGERPRINT 11360050748746901026
+#define GLOWCAP_LOAM_LMDB_ARCHIVE_FINGERPRINT 6332460472659523018
 /* Open exclusive LMDB custody in an existing directory and reserve a fresh incarnation. create=0 requires an existing Store, create=1 requires absence, and create=2 atomically initializes absence or opens the exact persisted identity. Corrupt or mismatched metadata always refuses. The storage owner owns the returned borrowed Store; limits and schemas are copied. */
 int32_t glowcap_loam_lmdb_open(const uint8_t *path, size_t path_len, const uint8_t *store_id, uint32_t create, size_t map_bytes, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamLmdb **out_storage, GlowcapLoamStore **out_store);
 /* Release a quiescent storage owner and its Store, then close LMDB. Busy leaves both alive. Attachments and storage workers must finish first. */
@@ -17,6 +17,8 @@ int32_t glowcap_loam_lmdb_work_run(GlowcapLoamLmdb *raw, GlowcapLoamWork *work_h
 int32_t glowcap_loam_lmdb_restore(GlowcapLoamLmdb *raw, GlowcapLoamAttachment *attachment, const GlowcapLoamObject *object, GlowcapReference *out_ref);
 /* Submit privileged unattached staging through the same Store write/install contract. Committed output installs once; unchanged aborts and returns UNCHANGED with its storage cause in last_error; an unknown outcome leaves recovery required. Execute outside Host turns. */
 int32_t glowcap_loam_lmdb_commit(GlowcapLoamLmdb *raw);
+/* Run one bounded collection batch of work_limit steps on the LMDB owner and commit it like commit. Returns OK when the batch commits and UNCHANGED when it is refused or aborted, with the cause in last_error. Poll glowcap_loam_store_collecting on the paired Store for whether a cycle remains. */
+int32_t glowcap_loam_lmdb_collect(GlowcapLoamLmdb *raw, size_t work_limit);
 /* Copy the immediate storage companion error into caller storage. Returns bytes copied. */
 size_t glowcap_loam_lmdb_last_error(uint8_t *buf, size_t len);
 /* Return this archive's reflected callable and layout fingerprint before the first ordinary call. */

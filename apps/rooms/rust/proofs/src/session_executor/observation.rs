@@ -1,4 +1,4 @@
-//! Durable source observation shares the managed owner on LMDB and IndexedDB.
+//! Durable source observation shares the managed owner on SQLite and IndexedDB.
 use super::*;
 use glowcap::loam::{AccessStatus, ControlDescription, ObservedDescription, UseDescription};
 use rooms_application::{content::permissions::Permission, fields::Text};

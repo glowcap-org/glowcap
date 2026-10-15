@@ -16,15 +16,16 @@ const outbound_copying = @import("../outbound/copying.zig");
 
 const Peer = engine.Peer;
 
-/// Enqueue an owned `message` for outbound encode, taking ownership of its
-/// heap on every outcome. The canonical, copy-free path: a caller that built
-/// the message moves it in and never frees it. Most kinds are freed by the
-/// peer after `step` encodes them (or here, if recording fails). A settlement
-/// message is the exception: its resolution moves into the answer store at
-/// record time (`Session.applySentResolve`). V1.0 later encodes a resolver
-/// callback. Next notifies the mandatory listener. The store frees it on
-/// overwrite or answer teardown. Borrowed or static input goes through
-/// `sendCopying` instead.
+/// Enqueue an owned `message`, taking ownership of its heap on every outcome:
+/// a caller that built the message moves it in and never frees it. A deliver
+/// leaves as its frame at admission and its tree is freed before this
+/// returns (`outbound/encoded.zig`). The kinds the drain still inspects are
+/// freed by the peer after `step` encodes them (or here, if recording
+/// fails). A settlement message is the exception: its resolution moves into
+/// the answer store at record time (`Session.applySentResolve`). V1.0 later
+/// encodes a resolver callback. Next notifies the mandatory listener. The
+/// store frees it on overwrite or answer teardown. Borrowed or static input
+/// goes through `sendBorrowed` instead.
 pub fn send(self: *Peer, message: model.Message) !void {
     return outbound.enqueueRecorded(self, message);
 }
@@ -51,14 +52,35 @@ pub fn sendPreparedFetch(self: *Peer, prepared: fetch.PreparedFetch) !void {
     try send(self, prepared.message);
 }
 
-pub fn sendCopying(self: *Peer, message: model.Message) !void {
-    return outbound_copying.send(self, message);
+/// Enqueue `message`, borrowing it for the call: the caller's storage is its
+/// own again when this returns. A deliver that carries only values leaves as
+/// its frame with no copy. A deliver that carries a reference, handoff, or
+/// set, and every other kind, is cloned into the queue, the named outbound
+/// boundary copy (`outbound.enqueueBorrowed`).
+pub fn sendBorrowed(self: *Peer, message: model.Message) !void {
+    return outbound.enqueueBorrowed(self, message);
+}
+
+/// Enqueue a deliver whose arguments are lent as views (ADR-0246). The tree
+/// must carry values only, which the session certifies, and it leaves as
+/// its frame before this returns (`outbound.enqueueFreight`).
+pub fn sendFreight(self: *Peer, target: model.Reference, args: model.view.Args, answer: ?model.AnswerPosition) !void {
+    return outbound.enqueueFreight(self, target, args, answer);
 }
 
 pub const sendAnswerResolutionCopying = outbound_copying.answer;
 pub const sendAnswerTargetResolutionCopying = outbound_copying.answerTarget;
+pub const sendAnswerTargetResolutionViewCopying = outbound_copying.answerTargetView;
 
-fn encodeOutbound(self: *Peer, message: model.Message) !foundation.Frame {
+/// Encode `message` for the wire profile its kind uses, as one owned frame.
+pub fn encodeOutbound(self: *Peer, message: model.Message) !foundation.Frame {
+    const body = model.view.Body.fromOwned(&message);
+    return encodeOutboundBody(self, &body);
+}
+
+/// Encode a borrowed `body` for the wire profile its kind uses, as one owned
+/// frame. The owned entry projects onto this one.
+pub fn encodeOutboundBody(self: *Peer, body: *const model.view.Body) !foundation.Frame {
     // A hello cannot use the profile it is negotiating, and deferred encoding
     // means the session may already be open when its queued hello reaches this
     // seam. A pre-open abort belongs to that same baseline envelope. After
@@ -68,7 +90,7 @@ fn encodeOutbound(self: *Peer, message: model.Message) !foundation.Frame {
         .codec = self.session_state.codec,
         .features = self.session_state.features,
     };
-    const wire = switch (message) {
+    const wire = switch (body.*) {
         .start_session => model.Preference.baseline,
         .abort => if (self.session_state.state == .negotiating)
             model.Preference.baseline
@@ -76,11 +98,11 @@ fn encodeOutbound(self: *Peer, message: model.Message) !foundation.Frame {
             active,
         else => active,
     };
-    return codec.dispatch.encodeMessageForProfile(
+    return codec.dispatch.encodeBodyForProfile(
         wire.codec,
         self.allocator,
         wire.captp_version,
-        message,
+        body,
     );
 }
 

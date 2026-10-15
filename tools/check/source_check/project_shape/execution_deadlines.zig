@@ -170,6 +170,32 @@ fn validateExecutionPosture(
         }
         return;
     }
+    const memcheck_prefix = ".{.memcheck=";
+    if (std.mem.startsWith(u8, value, memcheck_prefix) and std.mem.endsWith(u8, value, "}")) {
+        if (!zig_test) {
+            try appendViolation(gpa, violations, "{s}: `.memcheck` runs a Zig test artifact under valgrind; a process or ordinary artifact cannot use it", .{path});
+            return;
+        }
+        const number = value[memcheck_prefix.len .. value.len - 1];
+        const seconds = std.fmt.parseInt(u16, number, 10) catch 0;
+        if (seconds <= 30 or seconds > 1800) {
+            try appendViolation(gpa, violations, "{s}: memcheck deadline must be a literal integer from 31 through 1800; the checker multiplies the suite's own time", .{path});
+        }
+        return;
+    }
+    const profile_prefix = ".{.profile=";
+    if (std.mem.startsWith(u8, value, profile_prefix) and std.mem.endsWith(u8, value, "}")) {
+        if (zig_test) {
+            try appendViolation(gpa, violations, "{s}: `.profile` runs a benchmark executable under callgrind; a Zig test cannot use it", .{path});
+            return;
+        }
+        const number = value[profile_prefix.len .. value.len - 1];
+        const seconds = std.fmt.parseInt(u16, number, 10) catch 0;
+        if (seconds <= 30 or seconds > 1800) {
+            try appendViolation(gpa, violations, "{s}: profile deadline must be a literal integer from 31 through 1800; callgrind multiplies the bench's own time", .{path});
+        }
+        return;
+    }
     const browser_prefix = ".{.browser_proof=";
     if (!zig_test and std.mem.startsWith(u8, value, browser_prefix) and std.mem.endsWith(u8, value, "}")) {
         const number = value[browser_prefix.len .. value.len - 1];
@@ -260,6 +286,19 @@ test "browser-proof deadlines are bounded and cannot masquerade as short or unbo
         "const run = execution.addZigTest(b, tests, .{ .browser_proof = 120 });",
         "unknown or invalid execution posture",
     );
+}
+
+test "profile is an artifact posture with a deadline in minutes" {
+    try expectBuildClean("const run = execution.addArtifact(b, .{ .profile = 1800 }, exe);");
+    try expectBuildViolation("const run = execution.addArtifact(b, .{ .profile = 30 }, exe);", "31 through 1800");
+    try expectBuildViolation("const run = execution.addZigTest(b, tests, .{ .profile = 900 });", "cannot use it");
+}
+
+test "memcheck is a Zig test posture with a deadline in minutes" {
+    try expectBuildClean("const run = execution.addZigTest(b, tests, .{ .memcheck = 900 });");
+    try expectBuildViolation("const run = execution.addZigTest(b, tests, .{ .memcheck = 30 });", "31 through 1800");
+    try expectBuildViolation("const run = execution.addSystemCommand(b, .{ .memcheck = 900 }, argv);", "cannot use it");
+    try expectBuildViolation("const run = execution.addArtifact(b, .{ .memcheck = 900 }, exe);", "cannot use it");
 }
 
 test "Zig test execution cannot use a non-test escape posture" {

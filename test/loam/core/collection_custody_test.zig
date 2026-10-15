@@ -36,7 +36,7 @@ test "loam collection clearing and finishing preserve custody across phase bound
     try store.releaseRetention(interrupted);
     const limits = store.limits;
     try store.deinit();
-    fixture.backend.close();
+    try fixture.backend.close();
     store.* = try f.core.Store.init(std.testing.allocator, try fixture.backend.open(), &f.schemas, limits);
     try std.testing.expectEqual(.clearing, store.metadata.collection.phase);
     const first = try store.retain(ids[0]);

@@ -1,4 +1,4 @@
-//! Transactional construction and deterministic release of the native relay runtime.
+//! Transactional construction and deterministic release of the Mbed TLS relay runtime.
 //!
 //! All borrowed C views and declarative trust policy are validated before
 //! trust-store I/O. The TLS owner transfers only when the resident carrier is
@@ -8,7 +8,7 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const net = @import("net");
-const native_relay = @import("native_relay");
+const relay_tls = @import("relay_tls");
 const c = @import("c_abi_shared");
 const contract = @import("../contract.zig");
 
@@ -66,7 +66,7 @@ pub fn create(
     payload.threaded = std.Io.Threaded.init(allocator, .{});
     payload.allocator = allocator;
     payload.references = .init(1);
-    switch (payload.native.init(
+    switch (payload.relay.init(
         payload.io(),
         allocator,
         configuration,
@@ -81,7 +81,7 @@ pub fn create(
     }
     payload.runtime.init(payload) catch |err| {
         var failure = foundation.FailureChain.init(err);
-        if (payload.native.deinit()) |cleanup| failure.noteChain(cleanup);
+        if (payload.relay.deinit()) |cleanup| failure.noteChain(cleanup);
         payload.threaded.deinit();
         allocator.destroy(payload);
         c.setLastErrorChain("relay runtime_new scheduler", failure);
@@ -95,7 +95,7 @@ pub fn create(
 pub fn release(payload: anytype) ?foundation.FailureChain {
     if (payload.references.fetchSub(1, .acq_rel) != 1) return null;
     var failure = payload.runtime.deinit();
-    if (payload.native.deinit()) |cleanup| {
+    if (payload.relay.deinit()) |cleanup| {
         if (failure) |*primary|
             primary.noteChain(cleanup)
         else
@@ -110,7 +110,7 @@ pub fn release(payload: anytype) ?foundation.FailureChain {
     return failure;
 }
 
-fn relayTrust(cfg: *const Config) ?native_relay.Trust {
+fn relayTrust(cfg: *const Config) ?relay_tls.Trust {
     return switch (cfg.trust) {
         contract.GLOWCAP_RELAY_TRUST_SYSTEM => if (cfg.trust_pem == null and cfg.trust_pem_len == 0)
             .system
@@ -136,7 +136,7 @@ fn relayTrust(cfg: *const Config) ?native_relay.Trust {
     };
 }
 
-fn failInitialization(failure: native_relay.InitFailure) i32 {
+fn failInitialization(failure: relay_tls.InitFailure) i32 {
     const chain = failure.chain();
     const code = switch (chain.cause) {
         error.InvalidTrustSnapshot => c.GLOWCAP_ERR_INVALID_ARGUMENT,

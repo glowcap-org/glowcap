@@ -21,7 +21,7 @@ typedef struct GlowcapDriverLoop GlowcapDriverLoop;
 #define GLOWCAP_DRIVER_OPTIONS_ABI_VERSION 1
 /* GlowcapDriverFailure.abi_version. */
 #define GLOWCAP_DRIVER_FAILURE_ABI_VERSION 2
-/* Largest handshake_ms or settle_ms value. */
+/* Largest handshake_ms, listener_setup_ms, or settle_ms value. */
 #define GLOWCAP_DRIVER_MAX_WAIT_MS 2147483647
 /* GlowcapDriverOptions wait value with no deadline. SECURITY.md asks deployments to set a finite one. */
 #define GLOWCAP_DRIVER_WAIT_UNBOUNDED 0
@@ -35,6 +35,10 @@ typedef struct GlowcapDriverLoop GlowcapDriverLoop;
 #define GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS 10000
 /* Default GlowcapDriverOptions.settle_ms. */
 #define GLOWCAP_DRIVER_DEFAULT_SETTLE_MS 10000
+/* Default GlowcapDriverOptions.busy_poll_ns. */
+#define GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS 0
+/* Longest GlowcapDriverOptions.busy_poll_ns the loop adopts; a longer window is refused. */
+#define GLOWCAP_DRIVER_MAX_BUSY_POLL_NS 100000000
 /* GlowcapDriverEvent.kind: dial or external adoption reached an open session. */
 #define GLOWCAP_DRIVER_EVENT_OPENED 0
 /* GlowcapDriverEvent.kind: dial or external adoption failed; failure fields carry the typed chain. */
@@ -69,6 +73,8 @@ typedef struct GlowcapDriverOptions {
     uint32_t listener_setup_ms;
     /* Application-answer progress budget in milliseconds; zero waits without a bound. */
     uint32_t settle_ms;
+    /* Nanoseconds the runtime spins reaping its transports before it parks. Zero parks at once. A spinning runtime holds its CPU for the window. */
+    uint64_t busy_poll_ns;
 } GlowcapDriverOptions;
 
 typedef struct GlowcapDriverFailure {
@@ -175,7 +181,7 @@ int32_t glowcap_driver_step_wait_ms(GlowcapDriverLoop *loop, int32_t *out_wait_m
 int32_t glowcap_driver_release(GlowcapDriverLoop *loop, GlowcapDriverFailure *out_failure);
 /* Install one validated provider package. out_failure must identify the current
    version/layout and receives the exact primary and rollback chain. The driver
-   acquires the native lease through provider.retain, copies profiles and tables,
+   acquires its lease through provider.retain, copies profiles and tables,
    and calls provider.release after every listener, connection, and callback retires. */
 int32_t glowcap_driver_add_provider(GlowcapDriverLoop *loop, const GlowcapTransportProvider *provider, GlowcapDriverFailure *out_failure);
 /* Report whether one installed provider owns the transport symbol. */

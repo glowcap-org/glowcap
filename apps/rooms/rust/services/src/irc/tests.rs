@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 #[tokio::test]
-async fn registration_ping_delivery_and_close_use_the_native_socket_owner() {
+async fn registration_ping_delivery_and_close_use_the_host_socket_owner() {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

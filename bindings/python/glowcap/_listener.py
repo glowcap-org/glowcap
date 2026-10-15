@@ -1,4 +1,4 @@
-"""Binding-owned lifetime for one native driver listener."""
+"""Binding-owned lifetime for one FFI driver listener."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class ListenerOwner:
-    """Ownership of exactly one native driver listener.
+    """Ownership of exactly one FFI driver listener.
 
     The owner closes admission for its listener and releases only accepted
     handles that have not crossed into a public Session. It never owns the

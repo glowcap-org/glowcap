@@ -32,7 +32,7 @@ fn installObservedAnswer(
     if (path == .v1_virtual)
         try counterpart.session_state.registerExport(virtual_resolver);
 
-    try counterpart.sendCopying(.{ .deliver = .{
+    try counterpart.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(target.int()) },
         .args = &.{},
         .answer = if (path == .v1_virtual) null else .from(41),
@@ -562,7 +562,9 @@ test "answer-store allocation refusal precedes every export mutation" {
     const resolution: model.Resolution = .{ .fulfill = .{ .reference = .{
         .near = model.NearRef.promise(export_position.int()),
     } } };
-    try peer.session_state.ensureSentResolutionExportCapacity(resolution);
+    const inventory = try peer.session_state.inventoryResolution(resolution);
+    defer inventory.deinit(peer.allocator);
+    try peer.session_state.ensureSentResolutionExportCapacity(resolution, inventory);
 
     failing.fail_index = failing.alloc_index;
     try std.testing.expectError(

@@ -1,24 +1,28 @@
+---
+type: static
+description: Why the app has Live, Play and Build modes over one document buffer instead of a playback mode with a live flag.
+sources:
+  - resource: /apps/ocapnviz/src/state/
+---
+
 # Live, Play, and Build
 
-Why the app has three top-level modes over one document buffer, rather than a
-playback mode with a live flag on it. The design has shipped: `AppMode` and
-`recording` live in `src/state/app-state.ts`, and `useBufferEngine` and
-`useLiveConnection` live in `src/state/hooks.ts`. This file keeps the reasoning.
+The app has three top-level modes over one document buffer, not a playback mode
+with a live flag. `AppMode` and `recording` live in `src/state/app-state.ts`,
+and `useBufferEngine` and `useLiveConnection` live in `src/state/hooks.ts`.
 
 ## Why not a live flag
 
-The shape before this was `mode = {play, build}` crossed with
-`liveMode = {on, off}`, which is four cells and only three ideas. Build with the
-live flag on is unreachable in concept, because Build is a working copy with its
-own engine and the live socket has nothing to write into that Build ever reads.
-It was reachable in state, though, and it leaked: the source picker offered "go
-live" in Build, the timeline offered "follow live" in Build, and the websocket
-ran in the background while Build ignored it.
+`mode = {play, build}` crossed with `liveMode = {on, off}` is four cells and
+only three ideas. Build with the live flag on is meaningless, because Build is a
+working copy with its own engine and nothing the live socket writes is ever read
+there. Yet the state is reachable, and it leaks: a source picker offering "go
+live" in Build, a timeline offering "follow live" in Build, and a websocket
+running in the background while Build ignores it.
 
-The root cause is that Live is not a mode of operating on the buffer. It is a
-way of filling it. Forcing it into a playback variant ties it to playback's UI,
-which means a playhead, a scrubber, and follow-live over a feed that only goes
-forward.
+Live is not a mode of operating on the buffer. It is a way of filling it.
+Forcing it into a playback variant ties it to playback's UI, which means a
+playhead, a scrubber, and follow-live over a feed that only goes forward.
 
 ## The buffer
 
@@ -45,27 +49,24 @@ The three modes are three verbs against that buffer.
 | Record stops       | Claim the recording as the buffer and enter Play.                                                       |
 | Record discards    | Throw away the capture and remain connected in Live.                                                    |
 
-Because the loaded document means the same thing in every mode, Play replaying a
-fixture, a live recording, and an opened file are one code path, and Build
-editing any of them is another. That is the whole simplification.
+The loaded document means the same thing in every mode, so Play replaying a
+fixture, a live recording, or an opened file is one code path, and Build editing
+any of them is another.
 
-## Alternatives that were rejected
+## Alternatives
 
-**Keep the flag and hide the UI in Build.** This fixes the leak without fixing
-the shape. The degenerate cell survives, so does the "live is a flavor of
-playback" framing, and the next feature that reaches for a live scrubber reopens
-the same class of bug.
+**Keep the flag and hide the UI in Build.** The degenerate cell and the "live is
+a flavor of playback" framing survive, and the next feature that reaches for a
+live scrubber reopens the same class of bug.
 
-**Make Live a flavor of Play, with the feed extending the buffer.** One playhead
-could then chase the live edge or scrub history, which sounds unified. But you
-cannot scrub or play a forward-only feed, so Play's verbs would each need
-ceremony to survive the trip. Keeping them separate is cheaper than teaching one
-transport UI to handle a feed that cannot seek.
+**Make Live a flavor of Play, with the feed extending the buffer.** A forward-only
+feed cannot be scrubbed or played, so each of Play's verbs would need special
+handling. Separate modes are cheaper than teaching one transport UI to handle a
+feed that cannot seek.
 
-**Record implicitly, and treat Live itself as the bracket.** Simpler, but it
-commits the buffer the moment you click Live. Live without Record keeps the
-connection warm and shows whether the feed is there, without committing memory
-to a capture. Making Record explicit keeps that case free of side effects.
+**Record implicitly, with Live itself as the bracket.** This commits the buffer
+the moment you click Live. Live without Record keeps the connection warm and
+shows whether the feed is there, without committing memory to a capture.
 
 ## What each mode shows
 
@@ -91,7 +92,7 @@ buffer engine and passes it to `useLiveConnection`, because it lasts as long as
 the session and nothing reloads into the middle of one.
 
 The `?live=<sturdyref>` query parameter sets both the mode and capability on
-load. Deep-linking to Play or Build is not built.
+load. Play and Build have no deep link.
 
 `useBufferEngine` backs Play and Build from the fixture, file, or recording.
 `useLiveConnection` holds the feed and, while recording, mounts a capture engine

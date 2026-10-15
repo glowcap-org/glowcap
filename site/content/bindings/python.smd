@@ -1,12 +1,12 @@
 ---
 .title = "Python",
-.description = "Use Session and Host from Python with native values over ctypes and composable transport modules.",
+.description = "Use Session and Host from Python with Python values over ctypes and composable transport modules.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
 ---
 
-The Python binding gives you `Session` and `Host` with native Python values over
+The Python binding gives you `Session` and `Host` with Python values over
 `ctypes`
 ([`glowcap`](https://github.com/jimisaacs/glowcap/blob/main/bindings/python/glowcap)).
 `Runtime.open` holds one Host and the transports you install, and
@@ -37,6 +37,19 @@ never needs `serve`.
 > async with Runtime.open(
 >     provider=provider(IrohConfig(Reachability.DISCOVERY))
 > ) as runtime:
+> ```
+> **webrtc**
+> ```python
+> from glowcap import Runtime
+> from glowcap.webrtc import SignalingAuthority, locator, provider
+>
+> # Your signaling carries the offer and each candidate to the peer the locator
+> # names, over a path you already hold, such as an OCapN capability both peers
+> # can reach, and brings the answer and the peer's candidates back.
+> signaling: SignalingAuthority
+> partner = locator("<64 lowercase hex characters from the peer>")
+>
+> async with Runtime.open(provider=provider(signaling)) as runtime:
 > ```
 > **noise-tcp**
 > ```python
@@ -208,14 +221,13 @@ From here, the CapTP workflow is the same for every transport:
 
 Everything rides plain
 [`asyncio`](https://docs.python.org/3/library/asyncio.html).
-`await session.send(...)` settles with the reply, and `session.serve()` runs
+`await session.send(...)` returns the reply, and `session.serve()` runs
 the inbound loop as a background task until the session closes.
 [Concepts]($link.page('concepts')) covers the CapTP ideas.
 
 # Actors
 
-`session.spawn` and `session.publish` take a `behavior(verb, args)` callable. A
-raise breaks the answer with the exception's own words. To let a third peer
+`session.spawn` and `session.publish` take a `behavior(verb, args)` callable. If the callable raises, the caller's promise breaks with the exception's message. To let a third peer
 reach an actor directly through an introduction, call `publish` on the `Host`
 from `server.host`.
 

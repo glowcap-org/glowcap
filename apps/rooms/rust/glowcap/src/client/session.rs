@@ -1,4 +1,4 @@
-//! Client of a Rooms session capability. The attached browser and native
+//! Client of a Rooms session capability. The attached browser and host
 //! consumers use the same protocol. Transport acquisition stays with Runtime.
 use super::{Client, Deadline};
 use crate::{Value, routes::CheckpointRoutes};

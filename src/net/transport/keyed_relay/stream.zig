@@ -1,4 +1,4 @@
-//! One native clear-WebSocket relay leg: connection acquisition, upgrade,
+//! One clear-WebSocket relay leg: connection acquisition, upgrade,
 //! framing, nonblocking I/O, and exact connection-local failure retention.
 
 const std = @import("std");

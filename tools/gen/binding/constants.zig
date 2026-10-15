@@ -119,6 +119,7 @@ const constants = [_]Const{
     con("ARG_BIG_INTEGER", c.GLOWCAP_ARG_BIG_INTEGER, .uint, null),
     con("ARG_STRUCT", c.GLOWCAP_ARG_STRUCT, .uint, null),
     con("ARG_ERROR", c.GLOWCAP_ARG_ERROR, .uint, null),
+    con("ARG_INTEGERS", c.GLOWCAP_ARG_INTEGERS, .uint, null),
     // Wire-grammar codec selectors (c_uint).
     con("CODEC_UNKNOWN", c.GLOWCAP_CODEC_UNKNOWN, .uint, null),
     con("CODEC_SYRUP", c.GLOWCAP_CODEC_SYRUP, .uint, null),
@@ -139,8 +140,8 @@ const constants = [_]Const{
     con("DEFAULT_FEATURES", c.GLOWCAP_DEFAULT_FEATURES, .uint, null),
     con("INTEROP_CODEC", c.GLOWCAP_INTEROP_CODEC, .uint, null),
     con("INTEROP_CAPTP_VERSION", c.GLOWCAP_INTEROP_CAPTP_VERSION, .uint, null),
-    con("NATIVE_CODEC", c.GLOWCAP_NATIVE_CODEC, .uint, null),
-    con("NATIVE_CAPTP_VERSION", c.GLOWCAP_NATIVE_CAPTP_VERSION, .uint, null),
+    con("OWN_CODEC", c.GLOWCAP_OWN_CODEC, .uint, null),
+    con("OWN_CAPTP_VERSION", c.GLOWCAP_OWN_CAPTP_VERSION, .uint, null),
     // GlowcapLastAbort.domain (c_uint).
     con("ABORT_DOMAIN_CODEC", c.GLOWCAP_ABORT_DOMAIN_CODEC, .uint, null),
     con("ABORT_DOMAIN_SESSION", c.GLOWCAP_ABORT_DOMAIN_SESSION, .uint, null),
@@ -214,6 +215,8 @@ const constants = [_]Const{
     con("DRIVER_DEFAULT_HANDSHAKE_MS", cdr.GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS, .uint, null),
     con("DRIVER_DEFAULT_LISTENER_SETUP_MS", cdr.GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS, .uint, null),
     con("DRIVER_DEFAULT_SETTLE_MS", cdr.GLOWCAP_DRIVER_DEFAULT_SETTLE_MS, .uint, null),
+    con("DRIVER_DEFAULT_BUSY_POLL_NS", cdr.GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS, .u64, null),
+    con("DRIVER_MAX_BUSY_POLL_NS", cdr.GLOWCAP_DRIVER_MAX_BUSY_POLL_NS, .u64, null),
     con("DRIVER_EVENT_OPENED", cdr.GLOWCAP_DRIVER_EVENT_OPENED, .uint, null),
     con("DRIVER_EVENT_OPEN_FAILED", cdr.GLOWCAP_DRIVER_EVENT_OPEN_FAILED, .uint, null),
     con("DRIVER_EVENT_ACCEPTED", cdr.GLOWCAP_DRIVER_EVENT_ACCEPTED, .uint, null),
@@ -272,6 +275,7 @@ const constants = [_]Const{
     con("WEBRTC_MAX_ICE_URL_BYTES", cw.GLOWCAP_WEBRTC_MAX_ICE_URL_BYTES, .usize, null),
     con("WEBRTC_MAX_ICE_CREDENTIAL_BYTES", cw.GLOWCAP_WEBRTC_MAX_ICE_CREDENTIAL_BYTES, .usize, null),
     con("WEBRTC_MAX_PENDING_ICE_CANDIDATES", cw.GLOWCAP_WEBRTC_MAX_PENDING_ICE_CANDIDATES, .usize, null),
+    con("WEBRTC_MAX_ACCEPTS_IN_FLIGHT", cw.GLOWCAP_WEBRTC_MAX_ACCEPTS_IN_FLIGHT, .usize, null),
     con("WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES", cw.GLOWCAP_WEBRTC_PENDING_ICE_CANDIDATE_QUEUE_BYTES, .usize, null),
     con("WEBRTC_DATA_CHANNEL_QUEUE_BYTES", cw.GLOWCAP_WEBRTC_DATA_CHANNEL_QUEUE_BYTES, .usize, null),
     // Binding-only policy shared by async bindings.

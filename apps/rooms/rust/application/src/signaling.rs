@@ -10,9 +10,14 @@ pub const MAX_ID: usize = 128;
 pub const MAX_DESCRIPTION: usize = 16_384;
 pub const MAX_CANDIDATE: usize = 4096;
 pub const TIMEOUT_MS: u64 = 30_000;
+/// What a directory tells an offerer before the reason its target declined.
+pub const DECLINED: &str = "the member declined the offer: ";
+/// The longest reason a decline carries, so the offerer's `reject` still
+/// fits a description.
+pub const MAX_REASON: usize = MAX_DESCRIPTION - DECLINED.len();
 pub use crate::protocol_data::{
 	OFFER_SIGNALING as OFFER_INBOX, SIGNAL_ANSWER as ANSWER, SIGNAL_CANDIDATE as CANDIDATE, SIGNAL_CHECK as CHECK,
-	SIGNAL_DONE as DONE, SIGNAL_OFFER as OFFER,
+	SIGNAL_DECLINE as DECLINE, SIGNAL_DONE as DONE, SIGNAL_OFFER as OFFER,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,6 +68,7 @@ impl<const N: usize> Text<N> {
 pub type Id = Text<MAX_ID>;
 pub type Description = Text<MAX_DESCRIPTION>;
 pub type Candidate = Text<MAX_CANDIDATE>;
+pub type Reason = Text<MAX_REASON>;
 #[derive(Debug)]
 pub enum Reply {
 	Accepted(Id),
@@ -86,27 +92,36 @@ pub fn reply<A: ArgumentView>(verb: &str, len: usize, at: impl Fn(usize) -> Opti
 }
 #[derive(Debug)]
 pub enum Incoming {
-	Offer { id: Id, description: Description },
-	Candidate { id: Id, candidate: Candidate },
+	/// `from` is the Host key the offering member registered, the one the
+	/// directory routes its signaling by, so an answerer can require it of the
+	/// channel. It is `None` when the member's locator names no Host key.
+	Offer {
+		id: Id,
+		description: Description,
+		from: Option<Id>,
+	},
+	Candidate {
+		id: Id,
+		candidate: Candidate,
+	},
 }
 pub fn incoming<A: ArgumentView>(verb: &str, len: usize, at: impl Fn(usize) -> Option<A>) -> Result<Incoming, Error> {
-	if len != 2 {
-		return Err(Error::Inbox);
-	}
-	let (id, payload) = (at(0).ok_or(Error::Inbox)?, at(1).ok_or(Error::Inbox)?);
-	let id = Id::parse(id.text().ok_or(Error::Inbox)?)?;
-	let payload = payload.text().ok_or(Error::Inbox)?;
-	match verb {
-		crate::protocol_data::SIG_OFFER => Ok(Incoming::Offer {
-			id,
-			description: Description::parse(payload)?,
+	let text = |i: usize| at(i).ok_or(Error::Inbox);
+	match (verb, len) {
+		(crate::protocol_data::SIG_OFFER, 2 | 3) => Ok(Incoming::Offer {
+			id: parsed(text(0)?)?,
+			description: parsed(text(1)?)?,
+			from: if len == 3 { Some(parsed(text(2)?)?) } else { None },
 		}),
-		crate::protocol_data::SIG_CANDIDATE => Ok(Incoming::Candidate {
-			id,
-			candidate: Candidate::parse(payload)?,
+		(crate::protocol_data::SIG_CANDIDATE, 2) => Ok(Incoming::Candidate {
+			id: parsed(text(0)?)?,
+			candidate: parsed(text(1)?)?,
 		}),
 		_ => Err(Error::Inbox),
 	}
+}
+fn parsed<A: ArgumentView, const N: usize>(arg: A) -> Result<Text<N>, Error> {
+	Text::parse(arg.text().ok_or(Error::Inbox)?)
 }
 /// Count bounds imply byte bounds because every admitted event is typed first.
 pub struct Queue<T> {

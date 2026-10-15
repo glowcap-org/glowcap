@@ -73,7 +73,7 @@ test "settle mailbox: full, oversized, and capability-bearing posts refuse loudl
 const DeferringOwned = struct {
     out: *std.atomic.Value(u64),
 
-    pub fn handle(self: *@This(), ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *@This(), ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = verb;
         _ = args;
         self.out.store(try ht.deferAnswer(), .release);

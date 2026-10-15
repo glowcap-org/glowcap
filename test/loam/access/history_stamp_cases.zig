@@ -40,15 +40,14 @@ fn grant(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectI
     _ = try f.pump(&read, backend);
     for (0..128) |_| {
         var view = try read.grantView();
-        _ = view.get(id) catch |err| {
+        _ = view.borrow(id) catch |err| {
             if (err != error.RecordUnloaded) return err;
             _ = try f.pump(&read, backend);
             continue;
         };
-        const binding = (try read.binding(.{ .grant = id })).?;
-        var value = try records.GrantRecord.decodeOwned(store.allocator, (try f.storage.Read.rowFor(store, binding)).?.view.payload);
-        defer value.deinit(store.allocator);
-        return .{ .authority = value.value.authority.revision, .inventory = value.value.inventory.revision };
+        defer view.release();
+        const row = read.heldRow();
+        return .{ .authority = row.authority.revision, .inventory = row.inventory.revision };
     }
     return error.NoProgress;
 }

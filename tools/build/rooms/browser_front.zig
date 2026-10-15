@@ -91,7 +91,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     host_test.dependOn(&deadline_proof.step);
     ctx.runtime_gate.add(host_test);
 
-    // The room transport is one option because the native and development
+    // The room transport is one option because the production and development
     // fronts forward the same `--transport=` contract to the room server.
     const transport = b.option(Transport, "transport", "The room transport rooms-web and rooms-dev serve: iroh (default, encrypted QUIC), tcp (cleartext, for a peer that speaks nothing else), or onion (a Tor onion service that requires tor)") orelse .iroh;
 
@@ -100,14 +100,14 @@ pub fn register(ctx: Context) *std.Build.Step {
         .dependOn(&production.step);
 
     // Both development fronts share state, grants, transport, and dependencies.
-    // Fast Refresh changes who serves the browser, not the native service setup.
+    // Fast Refresh changes who serves the browser, not the Rooms service setup.
     const development: Launch = .{
         .state_dir = common.rootPath(b, ".local/.state/rooms"),
         .mint_everything = true,
-        .hot_reload = b.option(bool, "hot-reload", "Use Vite Fast Refresh for rooms-dev; false serves compiled generations through the native web front") orelse true,
+        .hot_reload = b.option(bool, "hot-reload", "Use Vite Fast Refresh for rooms-dev; false serves compiled generations through the Rooms web server") orelse true,
     };
     const rooms_dev = addLaunch(ctx, transport, development);
-    b.step("rooms-dev", "Serve Rooms with every operator capability minted and state under .local/.state/rooms; `-Dhot-reload=false` uses native generation serving, and `-Dtransport` works as on rooms-web (needs cargo + deno)")
+    b.step("rooms-dev", "Serve Rooms with every operator capability minted and state under .local/.state/rooms; `-Dhot-reload=false` uses compiled-generation serving, and `-Dtransport` works as on rooms-web (needs cargo + deno)")
         .dependOn(&rooms_dev.step);
 
     return &prepare.step;

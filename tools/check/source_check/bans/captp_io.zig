@@ -247,13 +247,6 @@ pub const captp_io_spine_table: []const Ban = &.{
         .why = "codec.registry is the authority; dispatch keeps it private",
     },
     .{
-        .where = .{ .file = "src/ocapn/codec/dispatch.zig" },
-        .kind = .forbid,
-        .needles = &.{"pub const framing"},
-        .check = "captp-io-spine",
-        .why = "export Prefix only; framing stays private to dispatch",
-    },
-    .{
         .where = .{ .files = iroh_paths },
         .kind = .forbid,
         .needles = &.{"Backend.Locator"},

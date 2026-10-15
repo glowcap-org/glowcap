@@ -481,8 +481,12 @@ test "keyed-relay canceled receive preserves a late platform payload" {
     try backend.submitRecv(76, fd);
     try backend.submitCancel(77, 76, fd);
 
+    // The cancel owes both records before the poll, and they fill the two
+    // slots. The late platform payload lands next pass and is kept.
     var completions: [2]net.completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 2), try backend.poll(&completions, 0));
+    try std.testing.expectEqual(@as(usize, 0), conn.raw_in.items.len);
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
     try std.testing.expectEqualSlices(u8, &wire, conn.raw_in.items);
     try std.testing.expectEqual(@as(usize, 1), backend.platform.recycle_calls);
 

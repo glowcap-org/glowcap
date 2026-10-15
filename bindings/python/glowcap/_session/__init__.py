@@ -70,13 +70,13 @@ class Session(_LifecycleMixin, _VerbsMixin):
         self._close_request_signature: Optional[tuple[int, int, int]] = None
         self._transport_lost = False
         self._transport_close_started = False
-        # Native byte-fed progress is a child effect of the terminal
+        # FFI byte-fed progress is a child effect of the terminal
         # coordinator and must outlive cancellation of any one close waiter.
         self._close_task: Optional[asyncio.Task[None]] = None
         self._retirement = asyncio.Event()
         self._write_lock = asyncio.Lock()
         # Reused only under _write_lock. Payload bytes are still copied before
-        # await because Python cannot retain the native frame across it.
+        # await because Python cannot retain the FFI frame across it.
         self._outbound_scratch = _OutboundScratch()
         self._hosted = host._hosted
         self._gc_enabled = False

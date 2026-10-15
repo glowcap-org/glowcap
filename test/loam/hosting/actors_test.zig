@@ -16,10 +16,11 @@ test "loam attachment creation refuses an unsubmitted transaction without consum
 
 const ForwardTarget = struct {
     calls: *usize,
-    pub fn handle(self: *ForwardTarget, turn: *f.driver.HostTurn, _: []const u8, args: []const f.driver.Value) !f.driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *ForwardTarget, turn: *f.driver.HostTurn, _: []const u8, args: f.driver.Args) !f.driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
-        return args[0];
+        return arg_values[0];
     }
 };
 
@@ -372,7 +373,7 @@ test "loam actor slow storage and bounded pending calls preserve unrelated Vat p
     try std.testing.expect(captures[2].broken);
     try std.testing.expectEqual(@as(usize, 4096), fixture.attached.pending_bytes);
     const Other = struct {
-        pub fn handle(_: *@This(), _: *f.actors.Turn, _: f.actors.Message) !@import("glowcap").ocapn.model.Argument {
+        pub fn handle(_: *@This(), _: *f.actors.Turn, _: f.actors.Delivery) !@import("glowcap").ocapn.model.Argument {
             return .{ .integer = 77 };
         }
     };

@@ -1,11 +1,11 @@
 // Rooms DM-by-introduction over iroh Discovery: the gift names Bob by node id
 // alone, with no direct addresses, and Carol resolves it through n0 discovery.
-// This orchestrator starts the native Rust rooms-server. It reaches the real
+// This orchestrator starts the Rust rooms-server. It reaches the real
 // internet, so it is opt-in:
 // `zig build demo-rooms-dm-iroh-discovery` (needs internet). The handoff
 // choreography is shared in `runDmHandoff`.
 
-import { startServer } from "../test/support/native_server.ts";
+import { startServer } from "../test/support/installed_server.ts";
 import { formatPeerUri } from "@glowcap/runtime";
 import { roomsHost } from "../lib/locator.ts";
 import * as iroh from "@glowcap/iroh";

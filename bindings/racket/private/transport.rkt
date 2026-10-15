@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Transport-neutral product composition values.
 ;;
-;; A driver-provider installs one archive-owned provider package into a native
+;; A driver-provider installs one archive-owned provider package into an FFI
 ;; loop. A byte-connector realizes one locator as a byte-fed Session. Neither
 ;; value knows how a transport works; the archive companion that constructs it
 ;; owns that policy.

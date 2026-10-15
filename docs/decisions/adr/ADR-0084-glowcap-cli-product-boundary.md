@@ -38,9 +38,7 @@ of `driver` and adds no protocol layer.
    release-packs the `glowcap` binary. There is no `glowcap check`.
 6. **Deferred runtimes:** A2A-on-CapTP + optional HTTP facade. OTEL export.
    Operational observability is stderr structured logs plus CapTP
-   introspection. The A2A sketch is
-   [`glowcap-a2a-on-captp-design.md`](../../planning/glowcap-a2a-on-captp-design.md).
-   The griddle sim runtime and ocapnviz ship, and the rest of the observability
+   introspection. The griddle sim runtime and ocapnviz ship, and the rest of the observability
    family is recorded in [`docs/roadmap.md`](../../roadmap.md) and
    [ADR-0106](ADR-0106-trace-observation-capability.md).
    `glowcap griddle` is a subtree of this CLI (`run`, `status`, `help`).

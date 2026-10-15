@@ -1,4 +1,4 @@
-//! Native cleanup resumes cold and reconciles lost acknowledgements exactly.
+//! Cleanup that compacts the LMDB file between phases and reopens cold.
 const std = @import("std");
 const h = @import("../access/hosting_fixture.zig");
 const maintenance = @import("../access/maintenance_fixture.zig");
@@ -36,50 +36,6 @@ test "loam LMDB maintenance reopens every bounded retirement phase without resur
     try @import("loam_test_support").collect(&store, &db);
     try std.testing.expectEqual(@as(u64, 1), store.metadata.objects);
     try std.testing.expectError(error.Gone, h.c.load(&store, &db, data.use));
-}
-
-test "loam LMDB maintenance terminal receipts and publication barriers share the live CapTP path" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = h.f.store_id } });
-    defer db.close() catch unreachable;
-    var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
-    defer store.deinit() catch unreachable;
-    try @import("../access/maintenance_hosted_cases.zig").replay(&store, &db, @import("loam_test_support").collect);
-    try @import("loam_test_support").collect(&store, &db);
-    try std.testing.expectEqual(@as(u64, 1), store.metadata.objects);
-}
-
-test "loam LMDB maintenance churn reclaims payload while preserving delegation and allocation floors" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = h.f.store_id } });
-    defer db.close() catch unreachable;
-    var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
-    defer store.deinit() catch unreachable;
-    try @import("../access/maintenance_cases.zig").churn(&store, &db, @import("loam_test_support").collect);
-}
-
-test "loam LMDB maintenance refuses a retired mutation result without retiring issuer control" {
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const path = try std.Io.Dir.realPathFileAlloc(tmp.dir, std.testing.io, ".", h.a);
-    defer h.a.free(path);
-    const terminated = try h.a.dupeSentinel(u8, path, 0);
-    defer h.a.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = h.f.store_id } });
-    defer db.close() catch unreachable;
-    var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
-    defer store.deinit() catch unreachable;
-    try @import("../access/maintenance_hosted_cases.zig").controlReceipt(&store, &db);
 }
 
 const sharing = @import("../access/sharing_fixture.zig");

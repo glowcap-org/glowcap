@@ -9,11 +9,12 @@ is in, and holding a reference is what lets it act.
 
 The [Rooms pages on the site](https://jimisaacs.github.io/glowcap/rooms/)
 show what it is like to use. The [host guide](host.md) explains installing
-glowcap on Linux or macOS, running Rooms, and using the individual/team skills.
+glowcap on Linux or macOS, running Rooms, and letting an AI agent join a room
+as one peer or as a team.
 
 ## Run it
 
-With the complete glowcap installation on PATH:
+Once glowcap is installed and on your PATH:
 
 ```sh
 glowcap apps rooms serve
@@ -52,28 +53,29 @@ around or to reach a peer that speaks nothing else, and only on a network you
 trust. `-Dport=` pins the HTTP port, and server flags
 such as `--history` or `--diagnostics` follow `--`.
 
-For day-to-day development, start with every operator capability minted and
-the state kept between runs:
+For day-to-day development, start with every operator capability turned on
+and the state kept between runs:
 
 ```sh
 zig build rooms-dev
 ```
 
-Vite serves source modules with React Fast Refresh and proxies Rooms traffic to the
-web server. The browser still exercises the web relay, link
-preview, ICE, and directory services. It keeps its identity, room links, and
-capability swiss numbers under `.local/.state/rooms`, so a restart brings back
-the same server. Ctrl-C retires both development processes.
+Vite serves the page source with live reload and passes Rooms traffic through
+to the web server. The browser still uses the web relay, link previews, ICE
+(WebRTC's route finding), and directory services. Identity, room links, and the
+secrets inside them are kept under `.local/.state/rooms`, so a restart brings
+back the same server. Ctrl-C stops both development processes.
 
-Use `zig build rooms-dev -Dhot-reload=false` to serve compiled browser
-generations through the web server with the same state and operator grants.
-The [development guide](developing.md#browser-compiler-boundary) explains the
-compiler boundary and how to switch bundlers.
+Use `zig build rooms-dev -Dhot-reload=false` to serve a built copy of
+the page through the web server with the same state and operator grants.
+The [development guide](developing.md#browser-compiler-boundary) explains how
+the browser code is compiled and how to switch bundlers.
 
 ## Other ways in
 
 - **From a Linux or macOS host.** The [glowcap product package](host.md)
-  includes `glowcap apps rooms session`, its runtime, and individual/team skills.
+  includes `glowcap apps rooms session`, its runtime, and the skills that let an AI agent join
+  a room alone or as a team.
   Connect it to deployed Rooms without a checkout or compiler.
 - **From a terminal, over TCP.** Start a cleartext server with
   `zig build rooms-server -- --transport=tcp --port=9099` and join it with
@@ -84,8 +86,8 @@ compiler boundary and how to switch bundlers.
   that each member receives every message. `demo-rooms-iroh` and
   `demo-rooms-onion` run the same tour over encrypted QUIC and over Tor.
 - **From a Goblins vat.** A [Spritely Goblins](https://spritely.institute/goblins/)
-  vat sits in the same room on its own wire profile and can be messaged
-  directly. [Bringing a Goblins vat into the room](goblins-vat.md) walks
+  vat sits in the same room, speaking the standard OCapN protocol, and can be
+  messaged directly. [Bringing a Goblins vat into the room](goblins-vat.md) walks
   through it.
 - **From IRC.** An IRC channel can be read as a room, and an ordinary IRC
   client can enter rooms. [IRC on Rooms](irc/README.md) covers both.
@@ -123,12 +125,12 @@ both places.
 | [`web/deploy/`](web/deploy/) | The Compose template and Linux image recipe used by the CLI deployment |
 | [`lib/`](lib/) | The Rooms protocol as TypeScript, read by the Deno client, the demos, and the tests |
 | [`clients/`](clients/) | One terminal client per language, each beside its generated protocol table |
-| [`irc/`](irc/) | The IRC bridge and gateway |
+| [`irc/`](irc/) | The IRC bridge and IRC server |
 | [`demos/`](demos/), [`test/`](test/) | The scripted scenarios and the checks |
 
 The protocol is a handful of objects and the calls they answer. The server
 publishes one object by name, `directory`, and every other reference is handed
-back from it. There is no HTTP API and no schema negotiation.
+back from it. There is no HTTP API.
 [The Rooms protocol](https://jimisaacs.github.io/glowcap/rooms/protocol/)
 lists each object. [Developing Rooms](developing.md) covers the build steps,
 the scenarios, and the source map.

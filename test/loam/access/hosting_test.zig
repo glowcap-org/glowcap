@@ -4,7 +4,7 @@ const h = @import("hosting_fixture.zig");
 const a = h.a;
 
 const TransientActor = struct {
-    pub fn handle(_: *TransientActor, _: *h.actors.Turn, _: h.actors.Message) !h.f.glowcap.ocapn.model.Argument {
+    pub fn handle(_: *TransientActor, _: *h.actors.Turn, _: h.actors.Delivery) !h.f.glowcap.ocapn.model.Argument {
         return .{ .void = {} };
     }
 };

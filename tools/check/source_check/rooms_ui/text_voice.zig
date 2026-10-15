@@ -125,7 +125,7 @@ fn inspect(
     var literals: Literals = .{ .body = body };
     while (literals.next()) |segment| {
         if (std.mem.indexOfScalar(u8, segment.text, ' ') == null) continue;
-        switch (reader_voice.proseFlaw(segment.text, true)) {
+        switch (reader_voice.proseFlaw(segment.text, .{ .insiders = true })) {
             .none => {},
             .mark => |mark| try appendViolation(
                 gpa,
@@ -137,6 +137,12 @@ fn inspect(
                 gpa,
                 violations,
                 "{s}:{d}: `{s}` is glowcap's own word, not the reader's (doc-voice); use what a reader would call it",
+                .{ path, segment.line, word },
+            ),
+            .label => |word| try appendViolation(
+                gpa,
+                violations,
+                "{s}:{d}: `{s}` names no language, owner, or environment (project values); say what it is",
                 .{ path, segment.line, word },
             ),
         }
@@ -198,6 +204,6 @@ test "literal text is read across holes and lines, and code and comments are not
     try std.testing.expectEqualStrings(" in the sidecar — for now.", texts.items[2]);
     try std.testing.expectEqual(@as(usize, 3), texts.items.len);
     try std.testing.expectEqual(@as(usize, 5), lines.items[2]);
-    try std.testing.expect(reader_voice.proseFlaw(texts.items[0], true) == .insider);
-    try std.testing.expect(reader_voice.proseFlaw(texts.items[2], true) == .insider);
+    try std.testing.expect(reader_voice.proseFlaw(texts.items[0], .{ .insiders = true }) == .insider);
+    try std.testing.expect(reader_voice.proseFlaw(texts.items[2], .{ .insiders = true }) == .insider);
 }

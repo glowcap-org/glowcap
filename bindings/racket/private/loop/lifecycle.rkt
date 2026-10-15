@@ -1,5 +1,5 @@
 #lang racket/base
-;; Native loop and loop-owned Session close barriers plus Host hook installation.
+;; driver loop and loop-owned Session close barriers plus Host hook installation.
 
 (require ffi/unsafe/port
          racket/async-channel
@@ -15,7 +15,7 @@
 
 ;; ── Release (the host.rkt hooks) ─────────────────────────────────────────────
 
-;; Drive the native owner barrier while ordinary loop stepping and event
+;; Drive the FFI owner barrier while ordinary loop stepping and event
 ;; projection remain live. The driver/core decide every transition and
 ;; outcome; this binding supplies execution and observes completion.
 (define (begin-loop-close! lp options)
@@ -57,7 +57,7 @@
 
 ;; Drive one loop-owned session through the same core policy while the loop
 ;; remains live. SESSION_CLOSED projection retires the Racket shell; this
-;; function only supplies steps and observes the native result beforehand.
+;; function only supplies steps and observes the FFI result beforehand.
 (define (begin-loop-session-close! lp c options)
   (check/driver
    (glowcap_driver_session_close
@@ -78,7 +78,7 @@
          (lambda ()
            (define effects (loop-drain! m lp))
            ;; Draining parked releases may consume this exact Session before
-           ;; the native lifecycle query. Its Racket terminal result was
+           ;; the FFI lifecycle query. Its Racket terminal result was
            ;; published by that release path, so the consumed handle must not
            ;; be consulted again.
            (unless (session-released? c)
@@ -104,8 +104,8 @@
     [(not (= result OK)) (check/driver result)]))
 
 ;; The pre-teardown stop the Host release worker runs OUTSIDE the host lock after the
-;; native barrier: end Racket-side stepping, join the park thread, and retire
-;; listener wrappers whose native owners are already closed. The park thread
+;; FFI barrier: end Racket-side stepping, join the park thread, and retire
+;; listener wrappers whose FFI owners are already closed. The park thread
 ;; needs the host lock for its own drain, so joining it under the lock would
 ;; deadlock.
 (define (loop-prestop! lp _orderly?)
@@ -127,15 +127,15 @@
       [t (thread-wait t)]
       [else (void)])))
 
-;; The native teardown the Host release worker runs in place of
+;; The FFI teardown the Host release worker runs in place of
 ;; `glowcap_host_release`, under the host lock, after the sessions closed:
 ;; release the loop (which frees the wrapped host), then the sidecar
 ;; endpoint it retained, in that order so no resident call runs against a
 ;; freed endpoint. The close procedure was captured at adoption, so this
 ;; path (reachable from the FFI finalizer thread) resolves no module.
-(define (loop-native-release! lp)
+(define (loop-ffi-release! lp)
   (cond
-    [(not (loop-native-live? lp)) (values OK #f)]
+    [(not (loop-ffi-live? lp)) (values OK #f)]
     [else
      (define-values (code failure)
        (call/driver-failure
@@ -162,7 +162,7 @@
 (set-box! loop-begin-close-hook begin-loop-close!)
 (set-box! loop-close-barrier-hook drive-loop-close!)
 (set-box! loop-prestop-hook loop-prestop!)
-(set-box! loop-native-release-hook loop-native-release!)
+(set-box! loop-ffi-release-hook loop-ffi-release!)
 (set-box! loop-begin-session-close-hook begin-loop-session-close!)
 (set-box! loop-await-session-close-hook await-loop-session-close!)
 (set-box! loop-session-release-hook loop-session-release!)

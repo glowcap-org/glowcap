@@ -20,7 +20,7 @@
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
          (only-in "../../private/finalizer-diagnostics.rkt"
-                  record-runtime-failure! run-native-finalizer!)
+                  record-runtime-failure! run-ffi-finalizer!)
          (only-in "../../private/ws-transport.rkt" ws-transport)
          (only-in "../../relay.rkt" relay-pump exn:fail:relay?
                   exn:fail:relay-primary exn:fail:relay-secondary)
@@ -42,7 +42,7 @@
                   driver-loop-has-transport?
                   loop-listen! loop-listener-ready! loop-listener-locator
                   loop-listener-close!)
-         "../../private/native-parent.rkt"
+         "../../private/ffi-parent.rkt"
          (only-in "../../private/value.rkt" make-ref/internal)
          "support.rkt"
          racket/tcp)
@@ -371,7 +371,7 @@
 (printf "racket zig-smoke OK: connect-onion admits its dial and reports the typed refusal\n")
 
 ;; Closing a listener before its resident setup starts cancels the pending
-;; native operation and settles the Racket event; it must not leave a waiter
+;; FFI operation and settles the Racket event; it must not leave a waiter
 ;; parked forever or call the driver's close path a second time.
 (let ()
   (define-values (control _socks _seen stop!) (start-fake-tor))
@@ -391,7 +391,7 @@
 (printf "racket zig-smoke OK: pending listener close cancels and settles exactly once\n")
 
 ;; Supplying a Host keeps it caller-owned even though the listener adopts it
-;; into a newly created native loop.
+;; into a newly created driver loop.
 (let ()
   (define-values (control _socks _seen stop!) (start-fake-tor))
   (define host (make-fresh-host))
@@ -436,7 +436,7 @@
           "onion: readiness reports not-ready before any circuit arrives")
 
   ;; Release owns cancellation as well as storage. A green thread parked before
-  ;; native accept must wake and retire before the listener payload is freed.
+  ;; FFI accept must wake and retire before the listener payload is freed.
   (define parked-result (make-channel))
   (define parked-listener (onion-netlayer-listen nl))
   (define parked-accept

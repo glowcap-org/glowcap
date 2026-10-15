@@ -157,7 +157,7 @@ export const TRACE_EVENT_DROPPED_OFF = 120;
 export const TRACE_EVENT_DIGEST_OFF = 128;
 
 // GlowcapDriverOptions (libglowcap_driver, glowcap_driver_take_host)
-export const DRIVER_OPTIONS_SIZE = 48;
+export const DRIVER_OPTIONS_SIZE = 56;
 export const DRIVER_OPTIONS_ABI_VERSION_OFF = 0;
 export const DRIVER_OPTIONS_STRUCT_SIZE_OFF = 8;
 export const DRIVER_OPTIONS_WIRE_BUFFER_BYTES_OFF = 16;
@@ -165,6 +165,7 @@ export const DRIVER_OPTIONS_MAX_PENDING_OPENS_OFF = 24;
 export const DRIVER_OPTIONS_HANDSHAKE_MS_OFF = 32;
 export const DRIVER_OPTIONS_LISTENER_SETUP_MS_OFF = 36;
 export const DRIVER_OPTIONS_SETTLE_MS_OFF = 40;
+export const DRIVER_OPTIONS_BUSY_POLL_NS_OFF = 48;
 
 // GlowcapDriverFailure (libglowcap_driver deterministic barriers)
 export const DRIVER_FAILURE_SIZE = 80;
@@ -300,8 +301,29 @@ export const IROH_CONFIG_IDLE_TIMEOUT_MS_OFF = 16;
 export const IROH_CONFIG_WORKER_THREADS_OFF = 24;
 
 // GlowcapWebrtcConfig (libglowcap_net_transport_webrtc, glowcap_webrtc_netlayer_new)
-export const WEBRTC_CONFIG_SIZE = 24;
+export const WEBRTC_CONFIG_SIZE = 64;
 export const WEBRTC_CONFIG_ICE_SERVERS_OFF = 0;
 export const WEBRTC_CONFIG_ICE_SERVER_COUNT_OFF = 8;
 export const WEBRTC_CONFIG_INCLUDE_LOOPBACK_CANDIDATES_OFF = 16;
 export const WEBRTC_CONFIG_WORKER_THREADS_OFF = 20;
+export const WEBRTC_CONFIG_SIGNALING_OFF = 24;
+
+// GlowcapWebrtcStringView (libglowcap_net_transport_webrtc, one borrowed ICE URL or credential)
+export const WEBRTC_STRING_VIEW_SIZE = 16;
+export const WEBRTC_STRING_VIEW_PTR_OFF = 0;
+export const WEBRTC_STRING_VIEW_LEN_OFF = 8;
+
+// GlowcapWebrtcIceServer (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.ice_servers)
+export const WEBRTC_ICE_SERVER_SIZE = 48;
+export const WEBRTC_ICE_SERVER_URLS_OFF = 0;
+export const WEBRTC_ICE_SERVER_URL_COUNT_OFF = 8;
+export const WEBRTC_ICE_SERVER_USERNAME_OFF = 16;
+export const WEBRTC_ICE_SERVER_CREDENTIAL_OFF = 32;
+
+// GlowcapWebrtcSignaling (libglowcap_net_transport_webrtc, GlowcapWebrtcConfig.signaling)
+export const WEBRTC_SIGNALING_SIZE = 40;
+export const WEBRTC_SIGNALING_CTX_OFF = 0;
+export const WEBRTC_SIGNALING_SEND_OFFER_OFF = 8;
+export const WEBRTC_SIGNALING_SEND_ANSWER_OFF = 16;
+export const WEBRTC_SIGNALING_SEND_CANDIDATE_OFF = 24;
+export const WEBRTC_SIGNALING_DONE_OFF = 32;

@@ -74,10 +74,10 @@ void glowcap_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define GLOWCAP_DEFAULT_CAPTP_VERSION 0
 /* Default feature bitmask for byte-fed Host constructors. */
 #define GLOWCAP_DEFAULT_FEATURES 31
-/* Codec half of glowcap's coherent native Host profile. */
-#define GLOWCAP_NATIVE_CODEC 2
-/* CapTP-version half of glowcap's coherent native Host profile. */
-#define GLOWCAP_NATIVE_CAPTP_VERSION 1
+/* The codec glowcap's own Host profile prefers. */
+#define GLOWCAP_OWN_CODEC 2
+/* The CapTP version glowcap's own Host profile prefers. */
+#define GLOWCAP_OWN_CAPTP_VERSION 1
 /* Codec half of glowcap's coherent interop Host profile. */
 #define GLOWCAP_INTEROP_CODEC 1
 /* CapTP-version half of glowcap's coherent interop Host profile. */
@@ -98,6 +98,7 @@ void glowcap_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define GLOWCAP_ARG_BIG_INTEGER 12
 #define GLOWCAP_ARG_STRUCT 13
 #define GLOWCAP_ARG_ERROR 14
+#define GLOWCAP_ARG_INTEGERS 15
 #define GLOWCAP_RESOLUTION_FULFILL 0
 #define GLOWCAP_RESOLUTION_BREAK 1
 #define GLOWCAP_RESOLUTION_HANDOFF 2

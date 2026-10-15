@@ -1,6 +1,7 @@
 //! Bounded copying between plain actor messages and owning Host values.
 const std = @import("std");
 const driver = @import("driver_core");
+const model = @import("model");
 const AllocationBound = @import("call_memory.zig").AllocationBound;
 
 /// Values counts roots and every descendant, including struct values. Keys
@@ -34,4 +35,18 @@ pub fn allocationBound(comptime To: type, shape: Bounds) !AllocationBound {
 pub fn copy(comptime To: type, allocator: std.mem.Allocator, value: anytype) !To {
     return driver.copyValue(To, allocator, value) catch |err|
         if (err == error.UnsupportedValue) error.NotDurable else err;
+}
+
+/// A delivery's arguments as Host values in `allocator`, one walk over the
+/// views.
+pub fn copyArgs(allocator: std.mem.Allocator, args: model.view.Args) ![]driver.Value {
+    const out = try allocator.alloc(driver.Value, try args.len());
+    var filled: usize = 0;
+    var it = args.iterator();
+    while (try it.next()) |item| : (filled += 1) {
+        if (filled >= out.len) return error.MalformedView;
+        out[filled] = try copy(driver.Value, allocator, item);
+    }
+    if (filled != out.len) return error.MalformedView;
+    return out;
 }

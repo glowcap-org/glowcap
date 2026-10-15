@@ -11,7 +11,7 @@ const Io = std.Io;
 
 pub const command: types.Command = .{
     .name = "install",
-    .short_help = "Install this complete product into a prefix; keep previous versions",
+    .short_help = "Install this complete product into a prefix and keep previous versions",
     .inherit_flags = false,
     .flags = &.{.{ .long = "prefix", .help = "Installation prefix (default $HOME/.local)", .kind = .string_flag }},
     .run = run,
@@ -25,7 +25,7 @@ fn run(ctx: *Ctx, parsed: *types.Parsed) !u8 {
     defer ctx.gpa.free(root);
     const destination = parsed.flagString("prefix") orelse blk: {
         const home = ctx.environ.get("HOME") orelse {
-            log.err(ctx.io, "HOME is unset; provide --prefix", .{});
+            log.err(ctx.io, "HOME is unset. Provide --prefix", .{});
             return error.Usage;
         };
         if (home.len == 0) return error.Usage;
@@ -33,7 +33,7 @@ fn run(ctx: *Ctx, parsed: *types.Parsed) !u8 {
     };
     if (destination.len == 0) return error.Usage;
     const selected = @import("../operability/signals.zig").interruptible([]const u8, ctx.io, install, .{ ctx.io, gpa, root, destination }) catch |err| {
-        log.err(ctx.io, "installation failed: {s}; existing installations were not replaced", .{@errorName(err)});
+        log.err(ctx.io, "installation failed: {s}. Existing installations were not replaced", .{@errorName(err)});
         return 1;
     };
     try @import("../argv.zig").writeStdout(ctx.io, try std.fmt.allocPrint(gpa, "Installed {s}\nAdd {s} to PATH. Previous versions remain under {s}/lib/glowcap.\n", .{ selected, std.fs.path.dirname(selected).?, destination }));

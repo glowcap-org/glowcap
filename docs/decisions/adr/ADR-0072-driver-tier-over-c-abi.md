@@ -136,7 +136,7 @@ free of `net`, which is why no separate net-free actor archive exists.
 sit outside the layer DAG (`.graph = false`, ADR-0059). `arch-check` claims their
 directories for file coverage and the I/O bans.
 
-**An optional embedder pump wrapper.** `src/c_abi/driver/embedder_pump.zig`
+**An optional embedder pump wrapper.** `src/c_abi/host/embedder_pump.zig`
 exports `glowcap_host_pump_drain` and `GlowcapHostPumpHooks`. It drains through
 `glowcap_host_next_action` internally and invokes embedder hooks (flush-write,
 close, dial, gift entropy, settle routing). It does not replace the pull API, does
@@ -221,7 +221,7 @@ holds TypeScript's pull loop to the same generated action inventory.
 
 ## Notes
 
-- Projects [ADR-0068](ADR-0068-native-host-tier.md) to the C ABI and executes its
+- Projects [ADR-0068](ADR-0068-zig-host-tier.md) to the C ABI and executes its
   named direction of growing the loop under the host.
 - Extends [ADR-0062](ADR-0062-one-connect-over-a-netlayer-slice.md)'s netlayer
   configurability from a Zig slice and built-in C transports to a host-supplied

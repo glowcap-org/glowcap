@@ -1,5 +1,5 @@
 #lang racket/base
-;; Typed projection of the native carrier failure location.
+;; Typed projection of the FFI carrier failure location.
 
 (require "constants.rkt"
          "errors.rkt")

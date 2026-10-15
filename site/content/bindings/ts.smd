@@ -6,17 +6,17 @@
 .draft = false,
 ---
 
-The TypeScript binding supports three runtimes from one source tree.
+The TypeScript binding runs on Deno, Bun, and the browser from one source tree.
 `@glowcap/runtime`
 ([`mod.ts`](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/runtime/mod.ts))
 gives Deno and Bun the `Session` and `Host` API over the glowcap C ABI.
 `Runtime.open` installs the transport providers and connectors once, and
-`runtime.connect` uses the one that matches the locator.
+`runtime.connect` picks the one that matches the locator.
 
 - Transport packages such as `@glowcap/iroh` build their own locators and own
   their transport configuration.
 - `@glowcap/onion`, `@glowcap/relay`, and `@glowcap/tcp` provide the other
-  native providers and connectors shown below.
+  providers and connectors shown below.
 - `@glowcap/inproc` moves raw frames. It has no provider to install into a
   Runtime, so the Session API cannot use it.
 
@@ -25,11 +25,11 @@ The same source also compiles to WebAssembly as `@glowcap/web`, so the same
 [In the browser]($link.page('bindings/browser')) covers how a page reaches its
 peers.
 
-Pin a checkout, build the archives, and
-run from `bindings/ts` or point an import map at `bindings/ts/runtime/mod.ts`.
-Set `GLOWCAP_LIB_DIR` only if the archives are outside `zig-out/lib`. Deno
-needs `--allow-ffi --allow-read --allow-net`, plus `--allow-env` when the
-library path comes from the environment.
+To use it, pin a checkout, build the archives, and run from `bindings/ts` or
+point an import map at `bindings/ts/runtime/mod.ts`. Set `GLOWCAP_LIB_DIR` to
+load the archives from another directory. Deno needs
+`--allow-ffi --allow-read --allow-net`, plus `--allow-env` when the library
+path comes from the environment.
 
 # The same round-trip
 
@@ -57,14 +57,19 @@ when another task waits for the session to shut down.
 > **webrtc**
 > ```ts
 > import { Runtime } from "@glowcap/runtime";
-> import { connector, locator, type SignalingAuthority } from "@glowcap/webrtc";
+> import { locator } from "@glowcap/webrtc";
+> import { provider, type SignalingAuthority } from "@glowcap/webrtc/driver";
 >
+> // Your signaling carries the offer and each candidate to the peer the locator
+> // names, over a path you already hold, such as an OCapN capability both peers
+> // can reach, and brings the answer and the peer's candidates back. In a
+> // browser, `connector(signaling)` from `@glowcap/webrtc` takes its place.
 > declare const signaling: SignalingAuthority;
 > const peerKey = "<64 lowercase hex characters from the peer>";
 > const partner = locator(peerKey);
 >
 > await using runtime = await Runtime.open({
-> 	connectors: [connector(signaling)],
+> 	providers: [provider(signaling)],
 > });
 > ```
 > **noise-tcp**
@@ -153,13 +158,12 @@ console.log(reply);
 ```
 
 The CapTP verbs stay the same across tabs. What changes is the locator helper,
-the listen/seed posture, and whether CapTP rides cleartext or Noise. The iroh
+how the listener gets its key, and whether CapTP rides cleartext or Noise. The iroh
 tab needs `@glowcap/iroh` and a discovery-reachable node id.
 
 The `serve` promise resolves when the session closes cleanly and rejects on a
 transport or protocol error. When the loop ends, every `send` still awaiting a
-reply breaks too, so failures surface on the calls you await. The bare `catch`
-only keeps the loop's rejection from going unhandled.
+reply breaks too, so failures surface on the calls you await.
 
 # Hosting the other half
 
@@ -262,10 +266,10 @@ locator through `server.uri`.
 
 # Async
 
-Sessions return native promises, and a session is disposable: connect with
-`await using`, and the session closes when the block ends, in place of an
-explicit `session.close()`. For how one call can pipeline on another before it resolves,
-see [Concepts]($link.page('concepts')).
+Sessions return JavaScript promises, and a session is disposable: connect with
+`await using` and it closes when the block ends, with no explicit
+`session.close()`. [Concepts]($link.page('concepts')) explains how one call can
+pipeline on another before it resolves.
 
 # Actors
 
@@ -278,5 +282,5 @@ and [Concepts]($link.page('concepts')) explains the handoff.
 
 The complete API lives in the
 [TypeScript binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/README.md).
-Bun's synchronous FFI cannot host the native driver loop, so under Bun the
+Bun's synchronous FFI cannot host the C driver loop, so under Bun the
 binding covers identity and locator checks but not dial or listen.

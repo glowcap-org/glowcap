@@ -63,7 +63,7 @@ class DriverServer:
         """Stop admission and preserve sessions already returned.
 
         A server that minted its own loop requests that loop's retirement.
-        Native release runs once those application-owned sessions close. This
+        FFI release runs once those application-owned sessions close. This
         method does not wait for them, so a finally block can still close the
         sessions it holds. It does join this listener's provider teardown, so
         success means no later accepted session can name it.
@@ -113,6 +113,22 @@ def _rollback_listener_construction(
         except BaseException as cleanup_error:
             _retain_cleanup_failure(primary, cleanup_error)
     return primary
+
+
+def listener_seed(seed: Optional[bytes], host: Optional[Host]) -> bytes:
+    """The key seed a keyed listener runs under: ``seed`` restores a key,
+    ``host`` shares that Host's, and with neither the key is new. Passing both
+    is refused, because they are two answers to one question."""
+    if seed is not None and len(seed) != 32:
+        raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "listen: seed must be 32 bytes")
+    if seed is not None and host is not None:
+        raise GlowcapError(
+            _c.ERR_INVALID_ARGUMENT,
+            "listen: seed and host are alternative identity sources",
+        )
+    if seed is not None:
+        return seed
+    return host.seed if host is not None else secrets.token_bytes(32)
 
 
 def prepare_driver_loop(

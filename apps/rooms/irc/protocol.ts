@@ -1,4 +1,4 @@
-// The IRC vocabulary shared by the channel bridge and native Rooms front.
+// The IRC vocabulary shared by the channel bridge and Rooms IRC server.
 //
 // IRC is an edge protocol, never a CapTP netlayer. This module owns only its
 // bounded line grammar and casemapping. It knows nothing about sockets, rooms,

@@ -1,14 +1,6 @@
 //! The scripted backend the cross-arm, wake, and close-slot proofs drive:
 //! every completion is the script's choice, and the queue accounting it
 //! exposes is what pins ADR-0042's outbound arithmetic without a socket.
-//! The completion loop's cross-connection outbound arm (`Loop.armOutbound`):
-//! a hook serving connection A that enqueued sends on connection B's peer
-//! arms B's write without waiting for B's own traffic. Proven twice: end to
-//! end on the platform backend (a quiet partner receives a frame only
-//! cross-arming could have put on its wire), and on a scripted backend that
-//! pins the queue accounting. Cross-armed bytes count into the connection's
-//! pending outbound, so ADR-0042 parks that connection's next read at the
-//! high-water mark exactly as it parks reply traffic.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -27,6 +19,7 @@ const fixtures = @import("../../support/completion_loop_fixtures.zig");
 pub const startSession = fixtures.startSession;
 pub const makeServerPeer = fixtures.makeServerPeer;
 pub const drainOutboundBytes = fixtures.drainOutboundBytes;
+pub const pumpStream = fixtures.pumpStream;
 pub const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 
 // ── End to end: a quiet partner hears a cross-armed frame ────────────────────
@@ -194,6 +187,11 @@ pub const CrossArmBackend = struct {
     pub fn submitClose(self: *CrossArmBackend, user_data: u64, fd: Fd) !void {
         _ = fd;
         self.push(.{ .user_data = user_data, .result = 0 });
+    }
+
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *CrossArmBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
     }
 
     pub fn poll(self: *CrossArmBackend, out: []completion.Completion, timeout_ms: i32) !usize {

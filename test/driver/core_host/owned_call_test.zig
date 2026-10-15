@@ -8,11 +8,12 @@ const a = std.testing.allocator;
 
 const Echo = struct {
     calls: *usize,
-    pub fn handle(self: *Echo, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Echo, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
         if (std.mem.eql(u8, verb, "break")) return error.Refused;
-        return args[0];
+        return arg_values[0];
     }
 };
 
@@ -22,7 +23,7 @@ const RetainingActor = struct {
     released: *bool,
     refused_reentry: ?*bool = null,
     spawn_on_retirement: bool = false,
-    pub fn handle(_: *RetainingActor, _: *glowcap.actors.Turn, _: glowcap.actors.Message) !glowcap.ocapn.model.Argument {
+    pub fn handle(_: *RetainingActor, _: *glowcap.actors.Turn, _: glowcap.actors.Delivery) !glowcap.ocapn.model.Argument {
         return .{ .void = {} };
     }
     pub fn deinit(self: *RetainingActor, _: std.mem.Allocator) void {
@@ -30,7 +31,7 @@ const RetainingActor = struct {
             refused.* = if (self.host.refuseReentry()) |_| false else |err| err == error.ReenteredHost;
         }
         if (self.spawn_on_retirement) for (0..64) |_| {
-            // Native destructor effects may resize the actor index while the
+            // Zig destructor effects may resize the actor index while the
             // next outer frame is opening. No borrowed cell may cross that.
             _ = self.host.vat.spawn(h.Widget, .{}) catch unreachable;
         };
@@ -92,7 +93,7 @@ test "core host: retired actor remote release waits for the outer Vat boundary" 
         try std.testing.expectEqual(@as(usize, 0), hits);
         try std.testing.expect(pair.a.sessionOpen());
         // The destructor stages GC. Its encoding/dispatch tail belongs to
-        // the next top-level Host turn after the native Vat frame has closed.
+        // the next top-level Host turn after the Zig Vat frame has closed.
         try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
         _ = try client.vat.driveIngressBudgeted(.local, 1);
         try std.testing.expectEqual(@as(usize, 1), hits);
@@ -213,7 +214,7 @@ const Deferring = struct {
     host: *driver.Host,
     session: *driver.HostSession,
     resolver: *u64,
-    pub fn handle(self: *Deferring, turn: *glowcap.actors.Turn, _: glowcap.actors.Message) !glowcap.ocapn.model.Argument {
+    pub fn handle(self: *Deferring, turn: *glowcap.actors.Turn, _: glowcap.actors.Delivery) !glowcap.ocapn.model.Argument {
         self.resolver.* = try self.host.deferTurn(self.session, turn);
         return .{ .void = {} };
     }
@@ -222,10 +223,11 @@ const Deferring = struct {
 const Receiving = struct {
     calls: *usize,
     poke: *u64,
-    pub fn handle(self: *Receiving, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Receiving, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.calls.* += 1;
-        self.poke.* = try turn.host.queueSendValues(turn.session.?, args[0].capability, "poke", &.{}, turn.turn.arena);
+        self.poke.* = try turn.host.queueSendValues(turn.session.?, arg_values[0].capability, "poke", &.{}, turn.turn.arena);
         return .{ .boolean = true };
     }
 };

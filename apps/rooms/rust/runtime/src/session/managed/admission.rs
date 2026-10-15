@@ -69,7 +69,10 @@ pub(super) struct Admission {
 }
 impl Default for Admission {
 	fn default() -> Self {
-		Self::new(Settings::defaults(4096, 8))
+		Self::new(Settings::defaults(
+			rooms_application::admission::SESSION_ROWS,
+			rooms_application::admission::POOLED_AGGREGATE_SCALE,
+		))
 	}
 }
 impl Admission {

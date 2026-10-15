@@ -27,7 +27,7 @@ const Greeter = support_actors.StaticReplyValueActor("greet", "still serving");
 const Probe = struct {
     freed: *bool,
 
-    pub fn handle(self: *Probe, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Probe, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = self;
         _ = ht;
         _ = args;

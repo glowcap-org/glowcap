@@ -232,7 +232,8 @@ pub fn acceptInlineGive(self: *Host, session: *HostSession, give: model.HandoffG
     try self.admitApplicationOperation();
     try self.admitSessionOperation(session);
     try self.checkSession(session);
-    const lifted = try capability_promise.liftInlineGive(self, session, give);
+    var handoff: model.Handoff = .{ .give = give };
+    const lifted = try capability_promise.liftInlineGive(self, session, model.view.Handoff.fromOwned(&handoff).give);
     self.commitCapabilityLift(lifted);
     finishCommittedEffect(self);
     return lifted.ref;

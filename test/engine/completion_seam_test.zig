@@ -2,20 +2,27 @@
 //!
 //! A completion loop (io_uring / kqueue / IOCP) owns a bounded per-connection
 //! byte buffer, receives reads of *arbitrary* size, and must apply whole frames
-//! out of that buffer without a `std.Io.Reader` underneath it. The Peer seam for
-//! that is `recvStreamPrefix` (apply one frame off a borrowed prefix, report
-//! bytes consumed or `.incomplete`, fail closed on incomplete-at-cap), `step`
-//! (encode queued sends), and `takeOutbound` (pull owned outbound frames). These
-//! tests drive that seam with no `std.Io` and no socket, the way the loop will,
-//! so the contract is pinned before the loop exists: arbitrary chunk boundaries
-//! apply each frame exactly once, the unconsumed tail stays valid for the next
-//! read, and compaction drains several frames from one buffer. If a refactor
-//! breaks the seam, these fail rather than the future loop.
+//! out of that buffer without a `std.Io.Reader` underneath it. The seam for
+//! that is `net.recvOuterPrefix` (apply one envelope off a borrowed prefix,
+//! report bytes consumed or `.incomplete`, refuse a declared length over the
+//! cap before its body arrives), `Peer.step` (encode queued sends), and
+//! `Peer.takeOutbound` (pull owned outbound frames). The envelope owns the
+//! boundary, and the peer's one parse at admission is the validation, so a
+//! body that is not exactly one frame is refused at the door with the same
+//! typed abort a decoder refusal projects. These tests drive that seam with
+//! no `std.Io` and no socket, the way the loop does, so the contract is pinned
+//! apart from the loop: arbitrary chunk boundaries apply each frame exactly
+//! once, the unconsumed tail stays valid for the next read, and compaction
+//! drains several frames from one buffer. If a refactor breaks the seam, these
+//! fail before the loop's own tests do.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
 
 const engine = glowcap.ocapn.engine;
+const model = glowcap.ocapn.model;
+const codec = glowcap.ocapn.codec;
+const net = glowcap.net;
 
 /// A no-answer (`#f` answer position) `op:deliver` to live local export 7, the
 /// fire-and-forget one-way send. With no answer position it installs no inbound
@@ -25,14 +32,23 @@ const engine = glowcap.ocapn.engine;
 /// same position arrived, which is a real protocol violation, not a test concern.
 const deliver_to_export7 = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
-/// Apply every whole frame currently buffered, compacting the unconsumed tail to
-/// the front of `buf`, exactly the loop's inner drain. Returns the number of
-/// frames applied and the new valid length.
+/// `frame` as a byte stream carries it: inside one Syrup byte-string envelope.
+fn enveloped(comptime frame: []const u8) *const [envelopedLen(frame)]u8 {
+    return std.fmt.comptimePrint("{d}:", .{frame.len}) ++ frame;
+}
+
+fn envelopedLen(comptime frame: []const u8) usize {
+    return std.fmt.comptimePrint("{d}:", .{frame.len}).len + frame.len;
+}
+
+/// Apply every whole envelope currently buffered, compacting the unconsumed
+/// tail to the front of `buf`, exactly the loop's inner drain. Returns the
+/// number of frames applied and the new valid length.
 fn drainBuffered(peer: *engine.Peer, buf: []u8, valid_in: usize) !struct { applied: usize, valid: usize } {
     var valid = valid_in;
     var applied: usize = 0;
     while (valid > 0) {
-        switch (try peer.recvStreamPrefix(buf[0..valid])) {
+        switch (try net.recvOuterPrefix(peer, buf[0..valid])) {
             .incomplete => break,
             .consumed => |n| {
                 applied += 1;
@@ -55,6 +71,15 @@ fn drainDeliverEvents(peer: *engine.Peer) !usize {
     return events;
 }
 
+/// The abort a refusal at the door projects, committed straight to outbound.
+fn expectAbortQueued(peer: *engine.Peer, kind: model.AbortKind) !void {
+    const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
+    try std.testing.expectEqual(kind, abort.kind);
+    var out = peer.takeOutbound() orelse return error.NoAbortFrameQueued;
+    defer out.deinit();
+    try std.testing.expect(out.bytes().len > 0);
+}
+
 test "completion seam: a frame delivered one byte at a time applies exactly once" {
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
@@ -67,8 +92,8 @@ test "completion seam: a frame delivered one byte at a time applies exactly once
 
     // Each iteration is one single-byte "read completion": append, then apply
     // whatever is now whole. Every strict prefix must be `.incomplete` (no error,
-    // no state change) until the final byte completes the frame.
-    for (deliver_to_export7) |byte| {
+    // no state change) until the final byte completes the envelope.
+    for (enveloped(deliver_to_export7)) |byte| {
         buf[valid] = byte;
         valid += 1;
         const drained = try drainBuffered(&peer, &buf, valid);
@@ -92,7 +117,7 @@ test "completion seam: two frames in one read drain via compaction" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    const wire = deliver_to_export7 ++ deliver_to_export7;
+    const wire = enveloped(deliver_to_export7) ++ enveloped(deliver_to_export7);
     var buf: [512]u8 = undefined;
     @memcpy(buf[0..wire.len], wire);
 
@@ -102,15 +127,30 @@ test "completion seam: two frames in one read drain via compaction" {
     try std.testing.expectEqual(@as(usize, 2), try drainDeliverEvents(&peer));
 }
 
+test "completion seam: a deliver with no arguments applies off a stream prefix" {
+    var peer = engine.Peer.init(std.testing.allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    const wire = enveloped("<10'op:deliver<11'desc:export7+>[]ff>");
+    var buf: [128]u8 = undefined;
+    @memcpy(buf[0..wire.len], wire);
+
+    const drained = try drainBuffered(&peer, &buf, wire.len);
+    try std.testing.expectEqual(@as(usize, 1), drained.applied);
+    try std.testing.expectEqual(@as(usize, 1), try drainDeliverEvents(&peer));
+}
+
 test "completion seam: a frame plus a partial next frame leaves the tail buffered" {
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // One whole frame followed by a strict prefix of the next: the loop applies
-    // the first and keeps the partial tail for the following read.
-    const partial = deliver_to_export7[0 .. deliver_to_export7.len - 3];
-    const wire = deliver_to_export7 ++ partial;
+    // One whole envelope followed by a strict prefix of the next: the loop
+    // applies the first and keeps the partial tail for the following read.
+    const whole = enveloped(deliver_to_export7);
+    const partial = whole[0 .. whole.len - 3];
+    const wire = whole ++ partial;
     var buf: [512]u8 = undefined;
     @memcpy(buf[0..wire.len], wire);
 
@@ -121,7 +161,7 @@ test "completion seam: a frame plus a partial next frame leaves the tail buffere
     try std.testing.expectEqual(@as(usize, 1), try drainDeliverEvents(&peer));
 
     // Append the three missing bytes and the second frame completes.
-    const rest = deliver_to_export7[deliver_to_export7.len - 3 ..];
+    const rest = whole[whole.len - 3 ..];
     @memcpy(buf[first.valid .. first.valid + rest.len], rest);
     const second = try drainBuffered(&peer, &buf, first.valid + rest.len);
     try std.testing.expectEqual(@as(usize, 1), second.applied);
@@ -129,16 +169,81 @@ test "completion seam: a frame plus a partial next frame leaves the tail buffere
     try std.testing.expectEqual(@as(usize, 1), try drainDeliverEvents(&peer));
 }
 
-test "completion seam: recvStreamPrefix fails closed on incomplete-at-cap" {
+test "completion seam: the event borrows the retained frame, never the loop's buffer" {
+    var peer = engine.Peer.init(std.testing.allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    const wire = enveloped(deliver_to_export7);
+    var buf: [wire.len]u8 = undefined;
+    @memcpy(&buf, wire);
+    const drained = try drainBuffered(&peer, &buf, wire.len);
+    try std.testing.expectEqual(@as(usize, 1), drained.applied);
+    // A pool buffer is recycled the moment the completion returns, before the
+    // application drains the event.
+    @memset(&buf, 'x');
+
+    var event = peer.pollEvent() orelse return error.TestUnexpectedResult;
+    defer event.deinit();
+    var args = event.view().deliver.args.iterator();
+    const first = (try args.next()) orelse return error.TestUnexpectedResult;
+    try std.testing.expectEqualStrings("hello", first.bytes);
+}
+
+test "completion seam: a declared length over the cap is refused before its body arrives" {
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = 8;
 
-    // Eight bytes opening a record whose symbol declares ten, so the frame it
-    // begins cannot fit an eight-byte budget however many more bytes arrive.
-    // The codec refuses that during decode, from the declared length alone.
-    const junk = [_]u8{ '<', '1', '0', '\'', 'o', 'p', ':', 'd' };
-    try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(&junk));
+    // The envelope declares ten bytes against an eight-byte budget, so the
+    // frame it carries can never fit however many more bytes arrive. Nothing
+    // of the body has been read.
+    try std.testing.expectError(error.FrameTooLarge, net.recvOuterPrefix(&peer, "10:<10'op"));
+    // And the partner is told. Refusing is what stops a partner growing a
+    // consumer's pending buffer without end.
+    try expectAbortQueued(&peer, .resource_exhausted);
+}
+
+test "completion seam: a declared length exactly at the cap is admissible, one over is not" {
+    const whole = enveloped(deliver_to_export7);
+    const body_len = deliver_to_export7.len;
+
+    // At the cap, a partial body is incomplete, and the whole body applies.
+    var peer = engine.Peer.init(std.testing.allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+    peer.session_state.limits.max_frame_bytes = body_len;
+    try std.testing.expectEqual(net.RecvStream.incomplete, try net.recvOuterPrefix(&peer, whole[0 .. whole.len - 1]));
+    try std.testing.expect(peer.lastAbort() == null);
+    try std.testing.expectEqual(net.RecvStream{ .consumed = whole.len }, try net.recvOuterPrefix(&peer, whole));
+    try std.testing.expectEqual(@as(usize, 1), try drainDeliverEvents(&peer));
+
+    // One byte less of budget and the same declaration is refused.
+    var tight = engine.Peer.init(std.testing.allocator);
+    defer tight.deinit();
+    tight.session_state.limits.max_frame_bytes = body_len - 1;
+    try std.testing.expectError(error.FrameTooLarge, net.recvOuterPrefix(&tight, whole));
+    try expectAbortQueued(&tight, .resource_exhausted);
+}
+
+test "completion seam: an envelope whose body is not exactly one frame is refused at the door" {
+    var peer = engine.Peer.init(std.testing.allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    // Two valid frames inside one envelope. The envelope is well formed, so the
+    // refusal is the peer's one parse at admission finding trailing bytes.
+    const wire = enveloped(deliver_to_export7 ++ deliver_to_export7);
+    try std.testing.expectError(error.MalformedFrame, net.recvOuterPrefix(&peer, wire));
+    try std.testing.expect(peer.lastAbort() != null);
+    try std.testing.expectEqual(@as(usize, 0), try drainDeliverEvents(&peer));
+
+    // A truncated body under a well-formed envelope is refused the same way.
+    var cut = engine.Peer.init(std.testing.allocator);
+    defer cut.deinit();
+    try cut.session_state.registerExport(.from(7));
+    try std.testing.expectError(error.MalformedFrame, net.recvOuterPrefix(&cut, enveloped(deliver_to_export7[0 .. deliver_to_export7.len - 1])));
+    try std.testing.expect(cut.lastAbort() != null);
 }
 
 test "whole-frame ingress refuses over-cap borrowed and owned frames on both codecs" {
@@ -169,9 +274,6 @@ test "whole-frame ingress refuses over-cap borrowed and owned frames on both cod
         }
     }
 }
-
-const model = glowcap.ocapn.model;
-const codec = glowcap.ocapn.codec;
 
 test "whole-frame ingress accepts the exact cap and rechecks queued frames" {
     for ([_]model.CodecId{ .syrup, .capnp }) |encoding| {
@@ -226,123 +328,4 @@ test "whole-frame ingress refuses before copying even under allocation pressure"
     try std.testing.expect(peer.sessionIsClosed());
     try std.testing.expectEqualStrings("FrameTooLarge", peer.lastAbort().?.error_name);
     try std.testing.expectEqual(error.OutOfMemory, peer.lastAbort().?.abort_delivery_error.?);
-}
-
-/// A real `op:start-session` grown past the scan threshold by its designator,
-/// with only its closing bracket removed. Every element is whole and the record
-/// is still open, so the scan walks to the very end of the buffer and parks
-/// there with nothing outstanding but the bracket.
-///
-/// That last part is what makes the fixture: cutting into an element instead
-/// would leave the scan waiting on a leaf whose declared length it can compare
-/// against the cap, and it hands such a frame straight to the decoder rather
-/// than parking. Parking at a boundary is the state in which the buffer can
-/// have reached the cap while the scan still says it needs more, which is the
-/// only way into the branch under test. Hand-building a record does not reach
-/// the scan at all: the decoder refuses a frame whose label is not a known op.
-fn truncatedStartSession(allocator: std.mem.Allocator, designator: []const u8) ![]u8 {
-    const zero_pubkey = @as([32]u8, @splat(0));
-    const zero_sig = @as([64]u8, @splat(0));
-    var frame = try codec.dispatch.encodeMessageForProfile(.syrup, allocator, model.CaptpVersion.v1_0, .{
-        .start_session = .{
-            .captp_version = .v1_0,
-            .session_pubkey = .{ .bytes = &zero_pubkey },
-            .acceptable_location = .{
-                .transport = "memory",
-                .designator = designator,
-                .hints = model.Hints.emptyMap(),
-            },
-            .acceptable_location_sig = .{ .bytes = &zero_sig },
-        },
-    });
-    defer frame.deinit();
-    const whole = frame.bytes();
-    return allocator.dupe(u8, whole[0 .. whole.len - 1]);
-}
-
-test "the scan branch reports incomplete while a stalled frame is still under the cap" {
-    const allocator = std.testing.allocator;
-    var peer = engine.Peer.init(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = 1 << 20;
-
-    // Past the scan threshold, so the scan is consulted at all. Every test in
-    // this tree that reaches `FrameTooLarge` uses a cap of 8 or 64 bytes, far
-    // under that threshold, so none of them enters this branch.
-    const bytes = try truncatedStartSession(allocator, &(@as([6000]u8, @splat('a'))));
-    defer allocator.free(bytes);
-    try std.testing.expect(bytes.len > codec.framing.scan_threshold_bytes);
-
-    try std.testing.expectEqual(engine.Peer.RecvStream.incomplete, try peer.recvStreamPrefix(bytes));
-    // The decoder would also have said `incomplete`, so the outcome alone does
-    // not show the scan ran. What shows it is the peer's own cursor: it walked
-    // the prefix and kept its place, so the next read is cheap.
-    try std.testing.expect(peer.stream_scan.cursor > codec.framing.scan_threshold_bytes);
-    // Withholding the decoder is not the same as refusing: nothing was aborted.
-    try std.testing.expect(peer.lastAbort() == null);
-}
-
-test "the scan branch refuses at the cap with a typed abort, not a silent stall" {
-    const allocator = std.testing.allocator;
-    var peer = engine.Peer.init(allocator);
-    defer peer.deinit();
-
-    const bytes = try truncatedStartSession(allocator, &(@as([6000]u8, @splat('a'))));
-    defer allocator.free(bytes);
-    // The buffer has arrived exactly at the cap with the frame still open, so
-    // it can never complete within it. The cap has to sit at or above where the
-    // scan parks: past that point the scan hands the question to the decoder
-    // instead, and this branch never runs.
-    peer.session_state.limits.max_frame_bytes = bytes.len;
-    try std.testing.expect(peer.session_state.limits.max_frame_bytes > codec.framing.scan_threshold_bytes);
-
-    // A prefix already at the cap can never complete within it. Refusing is
-    // what stops a partner growing a consumer's pending buffer without end.
-    try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(bytes));
-
-    // And the partner is told. This branch returned bare for one commit, which
-    // left the peer's own contract, a refusal projects a typed abort, broken
-    // with nothing in the tree to notice it.
-    const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
-    try std.testing.expectEqual(model.AbortKind.resource_exhausted, abort.kind);
-    // Committed straight to outbound rather than queued for `step`: the session
-    // is being refused, so the abort bypasses send accounting.
-    var out = peer.takeOutbound() orelse return error.NoAbortFrameQueued;
-    defer out.deinit();
-    try std.testing.expect(out.bytes().len > 0);
-}
-
-test "completion seam: a prefix that is exactly the cap and still open is refused" {
-    const allocator = std.testing.allocator;
-    var peer = engine.Peer.init(allocator);
-    defer peer.deinit();
-
-    // The boundary byte. A codec
-    // refuses a prefix *longer* than the cap, so one that is exactly the cap
-    // and still open came back `incomplete`, and a consumer that believed it
-    // would read past its own limit. The sibling test above is refused a step
-    // earlier, by the declared length inside its bytes, so it never reaches
-    // this case.
-    //
-    // Small enough to stay under the scan threshold, so this is the decoder's
-    // answer being corrected rather than the withheld-scan arm.
-    // `truncatedStartSession` already drops the closing bracket, leaving every
-    // element whole and the record open.
-    const open = try truncatedStartSession(allocator, "remote");
-    defer allocator.free(open);
-    try std.testing.expect(open.len < codec.framing.scan_threshold_bytes);
-
-    peer.session_state.limits.max_frame_bytes = open.len;
-    try std.testing.expectError(error.FrameTooLarge, peer.recvStreamPrefix(open));
-
-    // And the partner is told, the same as any other refusal here.
-    const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
-    try std.testing.expectEqual(model.AbortKind.resource_exhausted, abort.kind);
-
-    // One byte of headroom and the same bytes are incomplete, which is
-    // what stops this from refusing frames that could still arrive.
-    var roomy = engine.Peer.init(allocator);
-    defer roomy.deinit();
-    roomy.session_state.limits.max_frame_bytes = open.len + 1;
-    try std.testing.expectEqual(engine.Peer.RecvStream.incomplete, try roomy.recvStreamPrefix(open));
 }

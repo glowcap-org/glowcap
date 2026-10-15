@@ -1,3 +1,13 @@
+---
+type: static
+description: Diagrams of the promise lifecycle, pipelining, and op:listen.
+sources:
+  - resource: /src/ocapn/session/promises/
+  - resource: /src/ocapn/engine/pipeline.zig
+  - resource: /src/ocapn/engine/pipeline_listeners.zig
+  - resource: /src/ocapn/engine/pipeline_resolution.zig
+---
+
 # Promises and pipelining
 
 These diagrams follow the CapTP Specification sections Promises, Promise

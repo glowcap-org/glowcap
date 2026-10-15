@@ -151,7 +151,7 @@ pub fn checkCAbiSurfaceShape(
     }
 
     // Invariant 2, one error channel per archive, no extra spelling.
-    const allowed_error_families = [_][]const u8{ "", "host", "driver", "tcp", "relay", "inproc", "iroh", "webrtc", "onion", "loam", "loam_lmdb" };
+    const allowed_error_families = [_][]const u8{ "", "host", "driver", "tcp", "relay", "inproc", "iroh", "webrtc", "onion", "loam", "loam_lmdb", "loam_sqlite", "loam_volatile" };
     for (names.items) |name| {
         if (!std.mem.endsWith(u8, name, "_last_error")) continue;
         if (std.mem.endsWith(u8, name, "_clear_last_error")) continue;
@@ -168,7 +168,7 @@ pub fn checkCAbiSurfaceShape(
             if (std.mem.eql(u8, f, family)) family_ok = true;
         }
         if (!family_ok) {
-            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, host, driver, tcp, relay, inproc, iroh, webrtc, onion, loam, loam_lmdb", .{ name, family });
+            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, host, driver, tcp, relay, inproc, iroh, webrtc, onion, loam, loam_lmdb, loam_sqlite, loam_volatile", .{ name, family });
             continue;
         }
         const clear = if (family.len == 0)
@@ -413,6 +413,8 @@ const abi_vocabulary_headers = [_][]const u8{
     "include/glowcap_driver.h",
     "include/glowcap_loam.h",
     "include/glowcap_loam_lmdb.h",
+    "include/glowcap_loam_sqlite.h",
+    "include/glowcap_loam_volatile.h",
     "include/glowcap_net_transport_tcp.h",
     "include/glowcap_net_transport_relay.h",
     "include/glowcap_net_transport_inproc.h",

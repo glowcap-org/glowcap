@@ -13,6 +13,7 @@ const names = [_][]const u8{
     "glowcap_loam_lmdb_work_run",
     "glowcap_loam_lmdb_restore",
     "glowcap_loam_lmdb_commit",
+    "glowcap_loam_lmdb_collect",
     "glowcap_loam_lmdb_last_error",
     "glowcap_loam_lmdb_archive_fingerprint",
 };
@@ -47,6 +48,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "glowcap_loam_lmdb_work_run", &.{ "raw", "work_handle" }, "Execute one storage effect on the storage executor without touching Host state. Join before portable work_complete or work_release. Repeated execution, foreign Store work, and completed work refuse. Operational results remain on the work handle.");
     try E.emitFn(&b, gpa, "glowcap_loam_lmdb_restore", &.{ "raw", "attachment", "object", "out_ref" }, "Privileged restoration reads and validates a persisted rooted endpoint, then returns one held capability occurrence on the supplied Host attachment. Serialized object names never invoke. Release the occurrence through the existing Host reference release.");
     try E.emitFn(&b, gpa, "glowcap_loam_lmdb_commit", &.{"raw"}, "Submit privileged unattached staging through the same Store write/install contract. Committed output installs once; unchanged aborts and returns UNCHANGED with its storage cause in last_error; an unknown outcome leaves recovery required. Execute outside Host turns.");
+    try E.emitFn(&b, gpa, "glowcap_loam_lmdb_collect", &.{ "raw", "work_limit" }, "Run one bounded collection batch of work_limit steps on the LMDB owner and commit it like commit. Returns OK when the batch commits and UNCHANGED when it is refused or aborted, with the cause in last_error. Poll glowcap_loam_store_collecting on the paired Store for whether a cycle remains.");
     try E.emitFn(&b, gpa, "glowcap_loam_lmdb_last_error", &.{ "buf", "len" }, "Copy the immediate storage companion error into caller storage. Returns bytes copied.");
     try E.emitFn(&b, gpa, "glowcap_loam_lmdb_archive_fingerprint", &.{}, "Return this archive's reflected callable and layout fingerprint before the first ordinary call.");
     try E.emitFn(&b, gpa, "glowcap_loam_lmdb_recover", &.{"raw"}, "Resolve an indeterminate unattached creation after its commit worker has terminated. Committed installs once; proven absence returns UNCHANGED and frees staging. No receipt is inspected while a worker may still commit.");

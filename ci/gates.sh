@@ -77,12 +77,13 @@ gate bash tools/run-with-timeout-test.sh
 
 gate zig build infrastructure-check
 gate zig build check
+gate zig build test-memcheck
 gate zig build runtime-check
-# The optional native secure-relay composition is deliberately absent from the
+# The optional Mbed TLS relay composition is deliberately absent from the
 # base library graph, so `check` cannot prove it. Fetch the pinned Mbed TLS
 # release by checksum and run both pollable and completion carriers through the
 # real local certificate/refusal/close/resource matrix here.
-gate zig build native-tls-build
+gate zig build relay-tls-build
 # Bounded mutation fuzzing over every surface that takes bytes somebody else
 # chose. It stays out of `zig build check` because it spawns a nested
 # `zig build`, and check's steps run in parallel over one cache — two builders
@@ -124,7 +125,7 @@ gate zig build bindings-noise-relay-listen
 gate zig build bindings-verb-spine
 gate zig build bindings-keyed-tcp-restart
 gate zig build bindings-keyed-relay-rendezvous
-# The native CLI registers at the reference relay with no listening socket and
+# The Zig CLI registers at the reference relay with no listening socket and
 # answers a cold dial.
 gate zig build zig-keyed-relay-register
 gate zig build bindings-iroh-handoff
@@ -141,7 +142,7 @@ gate zig build wasm-abi-layout-check
 # seams, and nothing else (needs deno).
 gate zig build wasm-import-check
 # A real Chromium page registers its Wasm Host over local WSS/noise-relay; the
-# installed native CLI cold-dials, fetches and calls it, while the relay audits
+# installed Zig CLI cold-dials, fetches and calls it, while the relay audits
 # that the CapTP canary never appeared outside the Noise channel.
 gate zig build web-peer-test
 # Shared storage changes must preserve the Rust/Wasm consumer's IndexedDB
@@ -152,7 +153,7 @@ gate zig build rooms-rust-browser-test
 # release evidence rather than an opt-in demo.
 gate zig build rooms-web-proofs
 gate zig build goblins-interop
-# The smallest outside-authority Rooms proof: a real Goblins vat and a native
+# The smallest outside-authority Rooms proof: a real Goblins vat and a Rooms
 # glowcap member exchange room traffic while the server records the Goblins
 # session on syrup/v1_0 and the glowcap session on capnp/next. This needs no
 # browser or iroh build, so it belongs in the recurring sequence rather than
@@ -165,7 +166,7 @@ gate zig build goblins-rooms
 # racket + cargo, all on PATH above).
 gate zig build demo-rooms
 # Both shipped IRC edges with a real outside implementation: fixture IRC ↔
-# bridge ↔ Goblins, then ordinary IRC client ↔ front ↔ native room ↔ Goblins,
+# bridge ↔ Goblins, then ordinary IRC client ↔ front ↔ Rooms room ↔ Goblins,
 # including a reply over the direct session the IRC side initiated.
 gate zig build goblins-rooms-irc
 # The same live-Goblins conversation, once per binding. Without these the
@@ -203,7 +204,7 @@ gate zig build goblins-exporter
 # Live GC in both directions: Goblins releases a glowcap export, then its
 # weak reference observes reclamation after the owning Zig Session releases.
 gate zig build goblins-gc
-# The listener direction for every native binding: each Host publishes an actor
+# The listener direction for every FFI binding: each Host publishes an actor
 # and a live Goblins vat dials, enlivens, and calls it. This is the reciprocal
 # half of bindings-goblins-interop, which has the bindings dial Goblins.
 gate zig build bindings-goblins-listen
@@ -216,7 +217,7 @@ gate zig build fixture-gen-check
 gate zig build ocapn-findings-check
 gate zig build ocapn-conformance
 gate zig build iroh-interop
-# The provider seam (ADR-0112) in every native runtime: the C driver, the
+# The provider seam (ADR-0112) in every FFI runtime: the C driver, the
 # Python binding, and the Rust binding each install an iroh provider package
 # and dial a real endpoint through it. A binding that closes its endpoint
 # under the driver's lease, or holds an accepted session without serving it,
@@ -231,10 +232,10 @@ gate zig build rust-iroh-driver-provider
 # runtime is a row, never a fork, so no binding can silently lack a proof
 # (needs deno + uv + cargo; all three are already on PATH above).
 gate zig build bindings-relay
-# Every native binding links the same relay archive, projects exact hostname
+# Every language binding links the same relay archive, projects exact hostname
 # and trust refusals from one local WSS fixture, then completes a call and its
 # close barrier. This catches both ABI drift and foreign-static-link gaps.
-gate zig build bindings-native-wss-relay
+gate zig build bindings-wss-relay
 # The matrix's iroh leg: each runtime's relay dials a real iroh endpoint over
 # QUIC and carries the browser peer's live session through it. iroh-interop
 # above already pays the cargo-iroh build, so the marginal cost is the wasm

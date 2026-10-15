@@ -31,7 +31,6 @@ impl Graph {
 			// SAFETY: `bytes` is a local out-parameter the callee writes; the other arguments are plain integers and no
 			// handle is involved.
 			unsafe { ffi::glowcap_loam_graph_call_size_bound(pages, payload_bytes, fields, &mut bytes) },
-			false,
 		)?;
 		Ok(bytes)
 	}
@@ -150,7 +149,6 @@ impl Call<'_> {
 			// the active preparation, which the same callback keeps live; `uri` and `len` are local out-parameters the
 			// callee writes.
 			unsafe { ffi::glowcap_loam_call_page_saved_uri(self.raw, page.handle(), field, &mut uri, &mut len) },
-			false,
 		)?;
 		if uri.is_null() {
 			return Ok(None);
@@ -175,7 +173,6 @@ impl Call<'_> {
 			// the active preparation, which the same callback keeps live; `reference` is an out-parameter the callee
 			// fills.
 			unsafe { ffi::glowcap_loam_call_page_reference(self.raw, page.handle(), field, &mut reference) },
-			false,
 		)?;
 		Ok(Ref::from_sys(&reference))
 	}
@@ -191,7 +188,6 @@ impl Call<'_> {
 			unsafe {
 				ffi::glowcap_loam_call_disclose_page(self.raw, page.handle(), field, u32::from(dependent), &mut value)
 			},
-			false,
 		)?;
 		// SAFETY: `value` was filled by the successful `glowcap_loam_call_disclose_page` call above, and the views it
 		// borrows belong to the call whose handle `self.raw` stays live through the callback, past this statement.
@@ -256,7 +252,6 @@ impl Call<'_> {
 					candidates.len(),
 				)
 			},
-			false,
 		)
 	}
 }

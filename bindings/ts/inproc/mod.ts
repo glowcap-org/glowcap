@@ -29,13 +29,13 @@ import {
 	checkedMaxFrameBytes,
 	codecId,
 	consumedReleaseFailure,
+	FfiDiagnostic,
+	FfiHandle,
+	FfiParent,
 	GlowcapError,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
-	NativeDiagnostic,
-	NativeHandle,
-	NativeParent,
 	outPointer,
 	readBytes,
 	readErrorSlot,
@@ -80,16 +80,16 @@ function checkInproc(code: number): void {
 
 /** An in-process connection whose potentially blocking operations run off-thread. */
 export class Connection {
-	readonly #native: NativeHandle;
-	readonly #parent: NativeParent<Connection | Listener>;
+	readonly #ffi: FfiHandle;
+	readonly #parent: FfiParent<Connection | Listener>;
 	readonly #reads = new SingleFlight("inproc read");
 	readonly #writes: AsyncFfiWriteQueue;
-	readonly #readDiagnostic = new NativeDiagnostic("inproc");
-	readonly #writeDiagnostic = new NativeDiagnostic("inproc");
-	constructor(raw: Ptr, parent: NativeParent<Connection | Listener>, maxFrameBytes: number) {
+	readonly #readDiagnostic = new FfiDiagnostic("inproc");
+	readonly #writeDiagnostic = new FfiDiagnostic("inproc");
+	constructor(raw: Ptr, parent: FfiParent<Connection | Listener>, maxFrameBytes: number) {
 		this.#parent = parent;
 		this.#writes = new AsyncFfiWriteQueue("inproc", maxFrameBytes);
-		this.#native = new NativeHandle(
+		this.#ffi = new FfiHandle(
 			"inproc connection",
 			raw,
 			(p) => inprocS.glowcap_inproc_conn_shutdown(p),
@@ -99,7 +99,7 @@ export class Connection {
 		if (!parent.adopt(this)) throw new Error("inproc netlayer is released");
 	}
 	close(): void {
-		this.#native.close();
+		this.#ffi.close();
 	}
 	[Symbol.dispose](): void {
 		this.close();
@@ -108,7 +108,7 @@ export class Connection {
 	readFrame(): Promise<Uint8Array> {
 		requireOffThreadFfi("inproc", "readFrame");
 		return this.#reads.run(() =>
-			this.#native.use(async (raw) => {
+			this.#ffi.use(async (raw) => {
 				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 				try {
 					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
@@ -133,7 +133,7 @@ export class Connection {
 	writeFrame(frame: Uint8Array): Promise<void> {
 		requireOffThreadFfi("inproc", "writeFrame");
 		return this.#writes.run(frame, (owned) =>
-			this.#native.use(async (raw) => {
+			this.#ffi.use(async (raw) => {
 				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
 					inprocS.glowcap_inproc_conn_write_frame(
 						raw,
@@ -149,14 +149,14 @@ export class Connection {
 /** A bound in-process listener on a string designator. Closed on `close` /
  * `[Symbol.dispose]`. */
 export class Listener {
-	readonly #native: NativeHandle;
-	readonly #parent: NativeParent<Connection | Listener>;
+	readonly #ffi: FfiHandle;
+	readonly #parent: FfiParent<Connection | Listener>;
 	readonly #accepts = new SingleFlight("inproc accept");
-	readonly #acceptDiagnostic = new NativeDiagnostic("inproc");
-	readonly #releaseDiagnostic = new NativeDiagnostic("inproc");
-	constructor(raw: Ptr, parent: NativeParent<Connection | Listener>) {
+	readonly #acceptDiagnostic = new FfiDiagnostic("inproc");
+	readonly #releaseDiagnostic = new FfiDiagnostic("inproc");
+	constructor(raw: Ptr, parent: FfiParent<Connection | Listener>) {
 		this.#parent = parent;
-		this.#native = new NativeHandle(
+		this.#ffi = new FfiHandle(
 			"inproc listener",
 			raw,
 			(p) => inprocS.glowcap_inproc_listener_shutdown(p),
@@ -175,7 +175,7 @@ export class Listener {
 		if (!parent.adopt(this)) throw new Error("inproc netlayer is released");
 	}
 	close(): void {
-		this.#native.close();
+		this.#ffi.close();
 	}
 	[Symbol.dispose](): void {
 		this.close();
@@ -184,7 +184,7 @@ export class Listener {
 	 * listener owns it; do not close it or retain it after `close`. */
 	readinessFd(): number {
 		const out = new Uint8Array(4);
-		checkInproc(inprocS.glowcap_inproc_listener_readiness_fd(this.#native.borrow(), out));
+		checkInproc(inprocS.glowcap_inproc_listener_readiness_fd(this.#ffi.borrow(), out));
 		return new DataView(out.buffer).getInt32(0, true);
 	}
 	/** Block until a dialer connects, returning the in-process connection framing
@@ -193,7 +193,7 @@ export class Listener {
 		requireOffThreadFfi("inproc", "accept");
 		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		return this.#accepts.run(() =>
-			this.#native.use(async (raw) => {
+			this.#ffi.use(async (raw) => {
 				const out = new Uint8Array(8);
 				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
 					inprocS.glowcap_inproc_accept(
@@ -214,41 +214,41 @@ export class Listener {
 /** Owns the in-process switchboard and its one I/O backend; outlives the
  * connections and listeners made from it. */
 export class Netlayer {
-	readonly #native: NativeParent<Connection | Listener>;
+	readonly #ffi: FfiParent<Connection | Listener>;
 	constructor(raw?: Ptr) {
-		requireOffThreadFfi("inproc", "native transport lifecycle");
-		let native = raw;
-		if (native == null) {
+		requireOffThreadFfi("inproc", "FFI transport lifecycle");
+		let ptr = raw;
+		if (ptr == null) {
 			const out = new Uint8Array(8);
 			checkInproc(inprocS.glowcap_inproc_netlayer_new(out));
-			native = outPointer(out);
+			ptr = outPointer(out);
 		}
-		this.#native = new NativeParent(
+		this.#ffi = new FfiParent(
 			"inproc netlayer",
-			native,
+			ptr,
 			undefined,
 			(p) => inprocS.glowcap_inproc_netlayer_release(p),
 		);
 	}
 
 	release(): void {
-		this.#native.close();
+		this.#ffi.close();
 	}
 	[Symbol.dispose](): void {
 		this.release();
 	}
 	async [Symbol.asyncDispose](): Promise<void> {
 		this.release();
-		await this.#native.waitClosed();
+		await this.#ffi.waitClosed();
 	}
 	/** Bind a listener on `designator` (any opaque token). */
 	listen(designator: string): Listener {
 		const d = new TextEncoder().encode(designator);
 		const out = new Uint8Array(8);
 		checkInproc(
-			inprocS.glowcap_inproc_listen(this.#native.borrow(), d, BigInt(d.length), out),
+			inprocS.glowcap_inproc_listen(this.#ffi.borrow(), d, BigInt(d.length), out),
 		);
-		return new Listener(outPointer(out), this.#native);
+		return new Listener(outPointer(out), this.#ffi);
 	}
 	/** Dial the listener bound at `designator` and return an in-process
 	 * connection framing on `codec`, refusing inbound frames over
@@ -260,7 +260,7 @@ export class Netlayer {
 	): Promise<Connection> {
 		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		const d = new TextEncoder().encode(designator);
-		return this.#native.use(async (raw) => {
+		return this.#ffi.use(async (raw) => {
 			const out = new Uint8Array(8);
 			await checkDiagnosedCall(
 				"inproc",
@@ -278,7 +278,7 @@ export class Netlayer {
 						errorLen,
 					),
 			);
-			return new Connection(outPointer(out), this.#native, frameLimit);
+			return new Connection(outPointer(out), this.#ffi, frameLimit);
 		});
 	}
 }

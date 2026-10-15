@@ -65,7 +65,7 @@ Deno.test("an empty locator field hints at this directory's shared address", () 
 	);
 	assert(
 		joining.joinLocatorPlaceholder("ocapn://127.0.0.1%3A8000.tcp") === "127.0.0.1:8000",
-		"a native TCP URI hid its host and port behind abbreviation",
+		"a host TCP URI hid its host and port behind abbreviation",
 	);
 });
 

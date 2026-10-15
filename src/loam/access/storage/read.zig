@@ -26,6 +26,18 @@ pub const Target = union(Page.Family) {
 pub const Binding = struct { target: Target, lease: ?loam.Lease, absence: core.ResourceView.Absence = .unknown, object: ?loam.ObjectId = null };
 pub const Step = union(enum) { ready, read: loam.Read, waiting };
 
+/// One Read's inline state: the 16 KiB grant selection scratch, one decoded
+/// grant row under 1 KiB, the owner header with its policy, and the history
+/// record. Every managed operation embeds one, so a larger Read is a
+/// withdrawal from the operation's footprint. Raise it with the bytes named.
+pub const read_budget_bytes = 21 * 1024;
+comptime {
+    if (@sizeOf(Read) > read_budget_bytes) @compileError(std.fmt.comptimePrint(
+        "access.storage.Read is {d} bytes, over its {d}-byte budget. Raise the constant deliberately, with the bytes justified.",
+        .{ @sizeOf(Read), read_budget_bytes },
+    ));
+}
+
 pub const Read = struct {
     allocator: std.mem.Allocator,
     store: *loam.Store,
@@ -48,19 +60,30 @@ pub const Read = struct {
     cursor: ?Cursor = null,
     cancelled: bool = false,
     exclusive: enum { none, append, resource_change } = .none,
+    /// The one decoded grant row. The grant view lends its grant from here,
+    /// and the loan keeps the row and the selections in `grant_scratch` intact
+    /// until release. Resource reads never touch either.
+    grant_row: records.GrantRecord = undefined,
+    /// The committed row `grant_row` holds, reusable by the next lookup of the
+    /// same object at the same revision. Null once another decoder takes the
+    /// scratch or a proposal was decoded.
+    grant_cached: ?struct { object: loam.ObjectId, revision: u64 } = null,
+    grant_held: bool = false,
     grant_scratch: [2 * core.max_scope_objects * @sizeOf(core.ResourceId)]u8 align(@alignOf(core.ResourceId)) = undefined,
-    // Grants with scalar scopes need no selection scratch. Reuse those bytes
-    // for one owned committed portrait; selected scopes and mutable proposals
-    // decode afresh. Clear the marker before any decoder can reuse the bytes.
-    grant_cache_valid: bool = false,
-    const GrantCache = struct { object: loam.ObjectId, revision: u64, grant: core.GrantView.Record };
 
-    /// Every decoder borrows this same fixed selection buffer. Taking it
-    /// invalidates the scalar portrait before inventory or grant decoding can
-    /// overwrite its key. Resource reads leave selected-scope borrows intact.
-    pub fn grantScratch(self: *Read) *@FieldType(Read, "grant_scratch") {
-        self.grant_cache_valid = false;
+    /// The fixed selection buffer every grant decoder borrows. Taking it
+    /// forgets the cached row, and an open loan refuses it.
+    pub fn grantScratch(self: *Read) error{RecordHeld}!*@FieldType(Read, "grant_scratch") {
+        if (self.grant_held) return error.RecordHeld;
+        self.grant_cached = null;
         return &self.grant_scratch;
+    }
+
+    /// The whole decoded row behind the grant view's open loan: its stamps
+    /// and child root beside the lent grant.
+    pub fn heldRow(self: *const Read) *const records.GrantRecord {
+        std.debug.assert(self.grant_held);
+        return &self.grant_row;
     }
 
     const Cursor = struct { node: ?loam.ObjectId, level: u3 = 0 };
@@ -177,9 +200,7 @@ pub const Read = struct {
             }
             const level: u2 = @intCast(cursor.level);
             if (try self.store.proposed(node)) |staged| {
-                const page = try Page.decode(staged.view);
-                try checkPage(page, self.header.owner, target, level);
-                cursor.node = page.get(Page.digit(target.slot(), level));
+                cursor.node = try lookup(staged.view, self.header.owner, target, level);
                 cursor.level += 1;
                 continue;
             }
@@ -189,9 +210,7 @@ pub const Read = struct {
                 .waiting => return .waiting,
             };
             defer self.store.release(lease) catch unreachable;
-            const page = try Page.decode(try self.store.currentView(lease));
-            try checkPage(page, self.header.owner, target, level);
-            cursor.node = page.get(Page.digit(target.slot(), level));
+            cursor.node = try lookup(try self.store.currentView(lease), self.header.owner, target, level);
             cursor.level += 1;
         }
         const next = switch (target) {
@@ -255,7 +274,7 @@ pub const Read = struct {
     pub fn grantView(self: *Read) !core.GrantView {
         try self.opened();
         if (self.header.lifecycle != .active) return error.OwnerRetired;
-        return core.GrantView.init(.{ .owner = self.header.owner, .revisions = self.header.version }, self.header.max_grant_depth, self, readGrant);
+        return core.GrantView.init(.{ .owner = self.header.owner, .revisions = self.header.version }, self.header.max_grant_depth, .{ .context = self, .lend = lendGrant, .release = releaseGrant });
     }
 
     pub fn opened(self: *Read) !void {
@@ -314,11 +333,15 @@ pub const Read = struct {
         self.count = output;
     }
 
-    fn checkPage(page: Page, owner: core.OwnerId, target: Target, level: u2) !void {
-        if (page.owner != owner or page.family != std.meta.activeTag(target) or page.level != level or page.prefix != Page.prefixFor(target.slot(), level)) return error.InvalidRecord;
+    /// The node under `target`'s slot in one directory page, read from the
+    /// view without copying the page.
+    fn lookup(view: loam.RecordView, owner: core.OwnerId, target: Target, level: u2) !?loam.ObjectId {
+        const page = try Page.decodeHeader(view);
+        try page.expect(owner, std.meta.activeTag(target), level, Page.prefixFor(target.slot(), level));
+        return page.target(view, Page.digit(target.slot(), level));
     }
 
-    fn sourceError(err: anyerror) core.GrantView.SourceError {
+    fn sourceError(err: anyerror) core.ResourceView.SourceError {
         return switch (err) {
             error.RecoveryRequired => error.RecoveryRequired,
             error.RevisionConflict, error.StaleSnapshot => error.RevisionConflict,
@@ -341,8 +364,9 @@ pub const Read = struct {
         return .{ .version = version, .value = .{ .present = record.resource } };
     }
 
-    fn readGrant(context: *const anyopaque, id: core.GrantId) core.GrantView.SourceError!core.GrantView.Reply {
+    fn lendGrant(context: *const anyopaque, id: core.GrantId) core.GrantView.SourceError!core.GrantView.Reply {
         const self: *Read = @ptrCast(@alignCast(@constCast(context)));
+        if (self.grant_held) return error.RecordHeld;
         const entry = self.binding(.{ .grant = id }) catch |err| return sourceError(err);
         const version: core.GrantView.Version = .{ .owner = self.header.owner, .revisions = self.header.version };
         const found = entry orelse return .{ .version = version, .value = .unloaded };
@@ -350,29 +374,25 @@ pub const Read = struct {
             return .{ .version = version, .value = .{ .absent = found.absence } }).view;
         if (found_row.schema != records.profile.grant or found_row.schema_version != records.GrantRecord.format_version) return error.InvalidRecord;
         const committed = (self.store.proposed(found_row.id) catch |err| return sourceError(err)) == null;
-        const cached: *GrantCache = @ptrCast(@alignCast(&self.grant_scratch));
-        if (committed and self.grant_cache_valid) {
-            if (cached.object.eql(found_row.id) and cached.revision == found_row.revision)
-                return grantReply(version, id, cached.grant);
+        const reusable = committed and if (self.grant_cached) |cached| cached.object.eql(found_row.id) and cached.revision == found_row.revision else false;
+        if (!reusable) {
+            self.grant_cached = null;
+            var fixed = std.heap.FixedBufferAllocator.init(&self.grant_scratch);
+            const decoded = records.GrantRecord.decodeOwned(fixed.allocator(), found_row.payload) catch return error.InvalidRecord;
+            decoded.value.validateChildren(found_row) catch return error.InvalidRecord;
+            self.grant_row = decoded.value;
+            if (committed) self.grant_cached = .{ .object = found_row.id, .revision = found_row.revision };
         }
-        // This bounded scratch is reused only by the next grant lookup.
-        // Resource lookups cannot disturb the returned selected-scope borrow.
-        var fixed = std.heap.FixedBufferAllocator.init(self.grantScratch());
-        const decoded = records.GrantRecord.decodeOwned(fixed.allocator(), found_row.payload) catch return error.InvalidRecord;
-        decoded.value.validateChildren(found_row) catch return error.InvalidRecord;
-        const record = decoded.value.grant;
-        if (committed and record.ceiling.scope != .objects and record.configured.scope != .objects) {
-            comptime std.debug.assert(@sizeOf(GrantCache) <= @sizeOf(@FieldType(Read, "grant_scratch")));
-            comptime std.debug.assert(@alignOf(GrantCache) <= @alignOf(core.ResourceId));
-            cached.* = .{ .object = found_row.id, .revision = found_row.revision, .grant = record };
-            self.grant_cache_valid = true;
-        }
-        return grantReply(version, id, record);
-    }
-
-    fn grantReply(version: core.GrantView.Version, id: core.GrantId, record: core.GrantView.Record) core.GrantView.SourceError!core.GrantView.Reply {
+        const record = &self.grant_row.grant;
         if (record.id.owner != id.owner or record.id.slot != id.slot) return error.InvalidRecord;
         if (record.id.generation != id.generation) return .{ .version = version, .value = .{ .absent = .gone } };
+        self.grant_held = true;
         return .{ .version = version, .value = .{ .present = record } };
+    }
+
+    fn releaseGrant(context: *const anyopaque) void {
+        const self: *Read = @ptrCast(@alignCast(@constCast(context)));
+        std.debug.assert(self.grant_held);
+        self.grant_held = false;
     }
 };

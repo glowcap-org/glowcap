@@ -72,7 +72,7 @@ test "an early withdraw verifies before waiting and retains only one accepted co
     var node = engine.Node.init(allocator, repeated(32, 0x67));
     defer node.deinit();
     node.setGifterSessionResolver(resolver_fixture.resolver());
-    _ = try node.registerPeerOver(&exporter);
+    resolver_fixture.peer_handle = try node.registerPeerOver(&exporter);
 
     // A malformed receive signature breaks immediately. It consumes neither
     // owned pending state nor the replay count, so the corrected certificate
@@ -413,7 +413,7 @@ test "a second early withdraw past max_pending_withdraws refuses loud and projec
     var node = engine.Node.init(allocator, repeated(32, 0x64));
     defer node.deinit();
     node.setGifterSessionResolver(resolver_fixture.resolver());
-    _ = try node.registerPeerOver(&exporter);
+    resolver_fixture.peer_handle = try node.registerPeerOver(&exporter);
     exporter.session_state.limits.max_pending_withdraws = 1;
     try exporter.session_state.transitionToOpen();
 

@@ -34,7 +34,7 @@ from ._ffi_ocapn import (
 class Context:
     """An allocation scope. Hosts and netlayers created *in* a context route
     every allocation through it. :meth:`close` immediately refuses new handles
-    and releases the native context after every existing handle family has
+    and releases the FFI context after every existing handle family has
     finished with it. Released on :meth:`close` / context exit / GC.
 
     :meth:`Context.with_allocator` takes two callables backing the context:
@@ -156,7 +156,7 @@ class Context:
         def text(pointer: int | None, length: int) -> str:
             if not pointer or length == 0:
                 return ""
-            # The native journal validates reports and truncates only at UTF-8
+            # The FFI journal validates reports and truncates only at UTF-8
             # boundaries.  A decoding error is therefore an ABI violation, not
             # text that this projection is allowed to repair.
             return ctypes.string_at(pointer, length).decode()
@@ -257,14 +257,14 @@ class Context:
         _ = keepalive
 
     def _acquire_handle(self):
-        """Borrow the allocation policy for one native handle family."""
+        """Borrow the allocation policy for one FFI handle family."""
         if self._release_requested or not self._raw:
             raise RuntimeError("glowcap Context is released")
         self._handle_count += 1
         return self._raw
 
     def _release_handle(self) -> None:
-        """End one native handle family's borrow."""
+        """End one FFI handle family's borrow."""
         if self._handle_count == 0:
             raise RuntimeError("glowcap Context ownership underflow")
         self._handle_count -= 1

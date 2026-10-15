@@ -176,7 +176,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn unknown_native_provenance_is_a_returned_failure() {
+	fn unknown_ffi_provenance_is_a_returned_failure() {
 		let error = DurableProvenance::from_abi(u32::MAX).unwrap_err();
 		assert_eq!(error.kind(), crate::ErrorKind::Internal);
 	}

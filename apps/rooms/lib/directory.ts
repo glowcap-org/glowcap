@@ -34,10 +34,11 @@ export type { DirectoryRegisterOptions } from "./directory_registration.ts";
 import {
 	parseDirectoryWatchSnapshot,
 	parseRegistrationId,
-	parseRooms,
+	parseRoomPage,
 	readRoomEvent,
 	type RoomEvent,
 	type RoomInfo,
+	type RoomPage,
 } from "./directory_publications.ts";
 import { parseRoomsSturdyref } from "./locator.ts";
 import { releaseUnclaimedCapabilityArguments } from "./argument_custody.ts";
@@ -79,7 +80,7 @@ export function signalingRoute(): Directory | null {
  * then `open` a new room or `enter` an existing one. Each returns a reference
  * to that room. Both mirror the wire: `open` rejects if the name is taken, and
  * `enter` rejects if there is no such room. `list` and `watch` are discovery:
- * the rooms that have people in them, as a snapshot or a live feed. The
+ * the rooms that have people in them, as a page at a time or a live feed. The
  * directory owns the connection, and `close` ends it when the session ends. */
 export class Directory {
 	readonly session: Session;
@@ -262,14 +263,15 @@ export class Directory {
 		return sturdyref;
 	}
 
-	/** The live rooms right now, the ones with people in them. */
-	async list(): Promise<RoomInfo[]> {
-		return parseRooms(
+	/** One page of the live rooms, the ones with people in them. Pass the
+	 * page's `next` to read the page after it. */
+	async list(cursor?: string | null): Promise<RoomPage> {
+		return parseRoomPage(
 			await ask(
 				this.session,
 				this.#directory,
 				LIST_PUBLICATIONS,
-				[],
+				cursor == null ? [] : [cursor],
 				"the directory did not answer its room list",
 			),
 		);

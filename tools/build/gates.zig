@@ -9,6 +9,10 @@ const arch_check = @import("../check/arch_check.zig");
 const source_check = @import("../check/source_check.zig");
 const common = @import("common.zig");
 const execution = @import("execution.zig");
+const agent_index_build = @import("agent_index.zig");
+const dependencies_build = @import("dependencies.zig");
+const doc_values_build = @import("doc_values.zig");
+const doc_impact_build = @import("doc_impact.zig");
 
 const transportAbiModule = common.transportAbiModule;
 const layer_table = root.layer_table;
@@ -230,7 +234,7 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("c_abi_driver", driver_abi_mod);
     tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
     // Collection tests import the dependency-free Loam leaf directly, matching
-    // the snapshot benchmark without involving storage or native backends.
+    // the snapshot benchmark without involving storage or LMDB backends.
     tests_mod.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
     // The header-parity test imports translated generated headers to prove they
     // agree with the Zig C ABI sources (sizes, offsets, constants), so the two
@@ -244,7 +248,7 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("c_headers", c_headers.createModule());
     tests_mod.addIncludePath(b.path("include"));
     tests_mod.link_libc = true;
-    // Callback cancellation must work across independently compiled native
+    // Callback cancellation must work across independently compiled Zig
     // archives, which an ordinary single-image Zig test cannot establish.
     const foreign_host_mod = b.createModule(.{
         .root_source_file = b.path("test/support/foreign_host_archive.zig"),
@@ -292,6 +296,32 @@ pub fn register(ctx: Context) Registered {
     completion_deadlines_tests_mod.addImport("completion_deadlines", completion_deadlines_mod);
     const completion_deadlines_tests = b.addTest(.{ .root_module = completion_deadlines_tests_mod });
     const run_completion_deadlines_tests = execution.addZigTest(b, completion_deadlines_tests, .unit_test);
+    // ── Memcheck ──────────────────────────────────────────────────────────
+    // The protocol core and actors tests run once more under valgrind. The graph is
+    // built for the baseline CPU because the checker cannot execute the
+    // SHA-256 instructions the machine's own target enables, and Debug keeps
+    // Zig's valgrind client requests on, so every `undefined` byte is one the
+    // checker tracks. The I/O layers stay out because the checker does not
+    // follow io_uring, and Loam stays out until its tests need no LMDB
+    // process. `-Dtest-filter` narrows this suite as it does `test`.
+    const memcheck_target = b.resolveTargetQuery(.{ .cpu_model = .baseline });
+    const memcheck_mods = graphFromTable(b, memcheck_target, .Debug, &layer_table, false);
+    const memcheck_mod = b.createModule(.{
+        .root_source_file = b.path("test/all_test.zig"),
+        .target = memcheck_target,
+        .optimize = .Debug,
+    });
+    memcheck_mod.addImport("glowcap", memcheck_mods[layerIndex("glowcap")]);
+    memcheck_mod.addImport("syrup", memcheck_mods[layerIndex("syrup")]);
+    const memcheck_layers = b.addOptions();
+    memcheck_layers.addOption([]const []const u8, "layers", &.{ "foundation", "model", "codec", "session", "engine", "actors" });
+    memcheck_mod.addOptions("test_layers", memcheck_layers);
+    const memcheck_tests = b.addTest(.{
+        .root_module = memcheck_mod,
+        .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
+    });
+    const run_memcheck = execution.addZigTest(b, memcheck_tests, .{ .memcheck = 900 });
+    b.step("test-memcheck", "Run the protocol core and actors tests under valgrind, built for the baseline CPU").dependOn(&run_memcheck.step);
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
     // Outside `check`: a search with no natural end does not
     // belong in a gate that has to finish. What `check` does carry is the
@@ -304,7 +334,7 @@ pub fn register(ctx: Context) Registered {
     });
     fuzz_mod.addImport("glowcap", lib_mod);
     // The immutable collections use the same direct leaf import as the suite;
-    // their fuzz target needs neither graph storage nor a native backend, and
+    // their fuzz target needs neither graph storage nor an LMDB backend, and
     // its fuzz target drives it against a plain map to see where they disagree.
     fuzz_mod.addImport("loam_collections", host_mods[layerIndex("loam_collections")]);
     const fuzz_tests = b.addTest(.{
@@ -354,7 +384,7 @@ pub fn register(ctx: Context) Registered {
     });
     onion_loop_tests_mod.addImport("glowcap", lib_mod);
     const onion_loop_tests = b.addTest(.{ .root_module = onion_loop_tests_mod });
-    const onion_loop_step = b.step("onion-loop", "Run the focused native OnionLoop completion tests");
+    const onion_loop_step = b.step("onion-loop", "Run the focused Zig OnionLoop completion tests");
     onion_loop_step.dependOn(&execution.addZigTest(b, onion_loop_tests, .unit_test).step);
 
     // ADR-0193's pending resident listen for `onion`. The publish conversation
@@ -410,6 +440,10 @@ pub fn register(ctx: Context) Registered {
     const source_check_step = b.step("source-check", "Enforce cross-file source, generated, documentation, and scaffolding contracts");
     source_check_step.dependOn(source_check_step_inner);
     source_check_step.dependOn(&run_source_check_tests.step);
+    agent_index_build.register(b, source_check_step);
+    dependencies_build.register(b, source_check_step);
+    doc_values_build.register(b, source_check_step);
+    doc_impact_build.register(b, source_check_step);
     const devcontainer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/env-sync.sh" });
     devcontainer_contracts.has_side_effects = true;
     source_check_step.dependOn(&devcontainer_contracts.step);
@@ -484,10 +518,10 @@ pub fn register(ctx: Context) Registered {
     consumer_check_step.dependOn(&consumer_build.step);
     check_step.dependOn(consumer_check_step);
 
-    // The native tree in ReleaseFast. std's runtime-safety
+    // The Zig tree in ReleaseFast. std's runtime-safety
     // instrumentation: the `pointer_stability` lock every list and map header
     // carries in Debug and ReleaseSafe, is zero-sized there, so every footprint
-    // number in `docs/ladder.md` step 2 measures smaller. The ceilings absorb
+    // budget measures smaller. The ceilings absorb
     // that; the one comptime equality, the loop slot in
     // `src/net/completion/loop/state.zig`, states its fast-mode expectation and
     // only this leg proves it, because nothing else in `check` instantiates the
@@ -505,7 +539,7 @@ pub fn register(ctx: Context) Registered {
     const cross_fast = b.addTest(.{ .name = "glowcap-cross-fast", .root_module = cross_fast_mod });
     const run_cross_fast = execution.addZigTest(b, cross_fast, .unit_test);
 
-    const cross_check_step = b.step("cross-check", "Type-check non-host targets — macOS/kqueue (full) and wasm32 (sans-io core), compile-only — and analyze the native tree in ReleaseFast");
+    const cross_check_step = b.step("cross-check", "Type-check non-host targets, macOS/kqueue (full) and wasm32 (sans-io core), compile-only, and analyze the Zig tree in ReleaseFast");
     cross_check_step.dependOn(&cross_macos.step);
     cross_check_step.dependOn(&cross_wasm.step);
     cross_check_step.dependOn(&run_cross_fast.step);
@@ -554,7 +588,7 @@ pub fn register(ctx: Context) Registered {
     wasm_driver_test.setCwd(b.path("."));
     wasm_driver_test.has_side_effects = true;
     wasm_driver_test.step.dependOn(&wasm_driver_install.step);
-    const wasm_driver_test_step = b.step("wasm-driver-test", "Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno; ADR-0070/0098)");
+    const wasm_driver_test_step = b.step("wasm-driver-test", "Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno, ADR-0070 and ADR-0098)");
     wasm_driver_test_step.dependOn(&wasm_driver_test.step);
 
     // The wasm32 layout descriptor (`glowcap_wasm_abi_layout`) decodes cleanly:
@@ -565,11 +599,11 @@ pub fn register(ctx: Context) Registered {
     wasm_abi_layout_check.setCwd(b.path("."));
     wasm_abi_layout_check.has_side_effects = true;
     wasm_abi_layout_check.step.dependOn(&wasm_driver_install.step);
-    const wasm_abi_layout_check_step = b.step("wasm-abi-layout-check", "Prove the wasm32 Host's layout descriptor (glowcap_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno; ADR-0070)");
+    const wasm_abi_layout_check_step = b.step("wasm-abi-layout-check", "Prove the wasm32 Host's layout descriptor (glowcap_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno, ADR-0070)");
     wasm_abi_layout_check_step.dependOn(&wasm_abi_layout_check.step);
 
     // Product proof for the @glowcap/web Wasm peer: keyed WebSocket call and
-    // callback against a native host, then a native CLI cold-dial into that
+    // callback against a Zig host, then a Zig CLI cold-dial into that
     // browser-shaped Host over sealed noise-relay rendezvous. Needs the wasm
     const web_peer_test = execution.addSystemCommand(b, .{ .browser_proof = 120 }, &.{
         "deno",                                  "run", "--config", "deno.json", "--allow-all",
@@ -579,7 +613,7 @@ pub fn register(ctx: Context) Registered {
     web_peer_test.has_side_effects = true;
     web_peer_test.step.dependOn(&wasm_driver_install.step);
     web_peer_test.step.dependOn(b.getInstallStep());
-    const web_peer_test_step = b.step("web-peer-test", "Prove @glowcap/web holds keyed WebSocket and sealed Noise-relay sessions with native peers (needs deno + Playwright; ADR-0070/0107)");
+    const web_peer_test_step = b.step("web-peer-test", "Prove @glowcap/web holds keyed WebSocket and sealed Noise-relay sessions with Zig peers (needs deno + Playwright, ADR-0070 and ADR-0107)");
     web_peer_test_step.dependOn(&web_peer_test.step);
 
     // The cross-runtime relay matrix (`bindings-relay`, `bindings-relay-iroh`) is
@@ -593,7 +627,7 @@ pub fn register(ctx: Context) Registered {
     wasm_import_check.setCwd(b.path("."));
     wasm_import_check.has_side_effects = true;
     wasm_import_check.step.dependOn(&wasm_driver_install.step);
-    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno; ADR-0070)");
+    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno, ADR-0070)");
     wasm_import_check_step.dependOn(&wasm_import_check.step);
 
     return .{

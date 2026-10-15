@@ -287,11 +287,11 @@ async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release(
 		.await;
 }
 
-// Host close records native intent even when a behavior starts it from inside
-// its own callback. The binding schedules only the completion barrier; native
+// Host close records FFI intent even when a behavior starts it from inside
+// its own callback. The binding schedules only the completion barrier; FFI
 // teardown then closes every sibling session before releasing actor cells.
 #[tokio::test]
-async fn a_behavior_closing_a_two_session_host_records_native_intent() {
+async fn a_behavior_closing_a_two_session_host_records_ffi_intent() {
 	let local = LocalSet::new();
 	local
 		.run_until(async {
@@ -352,7 +352,7 @@ async fn a_behavior_closing_a_two_session_host_records_native_intent() {
 				.expect("Host close must release both session loops")
 				.unwrap();
 
-			assert_eq!(during.get(), 0, "native close intent needs no binding transaction");
+			assert_eq!(during.get(), 0, "FFI close intent needs no binding transaction");
 			assert!(
 				refused_after_intent.get(),
 				"close intent must refuse another Host verb before callback unwind"

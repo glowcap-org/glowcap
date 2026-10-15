@@ -60,7 +60,7 @@ pub fn locator(service_id: []const u8) model.PeerLocator {
     };
 }
 
-/// The unframed byte-stream seam shared by native connections and the C
+/// The unframed byte-stream seam shared by Zig connections and the C
 /// provider. The caller owns the buffers. An empty buffer keeps the provider's
 /// host-side buffering as the only extra layer.
 pub const RawStream = struct {

@@ -160,16 +160,17 @@ pub fn valueString(value: driver.Value) ?[]const u8 {
 pub const HostAffordance = struct {
     state: State,
 
-    pub fn handle(self: *HostAffordance, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *HostAffordance, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
         if (!std.mem.eql(u8, verb, invoke_verb)) return error.NoSuchMethod;
-        if (args.len != 5) return error.BadInvocation;
+        if (arg_values.len != 5) return error.BadInvocation;
         return .{ .string = try self.state.invoke(
             turn.turn.arena,
-            valueString(args[0]) orelse return error.BadInvocation,
-            valueString(args[1]) orelse return error.BadInvocation,
-            valueString(args[2]) orelse return error.BadInvocation,
-            valueString(args[3]) orelse return error.BadInvocation,
-            valueString(args[4]) orelse return error.BadInvocation,
+            valueString(arg_values[0]) orelse return error.BadInvocation,
+            valueString(arg_values[1]) orelse return error.BadInvocation,
+            valueString(arg_values[2]) orelse return error.BadInvocation,
+            valueString(arg_values[3]) orelse return error.BadInvocation,
+            valueString(arg_values[4]) orelse return error.BadInvocation,
         ) };
     }
 };

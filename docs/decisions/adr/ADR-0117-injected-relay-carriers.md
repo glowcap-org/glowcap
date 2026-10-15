@@ -3,7 +3,7 @@ id: ADR-0117
 status: accepted
 date: 2026-08-17
 tags: [relay, transport, websocket, tls, c-abi, bindings, browser]
-decision: "Every relay initializer selects an owned WebSocket carrier. Native Zig composes TCP, an injectable TLS stream engine, and a shared WebSocket client. Managed runtimes use their own WebSocket connector without callbacks from the native driver."
+decision: "Every relay initializer selects an owned WebSocket carrier. Zig composes TCP, an injectable TLS stream engine, and a shared WebSocket client. Managed runtimes use their own WebSocket connector without callbacks from the Zig driver."
 supersedes: []
 superseded_by: []
 amends: [ADR-0086, ADR-0107, ADR-0112]
@@ -60,7 +60,7 @@ There are three physical projections of this one semantic contract:
 3. A managed carrier runs in the runtime that owns its event loop. Browser,
    Deno, Python, Rust, and Racket adapters may use their environment's
    WebSocket implementation and feed the byte-owned Host. They implement the
-   carrier contract as a connector. The native driver never calls back into a
+   carrier contract as a connector. The Zig driver never calls back into a
    JavaScript isolate, Python interpreter, Racket runtime, or foreign async
    executor.
 
@@ -134,14 +134,14 @@ with the process owner.
 - **Put TLS inside the TCP transport**: rejected because it would make TCP a
   mode-switched type, attach certificate policy to raw sockets, and prevent the
   secure stream from being reused independently.
-- **Put Mbed TLS directly in the C relay archive**: rejected because native Zig
+- **Put Mbed TLS directly in the C relay archive**: rejected because Zig
   and the C projection must consume one Zig-owned transport implementation.
 - **Make every binding use its runtime's TLS and WebSocket libraries**:
   rejected because this would duplicate native behavior and make the bindings
   transport authorities rather than consumers of the C ABI.
 - **Pass every managed runtime through one C callback table**: rejected because
   interpreter affinity, reentrancy, wakeups, and shutdown are runtime-owned
-  facts that a native driver callback cannot safely erase.
+  facts that a Zig driver callback cannot safely erase.
 - **Keep native and managed relay initialization unrelated**: rejected because
   route validation, bounds, lifecycle, and failure semantics would continue to
   drift across surfaces.
@@ -154,7 +154,7 @@ carrier opener beneath its resident and completion execution forms, and its
 clear and secure carriers compose those lower layers.
 
 Mbed TLS is pinned, built, licensed, namespaced, and linked only when the
-optional native secure carrier is composed. Native Zig and
+optional native secure carrier is composed. Zig and
 `libglowcap_relay` consume the same module.
 
 The C relay configuration has a size/version prefix, trust policy, and

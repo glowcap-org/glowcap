@@ -22,12 +22,6 @@ const ReferenceView = union(enum) {
     near: model.NearRef,
     far: model.FarRef,
     promise: model.PromiseRef,
-    sturdy: SturdyRefView,
-
-    const SturdyRefView = struct {
-        peer: model.view.PeerLocator,
-        swissnum: []const u8,
-    };
 };
 
 // ── Codec-neutral view projection ────────────────────────────────────────────
@@ -35,81 +29,79 @@ const ReferenceView = union(enum) {
 // `decodeBody` projects the borrowed codec-neutral `model.view.Body` over the
 // frame's bytes, the single message shape the engine dispatches on. The
 // unbounded sequences (`Args`, `PositionList`) are reached through inline
-// vtable backings whose `Ctx.bytes` borrow the list region; `at` re-walks the
+// vtable backings whose `Ctx.bytes` borrow the list region, and `at` re-walks the
 // Syrup bytes lazily. Argument projection is full fidelity, every arm the
 // encoder emits decodes back. The backings re-walk a region that already
-// framed successfully, so they pass `syntax.no_limit`.
+// framed successfully.
 
-const neutral_args_vtable = model.view.Args.VTable{
-    .len = neutralArgsLen,
-    .at = neutralArgsAt,
-    .next = neutralArgsNext,
-};
+/// The lazy sequence verbs over one sliced collection body, for every
+/// element reader the decoder has: `len` is the count the slicing walk
+/// stored in `w2`, so it is a read rather than a second walk of the subtree,
+/// `at` re-walks the region from byte 0, and `next` reads the element at the
+/// byte-offset cursor and advances it past that element, so a full walk is
+/// one linear pass.
+fn NeutralSequence(
+    comptime Sequence: type,
+    comptime Elem: type,
+    comptime readElement: fn ([]const u8, *usize) Error!Elem,
+) type {
+    return struct {
+        const vtable = Sequence.VTable{ .len = len, .at = at, .next = next, .tail = tail };
 
-const neutral_positions_vtable = model.view.PositionList.VTable{
-    .len = neutralPositionsLen,
-    .at = neutralPositionsAt,
-    .next = neutralPositionsNext,
-};
+        fn len(ctx: Sequence.Ctx) model.view.ProjectError!usize {
+            return @intCast(ctx.w2);
+        }
 
-/// The element count the slicing walk stored in `w2`, so `len()` is a read
-/// rather than a second walk of the subtree.
-fn neutralArgsLen(ctx: model.view.Args.Ctx) model.view.ProjectError!usize {
-    return @intCast(ctx.w2);
+        fn at(ctx: Sequence.Ctx, index: usize) model.view.ProjectError!Elem {
+            var cursor: usize = 0;
+            var current: usize = 0;
+            while (cursor < ctx.bytes.len) : (current += 1) {
+                const element = readElement(ctx.bytes, &cursor) catch return error.MalformedView;
+                if (current == index) return element;
+            }
+            return error.MalformedView;
+        }
+
+        fn next(ctx: Sequence.Ctx, cursor: *u64, out: *Elem) model.view.ProjectError!bool {
+            var c: usize = @intCast(cursor.*);
+            if (c >= ctx.bytes.len) return false;
+            out.* = readElement(ctx.bytes, &c) catch return error.MalformedView;
+            cursor.* = @intCast(c);
+            return true;
+        }
+
+        /// Scan past `skip` elements once and keep the bytes after them.
+        fn tail(ctx: Sequence.Ctx, skip: usize) model.view.ProjectError!Sequence.Ctx {
+            if (skip > ctx.w2) return error.MalformedView;
+            var cursor: usize = 0;
+            for (0..skip) |_| _ = readElement(ctx.bytes, &cursor) catch return error.MalformedView;
+            return .{ .bytes = ctx.bytes[cursor..], .w2 = ctx.w2 - skip };
+        }
+
+        fn over(sliced: syntax.Sliced) Sequence {
+            return Sequence.fromBacking(.{ .bytes = sliced.body, .w2 = sliced.elements }, &vtable);
+        }
+    };
 }
 
-fn neutralArgsAt(ctx: model.view.Args.Ctx, index: usize) model.view.ProjectError!model.view.Argument {
-    var cursor: usize = 0;
-    var current: usize = 0;
-    while (cursor < ctx.bytes.len) : (current += 1) {
-        const argument = readNeutralArgument(ctx.bytes, &cursor, 0, syntax.no_limit) catch return error.MalformedView;
-        if (current == index) return argument;
-    }
-    return error.MalformedView;
+fn readArgumentElement(bytes: []const u8, cursor: *usize) Error!model.view.Argument {
+    return readNeutralArgument(null, bytes, cursor, 0);
 }
 
-/// Forward cursor: `cursor` is a byte offset into the list region. One
-/// `readNeutralArgument` advances it past the element it returns, so a full
-/// walk is a single linear pass, not the per-`at` re-scan from byte 0.
-fn neutralArgsNext(ctx: model.view.Args.Ctx, cursor: *u64) model.view.ProjectError!?model.view.Argument {
-    var c: usize = @intCast(cursor.*);
-    if (c >= ctx.bytes.len) return null;
-    const argument = readNeutralArgument(ctx.bytes, &c, 0, syntax.no_limit) catch return error.MalformedView;
-    cursor.* = @intCast(c);
-    return argument;
-}
-
-fn neutralPositionsLen(ctx: model.view.PositionList.Ctx) model.view.ProjectError!usize {
-    return @intCast(ctx.w2);
-}
-
-fn neutralPositionsAt(ctx: model.view.PositionList.Ctx, index: usize) model.view.ProjectError!u64 {
-    var cursor: usize = 0;
-    var current: usize = 0;
-    while (cursor < ctx.bytes.len) : (current += 1) {
-        const value = syntax.readPositiveInt(ctx.bytes, &cursor) catch return error.MalformedView;
-        if (current == index) return value;
-    }
-    return error.MalformedView;
-}
-
-fn neutralPositionsNext(ctx: model.view.PositionList.Ctx, cursor: *u64) model.view.ProjectError!?u64 {
-    var c: usize = @intCast(cursor.*);
-    if (c >= ctx.bytes.len) return null;
-    const value = syntax.readPositiveInt(ctx.bytes, &c) catch return error.MalformedView;
-    cursor.* = @intCast(c);
-    return value;
-}
+const neutral_args = NeutralSequence(model.view.Args, model.view.Argument, readArgumentElement);
+const neutral_positions = NeutralSequence(model.view.PositionList, u64, syntax.readPositiveInt);
+const neutral_struct = NeutralSequence(model.view.StructEntries, model.view.StructEntry, readStructEntry);
 
 pub fn neutralArgs(sliced: syntax.Sliced) model.view.Args {
-    return model.view.Args.fromBacking(.{ .bytes = sliced.body, .w2 = sliced.elements }, &neutral_args_vtable);
+    return neutral_args.over(sliced);
 }
 
 pub fn neutralPositions(sliced: syntax.Sliced) model.view.PositionList {
-    return model.view.PositionList.fromBacking(
-        .{ .bytes = sliced.body, .w2 = sliced.elements },
-        &neutral_positions_vtable,
-    );
+    return neutral_positions.over(sliced);
+}
+
+fn neutralStructEntries(sliced: syntax.Sliced) model.view.StructEntries {
+    return neutral_struct.over(sliced);
 }
 
 pub fn neutralReference(reference: ReferenceView) model.view.Reference {
@@ -119,40 +111,52 @@ pub fn neutralReference(reference: ReferenceView) model.view.Reference {
         // Syrup's `desc:answer` carries no path operand (single-hop only), so a
         // decoded promise target always has the empty path.
         .promise => |promise| .{ .promise = .{ .answer_position = promise.answer_position } },
-        .sturdy => |sturdy| .{ .sturdy = .{
-            .peer = sturdy.peer,
-            .swissnum = sturdy.swissnum,
-        } },
     };
 }
 
+/// Project a `<ocapn-sturdyref …>` whose field region the decoder sliced
+/// structurally: one peer locator and one swissnum, nothing else.
+fn projectSturdyRef(ctx: model.view.LazySturdyRef.Ctx) model.view.ProjectError!model.view.SturdyRef {
+    var cursor: usize = 0;
+    const peer = locators.readPeerLocatorView(ctx.bytes, &cursor) catch return error.MalformedView;
+    const swissnum = syntax.readBytes(ctx.bytes, &cursor) catch return error.MalformedView;
+    if (cursor != ctx.bytes.len) return error.MalformedView;
+    return .{ .peer = peer, .swissnum = swissnum };
+}
+
 /// Project one borrowed full-fidelity `model.view.Argument` and advance
-/// `cursor` past it. Nested `list` / `set` / `tagged` arms project lazily as
-/// backed `model.view.Args` over their byte sub-region.
-fn readNeutralArgument(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!model.view.Argument {
-    if (depth > syntax.max_decode_nesting) return Error.MalformedFrame;
-    // A frame built of many small elements crosses the cap one element at a
-    // time; refuse as soon as the walk passes it instead of after a full decode.
-    if (cursor.* > limit) return Error.FrameTooLarge;
+/// `cursor` past it. With `slab`, each list, set, and tagged value met on
+/// the way is parsed once into views the slab lends (`readElements`). With
+/// none, they project lazily as backed `model.view.Args` over their byte
+/// sub-region, the extent-only read every backed sequence uses when a
+/// consumer walks it.
+fn readNeutralArgument(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: *usize, depth: usize) Error!model.view.Argument {
+    // The nesting cap is held where a collection is entered (`depth` is
+    // already checked for this level, and each nested slicer checks its own
+    // on entry), so no element pays a second compare here.
     if (cursor.* >= bytes.len) return Error.Incomplete;
     return switch (bytes[cursor.*]) {
         '0'...'9' => blk: {
-            const marker_index = cursor.* + syntax.countDigits(bytes[cursor.*..]);
+            // The digits are scanned once here to find the marker, and the
+            // leaf reader the marker chooses takes the run instead of
+            // scanning it again.
+            const run = syntax.scanDecimal(bytes[cursor.*..]);
+            const marker_index = cursor.* + run.len;
             if (marker_index >= bytes.len) return Error.Incomplete;
             break :blk switch (bytes[marker_index]) {
-                ':' => .{ .bytes = try syntax.readBytesLimited(bytes, cursor, limit) },
-                '"' => .{ .string = try syntax.readStringLimited(bytes, cursor, limit) },
-                '\'' => .{ .symbol = try syntax.readSymbolLimited(bytes, cursor, limit) },
-                '+', '-' => try syntax.readIntegerArgument(bytes, cursor),
+                ':' => .{ .bytes = try syntax.readLeafScanned(bytes, cursor, run, ':') },
+                '"' => .{ .string = try syntax.readLeafScanned(bytes, cursor, run, '"') },
+                '\'' => .{ .symbol = try syntax.readLeafScanned(bytes, cursor, run, '\'') },
+                '+', '-' => try syntax.readIntegerArgumentScanned(bytes, cursor, run),
                 else => Error.UnsupportedArgument,
             };
         },
         't', 'f' => .{ .boolean = try syntax.readBool(bytes, cursor) },
         'D' => .{ .float64 = try syntax.readFloat64(bytes, cursor) },
-        '[' => .{ .list = neutralArgs(try sliceArgumentListNeutral(bytes, cursor, depth + 1, limit)) },
-        '#' => .{ .set = neutralArgs(try sliceSetNeutral(bytes, cursor, depth + 1, limit)) },
-        '{' => .{ .@"struct" = neutralStructEntries(try sliceStructNeutral(bytes, cursor, depth + 1, limit)) },
-        '<' => try readNeutralRecord(bytes, cursor, depth, limit),
+        '[' => .{ .list = try readDelimited(slab, bytes, cursor, depth + 1, '[', ']', false) },
+        '#' => .{ .set = try readDelimited(slab, bytes, cursor, depth + 1, '#', '$', true) },
+        '{' => .{ .@"struct" = try readStruct(slab, bytes, cursor, depth + 1) },
+        '<' => try readNeutralRecord(slab, bytes, cursor, depth),
         else => Error.UnsupportedArgument,
     };
 }
@@ -161,14 +165,14 @@ fn readNeutralArgument(bytes: []const u8, cursor: *usize, depth: usize, limit: u
 /// then dispatches by label length (hot known tags share a bucket) before a
 /// single equality check, no multi-probe `startsWith` cascade over the same
 /// bytes for handoff / reference / ordinary records.
-fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!model.view.Argument {
+fn readNeutralRecord(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: *usize, depth: usize) Error!model.view.Argument {
     const record_start = cursor.*;
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readSymbolLimited(bytes, cursor, limit);
+    const tag = try syntax.readLabel(bytes, cursor);
 
     switch (tag.len) {
         "kw".len => if (std.mem.eql(u8, tag, "kw")) {
-            const name = try syntax.readSymbolLimited(bytes, cursor, limit);
+            const name = try syntax.readSymbol(bytes, cursor);
             try syntax.readByte(bytes, cursor, '>');
             return .{ .keyword = name };
         },
@@ -177,7 +181,7 @@ fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usi
             return .{ .void = {} };
         },
         "error".len => if (std.mem.eql(u8, tag, "error")) {
-            const message = try syntax.readStringLimited(bytes, cursor, limit);
+            const message = try syntax.readString(bytes, cursor);
             try syntax.readByte(bytes, cursor, '>');
             return .{ .@"error" = .{ .message = message } };
         },
@@ -190,23 +194,24 @@ fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usi
                 return .{ .reference = neutralReference(try finishReference(.desc_answer, bytes, cursor)) };
             }
             if (std.mem.eql(u8, tag, "user-record")) {
-                const record_tag = try syntax.readSymbolLimited(bytes, cursor, limit);
-                const value_body = try sliceArgumentListNeutral(bytes, cursor, depth + 1, limit);
+                const record_tag = try syntax.readSymbol(bytes, cursor);
+                const value = try readDelimited(slab, bytes, cursor, depth + 1, '[', ']', false);
                 try syntax.readByte(bytes, cursor, '>');
-                return .{ .tagged = .{ .tag = record_tag, .value = neutralArgs(value_body) } };
+                return .{ .tagged = .{ .tag = record_tag, .value = value } };
             }
         },
+        // The two wide, rare records are framed here and parsed on read
+        // (`model.view.Lazy`). The structural walk bounds them like any
+        // foreign record; the typed projector refuses what it cannot read.
         "ocapn-sturdyref".len => if (std.mem.eql(u8, tag, "ocapn-sturdyref")) {
-            const peer = try locators.readPeerLocatorView(bytes, cursor, limit);
-            const swissnum = try syntax.readBytesLimited(bytes, cursor, limit);
+            const fields = try sliceRecordFieldsNeutral(bytes, cursor, depth + 1);
             try syntax.readByte(bytes, cursor, '>');
-            return .{ .reference = .{ .sturdy = .{
-                .peer = peer,
-                .swissnum = swissnum,
-            } } };
+            return .{ .reference = .{ .sturdy = .fromBacking(.{ .bytes = fields.body }, projectSturdyRef) } };
         },
         "desc:sig-envelope".len => if (std.mem.eql(u8, tag, "desc:sig-envelope")) {
-            return .{ .handoff = try handoff.finishSignedHandoff(bytes, cursor, limit, record_start) };
+            _ = try sliceRecordFieldsNeutral(bytes, cursor, depth + 1);
+            try syntax.readByte(bytes, cursor, '>');
+            return .{ .handoff = .fromBacking(.{ .bytes = bytes[record_start..cursor.*] }, handoff.projectSignedHandoff) };
         },
         "desc:import-object".len => if (std.mem.eql(u8, tag, "desc:import-object")) {
             return .{ .reference = neutralReference(try finishReference(.desc_import_object, bytes, cursor)) };
@@ -223,180 +228,212 @@ fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usi
     // the value, exactly the shape `engine.events.breakReasonFromPayload`
     // reads a reason from. Decode-side leniency only (glowcap's own
     // Tagged spells `<user-record …>` on encode); whether a tagged
-    // value is admissible where it lands stays the session's verdict.
-    const fields = try sliceRecordFieldsNeutral(bytes, cursor, depth + 1, limit);
-    try syntax.readByte(bytes, cursor, '>');
-    return .{ .tagged = .{ .tag = tag, .value = neutralArgs(fields) } };
+    // value is admissible where it lands stays the session's verdict. The
+    // label becomes data here, so it passes the symbol check the matched
+    // labels above did not need.
+    if (!syntax.symbolBytesValid(tag)) return Error.MalformedFrame;
+    const value = try readElements(slab, bytes, cursor, depth + 1, '>', false);
+    cursor.* += 1;
+    return .{ .tagged = .{ .tag = tag, .value = value } };
 }
 
-/// Slice a foreign record's field run: zero or more values up to the closing
-/// `>`, which stays for the caller to consume. Width and depth ride the same
-/// bounds as every collection walk.
-fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
+/// Read the elements of one sequence up to `close`, which stays unread. With
+/// room in `slab`, parent slots are reserved before reading their children.
+/// Closing the sequence settles its views for later readers. A sequence the
+/// room cannot hold drops its stack and cached children and stays wire-backed.
+/// Later children stay wire-backed too, since a backed reader parses them afresh. `ordered` refuses a set whose elements are
+/// out of canonical order (ADR-0003).
+fn readElements(
+    slab: ?*model.view.ValueSlab,
+    bytes: []const u8,
+    cursor: *usize,
+    depth: usize,
+    comptime close: u8,
+    comptime ordered: bool,
+) Error!model.view.Args {
+    if (depth > syntax.max_decode_nesting) return Error.MalformedFrame;
+    if (comptime !ordered and close == ']') {
+        if (depth != 0) if (slab) |room| {
+            if (readIntegerRun(room, bytes, cursor)) |words| return .fromRun(words);
+        };
+    }
     const body_start = cursor.*;
+    var previous: ?[]const u8 = null;
     var elements: usize = 0;
-    while (cursor.* < bytes.len and bytes[cursor.*] != '>') {
+    var room = slab;
+    const used_before = if (slab) |s| s.used else 0;
+    var pushed: usize = 0;
+    while (cursor.* < bytes.len and bytes[cursor.*] != close) {
         elements += 1;
         if (elements > syntax.max_collection_elements) return Error.MalformedFrame;
-        _ = try readNeutralArgument(bytes, cursor, depth, limit);
+        const slot = if (room) |r| r.reserve(model.view.Argument) else null;
+        if (slot != null) {
+            pushed += 1;
+        } else if (room) |r| {
+            r.drop(model.view.Argument, pushed);
+            r.used = used_before;
+            pushed = 0;
+            room = null;
+        }
+        const start = cursor.*;
+        const argument = try readNeutralArgument(room, bytes, cursor, depth);
+        if (ordered) {
+            const span = bytes[start..cursor.*];
+            if (previous) |p| if (!codec_order.byteSliceBefore(p, span)) return Error.MalformedFrame;
+            previous = span;
+        }
+        if (slot) |reserved| reserved.* = argument;
+    }
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (room) |r| if (elements != 0) return .fromViews(r.settle(model.view.Argument, pushed));
+    return neutralArgs(.{ .body = bytes[body_start..cursor.*], .elements = elements });
+}
+
+/// Try a flat integer list in the frame's unused head. Every integer passes
+/// the ordinary canonical reader. A mixed, oversized, empty, or malformed
+/// list leaves the cursor and slab unchanged for the general reader, which
+/// owns the final verdict. Speculation reads at most the head's word capacity
+/// plus one failed leaf, whose bytes are bounded by the frame.
+fn readIntegerRun(slab: *model.view.ValueSlab, bytes: []const u8, cursor: *usize) ?[]const u8 {
+    var writer = slab.beginIntegers();
+    var position = cursor.*;
+    while (position < bytes.len and bytes[position] != ']') {
+        if (writer.count == syntax.max_collection_elements) return null;
+        const integer = syntax.readInteger(bytes, &position) catch return null;
+        if (!writer.append(integer)) return null;
+    }
+    if (position == bytes.len) return null;
+    const words = writer.finish() orelse return null;
+    cursor.* = position;
+    return words;
+}
+
+fn readDelimited(
+    slab: ?*model.view.ValueSlab,
+    bytes: []const u8,
+    cursor: *usize,
+    depth: usize,
+    comptime open: u8,
+    comptime close: u8,
+    comptime ordered: bool,
+) Error!model.view.Args {
+    try syntax.readByte(bytes, cursor, open);
+    const elements = try readElements(slab, bytes, cursor, depth, close, ordered);
+    cursor.* += 1;
+    return elements;
+}
+
+/// Walk the elements of one collection body up to `close`, which stays for
+/// the caller, under the bounds every collection walk shares: the nesting
+/// level entered (`syntax.max_decode_nesting`, checked on entry so an empty
+/// collection past the cap is refused like a full one) and the width
+/// (`syntax.max_collection_elements`). `readElement` reads one element and
+/// returns the span its canonical order is judged by, or null where order
+/// is free. Syrup encodings are self-delimiting and so prefix-free, so a span
+/// not strictly after the previous one is a non-canonical form or a
+/// duplicate, and both are refused `MalformedFrame` rather than admitted as a
+/// second form of one collection.
+fn sliceElements(
+    bytes: []const u8,
+    cursor: *usize,
+    depth: usize,
+    comptime close: u8,
+    comptime readElement: fn ([]const u8, *usize, usize) Error!?[]const u8,
+) Error!syntax.Sliced {
+    if (depth > syntax.max_decode_nesting) return Error.MalformedFrame;
+    const body_start = cursor.*;
+    var previous: ?[]const u8 = null;
+    var elements: usize = 0;
+    while (cursor.* < bytes.len and bytes[cursor.*] != close) {
+        elements += 1;
+        if (elements > syntax.max_collection_elements) return Error.MalformedFrame;
+        if (try readElement(bytes, cursor, depth)) |span| {
+            if (previous) |p| if (!codec_order.byteSliceBefore(p, span)) return Error.MalformedFrame;
+            previous = span;
+        }
     }
     if (cursor.* >= bytes.len) return Error.Incomplete;
     return .{ .body = bytes[body_start..cursor.*], .elements = elements };
 }
 
-/// Slice one delimited sequence body (between `open` and `close`) using the
-/// full-fidelity walker, advancing `cursor` past the closing delimiter. The
-/// list and set slicers share this one walk and differ only in their
-/// delimiters. `depth` is the nesting level entered (bounded by
-/// `syntax.max_decode_nesting`). Width is bounded by `syntax.max_collection_elements`.
-fn sliceSequenceNeutral(
-    bytes: []const u8,
-    cursor: *usize,
-    depth: usize,
-    limit: usize,
-    comptime open: u8,
-    comptime close: u8,
-) Error!syntax.Sliced {
-    try syntax.readByte(bytes, cursor, open);
-    const body_start = cursor.*;
-    var elements: usize = 0;
-    while (cursor.* < bytes.len and bytes[cursor.*] != close) {
-        elements += 1;
-        if (elements > syntax.max_collection_elements) return Error.MalformedFrame;
-        _ = try readNeutralArgument(bytes, cursor, depth, limit);
-    }
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    const body = bytes[body_start..cursor.*];
-    cursor.* += 1;
-    return .{ .body = body, .elements = elements };
+/// An element of a list or record field run: any value, in any order.
+fn freeElement(bytes: []const u8, cursor: *usize, depth: usize) Error!?[]const u8 {
+    _ = try readNeutralArgument(null, bytes, cursor, depth);
+    return null;
 }
 
-/// Slice a `[ … ]` argument list body, advancing `cursor` past the closing `]`.
-pub fn sliceArgumentListNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
-    return sliceSequenceNeutral(bytes, cursor, depth, limit, '[', ']');
+/// Slice a foreign record's field run: zero or more values up to the closing
+/// `>`, which stays for the caller to consume.
+fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize) Error!syntax.Sliced {
+    return sliceElements(bytes, cursor, depth, '>', freeElement);
 }
 
-/// Slice a `# … $` set body, advancing `cursor` past the closing `$`. Unlike an
-/// argument list, a set is unordered and its elements are unique, so the wire
-/// form is canonical only in strictly-ascending encoded-element order, the same
-/// rule `sliceStructNeutral` enforces on keys, and the encode-side partner of
-/// `writeCanonicalSet`, which sorts elements by their encoding. Syrup encodings
-/// are self-delimiting and therefore prefix-free, so a non-ascending element is a
-/// non-canonical spelling and an equal element is a duplicate. Both are refused
-/// `MalformedFrame` here rather than admitted as a second spelling of one set.
-fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
-    try syntax.readByte(bytes, cursor, '#');
-    const body_start = cursor.*;
-    var previous_element: ?[]const u8 = null;
-    var elements: usize = 0;
-    while (cursor.* < bytes.len and bytes[cursor.*] != '$') {
-        elements += 1;
-        if (elements > syntax.max_collection_elements) return Error.MalformedFrame;
-        const element_start = cursor.*;
-        _ = try readNeutralArgument(bytes, cursor, depth, limit);
-        const element = bytes[element_start..cursor.*];
-        if (previous_element) |previous| {
-            if (!codec_order.byteSliceBefore(previous, element)) return Error.MalformedFrame;
-        }
-        previous_element = element;
-    }
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    const body = bytes[body_start..cursor.*];
-    cursor.* += 1;
-    return .{ .body = body, .elements = elements };
+/// Read a top-level `[ … ]` argument list once, advancing `cursor` past the
+/// closing `]`. Finding the list's end already parses every element, so each
+/// parent slot is reserved before reading its children. Collections that fit
+/// remain cached for later readers (ADR-0231, ADR-0250). A list longer than
+/// the room releases its cached children and comes back wire-backed, so the
+/// slab bounds memory and never the list.
+pub fn readArgumentList(slab: *model.view.ValueSlab, bytes: []const u8, cursor: *usize) Error!model.view.Args {
+    return readDelimited(slab, bytes, cursor, 0, '[', ']', false);
 }
 
-/// Slice a `{ … }` dictionary body (between the braces) into the bytes the lazy
-/// struct backing walks, advancing `cursor` past the closing `}`. The walk
-/// enforces the OCapN Struct grammar at the codec boundary (Model.md § Struct):
-/// every key must be a String, and no key may repeat. A non-String key fails when
-/// the key read demands the `"` marker. Canonical Syrup orders dictionary
-/// entries by the fully-encoded key, lowest octets first (the upstream
-/// draft-specification's Sorting Algorithm), and every encoder this decoder
-/// faces, the upstream Racket encoder Goblins and the fixture corpus use, the
-/// conformance suite's Python encoder, and this codec's own `writeStruct`,
-/// emits that order. So each key's encoded span need only compare against the
-/// previous one: a non-ascending key is a non-canonical wire spelling of the
-/// message, refused like a non-canonical length digit, and a duplicate key
-/// (ADR-0046) is never strictly ascending, so the same O(1) comparison refuses
-/// it without re-walking the prior entries.
-fn sliceStructNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!syntax.Sliced {
+/// Read every key and value once. Syrup orders encoded String keys, so
+/// duplicate and out-of-order keys fail even when the head has no room.
+fn readStruct(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: *usize, depth: usize) Error!model.view.StructEntries {
     if (depth > syntax.max_decode_nesting) return Error.MalformedFrame;
     try syntax.readByte(bytes, cursor, '{');
     const body_start = cursor.*;
-    var previous_key_encoded: ?[]const u8 = null;
-    var entries: usize = 0;
+    var previous: ?[]const u8 = null;
+    var elements: usize = 0;
+    var room = slab;
+    const used_before = if (slab) |s| s.used else 0;
+    var pushed: usize = 0;
     while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
-        entries += 1;
-        if (entries > syntax.max_collection_elements) return Error.MalformedFrame;
-        const key_start = cursor.*;
-        _ = try syntax.readStringLimited(bytes, cursor, limit);
-        const key_encoded = bytes[key_start..cursor.*];
-        if (previous_key_encoded) |previous| {
-            if (!codec_order.byteSliceBefore(previous, key_encoded)) return Error.MalformedFrame;
+        elements += 1;
+        if (elements > syntax.max_collection_elements) return Error.MalformedFrame;
+        const start = cursor.*;
+        const key = try syntax.readString(bytes, cursor);
+        const span = bytes[start..cursor.*];
+        if (previous) |prior| if (!codec_order.byteSliceBefore(prior, span)) return Error.MalformedFrame;
+        previous = span;
+        const slot = if (room) |r| r.reserve(model.view.StructEntry) else null;
+        if (slot != null) {
+            pushed += 1;
+        } else if (room) |r| {
+            r.drop(model.view.StructEntry, pushed);
+            r.used = used_before;
+            pushed = 0;
+            room = null;
         }
-        previous_key_encoded = key_encoded;
-        _ = try readNeutralArgument(bytes, cursor, depth, limit);
+        const value = try readNeutralArgument(room, bytes, cursor, depth);
+        if (slot) |reserved| reserved.* = .{ .key = key, .value = value };
     }
     if (cursor.* >= bytes.len) return Error.Incomplete;
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
-    return .{ .body = body, .elements = entries };
-}
-
-const neutral_struct_vtable = model.view.StructEntries.VTable{
-    .len = neutralStructLen,
-    .at = neutralStructAt,
-    .next = neutralStructNext,
-};
-
-fn neutralStructLen(ctx: model.view.StructEntries.Ctx) model.view.ProjectError!usize {
-    return @intCast(ctx.w2);
-}
-
-fn neutralStructAt(ctx: model.view.StructEntries.Ctx, index: usize) model.view.ProjectError!model.view.StructEntry {
-    var cursor: usize = 0;
-    var current: usize = 0;
-    while (cursor < ctx.bytes.len) : (current += 1) {
-        const entry = readStructEntry(ctx.bytes, &cursor) catch return error.MalformedView;
-        if (current == index) return entry;
-    }
-    return error.MalformedView;
-}
-
-fn neutralStructNext(ctx: model.view.StructEntries.Ctx, cursor: *u64) model.view.ProjectError!?model.view.StructEntry {
-    var c: usize = @intCast(cursor.*);
-    if (c >= ctx.bytes.len) return null;
-    const entry = readStructEntry(ctx.bytes, &c) catch return error.MalformedView;
-    cursor.* = @intCast(c);
-    return entry;
+    if (room) |r| if (elements != 0) return .fromViews(r.settle(model.view.StructEntry, pushed));
+    return neutralStructEntries(.{ .body = body, .elements = elements });
 }
 
 /// Read one (String key, Value) pair from a struct body and advance `cursor`. The
 /// body was validated at slice time, so a read failure here is `MalformedView`.
 fn readStructEntry(bytes: []const u8, cursor: *usize) Error!model.view.StructEntry {
-    const key = try syntax.readStringLimited(bytes, cursor, syntax.no_limit);
-    const value = try readNeutralArgument(bytes, cursor, 0, syntax.no_limit);
+    const key = try syntax.readString(bytes, cursor);
+    const value = try readNeutralArgument(null, bytes, cursor, 0);
     return .{ .key = key, .value = value };
 }
 
-fn neutralStructEntries(sliced: syntax.Sliced) model.view.StructEntries {
-    return model.view.StructEntries.fromBacking(
-        .{ .bytes = sliced.body, .w2 = sliced.elements },
-        &neutral_struct_vtable,
-    );
-}
-
-pub fn readNeutralResolution(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Resolution {
+pub fn readNeutralResolution(slab: *model.view.ValueSlab, bytes: []const u8, cursor: *usize) Error!model.view.Resolution {
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readSymbolLimited(bytes, cursor, limit);
+    const tag = try syntax.readLabel(bytes, cursor);
     if (std.mem.eql(u8, tag, "resolve:fulfill")) {
-        const argument = try readNeutralArgument(bytes, cursor, 0, limit);
+        const argument = try readNeutralArgument(slab, bytes, cursor, 0);
         try syntax.readByte(bytes, cursor, '>');
         return .{ .fulfill = argument };
     }
     if (std.mem.eql(u8, tag, "resolve:break")) {
-        const err = try readError(bytes, cursor, limit);
+        const err = try readError(bytes, cursor);
         try syntax.readByte(bytes, cursor, '>');
         return .{ .@"break" = .{ .message = err.message } };
     }
@@ -417,29 +454,40 @@ pub fn readNeutralResolution(bytes: []const u8, cursor: *usize, limit: usize) Er
 /// The encoder is the mirror: it writes `near` as `desc:import-object` and `far`
 /// as `desc:export`, so a reference sent and echoed back swaps arms, that swap *is* the
 /// perspective change, not a round-trip bug.
-pub fn readReference(bytes: []const u8, cursor: *usize, limit: usize) Error!ReferenceView {
+pub fn readReference(bytes: []const u8, cursor: *usize) Error!ReferenceView {
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readSymbolLimited(bytes, cursor, limit);
-    return switch (tag.len) {
-        "desc:export".len => if (std.mem.eql(u8, tag, "desc:export"))
-            finishReference(.desc_export, bytes, cursor)
-        else if (std.mem.eql(u8, tag, "desc:answer"))
-            finishReference(.desc_answer, bytes, cursor)
-        else
-            Error.UnsupportedReference,
-        "desc:import-object".len => if (std.mem.eql(u8, tag, "desc:import-object"))
-            finishReference(.desc_import_object, bytes, cursor)
-        else
-            Error.UnsupportedReference,
-        "desc:import-promise".len => if (std.mem.eql(u8, tag, "desc:import-promise"))
-            finishReference(.desc_import_promise, bytes, cursor)
-        else
-            Error.UnsupportedReference,
-        else => Error.UnsupportedReference,
-    };
+    // Each kind has one canonical label, matched as one comparison, a
+    // deliver's target first since every call carries one. A label none of
+    // them matches is read in full for its verdict.
+    inline for (reference_wire_order) |kind| {
+        if (syntax.readKnownLabel(bytes, cursor, comptime referenceLabel(kind))) {
+            return finishReference(kind, bytes, cursor);
+        }
+    }
+    _ = try syntax.readLabel(bytes, cursor);
+    return Error.UnsupportedReference;
 }
 
 const ReferenceWire = enum { desc_export, desc_import_object, desc_import_promise, desc_answer };
+
+/// Every reference kind, the ones a call round trip carries first.
+const reference_wire_order = [_]ReferenceWire{ .desc_export, .desc_import_object, .desc_answer, .desc_import_promise };
+
+comptime {
+    for (@typeInfo(ReferenceWire).@"enum".field_values) |field_value| {
+        const kind: ReferenceWire = @fromBackingInt(@intCast(field_value));
+        std.debug.assert(std.mem.indexOfScalar(ReferenceWire, &reference_wire_order, kind) != null);
+    }
+}
+
+fn referenceLabel(comptime kind: ReferenceWire) []const u8 {
+    return switch (kind) {
+        .desc_export => "desc:export",
+        .desc_import_object => "desc:import-object",
+        .desc_import_promise => "desc:import-promise",
+        .desc_answer => "desc:answer",
+    };
+}
 
 /// Finish a desc:* reference record whose opening `<` and label are already
 /// consumed: one positive integer position, then `>`.
@@ -454,21 +502,21 @@ fn finishReference(comptime kind: ReferenceWire, bytes: []const u8, cursor: *usi
     };
 }
 
-pub fn readOptionalReference(bytes: []const u8, cursor: *usize, limit: usize) Error!?ReferenceView {
+pub fn readOptionalReference(bytes: []const u8, cursor: *usize) Error!?ReferenceView {
     if (cursor.* < bytes.len and bytes[cursor.*] == 'f') {
         cursor.* += 1;
         return null;
     }
-    return try readReference(bytes, cursor, limit);
+    return try readReference(bytes, cursor);
 }
 
-fn readError(bytes: []const u8, cursor: *usize, limit: usize) Error!model.BreakReason {
+fn readError(bytes: []const u8, cursor: *usize) Error!model.BreakReason {
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readSymbolLimited(bytes, cursor, limit);
+    const tag = try syntax.readLabel(bytes, cursor);
     if (!std.mem.eql(u8, tag, "error")) {
         return Error.MalformedFrame;
     }
-    const message = try syntax.readStringLimited(bytes, cursor, limit);
+    const message = try syntax.readString(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
     return .{ .message = message };
 }

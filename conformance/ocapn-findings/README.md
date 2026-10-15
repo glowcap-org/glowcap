@@ -1,9 +1,26 @@
+---
+type: living
+description: Protocol differences found between pinned OCapN sources, each with a check that reproduces it.
+sources:
+  - resource: /conformance/ocapn-findings/
+---
+
 # Pinned OCapN findings
 
 Each protocol discrepancy found while reviewing glowcap is a small,
 reproducible check over the upstream revisions pinned in this repository. The
-checks do not decide which participant is correct and do not modify any
-upstream checkout.
+checks do not decide which participant is correct and leave every upstream
+checkout unmodified.
+
+Run them all:
+
+```sh
+zig build ocapn-findings-check
+```
+
+The command prints the commit each source is pinned at. It fails if an
+observation stops matching its source or a submodule drifts off its pinned
+commit, so a pin bump forces a fresh look at each discrepancy.
 
 ## `op:listen` operand count
 
@@ -16,8 +33,8 @@ Three pinned sources disagree on how many operands `op:listen` carries:
 | Spritely Goblins (`goblins/ocapn/captp.rkt`) | `(to-desc listener-desc wants-partial?)` |
 
 glowcap implements the three-operand form, following the suite and Goblins
-instead of the draft. This choice is about interoperating with what runs today
-and makes no claim about which shape is correct.
+instead of the draft, to interoperate with deployed peers. It makes no claim
+about which shape is correct.
 
 ## Locator hints type
 
@@ -28,12 +45,12 @@ Two pinned sources disagree on the shape accepted for a peer locator's hints:
 | draft Netlayers specification | hints are “just a mapping of information” |
 | Spritely Goblins (`goblins/ocapn/structs-urls.rkt`) | the constructor contract accepts only false or a string |
 
-glowcap represents non-empty hints as a Syrup dict. The constructor
-contract applies only where Goblins-side code builds a locator. The wire
-unmarshaller constructs nodes through the raw constructor, so a dict-hinted
-locator arriving on the wire does decode, and `zig build goblins-gift-hints`
-observes that live. This finding records only the pinned source mismatch. It
-does not say which hints shape upstream should choose.
+glowcap represents non-empty hints as a Syrup dict. The constructor contract
+applies only where Goblins-side code builds a locator. The wire unmarshaller
+uses the raw constructor, so a dict-hinted locator arriving on the wire does
+decode, and `zig build goblins-gift-hints` observes that live. The finding
+records the source mismatch and does not say which hints shape upstream should
+choose.
 
 ## Handoff withdrawal looks up sessions by the full node value
 
@@ -45,22 +62,22 @@ differently:
 | Spritely Goblins (`goblins/ocapn/structs-urls.rkt`) | `same-node-location?` compares transport and designator, "ignoring hints" |
 | Spritely Goblins (`goblins/ocapn/captp.rkt`) | withdrawal resolves its session via `locations->open-session-names`, keyed by the full node value |
 
-The withdrawal lookup is `equal?`-keyed over the whole node, hints included,
-and the table is registered under the partner's hello-declared location. The
-consequence, observed live, is that a `desc:handoff-give` redeems only when its
-exporter locator equals the exporter's hello-declared location hints-and-all.
-`zig build goblins-gift-hints` passes because the hinted location is advertised
-in the exporter's hello and the give embeds it verbatim. A give hint the hello
-did not carry misses the session lookup and the withdrawal errors.
+The withdrawal lookup is `equal?`-keyed over the whole node, hints included, and
+the table is registered under the partner's hello-declared location. Observed
+live, a `desc:handoff-give` redeems only when its exporter locator equals the
+exporter's hello-declared location, hints and all. `zig build
+goblins-gift-hints` passes because the exporter's hello advertises the hinted
+location and the give embeds it verbatim. A give hint the hello did not carry
+misses the session lookup, and the withdrawal errors.
 
-Here the draft is explicit. The Locators specification states that
-"the designator and transport are the only pieces of information which need to
+The draft is explicit here. The Locators specification states that "the
+designator and transport are the only pieces of information which need to
 match" and that two locators differing only in hints "be considered to be the
 same peer", the rule `same-node-location?` implements. The `equal?`-keyed
-withdrawal table therefore treats two forms of the same peer as different
-peers, on the one path where that breaks a protocol operation. Nothing in the
-all-Goblins ecosystem emits hint-varying locators, so the contradiction is
-latent there. A second implementation that uses the stated freedom trips it.
+withdrawal table treats two forms of the same peer as different peers, on the
+one path where that breaks a protocol operation. Nothing in the all-Goblins
+ecosystem emits hint-varying locators, so the contradiction is latent there. A
+second implementation that uses the stated freedom trips it.
 
 ## Handoff replay count uses the wrong session
 
@@ -81,9 +98,8 @@ restarts its session-local counter after reconnecting.
 
 glowcap keeps accepted replay authority on each Receiver-Exporter session. Its
 automatic V1 path uses a Node-lifetime issuance cursor to interoperate across
-replacement sessions belonging to one Node. Independent nodes share and
-coordinate no protocol state, because that would erase the session scope the
-certificate names.
+replacement sessions of one Node. Independent nodes share no protocol state,
+because sharing would erase the session scope the certificate names.
 
 ## Gift-id width
 
@@ -95,36 +111,34 @@ The draft fixes the gift id width, and the suite that tests it uses another:
 | draft CapTP specification, `deposit-gift` | `A gift ID that is bytearray of 32 generated random bytes.` |
 | OCapN test suite (`tests/third_party_handoffs.py`) | `def make_valid_handoff(self, gift_id=b"my-gift")`, seven bytes, in the case named "valid" |
 
-glowcap mints 32 bytes on every profile and holds inbound gift ids to that width
+glowcap mints <!-- value ../../src/ocapn/model/handoff.zig GIFT_ID_BYTES -->32<!-- /value --> bytes on every profile and holds inbound gift ids to that width
 on `glowcap-next`, where both ends are its own. It does not hold the `1.0`
 profile to it, because refusing a give retires the session before the handoff is
 read, and the suite's own valid-handoff fixture would lose its Exporter and
-Receiver cases to a closed socket. As with `op:listen` above, glowcap
-interoperates with what runs today and leaves the correct width to upstream.
+Receiver cases to a closed socket. As with `op:listen`, glowcap interoperates
+with deployed peers and leaves the correct width to upstream.
 
-The id's width does not make it safe. A redeem checks the signed envelope.
-glowcap also keys handoff coordination by a fixed-size tag derived from the
-id, so a partner-chosen length reaches no coordination state, and a collision
+Width does not make the id safe. A redeem checks the signed envelope, and
+glowcap keys handoff coordination by a fixed-size tag derived from the id. A
+partner-chosen length therefore reaches no coordination state, and a collision
 costs one bounded retry.
 
 ## Receiver tests double their failures in teardown
 
-One pinned suite class guards a cleanup, and the guard fails in the case it targets:
+One pinned suite class guards a cleanup, and the guard fails in the case it
+targets:
 
 | Source | Says |
 | ------ | ---- |
 | OCapN test suite (`tests/third_party_handoffs.py`, `HandoffRemoteAsReciever.tearDown`) | `# e2r_session is created in test methods, may not exist if test fails early` then `if self.e2r_session is not None:` |
 
-The comment names the hazard but the guard does not cover it. `setUp` never
-assigns `e2r_session`, so when a test fails before the accept that creates it,
-the `is not None` read itself raises `AttributeError`. Every early failure in
-that class therefore reports twice, and the second traceback hides the first.
+`setUp` never assigns `e2r_session`, so when a test fails before the accept that
+creates it, the `is not None` read itself raises `AttributeError`. Every early
+failure in that class reports twice, and the second traceback hides the first.
 
-The class passes against glowcap today, so the defect is latent. When a test
-fails, the reader sees an attribute error about test bookkeeping instead of
-the assertion that fired. glowcap carries no workaround, because the verdict
-is unaffected while the tests pass. This note tells a reader of a future red
-run to look past the second traceback.
+The class passes against glowcap, so the defect is latent. On a future red run,
+look past the attribute error to the assertion that fired. glowcap carries no
+workaround, because the verdict is unaffected while the tests pass.
 
 ## Pre-handshake `op:abort` teardown
 
@@ -133,25 +147,26 @@ pre-handshake handler with a no-op and keeps the read loop alive. The suite
 accepts a timeout or clean EOF after sending more data, but not the TCP reset a
 peer can observe when the receiver closes with that data unread.
 
-Run:
+## Unrecognized labels on a live session
 
-```sh
-zig build ocapn-findings-check
-```
-
-It prints the commit each source is pinned at, and fails if any of those
-observations stops matching its source or if a submodule has drifted off the
-commit this repository pins. A pin bump therefore forces a fresh look at each
-discrepancy.
+`zig build goblins-differential` feeds one seeded set of mutated `op:deliver`
+frames to a live Goblins vat and to a glowcap listener, one fresh session per
+frame, and prints accept, refuse, or silent per side. On the 64-frame default
+run of 2026-10-14, the sides agreed on the control frame and two mutations.
+After a frame whose operation or descriptor label is changed to a symbol
+neither side knows, Goblins keeps the session and answers a later message, and
+glowcap aborts the session. After a frame that breaks Syrup syntax, Goblins
+neither answers nor closes within the three second deadline, and glowcap
+aborts. The draft ends a session only through `op:abort` and names no rule for
+an unrecognized label, so neither behavior is a departure from it.
 
 ## A declared location that nothing can check
 
 In an object-capability system a receiver does not know who called, because
-authority comes from holding the reference. Tor likewise tells a hidden
-service nothing about who dialed. The two agree, and neither is a defect.
-
-Three-party handoff is where they stop agreeing, because it is the one part of
-CapTP that acts on who the partner is instead of what it holds.
+authority comes from holding the reference. Tor likewise tells a hidden service
+nothing about who dialed. The two agree, and neither is a defect. Three-party
+handoff is where they part, because it is the one part of CapTP that acts on who
+the partner is instead of what it holds.
 
 | Source | Says |
 | ------ | ---- |
@@ -159,16 +174,16 @@ CapTP that acts on who the partner is instead of what it holds.
 | Spritely Goblins (`goblins/ocapn/captp.rkt`) | registers the session with `($ locations->open-session-names 'set remote-location session-name)`, under the location the hello declared |
 | Spritely Goblins (`goblins/ocapn/captp.rkt`) | resolves a withdrawal with `($ locations->open-session-names 'ref exporter-location))`, by that same declared value |
 
-The `#f` is accurate: on an accepted circuit there is no client identity to
-pass. But the session then goes into a table keyed by the
-location the partner announced, and a withdrawal finds its exporter session by
-looking that value up. Over `onion` a peer can announce any location it likes,
-and the accepting side has nothing to check it against.
+The `#f` is accurate: an accepted circuit has no client identity to pass. But
+the session then goes into a table keyed by the location the partner announced,
+and a withdrawal finds its exporter session by looking that value up. Over
+`onion` a peer can announce any location it likes, and the accepting side has
+nothing to check it against.
 
-The note concerns where the protocol's own machinery needs a name. It does not
-say peers should be identified in general. glowcap reports an accepted onion
-partner's location as unproven for the same reason (ADR-0108), and only code that
-authenticated an end-to-end channel may report a proved peer.
+The note concerns where the protocol's own machinery needs a name, not whether
+peers should be identified in general. glowcap reports an accepted onion
+partner's location as unproven for the same reason (ADR-0108), and only code
+that authenticated an end-to-end channel may report a proved peer.
 
 The same netlayer file pins a second observation: the dial arm matches
 `[(ocapn-node 'onion designator #f)`, so a Goblins peer handed an onion locator
@@ -186,11 +201,11 @@ them, settles the baseline, and answers an echo call across the circuit.
 
 ## Upstream-use note
 
-These findings and their checker were prepared with AI assistance during a glowcap
-repository review. They are evidence for the glowcap maintainer and not an
+These findings and their checker were prepared with AI assistance during a
+glowcap repository review. They are evidence for the glowcap maintainer, not an
 upstream-ready report, so do not submit this text or script as-is.
 
-To have a finding filed upstream, ask. It will be reproduced by hand,
-rewritten in the maintainer's own words, and checked against the target
-project's contribution and AI-use policy before it is sent anywhere. See
+To have a finding filed upstream, ask. The maintainer reproduces it by hand,
+rewrites it in their own words, and checks the target project's contribution
+and AI-use policy before sending it anywhere. See
 [`PROVENANCE.md`](../../PROVENANCE.md).

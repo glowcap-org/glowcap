@@ -95,7 +95,7 @@ pub const Instance = struct {
     /// turn verb or drive, the same lifetime the underlying near reply has.
     turn_scratch: std.heap.ArenaAllocator,
     /// Scratch owning a SETTLE action's projected `value` sub-structure
-    /// (`argumentToC`'s child arrays), reset at the head of each
+    /// (`argumentToCWith`'s child arrays), reset at the head of each
     /// `glowcap_host_next_action`. The C children and the model value in the
     /// popped action row both die at the next `next_action` call, one
     /// lifetime sentence, the one DIAL already carries.
@@ -175,7 +175,7 @@ pub fn instanceFrom(handle: ?*GlowcapHost) ?*Instance {
 /// listener metadata, session mint/release, and byte-pump verbs do not.
 pub fn embedderOwnsDrive(inst: *Instance, operation: []const u8) bool {
     if (inst.drive_owner == .embedder) return true;
-    shared.setLastError("host: {s} refused because the native driver owns transport execution", .{operation});
+    shared.setLastError("host: {s} refused because the Zig driver owns transport execution", .{operation});
     return false;
 }
 
@@ -239,13 +239,13 @@ pub const HostedBehavior = struct {
     /// invokes the consumer's callback with the turn, and materializes the
     /// reply *owned* into `turn.arena` before returning: the consumer's
     /// `out_reply` storage is only valid until the callback returns, and the
-    /// reply must own its bytes for the turn window, exactly like a native
+    /// reply must own its bytes for the turn window, exactly like a Zig
     /// reply.
-    pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Message) actors.HostedActor.Result {
+    pub fn handle(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) actors.HostedActor.Result {
         return actors.HostedActor.Result.fromResult(handleOwned(erased, turn, msg));
     }
 
-    fn handleOwned(erased: *anyopaque, turn: *actors.Turn, msg: actors.Message) anyerror!model.Argument {
+    fn handleOwned(erased: *anyopaque, turn: *actors.Turn, msg: actors.Delivery) anyerror!model.Argument {
         const self: *HostedBehavior = @ptrCast(@alignCast(erased));
         const arena = turn.arena;
         const host_turn = try driver_core.HostTurn.fromActorTurn(turn);
@@ -280,10 +280,11 @@ pub const HostedBehavior = struct {
         try host_turn.beginLocal();
         const inst = instOf(host_turn.host);
         const input = try host_turn.localArguments();
-        const c_args = valuesToC(turn.arena, input.args) catch |err| {
+        const input_values = try input.args.values();
+        const c_args = valuesToC(turn.arena, input_values) catch |err| {
             // Observation custody transfers at callback entry. Projection
             // refusal must retract it independently of the queue keepers.
-            host_turn.releaseValues(input.args);
+            host_turn.releaseValues(input_values);
             return err;
         };
         var reply = shared.zero_argument;
@@ -448,6 +449,12 @@ pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!sha
             out.kind = shared.GLOWCAP_ARG_REFERENCE;
             out.reference = .{ .id = capability.raw() };
         },
+        .integers => |words| {
+            out.kind = shared.GLOWCAP_ARG_INTEGERS;
+            const bytes = std.mem.sliceAsBytes(words);
+            out.bytes = bytes.ptr;
+            out.bytes_len = bytes.len;
+        },
         .list => |items| {
             out.kind = shared.GLOWCAP_ARG_LIST;
             const projected = try valuesToC(arena, items);
@@ -503,7 +510,7 @@ fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) anyerr
     return out;
 }
 
-pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, args: []const model.Argument) ![]shared.GlowcapArgument {
+pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, args: model.view.Args) ![]shared.GlowcapArgument {
     return inst.core.projectValues(session, arena, args, arena, valuesToC);
 }
 

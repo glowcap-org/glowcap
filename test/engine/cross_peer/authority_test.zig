@@ -214,7 +214,7 @@ test "borrowed handoff signing domains equal owned domains through both codecs" 
             );
             defer frame.deinit();
             const decoded = try codec.dispatch.decodeBody(codec_id, frame.view());
-            const decoded_handoff = (try decoded.deliver.args.at(0)).handoff;
+            const decoded_handoff = try (try decoded.deliver.args.at(0)).handoff.project();
             try std.testing.expect(decoded_handoff == .receive);
 
             const borrowed_give = try codec.signed.giveViewBytes(allocator, decoded_handoff.receive.signed_give);

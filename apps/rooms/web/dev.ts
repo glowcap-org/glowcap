@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run -A
 /** The process owner behind `zig build rooms-dev`.
  *
- * The build step supplies the native `rooms-web` executable, public port, and
+ * The build step supplies the `rooms-web` executable, public port, and
  * server arguments. This program starts that backend on an ephemeral loopback
  * port, points Vite at it, and retires both processes on exit. */
 import { fileURLToPath } from "node:url";
@@ -94,7 +94,7 @@ async function mirrorAndFindBackend(
 		const backend = backendFromOutput(line);
 		if (backend != null) {
 			found.resolve(backend);
-			line = `  native backend   ${backend} (internal)\n`;
+			line = `  web server       ${backend} (internal)\n`;
 		}
 		await Deno.stdout.write(encoder.encode(line));
 	};

@@ -1,9 +1,9 @@
 # OCapN crypto-version transition
 
-Status: active plan. Implementation is waiting on upstream. This is an internal
-implementation plan, not an upstream issue, review request, or interoperability
-claim. Delete it after the transition is complete and the code, tests, decision
-records, and living documentation own the result.
+Status: active plan. Implementation is waiting on upstream. This is an
+internal plan, not text to send upstream. Delete it after the transition is
+complete and the code, tests, decision records, and living documentation own
+the result.
 
 ## Decision
 
@@ -33,8 +33,11 @@ Two glowcap peers can read the same opening record and settle
 
 The connection shape is unchanged: no compatibility probe, replacement
 connection, baseline retry, or added round trip. The Host recognizes one
-opening grammar. Older four-field source revisions are outside the
-post-cutover interoperability target.
+opening grammar, because a peer sends its hello before it knows the partner's
+profile
+([ADR-0103](../decisions/adr/ADR-0103-hello-carried-profile-offers.md)), so
+this change cannot land in `glowcap-next` first. Older four-field source
+revisions are outside the post-cutover interoperability target.
 
 ## Current upstream state
 
@@ -110,9 +113,8 @@ including how handoff certificates identify their suite.
   the signed value after it was created.
 
 The transition adds no provisional session state, profile discovery round
-trip, automatic retry, or old-to-new signed-value translation. Those would only
-bridge a temporary mismatch between prerelease revisions, and one shared
-cutover removes the mismatch.
+trip, automatic retry, or old-to-new signed-value translation. One shared
+cutover removes the mismatch they would bridge.
 
 ## Readiness requirements
 
@@ -194,14 +196,14 @@ CapTP, codec, and feature offer in the signed locator hints. After both hellos
 arrive, run the existing symmetric settle operation and store its result on the
 session.
 
-The standard session and the native session use the same five-field grammar,
+The standard session and the glowcap session use the same five-field grammar,
 with no pre-hello selector. The onion knowledge rule continues to govern when
 profile hints may appear in a locator, and does not govern hello syntax.
 
 ADR-0103 remains the profile-negotiation decision. Amend its description of
 the shared baseline hello rather than superseding the negotiation design.
 
-This step is complete when a standard-only peer and a native glowcap peer both
+This step is complete when a standard-only peer and a glowcap peer both
 parse the same opening form, then settle different session profiles from their
 offers without another connection or message.
 
@@ -230,7 +232,7 @@ paths.
 No probe lifecycle, replacement ownership, retry policy, or transport metadata
 is added. Applications never assemble the crypto token or raw handshake fields.
 Zig, the C ABI, Rust, TypeScript, Python, and Racket keep choosing `interop` or
-`native` with their existing profile vocabulary.
+`glowcap` with their existing profile vocabulary.
 
 This step is complete when the byte-fed Host, blocking adapter, and completion
 loop all open the same five-field handshake and retain independent settled
@@ -262,7 +264,7 @@ zig build goblins-handoff
 zig build goblins-gift
 zig build goblins-gift-hints
 zig build goblins-exporter
-zig build goblins-native-pair-gift
+zig build goblins-glowcap-pair-gift
 zig build ocapn-conformance
 ```
 
@@ -288,9 +290,8 @@ Keep the evidence boundaries clear:
 - glowcap-to-glowcap checks prove `glowcap-next` negotiation and behavior
 - no check proves interoperability with an implementation it did not run
 
-Any upstream communication based on this work must be written and sent by the
-maintainer under [`PROVENANCE.md`](../../PROVENANCE.md). This internal plan is
-not text to forward upstream.
+Any upstream communication based on this work is written and sent by the
+maintainer under [`PROVENANCE.md`](../../PROVENANCE.md).
 
 ## 9. Verify and remove the plan
 
@@ -322,3 +323,17 @@ are true:
 7. all applicable final checks pass.
 
 Remove the plan rather than marking its steps complete.
+
+## Parallel work
+
+The wire changes stay in one lane, so `dev` never speaks half of the new
+format to a live Goblins peer.
+
+| Lane | Steps | Owns | Starts |
+| --- | --- | --- | --- |
+| 1. Wire | 1, 2, 3, 4, 5, then 7 | `src/ocapn/` model, codec and session, the pins and fixtures | When the readiness requirements hold |
+| 2. Host and bindings | 6 | `src/driver/`, `src/c_abi/`, `bindings/` | After step 2 |
+| 3. Decisions and docs | 8 | ADRs and the pages step 8 names | Drafts after step 3, lands after step 7 |
+
+- Shared files: lane 1 alone edits fixtures and the generated corpus. Lane 2
+  regenerates headers and binding mirrors after a sync.

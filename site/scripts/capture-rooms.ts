@@ -4,12 +4,12 @@
  * Capture the Rooms product images used by the website.
  *
  * Start the web peer with every operator capability and a state directory,
- * its output captured to a file, and the IRC front against its directory:
+ * its output captured to a file, and the IRC server against its directory:
  *
  *   GLOWCAP_ROOMS_STATE=/tmp/rooms-capture-state \
  *     zig build rooms-web -Dtransport=tcp -- 8080 9098 --diagnostics --admin-listeners --operator --peering --irc \
  *     > /tmp/rooms-web-capture.log 2>&1
- *   zig build rooms-irc-front -- --directory=127.0.0.1:9098 --port=6667
+ *   zig build rooms-irc-server -- --directory=127.0.0.1:9098 --port=6667
  *
  * then run:
  *
@@ -22,7 +22,7 @@
  * room and exchange real lines in the shape the rooms-team skill prescribes
  * (strategy announced, findings reported, the human redirecting). The person
  * then opens a direct line from the roster, an IRC client enters the same
- * room through the front, the person takes the operator capabilities into
+ * room through the IRC server, the person takes the operator capabilities into
  * Holdings and opens the directory pane, and finally shares the session so a
  * second browser can attach to it. No product state or screenshot markup is
  * mocked. Only the lines are scripted. Every capture is written twice, as
@@ -34,16 +34,16 @@
  *   rooms-join-*.webp              the join card, pointed at the directory that served the page
  *   rooms-direct-*.webp            the direct conversation, browser to browser
  *   rooms-conversation-*.webp      the team room, with a direct line already in the rail
- *   rooms-irc-*.webp               the same room after an IRC client joined through the front
+ *   rooms-irc-*.webp               the same room after an IRC client joined through the IRC server
  *   rooms-irc-transcript.txt      what that IRC client sent and received, verbatim
  *   rooms-operations-*.webp        the directory pane under /ops, held by capability
  *   rooms-session-attached-*.webp  a second browser attached to the first one's session
  *
- * Without `--state` the operations capture is skipped, and without a front
+ * Without `--state` the operations capture is skipped, and without an IRC server
  * on the IRC port the IRC capture is skipped. Each says so on stderr.
  */
 import { type BrowserContext, chromium, type Page } from "playwright";
-import { pinToLatest, plainRun, shot as capture } from "./capture.ts";
+import { pinToLatest, plainRun, shot as capture, still } from "./capture.ts";
 
 const positional = Deno.args.filter((arg) => !arg.startsWith("--"));
 const flag = (name: string): string | undefined =>
@@ -129,7 +129,7 @@ class IrcClient {
 		while (this.#lines.length === 0) {
 			const buffer = new Uint8Array(4096);
 			const n = await this.#conn.read(buffer);
-			if (n === null) throw new Error("the IRC front closed the connection");
+			if (n === null) throw new Error("the IRC server closed the connection");
 			this.#pending += new TextDecoder().decode(buffer.subarray(0, n));
 			const parts = this.#pending.split("\r\n");
 			this.#pending = parts.pop() ?? "";
@@ -160,7 +160,7 @@ try {
 	// Tall enough for the whole scene from the human's first line to the
 	// lead's replan, with the rail and roster beside it.
 	const viewport = { width: 1280, height: 940 };
-	const person = await browser.newContext({ viewport, deviceScaleFactor: 1.5, colorScheme: "dark" });
+	const person = await browser.newContext({ ...still, viewport, deviceScaleFactor: 1.5, colorScheme: "dark" });
 	contexts.push(person);
 	const mira = await person.newPage();
 	await open(mira, { session: "rooms-session", join: "rooms-join" });
@@ -168,7 +168,7 @@ try {
 
 	const bots = new Map<string, Page>();
 	for (const nick of [lead, ...members]) {
-		const context = await browser.newContext({ viewport, colorScheme: "dark" });
+		const context = await browser.newContext({ ...still, viewport, colorScheme: "dark" });
 		contexts.push(context);
 		const page = await context.newPage();
 		await open(page);
@@ -190,7 +190,7 @@ try {
 	await post(
 		bots.get("wire-clarity")!,
 		mira,
-		"Reading rooms/architecture. The introduction paragraph matches the draft's three-party handoff; checking the diagram against it now.",
+		"Reading rooms/architecture. The introduction paragraph matches the draft's three-party handoff. Checking the diagram against it now.",
 	);
 	await post(
 		bots.get("fresh-eyes")!,
@@ -224,7 +224,7 @@ try {
 	await leadDm.waitFor({ timeout: 30_000 });
 	await leadDm.click();
 	await leadPage.locator(".bubble", { hasText: "Keep the roster" }).last().waitFor({ timeout: 30_000 });
-	await post(leadPage, mira, "Noted. This stays between us; the room gets a plain @first-impression assignment.");
+	await post(leadPage, mira, "Noted. This stays between us. The room gets a plain @first-impression assignment.");
 	// The direct timeline is short, so a shorter window keeps the capture on
 	// its two lines and the conversation's own header instead of empty sky.
 	await mira.setViewportSize({ width: viewport.width, height: 600 });
@@ -239,14 +239,14 @@ try {
 	await mira.locator(".bubble", { hasText: "carry on" }).last().waitFor({ timeout: 30_000 });
 	await shot(mira, "rooms-conversation");
 
-	// An IRC client enters the same room through the front: the registration
+	// An IRC client enters the same room through the IRC server: the registration
 	// an ordinary client sends, a JOIN, a line, and what came back.
 	let irc: IrcClient | undefined;
 	try {
 		irc = await IrcClient.connect(ircPort);
 	} catch (error) {
 		console.error(
-			`capture-rooms: no IRC front on 127.0.0.1:${ircPort}, skipping the rooms-irc captures (${error})`,
+			`capture-rooms: no IRC server on 127.0.0.1:${ircPort}, skipping the rooms-irc captures (${error})`,
 		);
 	}
 	if (irc) {
@@ -260,7 +260,7 @@ try {
 		const fromIrc = "Reading along from an IRC client. Same room, no browser.";
 		await irc.send(`PRIVMSG #${room} :${fromIrc}`);
 		await mira.locator(".bubble", { hasText: fromIrc }).last().waitFor({ timeout: 30_000 });
-		const toIrc = `@${ircNick} welcome. The front holds your seat; the room sees an ordinary member.`;
+		const toIrc = `@${ircNick} welcome. The IRC server holds your seat, and the room sees an ordinary member.`;
 		await say(mira, toIrc);
 		await irc.until(new RegExp(`PRIVMSG #${room} :.*welcome`));
 		// The IRC arrival is the last few rows, so a shorter window keeps the
@@ -327,6 +327,7 @@ try {
 	// A phone-sized window, so the picture says "wherever you go" rather
 	// than repeating the desktop capture above it.
 	const second = await browser.newContext({
+		...still,
 		viewport: { width: 430, height: 900 },
 		deviceScaleFactor: 2,
 		colorScheme: "dark",

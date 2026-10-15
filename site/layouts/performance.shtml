@@ -1,15 +1,34 @@
 <extend template="base.shtml">
 <head id="head">
 	<style>
-		.bench-legend { display: flex; gap: 1.5rem; justify-content: center; font-size: 0.9rem; color: var(--ink-soft); margin-top: 1.25rem; }
+		/* The opening row: one card per headline figure, each a link to the
+		   section that measures it. */
+		.bench-glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: 0.75rem; margin: 1.5rem 0 1.25rem; }
+		.prose a.bench-glance-card { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.95rem 1.1rem 1.05rem; color: var(--ink); text-decoration: none; }
+		.bench-glance-card strong { font-size: 1.75rem; line-height: 1.1; font-weight: 600; color: var(--teal-ink); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+		.bench-glance-card span { font-size: 0.88rem; line-height: 1.4; color: var(--ink-soft); text-wrap: pretty; }
+
+		.bench-stamp { font-size: 0.85rem; color: var(--ink-soft); border-left: 2px solid var(--rule); padding-left: 0.85rem; }
+		.bench-note { font-size: 0.85rem; color: var(--ink-soft); }
+
+		.bench-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; justify-content: center; font-size: 0.85rem; color: var(--ink-soft); margin: 1.25rem 0 0; }
 		.bench-legend span { display: inline-flex; align-items: center; gap: 0.45rem; }
-		.bench-legend i { display: inline-block; width: 0.85rem; height: 0.85rem; border-radius: 3px; }
-		.bench-charts { display: flex; flex-wrap: wrap; gap: 1rem 2rem; justify-content: center; margin: 0.75rem 0 1.5rem; }
-		.bench-charts figure { flex: 1 1 320px; max-width: 400px; margin: 0; }
-		.bench-charts figcaption { font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 0.4rem; }
-		.bench-charts svg { max-width: 100%; height: auto; }
-		.bench-note, .bench-stamp { font-size: 0.85rem; color: var(--ink-soft); }
-		.bench-note { margin-top: -0.5rem; }
+		.bench-legend i { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 3px; }
+		figure .bench-legend { justify-content: flex-start; margin: 0 0 0.5rem; }
+
+		/* Charts in a row of equal columns. A lone chart goes in a panel instead,
+		   beside the table or note that reads with it. */
+		.bench-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; margin: 0.75rem 0 1.25rem; }
+		.bench-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem 1.5rem; align-items: center; margin: 1.25rem 0; }
+		.prose .bench-charts figure, .prose .bench-panel figure { margin: 0; }
+		.bench-panel > div { min-width: 0; overflow-x: auto; }
+		.bench-panel table { margin: 0; }
+		.bench-panel .bench-note { margin: 0; }
+		.prose .bench-charts figcaption, .prose .bench-panel figcaption { font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 0.5rem; text-align: left; }
+		/* A chart keeps its height and stretches its plot across the column, so
+		   a chart alone on a wide row is wider, not taller. */
+		.bench-charts svg, .bench-panel svg { display: block; width: 100%; overflow: visible; }
+		.bench-charts + table, .bench-panel + table { margin-top: 0.5rem; }
 	</style>
 </head>
 <main id="content">

@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 /* Orientation: the low-level endpoint API is blocking, cleartext TCP for
-   a byte-fed GlowcapHost. The same archive also owns the complete native
+   a byte-fed GlowcapHost. The same archive also owns the complete
    TCP provider package: tcp, keyed-tcp, and noise-tcp. Read a frame with
    glowcap_tcp_conn_read_frame, feed its bytes to the Host, and
    write Host output with glowcap_tcp_conn_write_frame. The netlayer owns
@@ -131,7 +131,7 @@ int32_t glowcap_tcp_conn_read_frame(GlowcapTcpConn *conn, GlowcapManagedFrame *o
    provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
 int32_t glowcap_tcp_conn_write_frame(GlowcapTcpConn *conn, const GlowcapFrame *frame, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
-/* Seal native admission and interrupt blocked reads and writes without freeing
+/* Seal admission and interrupt blocked reads and writes without freeing
    the connection. May race operations; join the embedding's leases before release.
    Idempotent. Returns GLOWCAP_ERR_IO when the socket cannot be interrupted; the
    transport last-error slot names the cause. */
@@ -145,7 +145,7 @@ int32_t glowcap_tcp_conn_shutdown(GlowcapTcpConn *conn);
    provide out_error_len. It receives the full length; out_error receives at most
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
 int32_t glowcap_tcp_conn_release(GlowcapTcpConn *conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
-/* Seal native accept admission and interrupt a blocked accept without freeing the
+/* Seal accept admission and interrupt a blocked accept without freeing the
    listener. May race operations; join the embedding's leases before release.
    Idempotent; the listener's pre-opened wake channel makes this operation infallible. */
 void glowcap_tcp_listener_shutdown(GlowcapTcpListener *listener);

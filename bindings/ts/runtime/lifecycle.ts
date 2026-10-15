@@ -29,13 +29,13 @@ export type CloseOptions =
 		readonly graceMs: number | null;
 	};
 
-/** Whether final native release crossed its ownership boundary. */
+/** Whether final FFI release crossed its ownership boundary. */
 export function releaseConsumed(code: number): boolean {
 	return code !== INVALID_ARGUMENT;
 }
 
 /** Decode the closed/not-closed fact without allowing a future or corrupted
- * native discriminant to masquerade as ordinary progress forever. */
+ * FFI discriminant to masquerade as ordinary progress forever. */
 export function lifecycleClosed(raw: number): boolean {
 	switch (raw) {
 		case LIFECYCLE_ACTIVE:

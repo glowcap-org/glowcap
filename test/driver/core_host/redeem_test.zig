@@ -247,7 +247,7 @@ test "core host: foreign release validates before trace close" {
 }
 
 test "core host: select-or-dial enlivens over a live session, and parks on a staged dial" {
-    // ADR-0098 step 4 at the byte-fed tier: the same select-or-dial the native
+    // ADR-0098 step 4 at the byte-fed tier: the same select-or-dial the Zig
     // HostRuntime performs, driven here by an embedder that only answers actions.
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, @as([32]u8, @splat(0x0a)), Host.Options.withFrameCap(frame_cap));

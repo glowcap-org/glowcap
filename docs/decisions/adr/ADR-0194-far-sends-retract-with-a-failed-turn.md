@@ -7,7 +7,7 @@ decision: "A failed outermost turn retracts the far sends it made. The Vat owns 
 supersedes: []
 superseded_by: []
 amends: [ADR-0191]
-amended_by: [ADR-0201]
+amended_by: [ADR-0201, ADR-0236]
 ---
 
 # ADR-0194 Far sends retract with a failed turn

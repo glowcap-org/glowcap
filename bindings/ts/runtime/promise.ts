@@ -136,7 +136,7 @@ export async function fetchLike(
 
 /** Adopt a freshly minted Host vow into one public wrapper. Registration,
  * wrapper construction, inbound attendance, and progress scheduling either
- * all acquire owners or park native release before the failure escapes. */
+ * all acquire owners or park FFI release before the failure escapes. */
 export function promiseFor(
 	h: PromiseFactoryHandle,
 	vow: bigint,
@@ -163,7 +163,7 @@ export function promiseFor(
 		h.attend();
 		h.scheduleProgress();
 		// Last fallible adoption step: after registration succeeds, returning
-		// the wrapper transfers the native vow to its finalizer.
+		// the wrapper transfers the FFI vow to its finalizer.
 		h.trackVow(promise, vow);
 		return promise;
 	} catch (failure) {
@@ -316,7 +316,7 @@ export class RemotePromise extends Promise<Argument> {
 		return new RemotePromise({ tag: "local" }, begin);
 	}
 
-	/** An await-only native vow whose answer is local observation state. */
+	/** An await-only FFI vow whose answer is local observation state. */
 	static observer(vow: bigint, begin: () => Promise<Argument>): RemotePromise {
 		return new RemotePromise({ tag: "observer", vow }, begin);
 	}
@@ -389,7 +389,7 @@ export class RemotePromise extends Promise<Argument> {
 	}
 
 	// First observation issues the send's flush + reply wait, exactly once; the
-	// native promise caches the settlement so repeated awaits share it. `catch`
+	// FFI promise caches the settlement so repeated awaits share it. `catch`
 	// and `finally` are inherited from `Promise` and delegate to this `then`, so
 	// observing through any of them triggers the send.
 	override then<R1 = Argument, R2 = never>(

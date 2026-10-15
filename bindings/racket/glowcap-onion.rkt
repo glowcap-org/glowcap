@@ -57,7 +57,7 @@
          "private/ffi-onion.rkt"
          "private/ffi-shared.rkt"
          "private/locator.rkt"
-         "private/native-parent.rkt"
+         "private/ffi-parent.rkt"
          "private/finalizer-diagnostics.rkt"
          "private/seam.rkt"
          "private/transport.rkt")
@@ -129,7 +129,7 @@
 (struct onion-server (inner restoration-key) #:transparent)
 
 (define (onion-netlayer-forget! nl child)
-  (native-parent-forget! (onion-netlayer-owner nl) child))
+  (ffi-parent-forget! (onion-netlayer-owner nl) child))
 
 (define (as-bytes value)
   (cond [(not value) #""]
@@ -174,14 +174,14 @@
     (new-onion-handle socks control auth-kind auth-secret service-key forward))
   (define nl
     (onion-netlayer
-     (make-native-parent h (lambda (raw) (check/onion (glowcap_onion_netlayer_release raw)))
+     (make-ffi-parent h (lambda (raw) (check/onion (glowcap_onion_netlayer_release raw)))
                          glowcap_onion_netlayer_shutdown)))
   (register-finalizer
    nl
-   (lambda (q) (run-native-finalizer! "onion-netlayer.finalize" (lambda () (onion-netlayer-release! q)) #:layer 'transport)))
+   (lambda (q) (run-ffi-finalizer! "onion-netlayer.finalize" (lambda () (onion-netlayer-release! q)) #:layer 'transport)))
   nl)
 
-;; Install one configured onion package into a native driver. Registration
+;; Install one configured onion package into an FFI driver. Registration
 ;; retains the package before the constructor reference is released; shutdown
 ;; remains the driver's responsibility through that retained lease.
 (define (onion-install-provider! lp
@@ -364,7 +364,7 @@
     (loop-connect-session lp partner)))
 
 (define (onion-netlayer-release! nl)
-  (native-parent-release!
+  (ffi-parent-release!
    (onion-netlayer-owner nl)
    (lambda (child)
      (cond [(onion-listener? child) (onion-listener-release! child)]
@@ -379,7 +379,7 @@
   (define id-buf (out-immobile SERVICE-ID-LENGTH))
   (define key-buf (out-immobile SERVICE-KEY-CAP))
   (define lst
-    (native-parent-open-child
+    (ffi-parent-open-child
      (onion-netlayer-owner nl) 'onion-netlayer-listen
      (lambda (parent-handle)
        (define-values (rc id-len key-len h)
@@ -406,7 +406,7 @@
      onion-listener-release!))
   (register-finalizer
    lst
-   (lambda (q) (run-native-finalizer! "onion-listener.finalize" (lambda () (onion-listener-release! q)) #:layer 'transport)))
+   (lambda (q) (run-ffi-finalizer! "onion-listener.finalize" (lambda () (onion-listener-release! q)) #:layer 'transport)))
   lst)
 
 ;; Dial the onion service `service-id` through the configured Tor. One that is not
@@ -415,7 +415,7 @@
                                 [max-frame RAW-TRANSPORT-DEFAULT-FRAME-CAP])
   (define bs (as-bytes service-id))
   (define cn
-    (native-parent-open-child
+    (ffi-parent-open-child
      (onion-netlayer-owner nl) 'onion-netlayer-connect
      (lambda (parent-handle)
        (define-values (rc h)
@@ -426,7 +426,7 @@
      onion-connection-release!))
   (register-finalizer
    cn
-   (lambda (q) (run-native-finalizer! "onion-connection.finalize" (lambda () (onion-connection-release! q)) #:layer 'transport)))
+   (lambda (q) (run-ffi-finalizer! "onion-connection.finalize" (lambda () (onion-connection-release! q)) #:layer 'transport)))
   cn)
 
 ;; Block until Tor forwards a circuit to this service. The partner's claimed
@@ -453,14 +453,14 @@
      (check/onion rc)
      (define nl (onion-listener-netlayer lst))
      (define cn
-       (native-parent-adopt-or-release!
+       (ffi-parent-adopt-or-release!
         (onion-netlayer-owner nl)
         (onion-connection h (make-semaphore 1) (make-semaphore 1) nl)
         onion-connection-release!
         'onion-listener-accept))
      (register-finalizer
       cn
-      (lambda (q) (run-native-finalizer! "onion-connection.finalize" (lambda () (onion-connection-release! q)) #:layer 'transport)))
+      (lambda (q) (run-ffi-finalizer! "onion-connection.finalize" (lambda () (onion-connection-release! q)) #:layer 'transport)))
      cn)))
 
 ;; Wait up to `timeout-ms` for `onion-listener-accept` to be able to make
@@ -484,7 +484,7 @@
    (onion-listener-accept-gate lst)
    (lambda () (onion-listener-readiness-fd/locked lst))))
 
-;; The listener's fd and native handle are retired under the accept gate. Keep
+;; The listener's fd and FFI handle are retired under the accept gate. Keep
 ;; the unchecked read private so accept/release can use it while already holding
 ;; that non-recursive gate without re-entering it.
 (define (onion-listener-readiness-fd/locked lst)
@@ -560,7 +560,7 @@
 (define (onion-connection-release! cn)
   (when (onion-connection-handle cn)
     ;; Shutdown interrupts either full-duplex half. Release then takes both gates,
-    ;; proving no native call can still touch the payload it is about to free.
+    ;; proving no FFI call can still touch the payload it is about to free.
     (define shutdown-failure #f)
     (define release-failure #f)
     (with-handlers ([(lambda (_) #t)

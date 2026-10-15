@@ -144,7 +144,10 @@ impl Budget {
 	pub(super) fn new(writer: std::rc::Weak<super::executor::Writer>) -> Self {
 		Self {
 			admission: RefCell::new(super::incoming::Admission::new(
-				rooms_application::admission::Settings::defaults(4096, 8),
+				rooms_application::admission::Settings::defaults(
+					rooms_application::admission::SESSION_ROWS,
+					rooms_application::admission::POOLED_AGGREGATE_SCALE,
+				),
 			)),
 			writer,
 			inboxes: Cell::new(0),

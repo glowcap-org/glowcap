@@ -195,6 +195,60 @@ test "the import cap is decided in validate, so a refused deliver commits nothin
     try std.testing.expectEqual(@as(u64, 2), s.importRefcount(.from(8)));
 }
 
+test "the import cap holds across the introduced-import record's spill" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .limits = .{ .max_imports = 5 },
+    });
+    defer s.deinit();
+    try s.registerExport(.from(7));
+
+    // Six distinct fresh imports, more than the record holds in place, against
+    // five free slots: refused in validate with nothing committed.
+    const over = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &.{
+            .{ .reference = .{ .far = .{ .import_position = .from(1) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(2) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(3) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(4) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(6) } } },
+        },
+        .answer = .from(11),
+    } };
+    try std.testing.expectError(
+        session.Error.ImportCapExceeded,
+        s.recordRecvView(model.view.Body.fromOwned(&over)),
+    );
+    try std.testing.expect(s.inboundAnswer(.from(11)) == null);
+    try std.testing.expect(!s.hasImport(.from(1)));
+    try std.testing.expect(!s.hasImport(.from(6)));
+
+    // Five distinct imports each mentioned twice, with the repeats landing
+    // after the record spilled, count once each and fill the table exactly.
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &.{
+            .{ .reference = .{ .far = .{ .import_position = .from(1) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(2) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(3) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(4) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(1) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(2) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(3) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(4) } } },
+            .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
+        },
+        .answer = .from(12),
+    } });
+    try std.testing.expect(s.hasImport(.from(5)));
+    try std.testing.expectEqual(@as(u64, 2), s.importRefcount(.from(1)));
+    try std.testing.expectEqual(@as(u64, 2), s.importRefcount(.from(5)));
+    try std.testing.expectError(session.Error.ImportCapExceeded, s.registerImport(.from(6)));
+}
+
 test "the import cap on a resolve fulfill payload is decided in validate" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{

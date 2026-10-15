@@ -52,19 +52,15 @@ pub fn sortIndicesByKeys(
     }
 }
 
-/// Allocate a copy of `items`, sort by `keyFn`, optionally refuse adjacent
-/// equal keys. Caller owns the returned slice.
-pub fn orderedCopyByKey(
+/// Sort `ordered` in place by `keyFn`, optionally refusing adjacent equal
+/// keys.
+pub fn orderByKey(
     comptime T: type,
     comptime Err: type,
-    allocator: std.mem.Allocator,
-    items: []const T,
+    ordered: []T,
     comptime keyFn: *const fn (T) []const u8,
     comptime refuse_dupes: bool,
-) Err![]T {
-    const ordered = try allocator.alloc(T, items.len);
-    errdefer allocator.free(ordered);
-    for (items, 0..) |item, i| ordered[i] = item;
+) Err!void {
     std.mem.sort(T, ordered, {}, struct {
         fn less(_: void, a: T, b: T) bool {
             return std.mem.lessThan(u8, keyFn(a), keyFn(b));
@@ -77,5 +73,4 @@ pub fn orderedCopyByKey(
                 return error.UnsupportedArgument;
         }
     }
-    return ordered;
 }

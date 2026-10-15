@@ -400,13 +400,13 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
     const answer = model.AnswerPosition.from(try peer.allocateAnswer());
     const receiver: model.Reference = .{ .promise = .{ .answer_position = source } };
     switch (projection) {
-        .index => |index| try peer.sendCopying(.{ .index = .{
+        .index => |index| try peer.sendBorrowed(.{ .index = .{
             .receiver = receiver,
             .index = .{ .integer = index },
             .answer = answer,
         } }),
-        .untag => |tag| try peer.sendCopying(.{ .untag = .{ .receiver = receiver, .tag = tag, .answer = answer } }),
-        .get => |field| try peer.sendCopying(.{ .get = .{ .receiver = receiver, .field = field, .answer = answer } }),
+        .untag => |tag| try peer.sendBorrowed(.{ .untag = .{ .receiver = receiver, .tag = tag, .answer = answer } }),
+        .get => |field| try peer.sendBorrowed(.{ .get = .{ .receiver = receiver, .field = field, .answer = answer } }),
     }
     const id = commitVow(self, resolved.session, reservation, .{ .far = answer });
     reservation_live = false;

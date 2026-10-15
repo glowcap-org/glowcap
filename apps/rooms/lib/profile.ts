@@ -7,12 +7,12 @@
 
 import type { HostOptions } from "@glowcap/runtime";
 
-export type RoomsHostPosture = "full" | "native-baseline" | "interop";
+export type RoomsHostPosture = "full" | "glowcap-baseline" | "interop";
 
 export function roomsHostOptions(posture: RoomsHostPosture = "full"): HostOptions {
 	return posture === "full"
-		? { profile: "native", features: "full" }
-		: posture === "native-baseline"
-		? { profile: "native", features: "baseline" }
+		? { profile: "glowcap", features: "full" }
+		: posture === "glowcap-baseline"
+		? { profile: "glowcap", features: "baseline" }
 		: { profile: "interop", features: "baseline" };
 }

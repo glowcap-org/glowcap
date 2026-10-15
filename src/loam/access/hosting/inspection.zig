@@ -10,20 +10,6 @@ pub const Inspection = struct {
     item: storage.GrantInventory.Item,
 
     pub fn prepare(operation: *storage.Operation) !Inspection {
-        const grant = try operation.inspectGrant(null);
-        const description = try operation.describeControl();
-        return .{
-            .policy = description.policy,
-            .item = .{
-                .id = grant.id,
-                .revision = grant.revision,
-                .label = grant.label,
-                .status = grant.status,
-                .effective_status = description.grant_status,
-                .ceiling = grant.ceiling.policy,
-                .configured = grant.configured.policy,
-                .delegation_depth = grant.delegation_depth,
-            },
-        };
+        return .{ .item = try operation.inspectGrant(null), .policy = (try operation.describeControl()).policy };
     }
 };

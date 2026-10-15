@@ -7,7 +7,7 @@ decision: "A durable managed owner keeps its header and sparse identity director
 supersedes: []
 superseded_by: []
 amends: [ADR-0166]
-amended_by: [ADR-0168, ADR-0178, ADR-0179, ADR-0180]
+amended_by: [ADR-0168, ADR-0178, ADR-0179, ADR-0180, ADR-0230]
 ---
 
 # ADR-0167 Managed owner storage
@@ -66,7 +66,7 @@ independent write-completion state machine.
 > against the transaction's own composed state and re-proposes shared records
 > (the owner header, a parent grant row) in place, so the submitted batch still
 > holds exactly one mutation per record. The re-propose rule lives in the
-> [atomic mutations contract](../../loam/api.md#atomic-mutations). The
+> [atomic mutations contract](../../loam/api.md#transactions). The
 > [owner transaction tests](../../../test/loam/access/owner_test.zig) and the
 > [LMDB composed reopen test](../../../test/loam/lmdb/owner_test.zig) hold the
 > evidence.

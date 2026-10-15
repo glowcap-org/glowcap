@@ -12,20 +12,29 @@
 //! Scalar fields and slices point right into the frame's bytes. (On the
 //! owned-fallback path they point into an owned `model.Message` instead.) The
 //! open-ended `Args`, `StructEntries`, and `PositionList` sequences need a
-//! little more machinery, and all three get it from one `LazySequence` generic.
+//! little more machinery, and all three get it from one `LazySequence` generic
+//! (`view_sequence.zig`).
 //! Each carries a small piece of borrowed state plus a
 //! tiny table of `len` and `at` functions the codec hands it. That's what lets
 //! the view walk a list lazily without allocating a box per list, and it's also
 //! why this file never imports `codec`: the codec owns the parsing, the view just
-//! dispatches into it. On the owned-fallback path the backing is a slice.
+//! dispatches into it. On the owned-fallback path the backing is a slice. A
+//! list of integers or positions that lies on the wire as a run of
+//! little-endian words is read in place (`fromRun`), one word per element.
 //!
 //! Nested containers (`Argument.list`, `.set`, `.tagged`) are themselves `Args`,
 //! so the whole tree stays borrowed and allocation-free right up until you call
 //! `toOwned`.
+//!
+//! A signed handoff envelope or a sturdyref is wide once parsed and rare on the
+//! wire, so `Argument.handoff` and `Reference.sturdy` are `Lazy` records: the
+//! codec hands the view the record's bytes, and `project` parses them when a
+//! consumer reads the record.
 
 const std = @import("std");
 const model = @import("mod.zig");
 const records = @import("view_records.zig");
+const sequence = @import("view_sequence.zig");
 const body_types = @import("view_body.zig").Types(
     Reference,
     Resolution,
@@ -47,225 +56,43 @@ pub const ProjectError = error{MalformedView};
 /// allocation failure while building the owned tree.
 pub const Error = ProjectError || std.mem.Allocator.Error;
 
-// ── Lazy sequences ───────────────────────────────────────────────────────────
-
-/// Codec-private cursor borrowing wire memory, shared by every lazy sequence.
-/// `bytes` is the codec's view of the list region. `w0`/`w1`/`w2` are
-/// codec-interpreted scalars (e.g. a word offset, element stride, and element
-/// count). One shared type, so a codec can build a cursor once and hand it to
-/// `Args` or `PositionList` alike.
-const SequenceCtx = struct {
-    bytes: []const u8 = &.{},
-    w0: u64 = 0,
-    w1: u64 = 0,
-    w2: u64 = 0,
+/// A word of an integer run is one `integer` argument.
+const IntegerRun = struct {
+    pub const Elem = i64;
+    pub fn view(elem: i64) Argument {
+        return .{ .integer = elem };
+    }
 };
 
-/// The slice-or-vtable backing machinery behind `Args`, `StructEntries`,
-/// and `PositionList`. One comptime generic, instantiated for each shape.
-///
-/// A sequence is backed one of two ways: by a plain `slice` of owned elements
-/// (the fallback path), or by a small codec-supplied table that reads them
-/// straight off the wire. Either way you only ever see `len`, `at`, and
-/// `iterator`, which backing it is stays hidden.
-///
-/// `OwnedElem` is the owned model element. `ViewElem` is its borrowed
-/// projection. When the two are the same type (the POD `u64` positions), the
-/// projection is the identity and materializing allocates nothing per element.
-fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
-    return struct {
-        inner: Inner,
-
-        const Self = @This();
-
-        const Inner = union(enum) {
-            slice: []const OwnedElem,
-            backed: Backed,
-        };
-
-        pub const Ctx = SequenceCtx;
-
-        /// An iterator position belonging to this immutable sequence. Save it
-        /// before `next` to revisit that member without scanning the prefix.
-        /// Tokens must come from this sequence. They are not element indices.
-        pub const Checkpoint = enum(u64) { _ };
-
-        pub const VTable = struct {
-            len: *const fn (Ctx) ProjectError!usize,
-            at: *const fn (Ctx, usize) ProjectError!ViewElem,
-            /// Forward cursor: read the element at the codec-interpreted `cursor`,
-            /// advance `cursor` past it, and return it. Return `null` at the end.
-            /// The single forward walk replaces a loop of `at(i)`, which on a
-            /// byte-framed codec re-scans from the start each call (O(n^2)).
-            next: *const fn (Ctx, *u64) ProjectError!?ViewElem,
-        };
-
-        const Backed = struct {
-            ctx: Ctx,
-            vtable: *const VTable,
-        };
-
-        /// Forward-only walk over the sequence. One linear pass, no
-        /// per-element re-scan and no `len()` pre-walk, the shape the
-        /// session's hot validate/install paths use.
-        pub const Iterator = struct {
-            inner: union(enum) {
-                slice: struct { items: []const OwnedElem, index: usize },
-                backed: struct { backed: Backed, cursor: u64 },
-            },
-
-            pub fn checkpoint(self: *const Iterator) Checkpoint {
-                return @fromBackingInt(@intCast(switch (self.inner) {
-                    .slice => |s| s.index,
-                    .backed => |b| b.cursor,
-                }));
-            }
-
-            pub fn next(self: *Iterator) ProjectError!?ViewElem {
-                switch (self.inner) {
-                    .slice => |*s| {
-                        if (s.index >= s.items.len) return null;
-                        const out = project(&s.items[s.index]);
-                        s.index += 1;
-                        return out;
-                    },
-                    .backed => |*b| return b.backed.vtable.next(b.backed.ctx, &b.cursor),
-                }
-            }
-        };
-
-        /// Borrow the view projection of one owned element (the identity for
-        /// POD elements).
-        fn project(elem: *const OwnedElem) ViewElem {
-            return if (comptime OwnedElem == ViewElem) elem.* else ViewElem.fromOwned(elem);
-        }
-
-        /// Materialize one viewed element into its owned form at `depth`.
-        fn materialize(allocator: std.mem.Allocator, elem: ViewElem, depth: usize) Error!OwnedElem {
-            if (comptime OwnedElem == ViewElem) {
-                return elem;
-            } else {
-                return elem.toOwnedDepth(allocator, depth);
-            }
-        }
-
-        /// Release one owned element on the partial-failure unwind.
-        fn freeOwned(allocator: std.mem.Allocator, elem: OwnedElem) void {
-            if (comptime OwnedElem == model.Argument) {
-                model.freeArgument(allocator, elem);
-            } else if (comptime OwnedElem == model.StructEntry) {
-                model.freeArgument(allocator, elem.value);
-                allocator.free(elem.key);
-            } else if (comptime OwnedElem != u64) {
-                // POD elements (u64 positions) own nothing. Any new element
-                // type must declare its release arm above, a silent
-                // fall-through would leak every element on the unwind path.
-                @compileError("LazySequence.freeOwned has no release arm for " ++ @typeName(OwnedElem));
-            }
-        }
-
-        pub fn empty() Self {
-            return .{ .inner = .{ .slice = &.{} } };
-        }
-
-        pub fn fromOwnedSlice(slice: []const OwnedElem) Self {
-            return .{ .inner = .{ .slice = slice } };
-        }
-
-        pub fn fromBacking(ctx: Ctx, vtable: *const VTable) Self {
-            return .{ .inner = .{ .backed = .{ .ctx = ctx, .vtable = vtable } } };
-        }
-
-        pub fn len(self: Self) ProjectError!usize {
-            return switch (self.inner) {
-                .slice => |s| s.len,
-                .backed => |b| b.vtable.len(b.ctx),
-            };
-        }
-
-        /// Whether the sequence carries no elements. The borrowed twin of the
-        /// owned record's `isEmpty`, so a dual-shape walker can ask either.
-        pub fn isEmpty(self: Self) ProjectError!bool {
-            return (try self.len()) == 0;
-        }
-
-        pub fn at(self: Self, index: usize) ProjectError!ViewElem {
-            return switch (self.inner) {
-                .slice => |s| if (index < s.len) project(&s[index]) else error.MalformedView,
-                .backed => |b| b.vtable.at(b.ctx, index),
-            };
-        }
-
-        /// Project one member saved by this sequence's iterator. End positions
-        /// are refused. Replaying a codec-backed member costs its projection,
-        /// which can scan a nested value, but never the preceding members.
-        pub fn atCheckpoint(self: Self, checkpoint: Checkpoint) ProjectError!ViewElem {
-            const position = @backingInt(checkpoint);
-            const index = std.math.cast(usize, position) orelse return error.MalformedView;
-            return switch (self.inner) {
-                .slice => |s| if (index < s.len) project(&s[index]) else error.MalformedView,
-                .backed => |b| blk: {
-                    var cursor = position;
-                    break :blk (try b.vtable.next(b.ctx, &cursor)) orelse error.MalformedView;
-                },
-            };
-        }
-
-        pub fn iterator(self: Self) Iterator {
-            return switch (self.inner) {
-                .slice => |s| .{ .inner = .{ .slice = .{ .items = s, .index = 0 } } },
-                .backed => |b| .{ .inner = .{ .backed = .{ .backed = b, .cursor = 0 } } },
-            };
-        }
-
-        pub fn toOwnedSlice(self: Self, allocator: std.mem.Allocator) Error![]OwnedElem {
-            return self.toOwnedSliceDepth(allocator, 0);
-        }
-
-        fn toOwnedSliceDepth(self: Self, allocator: std.mem.Allocator, depth: usize) Error![]OwnedElem {
-            // The session sets its own, lower inbound cap
-            // (`SessionLimits.max_nesting_depth`) and validates before it
-            // materializes anything, so real wire data never reaches this. The
-            // shared ceiling is the model-layer backstop for a borrowed view
-            // that skipped session validation: a pathologically nested tree
-            // fails with `MalformedView` rather than overflowing the stack.
-            if (depth > model.max_value_depth) return error.MalformedView;
-            const count = try self.len();
-            const out = try allocator.alloc(OwnedElem, count);
-            errdefer allocator.free(out);
-            var initialized: usize = 0;
-            errdefer for (out[0..initialized]) |elem| freeOwned(allocator, elem);
-            var it = self.iterator();
-            while (try it.next()) |elem| {
-                if (initialized >= count) return error.MalformedView;
-                out[initialized] = try materialize(allocator, elem, depth);
-                initialized += 1;
-            }
-            if (initialized != count) return error.MalformedView;
-            return out;
-        }
-    };
-}
+/// A word of a position run is the position itself.
+const PositionRun = struct {
+    pub const Elem = u64;
+    pub fn view(elem: u64) u64 {
+        return elem;
+    }
+};
 
 /// A borrowed sequence of `Argument` values.
-pub const Args = LazySequence(model.Argument, Argument);
+pub const Args = sequence.LazySequence(model.Argument, Argument, IntegerRun);
+
+pub const ValueSlab = @import("view_slab.zig").ValueSlab;
 
 /// A borrowed sequence of `StructEntry` pairs, the lazy backing of an OCapN
 /// `Argument.@"struct"`. One cursor walks (key, value) pairs off the wire, the
 /// same shape `Args` walks single values, so a struct projects with no per-entry
 /// allocation until `Argument.toOwned`.
-pub const StructEntries = LazySequence(model.StructEntry, StructEntry);
+pub const StructEntries = sequence.LazySequence(model.StructEntry, StructEntry, null);
 
 /// Borrowed mirror of `model.StructEntry`: a String key and a borrowed value.
 pub const StructEntry = struct {
     key: []const u8,
     value: Argument,
 
-    fn fromOwned(owned: *const model.StructEntry) StructEntry {
+    pub fn fromOwned(owned: *const model.StructEntry) StructEntry {
         return .{ .key = owned.key, .value = Argument.fromOwned(&owned.value) };
     }
 
-    pub fn toOwnedDepth(self: StructEntry, allocator: std.mem.Allocator, depth: usize) Error!model.StructEntry {
+    pub fn toOwnedDepth(self: *const StructEntry, allocator: std.mem.Allocator, depth: usize) Error!model.StructEntry {
         const key = try allocator.dupe(u8, self.key);
         errdefer allocator.free(key);
         return .{ .key = key, .value = try self.value.toOwnedDepth(allocator, depth) };
@@ -274,7 +101,91 @@ pub const StructEntry = struct {
 
 /// Borrowed sequence of positive integers (export-pos, answer-pos, or
 /// wire-delta values).
-pub const PositionList = LazySequence(u64, u64);
+pub const PositionList = sequence.LazySequence(u64, u64, PositionRun);
+
+/// A borrowed record that is parsed only when it is read.
+///
+/// A view arm costs what the hot path reads. The signed handoff envelope and
+/// the sturdyref are each a few hundred borrowed bytes wide once parsed, and
+/// a deliver carries one in a gift exchange, never in an ordinary call. Kept
+/// inline they would set the size of every `Argument`, and with it the cost of
+/// every argument copy, list walk, and zeroed optional on the receive path. So
+/// the codec hands the view the record's byte region and a projector, the way
+/// it hands `Args` a list region, and the consumer that reads the record pays
+/// for the parse. On the owned-fallback path the backing is the owned record
+/// and the projection is its borrowed mirror.
+pub fn Lazy(comptime Owned: type, comptime View: type) type {
+    return struct {
+        inner: union(enum) {
+            owned: *const Owned,
+            backed: Backed,
+        },
+
+        const Self = @This();
+
+        pub const Ctx = sequence.SequenceCtx;
+
+        /// Parse the record out of `Ctx`. A codec reports a malformed record
+        /// as `MalformedView`, the verdict a malformed list element gets.
+        pub const Project = *const fn (Ctx) ProjectError!View;
+
+        const Backed = struct {
+            ctx: Ctx,
+            project: Project,
+        };
+
+        pub fn fromOwned(owned: *const Owned) Self {
+            return .{ .inner = .{ .owned = owned } };
+        }
+
+        pub fn fromBacking(ctx: Ctx, projector: Project) Self {
+            // Decoding a frame does not parse this record. The view keeps only
+            // the record's byte region and the function that can parse it. The
+            // parse runs when a consumer calls `project`, so a message whose
+            // record nobody reads never pays for it. This is correct because
+            // the frame's bytes outlive the view and do not change meanwhile.
+            return .{ .inner = .{ .backed = .{ .ctx = ctx, .project = projector } } };
+        }
+
+        pub fn project(self: Self) ProjectError!View {
+            return switch (self.inner) {
+                .owned => |owned| View.fromOwned(owned),
+                .backed => |backed| backed.project(backed.ctx),
+            };
+        }
+    };
+}
+
+pub const LazySturdyRef = Lazy(model.SturdyRef, SturdyRef);
+pub const LazyHandoff = Lazy(model.Handoff, Handoff);
+
+/// The borrowed sturdyref behind either source an argument writer reads: an
+/// owned (boxed) record projects, and a lazy one parses.
+pub fn borrowSturdy(source: anytype) ProjectError!SturdyRef {
+    if (comptime @typeInfo(@TypeOf(source)) == .pointer) return SturdyRef.fromOwned(source);
+    return source.project();
+}
+
+/// The borrowed handoff behind either source, as `borrowSturdy`.
+pub fn borrowHandoff(source: anytype) ProjectError!Handoff {
+    if (comptime @typeInfo(@TypeOf(source)) == .pointer) return Handoff.fromOwned(source);
+    return source.project();
+}
+
+pub const OwnedSlice = sequence.OwnedSlice;
+pub const sequenceOf = sequence.sequenceOf;
+
+/// The widest an `Argument` may be. Every argument the receive path copies,
+/// zeroes, or returns by value pays this size, so a new arm that would widen
+/// it is a lazy record (`Lazy`) or a boxed one, never an inline struct.
+pub const argument_view_budget_bytes = 80;
+
+comptime {
+    if (@sizeOf(Argument) > argument_view_budget_bytes) @compileError(std.fmt.comptimePrint(
+        "model.view.Argument is {d} bytes, over its {d}-byte budget: project the new arm lazily",
+        .{ @sizeOf(Argument), argument_view_budget_bytes },
+    ));
+}
 
 // ── Value views ──────────────────────────────────────────────────────────────
 
@@ -287,6 +198,10 @@ pub const BorrowedHints = records.BorrowedHints;
 pub const SturdyRef = struct {
     peer: PeerLocator,
     swissnum: []const u8,
+
+    pub fn fromOwned(owned: *const model.SturdyRef) SturdyRef {
+        return .{ .peer = PeerLocator.fromOwned(&owned.peer), .swissnum = owned.swissnum };
+    }
 };
 
 /// Borrowed mirror of `model.PromiseRef`.
@@ -295,7 +210,7 @@ pub const PromiseRef = struct {
 };
 
 /// Borrowed mirror of `model.Reference`. `near` / `far` carry POD ids by
-/// value. `sturdy` / `broken` borrow wire bytes.
+/// value. `broken` borrows wire bytes, and `sturdy` is projected when read.
 pub const Reference = union(enum) {
     near: model.NearRef,
     far: model.FarRef,
@@ -304,7 +219,7 @@ pub const Reference = union(enum) {
     /// preserves the explicit namespace without inventing a wire position.
     routed: model.RoutedRef,
     promise: PromiseRef,
-    sturdy: SturdyRef,
+    sturdy: LazySturdyRef,
     broken: BreakReason,
 
     /// The raw wire position this reference names: a near export's
@@ -339,10 +254,7 @@ pub const Reference = union(enum) {
             .far => |far| .{ .far = far },
             .routed => |routed| .{ .routed = routed },
             .promise => |promise| .{ .promise = .{ .answer_position = promise.answer_position } },
-            .sturdy => |sturdy| .{ .sturdy = .{
-                .peer = PeerLocator.fromOwned(&sturdy.peer),
-                .swissnum = sturdy.swissnum,
-            } },
+            .sturdy => |sturdy| .{ .sturdy = .fromOwned(sturdy) },
             .broken => |broken| .{ .broken = .{ .message = broken.message } },
         };
     }
@@ -353,7 +265,8 @@ pub const Reference = union(enum) {
             .far => |far| .{ .far = far },
             .routed => |routed| .{ .routed = routed },
             .promise => |promise| .{ .promise = .{ .answer_position = promise.answer_position } },
-            .sturdy => |sturdy| blk: {
+            .sturdy => |lazy| blk: {
+                const sturdy = try lazy.project();
                 const peer = try sturdy.peer.toOwned(allocator);
                 errdefer model.freePeerLocator(allocator, peer);
                 const swissnum = try allocator.dupe(u8, sturdy.swissnum);
@@ -375,7 +288,7 @@ pub const Argument = union(enum) {
     symbol: []const u8,
     reference: Reference,
     @"error": BreakReason,
-    handoff: Handoff,
+    handoff: LazyHandoff,
     string: []const u8,
     integer: i64,
     boolean: bool,
@@ -400,7 +313,7 @@ pub const Argument = union(enum) {
             .symbol => |symbol| .{ .symbol = symbol },
             .reference => |*reference| .{ .reference = Reference.fromOwned(reference) },
             .@"error" => |err| .{ .@"error" = .{ .message = err.message } },
-            .handoff => |handoff| .{ .handoff = Handoff.fromOwned(handoff) },
+            .handoff => |handoff| .{ .handoff = .fromOwned(handoff) },
             .string => |string| .{ .string = string },
             .integer => |integer| .{ .integer = integer },
             .boolean => |boolean| .{ .boolean = boolean },
@@ -415,12 +328,12 @@ pub const Argument = union(enum) {
         };
     }
 
-    pub fn toOwned(self: Argument, allocator: std.mem.Allocator) Error!model.Argument {
+    pub fn toOwned(self: *const Argument, allocator: std.mem.Allocator) Error!model.Argument {
         return self.toOwnedDepth(allocator, 0);
     }
 
-    fn toOwnedDepth(self: Argument, allocator: std.mem.Allocator, depth: usize) Error!model.Argument {
-        return switch (self) {
+    pub fn toOwnedDepth(self: *const Argument, allocator: std.mem.Allocator, depth: usize) Error!model.Argument {
+        return switch (self.*) {
             .bytes => |bytes| .{ .bytes = try allocator.dupe(u8, bytes) },
             .symbol => |symbol| .{ .symbol = try allocator.dupe(u8, symbol) },
             .reference => |reference| .{ .reference = try reference.toOwned(allocator) },
@@ -428,7 +341,7 @@ pub const Argument = union(enum) {
             .handoff => |handoff| blk: {
                 const boxed = try allocator.create(model.Handoff);
                 errdefer allocator.destroy(boxed);
-                boxed.* = try handoff.toOwned(allocator);
+                boxed.* = try (try handoff.project()).toOwned(allocator);
                 break :blk .{ .handoff = boxed };
             },
             .string => |string| .{ .string = try allocator.dupe(u8, string) },

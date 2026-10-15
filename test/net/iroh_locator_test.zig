@@ -86,7 +86,7 @@ test "supported iroh facade and nested surfaces stay exact" {
     try std.testing.expectEqual(resident_names.len, @typeInfo(iroh.Resident).@"struct".decl_names.len);
     inline for (resident_names) |name| try std.testing.expect(@hasDecl(iroh.Resident, name));
 
-    const backend_names = .{ "Fd", "adapter_depth", "ListenerAddress", "ListenTarget", "loopListenTarget", "ConnectTarget", "listen_fd", "connection_state_bytes", "initBound", "initBoundWithPlatform", "deinit", "tcpBackendStatus", "wake", "openListener", "listenerPending", "startDial", "listenerAddress", "listenerPort", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll" };
+    const backend_names = .{ "Fd", "adapter_depth", "ListenerAddress", "ListenTarget", "loopListenTarget", "ConnectTarget", "listen_fd", "connection_state_bytes", "initBound", "initBoundWithPlatform", "deinit", "tcpBackendStatus", "wake", "openListener", "listenerPending", "startDial", "listenerAddress", "listenerPort", "applyKeepalive", "wireFraming", "closeFd", "shutdownFd", "recycleBorrowed", "verifiedChannelKey", "submitAccept", "submitRecv", "submitSend", "submitCancel", "submitClose", "poll", "peek" };
     try std.testing.expectEqual(backend_names.len, @typeInfo(iroh.Backend).@"struct".decl_names.len);
     inline for (backend_names) |name| try std.testing.expect(@hasDecl(iroh.Backend, name));
 

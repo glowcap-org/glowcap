@@ -1,16 +1,25 @@
+---
+type: static
+description: A guide to managed access in Zig, covering resource structure, held use and control references, hosted methods, and exact retries.
+audience: human
+sources:
+  - resource: /src/loam/access/
+  - resource: /apps/rooms/rust/browser/src/attached/managed/
+---
+
 # Managed access records
 
-Status: living-state surface. This guide covers Zig resource structure, held
-use and control references, hosted access methods, and exact retries. The
-[store and actor guide](../loam.md) owns backend and Host attachment custody.
+This guide builds managed access in Zig: its records, the use and control
+references people hold, hosted endpoints, and safe retries. Storage engines and
+attaching a Store to a Host are in the [store and actor guide](../loam.md).
 
 ## What managed access is for
 
 Passing a reference is often all the sharing an application needs. Alice can
 hand Bob a read-only wrapper around her board and cut it later. Managed access
-is for applications that also need to see who has access, change it after the
-fact, and let Bob share a narrower part onward. It keeps that bookkeeping in
-Loam records, in the same transactions as the content it protects.
+is for applications that also need to see who has access, change it later, and
+let Bob share a narrower part onward. It keeps that bookkeeping in Loam
+records, in the same transactions as the content it protects.
 
 - A **resource** is something the application owns, arranged in a tree, such
   as a board and its columns.
@@ -21,569 +30,562 @@ Loam records, in the same transactions as the content it protects.
   separate capability that can pause, resume, or revoke that grant. Bob can
   hold the first without being able to change his own access.
 
-Every use is checked against the whole chain of grants above it at the moment
+Every use is checked against the whole chain of grants above it at the time
 of use, so revoking a grant cuts off everything shared from it. The
 [website's Loam page](https://jimisaacs.github.io/glowcap/loam/#sharing-with-people)
 draws this.
 
-`access.core.GrantView` evaluates current grant ancestry alongside a
-`ResourceView`. Both consume synchronous record sources. An unloaded row
-returns a read demand for the embedding to service, and neither view performs
-storage I/O. The resident graph and ledger use these same views.
+`access.core.GrantView` checks a grant against the grants above it as they
+are now, and `ResourceView` does the same for resources. Both read records
+without blocking and never do storage I/O. When a record is not loaded, they
+return a read request for your code to serve.
 
-`GrantPlan.prepareCopying` prepares a trusted owner's mutation at that view
-revision. `plan.changes` returns the proposed grant, optional parent update,
-expected previous row revisions, and change event. The owner stages those
-records with its content through one Loam transaction and exposes the event
-after confirmed commit. The plan does not reserve a transaction or prove the
-caller's management authority. Held use and control references still convey
-that authority through their owning binding.
+`GrantPlan.prepareCopying` prepares a change to grants as of that view's
+revision. `plan.changes` returns the new grant, an optional update to its
+parent, the record revisions it expects, and a change event. The owner writes
+those records with its content in one Loam transaction and publishes the event
+only after the commit is confirmed. A plan neither opens a transaction nor
+checks that the caller may manage access. That permission comes from the use
+and control references the caller holds.
 
-`access.records.ResourceRecord` and `ChangeHistoryRecord` decode into scalar
-values. `ChangeBatchRecord.decodeOwned(allocator, view)` owns its bounded effect
-paths, and `GrantRecord.decodeOwned(allocator, bytes)` owns any
-selected-resource lists. Release both with `deinit(allocator)`. None retains the
-encoded input. `ResourceRecord.decode(view)` validates the resource row's
-strong-edge shape. Its child-index identity comes from that edge, and the
-payload records only whether the index exists. A logical parent also requires
-one retaining edge. The [record
-contract](../decisions/adr/ADR-0166-access-grant-records-and-plans.md) defines
-limits and borrowed view lifetimes.
+Records in `access.records` decode without keeping the encoded input.
+`ChangeBatchRecord.decodeOwned` and `GrantRecord.decodeOwned` own their paths
+and resource lists, so release them with `deinit(allocator)`.
+[ADR-0166](../decisions/adr/ADR-0166-access-grant-records-and-plans.md)
+defines the limits and how long borrowed views live.
 
 ## Policy and interface support
 
-A policy keeps one complete permission vocabulary. `Policy.Descriptor.kinds`
-declares exact-object and future-subtree support by resource kind. An empty
-table makes the policy kind-independent. A nonempty table refuses
-unknown kinds. `Terms.validate` checks support for the selected scope, and
-`GrantView.require` checks each effect's exact target. Mixed selections use the
-union of their interfaces. Subtree support comes from the root declaration,
-without scanning descendants.
+A policy lists every permission the application has.
+`Policy.Descriptor.kinds` says, for each kind of resource, whether a grant can
+cover one object and whether it can cover a subtree, including children added
+later. An empty table applies the policy to every kind, and a nonempty one
+refuses kinds it does not list.
 
-Pass the owner's immutable policy to `Graph.create` and `Graph.reparent`, as
-for grant operations. Stored creation and moves use the current owner
-header. Both enforce that a child's future support fits its parent's. The
-[scope decision](../decisions/adr/ADR-0197-scope-aware-permission-applicability.md)
-records bounds and alternatives. `Policy.valueForKind` prepares exact-interface
-terms. Its result supplies data, not admission for a later effect.
+- `Terms.validate` checks support for the chosen scope, and
+  `GrantView.require` checks each effect's exact target.
+- A grant over a chosen set of resources gets the permissions any of them
+  supports. Subtree support comes from the subtree's root, without scanning
+  its children.
+- Pass the owner's policy to `Graph.create` and `Graph.reparent`. Stored
+  creates and moves use the owner's current header, and both make sure a
+  child's support for future children fits its parent's.
+- `Policy.valueForKind` builds the terms for one kind. It returns data and
+  allows nothing later.
+
+[ADR-0197](../decisions/adr/ADR-0197-scope-aware-permission-applicability.md)
+records the limits and the alternatives.
 
 ## Durable owner operations
 
 `access.storage` connects these views to a Store. Register
-`access.records.profile.schemas` alongside the application's schemas. The full
-managed profile requires record limits of at least 64 KiB and 514 edges. The
-managed payload format is prerelease, so use a fresh directory for this
-profile. Within a staging transaction, `storage.stage.createOwner` returns the
-owner's Loam header reference. Retain that reference after confirmed commit and
-use it to reopen the owner. The header persists its complete policy descriptor,
-logical revision pair, independent control revision, allocation counters,
-directory roots, and a bounded change-history root. Managed resource and grant
-depths are at most 64.
+`access.records.profile.schemas` alongside the application's schemas.
 
-Create a `storage.Read` with a bounded model-record capacity, then drive
-`advance`. A `.read` result transfers a Loam read request to the embedding's
-executor. Deliver its exact completion through `completeRead`. `.waiting` means
-work is outstanding or the operation yielded after a bounded amount of CPU
-work. `.ready` allows the caller to retry its view operation. `resourceView` and `grantView`
-share the resident model's evaluator. When an operation returns `RecordUnloaded`,
-drive `advance` again and retry after readiness. Malformed records, missing
-identities, stale revisions, and capacity exhaustion remain distinct failures.
+- Managed access needs a record limit of at least 64 KiB and <!-- value ../../src/loam/access/records/grant_record.zig max_edges -->515<!-- /value --> edges.
+- The managed record format may still change, so use a fresh directory.
+- Inside a transaction, `storage.stage.createOwner` returns a reference to the
+  owner's header record. Keep it after the commit is confirmed, to reopen the
+  owner. The header saves the policy, revisions, ID counters, directory roots,
+  and the root of a bounded change history.
+- Resources and grants nest at most <!-- value ../../src/loam/access/storage/stage.zig max_depth -->64<!-- /value --> deep.
 
-For creation, prepare a `storage.Append` for the resource or grant family and
-drive its `advance` through the same explicit read/completion pattern. A
-resource append calls `prepareResource(parent)` after its identity path is
-ready. Drive that method through the same read/completion pattern and retry
-`RecordUnloaded` through the Read. It prepares parent ancestry and child
-membership before `stage.appendResource` can write. For grant mutations, prepare
-the shared `GrantPlan` using the Read's views and persisted policy. Issuance
-uses the header's next grant slot with generation one. Other mutations use the
-existing grant identity. Call `storage.stage.prepareGrant(read, plan)` before
-staging, driving `RecordUnloaded` through the Read. This prepares retained
-history and the immutable ancestry needed for inventory stamps. Plans perform
-model checks, so the trusted owner must admit management authority before
-preparing one.
+### Reading
 
-Begin the caller's Store transaction and stage content together with
-`storage.stage.appendResource` or `storage.stage.grant`. Loam's existing
-prepare/write/complete/recover path commits the whole batch. A failure after
-managed staging starts aborts the entire batch, including content. Publish
-proposed identities and events only after confirmed commit.
+Create a `storage.Read` with room for a bounded number of records, then call
+`advance` until it is ready:
 
-Several managed changes can compose in one transaction. Each new preparation
-uses the Read's current composed state, and the batch submits one header update
-per owner. A preparation from older resource, grant or control state refuses.
-The caller that began the batch must abort after this refusal, discarding its
-earlier stages. A failure after a participant starts writing aborts the batch
-through that participant's staging boundary. Hosted calls assign abort to their
-transaction runner. A Read that consumes proposed owner state belongs to that
-exact staging transaction. Reopen it after the batch ends, including abort or
-known-absent recovery. Every commit invalidates existing Reads. Uncertain writes
-fence their views until receipt recovery resolves the outcome. An aborted
-unpublished append consumes no committed logical slot.
+- `.read` hands a Loam read request to your executor. Pass its result to
+  `completeRead`.
+- `.waiting` means work is still in flight, or the operation paused after a
+  bounded amount of CPU work.
+- `.ready` means you can retry the view call.
 
-Read owns decoded header scalars and pins its bounded model working set.
-It releases the header lease after decoding and retains its expected revision.
-Mutations load the bounded history on demand, and ordinary access checks do
-not. Directory traversal borrows one additional cache slot and retains its
-position across misses. Its path is at most four directory records plus the
-target. Capacity must fit within `max_leases - 1`, with cache space for pinned
-models and an active directory or history read. A Read has at most 20 KiB of
-inline state plus its single binding allocation. An Append has at most 52 KiB
-of inline path state, and a resource append also owns one allocated child-index
-path of the same bound until deinitialization. Grant decoding uses fixed
-scratch whose borrow lasts until the next grant lookup. Loaded
-evaluation makes no allocator calls. Store cache buffers reserve
-`max_record_bytes` per slot, even for short records. These operation bounds
-exclude those buffers and transaction staging.
+When a view call returns `RecordUnloaded`, call `advance` again and retry once
+it is ready. Damaged records, missing identities, stale revisions, and full
+capacity each fail with their own error.
 
-Keep Read and Store at stable addresses while their views, an Append or a
-ResourceChange borrow them. Append and ResourceChange take exclusive preparation
-custody of the Read. Release them before closing it or dropping resource
-bindings. Cancellation preserves submitted buffers until completion. `deinit`
-refuses outstanding work. The owner retains indexed records, including revoked
-grants. The header retains a history record with at most **32** chronological
-batch edges. Each owner has one batch per Store transaction, with at most **16**
-ordered grant, resource, content or independent control effects. Batch metadata
-retains no application payload or descriptor edges. Dropping the oldest edge
-makes that batch collectible. A seventeenth effect refuses with `ChangeCapacity`
-and aborts the entire composed batch. Unchanged or aborted changes add no batch.
-A receipt for an unchanged result can still commit without adding history.
+### Writing a change
 
-Grant authority and descendant-inventory stamps are separate. Resources likewise
-separate placement, subtree and content stamps. Ancestor inventory/subtree
-updates cost bounded path writes, with at most 65 identities per affected path.
-Equal content or reference replacements settle directly when no other
-participant is needed. Hosting loads the content ancestry before invoking a mutable method.
-Metadata stamping remains an owner-only storage operation.
+1. Prepare a `storage.Append` for the resource or grant table and run its
+   `advance` with the same read and completion loop.
+2. To add a resource, call `prepareResource(parent)`. It loads the parent's
+   ancestors and child list before `stage.appendResource` can write.
+3. To change a grant, prepare the shared `GrantPlan` from the Read's views and
+   the saved policy. A new grant takes the header's next grant slot with
+   generation one, and other changes keep the grant's identity.
+4. Call `storage.stage.prepareGrant(read, plan)`. It loads the history and the
+   ancestors needed to update child lists.
+5. Begin your Store transaction and write the change with
+   `storage.stage.appendResource` or `storage.stage.grant`, together with the
+   content. Loam's prepare, write, complete, and recover steps commit the whole
+   batch.
+6. Publish new identities and events only after the commit is confirmed.
 
-[ADR-0167](../decisions/adr/ADR-0167-managed-owner-storage.md) defines the profile.
-LMDB tests cover reopen, abort, uncertain revocation with matching content,
-and collection of expired batches.
+Plans check the model, not the caller, so your owner code must confirm the
+caller may manage access before preparing one. A failure after managed
+writing starts aborts the whole batch, content included.
+
+### Several changes in one transaction
+
+Several managed changes can go in one transaction. Each new preparation reads
+the Read's state including earlier changes, and the batch writes one header
+update per owner.
+
+- A preparation made from older resource, grant, or control state is refused,
+  and the caller that began the batch must abort it, discarding the earlier
+  changes too.
+- A failure after a participant starts writing aborts the batch. Hosted calls
+  leave the abort to their transaction runner.
+- A Read that has seen uncommitted owner state belongs to that transaction.
+  Reopen it after the batch ends, including after an abort or after recovery
+  finds nothing was written.
+- Every commit makes existing Reads stale. After an unknown write, their views
+  refuse until recovery decides.
+- An aborted, unpublished append uses up no committed slot.
+
+### Memory and lifetimes
+
+A Read owns the decoded header fields and pins the records it needs. It
+releases the header's lease after decoding and remembers the revision it
+expects.
+
+- Changes load the bounded history when they need it, and ordinary access
+  checks never do.
+- Walking the directory borrows one more cache slot and keeps its place across
+  cache misses. Its path is at most four directory records plus the target.
+- The record count must fit within `max_leases - 1`, with cache room for the
+  pinned records and one directory or history read.
+- A Read holds at most <!-- value ../../src/loam/access/storage/read.zig read_budget_bytes bytes -->21 KiB<!-- /value --> of state inside itself plus one allocation: a
+  decoded grant record beside 16 KiB of scratch for its resource list. An
+  Append holds at most 52 KiB of path state, and adding a resource also
+  allocates one child-list path of the same size.
+- A Read lends one grant record at a time (ADR-0230). A lookup while a record
+  is on loan fails with `RecordHeld` in every build mode, and the loaned
+  record carries what writing and observation need. Checks on loaded records
+  call no allocator.
+- Store cache buffers reserve `max_record_bytes` per slot, even for short
+  records. The sizes above leave out those buffers and the transaction's own
+  staging.
+
+Keep the Read and Store at the same addresses while views, an Append, or a
+ResourceChange borrow them. An Append or ResourceChange takes the Read for
+itself, so release it before closing the Read. Canceling keeps submitted
+buffers until their reads complete, and `deinit` refuses while work is
+outstanding.
+
+### Change history
+
+The owner keeps every indexed record, including revoked grants. The header
+keeps a history of at most **<!-- value ../../src/loam/access/records/change_history_record.zig capacity -->32<!-- /value -->** change batches, oldest first.
+
+- An owner gets one batch per Store transaction, holding at most **<!-- value ../../src/loam/access/records/change_batch_record.zig max_effects -->16<!-- /value -->**
+  grant, resource, content, or control changes in order. A seventeenth fails
+  with `ChangeCapacity` and aborts the whole transaction.
+- A batch keeps no application payload or grant links, and once it falls out
+  of the window it can be collected.
+- A change that alters nothing, or aborts, adds no batch. A receipt for an
+  unchanged result can still commit without adding history.
+
+Grants keep separate stamps for their permissions and for their children
+list, and resources keep separate stamps for their place in the tree, their
+subtree, and their content. Updating ancestors' child lists and subtrees
+writes at most <!-- value ../../src/loam/access/records/change_batch_record.zig max_path -->65<!-- /value --> identities per path. Replacing content or a reference with an
+equal value finishes at once when no other participant is involved.
+
+[ADR-0167](../decisions/adr/ADR-0167-managed-owner-storage.md) defines this
+storage, and
 [ADR-0179](../decisions/adr/ADR-0179-scoped-change-retention-and-observation.md)
-owns retained changes and the implemented
-[scoped observation contract](#observing-held-access). Durable capability
-bindings build on this profile, as described below.
+covers change history and [observing it](#observing-held-access).
 
 ## Resource moves, deletion and children
 
-A trusted owner prepares `storage.ResourceChange` against a Read, drives its
-read demands, and stages it with application content in the same batch.
-`.move = parent` changes canonical containment while preserving identity.
-`delete_leaf` refuses a resource with children, disconnects its membership and
-persists an inactive identity. Content and unrelated capabilities keep their
-retention. Deleted-resource admission returns `Gone`. [Bounded owner
-cleanup](#bounded-owner-cleanup) reclaims terminal payloads without reviving
-their identities.
+Owner code prepares a `storage.ResourceChange` against a Read, runs its reads,
+and writes it with application content in the same batch.
 
-The shared resource view rejects cycles and checks the deepest descendant
-against the owner's depth limit before staging a move. Validation streams the
-subtree with at most `max_resource_depth + 1` traversal frames and one transient
-row lease. Work grows with descendants, while leaf moves touch bounded index
-paths and ancestry. Old membership, new membership, canonical parent and owner
-revision commit together. Empty directory paths become eligible for tracing.
+- `.move = parent` moves a resource to a new parent and keeps its identity.
+- `delete_leaf` refuses a resource with children, removes it from its parent,
+  and saves its identity as inactive. Its content and unrelated capabilities
+  stay alive, and any later use fails as `Gone`.
+  [Owner cleanup](#bounded-owner-cleanup) frees what is left without bringing
+  the identity back.
 
-Held use operations call `prepareResourceCopying(target, action, requirement)`.
-Admission checks the source and both placement parents under that requirement.
-After readiness, call `stageResource()` in the current batch. Hosted content
-schemas can declare the same structural effect with `ContentBehavior.resource`.
-The callback decodes an action, and the shared operation enforces it.
-Its payload replacement and mutation receipt commit with that action.
+Before writing a move, the resource view refuses cycles and checks that the
+deepest child stays within the owner's depth limit. The check walks the
+subtree with at most `max_resource_depth + 1` frames and one lease at a time,
+so its cost grows with the number of children. The old parent, the new
+parent, the resource's own record, and the owner's revision commit together.
 
-`Operation.children(parent, requirement)` returns an owned Zig cursor.
-Each `advance()` produces an authorized resource ID, a read request, waiting,
-or completion. Hidden candidates are filtered before returning items. The
-cursor holds its operation, keeps one four-level directory path and drops
-completed resource bindings. It exposes no raw index position, sibling count,
-or owner revision. An intervening commit yields `RevisionConflict`. Reopen
-and authorize a fresh query. Cancel submitted reads and retire their exact
-completions before deinitialization. Release the cursor before its operation.
-One operation owns one cursor because its Read has one authority-demand lane.
-Iteration and effect preparation are exclusive on that operation: preparation
-returns `Busy` while a cursor exists, and opening a cursor after preparing an
-effect returns `WrongPhase`. Independent operations can compose when each
-prepares against the state its predecessors staged.
+A held use operation calls
+`prepareResourceCopying(target, action, requirement)`, which checks the
+source and both parents against that requirement, then `stageResource()` in
+the current batch. Hosted content declares the same change with
+`ContentBehavior.resource`, on the call's own resource or on a
+[participant](access-endpoints.md#calls-that-change-several-resources). The
+payload changes and the receipt commit with it.
+
+### Listing children
+
+`Operation.children(parent, requirement)` returns a Zig cursor you own. Each
+`advance()` gives a resource ID the caller may see, a read request, a wait,
+or the end.
+
+- Children the caller cannot see are filtered out before anything returns, and
+  the cursor reveals no index position, sibling count, or owner revision.
+- A commit in the middle returns `RevisionConflict`. Start a new query, which
+  checks permissions again.
+- Cancel submitted reads and wait for them before deinitializing. Release the
+  cursor before its operation.
+- One operation owns one cursor, and listing and preparing an effect exclude
+  each other: preparing returns `Busy` while a cursor exists, and opening a
+  cursor after preparing returns `WrongPhase`.
 
 ## Durable use and control references
 
-`storage.Capabilities` borrows one Store and enforces live-reference and operation
-quotas. The trusted embedding stages use or control descriptors through
-`stageUse` and `stageControl` with a current owner Read. Control powers use
-`core.Control.Powers`: independent Inspect, Issue, Edit and DelegateControl
-powers beside lifecycle permissions. Issue and Edit each have a copied ceiling.
-After confirmed commit, `restoreUse` or `restoreControl` checks a borrowed
-descriptor lease to create an opaque Zig reference. Release the lease.
-The reference retains the descriptor through Loam's live roots without pinning it.
+`storage.Capabilities` borrows one Store and enforces limits on live
+references and operations.
 
-Each reference's `begin(capacity)` creates an opaque `Operation`. The embedding
-drives `advance` and `completeRead` as with Read. Storage requests belong to its
-executor and stay out of hosted resource replies. Use operations expose `require` and
-`prepareDeriveCopying`. Controls expose `prepareEditCopying`. Wrong-role operations
-refuse. Calls select the grant bound in the stored descriptor and check current
-owner/grant records. An operation exposes no Store, raw model view, or grant
-selector. On `RecordUnloaded`, drive the read work and retry the same request.
-Input slices need to remain valid only through each synchronous method call.
-Successful preparation owns any copied terms until operation close. One
-operation prepares one effect. Compose several operations in the owner batch.
+1. Owner code writes use or control grants with `stageUse` and `stageControl`
+   from a current owner Read. Control powers are `core.Control.Powers`:
+   separate Inspect, Issue, Edit, and DelegateControl powers beside pause,
+   resume, and revoke. Issue and Edit each carry their own copied limit.
+2. After the commit is confirmed, `restoreUse` or `restoreControl` checks a
+   lease on the grant and creates an opaque Zig reference. Release the lease.
 
-The trusted owner stages a prepared operation through `Capabilities.stage` in
-the same Store transaction as content. It returns a proposed change and, for
-derivation, a `derived_use` descriptor reference. The child grant and descriptor
-commit together. Before committing, either root that descriptor or place a strong edge to it in
-content. Direct `storage.stage.grant` similarly returns
-both the proposed change and its exact Loam grant-record reference for trusted
-composition. Restore or publish results only after confirmed commit.
+The reference keeps the grant alive through Loam's live roots without pinning
+it in memory.
 
-Operations retain their source reference, so the holder may release its alias
-while work remains pending. `cancel` retires work through exact completion.
-`deinit` refuses submitted reads. Close finished operations to release their
-leases before admitting more work within the same cache budget. Capabilities
-cannot close while any reference or operation remains. Descriptor records are
-collectible after both durable retention and final runtime custody end.
+Each reference's `begin(capacity)` creates an opaque `Operation`, which you
+drive with `advance` and `completeRead` as with a Read.
 
-Each reference allocates at most 96 bytes of binding state. Starting an operation
-allocates at most 32 KiB, including separate fixed scratch for control and grant
-terms. Opening also allocates the bounded Read binding array. Delegation adds
-the bounded Append and copied plan terms. Allow two leases for the descriptor
-and owner header, plus the model working set and one transient directory page.
-Concurrent operations share cache capacity and lease quotas. Loaded checks make
-no allocator calls. Every commit invalidates old operations. Uncertain outcomes
-fence them until receipt recovery resolves the write.
+- Use operations offer `require` and `prepareDeriveCopying`, and controls offer
+  `prepareEditCopying`. Calling the wrong role's method is refused.
+- Calls use the grant the reference names and check the current owner and
+  grant records. An operation exposes no Store, raw view, or way to pick a
+  different grant.
+- On `RecordUnloaded`, run the read work and retry the same call.
+- Input slices only need to stay valid during each call.
+- A successful preparation owns its copied terms until the operation closes.
+  One operation prepares one change, so use several operations to make several
+  changes in one batch.
 
-[ADR-0168](../decisions/adr/ADR-0168-durable-managed-capability-bindings.md) defines
-the restoration contract. These are Zig admission primitives. Bind a use
-check to its content effect at the same revision, or use the managed hosting
-adapter below. Controls also expose copied attenuation, independent revocation
-and scoped inspection through the [management methods](#managing-a-held-control).
-Powers are immutable. Narrowing creates a dependent control descriptor. Grant
-lifecycle and terms remain editable.
+Owner code writes a prepared operation with `Capabilities.stage` in the same
+Store transaction as content. It returns the proposed change and, when
+sharing, a `derived_use` grant reference. The child grant and its record
+commit together, so before committing, either make that record a root or point
+a strong edge at it from content. Calling `storage.stage.grant` directly
+returns the proposed change and a reference to the grant record. Restore or
+publish anything only after the commit is confirmed.
+
+An operation keeps its source reference alive, so the holder may drop its own
+copy while work is pending.
+
+- `cancel` waits for submitted reads to complete, and `deinit` refuses while
+  any are outstanding.
+- Close finished operations to release their leases before starting more.
+- `Capabilities` cannot close while any reference or operation remains.
+- A grant record can be collected once nothing durable keeps it and no live
+  reference holds it.
+
+Memory:
+
+- Each reference allocates at most 96 bytes.
+- Starting an operation allocates at most <!-- value ../../src/loam/access/storage/capability_operation.zig state_budget_bytes bytes -->40 KiB<!-- /value -->, including its Read and
+  scratch for control terms, plus the Read's bounded binding array. Sharing
+  adds the Append and the copied plan terms.
+- Allow two leases for the grant and the owner header, plus the records the
+  check needs and one directory page. Operations running at once share the
+  cache and lease limits.
+- Checks on loaded records call no allocator.
+- Every commit makes old operations stale. After an unknown write, they refuse
+  until recovery decides.
+
+[ADR-0168](../decisions/adr/ADR-0168-durable-managed-capability-bindings.md)
+defines how references are restored. These Zig calls tie a permission check
+to its content change at the same revision, and the
+[managed endpoints](access-endpoints.md) do the same for hosted calls.
+Controls can also narrow themselves, be revoked on their own, and inspect
+their scope through the [management methods](#managing-a-held-control).
+Powers never change, so narrowing creates a new, dependent control. A grant's
+status and terms stay editable.
 
 ## Managed endpoints on the Host
 
-`access.hosting.Service` borrows Capabilities and a table of `ContentBehavior`
-descriptors. Add every entry from its `behaviors()` array to the
-`hosting.Attachment` behavior table. The Service, Capabilities, and behavior
-tables must stay at stable addresses until `Attachment.destroy` succeeds. A
-Busy teardown retains pending work, so every borrowed application context must
-stay alive, and outer attachment behavior descriptors stay immutable during
-that lifetime. The Service creates no Host, Vat, worker, or storage queue.
-
-The trusted embedding prepares a current owner Read, including its bounded
-`prepareIdentities(count)` paths, before calling `stageEndpoint(read, ...)` in a
-Store batch. Load the committed descriptor before opening that batch. A use endpoint
-retains its exact use descriptor and binds one resource identity to one content
-record. A control endpoint retains only its exact control descriptor. This
-binding is application authority, so the embedding must associate the right
-resource with the right content. The recipient receives a hosted capability,
-and method arguments cannot replace that binding. Derivation updates the
-endpoint's receipt window while preserving its authority and content binding.
-After commit, restore the endpoint from a checked
-lease. `stagePublication(store, endpoint_lease, entropy)` atomically binds its
-one durable publication recipe. Restore that recipe after commit. Local
-capability edges use the ordinary Attachment capture seam. Descriptors and
-endpoints register weak owner membership in their creation transaction.
-
-For use calls, preparation loads the descriptor, content, and current managed
-records. The content schema selects one `ContentBehavior` by value for the
-retained preparation. Its borrowed `context` is passed to requirement, retry, resource,
-reference, dependent-requirement and invocation callbacks. Service decoders
-receive the separate `Service.context`, and entropy has its own callback and
-context pair. Selection and sharing entropy bindings survive storage waits.
-Replacing `Service.contents` or `Service.entropy` affects future preparations
-and revision restarts, and old contexts and returned borrows stay valid through
-settlement. Other Service configuration stays stable while calls are pending.
-
-The pure `requirement` callback declares permissions and all relevant committed
-facts. `ContentInvocation` pairs the selected content with canonical resource identity,
-kind, object and owner resource revision. Local dependent calls describe the
-selected target. Forwarding describes only its mediating source. One inline
-snapshot survives storage waits and is rebuilt on Store revision restart
-([callback context](../decisions/adr/ADR-0198-trusted-content-callback-context.md)).
-These snapshots charge existing bounded call bytes without a new allocation,
-lease or payload copy. Declaration can load the admission row even when it
-refuses, and per-call quotas admit these bytes or refuse preparation. Only
-after the bound grant admits that requirement does `invoke` run on the Vat.
-`ContentCall.replace` proposes a new content payload while preserving its edges.
-`replaceReference` and `removeReference` update a declared strong field in that
-same content transaction. `ContentCall.discloseExact` hands over a stored strong
-edge's saved authority. `discloseDependent` instead returns a runtime facet
-whose target method must pass the current invoking and target grants. Any
-capability the method did not declare is refused before settlement.
-[ADR-0172](../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)
-defines exact disclosure, and
-[ADR-0173](../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)
-defines dependent disclosure and field edits.
-The [durable capability field guide](references.md) covers checked local and
-foreign recipes, `ContentBehavior.references`, external saves, dependent
-forwarding requirements, and unsupported receipt capability kinds.
-The attachment commits that content row before settling the reply. Application
-callbacks are trusted, deterministic Zig code with no external effects, and the
-API is not a machine-code sandbox.
-
-Control endpoints accept `pause`, `resume`, and `revoke` with no arguments.
-Replies are Boolean: true for a committed change and false for an unchanged
-request. A revoke writes one descriptor, and every later use checks it, so it
-takes effect at once and costs the same however far the grant was shared.
-Publications in the revoked branch keep resolving, and calls through them fail
-as revoked, until [bounded owner cleanup](#bounded-owner-cleanup) retires them.
-
-An optional `decode_control` callback maps application methods to
-`core.Control.Edit`, including policy edits. It only decodes requests, and the
-stored control powers and shared model rules decide whether they are permitted.
-The decoder runs after control reads and receives loaded `Control.Powers`. Its
-policy ceiling supplies scope for application policy edits, and returned terms
-may borrow that scope until settlement. Authority admission stays with the
-shared operation, including idempotent repeated revocation. A changed edit
-stages the grant, owner revision, and retained change batch in the attachment's
-transaction. Direct lifecycle edits are idempotent, and the receipt wrapper
-below recovers the first result after a lost reply. Held
-[receive capabilities](#observing-held-access) project scoped changes through
-ordinary CapTP calls.
-
-Preparation and its leases belong to the retained call. Any intervening Store
-commit restarts preparation, including calls already queued for invocation.
-Outstanding reads retire through exact completion before their buffers or
-operation state are released. Unknown writes keep the recovery fence, and no
-affected call replies successfully until recovery resolves it. Resident near
-calls return `DurableTurnRequired` for managed endpoints. Use eventual sends.
-
-Budget the endpoint and content leases in addition to the managed operation's
-descriptor, header, model records, and transient directory page. `record_capacity`
-bounds the model working set. Capabilities quotas bound concurrently allocated
-operations. These allocations are additional to the attachment's retained-call
-arena and share the Store's cache and lease limits. Settled calls release all
-operation custody. Content and authority rows remain eligible for ordinary LRU
-eviction. Sleeping references retain reachability without pinning those rows.
-
-The `hosting.Behavior.prepare` seam emits read work through the same
-attachment, and `Call.transaction` stages a trusted participant in its batch.
-Participants only stage mutations, and the attachment begins and commits. Managed hosting
-uses these seams for content, structural, control, and derivation calls.
-[Reference recipes](references.md) restore held local and foreign authority.
-[Scoped observation](#observing-held-access) uses the same preparation and
-transaction owners.
-[ADR-0169](../decisions/adr/ADR-0169-managed-host-turns.md) records the contract.
+[Managed endpoints](access-endpoints.md) covers the Host service, its behavior
+table, and what each hosted method allows.
 
 ## Retrying mutations
 
-Every content method supplies a pure `ContentBehavior.retry` classification:
-`read_only`, `idempotent`, or `receipt`. A read cannot stage an effect.
-Receipt-backed methods require `mutate(sequence, method, arguments...)`. A
-bare call returns `RetryRequired` after current admission and before invocation.
-Call `mutation-sequence()` to obtain the next sequence, beginning at one.
-All holders of an endpoint share that sequence and must coordinate new requests.
+Every content method declares how a retry behaves through
+`ContentBehavior.retry`: `read_only`, `idempotent`, or `receipt`. A read-only
+method cannot change anything.
 
-The endpoint retains eight mutation receipts separately from its derivation
-receipts. Each receipt records exact method, arguments, dependent target where
-present, and first committed result. Capability leaves use durable strong edges.
-A matching retry rechecks current authority and returns that result without
-invoking the effect. Changed intent yields `OperationConflict`, future sequence
-numbers yield `OperationOutOfOrder`, and retired sequence numbers yield
-`ReceiptExpired`. Expiry cannot make an old request new. Sequence exhaustion
-refuses. Current revocation, deletion or scope loss can prevent replay.
+A receipt-backed method must be called as
+`mutate(sequence, method, arguments...)`. A bare call returns `RetryRequired`
+after the permission check and before the method runs. Call
+`mutation-sequence()` to get the next sequence, starting at one. Everyone
+holding the endpoint shares that sequence and must coordinate new requests.
 
-Wrapped idempotent edits retain the first Boolean result, even when a later
-bare edit would return false. A wrapped no-op still commits its receipt.
-Content, reference edits, resource structure, control state and receipts share
-the attachment transaction, and unknown writes keep the recovery fence. These
-receipts recover bounded local results and do not promise exactly-once remote
-delivery or persistence of external effects.
+The endpoint keeps eight edit receipts, apart from its sharing receipts. Each
+receipt records the method, the arguments, any dependent target, and the
+first committed result. Capabilities in it are saved as strong edges. A
+dependent facet argument is recorded by the endpoint it names, and a reply can
+never be restored through that record. A matching retry checks current
+permissions and returns the saved result without running the method again.
+Other requests fail as follows:
 
-Receipt values allow 32 KiB each, nesting depth 64 and at most 64 distinct
-capability leaves across request and result. Combined encoded receipts fit
-64 KiB. Binding storage grows only for capabilities. Scalar calls fit the
-workload's 4 KiB call arena. Encoding measures before allocation.
-Decoding containers owns allocations while byte leaves borrow the receipt
-lease. The call arena and receipt lease retain that ownership through settlement.
-Expiring source edges makes old receipts eligible for tracing collection.
-[Terminal owner cleanup](#bounded-owner-cleanup) preserves the sequence floor
-while reclaiming old receipts, so an expired operation cannot execute again.
+| Request | Result |
+| --- | --- |
+| Same sequence, different request | `OperationConflict` |
+| Sequence from the future | `OperationOutOfOrder` |
+| Sequence that has left the window | `ReceiptExpired` |
+| No sequences left | Refused |
+
+A revocation, deletion, or loss of scope since the first attempt can stop a
+retry.
+
+A wrapped pause, resume, or revoke keeps its first Boolean result, even when a
+later bare call would return false, and a wrapped call that changes nothing
+still commits its receipt. Content, reference edits, tree changes, control
+state, and receipts all share the attachment's transaction. Receipts recover
+local results only. They do not deliver a remote message exactly once or save
+outside effects.
+
+Receipt limits:
+
+- Each value holds at most <!-- value ../../src/loam/access/records/value_record.zig max_bytes bytes -->32 KiB<!-- /value -->, nests at most <!-- value ../../src/loam/access/records/value_record.zig max_depth -->64<!-- /value --> deep, and the request and
+  result together hold at most <!-- value ../../src/loam/access/records/mutation_record.zig max_edges -->64<!-- /value --> distinct capabilities.
+- A whole encoded receipt fits in <!-- value ../../src/loam/access/records/mutation_record.zig max_encoded_bytes bytes -->64 KiB<!-- /value -->.
+- Only capabilities need extra storage, and calls with plain values fit the
+  workload's 4 KiB of call memory.
+- Encoding measures before allocating. Decoded containers are owned, while
+  byte strings borrow the receipt's lease.
+
+Once a receipt's edge expires, collection can free it.
+[Owner cleanup](#bounded-owner-cleanup) keeps the lowest valid sequence while
+it frees old receipts, so an expired request can never run again.
 
 ## Managing a held control
 
-`Operation.describeControl()` reports current availability, grant status and
-its own immutable powers. Selected policy-ceiling IDs borrow the operation
-until deinitialization. Drive missing records as for other operations.
-`prepareAttenuationCopying(powers)` narrows Boolean powers and a selected policy
-ceiling. Stage it with `Capabilities.stageAttenuatedControl(operation, rooted)`.
-The resulting descriptor retains its parent control and the same exact grant.
-`prepareControlRevocation()` and `stageControlRevocation()` disable that
-control and its management descendants without changing use authority.
+A control `Operation` offers `describeControl`, `prepareAttenuationCopying`
+with `Capabilities.stageAttenuatedControl`, and `prepareControlRevocation`
+with `stageControlRevocation`. Their
+[source](../../src/loam/access/storage/capability_operation.zig) documents
+each.
 
-Control dependency walks hold one transient ancestor lease and obey the
-owner's grant-depth limit. Creation copies selected ceilings, bounded by the
-existing scope-selection limit. Every new operation checks current dependencies.
-Retained references and receipts do not bypass independent control revocation.
-Grant policy and lifecycle still follow shared grant ancestry. A paused grant's
-control may resume its own grant. A revoked ancestor cannot regain use access.
-Repeating a control's own terminal revocation is harmless.
+- Walking a control's chain holds one ancestor lease at a time and stays
+  within the owner's grant depth limit. Creating a control copies the chosen
+  limits, within the existing limit on how many resources a scope can name.
+- Every new operation checks the chain as it is now. Kept references and
+  receipts cannot get around revoking a control.
+- Grant policy and status still follow the chain of grants. A paused grant's
+  control may resume its own grant, but nothing regains use under a revoked
+  ancestor.
 
 Hosted controls accept `describe-control()`, `revoke-control()`, and
 `mutate(sequence, "attenuate-control", application arguments...)` when the
-Service supplies `decode_attenuation`. The decoder receives loaded held powers
-and supplies requested powers.
-Shared rules decide admission. An active `access:control` description contains
-status, pause/resume/revoke Booleans, its policy ceiling or false, and whether
-that ceiling covers an owned subtree. Unavailable replies contain status alone.
-The encoding discloses no resource, owner or ancestor identity.
+Service supplies `decode_attenuation`. The decoder receives the control's
+current powers and returns the powers requested, and the shared rules decide.
+
+An active `access:control` description holds its status, its pause, resume,
+and revoke Booleans, its policy limit or false, and whether that limit covers
+a subtree. An unavailable control's reply holds its status alone. No
+resource, owner, or ancestor identity is revealed.
 
 ## Inspecting held access
 
-Call `describe-access()` on a managed use endpoint to inspect its current
-access to that endpoint's fixed resource. Active replies include its own
-ceiling and configured policy, effective policy after ancestor restrictions,
-and remaining delegation depth. Paused, revoked, and out-of-scope replies carry
-only status. Control endpoints do not accept this use method.
+Call `describe-access()` on a managed use endpoint to see its current access
+to the endpoint's resource. An active reply includes the grant's limit and its
+own policy, the policy in effect after restrictions from above, and how many
+more times it can be shared. Paused, revoked, and out-of-scope replies carry
+only the status. Control endpoints do not accept this method.
 
 The tagged `access:description` reply uses stable permission and constraint
-keys. [ADR-0171](../decisions/adr/ADR-0171-scoped-access-descriptions.md) defines the
-field layout and exact unsigned integer representation. No ancestor identity,
-scope inventory, owner revision, or unrelated event counter is disclosed.
-This snapshot does not authorize subsequent content effects or provide an event
-subscription. Each protected call continues to check current authority.
+keys, laid out as
+[ADR-0171](../decisions/adr/ADR-0171-scoped-access-descriptions.md) defines. It
+reveals no ancestor identity, other resources, owner revision, or unrelated
+event counter. The reply allows no later change on its own, and each
+protected call still checks current permissions.
 
-Zig consumers use `GrantUse.describe(target)` or
-`storage.Operation.describe(target)`. The latter returns owned bounded values
-with their immutable policy vocabulary. Drive missing reads as for `require`.
-Stale operations and uncertain writes refuse. Hosted preparation retries stale
-snapshots before invocation. Description loads authority records and leaves
-application content asleep. Encoding and reply copies share the bounded call
-arena. Larger vocabularies need sufficient call and frame capacity.
-The maximum-policy test exercises all 64 permissions and 16 constraints across
-the three policies within the default 64 KiB call arena. Frame capacity is a
-separate limit, and the test measures no throughput.
+Zig code uses `GrantUse.describe(target)` or
+`storage.Operation.describe(target)`. The second returns owned values with
+their policy's fixed vocabulary.
+
+- Run missing reads as for `require`. Stale operations and unknown writes
+  refuse, and hosted calls retry a stale snapshot before running.
+- Describing access loads permission records and leaves the content asleep.
+- Encoding and the reply share the call's bounded memory, so larger
+  vocabularies need enough call and frame capacity.
+- The largest-policy test uses all <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions and <!-- value ../../src/loam/access/core/policy.zig max_constraints -->16<!-- /value --> constraints across the
+  three policies within the default <!-- value ../../src/loam/hosting/attachment.zig call_bytes bytes -->64 KiB<!-- /value --> of call memory. Frame capacity is a
+  separate limit, and the test measures no throughput.
 
 ## Observing held access
 
-The [observation guide](access-observation.md) owns registration, scoped cursors,
-receiver/canceller custody, restart and the independent runtime budgets.
+The [observation guide](access-observation.md) covers registering, cursors,
+the receiver and canceler, restarts, and limits.
 
 ## Deriving and recovering a shared facet
 
-Set `Service.decode_derive` to decode application arguments into
-`core.GrantLedger.Issue`, and supply `Service.entropy.fill` with fresh unpredictable
-entropy across calls and restarts. The decoder receives the endpoint's bound
-resource identity. Decoding does not grant permission: current ancestor scope,
-terms, lifecycle, and delegation depth constrain every new child.
+Set `Service.decode_derive` to turn application arguments into
+`core.GrantLedger.Issue`, and set `Service.entropy.fill` to a source of fresh,
+unpredictable random bytes. The decoder receives the endpoint's resource
+identity. Decoding grants nothing: the scope, terms, status, and delegation
+depth of every grant above limit each new child.
 
 Managed use endpoints reserve these methods:
 
 | Method | Result |
 | --- | --- |
-| `derivation-sequence()` | The next derivation sequence for this endpoint, beginning at 1. |
-| `derive-managed(sequence, application arguments...)` | A two-item list containing separate use and issuer control capabilities, when `decode_managed_derive` is configured. |
-| `derive(sequence, application arguments...)` | A held CapTP use capability for the same content/resource binding. |
-| `durable-name()` | The endpoint's durable Swiss name, or `NotPublished` when it has no publication recipe. This is the secret publication component. The existing Host locator APIs supply peer routing. |
+| `derivation-sequence()` | The next sharing sequence for this endpoint, starting at 1. |
+| `derive-managed(sequence, application arguments...)` | A two-item list with separate use and issuer control capabilities, when `decode_managed_derive` is set. |
+| `derive(sequence, application arguments...)` | A CapTP use capability for the same content and resource. |
+| `durable-name()` | The endpoint's secret swiss number, or `NotPublished` when it has no durable name. The Host's locator APIs supply the rest of the sturdyref. |
 
-These methods check current use authority. `derive` returns use alone.
-`derive-managed` decodes a `Service.ManagedIssue` containing grant terms and
-control powers, and returns both to the issuer. Its policy ceiling must fit
-the child grant. The use endpoint cannot recover its control. Recovery requires
-the issuing source and exact intent. Publish a control separately if it needs
-its own durable locator. Zig `prepareManagedDeriveCopying` and
-`Capabilities.stage` expose the same atomic use and control issuance. An
-initially paused child is minted paused. Exact disclosures preserve a stored
-field's saved authority, and this API does not attenuate other
-capability-valued application replies.
+These methods check the caller's current use permission.
 
-The child grant, use descriptor, optional control descriptor and endpoint,
-rooted use publication, retry receipt, and source sequence update commit in one
-Store batch. `Call.result` runs at the top-level Host boundary after Vat staging
-and before write submission. It reserves the child actor and a hidden
-publication through `Host.reserveDurableCapability`. No fetch can discover that
-reservation. `Call.confirmation` activates it without allocation after confirmed
-commit and before reply projection. Abort releases the reservation. An unknown
-write retains it until recovery. Publication reservations must be moved, then
-committed or canceled before Host teardown.
+- `derive` returns use alone. `derive-managed` decodes a
+  `Service.ManagedIssue` with grant terms and control powers, and returns both
+  to the issuer. Its policy limit must fit the child grant.
+- A use endpoint cannot get its control back. Only the issuing source with the
+  same request can. Publish a control separately if it needs its own durable
+  name.
+- Zig's `prepareManagedDeriveCopying` and `Capabilities.stage` do the same
+  sharing in one commit. A child created paused starts paused.
+- Beyond handing out stored fields exactly, this API does not narrow
+  capabilities that application replies return.
 
-The source retains its last **eight** receipts, indexed directly by sequence
-through ordered strong edges. A matching retained request returns the same
-child. Changed decoded terms yield `OperationConflict`. An older sequence yields
-`ReceiptExpired`, and a future sequence yields `OperationOutOfOrder`. Expiry
-does not make an old sequence eligible to mint again. All holders of one
-endpoint share the sequence domain and must coordinate competing new requests.
-Retries also check the source and child at the current revision, so replay
-cannot bypass pause or revocation. Other mutations use the separate mutation
-window described above.
+The child grant, its use record, an optional control record and endpoint, the
+use's rooted durable name, the retry receipt, and the source's new sequence
+commit in one Store batch.
 
-Receipt eviction drops its source edge, allowing ordinary collection. It does
-not retire the child's rooted publication, so applications retire publications
-when durable discovery should end. Terminal managed identities and indexed
-grant payloads can be retired through
-[bounded owner cleanup](#bounded-owner-cleanup).
-On startup, enable `publication.listen` for on-demand discovery of these
-descriptors. A retained retry can also restore its exact child and publication
-after reopen.
+- `Call.result` runs between Host turns, after the Vat work and before the
+  write is submitted. It reserves the child actor and a hidden durable name
+  through `Host.reserveDurableCapability`, and no fetch can find that
+  reservation.
+- `Call.confirmation` turns the reservation on, without allocating, once the
+  commit is confirmed and before the reply is built.
+- An abort releases the reservation, and an unknown write keeps it until
+  recovery.
+- Move durable name reservations along, then commit or cancel them, before
+  tearing down the Host.
 
-Endpoint format version 1 reserves nineteen edges: descriptor, optional content,
-optional publication, and eight receipts in each sequence domain. A derivation
-receipt permits 32 KiB of canonical intent and two edges, or three when it
-retains issuer control. Intent encoding and sharing state use the bounded call
-arena. Replay holds three additional record leases and a child operation while
-checking authority. Managed replay additionally holds its control endpoint and a
-bounded control operation. Issuance uses the Zig Append budget. Actor and
-publication allocation happens before submission and may refuse under pressure.
-None of these costs apply to unmanaged actors.
-[ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md) owns this
-contract.
+The source keeps its last **eight** receipts, found directly by sequence
+through ordered strong edges.
+
+- A matching request returns the same child.
+- Different terms give `OperationConflict`, an older sequence gives
+  `ReceiptExpired`, and a future one gives `OperationOutOfOrder`. An expired
+  sequence can never create a child again.
+- Everyone holding one endpoint shares the sequence, as for edits.
+- Retries check the source and child at the current revision, so a retry
+  cannot get around a pause or revocation.
+
+When a receipt leaves the window, its edge is dropped and collection can free
+it. The child's durable name stays, so retire names yourself when they should
+stop answering, or use [owner cleanup](#bounded-owner-cleanup). At startup,
+call `publication.listen` so these names are looked up when fetched. A kept
+receipt can also restore its exact child and durable name after a reopen.
+
+Costs and limits:
+
+- Endpoint format version <!-- value ../../src/loam/access/records/endpoint_record.zig version -->2<!-- /value --> reserves edges for the grant, optional content,
+  optional owner administration, an optional durable name, and <!-- value ../../src/loam/access/records/retry_window.zig capacity -->8<!-- /value --> receipts
+  for each kind of sequence.
+- A sharing receipt holds at most <!-- value ../../src/loam/access/records/derivation_record.zig max_encoded_bytes bytes -->64 KiB<!-- /value --> of encoded request and two edges, or
+  three when it keeps issuer control.
+- Encoding the request and sharing state use the call's bounded memory.
+- A retry holds three more record leases and a child operation while it
+  checks permissions. A managed retry also holds its control endpoint and a
+  bounded control operation.
+- Issuing uses the Zig Append's memory. The actor and durable name are
+  allocated before the write is submitted and may be refused under pressure.
+
+[ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md) records
+these rules.
 
 ## Bounded owner cleanup
 
-A trusted embedding may restore an owner record through the Service's owner
-behavior. That capability administers the owner. Use and grant-control
-capabilities cannot produce it. `sweep(sequence)` starts terminal cleanup while
-preserving active authority. `retire-owner(sequence)` closes ordinary admission
-before cleanup starts. `maintenance-step(sequence)` advances one prepared unit.
-The tagged `access:maintenance` reply carries the next sequence, phase, retired
-flag and replay flag. Start at zero. Retry the last acknowledged request with its
-original sequence. The immediately previous matching command returns its recorded
-progress without another effect. Older, conflicting and future requests refuse.
+Your trusted program may restore an owner record through the Service's owner
+behavior. That capability administers the whole owner, and no use or grant
+control can produce it. Its commands:
 
-Zig embeddings use opaque `storage.Maintenance` operations with the same
-commands and sequence. Drive their read requests before opening a Store batch,
-then stage and commit through the owning executor. Operations bind one Store
-revision. Abort, uncertain outcomes and intervening commits require a fresh
-preparation. Submitted reads retain exact ticket and buffer custody through
-cancellation and completion. `deinit` refuses outstanding reads.
+| Command | Effect |
+| --- | --- |
+| `sweep(sequence)` | Starts cleanup of finished grants and resources, leaving active access alone. |
+| `retire-owner(sequence)` | Stops all ordinary calls before cleanup starts. |
+| `maintenance-step(sequence)` | Runs one prepared step. |
 
-Cleanup visits the bounded observation index, weak identity directory, grants
-and resources. Each indexed step seeks one sparse four-level path and checks
-one bounded authority path. A step does not scan unrelated owners. Revoked
-management dependencies, revoked grant branches and deleted content targets
-retire their affected identities. Grant pruning decreases a surviving parent's
-child count and journals its scoped inventory change. Empty directories retain
-their allocation high-water marks. New capabilities register in their creation
-transaction. Weak inventory leaves preserve ordinary collection lifetimes.
+The tagged `access:maintenance` reply holds the next sequence, the phase, a
+retired flag, and a replay flag. Start at zero. To retry, resend the last
+acknowledged request with its original sequence, and the matching command
+returns its saved progress without doing anything again. Older, conflicting,
+and future requests are refused.
 
-Terminal endpoints and descriptors lose payload/dependency edges and become
-explicit dead records. Endpoint records preserve both receipt sequence floors
-while discarding receipt edges. Held references retain that refusal record,
-and checked replay refuses a retired result without reminting it. Retiring an
-owner first fences pending ordinary work, cancels its observations, then compacts
-its indexed identities and rows before dropping resource and event roots. The
-small owner header preserves identity floors and terminal progress.
+Zig code uses opaque `storage.Maintenance` operations with the same commands
+and sequence.
 
-Active publications remain rooted until explicit retirement. Hosted maintenance
-loads their recipes and stages retirement through the Attachment's existing
-write and uncertainty fence. Zig maintenance with publication-bearing rows
-requires that owning retirement callback. It refuses before effects if none is
-provided. The managed publication factory binds the recipe to its endpoint so
-cleanup can find it. A generic publication created outside that managed factory
-belongs to its embedding's explicit retirement protocol.
+- Run their read requests before opening a Store batch, then write and commit
+  through the executor that owns the Store.
+- Each operation is tied to one Store revision. An abort, an unknown outcome,
+  or another commit in between needs a fresh preparation.
+- Submitted reads keep their ticket and buffer through cancellation until
+  they complete, and `deinit` refuses while any are outstanding.
 
-Physical collection remains Loam tracing. It protects runtime retains, stored
-strong references and pinned historical edges, and reclaims disconnected pages
-and payloads after their custody ends. Durable names keep their immutable index
-reservation: 25 key bytes plus 33 object-identity bytes, **58 logical bytes per
-name**, before backend overhead. Retirement does not shrink the LMDB file.
-Compaction is a separate maintenance contract. Mint preparation reserves at most
-four identity paths. Ordinary access reads allocate none of those paths.
+### What cleanup visits
 
-[ADR-0180](../decisions/adr/ADR-0180-bounded-managed-retirement.md),
+Cleanup walks the observation index, the weak identity directory, grants, and
+resources. Each step looks up one path at most four levels deep and checks one
+bounded chain of permissions, so it never scans other owners.
+
+- Revoked controls, revoked branches of grants, and deleted content targets
+  have their identities retired.
+- Pruning a grant lowers its surviving parent's child count and records the
+  change in its child list's history.
+- Empty directories keep their highest allocated ID.
+
+Finished endpoints and grant records lose their payload and links and become
+empty records. Endpoint records keep the lowest valid sequence for both
+receipt kinds while dropping the receipts themselves. A reference someone
+still holds sees that empty record, and a retry is refused instead of
+creating a new result.
+
+Retiring an owner first stops pending ordinary work and cancels its
+receivers. It then compacts its identities and records before dropping the
+resource and event roots. The small owner header keeps the ID counters and
+how far cleanup got.
+
+### Durable names
+
+Active durable names stay rooted until they are retired. Hosted cleanup loads
+their recipes and retires them through the attachment's write queue, with the
+same handling of unknown outcomes.
+
+- Zig cleanup over records that have durable names needs the attachment's
+  retirement callback, and refuses before doing anything if there is none.
+- The managed name factory ties each recipe to its endpoint so cleanup can
+  find it. A durable name created outside that factory is your program's to
+  retire.
+
+### Freeing the space
+
+Loam's collection frees the space. It keeps anything held at run time,
+anything a stored strong reference reaches, and old versions a lease still
+holds, and frees disconnected pages and payloads once nothing holds them.
+
+- Each durable name keeps its index entry forever: 25 key bytes plus 33
+  object identity bytes, **58 bytes per name**, before engine overhead.
+- Retiring things does not shrink the database file. Compacting it is a
+  separate step on each [disk engine](sqlite.md#shrinking-the-file).
+- Creating a new identity reserves at most four identity paths, and ordinary
+  access reads reserve none.
+
+[ADR-0180](../decisions/adr/ADR-0180-bounded-managed-retirement.md) records
+these rules, and the
 [Zig cleanup tests](../../test/loam/access/maintenance_test.zig),
-[LMDB/reopen tests](../../test/loam/lmdb/maintenance_test.zig), and the
-[managed process proof](../../test/loam_managed_crash.zig) own these guarantees.
+[LMDB reopen tests](../../test/loam/lmdb/maintenance_test.zig), and
+[managed process test](../../test/loam_managed_crash.zig) check them.
 
 ## C and Rust resources
 
-The [C/Rust lifecycle guide](c-and-rust.md) owns the language projection,
-worker retirement, startup and shutdown contract.
+The [C and Rust guide](c-and-rust.md) covers the C and Rust API, shutting
+down workers, startup, and shutdown.

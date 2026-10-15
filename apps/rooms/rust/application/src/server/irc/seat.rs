@@ -1,7 +1,7 @@
 //! What IRC calls the people in a bridged room, and the form it asks Rooms
 //! to draw for one reader's own identity.
 //!
-//! A seat is a native Rooms member who also holds an IRC identity. A foreign
+//! A seat is a Rooms member who also holds an IRC identity. A foreign
 //! member is somebody who has no Rooms membership at all. The words for both
 //! are IRC's own and live here, because a Rooms server does not know what its
 //! bridge is, and a browser that spelled them itself would have to be

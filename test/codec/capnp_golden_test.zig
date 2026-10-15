@@ -31,7 +31,11 @@ const deposit_gift_args = [_]model.Argument{
     .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
 };
 
-fn fixtures() [12]Fixture {
+/// A list of integers, which rides as a run of words (ADR-0243).
+const integer_samples = [_]model.Argument{ .{ .integer = 100 }, .{ .integer = -200 }, .{ .integer = 300 } };
+const integer_list_args = [_]model.Argument{ .{ .symbol = "report" }, .{ .list = &integer_samples } };
+
+fn fixtures() [13]Fixture {
     return .{
         .{ .name = "op_abort.bin", .message = .{ .abort = .{ .kind = .protocol_error, .message = "nope" } }, .bytes = @embedFile("capnp_fixtures/op_abort.bin") },
         .{ .name = "op_gc_answer.bin", .message = .{ .gc_answer = .{ .positions = &.{ 1, 4, 9 } } }, .bytes = @embedFile("capnp_fixtures/op_gc_answer.bin") },
@@ -48,6 +52,12 @@ fn fixtures() [12]Fixture {
             .answer = null,
             .resolve_me_desc = null,
         } }, .bytes = @embedFile("capnp_fixtures/op_deliver_deposit_gift.bin") },
+        .{ .name = "op_deliver_integers.bin", .message = .{ .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(7) } },
+            .args = &integer_list_args,
+            .answer = .from(43),
+            .resolve_me_desc = null,
+        } }, .bytes = @embedFile("capnp_fixtures/op_deliver_integers.bin") },
         .{ .name = "op_resolve_fulfill.bin", .message = .{ .resolve = .{
             .answer = .from(42),
             .resolution = .{ .fulfill = .{ .bytes = "pong" } },

@@ -10,70 +10,29 @@
 //! partner protocol violation.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 const session = @import("mod.zig");
 
 const Error = session.Error;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 
-/// Unique positions a typical `op:gc-*` folds on the stack before spilling to a
-/// heap map. Real releases are almost always one or a few positions. The map
-/// exists only so an adversarial vector of many distinct ids still validates in
-/// one pass without an O(n²) re-scan.
-const fold_stack_cap = 8;
+/// Scratch that folds repeated positions in one message. Real releases are
+/// almost always one or a few positions, which stay inside the record. The
+/// map behind it exists so an adversarial vector of many distinct ids still
+/// validates in one pass without an O(n²) re-scan. Freed before apply. Recv
+/// callers feed the session's `recv_scratch`.
+const PendingFold = foundation.inline_rows.Table(u64, u64, 8, .wire);
 
-/// Scratch that folds repeated positions in one message: a fixed stack for the
-/// common small case, then `AutoHashMapUnmanaged` once unique count exceeds the
-/// stack. Freed before apply. Recv callers feed the session's `recv_scratch`.
-const PendingFold = struct {
-    stack: [fold_stack_cap]Entry = undefined,
-    stack_len: usize = 0,
-    map: std.AutoHashMapUnmanaged(u64, u64) = .empty,
-    spilled: bool = false,
-
-    const Entry = struct { pos: u64, total: u64 };
-
-    fn deinit(self: *PendingFold, allocator: std.mem.Allocator) void {
-        if (self.spilled) self.map.deinit(allocator);
-    }
-
-    /// Add `delta` into the running total for `pos`, returning the new total.
-    /// Overflow of the u64 accumulator is `GcUnderflow` (same loud refusal the
-    /// prior map path used). Spilling the stack into the map may return OOM.
-    fn add(self: *PendingFold, allocator: std.mem.Allocator, pos: u64, delta: u64) (Error || std.mem.Allocator.Error)!u64 {
-        if (!self.spilled) {
-            for (self.stack[0..self.stack_len]) |*entry| {
-                if (entry.pos == pos) {
-                    entry.total = std.math.add(u64, entry.total, delta) catch return Error.GcUnderflow;
-                    return entry.total;
-                }
-            }
-            if (self.stack_len < fold_stack_cap) {
-                self.stack[self.stack_len] = .{ .pos = pos, .total = delta };
-                self.stack_len += 1;
-                return delta;
-            }
-            try self.spill(allocator);
-        }
-        const gop = try self.map.getOrPut(allocator, pos);
-        if (!gop.found_existing) gop.value_ptr.* = 0;
-        gop.value_ptr.* = std.math.add(u64, gop.value_ptr.*, delta) catch return Error.GcUnderflow;
-        return gop.value_ptr.*;
-    }
-
-    fn spill(self: *PendingFold, allocator: std.mem.Allocator) std.mem.Allocator.Error!void {
-        self.spilled = true;
-        errdefer {
-            self.map.deinit(allocator);
-            self.map = .empty;
-            self.spilled = false;
-        }
-        for (self.stack[0..self.stack_len]) |entry| {
-            try self.map.put(allocator, entry.pos, entry.total);
-        }
-        self.stack_len = 0;
-    }
-};
+/// Add `delta` into the running total for `pos`, returning the new total.
+/// Overflow of the u64 accumulator is `GcUnderflow`. Spilling the record into
+/// its map may return OOM.
+fn foldDelta(pending: *PendingFold, allocator: std.mem.Allocator, pos: u64, delta: u64) (Error || std.mem.Allocator.Error)!u64 {
+    const row = try pending.getOrPut(allocator, pos);
+    if (!row.found_existing) row.value_ptr.* = 0;
+    row.value_ptr.* = std.math.add(u64, row.value_ptr.*, delta) catch return Error.GcUnderflow;
+    return row.value_ptr.*;
+}
 
 /// Reject an `op:gc-exports` whose cumulative deltas would drive any export /
 /// import refcount below zero (or release an unknown id). Validates the whole
@@ -96,6 +55,7 @@ pub fn checkGcExportDecrement(
     allocator: std.mem.Allocator,
     table: anytype,
     gc_export: model.GcExport,
+    wire_hash_multiplier: u64,
 ) (Error || std.mem.Allocator.Error)!void {
     // Single pass over the wire deltas (O(1) `count` per position with the
     // position-keyed table): accumulate each position's running total and
@@ -107,7 +67,8 @@ pub fn checkGcExportDecrement(
     // on its own `Id` (export or import). Convert at this seam, the one place a
     // wire position becomes a typed id for the table it releases.
     const Id = @TypeOf(table.*).Id;
-    var pending: PendingFold = .{};
+    // The positions are the peer's words even when the table is ours.
+    var pending: PendingFold = .keyed(wire_hash_multiplier);
     defer pending.deinit(allocator);
     for (gc_export.positions, gc_export.deltas) |pos, delta| {
         // The bootstrap position is pinned outside send-side export accounting,
@@ -116,7 +77,7 @@ pub fn checkGcExportDecrement(
         // emits exactly that, is a no-op, never an underflow and never the
         // death of the bootstrap export.
         if (pos == BOOTSTRAP_POSITION) continue;
-        const total = try pending.add(allocator, pos, delta);
+        const total = try foldDelta(&pending, allocator, pos, delta);
         if (total > table.releasable(Id.from(pos))) return Error.GcUnderflow;
     }
 }
@@ -139,11 +100,12 @@ pub fn checkGcAnswerDecrement(
     allocator: std.mem.Allocator,
     table: anytype,
     positions: []const u64,
+    wire_hash_multiplier: u64,
 ) (Error || std.mem.Allocator.Error)!void {
-    var pending: PendingFold = .{};
+    var pending: PendingFold = .keyed(wire_hash_multiplier);
     defer pending.deinit(allocator);
     for (positions) |pos| {
-        const total = try pending.add(allocator, pos, 1);
+        const total = try foldDelta(&pending, allocator, pos, 1);
         const Id = @TypeOf(table.*).Id;
         const id: Id = if (Id == model.AnswerName)
             .fromWire(.from(pos))

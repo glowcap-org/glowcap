@@ -73,7 +73,7 @@
     [else (raise-argument-error 'locator "(or/c 'map 'boolean-false)" form)]))
 
 ;; Borrow one OCapN-owned locator handle for `proc`. This is the only Racket
-;; path that maps the language's hint variants into native construction verbs.
+;; path that maps the language's hint variants into FFI construction verbs.
 (define (call-with-owned-locator value proc)
   (define loc (if (string? value) (parse-locator value) value))
   (unless (locator? loc) (raise-argument-error 'call-with-owned-locator "(or/c locator? string?)" value))
@@ -131,7 +131,7 @@
   (call-with-owned-locator-handle handle owned-locator->locator))
 
 ;; Copy an owned OCapN handle into an ordinary Racket locator. The caller
-;; retains and releases the handle; this function retains no native views.
+;; retains and releases the handle; this function retains no FFI views.
 (define (owned-locator->locator handle)
   (define-values (count-rc count) (glowcap_locator_hint_count handle))
   (check count-rc)

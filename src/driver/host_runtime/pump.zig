@@ -159,9 +159,11 @@ fn openPending(self: *const HostRuntime, session: *const driver_core.HostSession
 /// feed, repeat. `Error.WaitTimedOut` on deadline. `Error.ConnectionClosed`
 /// when the probe's own session closes first.
 pub fn pumpUntilProbe(self: *HostRuntime, probe: anytype, budget: Budget) !void {
+    self.readTurnClock();
+    defer self.turn_ms = null;
     const deadline_ms: ?i64 = switch (budget) {
         .unbounded => null,
-        .ms => |v| net.clock.nowMs(self.io) + v,
+        .ms => |v| self.nowMs() + v,
     };
     while (true) {
         // Apply posted settles before anything else can consume the
@@ -180,15 +182,20 @@ pub fn pumpUntilProbe(self: *HostRuntime, probe: anytype, budget: Budget) !void 
         if (wireClosed(self, probe)) return Error.ConnectionClosed;
 
         const timeout: i32 = if (deadline_ms) |d| blk: {
-            const remaining = d - net.clock.nowMs(self.io);
+            const remaining = d - self.nowMs();
             if (remaining <= 0) return Error.WaitTimedOut;
             break :blk std.math.cast(i32, remaining) orelse std.math.maxInt(i32);
         } else -1;
 
         // A probe wire closed in here surfaces at the loop top's
         // `wireClosed` check.
-        const index = try waitAnySource(self, timeout, false) orelse continue;
+        const woke = try waitAnySource(self, timeout, false);
+        self.readTurnClock();
+        const index = woke orelse continue;
         _ = try resident_pump.serviceResident(self, index, probeSession(probe));
+        // A service is a turn of its own, so the next remaining-budget read
+        // at the loop top counts the time it took.
+        self.readTurnClock();
     }
 }
 
@@ -279,12 +286,20 @@ pub fn applySettleMailboxWith(self: *HostRuntime, effect_mode: ExternalEffectMod
     }
 }
 
-/// Wait for the first resident whose readiness descriptor fires, and return
-/// its index. Null on timeout, and on the mailbox or readiness wake (applying
-/// is the loop top's job, which runs whether or not the poll happened to
-/// select that row). A resident with timed work bounds the wait and is
-/// serviced when the wait ends on its bound.
-pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?usize {
+/// Wait for the first resident with a record, and return its index. Null on
+/// timeout, and on the mailbox or readiness wake (applying is the loop top's
+/// job, which runs whether or not the wait happened to select that row). A
+/// resident holding records no descriptor reports is returned before any
+/// wait, and a resident with timed work bounds the wait and is serviced when
+/// the wait ends on its bound.
+///
+/// When every resident parks, the first one is the park: it watches the
+/// mailbox, the stepped ready set's wake, and its siblings' readiness
+/// descriptors, and the wait runs inside its kernel queue, so the work the
+/// kernel owes this thread for a completion runs inside the one wake.
+/// Otherwise the wait polls every readiness descriptor.
+pub fn waitAnySource(self: *HostRuntime, requested_ms: i32, empty_ok: bool) !?usize {
+    const timeout_ms = requested_ms;
     Internal.progressCarrierCloseDeadlines(self);
     switch (self.drive) {
         .blocking => {},
@@ -293,6 +308,10 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?usiz
             return err;
         },
     }
+    // The park is where no message of ours will come along for a held
+    // answer release to ride: encode them now, and write them with the
+    // drain, so the submit below carries them.
+    if (try self.core.flushHeldReleases()) try self.drainActions();
     // A blocking verb with no source left has nothing that can ever wake
     // it; `stepAny` passes `empty_ok` because a step-driven host with no
     // session yet is parked on its own budget, not stranded.
@@ -301,6 +320,46 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?usiz
     const residents = self.residents.items.len;
     const start = if (residents > 0) self.wait_cursor % residents else 0;
     self.wait_cursor +%= 1;
+    const parking = Internal.parkingResident(self);
+    if (parking) try Internal.watchWakeSources(self);
+    Internal.flushResidents(self, .park);
+    if (Internal.readyResident(self, start)) |index| return index;
+    // The nearest pending deadline bounds the spin as it bounds the park, so
+    // a close grace or a dial budget due inside the window is noticed by the
+    // wait that spans it.
+    var wait_ms = Internal.clampTimeoutToPendingWork(self, timeout_ms);
+    // A runtime that owns its core spins here before it parks, reaping
+    // every resident on each pass, so a reply that lands inside the window
+    // is serviced without a descriptor wake.
+    if (self.opts.busy_poll_ns != 0 and residents > 0) {
+        const found = Internal.spinForRecords(self, start, &wait_ms);
+        // The spin is a wait: the turn clock moves past it, so the park's
+        // remaining budget and the deadlines below are read from now.
+        self.readTurnClock();
+        if (found) |index| return index;
+        // The spin reaped with every resident looking. The park is next, so
+        // a resident whose writers wake only a parked owner arms its wake
+        // now, and what that flush completes is taken before the park.
+        Internal.flushResidents(self, .park);
+        if (Internal.readyResident(self, start)) |index| return index;
+    }
+    var timed_resident: ?usize = null;
+    for (self.residents.items, 0..) |registered, index| {
+        const bound = registered.resident.waitBoundMs(wait_ms);
+        if (bound >= 0 and (wait_ms < 0 or bound < wait_ms)) {
+            wait_ms = bound;
+            timed_resident = index;
+        }
+    }
+    if (parking) {
+        const woke = self.residents.items[0].resident.park(wait_ms);
+        // A sibling's readiness ended the park through the watch on its
+        // descriptor: it reaps now, as the descriptor poll would have
+        // selected it.
+        for (self.residents.items[1..]) |registered| registered.resident.reap();
+        if (Internal.readyResident(self, start)) |index| return index;
+        return if (woke) null else timed_resident;
+    }
     self.extra_fd_scratch.clearRetainingCapacity();
     for (0..residents) |k| {
         try self.extra_fd_scratch.append(self.allocator, self.residents.items[(start + k) % residents].readiness_fd);
@@ -314,17 +373,37 @@ pub fn waitAnySource(self: *HostRuntime, timeout_ms: i32, empty_ok: bool) !?usiz
         .stepped => |*stepped| try self.extra_fd_scratch.append(self.allocator, stepped.ready_set.wakeFd()),
     }
     try self.poll_scratch.resize(self.allocator, self.extra_fd_scratch.items.len);
-    var wait_ms = Internal.clampTimeoutToPendingWork(self, timeout_ms);
-    var timed_resident: ?usize = null;
-    for (self.residents.items, 0..) |registered, index| {
-        const bound = registered.resident.waitBoundMs(wait_ms);
-        if (bound >= 0 and (wait_ms < 0 or bound < wait_ms)) {
-            wait_ms = bound;
-            timed_resident = index;
-        }
-    }
     const idx = try net.waitAnyReadable(&.{}, self.poll_scratch.items, wait_ms, self.extra_fd_scratch.items) orelse
         return timed_resident;
     if (idx < residents) return (start + idx) % residents;
     return null;
+}
+
+/// Whether the first resident is the park: every resident offers one, and
+/// there is at least one.
+pub fn parkingResident(self: *const HostRuntime) bool {
+    if (self.residents.items.len == 0) return false;
+    for (self.residents.items) |registered| if (!registered.resident.parks()) return false;
+    return true;
+}
+
+/// Hand the parking resident every wake descriptor it does not watch yet:
+/// the mailbox, the stepped ready set's wake, and its siblings' readiness
+/// descriptors. A source minted after the last park is handed over at the
+/// next one, so `watched_fds` only grows.
+pub fn watchWakeSources(self: *HostRuntime) !void {
+    const parker = self.residents.items[0].resident;
+    for (self.residents.items[1..]) |registered| try watchWakeSource(self, parker, registered.readiness_fd);
+    if (self.mailbox) |mb| try watchWakeSource(self, parker, mb.wakeFd());
+    switch (self.drive) {
+        .blocking => {},
+        .stepped => |*stepped| try watchWakeSource(self, parker, stepped.ready_set.wakeFd()),
+    }
+}
+
+fn watchWakeSource(self: *HostRuntime, parker: net.MultiplexedResident, fd: i32) !void {
+    for (self.watched_fds.items) |known| if (known == fd) return;
+    try self.watched_fds.ensureUnusedCapacity(self.allocator, 1);
+    try parker.watch(fd);
+    self.watched_fds.appendAssumeCapacity(fd);
 }

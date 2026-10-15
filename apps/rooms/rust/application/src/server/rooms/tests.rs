@@ -134,7 +134,7 @@ fn a_name_is_one_persons_and_a_reconnect_replaces_quietly() {
 				allocation: crate::directory::registration::NicknameAllocation::Exact,
 				locator: "x".into(),
 				own_locator: true,
-				webrtc: None,
+				host_key: None,
 				inbox: "c-inbox",
 				voucher: None,
 				claimant: None,

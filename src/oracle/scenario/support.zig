@@ -82,7 +82,7 @@ fn traceReceiverEvents(
         var event = event_value;
         defer event.deinit();
         if (event.kind() == .resolve) {
-            const view = try event.view();
+            const view = event.view();
             switch (view.resolve.resolution) {
                 .fulfill => |payload| switch (payload) {
                     .string => |text| try appendTraceLine(allocator, out, "{s}=event:resolve:answer={d}:fulfill={s}\n", .{ receiver_name, view.resolve.answer, text }),

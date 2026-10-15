@@ -124,7 +124,7 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     var resolver = peer_fixture.openPeer(allocator);
     defer resolver.deinit();
     try resolver.session_state.registerImport(.from(9));
-    try resolver.sendCopying(.{
+    try resolver.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(9) } },
             .args = &.{},

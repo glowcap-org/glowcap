@@ -33,4 +33,5 @@ name = "glowcap_sidecar_common"
 test-support = []
 
 [dependencies]
+# dep tokio: The runtime owner both transport libraries share.
 tokio = { version = "=1.53.2", features = ["rt-multi-thread"] }

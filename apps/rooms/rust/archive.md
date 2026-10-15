@@ -1,3 +1,14 @@
+---
+type: static
+description: The member archive, the one object that holds what a member kept, and how the browser, archive service and session service implement it.
+sources:
+  - resource: /apps/rooms/rust/application/src/archive/
+  - resource: /apps/rooms/rust/application/src/archive.rs
+  - resource: /apps/rooms/rust/runtime/src/archive/
+  - resource: /apps/rooms/rust/services/src/archive/
+  - resource: /apps/rooms/web/ui/archive_model.ts
+---
+
 # The member archive
 
 A member's history belongs to the member. The room server keeps a room's
@@ -8,26 +19,25 @@ So Rooms gives each member one ordinary OCapN object for what they kept. One
 Rust design implements it in three places:
 
 - in the browser, over IndexedDB
-- in the archive service, over a journal on disk
+- in the archive service, over an append-only log on disk
 - inside the session service, for the history a durable session records
 
-This page describes that design. [Operating Rooms](../operating.md) explains
-how to run the archive service. These decision records hold the details:
+[Operating Rooms](../operating.md) explains how to run the archive service.
+The decisions are in
 [ADR-0129](../../../docs/decisions/adr/ADR-0129-member-owned-archive-capability.md),
 [ADR-0130](../../../docs/decisions/adr/ADR-0130-durable-member-archive-peer.md),
 [ADR-0132](../../../docs/decisions/adr/ADR-0132-monotonic-archive-facets-and-direct-handover.md),
 [ADR-0136](../../../docs/decisions/adr/ADR-0136-archive-attachment-custody.md),
 [ADR-0140](../../../docs/decisions/adr/ADR-0140-rooms-archive-share-authority.md),
-and [ADR-0144](../../../docs/decisions/adr/ADR-0144-combined-archive-views.md)
-record the decisions.
+and [ADR-0144](../../../docs/decisions/adr/ADR-0144-combined-archive-views.md).
 
 ## The object
 
 - `put(record)` inserts or replaces one line or one standing.
-- `read(filter, afterRevision, limit)` returns a page of at most 128 records
+- `read(filter, afterRevision, limit)` returns a page of at most <!-- value application/src/archive.rs MAX_READ -->128<!-- /value --> records
   in revision order.
-- `narrow(filter, access)` returns a facet whose scope can only shrink and
-  whose write authority can only be removed. A narrowed facet also loses the
+- `narrow(filter, access)` returns a narrowed copy of the archive (a facet) whose scope can only shrink and
+  whose write authority can only be removed. A facet also loses the
   authority to issue shares.
 - `attachment` and `blob` return bounded readers for the bytes a record
   names.
@@ -57,13 +67,13 @@ cannot replace its sibling. Neither the source nor the generation is a
 person: a nickname and a fresh session key cannot merge records. Replacing a
 line keeps its first timestamp and its place in the conversation's order.
 
-The index keeps the most recently revised records, up to 5,000, and reads at
-most 128 rows per page. Records are shared immutably between the identity
+The index keeps the most recently revised records, up to <!-- value application/src/archive.rs MAX_RECORDS -->5,000<!-- /value -->, and reads at
+most <!-- value application/src/archive.rs MAX_READ -->128<!-- /value --> rows per page. Records are shared immutably between the identity
 and revision maps, so a lookup borrows fields without building a key and a
 held page keeps its values across replacement and eviction. Restoring an
 invalid snapshot leaves the current index untouched, and clearing content
 keeps the revision high-water mark. A remote scan counts every received row,
-refuses a feed past 5,000, keeps the latest revision per identity, and
+refuses a feed past <!-- value application/src/archive.rs MAX_RECORDS -->5,000<!-- /value -->, keeps the latest revision per identity, and
 exposes results only after a terminal page.
 
 Text is kept the way it was written: ordinary text as UTF-8, and an isolated
@@ -73,18 +83,22 @@ would.
 
 ## The file backend
 
-`services::archive::file::FileArchive` owns the record journal, the blob
-directory, and an exclusive lease on the state directory. Startup validates
-snapshot order, identities, and revision continuity before publishing an
-index. A torn final line is repaired durably before serving. A corrupt
-complete line refuses startup without rewriting the file. Append and fsync
-precede index publication and the reply. Compaction replaces the file
-atomically with file and directory synchronization, keeping the prior index
-until the new one is committed. A write whose outcome is uncertain retires
-the backend until it is reopened and recovered.
+`services::archive::file::FileArchive` owns the record log, the blob
+directory, and an exclusive lease on the state directory.
 
-The default bounds are 5,000 records, 512 extra journal rows before
-compaction, and 128 MiB per file. Parsing, indexing, and filesystem work run
+- Startup validates snapshot order, identities, and revision continuity before
+  publishing an index.
+- A torn final line is repaired durably before serving. A corrupt complete
+  line refuses startup without rewriting the file.
+- Append and fsync precede index publication and the reply.
+- Compaction replaces the file atomically with file and directory
+  synchronization, keeping the prior index until the new one is committed.
+- A write whose outcome is uncertain retires the backend until it is reopened
+  and recovered.
+
+The default bounds are <!-- value application/src/archive.rs MAX_RECORDS -->5,000<!-- /value --> records,
+<!-- value application/src/archive/disk.rs COMPACT_DELTA -->512<!-- /value --> extra log rows before
+compaction, and <!-- value application/src/archive/disk.rs MAX_FILE_BYTES bytes -->128 MiB<!-- /value --> per file. Parsing, indexing, and filesystem work run
 on a blocking worker. Records cross that boundary shared, not copied. A
 cancelled observation leaves the job owned, and a later operation observes
 its result first. Session documents use the same lock, read, and atomic
@@ -93,8 +107,9 @@ replacement owner with their own codec and filenames.
 ## Files
 
 The blob owner names content by SHA-256, shares repeated content, and
-applies reference changes only after the journal commits. It keeps at most
-512 MiB, with at most one 64 MiB file of staging beyond that. A file put
+applies reference changes only after the log commits. It keeps at most
+<!-- value application/src/archive/blobs.rs MAX_BLOB_BYTES bytes -->512 MiB<!-- /value -->, with at most one
+<!-- value application/src/archive/blobs.rs MAX_STAGED_BYTES bytes -->64 MiB<!-- /value --> file of staging beyond that. A file put
 streams exact chunks to the disk worker through a single slot: at most one
 chunk is queued, one being written, and one being fetched, and no whole file
 is assembled. Waiting for a slow source happens before the backend is asked
@@ -136,8 +151,10 @@ Only the whole-archive root of a service can issue shares.
 
 `runtime::session_archive` owns what a durable session records: the
 selected archive (the browser store, the session's own archive, or a chosen
-peer), ordered local recording, shares, and erasure. Its queue admits 64
-requests holding at most 2 MiB of input and 64 MiB of named file bytes.
+peer), ordered local recording, shares, and erasure. Its queue admits
+<!-- value runtime/src/archive/session/mod.rs MAX_PENDING -->64<!-- /value --> requests holding at most
+<!-- value runtime/src/archive/session/mod.rs MAX_BYTES bytes -->2 MiB<!-- /value --> of input and
+<!-- value runtime/src/archive/session/mod.rs MAX_FILE_BYTES bytes -->64 MiB<!-- /value --> of named file bytes.
 Selection takes effect between operations. A failed selected peer stays
 unavailable rather than redirecting writes to the browser, so a member
 never has a second history they did not choose. Reads merge every archive
@@ -151,24 +168,25 @@ withdrawal. System messages, typing, and messages without a line identity
 produce no record. A line and its room standing are admitted as one
 operation, so selection or erasure cannot separate them.
 
-Files are captured at admission, alongside the queue, within a 64 MiB pending
-budget and 32 active captures. When either limit is full, or the selected
+Files are captured at admission, alongside the queue, within a
+<!-- value runtime/src/archive/mod.rs CAPTURE_BYTES bytes -->64 MiB<!-- /value --> pending budget and
+<!-- value runtime/src/archive/mod.rs CAPTURE_LIMIT -->32<!-- /value --> active captures. When either limit is full, or the selected
 backend keeps no bytes, the record keeps the file's metadata and notes that
 its bytes were not kept, and the completion says which case applied.
 
-Turning history off commits a pending erasure identity with disabled recording.
-The managed worker erases that recorder source's records and bytes before
-settling its receipt. History cannot be re-enabled while that barrier remains,
-and unrelated workspace changes keep their own commit path. A restart recovers
+Turning history off commits two things together: recording stops and an
+erasure is pending. The session's worker erases that recorder's records and
+bytes before settling the receipt. History cannot be turned back on until the
+erasure finishes, and unrelated workspace changes commit as usual. A restart recovers
 the original erasure without repeating completed deletion. Other recorder
 owners and shared blob references remain intact.
 
-## Evidence
+## Tests
 
 `zig build rooms-archive-test` proves the archive contract, the bounded
 store, the wire path, and a process restart against the Rooms clients.
 `zig build rooms-peers-test` proves the archive service's identity, restart,
 and signal shutdown. The contract proofs under `proofs/` replay the record and
-filter parsers, the journal loader, the share ledger, the merge, and the
-recorder from fixtures, both natively and in Wasm. `test/store/` under
+filter parsers, the log loader, the share ledger, the merge, and the
+recorder from fixtures, both in a process and in Wasm. `test/store/` under
 `apps/rooms` holds the browser store to the same contract.

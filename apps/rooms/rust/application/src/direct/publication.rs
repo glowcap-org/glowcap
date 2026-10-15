@@ -101,7 +101,7 @@ impl Inbox {
 		self.0.phase.get() == Phase::Published
 	}
 	/// A factory may retire its owner. Check this exact slot again before the
-	/// native alias effect. A released reservation cannot authorize publication.
+	/// host alias effect. A released reservation cannot authorize publication.
 	pub fn publishable(&self) -> bool {
 		self.0.phase.get() == Phase::Provisional && self.0.scope.active.get()
 	}

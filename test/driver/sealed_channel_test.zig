@@ -28,116 +28,21 @@ const noise_tcp = model.transport.noise_tcp;
 
 const frame_cap = 4096;
 
-fn keyedDesignator(seed: [32]u8) [crypto.PeerKey.designator_len]u8 {
-    return crypto.SecretKey.fromSeed(seed).publicKey().toDesignator();
-}
+const sealed_pair = @import("../support/sealed_pair.zig");
+const keyedDesignator = sealed_pair.keyedDesignator;
+const noiseLocator = sealed_pair.noiseLocator;
+const moveSealedWire = sealed_pair.moveSealedWire;
+const drainSealedActions = sealed_pair.drainSealedActions;
+const SealedPair = sealed_pair.SealedPair;
+const pumpSealedPair = sealed_pair.pumpSealedPair;
+const openSealedPair = sealed_pair.openSealedPair;
 
-fn sealedHost(
-    allocator: std.mem.Allocator,
-    durable_seed: [crypto.SEED_BYTES]u8,
-    root_byte: u8,
-) Host {
-    return test_host.initWithRoot(
-        allocator,
-        durable_seed,
-        @as([crypto.SEED_BYTES]u8, @splat(root_byte)),
-        Host.Options.withFrameCap(frame_cap),
-    );
-}
-
-fn noiseLocator(designator: []const u8) model.PeerLocator {
-    return .{ .transport = noise_tcp, .designator = designator, .hints = model.Hints.emptyFalse() };
-}
-
-/// Move every wire byte one direction, appending to `log` when given, and
-/// resume a pause boundary left by a session that opened mid-chunk. Returns
-/// whether anything moved.
-fn moveSealedWire(
-    allocator: std.mem.Allocator,
-    from: *HostSession,
-    to_host: *Host,
-    to: *HostSession,
-    log: ?*std.ArrayList(u8),
-) !bool {
-    var moved = false;
-    while (try from.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        if (log) |l| try l.appendSlice(allocator, frame.bytes());
-        try to_host.feedBytes(to, frame.bytes());
-        moved = true;
-    }
-    if (to.sealed) |channel| {
-        if (channel.hasStagedInbound()) {
-            const staged_before = channel.staged.len;
-            try to.resumeFeed();
-            if (to.sealed.?.staged.len != staged_before) moved = true;
-        }
-    }
-    return moved;
-}
-
-/// Drain both hosts' action queues. Only flush, close, resume, and settle
-/// notices are expected in these scenarios.
-fn drainSealedActions(hosts: []const *Host, closes: ?*usize) !bool {
-    var did_work = false;
-    for (hosts) |host| {
-        while (try host.nextAction()) |action| {
-            switch (action) {
-                .close => if (closes) |count| {
-                    count.* += 1;
-                },
-                .flush, .resume_work, .settled, .failed => {},
-                else => return error.UnexpectedAction,
-            }
-            did_work = true;
-        }
-    }
-    return did_work;
-}
-
-const SealedPair = struct { ah: *Host, a: *HostSession, bh: *Host, b: *HostSession };
-
-fn pumpSealedPair(
-    allocator: std.mem.Allocator,
-    pair: SealedPair,
-    log_ab: ?*std.ArrayList(u8),
-    log_ba: ?*std.ArrayList(u8),
-) !void {
-    var rounds: usize = 0;
-    while (rounds < 64) : (rounds += 1) {
-        var moved = try moveSealedWire(allocator, pair.a, pair.bh, pair.b, log_ab);
-        if (try moveSealedWire(allocator, pair.b, pair.ah, pair.a, log_ba)) moved = true;
-        if (try drainSealedActions(&.{ pair.ah, pair.bh }, null)) moved = true;
-        if (!moved) return;
-    }
-    return error.PumpDidNotQuiesce;
-}
-
-/// Open a sealed dialed/accepted pair between two hosts and pump it to
-/// quiescence, capturing each direction's wire when logs are given.
-fn openSealedPair(
-    allocator: std.mem.Allocator,
-    dialer: *Host,
-    dialer_seed: [32]u8,
-    acceptor: *Host,
-    acceptor_seed: [32]u8,
-    log_ab: ?*std.ArrayList(u8),
-    log_ba: ?*std.ArrayList(u8),
-) !SealedPair {
-    const acceptor_designator = keyedDesignator(acceptor_seed);
-    const dialer_designator = keyedDesignator(dialer_seed);
-    try acceptor.setAdvertisedLocator(noiseLocator(&acceptor_designator));
-    const accepted = try acceptor.openAcceptedAdvertised(noise_tcp);
-    try dialer.setAdvertisedLocator(noiseLocator(&dialer_designator));
-    const dialed = try dialer.openDialedLocator(noiseLocator(&acceptor_designator));
-    const pair = SealedPair{ .ah = dialer, .a = dialed, .bh = acceptor, .b = accepted };
-    try pumpSealedPair(allocator, pair, log_ab, log_ba);
-    return pair;
+fn sealedHost(allocator: std.mem.Allocator, durable_seed: [crypto.SEED_BYTES]u8, root_byte: u8) Host {
+    return sealed_pair.sealedHost(allocator, durable_seed, root_byte, Host.Options.withFrameCap(frame_cap));
 }
 
 const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;

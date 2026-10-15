@@ -257,6 +257,60 @@ test "runtime close cancels a resident open after core reaches closed" {
     try std.testing.expectEqual(@as(usize, 0), observed.reservations);
 }
 
+test "a verb that leaves a resident holding a record raises the stepped readiness descriptor" {
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var resident = try AcceptOwnershipResident.init();
+    defer resident.deinit();
+    resident.hold_connect = true;
+
+    var observed = ObservedOpen{};
+    var runtime = try driver.HostRuntime.init(std.testing.allocator, io, .{}, .ephemeral, observed.steppedOpts());
+    defer runtime.deinit();
+    _ = try runtime.addResident(.{
+        .symbol = AcceptOwnershipResident.transport,
+        .designator_scheme = .address,
+    }, resident.multiplexedResident());
+    const ready_fd = try runtime.readinessDescriptor();
+    try std.testing.expect(!try readableNow(ready_fd));
+
+    // The dial verb runs a resident verb and returns with the record still
+    // held, which the embedder's park could never see on its own. The verb's
+    // end is also where the embedder may park, so staged work is handed to
+    // the kernel there.
+    resident.held_record = .{ .subject = 404, .events = net.multiplexed_resident.ev_writable };
+    try runtime.startDial(.{
+        .transport = AcceptOwnershipResident.transport,
+        .designator = "remote.test:1",
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit, 91, .{
+        .ctx = &observed,
+        .reserve = ObservedOpen.reserve,
+        .release = ObservedOpen.release,
+        .opened = ObservedOpen.opened,
+        .failed = ObservedOpen.failed,
+    });
+    try std.testing.expect(try readableNow(ready_fd));
+    try std.testing.expectEqual(@as(usize, 1), resident.before_wait_calls);
+
+    // The step it provokes services the record and leaves the descriptor quiet.
+    _ = try runtime.stepAny(0);
+    try std.testing.expectEqual(@as(?net.multiplexed_resident.ReadyEvent, null), resident.held_record);
+    try std.testing.expect(!try readableNow(ready_fd));
+
+    runtime.beginClose(.cancel);
+    _ = try runtime.stepAny(0);
+    try std.testing.expectEqual(driver.HostRuntime.CloseOutcome.closed, runtime.closeOutcome());
+}
+
+/// Whether `fd` reports readable without waiting.
+fn readableNow(fd: std.posix.fd_t) !bool {
+    var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
+    return try std.posix.poll(&fds, 0) > 0;
+}
+
 test "resident dial cancellation attaches exact teardown consequences to its owner" {
     var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
     defer threaded.deinit();

@@ -18,6 +18,7 @@ SESSION_DEADLINE_MS = 15000
 OPEN = "open"
 ENTER = "enter"
 LIST_PUBLICATIONS = "listPublications"
+NAMED_PUBLICATIONS = "namedPublications"
 WATCH_PUBLICATIONS = "watchPublications"
 UNWATCH_PUBLICATIONS = "unwatchPublications"
 REGISTER = "register"
@@ -71,6 +72,12 @@ REGISTRATION_EVENT_FIELDS = (
 # What the truncation watch kind carries after its tag.
 TRUNCATED_FIELDS = (
     ("omitted", "natural", False, ()),
+)
+
+# What listPublications answers: one page of publication rows, and the cursor that asks for the page after it, null on the last page. The cursor is the directory's own word: pass it back exactly.
+LIST_PAGE_FIELDS = (
+    ("rooms", "list", False, ()),
+    ("next", "text", True, ()),
 )
 
 # What watchPublications answers: the baseline a watcher folds deltas into.

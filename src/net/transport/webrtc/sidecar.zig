@@ -261,7 +261,8 @@ pub const Peer = struct {
     }
 
     /// Add one ICE candidate the far peer gathered, as the JSON its
-    /// `nextLocalCandidate` produced.
+    /// `nextLocalCandidate` produced. One that arrives before the remote
+    /// description is held and added once that description is set.
     pub fn addRemoteCandidate(self: *Peer, candidate: []const u8) SignalError!void {
         if (candidate.len > max_ice_candidate_bytes) return error.SignalTooLarge;
         if (glowcap_webrtc_sidecar_peer_add_remote_candidate(self.peer, candidate.ptr, candidate.len) != rc_ok) return error.SignalFailed;

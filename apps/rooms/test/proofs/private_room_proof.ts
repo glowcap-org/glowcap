@@ -37,7 +37,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // a link can be no good are told apart on the way, and neither leaves a server
 // behind in the rail.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives
 // (the web front and room server run Rust), and a Playwright Chromium.
 // Run: `deno run --allow-all apps/rooms/test/web/private_room_test.ts`.
 

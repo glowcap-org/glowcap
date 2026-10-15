@@ -5,6 +5,7 @@
 //! module owns only that syntax. It imports no codec, session, engine, or I/O.
 
 const std = @import("std");
+const decimal = @import("decimal.zig");
 
 /// Large enough for the decimal representation of any `usize`, plus `:`.
 pub const prefix_buffer_bytes: usize = 32;
@@ -49,5 +50,8 @@ pub fn parsePrefix(bytes: []const u8, max_body_bytes: usize) Prefix {
 /// Render the canonical prefix for a body of `length` bytes into caller-owned
 /// storage. The returned slice remains valid while `buf` does.
 pub fn renderPrefix(buf: *[prefix_buffer_bytes]u8, length: usize) []const u8 {
-    return std.fmt.bufPrint(buf, "{d}:", .{length}) catch unreachable;
+    const digits = decimal.width(length);
+    decimal.fill(buf[0..digits], length);
+    buf[digits] = ':';
+    return buf[0 .. digits + 1];
 }

@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: exporter-location and authenticated partner identity projection for
-;; a Session. This leaf borrows native views only for each call and lifts them
+;; a Session. This leaf borrows FFI views only for each call and lifts them
 ;; into Racket-owned values before returning.
 
 (require ffi/unsafe

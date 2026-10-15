@@ -6,7 +6,7 @@ import { L } from "../internal/layout.ts";
 import { ab, outPointer, outU32, outUsize, readBytes } from "../internal/seam.ts";
 import { type SessionProfile, sessionProfileFromAbi } from "../value.ts";
 
-/** Project the negotiated wire profile from the native session boundary. */
+/** Project the negotiated wire profile from the FFI session boundary. */
 export function readSessionProfile(ptr: Ptr): SessionProfile {
 	const version = new Uint8Array(4);
 	const codec = new Uint8Array(4);
@@ -20,7 +20,7 @@ export function readSessionProfile(ptr: Ptr): SessionProfile {
 	return sessionProfileFromAbi(outU32(version), outU32(codec), outU32(features));
 }
 
-/** Decode the exact netlayer symbol retained by the native session. */
+/** Decode the exact netlayer symbol retained by the FFI session. */
 export function readSessionTransportName(ptr: Ptr): string {
 	const name = new Uint8Array(L.ptrSize);
 	const len = new Uint8Array(L.ptrSize);

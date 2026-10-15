@@ -109,9 +109,6 @@ impl Owners {
 		if let Some(host) = &self.host {
 			result = Error::fold(result, host.close(PendingWork::Cancel).await.map_err(Error::from));
 		}
-		if let Some((history, _)) = self.history {
-			result = Error::fold(result, history.close().await);
-		}
 		drop(self.authority);
 		result
 	}
@@ -123,9 +120,9 @@ impl Peer {
 			.await?
 			.ok_or_else(|| Error::refused("server opening ended without a shutdown request"))
 	}
-	/// Filesystem actions already admitted are joined. Database acquisition is
-	/// cancellable: its connection future owns the socket and transaction, and
-	/// dropping it closes both before the acquired server owners are retired.
+	/// Filesystem actions already admitted are joined. A halt that resolves
+	/// between acquisition steps retires the owners acquired so far and
+	/// returns `None`.
 	pub(super) async fn open_until(
 		config: Config,
 		report: Report,
@@ -371,20 +368,12 @@ async fn assemble(
 	let host = Host::from_seed_with_options(*server.authority.identity_seed(), rooms_glowcap::host_options())?;
 	owners.host = Some(host.clone());
 	// Retention is a stated policy: nothing records until the operator says
-	// so, and then listed rooms keep their last lines behind the directory
-	// named, or in memory when there is none.
+	// so, and then listed rooms keep their last lines behind the state
+	// directory, or in memory when there is none.
 	let (index, history) = if config.history {
-		let (backend, index) = match config.history_storage() {
-			Some(storage) => {
-				let (backend, index) = if matches!(storage, super::config::Storage::Postgres(_)) {
-					tokio::select! {
-						biased;
-						_ = halt.as_mut() => return Ok(None),
-						result = history::restore(storage) => result?,
-					}
-				} else {
-					history::restore(storage).await?
-				};
+		let (backend, index) = match config.history_directory() {
+			Some(directory) => {
+				let (backend, index) = history::restore(directory).await?;
 				(Some(backend), index)
 			}
 			None => (None, Index::default()),
@@ -473,11 +462,12 @@ async fn deliver(state: Rc<RefCell<State>>, work: Work) {
 			id,
 			target,
 			sdp,
+			from,
 			originator,
 			reply,
 		} => {
 			let session = state.borrow().session(target.connection).map(Session::borrowed);
-			signaling::deliver_offer(state, id, (session, target.capability), sdp, originator, reply).await;
+			signaling::deliver_offer(state, id, (session, target.capability), sdp, from, originator, reply).await;
 		}
 		Work::Introduce {
 			target,

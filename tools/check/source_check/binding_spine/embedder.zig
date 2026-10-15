@@ -179,11 +179,11 @@ pub fn checkBindingEmbedderPump(
         .{ .path = "bindings/python/glowcap/_session/lifecycle.py", .inside = "_inside_turn", .park = "park_release", .release_path = "bindings/python/glowcap/_session/lifecycle.py", .release = "glowcap_host_session_release" },
         .{ .path = "bindings/rust/src/session_shared.rs", .inside = "inside_turn", .park = "finalizer::park_session", .release_path = "bindings/rust/src/host.rs", .release = "glowcap_host_session_release" },
         // Racket's close path releases through host/state.rkt's
-        // `native-session-release!`, the one owner of the loop-vs-byte-fed
+        // `ffi-session-release!`, the one owner of the loop-vs-byte-fed
         // branch (`glowcap_driver_session_release` beside
         // `glowcap_host_session_release`, ADR-0112); host/state.rkt is held to
         // both spellings below.
-        .{ .path = "bindings/racket/private/session.rkt", .inside = "inside-turn?", .park = "host-park-release!", .release_path = "bindings/racket/private/session.rkt", .release = "native-session-release!" },
+        .{ .path = "bindings/racket/private/session.rkt", .inside = "inside-turn?", .park = "host-park-release!", .release_path = "bindings/racket/private/session.rkt", .release = "ffi-session-release!" },
     };
     for (park) |row| {
         const contents = root.readFileAlloc(io, row.path, gpa, .limited(2 << 20)) catch |err| {
@@ -208,9 +208,9 @@ pub fn checkBindingEmbedderPump(
     }
     // The Racket release branch's own authorities: host/state.rkt owns the branch
     // and the byte-fed spelling, loop/core.rkt owns the loop spelling, so a
-    // rename cannot quietly point `native-session-release!` at nothing.
+    // rename cannot quietly point `ffi-session-release!` at nothing.
     const release_branch = [_]struct { path: []const u8, needles: []const []const u8 }{
-        .{ .path = "bindings/racket/private/host/state.rkt", .needles = &.{ "native-session-release!", "glowcap_host_session_release" } },
+        .{ .path = "bindings/racket/private/host/state.rkt", .needles = &.{ "ffi-session-release!", "glowcap_host_session_release" } },
         .{ .path = "bindings/racket/private/loop/core.rkt", .needles = &.{"glowcap_driver_session_release"} },
     };
     for (release_branch) |row| {
@@ -316,7 +316,7 @@ pub fn checkBindingEmbedderPump(
 /// Behavior trampoline spine (Pass 5): each binding keeps a named trampoline
 /// module, mid-turn latch, reply keep, and turn verbs, hop cap lives in the
 /// constant homes for bindings that still execute locally. Rust delegates all
-/// delivery to the native Host, actor-liveness tests hold that boundary.
+/// delivery to the Zig Host, actor-liveness tests hold that boundary.
 pub fn checkBindingEmbedderTrampoline(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -497,7 +497,6 @@ pub fn checkBindingEmbedderSpineDocs(
                 "`dial`",
                 "`listen`",
                 "**trampoline** module",
-                "embedder-spine module split is complete",
                 "trampoline",
                 "caretaker/attenuate",
                 "spawn/publish",
@@ -516,7 +515,7 @@ pub fn checkBindingEmbedderSpineDocs(
         defer gpa.free(contents);
         for (doc.needles) |needle| {
             if (std.mem.indexOf(u8, contents, needle) == null) {
-                try appendViolation(gpa, violations, "{s}: missing `{s}` — embedder-spine living-state inventory", .{ doc.path, needle });
+                try appendViolation(gpa, violations, "{s}: missing `{s}` — embedder-spine doc inventory", .{ doc.path, needle });
             }
         }
     }

@@ -1,4 +1,4 @@
-//! Both Rust browser signaling halves carried by the actual native directory.
+//! Both Rust browser signaling halves carried by the actual Rooms directory.
 use glowcap::{Argument, Host, PendingWork, Session, browser};
 use rooms_browser::platform::Platform;
 use rooms_browser::signaling;

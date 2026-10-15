@@ -195,7 +195,6 @@ const transport = @import("bans/transport.zig");
 const prose = @import("bans/prose.zig");
 const layers = @import("bans/layers.zig");
 const core_fifo = @import("bans/core_fifo.zig");
-const framing = @import("bans/framing.zig");
 const engine_peer_handle = @import("bans/engine_peer_handle.zig");
 const binding_policy = @import("bans/binding_policy.zig");
 const binding_racket_policy = @import("bans/binding_racket_policy.zig");
@@ -263,7 +262,6 @@ pub const all: []const Ban =
     prose.diagram_wire_vocabulary ++
     prose.rooms_settings_label ++
     layers.clock_seam ++
-    framing.frame_scan_gate ++
     layers.actors_layer_purity ++
     core_fifo.rows ++
     engine_peer_handle.rows ++

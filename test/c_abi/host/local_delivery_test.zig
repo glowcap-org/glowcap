@@ -196,8 +196,8 @@ test "libglowcap_host owning local C forwarding and effects preserve exact repli
     const pairs = @import("../../support/host_pair.zig");
     const CapturedRef = @import("../../support/capture.zig").CapturedRef;
     const Echo = struct {
-        pub fn handle(_: *@This(), _: *glowcap.actors.Turn, msg: glowcap.actors.Message) !glowcap.ocapn.model.Argument {
-            return msg.args[0];
+        pub fn handle(_: *@This(), turn: *glowcap.actors.Turn, msg: glowcap.actors.Delivery) !glowcap.ocapn.model.Argument {
+            return (try msg.arg(0)).toOwned(turn.arena);
         }
     };
     for ([_][]const u8{ "forward", "send", "tell" }) |verb| for ([_]bool{ false, true }) |remote| {

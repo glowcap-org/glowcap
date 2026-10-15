@@ -1,12 +1,16 @@
+# dep OCapN test suite: The community's protocol tests.
 [submodule "conformance/ocapn-conformance/upstream"]
 	path = conformance/ocapn-conformance/upstream
 	url = https://github.com/ocapn/ocapn-test-suite.git
+# dep OCapN specification: The draft glowcap implements.
 [submodule "conformance/ocapn-spec/upstream"]
 	path = conformance/ocapn-spec/upstream
 	url = https://github.com/ocapn/ocapn.git
+# dep Syrup: The reference encoding and its test vectors.
 [submodule "conformance/syrup/upstream"]
 	path = conformance/syrup/upstream
 	url = https://github.com/ocapn/syrup.git
+# dep Racket Goblins: The peer interop tests run against.
 [submodule "conformance/spritely-goblins/upstream"]
 	path = conformance/spritely-goblins/upstream
 	url = https://codeberg.org/spritely/racket-goblins.git

@@ -1,4 +1,4 @@
-"""Terminal native driver lease and its wrapper-completion obligation."""
+"""Terminal FFI driver lease and its wrapper-completion obligation."""
 
 from __future__ import annotations
 
@@ -18,18 +18,18 @@ from .finalizer import (
 
 @dataclass(frozen=True)
 class _ReleaseAttempt:
-    """One release result, including whether native authority was consumed."""
+    """One release result, including whether FFI authority was consumed."""
 
     consumed: bool
     error: Optional[BaseException]
 
 
 class _DriverReleaseOwner:
-    """Own one raw driver until native release consumes it.
+    """Own one raw driver until FFI release consumes it.
 
     A refusal transfers this owner and the live wrapper's completion callback
     to the process retry queue. The queue retains both until a later ordinary
-    safe boundary consumes the native lease. GC is only the fallback entry.
+    safe boundary consumes the FFI lease. GC is only the fallback entry.
     """
 
     def __init__(self, wrapper, handle: int, context=None) -> None:

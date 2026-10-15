@@ -17,6 +17,9 @@ pub const Sharing = struct {
     /// when issuance was decoded.
     entropy_source: ?service.Service.EntropySource,
     parent: *const records.EndpointRecord,
+    /// What the derived endpoint binds: the parent's own content or
+    /// administration, or the target of the dependent facet it was called on.
+    bound: records.EndpointRecord.Binding,
     sequence: u64,
     request: core.GrantLedger.Issue,
     expected: ?core.Revision = null,
@@ -54,26 +57,26 @@ pub const Sharing = struct {
         const intent = try call.arena().alloc(u8, encoded.len + 8);
         std.mem.writeInt(u64, intent[0..8], expected, .big);
         @memcpy(intent[8..], encoded);
-        return .{ .call = call, .config = config, .entropy_source = config.entropy, .parent = parent, .sequence = @intCast(args[0].integer), .expected = @fromBackingInt(expected), .request = issue.request, .powers = issue.powers, .intent = intent };
+        return .{ .call = call, .config = config, .entropy_source = config.entropy, .parent = parent, .bound = administered, .sequence = @intCast(args[0].integer), .expected = @fromBackingInt(expected), .request = issue.request, .powers = issue.powers, .intent = intent };
     }
 
     fn binding(self: *const Sharing) records.EndpointRecord.Binding {
-        return (self.parent.content orelse self.parent.administration).?;
+        return self.bound;
     }
 
-    pub fn init(call: *hosting.Call, config: *service.Service, parent: *const records.EndpointRecord, args: []const driver.Value) !Sharing {
+    pub fn init(call: *hosting.Call, config: *service.Service, parent: *const records.EndpointRecord, bound: records.EndpointRecord.Binding, args: []const driver.Value) !Sharing {
         const decoder = config.decode_derive orelse return error.NoSuchMethod;
         if (args.len == 0 or args[0] != .integer or args[0].integer < 1) return error.InvalidArguments;
         const sequence: u64 = @intCast(args[0].integer);
-        const request = try decoder(config.context, call.arena(), parent.content.?.resource, args[1..]);
-        return .{ .call = call, .config = config, .entropy_source = config.entropy, .parent = parent, .sequence = sequence, .request = request, .intent = try records.DerivationRecord.encodeIntent(call.arena(), parent.content.?.resource.owner, request) };
+        const request = try decoder(config.context, call.arena(), bound.resource, args[1..]);
+        return .{ .call = call, .config = config, .entropy_source = config.entropy, .parent = parent, .bound = bound, .sequence = sequence, .request = request, .intent = try records.DerivationRecord.encodeIntent(call.arena(), bound.resource.owner, request) };
     }
 
-    pub fn initManaged(call: *hosting.Call, config: *service.Service, parent: *const records.EndpointRecord, args: []const driver.Value) !Sharing {
+    pub fn initManaged(call: *hosting.Call, config: *service.Service, parent: *const records.EndpointRecord, bound: records.EndpointRecord.Binding, args: []const driver.Value) !Sharing {
         const decoder = config.decode_managed_derive orelse return error.NoSuchMethod;
         if (args.len == 0 or args[0] != .integer or args[0].integer < 1) return error.InvalidArguments;
-        const issue = try decoder(config.context, call.arena(), parent.content.?.resource, args[1..]);
-        return .{ .call = call, .config = config, .entropy_source = config.entropy, .parent = parent, .sequence = @intCast(args[0].integer), .request = issue.request, .powers = issue.powers, .intent = try records.DerivationRecord.encodeManagedIntent(call.arena(), parent.content.?.resource.owner, issue.request, issue.powers) };
+        const issue = try decoder(config.context, call.arena(), bound.resource, args[1..]);
+        return .{ .call = call, .config = config, .entropy_source = config.entropy, .parent = parent, .bound = bound, .sequence = @intCast(args[0].integer), .request = issue.request, .powers = issue.powers, .intent = try records.DerivationRecord.encodeManagedIntent(call.arena(), bound.resource.owner, issue.request, issue.powers) };
     }
 
     pub fn advance(self: *Sharing, source: *storage.Operation) !Step {
@@ -115,7 +118,10 @@ pub const Sharing = struct {
         }
         const child_record = try records.EndpointRecord.decode(child_view);
         const content = child_record.content orelse return error.InvalidRecord;
-        if (!content.resource.eql(self.binding().resource) or !content.object.eql(self.binding().object) or child_record.publication == null or !child_record.publication.?.eql(receipt.publication)) return error.InvalidRecord;
+        // The issued endpoint records which node the sequence shared, so the
+        // same request through another dependent facet is a changed intent.
+        if (!content.resource.eql(self.binding().resource) or !content.object.eql(self.binding().object)) return error.OperationConflict;
+        if (child_record.publication == null or !child_record.publication.?.eql(receipt.publication)) return error.InvalidRecord;
         if (try self.load(2, receipt.publication)) |step| return step;
         const publication = try self.store().currentView(self.leases[2].?);
         try validatePublication(publication, receipt.endpoint);

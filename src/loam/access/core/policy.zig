@@ -45,8 +45,25 @@ pub const Policy = struct {
         schema: Id,
         /// Bits refer to this schema's sorted permission declarations.
         permissions: u64,
-        /// Null means unrestricted. Unused schema slots must remain null.
-        bounds: [max_constraints]?u64,
+        /// One limit per schema constraint slot. A slot whose `bound_mask` bit
+        /// is clear is unrestricted and holds zero, so two equal values are
+        /// equal bytes. Unused schema slots stay clear. The C ABI mirrors this
+        /// pair as `GlowcapLoamPolicyValue`.
+        bounds: [max_constraints]u64 = @splat(0),
+        bound_mask: u16 = 0,
+
+        pub fn bound(self: Value, index: usize) ?u64 {
+            return if (self.bound_mask & bit(index) != 0) self.bounds[index] else null;
+        }
+
+        pub fn setBound(self: *Value, index: usize, limit: ?u64) void {
+            self.bounds[index] = limit orelse 0;
+            if (limit != null) self.bound_mask |= bit(index) else self.bound_mask &= ~bit(index);
+        }
+
+        fn bit(index: usize) u16 {
+            return @as(u16, 1) << @intCast(index);
+        }
     };
     pub const Requirement = struct {
         permissions: []const Key,
@@ -69,16 +86,13 @@ pub const Policy = struct {
         InvalidPlacement,
     };
 
-    /// Copies a bounded, strictly key-sorted descriptor into an immutable value.
+    /// Copies a bounded, strictly key-sorted descriptor into a value. The
+    /// value is immutable once built: `setPrerequisiteMasks` and `setKinds`
+    /// complete a decoded one in place, each validating before it writes.
     /// Reusing an identity for a different vocabulary is not schema evolution.
     pub fn init(descriptor: Descriptor) Error!Policy {
-        if (descriptor.permissions.len > max_permissions or descriptor.constraints.len > max_constraints or descriptor.dependencies.len > max_permissions * max_permissions) return error.PolicyLimit;
-        for (descriptor.permissions, 0..) |key, i| {
-            if (i != 0 and @backingInt(descriptor.permissions[i - 1]) >= @backingInt(key)) return error.NonCanonicalSchema;
-        }
-        for (descriptor.constraints, 0..) |field, i| {
-            if (i != 0 and @backingInt(descriptor.constraints[i - 1].key) >= @backingInt(field.key)) return error.NonCanonicalSchema;
-        }
+        if (descriptor.dependencies.len > max_permissions * max_permissions) return error.PolicyLimit;
+        try checkVocabulary(descriptor.permissions, descriptor.constraints);
         var self: Policy = .{
             .id = descriptor.id,
             .permission_keys = undefined,
@@ -96,23 +110,69 @@ pub const Policy = struct {
             if (self.prerequisite_masks[index] & bit != 0) return error.DuplicateKey;
             self.prerequisite_masks[index] |= bit;
         }
-        return self.withKinds(descriptor.kinds);
+        try self.setKinds(descriptor.kinds);
+        return self;
     }
 
     /// Copy declarative applicability. No schema callback or borrowed table
     /// survives. Both masks obey the same permission dependencies as terms.
-    pub fn withKinds(self: Policy, rules: []const KindRule) Error!Policy {
+    /// A refused rule set leaves the policy as it was.
+    pub fn setKinds(self: *Policy, rules: []const KindRule) Error!void {
+        try checkKinds(self.declaredMask(), &self.prerequisite_masks, rules);
+        self.kind_count = rules.len;
+        @memcpy(self.kind_rules[0..rules.len], rules);
+    }
+
+    /// Refuse a value a caller built field by field unless the constructors
+    /// would have built it.
+    pub fn check(self: *const Policy) Error!void {
+        if (self.permission_count > max_permissions or self.constraint_count > max_constraints or self.kind_count > max_kinds) return error.PolicyLimit;
+        try checkVocabulary(self.permission_keys[0..self.permission_count], self.constraint_fields[0..self.constraint_count]);
+        try checkMasks(self.permission_count, &self.prerequisite_masks);
+        try checkKinds(self.declaredMask(), &self.prerequisite_masks, self.kind_rules[0..self.kind_count]);
+    }
+
+    fn checkVocabulary(permissions: []const Key, constraints: []const Constraint) Error!void {
+        if (permissions.len > max_permissions or constraints.len > max_constraints) return error.PolicyLimit;
+        for (permissions, 0..) |key, i| {
+            if (i != 0 and @backingInt(permissions[i - 1]) >= @backingInt(key)) return error.NonCanonicalSchema;
+        }
+        for (constraints, 0..) |field, i| {
+            if (i != 0 and @backingInt(constraints[i - 1].key) >= @backingInt(field.key)) return error.NonCanonicalSchema;
+        }
+    }
+
+    fn checkMasks(permission_count: usize, masks: *const [max_permissions]u64) Error!void {
+        const declared = declaredMaskFor(permission_count);
+        for (masks, 0..) |required, index| {
+            if (index >= permission_count) {
+                if (required != 0) return error.UnknownPermission;
+            } else {
+                if (required & ~declared != 0) return error.UnknownPermission;
+                if (required & (@as(u64, 1) << @intCast(index)) != 0) return error.InvalidDependency;
+            }
+        }
+    }
+
+    fn checkKinds(declared: u64, masks: *const [max_permissions]u64, rules: []const KindRule) Error!void {
         if (rules.len > max_kinds) return error.PolicyLimit;
         for (rules, 0..) |rule, i| {
             if (i != 0 and @backingInt(rules[i - 1].kind) >= @backingInt(rule.kind)) return error.NonCanonicalSchema;
-            try self.validate(.{ .schema = self.id, .permissions = rule.permissions, .bounds = @splat(null) });
-            try self.validate(.{ .schema = self.id, .permissions = rule.subtree_permissions, .bounds = @splat(null) });
+            try checkTerms(declared, masks, rule.permissions);
+            try checkTerms(declared, masks, rule.subtree_permissions);
             if (rule.permissions & ~rule.subtree_permissions != 0) return error.InvalidKindRule;
         }
-        var result = self;
-        result.kind_count = rules.len;
-        @memcpy(result.kind_rules[0..rules.len], rules);
-        return result;
+    }
+
+    /// Every selected permission is declared and carries its prerequisites.
+    fn checkTerms(declared: u64, masks: *const [max_permissions]u64, permissions: u64) Error!void {
+        if (permissions & ~declared != 0) return error.UnknownPermission;
+        var selected = permissions;
+        while (selected != 0) {
+            const index = @ctz(selected);
+            if (masks[index] & ~permissions != 0) return error.MissingPrerequisite;
+            selected &= selected - 1;
+        }
     }
 
     pub fn supported(self: *const Policy, kind: KindId, subtree: bool) Error!u64 {
@@ -128,21 +188,13 @@ pub const Policy = struct {
         if (parent) |value_| if (child & ~try self.supported(value_, true) != 0) return error.InvalidPlacement;
     }
 
-    /// Decode the persisted/ABI matrix after constructing its vocabulary.
-    /// This copies no borrowed pointer and validates every matrix position.
-    pub fn withPrerequisiteMasks(self: Policy, masks: [max_permissions]u64) Error!Policy {
-        const declared = self.declaredMask();
-        for (masks, 0..) |required, index| {
-            if (index >= self.permission_count) {
-                if (required != 0) return error.UnknownPermission;
-            } else {
-                if (required & ~declared != 0) return error.UnknownPermission;
-                if (required & (@as(u64, 1) << @intCast(index)) != 0) return error.InvalidDependency;
-            }
-        }
-        var result = self;
-        result.prerequisite_masks = masks;
-        return result.withKinds(self.kind_rules[0..self.kind_count]);
+    /// Adopt the persisted/ABI matrix after constructing its vocabulary. Every
+    /// matrix position is validated, and the kind rules already set are
+    /// validated against the new matrix, before the policy changes.
+    pub fn setPrerequisiteMasks(self: *Policy, masks: *const [max_permissions]u64) Error!void {
+        try checkMasks(self.permission_count, masks);
+        try checkKinds(self.declaredMask(), masks, self.kind_rules[0..self.kind_count]);
+        self.prerequisite_masks = masks.*;
     }
 
     /// Constructs explicit policy terms from declared keys. Inputs are borrowed
@@ -163,28 +215,21 @@ pub const Policy = struct {
 
     /// Effects request individual permissions. They are not candidate terms.
     fn shape(self: *const Policy, permissions: []const Key, bounds: []const Bound) Error!Value {
-        var result: Value = .{ .schema = self.id, .permissions = try self.permissionMask(permissions), .bounds = undefined };
-        @memset(&result.bounds, null);
+        var result: Value = .{ .schema = self.id, .permissions = try self.permissionMask(permissions) };
         if (bounds.len > max_constraints) return error.PolicyLimit;
         for (bounds) |bound| {
             const index = try self.constraintIndex(bound.key);
-            if (result.bounds[index] != null) return error.DuplicateKey;
-            result.bounds[index] = bound.value;
+            if (result.bound(index) != null) return error.DuplicateKey;
+            result.setBound(index, bound.value);
         }
         return result;
     }
 
     pub fn validate(self: *const Policy, terms: Value) Error!void {
         if (terms.schema != self.id) return error.WrongSchema;
-        const mask = self.declaredMask();
-        if (terms.permissions & ~mask != 0) return error.UnknownPermission;
-        for (terms.bounds[self.constraint_count..]) |bound| if (bound != null) return error.UnknownConstraint;
-        var selected = terms.permissions;
-        while (selected != 0) {
-            const index = @ctz(selected);
-            if (self.prerequisite_masks[index] & ~terms.permissions != 0) return error.MissingPrerequisite;
-            selected &= selected - 1;
-        }
+        try checkTerms(self.declaredMask(), &self.prerequisite_masks, terms.permissions);
+        if (terms.bound_mask & ~self.constraintMask() != 0) return error.UnknownConstraint;
+        for (terms.bounds, 0..) |limit, i| if (limit != 0 and terms.bound(i) == null) return error.UnknownConstraint;
     }
 
     pub fn isSubsetOf(self: *const Policy, child: Value, parent: Value) Error!bool {
@@ -192,8 +237,8 @@ pub const Policy = struct {
         try self.validate(parent);
         if (child.permissions & ~parent.permissions != 0) return false;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
-            if (parent.bounds[i]) |limit| {
-                const selected = child.bounds[i] orelse return false;
+            if (parent.bound(i)) |limit| {
+                const selected = child.bound(i) orelse return false;
                 if (!satisfies(field.operator, selected, limit)) return false;
             }
         }
@@ -207,11 +252,11 @@ pub const Policy = struct {
         var result = a;
         result.permissions &= b.permissions;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
-            if (b.bounds[i]) |limit| {
-                result.bounds[i] = if (a.bounds[i]) |other| switch (field.operator) {
+            if (b.bound(i)) |limit| {
+                result.setBound(i, if (a.bound(i)) |other| switch (field.operator) {
                     .lower_bound => @max(other, limit),
                     .upper_bound => @min(other, limit),
-                } else limit;
+                } else limit);
             }
         }
         return result;
@@ -231,8 +276,8 @@ pub const Policy = struct {
         if (requested.permissions & ~supported_ != 0) return error.InapplicablePermission;
         var allowed = requested.permissions & ~terms.permissions == 0;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
-            if (requested.bounds[i]) |fact| {
-                if (terms.bounds[i]) |limit| allowed = satisfies(field.operator, fact, limit) and allowed;
+            if (requested.bound(i)) |fact| {
+                if (terms.bound(i)) |limit| allowed = satisfies(field.operator, fact, limit) and allowed;
             }
         }
         return allowed;
@@ -263,7 +308,15 @@ pub const Policy = struct {
     }
 
     fn declaredMask(self: *const Policy) u64 {
-        return if (self.permission_count == max_permissions) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(self.permission_count)) - 1;
+        return declaredMaskFor(self.permission_count);
+    }
+
+    fn constraintMask(self: *const Policy) u16 {
+        return if (self.constraint_count == max_constraints) std.math.maxInt(u16) else (@as(u16, 1) << @intCast(self.constraint_count)) - 1;
+    }
+
+    fn declaredMaskFor(permission_count: usize) u64 {
+        return if (permission_count == max_permissions) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(permission_count)) - 1;
     }
 
     fn constraintIndex(self: *const Policy, key: Key) Error!usize {

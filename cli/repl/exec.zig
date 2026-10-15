@@ -81,7 +81,7 @@ pub fn handleLine(
             .focus => {
                 if (meta_rest.len != 0) break :meta_arm;
                 result.toggle_quiet = true;
-                try store.appendLine(.system, "Toggled quiet/focus view (rail collapses to counts).");
+                try store.appendLine(.system, "Toggled quiet/focus view (the side panel collapses to counts).");
                 return result;
             },
             .question => {
@@ -101,7 +101,7 @@ pub fn handleLine(
                         if (l.len == 0) continue;
                         try store.appendLine(.system, l);
                     }
-                    try store.appendLine(.tip, "tip: guide — optional CapTP walkthrough");
+                    try store.appendLine(.tip, "tip: guide starts the optional CapTP walkthrough");
                     return result;
                 }
                 if (meta_rest.len != 0) break :meta_arm;
@@ -140,10 +140,10 @@ pub fn handleLine(
                     (meta_rest.len == 0 and !progress.guide_active);
                 if (want_exit) {
                     progress.exitGuide();
-                    try store.appendLine(.system, "Walkthrough off — workbench mode.");
+                    try store.appendLine(.system, "Walkthrough off. Back to the workbench.");
                 } else if (want_enter) {
                     progress.enterGuide();
-                    try store.appendLine(.system, "Walkthrough on — stage strip + next-step tips. guide exit to leave.");
+                    try store.appendLine(.system, "Walkthrough on: stage strip and next-step tips. guide exit leaves it.");
                     try appendGuideCoach(store);
                     try store.appendLine(.tip, progress.nextStep());
                 } else {

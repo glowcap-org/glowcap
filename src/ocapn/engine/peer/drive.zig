@@ -8,6 +8,7 @@ const std = @import("std");
 const codec = @import("codec");
 const foundation = @import("foundation");
 
+const model = @import("model");
 const engine = @import("../mod.zig");
 const events = @import("../events.zig");
 const inbound = @import("../inbound.zig");
@@ -68,6 +69,12 @@ pub fn step(self: *Peer) !events.StepOutcome {
     // batch flushes this Peer when it fills or removes the row. A closed
     // session discards rows instead, so it never waits.
     if (self.blockedOnStaging() and !self.sessionIsClosed()) return .idle;
+    // An answer release has no deadline of its own, since nobody waits on it.
+    // So it waits for the next message and leaves in the same frame, which
+    // saves one kernel send per call. When the embedder is about to park, it
+    // calls `flushAnswerReleases` and the releases go alone, so a quiet
+    // session still sends them (ADR-0214).
+    if (outbound_drain.holdsAnswerReleases(self)) return .idle;
     if (self.pending_send.peek() != null) {
         outbound_drain.stepPending(self) catch |err| {
             failures.projectDeferredStepFailure(self, err);
@@ -78,43 +85,46 @@ pub fn step(self: *Peer) !events.StepOutcome {
     return .idle;
 }
 
+/// Encode the answer releases `step` holds at the queue tail, for an embedder
+/// about to park with nothing of its own for them to ride. True when a run
+/// was encoded. Idle work otherwise, including behind Node staging, where
+/// the staged carrier's batch flushes this Peer.
+pub fn flushAnswerReleases(self: *Peer) !bool {
+    if (self.blockedOnStaging() and !self.sessionIsClosed()) return false;
+    var flushed = false;
+    while (outbound_drain.holdsAnswerReleases(self)) {
+        outbound_drain.stepPending(self) catch |err| {
+            failures.projectDeferredStepFailure(self, err);
+            return err;
+        };
+        flushed = true;
+    }
+    return flushed;
+}
+
 /// Drive until no queued work remains. The caller then drains frames and events.
 pub fn stepToIdle(self: *Peer) !void {
     while ((try step(self)) != .idle) {}
 }
 
-/// Copy borrowed wire bytes into an owned frame with the shape's required
-/// alignment. This is the single shape-aware materialization used when a
-/// surfaced event or netlayer-owned frame must outlive its borrowed buffer.
+/// Copy borrowed wire bytes into the engine's owned inbound frame: one block
+/// with the shape's required alignment and a head sized for the parse, which
+/// admission writes through `events.Parse.store`, and for the argument views
+/// the decoder fills, sized by the bytes (`events.headViewsFor`). This is the
+/// single shape-aware materialization used when a surfaced event or
+/// netlayer-owned frame must outlive its borrowed buffer.
 pub fn ownedFrameFromView(
     allocator: std.mem.Allocator,
     frame: foundation.FrameView,
 ) !foundation.Frame {
-    switch (frame.shape) {
-        .byte => {
-            const storage = try allocator.dupe(u8, frame.bytes);
-            return foundation.Frame.initOwned(
-                allocator,
-                storage,
-                .byte,
-                .fromByteUnits(1),
-            );
-        },
-        .word => {
-            const storage = try allocator.alignedAlloc(
-                u8,
-                .fromByteUnits(8),
-                frame.bytes.len,
-            );
-            @memcpy(storage, frame.bytes);
-            return foundation.Frame.initOwned(
-                allocator,
-                storage,
-                .word,
-                .fromByteUnits(8),
-            );
-        },
-    }
+    return foundation.Frame.initHeaded(
+        allocator,
+        events.Head,
+        model.view.Argument,
+        events.headViewsFor(frame.bytes.len),
+        frame.bytes,
+        frame.shape,
+    );
 }
 
 /// Dispatch a borrowed inbound frame. The transient bytes are materialized once
@@ -129,122 +139,18 @@ pub fn recvBorrowed(self: *Peer, frame: foundation.FrameView) !void {
     try inbound.dispatchOwnedFrame(self, owned);
 }
 
-/// Validate and dispatch one complete transport packet.
-///
-/// Message-framed transports carry exactly one bare codec frame per packet. The
-/// active codec/profile remains the boundary authority. Extra bytes, partial
-/// frames, malformed frames, and oversized frames all fail before authority
-/// moves. The borrowed packet is materialized once into the owned frame retained
-/// by surfaced events.
+/// Dispatch one complete transport packet. A message-framed transport
+/// carries exactly one bare codec frame per packet, so the packet is the
+/// frame: it is retained once and parsed once, the same door every whole
+/// frame enters by (`recvBorrowed`). Extra bytes, a partial frame, a
+/// malformed frame, and an oversized frame all fail there before authority
+/// moves.
 pub fn recvPacket(self: *Peer, packet: []const u8) !void {
-    var scan: codec.framing.StreamScan = .{};
-    const prefix = codec.dispatch.framePrefixForProfile(
-        self.inboundCodec(),
-        self.inboundProfile(),
-        packet,
-        &scan,
-        self.limits().max_frame_bytes,
-    );
-    const decoded = switch (prefix) {
-        .incomplete, .malformed => {
-            inbound.emitAbortForError(self, error.MalformedFrame);
-            return error.MalformedFrame;
-        },
-        .too_large => {
-            inbound.emitAbortForError(self, error.FrameTooLarge);
-            return error.FrameTooLarge;
-        },
-        .decoded => |value| value,
-    };
-    if (decoded.consumed != packet.len) {
-        inbound.emitAbortForError(self, error.MalformedFrame);
-        return error.MalformedFrame;
-    }
     const shape = codec.dispatch.frameShape(self.inboundCodec()) orelse {
         inbound.emitAbortForError(self, error.MalformedFrame);
         return error.MalformedFrame;
     };
-    const owned = ownedFrameFromView(self.allocator, .{
-        .bytes = packet,
-        .shape = shape,
-    }) catch |err| {
-        self.recordFailure(err);
-        return err;
-    };
-    try inbound.dispatchDecodedOwnedFrame(
-        self,
-        owned,
-        decoded.body,
-        self.inboundProfile(),
-    );
-}
-
-/// Outcome of framing one message off a byte-stream prefix.
-pub const RecvStream = union(enum) {
-    /// One frame applied. The caller may discard the first `consumed` bytes.
-    consumed: usize,
-    /// The prefix holds only part of a frame. Append bytes and retry.
-    incomplete,
-};
-
-/// Frame, decode, validate, and apply one message from borrowed stream bytes.
-/// The active codec remains the sole frame-boundary authority. A resumable scan
-/// only withholds decoder work while every available byte is consumed and the
-/// frame is still open. It never reports a boundary itself.
-///
-/// This single stream entry point fails closed at `max_frame_bytes`, preventing
-/// an incomplete untrusted frame from growing its consumer without
-/// end. Malformed and oversized frames project typed aborts and close. An
-/// incomplete prefix changes no state.
-///
-/// Successive calls describe one stream: storage may grow or move, but byte
-/// zero must remain the same first unconsumed byte while a frame is partial.
-/// The Peer carries scan progress across calls, so repointing it at unrelated
-/// bytes mid-frame invalidates that progress and can withhold a complete frame.
-pub fn recvStreamPrefix(self: *Peer, buffer: []const u8) !RecvStream {
-    const cap = self.session_state.limits.max_frame_bytes;
-    const wire_profile = self.inboundProfile();
-    const prefix = codec.dispatch.framePrefixForProfile(
-        self.inboundCodec(),
-        wire_profile,
-        buffer,
-        &self.stream_scan,
-        cap,
-    );
-    switch (prefix) {
-        .incomplete => return .incomplete,
-        .malformed => {
-            inbound.emitAbortForError(self, error.MalformedFrame);
-            return error.MalformedFrame;
-        },
-        .too_large => {
-            inbound.emitAbortForError(self, error.FrameTooLarge);
-            return error.FrameTooLarge;
-        },
-        .decoded => |decoded| {
-            // The prefix decoder and frame-shape registry must agree.
-            const shape = codec.dispatch.frameShape(self.inboundCodec()) orelse {
-                inbound.emitAbortForError(self, error.MalformedFrame);
-                return error.MalformedFrame;
-            };
-            // OOM is local rather than a partner violation, but remains visible
-            // through lastAbort.
-            const owned = ownedFrameFromView(self.allocator, .{
-                .bytes = buffer[0..decoded.consumed],
-                .shape = shape,
-            }) catch |err| {
-                self.recordFailure(err);
-                return err;
-            };
-            try inbound.dispatchDecodedOwnedFrame(
-                self,
-                owned,
-                decoded.body,
-                wire_profile,
-            );
-            return .{ .consumed = decoded.consumed };
-        },
-    }
+    try recvBorrowed(self, .{ .bytes = packet, .shape = shape });
 }
 
 /// Transfer the next surfaced event to the caller, or null when drained. The

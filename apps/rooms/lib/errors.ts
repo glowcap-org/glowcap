@@ -1,6 +1,6 @@
 // Reading a rooms failure out of whatever carried it.
 //
-// The taxonomy is `error_codes.ts`, which imports nothing. This module is the
+// The taxonomy is `error_codes.ts`, which imports no runtime. This module is the
 // runtime half. What varies per binding is the carrier, and here an awaited
 // send breaks as a `VowBroken` holding the wire's reason, so this is where that
 // reason is unwrapped before the portable `RoomsError.from` parses the code out

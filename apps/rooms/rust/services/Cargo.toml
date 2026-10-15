@@ -9,7 +9,7 @@ publish.workspace = true
 workspace = true
 
 [features]
-processes = ["tokio/signal", "tokio/net", "tokio/io-util", "tokio/fs", "tokio/process", "dep:tokio-tungstenite", "dep:futures-util", "dep:tokio-rustls", "dep:tokio-postgres", "dep:tokio-postgres-rustls", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:base64", "dep:url", "dep:nix", "dep:html5ever", "dep:encoding_rs"]
+processes = ["tokio/signal", "tokio/net", "tokio/io-util", "tokio/fs", "tokio/process", "dep:tokio-tungstenite", "dep:futures-util", "dep:tokio-rustls", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:base64", "dep:url", "dep:nix", "dep:html5ever", "dep:encoding_rs"]
 
 [dependencies]
 rooms-application = { path = "../application" }
@@ -28,14 +28,15 @@ hyper = { workspace = true, optional = true, features = ["server", "client"] }
 hyper-util = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 bytes = { workspace = true, optional = true }
+# dep base64: Encodes inline web assets.
 base64 = { version = "=0.23.1", optional = true }
 url = { workspace = true, optional = true }
 nix = { workspace = true, optional = true }
+# dep html5ever: Parses fetched pages for link previews.
 html5ever = { version = "=0.40.1", optional = true }
+# dep encoding_rs: Decodes fetched pages in their declared character set.
 encoding_rs = { version = "=0.8.42", optional = true }
 
-tokio-postgres = { workspace = true, optional = true }
-tokio-postgres-rustls = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

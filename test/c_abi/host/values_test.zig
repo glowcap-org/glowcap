@@ -3,9 +3,52 @@
 
 const std = @import("std");
 const c = @import("c_abi");
+const shared = @import("c_abi_shared");
 const cd = @import("c_abi_host");
 const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
+
+test "C integer runs and lists share marshal depth for borrowed and owned values" {
+    const Refused = struct {
+        fn reference(_: void, _: shared.GlowcapReference) !model.Reference {
+            return error.UnexpectedReference;
+        }
+        fn capability(_: void, _: shared.GlowcapReference) !glowcap.driver.core.Capability {
+            return error.UnexpectedReference;
+        }
+    };
+    const words = [_]i64{7};
+    const integer = argInt(7);
+    var run = argBase();
+    run.kind = c.GLOWCAP_ARG_INTEGERS;
+    run.bytes = @ptrCast(&words);
+    run.bytes_len = @sizeOf(@TypeOf(words));
+    var list = argBase();
+    list.kind = c.GLOWCAP_ARG_LIST;
+    list.items = @ptrCast(&integer);
+    list.items_len = 1;
+    var empty_run = run;
+    empty_run.bytes_len = 0;
+    var empty_list = list;
+    empty_list.items_len = 0;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    inline for (.{ false, true }) |own_bytes| {
+        for ([_]shared.GlowcapArgument{ run, list, empty_run, empty_list }, 0..) |arg, shape| {
+            for ([_]usize{ shared.max_marshal_depth - 1, shared.max_marshal_depth }) |depth| {
+                const plain = shared.argumentFromCWith(anyerror, {}, Refused.reference, arena.allocator(), arg, depth, own_bytes);
+                const host_value = shared.valuesFromCWith(glowcap.driver.core.Value, anyerror, {}, Refused.capability, arena.allocator(), @ptrCast(&arg), 1, depth, own_bytes);
+                if (depth == shared.max_marshal_depth and shape < 2) {
+                    try std.testing.expectError(error.UnsupportedValue, plain);
+                    try std.testing.expectError(error.UnsupportedValue, host_value);
+                } else {
+                    _ = try plain;
+                    _ = try host_value;
+                }
+            }
+        }
+    }
+}
 const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
@@ -120,7 +163,12 @@ test "libglowcap_host: uncommon typed values and a nested capability cross the H
     error_value.kind = c.GLOWCAP_ARG_ERROR;
     error_value.bytes = "typed failure value";
     error_value.bytes_len = "typed failure value".len;
-    const args = [_]c.GlowcapArgument{ set, tagged, keyword, big, structured, error_value };
+    const words = [_]i64{ 7, -8, 9 };
+    var integers = argBase();
+    integers.kind = c.GLOWCAP_ARG_INTEGERS;
+    integers.bytes = @ptrCast(&words);
+    integers.bytes_len = @sizeOf(@TypeOf(words));
+    const args = [_]c.GlowcapArgument{ set, tagged, keyword, big, structured, error_value, integers };
 
     var send_vow: u64 = 0;
     try expectOk(cd.glowcap_host_session_send(pair.a, &target, "typed", 5, args[0..].ptr, args.len, &send_vow));
@@ -146,6 +194,32 @@ test "libglowcap_host: uncommon typed values and a nested capability cross the H
         c.GLOWCAP_ERR_UNSUPPORTED_VALUE,
         cd.glowcap_host_session_send(pair.a, &target, "typed", 5, @ptrCast(&small), 1, &refused_vow),
     );
+
+    // A run of integers is whole words: a ragged length is refused before
+    // any call queues.
+    var ragged = integers;
+    ragged.bytes_len -= 1;
+    try std.testing.expectEqual(
+        c.GLOWCAP_ERR_UNSUPPORTED_VALUE,
+        cd.glowcap_host_session_send(pair.a, &target, "typed", 5, @ptrCast(&ragged), 1, &refused_vow),
+    );
+    // The C contract is eight-byte alignment even on a target whose native
+    // i64 alignment is smaller. Neither a byte nor half-word offset is valid.
+    var storage: [16]u8 align(8) = @splat(0);
+    for ([_]usize{ 1, 4 }) |offset| {
+        var unaligned = integers;
+        unaligned.bytes = storage[offset..].ptr;
+        unaligned.bytes_len = 8;
+        try std.testing.expectEqual(c.GLOWCAP_ERR_UNSUPPORTED_VALUE, cd.glowcap_host_session_send(
+            pair.a,
+            &target,
+            "typed",
+            5,
+            @ptrCast(&unaligned),
+            1,
+            &refused_vow,
+        ));
+    }
 
     // Struct is a strict alternating String-key/value sequence. Reject every
     // contradictory shape before the call becomes visible.

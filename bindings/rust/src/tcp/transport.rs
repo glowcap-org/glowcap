@@ -146,7 +146,7 @@ mod operation_options_tests {
 	}
 }
 
-/// Install the complete TCP provider package through the native driver.
+/// Install the complete TCP provider package through the FFI driver.
 #[cfg(feature = "async")]
 pub(crate) fn ensure_loop_provider(lp: &crate::driver_loop::LoopShared, config: Config) -> Result<()> {
 	let netlayer = Netlayer::new(config)?;
@@ -373,7 +373,7 @@ impl Connection<'_> {
 		check_tcp(unsafe { ffi::glowcap_tcp_conn_shutdown(self.raw) })
 	}
 
-	/// Close explicitly, reporting a shutdown failure to the caller. Native
+	/// Close explicitly, reporting a shutdown failure to the caller. FFI
 	/// storage is released as this value is consumed. A release-only refusal is
 	/// retained by the process diagnostic fallback because `Drop` has no caller.
 	pub fn close(self) -> Result<()> {

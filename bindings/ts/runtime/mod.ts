@@ -8,7 +8,7 @@
 //
 // The library owns every CapTP decision: routing, three-party redemption,
 // gift origination, far vows. On Deno a provider-backed `Runtime.connect` rides a
-// stepping native loop (`./driver_loop.ts`) that owns the socket and the
+// stepping driver loop (`./driver_loop.ts`) that owns the socket and the
 // pumping; for explicit embedder-supplied channels the binding moves transport
 // packets itself: each `Session`'s serve loop feeds the Host transport seam
 // and honors the host's action queue (dial, flush, entropy,
@@ -22,7 +22,7 @@
 // import path is one place. The layers: `errors` (the `GlowcapError` family),
 // `value` (the value vocabulary plus the `Ref`/`Argument` application layer),
 // `codec`/`context` (marshalling and allocation scopes), `trampoline` (the one
-// native behavior callback), `host` (the `Host`), `action` (host-action
+// FFI behavior callback), `host` (the `Host`), `action` (host-action
 // decode+execute), `promise` (the `RemotePromise` send returns), `gc`
 // (ADR-0063), `runtime` (Host + transport composition), `dial` (the internal
 // connector executor), `session` (the `Session` verbs and mint/handshake),
@@ -129,7 +129,7 @@ export {
 // (ADR-0088). Runtime-neutral: the `WebSocket` global is a web standard every
 // supported runtime ships. The dialing half is not exported here: a
 // `keyed-relay` locator names its relay route in its `rendezvous-relay` hint,
-// and `@glowcap/relay` supplies the connector and native provider that
+// and `@glowcap/relay` supplies the connector and FFI provider that
 // follow it.
 export {
 	type RendezvousHandle,
@@ -156,6 +156,7 @@ export {
 	HINT_VIA,
 	type HintValue,
 	type HintWireForm,
+	isKeyDesignator,
 	type Locator,
 	parseLocator,
 	parseSturdyRef,

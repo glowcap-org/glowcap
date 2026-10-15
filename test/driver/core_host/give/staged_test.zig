@@ -98,7 +98,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
     try std.testing.expect(gifter.capabilitySession(widget) == g_to_e.a);
 
     var gift_ticket: ?u64 = null;
-    while (try gifter.nextAction()) |action| switch (action) {
+    while (try harness.popAction(&gifter)) |action| switch (action) {
         .need_gift_id => |needed| gift_ticket = needed.ticket,
         .flush => |peer_handle| {
             const session = if (peer_handle == g_to_e.a.peer_handle)
@@ -150,7 +150,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
     try std.testing.expect(g_to_r.a.sessionOpen());
     var deliveries: usize = 0;
     var releases: usize = 0;
-    while (try gifter.nextAction()) |action| switch (action) {
+    while (try harness.popAction(&gifter)) |action| switch (action) {
         .flush => |peer_handle| {
             const session = if (peer_handle == g_to_e.a.peer_handle)
                 g_to_e.a

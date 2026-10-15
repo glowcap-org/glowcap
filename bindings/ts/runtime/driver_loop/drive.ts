@@ -65,7 +65,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 		}
 	}
 
-	/** Ask the native provider registry whether `transport` is owned. */
+	/** Ask the FFI provider registry whether `transport` is owned. */
 	hasTransport(transport: string): boolean {
 		this._guardHandle();
 		const name = utf8Encoder.encode(transport);
@@ -82,7 +82,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 	// ── Parking and stepping ───────────────────────────────────────────────────
 
 	/** Arm the readiness descriptor and park on it: from here the loop steps
-	 * whenever native work is ready. Idempotent. */
+	 * whenever FFI work is ready. Idempotent. */
 	start(): void {
 		this._guardHandle();
 		if (this._parkExited != null) return;
@@ -184,7 +184,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 			}
 		} finally {
 			this._stepping = false;
-			// Wrapper Host verbs can fill the trace ring before the native loop
+			// Wrapper Host verbs can fill the trace ring before the driver loop
 			// reports any step progress. Drain on every legal unwind, like the
 			// byte-fed action drain, so those facts do not wait for unrelated I/O.
 			traceDrainHost(this._wrapper.raw);
@@ -216,7 +216,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 					this._pendingDials.delete(event.operationId);
 					if (waiter == null) {
 						this._unclaimedSessions.set(event.session, { kind: "open" });
-						this.nativeSessionRelease(event.session);
+						this.ffiSessionRelease(event.session);
 					} else {
 						this._unclaimedSessions.set(event.session, { kind: "open" });
 						waiter.resolve(event.session);
@@ -256,7 +256,7 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 					const queue = this._accepts.get(event.listener);
 					if (waiters == null || queue == null) {
 						this._unclaimedSessions.set(event.session, { kind: "open" });
-						this.nativeSessionRelease(event.session);
+						this.ffiSessionRelease(event.session);
 						throw new GlowcapError(
 							INTERNAL,
 							`accepted session names unknown listener ${event.listener}`,
@@ -273,17 +273,17 @@ export abstract class DriverLoopDrive extends DriverLoopLifecycle {
 					const failure = event.primaryResult === OK ? null : driverFailureError(event, "session");
 					// The pump's EOF choreography, one tier up: `closeTransport`
 					// records local teardown and retires the shell so a later verb
-					// refuses CLOSED. The native side already broke the far vows and
+					// refuses CLOSED. The FFI side already broke the far vows and
 					// classified their FAIL completions. A session this
 					// binding never wrapped (a loop-internal redeem dial) has no
 					// shell to retire, so its handle is released here directly.
 					const shell = host?.getSession(event.session);
-					if (shell != null) void shell.nativeTransportDidClose(failure);
+					if (shell != null) void shell.ffiTransportDidClose(failure);
 					else if (this._unclaimedSessions.has(event.session)) {
 						this._unclaimedSessions.set(event.session, { kind: "closed", error: failure });
 					} else {
 						this._unclaimedSessions.set(event.session, { kind: "closed", error: failure });
-						this.nativeSessionRelease(event.session);
+						this.ffiSessionRelease(event.session);
 					}
 					break;
 				}

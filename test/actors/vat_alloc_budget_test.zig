@@ -2,9 +2,9 @@
 //!
 //! Exact contracts, not upper bounds, over the vat's turn and settle paths:
 //! a warmed local settle window is bump-only (zero gpa allocations), a
-//! common-arity far send pays exactly the `sendCopying` boundary clone, and a
-//! persistent actor's `become` turn pays exactly the one merged box+state
-//! block. A regression in *either* direction fails.
+//! common-arity far send pays exactly its wire frame, and a persistent
+//! actor's `become` turn pays exactly the one merged box+state block. A
+//! regression in *either* direction fails.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -14,6 +14,7 @@ const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllocator;
 const promise_capture = @import("../support/capture.zig");
@@ -22,7 +23,7 @@ const promise_capture = @import("../support/capture.zig");
 /// pattern: the reply must be cloned for the settling listener, and where
 /// that clone lands is exactly what the budget below pins.
 const ArenaReplier = struct {
-    pub fn handle(self: *ArenaReplier, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *ArenaReplier, turn: *Turn, msg: Delivery) !model.Argument {
         _ = self;
         return .{ .bytes = try std.fmt.allocPrint(turn.arena, "echo-{s}", .{try msg.argBytes(0)}) };
     }
@@ -120,7 +121,7 @@ test "a completed chunk frees live bytes while another ingress remains runnable"
     try vat.drive();
 }
 
-test "a common-arity far send pays exactly the sendCopying clone, no scratch spine" {
+test "a common-arity far send allocates its frame and nothing else" {
     var counter = CountingAllocator{ .backing = std.testing.allocator };
     var pair = try engine.pairing.paired(counter.allocator());
     defer pair.deinit();
@@ -149,15 +150,14 @@ test "a common-arity far send pays exactly the sendCopying clone, no scratch spi
         frame.deinit();
     }
 
-    // The exact contract: a ≤7-arg far send costs only `sendCopying`'s
-    // boundary clone of the message, (1) the owned args spine, (2) the verb
-    // symbol dupe, (3) the bytes payload dupe; the six integer args are POD
-    // and the far target/no-answer carry no heap. The verb-splice scratch
-    // spine rides `farDeliverTo`'s stack buffer, so it does not appear
-    // here. Each send is measured alone and the queue drained between them
-    // (encoding outside the window), because the engine's steady-queue bound
-    // keeps only one queued message's slot warm, queue growth on
-    // back-to-back sends is engine footprint policy, not vat scratch.
+    // The exact contract: a ≤7-arg far send costs only its wire frame,
+    // encoded at admission from the caller's borrowed arguments
+    // (ADR-0236). The tree with no reference lists nothing, so the inventory
+    // allocates nothing, and the verb-splice scratch spine rides
+    // `farDeliverTo`'s stack buffer. Each send is measured alone and the
+    // queue drained between them, because the engine's steady-queue bound
+    // keeps only one queued row's slot warm, queue growth on back-to-back
+    // sends is engine footprint policy, not vat scratch.
     const sends = 4;
     var send_allocs: usize = 0;
     for (0..sends) |_| {
@@ -170,7 +170,7 @@ test "a common-arity far send pays exactly the sendCopying clone, no scratch spi
             frame.deinit();
         }
     }
-    try std.testing.expectEqual(@as(usize, 3 * sends), send_allocs);
+    try std.testing.expectEqual(@as(usize, 1 * sends), send_allocs);
 }
 
 /// A persistent counter: every `increment` turn stages a `become`, whose whole
@@ -179,7 +179,7 @@ const PersistentCounter = struct {
     pub const snapshot_persistent = true;
     n: i64,
 
-    pub fn handle(self: *const PersistentCounter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const PersistentCounter, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "increment")) {
             try turn.become(PersistentCounter, .{ .n = self.n + 1 });

@@ -232,7 +232,7 @@ test "a pipelined call to an already-resolved inbound answer redirects to the re
     // p2's side. Before the redirect, this surfaced raw with its promise target;
     // now p2 redirects it to the resolved export.
     const call_answer: u64 = 77;
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = fetch_answer } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(call_answer),
@@ -245,7 +245,7 @@ test "a pipelined call to an already-resolved inbound answer redirects to the re
     var event = p2.pollEvent() orelse return error.NoRedirectedDeliver;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
-    const deliver = (try event.view()).deliver;
+    const deliver = event.view().deliver;
     const position: u64 = switch (deliver.target) {
         .near => |near| near.export_position.int(),
         .far => |far| far.import_position.int(),

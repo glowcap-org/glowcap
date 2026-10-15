@@ -61,7 +61,7 @@ test "an absent feature hint never grants outbound untag" {
 }
 
 test "negotiate picks the most-preferred shared codec and intersects features" {
-    const local = negotiation.Offer.native(model.FeatureSet.full());
+    const local = negotiation.Offer.glowcap(model.FeatureSet.full());
     const remote: negotiation.Offer = .{
         .captp_versions = &.{ .v1_0, .next },
         .codecs = &.{ .syrup, .capnp },
@@ -88,7 +88,7 @@ test "v1.0 negotiation drops the glowcap-next multi-location feature" {
 }
 
 test "negotiate is symmetric under perspective swap" {
-    const a = negotiation.Offer.native(model.FeatureSet.full());
+    const a = negotiation.Offer.glowcap(model.FeatureSet.full());
     const b: negotiation.Offer = .{
         .captp_versions = &.{ .v1_0, .next },
         .codecs = &.{.syrup},
@@ -144,7 +144,7 @@ test "interop target offers constrain target without collapsing profile and code
     try std.testing.expectEqual(@as(usize, 1), floor.codecs.len);
     try std.testing.expectEqual(model.CodecId.syrup, floor.codecs[0]);
 
-    const glowcap_offer = negotiation.Offer.native(model.FeatureSet.full());
+    const glowcap_offer = negotiation.Offer.glowcap(model.FeatureSet.full());
     try std.testing.expect(glowcap_offer.captp_versions.len >= 2);
     try std.testing.expect(glowcap_offer.codecs.len >= 2);
 
@@ -153,10 +153,10 @@ test "interop target offers constrain target without collapsing profile and code
     try std.testing.expectEqual(model.CodecId.syrup, negotiated.codec);
 }
 
-test "native offers prefer next and capnp" {
+test "glowcap offers prefer next and capnp" {
     const n = negotiation.negotiate(
-        negotiation.Offer.native(model.FeatureSet.full()),
-        negotiation.Offer.native(model.FeatureSet.full()),
+        negotiation.Offer.glowcap(model.FeatureSet.full()),
+        negotiation.Offer.glowcap(model.FeatureSet.full()),
     ).?;
     try std.testing.expectEqual(model.CaptpVersion.next, n.captp_version);
     try std.testing.expectEqual(model.CodecId.capnp, n.codec);

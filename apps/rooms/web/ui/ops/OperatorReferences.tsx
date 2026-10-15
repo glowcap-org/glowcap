@@ -1,7 +1,7 @@
 // The capability occurrences this server currently holds, grouped by what
 // each one is.
 //
-// Flat, the list was a column of nine repeating words with the interesting
+// Flat, the list would be a column of nine repeating words with the interesting
 // part (who owns it, which room, which member) pushed to the side. An
 // operator arrives asking about a kind ("what is holding lines open?"), so the
 // kind is the heading and the row is free to lead with its owner. A kind with

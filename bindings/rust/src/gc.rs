@@ -72,7 +72,7 @@ impl Drop for CapabilityGuard {
 /// Drain the parked GC releases: one release delta per reclaimed token. The
 /// op:gc-exports flush rides the kick `CapabilityGuard::drop` scheduled when it
 /// parked the id, so the drain itself never kicks. A token leaves the queue
-/// only after its native release commits. Called at the head of Host progress
+/// only after its FFI release commits. Called at the head of Host progress
 /// and whenever a finalizer schedules it.
 pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 	if let Some(failure) = host.take_background_failure() {
@@ -118,7 +118,7 @@ pub(crate) fn drain(host: &HostShared) -> crate::Result<()> {
 	}
 }
 
-/// Drop binding queues after their native Host owner has been consumed.
+/// Drop binding queues after their FFI Host owner has been consumed.
 pub(crate) fn retire(host: &HostShared) {
 	host.gc_pending.borrow_mut().clear();
 	host.vow_gc_pending.borrow_mut().clear();
@@ -126,9 +126,9 @@ pub(crate) fn retire(host: &HostShared) {
 }
 
 /// One shared guard owns each occurrence transferred by C, including local
-/// callback observations. Clones share its native retain. Equal ids received
+/// callback observations. Clones share its FFI retain. Equal ids received
 /// independently must retain separate guards. The Rc lets behavior state
-/// outlive its argument tree, and Weak prevents a native actor/Host cycle.
+/// outlive its argument tree, and Weak prevents an FFI actor/Host cycle.
 pub(crate) fn owned_guard(host: &Rc<HostShared>, id: u64) -> Rc<CapabilityGuard> {
 	Rc::new(CapabilityGuard {
 		token: id,
@@ -144,9 +144,9 @@ pub(crate) fn disarm(reference: &Ref) {
 }
 
 /// Attach one finalizer unit to every capability occurrence in a value the
-/// native Host has just projected to this GC-enabled session. The walk mutates
+/// FFI Host has just projected to this GC-enabled session. The walk mutates
 /// only `Ref` leaves. Container identity and application data stay unchanged.
-/// Each native occurrence owns one Host retain, so repeated equal ids remain
+/// Each FFI occurrence owns one Host retain, so repeated equal ids remain
 /// distinct guards rather than being deduplicated in the binding.
 pub(crate) fn track_argument(shared: &Rc<SessionShared>, argument: &mut Argument) {
 	if !shared.host.release_on_drop() {
@@ -187,7 +187,8 @@ pub(crate) fn track_owned_argument(host: &Rc<HostShared>, argument: &mut Argumen
 		| Argument::Error(_)
 		| Argument::Keyword(_)
 		| Argument::Void
-		| Argument::BigInteger { .. } => {}
+		| Argument::BigInteger { .. }
+		| Argument::Integers(_) => {}
 	}
 }
 
@@ -233,7 +234,7 @@ mod tests {
 	}
 
 	#[test]
-	fn retirement_discards_queues_without_native_work() {
+	fn retirement_discards_queues_without_ffi_work() {
 		let owner = crate::Host::new_host();
 		let host = owner.shared();
 		host.gc_pending.borrow_mut().push_back(17);

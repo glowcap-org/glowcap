@@ -25,7 +25,7 @@ use wasm_bindgen::prelude::*;
 pub async fn rooms_browser_host_contract() -> Result<(), JsValue> {
 	install_panic_hook();
 	// LocalSet is polled by wasm-bindgen's browser executor. It retains Tokio's
-	// task cancellation and join semantics without a native runtime or reactor.
+	// task cancellation and join semantics without a host runtime or reactor.
 	tokio::task::LocalSet::new()
 		.run_until(async { run().await.map_err(|error| JsValue::from_str(&error)) })
 		.await
@@ -53,7 +53,9 @@ async fn run() -> Result<(), String> {
 	server
 		.publish(rooms_application::directory::NAME, || {
 			Box::new(|verb, args| match (verb, args) {
-				(rooms_application::directory::LIST, []) => Ok(Argument::List(Vec::new())),
+				(rooms_application::directory::LIST, []) => {
+					Ok(Argument::List(vec![Argument::List(Vec::new()), Argument::Void]))
+				}
 				(rooms_application::directory::creation::LOCATION, []) => {
 					Ok(Argument::String("ocapn://127.0.0.1:9000?transport=tcp".into()))
 				}
@@ -75,7 +77,7 @@ async fn run() -> Result<(), String> {
 	let accepted = accepted.map_err(message)?;
 	let client = Client::new(dialed, Platform::new().unwrap());
 	let directory = Directory::fetch(client.clone()).await.map_err(message)?;
-	assert!(directory.list().await.map_err(message)?.is_empty());
+	assert!(directory.list(None).await.map_err(message)?.rooms.is_empty());
 	assert_eq!(
 		directory.advertised_location().await.map_err(message)?,
 		"ocapn://127.0.0.1:9000?transport=tcp"

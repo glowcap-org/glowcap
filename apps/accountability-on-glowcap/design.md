@@ -1,9 +1,18 @@
+---
+type: static
+description: The loopback scenario and the checks that verify the Accountability application's signed requests and audit log.
+sources:
+  - resource: /apps/accountability-on-glowcap/zig/
+  - resource: /apps/accountability-on-glowcap/deno/
+  - resource: /apps/accountability-on-glowcap/python/
+---
+
 # Accountability design and verification
 
 This note describes the checks behind the
 [Accountability application](README.md).
 
-## Native scenario
+## Two-peer scenario
 
 `zig build accountability` runs two glowcap peers over a real loopback TCP
 socket:
@@ -24,15 +33,15 @@ socket:
 9. The accepted Outcome Episode names the caller's AID. The run verifies its
    payload signature, countersignature, and transparency root.
 
-The caller records the attempt before the send. The host records an outcome inside
-the actor turn. These records wrap the public glowcap application boundary.
-The app imports the `glowcap` module and does not reach into protocol internals.
+The caller records the attempt before the send. The host records the outcome
+inside the actor turn. The app imports the `glowcap` module and does not reach
+into protocol internals.
 
 ## Validating a key-event log
 
-`zig/identity.zig` owns the controller. `zig/kel.zig` implements the walk in `currentVerkey`. SAID rendering and
-keys live in `zig/said.zig`. Native, Deno, and Python callers are checked the
-same way:
+`zig/identity.zig` owns the controller. `zig/kel.zig` implements the walk in
+`currentVerkey`. SAID rendering and keys live in `zig/said.zig`. Zig, Deno, and
+Python callers are checked the same way:
 
 - The claimed AID must equal the self-addressing identifier of the inception
   event. That identifier is derived from the event that names the first key.
@@ -49,9 +58,9 @@ broken predecessor link, an uncommitted next key, a rotation signed by the
 wrong key, an AID the history does not derive, and a request signed by a retired
 key.
 
-The host validates the history it is given. It cannot know that the caller has
-not withheld a newer event. Witness receipts or retained cross-session state
-would be needed to close that gap.
+The host validates the history it is given, so it cannot know the caller
+withheld a newer event. Closing that gap takes witness receipts or retained
+cross-session state.
 
 ## Cross-language scenario
 
@@ -61,31 +70,28 @@ each caller. Deno and Python independently:
 1. create an AID
 2. rotate once
 3. sign the request
-4. send the key-event history with the invocation.
+4. send the key-event history with the invocation
 
 The Zig host derives the same identifier from the received history. The
 accepted response is `ack:read-thermostat`. The two rejection cases use
 `UnattestedCaller` and `UnboundCaller`.
 
-The host serves one connection and exits, which is why this demo has no attach
-mode.
+The host serves one connection and exits, so this demo has no attach mode.
 
 ## Three-party scenario
 
 `zig build accountability-three-party` runs three owning Hosts over loopback
 TCP. A fetches C's Affordance, returns that foreign-homed capability to B, and
 B's Host redeems the handoff by dialing C through the ordinary `Session.call`
-path. B rotates before invoking the introduced capability. C's Outcome Episode
-attributes B rather than A. The scenario separates the identity
-check, which belongs to this application, from the introduction, which belongs
-to OCapN. The bare TCP route is isolated test transport, not a deployment
-recommendation.
+path. B rotates before invoking the introduced capability, and C's Outcome Episode
+attributes B rather than A. The identity check belongs to this application and
+the introduction belongs to OCapN. Bare TCP is isolated test transport.
 
 ## Source map
 
 | File | Role |
 | --- | --- |
-| `zig/main.zig` | Native two-peer scenario. |
+| `zig/main.zig` | Two-peer Zig scenario. |
 | `zig/said.zig` | SAID rendering, Ed25519 keys, and the draft digest minting and verification share. |
 | `zig/identity.zig` | Identity creation and rotation. |
 | `zig/kel.zig` | Key-event minting and walking a presented log. |
@@ -104,5 +110,5 @@ Runtime output is written to `.data/`:
 - `episodes.jsonld` contains the durable Episode records.
 - `transparency.root` contains the current Merkle root.
 
-The directory is generated state and must not be committed. An auditor needs a
-root retained or published elsewhere to detect replacement of both local files.
+The directory is generated state and is not committed. An auditor needs a root
+retained or published elsewhere to detect replacement of both local files.

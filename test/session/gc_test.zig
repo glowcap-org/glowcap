@@ -365,12 +365,14 @@ test "gc validation scratch reports host OOM as itself, not GcUnderflow" {
         failing.allocator(),
         &s.exports,
         .{ .positions = &positions, .deltas = &deltas },
+        s.wire_hash_multiplier,
     ));
     var failing_answers = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
     try std.testing.expectError(error.OutOfMemory, session.checkGcAnswerDecrement(
         failing_answers.allocator(),
         &s.inbound_answers,
         &answer_positions,
+        s.wire_hash_multiplier,
     ));
 }
 

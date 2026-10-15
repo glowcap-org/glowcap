@@ -3,7 +3,7 @@ import * as tcp from "@glowcap/tcp";
 // shaped glowcap peer holds a real keyed OCapN session over WebSocket.
 //
 // Two processes so the two runtime adapters never share a module graph: the
-// child (`serve_ws_host.ts`) is a native dlopen host accepting WebSocket; this
+// child (`serve_ws_host.ts`) is an FFI dlopen host accepting WebSocket; this
 // process loads the runtime through `@glowcap/web` (the wasm module, the
 // linear-memory FFI adapter, the WebSocket channel) with no `Deno.dlopen`
 // anywhere in its path. The proof: the keyed handshake terminates inside the
@@ -16,7 +16,7 @@ import * as tcp from "@glowcap/tcp";
 // socket-real at once.
 
 import { init } from "@glowcap/web";
-import { proveChromiumNoiseRelay } from "./browser_noise_relay_test.ts";
+import { proveChromiumNoiseRelay } from "./browser_noise_relay_proof.ts";
 
 function fail(message: string): never {
 	console.error(`FAIL: ${message}`);
@@ -130,13 +130,13 @@ try {
 	await capnpRuntime.close();
 
 	// 6. A real Chromium page becomes the non-listening side of a sealed relay
-	// rendezvous, then the installed native CLI cold-dials and calls it.
+	// rendezvous, then the installed glowcap CLI cold-dials and calls it.
 	await runtime.close();
 	await proveChromiumNoiseRelay();
 
 	console.log(
 		"PASS: a wasm browser peer held keyed and Noise-relay OCapN sessions " +
-			"(fetch, call, a host callback, both codecs, native cold-dial, Chromium)",
+			"(fetch, call, a host callback, both codecs, CLI cold-dial, Chromium)",
 	);
 } finally {
 	clearTimeout(deadline);

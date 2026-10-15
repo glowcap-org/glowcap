@@ -1,4 +1,4 @@
-//! Completion-native WSS evidence over the neutral TLS transform.
+//! Completion-WSS evidence over the neutral TLS transform.
 //!
 //! The fake engine is byte-transparent so these tests reuse the WebSocket
 //! fixture while pinning TLS progression, exact failure ownership, sparse

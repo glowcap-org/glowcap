@@ -22,7 +22,7 @@ const frame_cap = fixtures.frame_cap;
 const fixtures = @import("../support/completion_loop_fixtures.zig");
 const startSession = fixtures.startSession;
 const makeServerPeer = fixtures.makeServerPeer;
-const drainOutboundBytes = fixtures.drainOutboundBytes;
+const pumpStream = fixtures.pumpStream;
 const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 const FakeBackend = fixtures.FakeBackend;
 const FakeEvent = fixtures.FakeEvent;
@@ -392,6 +392,11 @@ const OneBadPartnerBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *OneBadPartnerBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     pub fn poll(self: *OneBadPartnerBackend, out: []completion.Completion, timeout_ms: i32) !usize {
         _ = timeout_ms;
         // The loop stalled with no completion to deliver: a loop bug, fail loud.
@@ -416,15 +421,12 @@ test "completion loop: a per-connection drive failure closes that connection, no
 
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
-    var server_ss: std.ArrayList(u8) = .empty;
-    defer server_ss.deinit(allocator);
-    try drainOutboundBytes(&server_twin, allocator, &server_ss);
-    _ = try client.recvStreamPrefix(server_ss.items);
+    _ = try pumpStream(&server_twin, &client, allocator);
     fetch_pump.drainEvents(&client);
 
     var fetch_bytes: std.ArrayList(u8) = .empty;
@@ -470,17 +472,14 @@ test "completion loop: outbound past the high-water mark parks reads until the p
 
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     // Open the client's session against the same start-session the loop's
     // server peer sends, so the fetch it prepares is admissible.
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
-    var server_ss: std.ArrayList(u8) = .empty;
-    defer server_ss.deinit(allocator);
-    try drainOutboundBytes(&server_twin, allocator, &server_ss);
-    _ = try client.recvStreamPrefix(server_ss.items);
+    const handshake_reply_len = try pumpStream(&server_twin, &client, allocator);
     fetch_pump.drainEvents(&client);
 
     var fetch_bytes: std.ArrayList(u8) = .empty;
@@ -492,7 +491,7 @@ test "completion loop: outbound past the high-water mark parks reads until the p
     // The mark sits far below one frame, so both the handshake reply and the
     // fetch reply must park the read, observable from the very first write.
     const high_water: usize = 16;
-    try std.testing.expect(server_ss.items.len > high_water);
+    try std.testing.expect(handshake_reply_len > high_water);
 
     var park_hits: usize = 0;
     const ParkCount = struct {

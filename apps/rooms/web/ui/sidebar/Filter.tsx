@@ -1,8 +1,8 @@
 // The control that puts the rail's questions to a reader.
 //
 // It hangs off the rooms heading, because a rail with a bar of its own over
-// both lists had two headings and a third line above them saying nothing most
-// of the time. What it asks is still about the whole rail: the questions land
+// both lists would have two headings and a third line above them saying
+// nothing most of the time. What it asks is still about the whole rail: the questions land
 // on rooms and on direct lines alike, and the panel says so.
 //
 // Closed it says how much of the rail is on screen. Open it is a panel with

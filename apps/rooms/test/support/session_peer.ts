@@ -1,4 +1,4 @@
-// Every session-peer proof exercises the installed native executable, the
+// Every session-peer proof exercises the installed executable, the
 // same one the deployment runs.
 import { spawnOwned } from "./children.ts";
 import { ROOT, SESSION } from "./paths.ts";

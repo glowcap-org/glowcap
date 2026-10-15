@@ -1,4 +1,4 @@
-//! Closed-loop sustained admission, bounded native workers, and concurrent
+//! Closed-loop sustained admission, bounded workers, and concurrent
 //! foreground work during tracing maintenance. Timing is descriptive only.
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -8,7 +8,7 @@ const r = @import("report.zig");
 const memory = @import("process_memory.zig");
 const metrics = @import("alloc_metrics");
 const Foreground = struct {
-    pub fn handle(_: *@This(), _: *glowcap.actors.Turn, _: glowcap.actors.Message) !glowcap.ocapn.model.Argument {
+    pub fn handle(_: *@This(), _: *glowcap.actors.Turn, _: glowcap.actors.Delivery) !glowcap.ocapn.model.Argument {
         return .{ .integer = 77 };
     }
 };
@@ -58,6 +58,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, smo
                 var stored: w.Answer = .{};
                 defer {
                     pool.drain(&workload);
+                    // best-effort: this drain is teardown, so the measured result is already taken or the run is already returning its own error.
                     workload.drain() catch {};
                 }
                 try foreground(&workload, actor, &local);
@@ -97,12 +98,13 @@ fn quiesce(pool: *workers.Pool, workload: *w.Workload) !void {
 }
 
 fn calibrate(gpa: std.mem.Allocator, workload: *w.Workload, pool: *workers.Pool, actor: anytype) !void {
-    // Hold a real native collection commit and saturate the attachment. A
+    // Hold a real collection commit and saturate the attachment. A
     // transient actor must progress, and one excess stored call must refuse.
     var gate = std.atomic.Value(bool).init(false);
     defer {
         gate.store(true, .release);
         pool.drain(workload);
+        // best-effort: this drain is teardown, so the measured result is already taken or the run is already returning its own error.
         workload.drain() catch {};
     }
     // Exercise partial startup cleanup with a limit below the worker count.

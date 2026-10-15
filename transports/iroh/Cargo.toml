@@ -40,7 +40,9 @@ glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0" }
 # without `JoinSet::join_all` panicking (n0-computer/iroh#4460). glowcap drops
 # one private runtime per endpoint, so that shutdown path is part of our
 # ordinary endpoint lifecycle rather than an upstream implementation detail.
+# dep iroh: QUIC connections with relay fallback behind the `iroh` transport.
 iroh = "=1.3.0"
+# dep tokio: The runtime the iroh endpoint runs on.
 tokio = { version = "=1.53.2", features = ["rt-multi-thread"] }
 
 [dev-dependencies]

@@ -1,12 +1,16 @@
+---
+type: static
+description: How delete, rename, paste and duplicate find every reference to an entity through one declared reference graph.
+sources:
+  - resource: /apps/ocapnviz/src/engine/schema/
+  - resource: /apps/ocapnviz/src/engine/edit-session.ts
+---
+
 # Schema-driven cascades
 
-Delete, rename, paste, and duplicate all have to find every reference to an entity before they touch it. This is how
-they find them: the reference graph is declared once in the schema, and every cascade operation consumes it through one
-set of discovery primitives.
-
-Before this, each operation walked the graph by hand. `deletePeer`, `deleteSession`, `deleteMessage`, and `rekeyEntity`
-each re-encoded the same knowledge, and `event-helpers.ts` held a second copy of it for events. A new event kind, entity
-field, or id list broke every walker that forgot to update, silently.
+Delete, rename, paste, and duplicate must find every reference to an entity before they touch it. The reference graph is
+declared once in the schema, and every cascade operation consumes it through one set of discovery primitives. A new event
+kind, entity field, or id list is then one declaration, not an edit to every walker.
 
 The code is the authority: `src/engine/schema/` holds `refs.ts`, `edges.ts`, `doc-index.ts`, `walk.ts`, `cascade.ts`,
 `clipboard.ts`, `extract.ts`, and `paste.ts`. Transactions live on `EditSession` in `src/engine/edit-session.ts`. The
@@ -33,8 +37,8 @@ Engine is the public door.
 `to` name peers.
 
 **Document index to entity.** Arrays of ids living elsewhere in the document: `rowOrder`, `rowHidden`, `rowLabelHidden`,
-and `rowBodyHidden`, each per category. Future indexes such as bookmarks or named groups join this class, and the walker
-must purge or rewrite them like any other reference.
+and `rowBodyHidden`, each per category. Any new id list in the document joins this class, and the walker must purge or
+rewrite it like any other reference.
 
 ## Branded ids
 
@@ -44,11 +48,9 @@ type SessionId = string & { readonly __brand: "SessionId" };
 type MessageId = string & { readonly __brand: "MessageId" };
 ```
 
-Brands and the edge map solve different halves of the same problem. The edge map makes references discoverable. Without
-brands every walker call site is stringly-typed and a `SessionId` passed where a `PeerId` belongs compiles fine. Brands
-make the types nominal. Without the edge map nothing can tell you which fields hold one. The cost is roughly thirty
-casts at the boundary where strings enter, at JSON parse, DOM keys, and sprite keys. Internal code is branded
-throughout.
+Brands and the edge map solve different halves of one problem. The edge map says which fields hold references. Brands
+make the id types nominal: without them a `SessionId` passed where a `PeerId` belongs compiles fine. Strings are cast to
+brands where they enter, at JSON parse, DOM keys, and sprite keys, and internal code is branded throughout.
 
 ## Edge maps
 
@@ -67,8 +69,8 @@ type EdgeSpec<K extends TimelineEvent["kind"]> = {
 
 Mapping over `TimelineEvent["kind"]` forces every event kind to have an entry, so adding a kind without declaring its
 references does not compile. Constraining `field` to `RequiredKeys` forces the field to exist on that variant, so a typo
-does not compile either. Optional fields are excluded: with invariant 2 in force, every reference is
-required, so every cascade policy must produce a real value and none can leave a dangling reference behind.
+does not compile either. Optional fields are excluded. Every reference is required, so every cascade policy must produce
+a real value and none can leave a dangling reference behind.
 
 Entity edges follow the same shape. Document-index edges are a plain registry instead, because a new index is added by
 editing the document's top-level shape and TypeScript cannot force a static registry to track that. The backstop is the
@@ -91,13 +93,12 @@ every current reference is required, so a valid operation must rewrite its targe
 
 ## Discovery, then per-operation walks
 
-One `cascade(ctx, target, policies)` dispatcher does not fit, because the operations have different control flow.
-`cascadeDelete` is a worklist: removing a peer queues its sessions, which queue their messages. `cascadeRewrite` is a
-single pass. Paste walks an incoming payload rather than the document. One dispatcher over all of them hides more than
-it shares.
+The operations have different control flow, so no single dispatcher serves them. `cascadeDelete` is a worklist: removing
+a peer queues its sessions, which queue their messages. `cascadeRewrite` is a single pass. Paste walks an incoming
+payload rather than the document.
 
-What they do share is discovery. Given a target, find every site that references it. Three pure functions over the edge
-maps, in `walk.ts`:
+They share discovery: given a target, find every site that references it. Three pure functions over the edge maps, in
+`walk.ts`:
 
 ```ts
 findEventRefs(events, targetKind, targetId): EventRefSite[]
@@ -105,7 +106,7 @@ findEntityRefs(doc, targetKind, targetId): EntityRefSite[]
 findDocIndexRefs(doc, targetKind, targetId): DocIndexRefSite[]
 ```
 
-No mutation, no engine dependency. Every cascade operation consumes them and owns its own algorithm on top.
+They mutate nothing and need no engine. Every cascade operation consumes them and owns its own algorithm on top.
 
 `cascadeDelete` carries a visited set. Cycles cannot form in the current schema, but the guard is cheap.
 `cascadeRewrite` ends with a straggler check: it re-runs the three discovery functions against its own result and throws

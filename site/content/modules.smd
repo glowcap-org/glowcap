@@ -19,15 +19,14 @@ is the full account.
 | **Peer** | The caller-owned engine handle. You feed inbound frames, call `step`, drain outbound frames, and read events. It opens no sockets. |
 | **Session** | The one-partner application object: `connect` / `listen`, `fetch`, blocking `call`. It is a view onto a conversation its Host owns. |
 | **Server** | The listening side. It publishes objects, and each `accept` returns a `Session` for one partner that connected. |
-| **HostRuntime** | The loop that runs `Session` and `Server`. It keeps one identity across several socket-backed sessions over the transports you register. |
+| **HostRuntime** | The loop behind `Session` and `Server`. One thread serves every session of one Host, with one identity, over the transports you register. |
 | **HostTurn** | The argument an object's `handle` gets. It carries the turn's arena for building replies and the Host for calling other objects. |
-| **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. |
-| **Bridge** | The Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Native bindings use the driver archive for that loop. The browser package drives the Host itself. |
+| **Host** | The multi-session CapTP product: one identity, many sessions. It routes introductions between sessions and settles promise waits (Goblins calls a promise a *vow*). Its socket-free core lives in `driver/core`. The browser package and C embedders that own their I/O drive the Host themselves. |
 
 Use `Session` unless you need one of the lower-level responsibilities in the
 table. An introduction settles as a live capability because every `Session`
-is backed by a Host. Use `Bridge` with a completion loop when one thread must
-serve many connections. [Concepts]($link.page('concepts')) covers three-party
+is backed by a Host. A `Server` already serves many partners from one thread.
+[Concepts]($link.page('concepts')) covers three-party
 introductions.
 
 # The protocol core
@@ -42,24 +41,25 @@ you can test it without a host runtime.
   [Syrup](https://github.com/ocapn/syrup) is what Goblins speaks.
   [Cap'n Proto](https://capnproto.org/) is the second encoding.
   [Codecs]($link.page('codecs')) compares them.
-- **session** is the authority: import, export, and answer tables, and what is
+- **session** owns the import, export, and answer tables and decides what is
   valid. A codec never decides whether a reference is allowed.
 - **engine** is the `Peer` above. It only dispatches.
 
 # Above the core
 
-- **actors** is a Goblins-shaped `Vat`: near-call `$`, eventual-send `<-`, and
-  promises. It adds no protocol semantics the engine lacks.
-- **driver/core** is the multi-session serve core with no sockets of its own.
+- **actors** is a `Vat` shaped like Goblins': `$` calls an object in the same
+  process right away, `<-` sends to one that may be remote and returns a
+  promise. It adds nothing to the protocol that the engine lacks.
+- **driver/core** serves many sessions at once, with no sockets of its own.
   A build check keeps I/O out of it.
-- **net** is where `std.Io` enters. Residents include
+- **net** is where `std.Io` enters. It holds the transports:
   [iroh](https://www.iroh.computer/) QUIC, `noise-tcp`,
   [WebRTC]($link.page('transports/webrtc')),
-  [onion]($link.page('transports/onion')), then cleartext `tcp`,
+  [onion]($link.page('transports/onion')), and the cleartext `tcp`,
   `keyed-tcp`, and `inproc`, among others
   ([Transports]($link.page('transports'))).
 - **loam** stores objects, and the capabilities they hold, across restarts.
-  Its core does no I/O. An optional LMDB module supplies the disk.
+  Its core does no I/O. An optional SQLite or LMDB module supplies the disk.
   [Loam]($link.page('loam')) explains records, sleepy actors, and durable
   names.
 
@@ -69,18 +69,18 @@ you can test it without a host runtime.
 > finish, before the next begins.
 
 > **Near-call (`$`) and eventual-send (`<-`)**: from
-> [E](https://web.archive.org/web/20241231230559/http://erights.org/). Near runs now in your vat. Eventual queues a later
+> [E](https://web.archive.org/web/20241231230559/http://erights.org/). Near runs immediately in your vat. Eventual queues a later
 > turn and returns a promise. That is also the only way to call across a
 > session.
 
 # Why Zig
 
-Memory control. An allocator is an argument in Zig, so nothing allocates
-without one being passed in, and there is no collector deciding when to run.
+Zig gives glowcap control of memory. An allocator is an argument, so nothing allocates
+without one being passed in, and no collector decides when to run.
 [Performance]($link.page('performance')) publishes what glowcap costs.
 
-The compiler does not prove memory safety in exchange, so glowcap owes that in
-tests: leak checks, allocation budgets, and fuzzing on untrusted input.
+The compiler does not prove memory safety in exchange, so glowcap covers it with
+tests: leak checks, allocation budgets, and fuzzing of input from peers.
 
 # Public entry points
 
@@ -88,11 +88,10 @@ tests: leak checks, allocation budgets, and fuzzing on untrusted input.
 applications.
 
 - **c_abi** is opaque handles, fixed-width codes, `ptr + len`, and explicit
-  release. `libglowcap_host` is the CapTP host the bindings wrap. Native
-  bindings also load `libglowcap_driver` to run the loop.
-- **driver** is native Zig above `driver/core`: `Session` and `HostRuntime` for
-  ordinary native use, plus `Bridge` when one readiness loop must carry many
-  connections.
+  release. `libglowcap_host` is the CapTP host the bindings wrap. The Rust,
+  Python, TypeScript, and Racket bindings also load `libglowcap_driver` to run the loop.
+- **driver** is Zig above `driver/core`: `Session`, `Server`, and
+  `HostRuntime`.
 
 [Bindings]($link.page('bindings')) provide the application API in Rust,
 TypeScript, Python, and Racket, each over the C ABI.

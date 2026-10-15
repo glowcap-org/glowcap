@@ -174,6 +174,7 @@ class ChatPeer {
 	}
 
 	async close(): Promise<void> {
+		// best-effort: the child may already have exited, and the status awaited below reports how it ended.
 		await this.#writer.close().catch(() => {});
 		const status = await this.child.status;
 		await Promise.all(this.#drains);
@@ -538,8 +539,10 @@ try {
 } finally {
 	clearTimeout(deadline);
 	await timeline?.close();
+	// best-effort: this teardown runs after the verdict, and a browser that fails to close leaks only its own process.
 	if (browser) await browser.close().catch(() => {});
 	for (const peer of [gobA, gobB]) peer?.kill();
+	// best-effort: the status of a peer that was just killed carries no verdict, so a rejection is dropped.
 	for (const peer of [gobA, gobB]) if (peer) await peer.child.status.catch(() => {});
 	for (const peer of [gobA, gobB]) peer?.cleanupCompiled();
 	try {

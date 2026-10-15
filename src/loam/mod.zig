@@ -1,5 +1,5 @@
 //! Application persistence, immutable collections, and managed resource access.
-//! LMDB execution is supplied by the optional glowcap_loam_lmdb module.
+//! Disk execution is supplied by the optional SQLite and LMDB modules.
 pub const collections = @import("loam_collections");
 pub const records = @import("loam_records");
 pub const core = @import("loam_core");

@@ -45,6 +45,7 @@ pub fn init(
 ) !HostRuntime {
     if (opts.frame_cap == 0 or opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0)
         return Error.InvalidBufferConfiguration;
+    if (opts.busy_poll_ns > HostRuntime.max_busy_poll_ns) return Error.BusyPollWindowTooLong;
     const seed: [foundation.crypto.SEED_BYTES]u8 = switch (identity) {
         .keyed => |keyed| keyed.secret.seed(),
         .ephemeral => blk: {
@@ -92,9 +93,11 @@ pub fn initWithCore(
         .listener_setup = adoption.listener_setup,
         .settle = adoption.settle,
         .unhandled_failure = null,
+        .busy_poll_ns = adoption.busy_poll_ns,
     };
     if (opts.frame_cap == 0 or opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0)
         return Error.InvalidBufferConfiguration;
+    if (opts.busy_poll_ns > HostRuntime.max_busy_poll_ns) return Error.BusyPollWindowTooLong;
     try core.checkRuntimeAdoption();
     var result = HostRuntime{
         .allocator = allocator,

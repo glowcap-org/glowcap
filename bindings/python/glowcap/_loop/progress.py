@@ -28,7 +28,7 @@ class _ProgressMixin(DriverLoopMixinBase):
 
     def start(self) -> None:
         """Arm the readiness descriptor and park the running asyncio loop on
-        it. From here the loop steps whenever native work is ready."""
+        it. From here the loop steps whenever FFI work is ready."""
         if self._started:
             return
         self._aio = asyncio.get_running_loop()
@@ -76,7 +76,7 @@ class _ProgressMixin(DriverLoopMixinBase):
         progressed = False
         try:
             wait_ms = timeout_ms
-            while self._step_native(wait_ms):
+            while self._step_ffi(wait_ms):
                 progressed = True
                 self._dispatch_many(self._pop_events())
                 self._advance_closing_listeners()
@@ -91,8 +91,8 @@ class _ProgressMixin(DriverLoopMixinBase):
                 self._signal_loop_activity()
         self._rearm_progress_timer()
 
-    def _step_native(self, timeout_ms: int) -> bool:
-        """One native step, bracketed as the deliver it is: behaviors fire
+    def _step_ffi(self, timeout_ms: int) -> bool:
+        """One FFI step, bracketed as the deliver it is: behaviors fire
         inside it, and the trampoline reads the bracket to latch their turns
         to this loop's wrapper Host. ``False`` is successful quiescence."""
         if self._wrapper is None:
@@ -213,7 +213,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                 future.set_result(event.session)
             elif event.session is not None:
                 self._unclaimed_sessions[event.session] = (False, None)
-                self._native_session_release(ctypes.c_void_p(event.session))
+                self._ffi_session_release(ctypes.c_void_p(event.session))
         elif event.kind == _c.DRIVER_EVENT_OPEN_FAILED:
             future = self._pending_dials.pop(event.operation_id, None)
             if future is not None and not future.done():
@@ -240,7 +240,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                     accepts.put_nowait(event.session)
                 else:
                     self._unclaimed_sessions[event.session] = (False, None)
-                    self._native_session_release(ctypes.c_void_p(event.session))
+                    self._ffi_session_release(ctypes.c_void_p(event.session))
                     raise GlowcapError(
                         _c.ERR_INTERNAL,
                         f"accepted session names unknown listener {event.listener_id}",
@@ -252,7 +252,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                     if event.primary_result != _c.OK
                     else None
                 )
-                # Observe the native barrier before Session.close_transport()
+                # Observe the FFI barrier before Session.close_transport()
                 # releases the opaque handle below.
                 self._finish_session_close(event.session)
                 wrapped = (
@@ -264,7 +264,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                     # The pump's EOF choreography, one tier up: end the
                     # serve task, then release the dead
                     # session so a later verb refuses ERR_CLOSED instead
-                    # of minting a vow nothing can settle. The native
+                    # of minting a vow nothing can settle. The FFI
                     # side already broke the far vows in its close.
                     wrapped.closing_flag = True
                     transport = wrapped.transport
@@ -278,7 +278,7 @@ class _ProgressMixin(DriverLoopMixinBase):
                     self._unclaimed_sessions[event.session] = (True, session_failure)
                 else:
                     self._unclaimed_sessions[event.session] = (True, session_failure)
-                    self._native_session_release(ctypes.c_void_p(event.session))
+                    self._ffi_session_release(ctypes.c_void_p(event.session))
         elif event.kind == _c.DRIVER_EVENT_COMPLETION:
             if self._wrapper is not None and isinstance(event.decoded, (Settle, Fail)):
                 host = self._wrapper

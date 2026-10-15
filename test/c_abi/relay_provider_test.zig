@@ -255,7 +255,7 @@ test "relay C provider preserves the final tail until explicit connection releas
     var failure = c.transport_provider.emptyProviderFailure();
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
-        table.start_connect.?(table.ctx, request_id, &locator, null, &failure),
+        table.start_connect.?(table.ctx, request_id, &locator, null, null, &failure),
     );
 
     var records: [8]c.GlowcapMultiplexedReadyEvent = undefined;
@@ -398,7 +398,7 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
     var failure = c.transport_provider.emptyProviderFailure();
     try std.testing.expectEqual(
         c.GLOWCAP_OK,
-        table.start_connect.?(table.ctx, request_id, &locator, null, &failure),
+        table.start_connect.?(table.ctx, request_id, &locator, null, null, &failure),
     );
 
     var records: [8]c.GlowcapMultiplexedReadyEvent = undefined;

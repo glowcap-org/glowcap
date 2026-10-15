@@ -78,7 +78,7 @@ async def _start_relay(target_port: int, rewrite=None, observe=None):
 
 
 async def _live_trace_produces_timeline() -> None:
-    """The live timeline producer: the veneer stamps and forwards the native
+    """The live timeline producer: the veneer stamps and forwards the FFI
     tap's facts, one flat record per fact -- session-opened with the codec
     the handshake negotiated, the same verb outbound at the client
     and inbound at the server, and session-closed. Endpoint labeling belongs
@@ -93,7 +93,7 @@ async def _live_trace_produces_timeline() -> None:
         events.append(event)
         raise trace_failure
 
-    # Trace configuration is process-global, but every native Host remains
+    # Trace configuration is process-global, but every FFI Host remains
     # owner-thread confined. Installing from a worker must hop back to this
     # loop rather than calling through a retained raw pointer.
     uninstall = await asyncio.to_thread(lambda: enable_trace(record_then_raise, self_label="smoke"))

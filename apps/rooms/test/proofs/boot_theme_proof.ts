@@ -65,17 +65,31 @@ try {
 		await cold.route("**/page.js", (route) => route.abort());
 		await cold.goto(`http://127.0.0.1:${httpPort}/`);
 		await cold.waitForSelector("#boot", { state: "attached", timeout: 30_000 });
-		const seen = await cold.evaluate(() => ({
-			stamped: document.documentElement.dataset.theme ?? null,
-			bundleRan: document.getElementById("boot") === null,
-			splash: getComputedStyle(document.getElementById("boot") as HTMLElement).backgroundColor,
-		}));
+		const seen = await cold.evaluate(() => {
+			// The splash is transparent over the body's fixed ground. Read the
+			// surface that paints, then let the browser resolve its CSS colour.
+			const ground = getComputedStyle(document.body, "::before").backgroundColor;
+			const canvas = document.createElement("canvas");
+			canvas.width = canvas.height = 1;
+			const paint = canvas.getContext("2d")!;
+			paint.fillStyle = ground;
+			paint.fillRect(0, 0, 1, 1);
+			const [r, g, b, alpha] = paint.getImageData(0, 0, 1, 1).data;
+			return {
+				stamped: document.documentElement.dataset.theme ?? null,
+				bundleRan: document.getElementById("boot") === null,
+				ground,
+				opaque: alpha === 255,
+				dark: r + g + b < 3 * 128,
+			};
+		});
 		if (seen.bundleRan) fail("the bundle ran, so this proved nothing about the first paint");
 		if (seen.stamped !== theme) {
 			fail(`a ${theme} workspace painted its first frame as ${seen.stamped ?? "unstamped"}`);
 		}
-		if (seen.splash === "rgba(0, 0, 0, 0)") fail("the splash painted no ground to be right or wrong about");
-		console.log(`  • a ${theme} workspace opens ${theme}, splash ${seen.splash}`);
+		if (!seen.opaque) fail("the opening page painted no opaque ground");
+		if (seen.dark !== (theme === "dark")) fail(`a ${theme} workspace painted ground ${seen.ground}`);
+		console.log(`  • a ${theme} workspace opens ${theme}, ground ${seen.ground}`);
 		await cold.close();
 	}
 

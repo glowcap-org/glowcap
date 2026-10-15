@@ -24,7 +24,7 @@
 //! rule's ledger, where each entry names the declaration that owns a cost
 //! instead of restating its derivation. It accepts a wider shape there, any
 //! final segment in lower camelCase, because the ledger writes `model.cloneMessage`
-//! and bare `ownedFrameFromView` as readily as `Peer.sendCopying`.
+//! and bare `ownedFrameFromView` as readily as `Peer.sendBorrowed`.
 
 const std = @import("std");
 const util = @import("util.zig");
@@ -292,7 +292,7 @@ pub fn checkMemoryLedgerSymbolClaims(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    for ([_][]const u8{ ".agents/skills/memory-ledger/SKILL.md", ".agents/skills/memory-ledger/references/host.md", ".agents/skills/memory-ledger/references/loam.md", ".agents/skills/memory-ledger/references/rooms.md" }) |path| {
+    for ([_][]const u8{ ".agents/skills/memory-ledger/SKILL.md", ".agents/skills/memory-ledger/references/host.md", ".agents/skills/memory-ledger/references/transports.md", ".agents/skills/memory-ledger/references/loam.md", ".agents/skills/memory-ledger/references/rooms.md" }) |path| {
         try checkMemoryLedgerFile(io, gpa, root, violations, path);
     }
 }

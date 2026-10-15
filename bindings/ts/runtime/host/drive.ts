@@ -180,7 +180,7 @@ export abstract class HostDrive extends HostApplication {
 			const pending = this._parkedReleases.splice(0);
 			for (const release of pending) release();
 		}
-		// A parked release retires a native session or Host handle, which is
+		// A parked release retires an FFI session or Host handle, which is
 		// close-relevant state; wake any parked close driver to re-check.
 		if (ranAny) this.signalCloseActivity();
 	}
@@ -204,7 +204,7 @@ export abstract class HostDrive extends HostApplication {
 	 * into this same drain. Binding-internal. */
 	kickActions(): Promise<void> {
 		if (this._driverLoop != null) {
-			// The native loop is the one drain on an adopted Host (ADR-0112):
+			// The driver loop is the one drain on an adopted Host (ADR-0112):
 			// the kick becomes a scheduled loop step, which runs the parked
 			// releases and the GC drain at its own head. Inside a turn it must
 			// defer past the enclosing feed; outside one, join that deferred step
@@ -261,7 +261,7 @@ export abstract class HostDrive extends HostApplication {
 		traceDrainHost(this._raw);
 		while (true) {
 			if (this._raw === NULL || this._driverLoop != null) return;
-			// The native drain resumes queued Host work before it pops the first
+			// The FFI drain resumes queued Host work before it pops the first
 			// external action. That work may deliver to a hosted behavior, so the
 			// synchronous drain call is a Host-carried delivery just like a loop step.
 			const prior = enterDeliver(this);

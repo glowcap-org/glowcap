@@ -192,7 +192,7 @@ fn cloneLocatorForRecipient(
 }
 
 /// Mint one signed give: derive the session and side names from the
-/// gifter–exporter session key (ADR-0097), pick the exporter-location form
+/// gifter-exporter session key (ADR-0097), pick the exporter-location form
 /// the recipient can use, and sign. Signed by the gifter's key on that
 /// session, so the exporter verifies it against the partner key it already
 /// proved. Any other key, including the node's durable one, would not
@@ -281,10 +281,14 @@ pub fn buildSignedGive(
 /// commit relies on no intervening exporter mutation after preparation.
 pub const PreparedDepositGift = struct {
     message: model.Message,
+    /// The deliver encoded at preparation (ADR-0236). Commit queues it and
+    /// frees the tree, which recording reads one last time.
+    row: outbound.Encoded,
     reservation: Peer.PendingReservation,
 
     pub fn abandon(self: *PreparedDepositGift, peer: *Peer) void {
         peer.cancelPendingReservation(self.reservation);
+        self.row.deinit(peer);
         model.freeMessage(peer.allocator, self.message);
         self.* = undefined;
     }
@@ -295,7 +299,8 @@ pub const PreparedDepositGift = struct {
         // `queueOriginatedGive` excludes an aliased recipient peer, so its
         // recipient commit cannot mutate this session between those two points.
         peer.session_state.recordSend(self.message) catch unreachable;
-        peer.pushPendingAssume(self.reservation, .{ .message = self.message });
+        peer.pushPendingAssume(self.reservation, .{ .encoded = self.row });
+        model.freeMessage(peer.allocator, self.message);
         self.* = undefined;
     }
 };
@@ -312,18 +317,33 @@ pub fn prepareDepositGiftInBatch(
         .answer = null,
     } });
     errdefer model.freeMessage(peer.allocator, message);
+    const inventory = try peer.session_state.inventoryMessage(message);
+    defer inventory.deinit(peer.allocator);
 
     if (peer.node_services) |services| {
-        if (services.lowering_active.*) try lower.lowerMessage(services, &message);
+        if (services.lowering_active.*) try lower.lowerMessage(services, &message, inventory);
     }
-    peer.session_state.rewriteShortenedMessage(&message);
+    peer.session_state.rewriteShortenedMessage(&message, inventory);
     try peer.session_state.admits(model.view.Body.fromOwned(&message));
-    try session.validate.validateSend(&peer.session_state, message);
+    try session.validate.validateSend(&peer.session_state, message, inventory);
     if (message.deliver.args[2].reference == .near)
         try peer.session_state.exports.ensureUnusedCapacity(peer.allocator, 1);
+    var frame = try peer.encodeOutbound(message);
+    errdefer frame.deinit();
+    const exports = try peer.session_state.listSentExports(peer.allocator, message, inventory);
+    errdefer peer.allocator.free(exports);
+    const row: outbound.Encoded = .{
+        .op = .deliver,
+        .frame = frame,
+        .listener = null,
+        .answer = null,
+        .resolver = null,
+        .exports = exports,
+    };
     return .{
         .message = message,
-        .reservation = try batch.reserve(.{ .message = message }),
+        .row = row,
+        .reservation = try batch.reserve(.{ .encoded = row }),
     };
 }
 
@@ -384,8 +404,8 @@ pub fn queueOriginatedGive(
 pub fn sendResolveHandoffGive(peer: *Peer, answer: session.AnswerTarget, give_bytes: []const u8) !void {
     const handoff = try decodeHandoffGive(peer.allocator, give_bytes);
     // `send` takes the boxed handoff on every outcome. The signed give is
-    // already owned, so routing it through `sendCopying` would deep-clone the
-    // complete tree only to free this original immediately afterward.
+    // already owned, so routing it through `sendBorrowed` would clone the
+    // resolution only to free this original immediately afterward.
     try outbound.enqueueAnswerTargetResolutionOwned(
         peer,
         answer,

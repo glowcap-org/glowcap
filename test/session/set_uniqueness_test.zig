@@ -112,13 +112,14 @@ test "an inbound set carrying two Equal elements is refused on both walk shapes"
 test "a Cap'n Proto set with duplicate elements is refused on the session inbound spine" {
     // Cap'n Proto decode admits sets without uniqueness (unlike Syrup). The
     // session walk is the codec-neutral backstop. Craft the untrusted frame by
-    // encoding a list of two Equal integers (legal), then flipping that
+    // encoding a list of two equal strings (legal), then flipping that
     // argument's ArgKind discriminant to set, the same patch pattern as the
-    // duplicate-key struct cases in `test/codec/capnp_test.zig`.
+    // duplicate-key struct cases in `test/codec/capnp_test.zig`. Strings,
+    // because a list of integers rides as a word run, which is no set form.
     const allocator = std.testing.allocator;
     const ArgKind = capnp.shared.ArgKind;
 
-    const dup = [_]model.Argument{ .{ .integer = 4 }, .{ .integer = 4 } };
+    const dup = [_]model.Argument{ .{ .string = "four" }, .{ .string = "four" } };
     const list_args = [_]model.Argument{.{ .list = &dup }};
     var list_frame = try capnp.encodeMessage(allocator, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },

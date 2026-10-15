@@ -10,7 +10,7 @@ use super::{
 };
 use glowcap::{Argument, Host, Locator, Ref, Resolver, Session};
 use rooms_application::{
-	directory::{Shape, registration::Id, wire},
+	directory::{Cursor, PublicationKind, RoomInfo, Shape, registration::Id, wire},
 	room::{inbox::NOTIFY, stewardship::Kind},
 	server::{
 		directory::{Directory, Dropped, Effects, Notice as MemberNotice, Route, Tell},
@@ -38,6 +38,8 @@ pub(super) enum Work {
 		id: String,
 		target: Route<u64, Ref>,
 		sdp: String,
+		/// The key the originator's connection proved, if any.
+		from: Option<String>,
 		originator: u64,
 		reply: Ref,
 	},
@@ -314,12 +316,34 @@ impl State {
 		self.apply(effects);
 		self.apply_rooms(rooms);
 	}
-	/// Every room the directory lists: its own and the foreign ones.
-	pub fn listed(&self) -> impl Iterator<Item = rooms_application::directory::RoomInfo> + '_ {
-		self.rooms
-			.listed()
-			.chain(self.foreign.listed())
-			.chain(self.irc.core.borrow().listed().collect::<Vec<_>>())
+	/// Every room the directory lists: its own, then the foreign ones, then
+	/// the bridged channels.
+	pub fn listed(&self) -> impl Iterator<Item = RoomInfo> + '_ {
+		self.listed_after(None).map(|(_, room)| room)
+	}
+	/// The listing walk a page cursor resumes: each row with the key its
+	/// source holds it under, in listing order, starting strictly after the
+	/// cursor. Each source walks its own index from the key, so a page costs
+	/// its rows, not the rows before them. The bridged channels are collected
+	/// because they live behind a borrow this call cannot hand out.
+	pub fn listed_after<'a>(&'a self, after: Option<&'a Cursor>) -> impl Iterator<Item = (String, RoomInfo)> + 'a {
+		let own = |(key, room): (&str, RoomInfo)| (key.to_owned(), room);
+		let from = move |kind| Cursor::start(after, kind);
+		from(PublicationKind::Local)
+			.into_iter()
+			.flat_map(move |key| self.rooms.listed_after(key))
+			.map(own)
+			.chain(
+				from(PublicationKind::Foreign)
+					.into_iter()
+					.flat_map(move |key| self.foreign.listed_after(key))
+					.map(own),
+			)
+			.chain(
+				from(PublicationKind::Bridge)
+					.into_iter()
+					.flat_map(move |key| self.irc.core.borrow().listed_after(key).map(own).collect::<Vec<_>>()),
+			)
 	}
 	/// Report a failure with no caller left to answer: the operator hears
 	/// it, and the journal keeps it for the inventories.

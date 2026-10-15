@@ -80,6 +80,10 @@ pub const Error = error{
     /// buffer size, or no capacity for pending session opens. Every bound must
     /// be positive.
     InvalidBufferConfiguration,
+    /// `HostRuntime.Options.busy_poll_ns` is past `HostRuntime.max_busy_poll_ns`.
+    /// A cross-thread settle or wake waits out the whole window, so a longer
+    /// one is a stall.
+    BusyPollWindowTooLong,
     /// This host already has `Options.max_pending_opens` transport connects or
     /// CapTP handshakes in flight. Let one settle before admitting another.
     PendingOpenLimitReached,
@@ -97,7 +101,7 @@ pub const Error = error{
     /// after `Server.close`. Close itself is idempotent. Every other operation
     /// refuses before touching the released runtime lease.
     ServerClosed,
-    /// `callReference` was given a target that is not an eventual-send target:
+    /// A call was given a target that is not an eventual-send target:
     /// a `sturdy`, `broken`, or bare `promise` reference. Only a near (local
     /// export) or far (partner-hosted) object reference is callable.
     UncallableTarget,

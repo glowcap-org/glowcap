@@ -244,7 +244,7 @@ fn connectWhileDescriptorPublishes(
                     );
                     return err;
                 }
-                std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2_000), .real) catch {};
+                try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2_000), .real);
                 continue;
             },
             else => return err,

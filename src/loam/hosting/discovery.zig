@@ -70,7 +70,9 @@ pub const Discovery = struct {
             if (slot.* == null) break slot;
         } else return .{ .refused = error.FetchCapacity };
         const index = for (self.groups, 0..) |group, i| {
-            if (group) |g| if (std.mem.eql(u8, &g.entropy, &entropy)) break i;
+            // The name a peer fetched decides which group it joins. Constant
+            // time, like the publication table, so a near miss costs the same.
+            if (group) |g| if (std.crypto.timing_safe.eql(driver.Host.DurableSwiss.Entropy, g.entropy, entropy)) break i;
         } else blk: {
             const i = for (self.groups, 0..) |group, i| {
                 if (group == null) break i;
@@ -226,7 +228,9 @@ pub const Discovery = struct {
                 defer owner.store.release(lease) catch unreachable;
                 const view = try owner.store.currentView(lease);
                 const target = try publication.activeTarget(view);
-                if (!std.mem.eql(u8, view.payload, &group.entropy)) return error.InvalidPublication;
+                if (view.payload.len != group.entropy.len or
+                    !std.crypto.timing_safe.eql(driver.Host.DurableSwiss.Entropy, view.payload[0..group.entropy.len].*, group.entropy))
+                    return error.InvalidPublication;
                 return try h.restoreEdge(owner, target);
             },
         }

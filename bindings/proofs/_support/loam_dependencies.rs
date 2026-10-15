@@ -1,5 +1,5 @@
 //! Direct wire requests must obey the persisted descriptor even after reopen.
-use super::{Argument, ControlPowers, Policy, Ref, Session};
+use super::{Argument, ControlPowers, Policy, Ref, Scope, Session};
 
 pub fn descriptor() -> Policy {
 	Policy::with_dependencies([5; 16], &[10, 20, 30], &[], &[(20, 10)])
@@ -36,8 +36,8 @@ pub async fn exercise(session: &Session, root: &Ref, control: &Ref, policy: &Pol
 	)
 	.unwrap();
 	for (bits, reason) in [(2, "MissingPrerequisite"), (4, "InapplicablePermission")] {
-		let mut derive = wide.derive_arguments(derivation, 0);
-		permissions(&mut derive[2], bits);
+		let mut derive = wide.derive_arguments(derivation, Scope::Object, 0);
+		permissions(&mut derive[3], bits);
 		assert!(
 			session
 				.send(root, "derive", &derive)
@@ -79,7 +79,7 @@ pub async fn exercise(session: &Session, root: &Ref, control: &Ref, policy: &Pol
 	}
 	// Refusal leaves the sequence usable and the held source intact.
 	session
-		.send(root, "derive", &wide.derive_arguments(derivation, 0))
+		.send(root, "derive", &wide.derive_arguments(derivation, Scope::Object, 0))
 		.await
 		.unwrap();
 	session

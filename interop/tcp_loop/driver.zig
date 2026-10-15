@@ -178,6 +178,7 @@ pub fn main(init: std.process.Init) !void {
     var serving_joined = false;
     defer if (!serving_joined) {
         done.store(true, .release);
+        // best-effort: this unwind already returns the run's own error, and the serving thread's failure would only repeat it.
         serving.await(io) catch {};
     };
 
@@ -197,11 +198,11 @@ pub fn main(init: std.process.Init) !void {
             barrier.measured.store(true, .release);
             break;
         }
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real) catch {};
+        try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real);
     }
     // A beat for the serving thread to go quiescent (parked on readiness)
     // before the heap is read.
-    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
+    try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real);
     const warmed: i64 = counting.live.load(.acquire);
     barrier.measured.store(true, .release);
 

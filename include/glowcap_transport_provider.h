@@ -3,7 +3,7 @@
    src/c_abi/shared/multiplexed_transport.zig.
    Do not edit by hand: run `zig build gen-header-transport-provider`.
    This standalone layout-only contract is shared by the driver and
-   every transport archive. Provider retain/release is the native
+   every transport archive. Provider retain/release is the
    transport lifetime authority.
    Handle-producing callbacks transfer outputs only on GLOWCAP_OK.
    On every other status the provider cleans partial work and leaves
@@ -93,6 +93,20 @@ typedef struct GlowcapTransportOperationOptions {
     /* Exact payload size; the selected provider validates its type. */
     size_t size;
 } GlowcapTransportOperationOptions;
+
+/* Where one dial came from, borrowed for the start callback. A handoff dial
+   follows a reference an open session handed over, and introducer is the
+   designator that session's partner signed in its hello. A provider whose
+   connect needs an outside party, as WebRTC signaling does, routes by it.
+   The driver passes a null origin for a dial the application started
+   itself, for a handoff whose introducing session has closed, and for a
+   partner that signed no designator. */
+typedef struct GlowcapDialOrigin {
+    /* Borrowed UTF-8 designator of the introducing session's partner, or null. */
+    const uint8_t *introducer;
+    /* Introducer byte length; zero when null. */
+    size_t introducer_len;
+} GlowcapDialOrigin;
 typedef struct GlowcapProviderFailure {
     /* Returned GLOWCAP_ERR_* status; zero on success. */
     int32_t result;
@@ -127,7 +141,8 @@ typedef int32_t (*GlowcapMultiplexedReadinessFdFn)(void *ctx);
    failure. On error, leaves out_count untouched and returns the exact
    provider cause and cleanup chain through out_failure. */
 typedef int32_t (*GlowcapMultiplexedDrainReadyFn)(void *ctx, GlowcapMultiplexedReadyEvent *out, size_t cap, size_t *out_count, GlowcapProviderFailure *out_failure);
-typedef int32_t (*GlowcapMultiplexedStartConnectFn)(void *ctx, uint64_t request_id, const GlowcapLocatorView *locator, const GlowcapTransportOperationOptions *options, GlowcapProviderFailure *out_failure);
+/* origin names the session that introduced a handoff dial, or is null. */
+typedef int32_t (*GlowcapMultiplexedStartConnectFn)(void *ctx, uint64_t request_id, const GlowcapLocatorView *locator, const GlowcapTransportOperationOptions *options, const GlowcapDialOrigin *origin, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapMultiplexedFinishConnectFn)(void *ctx, uint64_t request_id, uint64_t *out_conn, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapMultiplexedClaimExternalFn)(void *ctx, uint64_t subject, uint64_t *out_conn, GlowcapProviderFailure *out_failure);
 typedef int32_t (*GlowcapMultiplexedListenFn)(void *ctx, uint64_t route_id, const uint8_t *transport, size_t transport_len, const uint8_t *requested_designator, size_t requested_designator_len, const uint8_t *identity_designator, size_t identity_designator_len, const GlowcapTransportOperationOptions *options, GlowcapListenResult *out_result, GlowcapProviderFailure *out_failure);
@@ -183,7 +198,7 @@ typedef struct GlowcapMultiplexedTransport {
     GlowcapMultiplexedFinishAcceptFn finish_accept;
     /* Stop listener; asynchronous retirement emits LISTEN, then cancel_listen claims cleanup. */
     GlowcapMultiplexedStopListenFn stop_listen;
-    /* Read: 0..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
+    /* Read: 1..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
     GlowcapMultiplexedTryReadFn try_read;
     /* Write: 0..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK. */
     GlowcapMultiplexedTryWriteFn try_write;

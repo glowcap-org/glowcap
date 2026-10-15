@@ -85,7 +85,10 @@ test "C header struct layouts match the Zig c_abi source" {
 test "the generated WebRTC header exposes its control and provider surface" {
     try std.testing.expect(@hasDecl(c, "glowcap_webrtc_peer_authorize_remote"));
     try std.testing.expect(@hasDecl(c, "glowcap_webrtc_transport_provider"));
+    try std.testing.expect(@hasDecl(c, "glowcap_webrtc_netlayer_provide_answer"));
+    try std.testing.expect(@hasDecl(c, "glowcap_webrtc_netlayer_provide_candidate"));
     try std.testing.expect(@hasDecl(c, "GlowcapWebrtcReadyEvent"));
+    try std.testing.expect(@hasDecl(c, "GlowcapWebrtcSignaling"));
     try std.testing.expect(@hasDecl(c, "GlowcapWebrtcConfig"));
 }
 
@@ -138,6 +141,7 @@ test "C header discriminants match the Zig c_abi source" {
     try expectConst(c.GLOWCAP_ARG_BIG_INTEGER, cabi.GLOWCAP_ARG_BIG_INTEGER);
     try expectConst(c.GLOWCAP_ARG_STRUCT, cabi.GLOWCAP_ARG_STRUCT);
     try expectConst(c.GLOWCAP_ARG_ERROR, cabi.GLOWCAP_ARG_ERROR);
+    try expectConst(c.GLOWCAP_ARG_INTEGERS, cabi.GLOWCAP_ARG_INTEGERS);
 
     try expectConst(c.GLOWCAP_RESOLUTION_FULFILL, cabi.GLOWCAP_RESOLUTION_FULFILL);
     try expectConst(c.GLOWCAP_RESOLUTION_BREAK, cabi.GLOWCAP_RESOLUTION_BREAK);

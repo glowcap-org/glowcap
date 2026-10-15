@@ -39,13 +39,19 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # else: no init runs in this container, so the Debian service stays down, and a
 # check that needs a daemon starts its own with its own torrc. The in-tree onion
 # checks run against a fake daemon and need none of this.
+#
+# `capnproto` and `libcapnp-dev` are here for the comparison rows on the
+# benchmarks page: the Rust `capnp-rpc` echo bench compiles its schema with the
+# `capnp` tool, and the C++ reference echo links the library. glowcap itself
+# links neither.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean \
  && apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends \
-      build-essential ca-certificates curl gdb gh git hyperfine jq libssl-dev \
-      linux-perf lldb netcat-openbsd pkg-config python-is-python3 python3 \
+      build-essential ca-certificates capnproto curl gdb gh git hyperfine jq \
+      libcapnp-dev libssl-dev linux-perf lldb netcat-openbsd pkg-config \
+      python-is-python3 python3 \
       python3-pip python3-venv ripgrep shellcheck strace tar tor unzip valgrind \
       xz-utils util-linux zsh
 

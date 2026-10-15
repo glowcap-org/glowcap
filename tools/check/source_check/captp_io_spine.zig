@@ -94,11 +94,11 @@ pub fn check(
     // Readiness Pending rows are tagged unions. Flaggy `read_is_recv` /
     // `connecting` fields are deleted. Readiness backends share `BufferPool`.
     {
-        const native_readiness_paths = [_][]const u8{
+        const os_readiness_paths = [_][]const u8{
             "src/net/completion/epoll.zig",
             "src/net/completion/kqueue.zig",
         };
-        for (native_readiness_paths) |path| {
+        for (os_readiness_paths) |path| {
             const source = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
                 try appendViolation(gpa, violations, "{s}: failed to read for readiness Pending check with {s}", .{ path, @errorName(err) });
                 continue;
@@ -152,7 +152,10 @@ pub fn check(
         };
         if (root.access(io, "src/net/completion/readiness_backend.zig", .{})) |_| {
             try appendViolation(gpa, violations, "src/net/completion/readiness_backend.zig: file must not exist — rejected readiness mixin; share BufferPool + socket_tcp only", .{});
-        } else |_| {}
+        } else |err| switch (err) {
+            error.FileNotFound => {},
+            else => return err,
+        }
         const sock_paths = [_][]const u8{
             "src/net/completion/epoll.zig",
             "src/net/completion/kqueue.zig",
@@ -215,6 +218,7 @@ pub fn check(
         ".agents/rules/architecture.md",
         ".agents/rules/memory.md",
         ".agents/skills/memory-ledger/SKILL.md",
+        ".agents/skills/memory-ledger/references/transports.md",
         ".agents/rules/cli.md",
     };
     const ghosts = [_]struct { needle: []const u8, reason: []const u8 }{

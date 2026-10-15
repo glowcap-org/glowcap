@@ -5,9 +5,8 @@
 //! Proto. It carries the same `model.Message` tree as length-prefixed records
 //! (`<...>`), lists (`[...]`), symbols, strings, and integers. The encode half
 //! lives in `encode` (`encodeMessage` and the `write*` primitives beneath it)
-//! and the decode half lives in `decode` (`decodeBody`, profile-aware
-//! `decodePrefix`, structural `framePrefix`, and `decodeOwned`, which is
-//! `decodeBody` followed by `model.view.Body.toOwned`). Both halves come out
+//! and the decode half lives in `decode` (`decodeBody` and `decodeOwned`,
+//! which is `decodeBody` followed by `model.view.Body.toOwned`). Both halves come out
 //! through the `syrup` barrel in `mod.zig`, and `codec.capnp` is the
 //! word-aligned counterpart with the same decode/encode/shared split.
 //!
@@ -57,20 +56,14 @@ pub const Error = error{
     /// terminating an embedding process.
     EncoderInvariantViolation,
     /// The buffer ends inside a message, a leaf reader ran past the available
-    /// bytes. This is an internal framing signal, not a public decode failure:
-    /// the whole-frame `decodeBody` folds it into `MalformedFrame` (a frame
-    /// must be complete), while the streaming `decodePrefix` surfaces it as
-    /// `.incomplete` so the caller reads more bytes. No structurally-valid
-    /// frame ever yields it from `decodeBody`.
+    /// bytes. This is an internal signal, not a public decode failure: the
+    /// whole-frame `decodeBody` folds it into `MalformedFrame`, because a frame
+    /// must be complete. No structurally valid frame ever yields it.
     Incomplete,
-    /// The in-flight message cannot fit inside the streaming byte cap, a
-    /// length prefix declared a body past `max_frame_bytes`, or the decode walk
-    /// crossed it. Like `Incomplete`, this is an internal framing signal: only
-    /// `decodePrefix` can raise it (it threads the cap into the walk per
-    /// ADR-0029) and it surfaces as the `.too_large` verdict. Whole-frame entry
-    /// points decode uncapped and never yield it.
-    FrameTooLarge,
 };
+
+/// Shared UTF-8 validation for text entering or leaving Syrup.
+pub const textValid = foundation.utf8.valid;
 
 /// The error set of the mutually-recursive encode/decode walkers, the encoder
 /// cycle, where `writeArgument`, `writeArgumentList`, and `writeCanonicalSet`
@@ -79,10 +72,9 @@ pub const Error = error{
 /// these would otherwise have to fall back to the fully-erased error set and lose
 /// exhaustiveness at every call site. Naming the union, the codec's structural
 /// `Error`, the allocator's `OutOfMemory`, and `NoSpaceLeft`, keeps them
-/// typed. (`NoSpaceLeft` is unreachable: unsigned decimal write is
-/// hand-rolled into a 20-byte stack buffer sized for a u64. The name stays so
-/// WalkError callers do not churn.)
-pub const WalkError = Error || std.mem.Allocator.Error || error{NoSpaceLeft};
+/// typed. (`NoSpaceLeft` is unreachable: a sink lays a decimal down at its
+/// measured width. The name stays so WalkError callers do not churn.)
+pub const WalkError = Error || std.mem.Allocator.Error || error{NoSpaceLeft} || model.view.ProjectError;
 
 /// The public encode entry points' error set: the recursive walk's `WalkError`
 /// plus the frame constructor's shape refusal, the same named-set posture as

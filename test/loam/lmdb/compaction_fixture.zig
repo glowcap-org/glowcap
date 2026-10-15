@@ -1,4 +1,4 @@
-//! A reclaimed native store retains a cyclic graph and exact logical metadata.
+//! A reclaimed LMDB store retains a cyclic graph and exact logical metadata.
 const std = @import("std");
 const core = @import("loam_core");
 const Lmdb = @import("loam_lmdb").Lmdb;

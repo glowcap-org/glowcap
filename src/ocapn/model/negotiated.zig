@@ -47,7 +47,7 @@ pub const Preference = struct {
 
     /// Glowcap's coherent peer-to-peer preference. Applications select this
     /// as one profile rather than pairing its codec and CapTP version by hand.
-    pub const native: Preference = .{
+    pub const glowcap: Preference = .{
         .captp_version = .next,
         .codec = .capnp,
         .features = FeatureSet.full(),
@@ -142,7 +142,7 @@ pub const FeatureSet = packed struct {
         };
     }
 
-    /// Full glowcap-native feature set: every feature field, driven off the
+    /// Full glowcap feature set: every feature field, driven off the
     /// field list itself so a new feature joins automatically.
     pub fn full() FeatureSet {
         var out: FeatureSet = .{};

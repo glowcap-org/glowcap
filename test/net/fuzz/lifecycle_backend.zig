@@ -37,7 +37,7 @@ pub fn buildHello(allocator: std.mem.Allocator) void {
     var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
     defer client.deinit();
     client.session_state.limits.max_frame_bytes = frame_cap;
-    client.sendCopying(handshake.startSession(net.tcp.plain.transport_name, "client")) catch return;
+    client.sendBorrowed(handshake.startSession(net.tcp.plain.transport_name, "client")) catch return;
     var at: usize = 0;
     while ((client.step() catch return) != .idle) {}
     while (client.takeOutbound()) |frame_value| {
@@ -275,6 +275,11 @@ pub const LifecycleBackend = struct {
 
     pub fn recycleBorrowed(self: *LifecycleBackend, comp: completion.Completion) void {
         _ = .{ self, comp };
+    }
+
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *LifecycleBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
     }
 
     pub fn poll(self: *LifecycleBackend, out: []completion.Completion, timeout_ms: i32) !usize {

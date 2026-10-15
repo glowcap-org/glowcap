@@ -8,7 +8,7 @@
 //! keyed handshake: `offer(sdp)` returns the exporter's SDP answer, `candidate`
 //! applies one trickled ICE candidate, and `poll` returns the exporter's next
 //! locally gathered candidate (or ""). Channel establishment is driven through
-//! the resident readiness fd, so no native driver parks on an open wait.
+//! the resident readiness fd, so no Zig driver parks on an open wait.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -24,6 +24,9 @@ const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
 
 /// The CapTP signaling session must carry one bounded WebRTC SDP or ICE string.
+/// The stdio signaling wire the standalone peers speak with a harness.
+pub const stdio = @import("webrtc_common/stdio.zig");
+
 pub const signaling_frame_bytes: usize = webrtc.max_signal_bytes;
 
 pub fn hostFromSeed(allocator: std.mem.Allocator, durable_seed: [crypto.SEED_BYTES]u8, frame_cap: usize) !Host {
@@ -346,6 +349,10 @@ pub fn atomicFlagDone(ctx: *anyopaque) bool {
     return done.load(.acquire);
 }
 
+/// Serve `session` until `done` holds, then flush what it queued. Keep
+/// `timeout_ms` well under the step's process deadline: when the partner has
+/// already failed, this wait running out is what lets the run report the
+/// partner's error instead of being killed with none.
 pub fn serveUntil(
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
@@ -395,18 +402,19 @@ pub const SignalingInbox = struct {
     peer: *webrtc.Peer,
     response_buf: [signaling_frame_bytes]u8 = undefined,
 
-    pub fn handle(self: *SignalingInbox, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *SignalingInbox, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
         _ = turn;
         if (std.mem.eql(u8, verb, "offer")) {
-            if (args.len != 1) return error.BadSignalingCall;
-            const sdp = strArg(args[0]) orelse return error.BadSignalingCall;
+            if (arg_values.len != 1) return error.BadSignalingCall;
+            const sdp = strArg(arg_values[0]) orelse return error.BadSignalingCall;
             try self.peer.setRemoteOffer(sdp);
             var len: usize = 0;
             return .{ .string = try self.peer.createAnswer(&self.response_buf, &len) };
         }
         if (std.mem.eql(u8, verb, "candidate")) {
-            if (args.len != 1) return error.BadSignalingCall;
-            try self.peer.addRemoteCandidate(strArg(args[0]) orelse return error.BadSignalingCall);
+            if (arg_values.len != 1) return error.BadSignalingCall;
+            try self.peer.addRemoteCandidate(strArg(arg_values[0]) orelse return error.BadSignalingCall);
             return .{ .string = "" };
         }
         if (std.mem.eql(u8, verb, "poll")) {

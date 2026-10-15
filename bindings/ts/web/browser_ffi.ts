@@ -2,7 +2,7 @@
 //
 // The wasm adapter resolves every symbol from one WebAssembly instance, so a
 // library pathname has no meaning here. Browser bundle configs map the FFI
-// subpath to this file at build time; the native archive resolver therefore
+// subpath to this file at build time; the FFI archive resolver therefore
 // stays out of the browser module graph instead of arriving behind Node stubs.
 
 export * from "../runtime/internal/ffi/surface.ts";

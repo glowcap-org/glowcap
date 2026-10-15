@@ -181,7 +181,7 @@ test "an application settling listener follows a remote promise shortening" {
     try peer.recvBorrowed(settlement.view());
     var event = peer.pollEvent().?;
     defer event.deinit();
-    const resolved = try event.view();
+    const resolved = event.view();
     try std.testing.expectEqual(answer, resolved.resolve.answer);
 }
 
@@ -252,7 +252,7 @@ test "converging remote promises share one settling callback across local answer
     try peer.recvBorrowed(settlement.view());
     var event = peer.pollEvent().?;
     defer event.deinit();
-    const resolved = try event.view();
+    const resolved = event.view();
     try std.testing.expectEqual(answer_six, resolved.resolve.answer);
     try std.testing.expectEqualSlices(model.AnswerPosition, &.{answer_five}, event.resolveAliases());
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.outboundAnswer(answer_five).?.status);
@@ -305,7 +305,7 @@ test "converged settling callback promotes or removes a released local answer" {
 
         const released = if (release_primary) answer_six else answer_five;
         const survivor = if (release_primary) answer_five else answer_six;
-        try peer.sendCopying(.{ .gc_answer = .{ .positions = &.{released.int()} } });
+        try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &.{released.int()} } });
         while ((try peer.step()) != .idle) {}
         while (peer.takeOutbound()) |frame_in| {
             var frame = frame_in;
@@ -324,7 +324,7 @@ test "converged settling callback promotes or removes a released local answer" {
         try peer.recvBorrowed(settlement.view());
         var event = peer.pollEvent().?;
         defer event.deinit();
-        const resolved = try event.view();
+        const resolved = event.view();
         try std.testing.expectEqual(survivor, resolved.resolve.answer);
         try std.testing.expectEqual(@as(usize, 0), event.resolveAliases().len);
     }
@@ -352,7 +352,7 @@ test "a settling callback racing answer release is consumed and its imports are 
         frame.deinit();
     }
 
-    try peer.sendCopying(.{ .gc_answer = .{ .positions = &.{answer.int()} } });
+    try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &.{answer.int()} } });
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -511,7 +511,7 @@ test "a settling listener follows shortening after its source import is released
         frame.deinit();
     }
 
-    try peer.sendCopying(.{ .gc_export = .{
+    try peer.sendBorrowed(.{ .gc_export = .{
         .positions = &.{5},
         .deltas = &.{1},
     } });
@@ -558,7 +558,7 @@ test "a settling listener follows shortening after its source import is released
     try peer.recvBorrowed(settlement.view());
     var event = peer.pollEvent().?;
     defer event.deinit();
-    const resolved = try event.view();
+    const resolved = event.view();
     try std.testing.expectEqual(answer, resolved.resolve.answer);
     try std.testing.expectEqual(@as(i64, 17), resolved.resolve.resolution.fulfill.integer);
 }
@@ -581,7 +581,7 @@ test "shortening does not rearm a settling listener after its answer is released
         frame.deinit();
     }
 
-    try peer.sendCopying(.{ .gc_answer = .{ .positions = &.{answer.int()} } });
+    try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &.{answer.int()} } });
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -641,6 +641,6 @@ test "a discarded shortening listener remains deduplicated until source release"
 
     const source_positions = [_]u64{5};
     const source_deltas = [_]u64{1};
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
+    try peer.sendBorrowed(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
     try std.testing.expect(peer.session_state.sourceForShorteningResolver(resolver) == null);
 }

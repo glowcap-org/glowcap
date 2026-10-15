@@ -4,7 +4,7 @@
 //! barrier cannot use a thread-local text slot as their machine contract:
 //! release destroys the owner, and rollback may add a second exact cause. This
 //! module owns the one Rust projection of that fixed C record, which
-//! `driver_loop::handle` fills through the loop it owns. Policy remains native.
+//! `driver_loop::handle` fills through the loop it owns. Policy remains FFI.
 
 use crate::sys::driver::GlowcapDriverFailure;
 use crate::{Error, Result};

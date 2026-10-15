@@ -90,7 +90,7 @@ system cannot, and `Ref::released` reports it.
   ones it knows about.
 - No new answer-position release. `op:gc-answers` is already explicit, and
   ADR-0063's reasoning for not wiring a promise-handle finalizer still holds.
-- The native Zig tier has the deterministic path (`Peer.sendGcExport`), which is
+- The Zig tier has the deterministic path (`Peer.sendGcExport`), which is
   why ADR-0063 excluded it from the finalizer work.
   `driver_core.Host.releaseImport` is what the C ABI calls, and a Zig consumer
   may call it too.

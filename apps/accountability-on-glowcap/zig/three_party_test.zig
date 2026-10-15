@@ -27,7 +27,7 @@ const opts: driver.SessionOptions = .{
 const Introducer = struct {
     target: driver.Capability,
 
-    pub fn handle(self: *Introducer, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Introducer, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = turn;
         _ = args;
         if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;

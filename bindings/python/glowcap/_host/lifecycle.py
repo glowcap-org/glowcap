@@ -51,9 +51,9 @@ class _LifecycleMixin(HostMixinBase):
     _loop: Optional[asyncio.AbstractEventLoop]
 
     def _adopt_driver_loop(self, loop: "DriverLoop") -> _HostFinalizerState:
-        """Commit native loop ownership after ``glowcap_driver_take_host``.
+        """Commit driver loop ownership after ``glowcap_driver_take_host``.
 
-        The native call is the transaction boundary. This method only updates
+        The FFI call is the transaction boundary. This method only updates
         Python ownership after that call has returned success, so every failed
         adoption leaves the byte-fed Host and its finalizer untouched.
         """
@@ -67,9 +67,9 @@ class _LifecycleMixin(HostMixinBase):
         return self._finalizer_state
 
     def _driver_did_release(self) -> None:
-        """Finish Python ownership after the driver freed the native Host.
+        """Finish Python ownership after the driver freed the FFI Host.
 
-        Host transfer moves the native release authority into ``DriverLoop``,
+        Host transfer moves the FFI release authority into ``DriverLoop``,
         but the wrapper still owns callback registrations and the allocation
         context borrow. They must outlive ``glowcap_driver_release`` and then
         retire exactly once.
@@ -78,7 +78,7 @@ class _LifecycleMixin(HostMixinBase):
             return
         self._release_started = True
         for session in list(self._sessions.values()):
-            session._native_owner_did_release()
+            session._ffi_owner_did_release()
         self._sessions.clear()
         _trace._detach_host(self)
         self._gc.retire()
@@ -175,7 +175,7 @@ class _LifecycleMixin(HostMixinBase):
         keep: list = []
         try:
             c_arg = _arg_to_c(value, keep)
-        except Exception as error:  # noqa: BLE001 — marshalling failure breaks the answer
+        except Exception as error:  # noqa: BLE001 - marshalling failure breaks the answer
             self._break_resolver(resolver, str(error) or type(error).__name__)
             return
         if (
@@ -204,7 +204,7 @@ class _LifecycleMixin(HostMixinBase):
     def _finish_release(self) -> None:
         if not self._raw:
             return
-        # A loop-adopted host has no finalizer: the native handle belongs to
+        # A loop-adopted host has no finalizer: the FFI handle belongs to
         # the DriverLoop, and `_begin_release` already refused this path.
         assert self._finalizer is not None and self._finalizer_state is not None
         finalizer = self._finalizer
@@ -214,7 +214,7 @@ class _LifecycleMixin(HostMixinBase):
             try:
                 _release_finalizer_state(state, checked=True)
             finally:
-                # A teardown failure consumes the native Host. Only a
+                # A teardown failure consumes the FFI Host. Only a
                 # pre-commit INVALID_ARGUMENT refusal leaves state.raw live.
                 if not state.raw:
                     finalizer.detach()
@@ -231,7 +231,7 @@ class _LifecycleMixin(HostMixinBase):
 
     def arm_close_activity(self) -> None:
         """Arm the shared close-activity waiter. A close driver arms before it
-        reads native progress (the lost-wakeup discipline): a state advance
+        reads FFI progress (the lost-wakeup discipline): a state advance
         landing after the arm sets the event and wakes :meth:`wait_close_wake`,
         and one landing before it is visible to the progress read that
         follows. Wake-all: setting the event wakes every parked driver.
@@ -239,7 +239,7 @@ class _LifecycleMixin(HostMixinBase):
         self._close_activity.clear()
 
     def signal_close_activity(self) -> None:
-        """Wake every parked close driver. Called after a native verb that can
+        """Wake every parked close driver. Called after an FFI verb that can
         advance close-relevant state returns: a byte feed, a drained action
         batch, a resolver settle, a close call (escalation), or a session
         release. Over-signaling is harmless because the drivers re-check
@@ -248,7 +248,7 @@ class _LifecycleMixin(HostMixinBase):
 
     def _close_wait_ms(self) -> int:
         """The longest a close driver may wait before re-polling progress:
-        milliseconds to the nearest native FINISH grace deadline (the Host's
+        milliseconds to the nearest FFI FINISH grace deadline (the Host's
         own or any session's), or -1 when none is pending and only activity
         can advance terminal progress."""
         raw = self._raw
@@ -261,7 +261,7 @@ class _LifecycleMixin(HostMixinBase):
         return out.value
 
     async def wait_close_wake(self) -> None:
-        """Park a close driver until host activity or the nearest native
+        """Park a close driver until host activity or the nearest FFI
         FINISH grace deadline. With no finite deadline pending the driver
         parks on activity alone. The caller armed the activity event before
         its progress read. Binding-internal: :meth:`_drive_release` and the

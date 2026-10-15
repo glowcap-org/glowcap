@@ -10,6 +10,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const promise_capture = @import("../../support/capture.zig");
 
 const harness = @import("harness.zig");
@@ -21,7 +22,7 @@ const SendThen = struct {
     target: actors.Ref,
     broke: ?*bool = null,
 
-    pub fn handle(self: *SendThen, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *SendThen, turn: *Turn, msg: Delivery) !model.Argument {
         const vow = try turn.send(self.target, .{ .verb = "increment" });
         if (self.broke) |flag| try turn.vat.on(vow, .{ .ctx = flag, .func = promise_capture.captureBroken });
         try turn.tell(self.target, .{ .verb = "increment" });
@@ -34,7 +35,7 @@ const SendThen = struct {
 const CatchInner = struct {
     inner: actors.Ref,
 
-    pub fn handle(self: *CatchInner, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *CatchInner, turn: *Turn, msg: Delivery) !model.Argument {
         _ = msg;
         _ = turn.near(self.inner, .{ .verb = "fail" }) catch {};
         return .{ .void = {} };
@@ -148,7 +149,7 @@ test "a failed turn detaches all effects before a broken send listener reenters"
     const Enroll = struct {
         effect: *Effect,
         listener: ?*Reenter = null,
-        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
             try turn.vat.enrollTurn(.{ .ctx = self.effect, .commit = Effect.commit, .abort = Effect.abort });
             if (self.listener) |listener| {
                 const vow = try turn.send(listener.target, .{ .verb = "unused" });
@@ -195,7 +196,7 @@ test "turn failure notifications follow every participant's rollback" {
     };
     const Enroll = struct {
         effects: *[2]Effect,
-        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
             for (self.effects) |*effect| try turn.vat.enrollTurn(.{ .ctx = effect, .commit = Effect.commit, .abort = Effect.abort, .abort_notify = Effect.notify });
             return error.Refused;
         }
@@ -219,7 +220,7 @@ test "reply preservation failure retracts the turn before committing sends" {
         send_broken: *bool,
         bytes: [8192]u8 = @splat('x'),
 
-        pub fn handle(self: *@This(), turn: *Turn, msg: Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
             if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = 7 };
             const vow = try turn.send(self.target, .{ .verb = "increment" });
             try turn.vat.on(vow, .{ .ctx = self.send_broken, .func = promise_capture.captureBroken });
@@ -285,7 +286,7 @@ test "become promotion publishes replacement before destructor reentry" {
         drops: *usize,
         mode: Mode,
         subject: ?actors.Ref = null,
-        pub fn handle(_: *@This(), _: *Turn, _: Message) !model.Argument {
+        pub fn handle(_: *@This(), _: *Turn, _: Delivery) !model.Argument {
             return error.DiscardedStateRan;
         }
         pub fn deinit(self: *@This(), _: std.mem.Allocator) void {
@@ -302,7 +303,7 @@ test "become promotion publishes replacement before destructor reentry" {
     };
     const Replace = struct {
         cleanup: Cleanup,
-        pub fn handle(self: *@This(), turn: *Turn, msg: Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
             if (std.mem.eql(u8, msg.verb, "inner")) {
                 var cleanup = self.cleanup;
                 cleanup.subject = turn.me();

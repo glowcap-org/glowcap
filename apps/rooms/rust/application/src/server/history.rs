@@ -1,11 +1,12 @@
 //! What a room keeps of its own conversation, when this server keeps any.
-//! Retention is one policy with two ceilings: a room keeps its last five
-//! hundred lines, and the whole server keeps at most 4,096 lines across at
-//! most 256 rooms. A busy server therefore holds fewer than five hundred
-//! per room, and when the server-wide ceiling is reached the room whose
-//! last line is oldest is let go whole rather than trimmed. A backend only
-//! persists what this index admitted, in the JSON row form `encode_line`
-//! writes, so a history directory is portable between deployments.
+//! Retention is one policy with two ceilings: a room keeps its last
+//! [LINES_KEPT] lines, and the whole server keeps at most [LINES_KEPT_TOTAL]
+//! lines across at most [ROOMS_KEPT] rooms. Many busy rooms therefore hold
+//! fewer than [LINES_KEPT] each, and when the server-wide ceiling is reached
+//! the room whose last line is oldest is let go whole rather than trimmed.
+//! A backend only persists what this index admitted, in the JSON row form
+//! `encode_line` writes, so a history directory is portable between
+//! deployments.
 use crate::{
 	room::{inbox::MAX_NICK, line::MAX_LINE_BYTES},
 	server::document::MAX_DURABLE_ROOM,

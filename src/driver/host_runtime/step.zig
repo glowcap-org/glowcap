@@ -90,6 +90,8 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     if (self.terminal_failure) |failure| {
         return stepAfterTerminalFailure(self, timeout_ms, goal, failure);
     }
+    self.readTurnClock();
+    defer self.turn_ms = null;
     const open_wires = self.open_wire_count;
     try Internal.progressSessionCloses(self);
     try Internal.progressClose(self, .operational);
@@ -110,6 +112,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     const index = try Internal.waitAnySource(self, timeout_ms, true) orelse {
         // The park may have ended on a staged operation's clamped deadline;
         // settle it now rather than a step later.
+        self.readTurnClock();
         try Internal.advancePendingOpens(self);
         Internal.advancePendingListeners(self);
         try Internal.progressSessionCloses(self);
@@ -117,6 +120,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
         nudgeIfWorkRemains(self);
         return null;
     };
+    self.readTurnClock();
     _ = try Internal.serviceResident(self, index, null);
     try self.drainActions();
     try Internal.advancePendingOpens(self);
@@ -221,6 +225,69 @@ pub fn nudgeIfWorkRemains(self: *HostRuntime) void {
     }
 }
 
+/// The turn is ending: every resident hands its staged sends to the kernel
+/// now, in one batch per resident, and before a park its re-armed receives
+/// too. A stepped turn ends before the embedder's park.
+pub fn flushResidents(self: *HostRuntime, after: net.multiplexed_resident.AfterTurn) void {
+    for (self.residents.items) |registered| registered.resident.beforeWait(after);
+}
+
+/// The first resident at or after `start` holding a record, or null.
+pub fn readyResident(self: *HostRuntime, start: usize) ?usize {
+    const residents = self.residents.items.len;
+    for (0..residents) |k| {
+        const index = (start + k) % residents;
+        if (self.residents.items[index].resident.readyPending()) return index;
+    }
+    return null;
+}
+
+/// Spin for the runtime's busy-poll window, or for `timeout_ms` when that
+/// is shorter: reap every resident without a submit and return the first
+/// that holds a record, starting the round at `start`. The time spent comes
+/// off `timeout_ms`, so the park that follows keeps the caller's bound.
+pub fn spinForRecords(self: *HostRuntime, start: usize, timeout_ms: *i32) ?usize {
+    const residents = self.residents.items.len;
+    // Spin for a short window checking for work before asking the kernel to
+    // put this thread to sleep. Waking a sleeping thread costs more than the
+    // spin when a reply is expected within microseconds (ADR-0215). The spin
+    // is opt-in and keeps a core busy, so it pays off only for quick replies.
+    var window_ns: i64 = @intCast(@min(self.opts.busy_poll_ns, std.math.maxInt(i64)));
+    if (timeout_ms.* >= 0) window_ns = @min(window_ns, @as(i64, timeout_ms.*) * std.time.ns_per_ms);
+    const started = net.clock.nowMonotonicNs();
+    defer if (timeout_ms.* > 0) {
+        const spent_ms = @divFloor(net.clock.nowMonotonicNs() - started, std.time.ns_per_ms);
+        timeout_ms.* -= @intCast(@min(spent_ms, timeout_ms.*));
+    };
+    while (net.clock.nowMonotonicNs() - started < window_ns) {
+        for (0..residents) |k| {
+            const index = (start + k) % residents;
+            const resident = self.residents.items[index].resident;
+            resident.reap();
+            if (resident.readyPending()) return index;
+        }
+        std.atomic.spinLoopHint();
+    }
+    return null;
+}
+
+/// A resident that reaped completions inside a verb holds records no
+/// descriptor reports. A stepped embedder parks on the readiness descriptor
+/// next, so the runtime raises it whenever a resident holds such records as
+/// the outermost verb returns. The blocking face asks the same question
+/// before its own park (`waitAnySource`).
+pub fn publishResidentRecords(self: *HostRuntime) void {
+    const rs = switch (self.drive) {
+        .blocking => return,
+        .stepped => |*stepped| &stepped.ready_set,
+    };
+    for (self.residents.items) |registered| {
+        if (!registered.resident.readyPending()) continue;
+        rs.postWake() catch |err| self.noteTerminalFailure(err);
+        return;
+    }
+}
+
 /// The longest a nonblocking embedder may park on readiness before its
 /// next zero-timeout step: milliseconds until the nearest pending-work
 /// deadline (the close grace, a session's close grace, a dial or listener
@@ -234,7 +301,7 @@ pub fn stepWaitMs(self: *const HostRuntime) i32 {
 /// Bound a park by the nearest pending operation deadline, so an expiry is
 /// noticed by the wait that spans it rather than the next external event.
 pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 {
-    const now_ms = net.clock.nowMs(self.io);
+    const now_ms = self.nowMs();
     const core_wait = self.core.closeWaitMs(now_ms);
     var nearest_wait: ?i64 = if (core_wait >= 0) core_wait else null;
     for (self.pending_opens.items) |row| {

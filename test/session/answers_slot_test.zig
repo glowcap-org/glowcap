@@ -65,7 +65,7 @@ test "AnswerCell carries status independently of wire position" {
 
 test "InboundAnswerTable stores wire and virtual names independently" {
     const allocator = std.testing.allocator;
-    var table: answers.InboundAnswerTable = .empty;
+    var table: answers.InboundAnswerTable = .keyed(glowcap.foundation.identity_hash.default_multiplier);
     defer table.deinit(allocator);
 
     const wire = model.AnswerName.fromWire(.from(11));

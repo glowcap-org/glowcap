@@ -122,9 +122,10 @@ pub(super) async fn run(host: &Host, owner: &managed::Session<Platform>, source:
 			.directory_reader("acquired")
 			.await
 			.unwrap()
-			.list()
+			.list(None)
 			.await
 			.unwrap()
+			.rooms
 			.is_empty()
 	);
 	assert!(

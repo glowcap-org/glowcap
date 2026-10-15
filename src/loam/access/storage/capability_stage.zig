@@ -22,10 +22,13 @@ pub fn create(read: *Read, grant: core.GrantId, powers: ?core.Control.Powers, ro
     try read.opened();
     if (read.store.phase != .staging) return error.WrongPhase;
     var grants = try read.grantView();
-    const current = try grants.get(grant);
-    if (powers) |control| {
-        var resources = try read.resourceView();
-        try core.Control.validate(&resources, &read.header.policy, current.ceiling, control);
+    {
+        const current = try grants.borrow(grant);
+        defer grants.release();
+        if (powers) |control| {
+            var resources = try read.resourceView();
+            try core.Control.validate(&resources, &read.header.policy, current.ceiling, control);
+        }
     }
     const binding = (try read.binding(.{ .grant = grant })).?;
     const grant_row = (try Read.rowFor(read.store, binding) orelse return error.Gone).view;

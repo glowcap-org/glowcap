@@ -68,6 +68,38 @@ test "loam re-proposals compose at full mutation capacity without admitting anot
     try std.testing.expectEqualStrings("settled", (try store.view(lease)).payload);
 }
 
+test "loam commit verifies introduced edges and kept edges to a record the batch removes" {
+    var fixture = try f.Fixture.init(std.testing.allocator);
+    defer fixture.deinit();
+    const store = &fixture.store;
+    try store.begin();
+    const a = try store.allocateId();
+    const b = try store.allocateId();
+    var first = f.record(a, "first");
+    first.rooted = true;
+    first.edges = &.{.{ .target = b }};
+    try store.putCopying(first, null);
+    try store.putCopying(f.record(b, "second"), null);
+    try f.commit(store, &fixture.backend);
+    try store.begin();
+    const missing = try store.allocateId();
+    var rewritten = f.record(a, "rewritten");
+    rewritten.rooted = true;
+    rewritten.edges = &.{ .{ .target = b }, .{ .target = missing } };
+    try store.putCopying(rewritten, 1);
+    try std.testing.expectError(error.DanglingReference, f.commit(store, &fixture.backend));
+    try store.begin();
+    rewritten.edges = &.{.{ .target = b }};
+    try store.putCopying(rewritten, 1);
+    try store.remove(b, 1);
+    try std.testing.expectError(error.DanglingReference, f.commit(store, &fixture.backend));
+    try store.begin();
+    try store.putCopying(rewritten, 1);
+    try f.commit(store, &fixture.backend);
+    try std.testing.expectEqual(@as(u64, 2), store.metadata.objects);
+    try std.testing.expectEqual(@as(u64, 2), store.metadata.revision);
+}
+
 test "loam graph commits a rooted cycle without recursively loading targets" {
     var fixture = try f.Fixture.init(std.testing.allocator);
     defer fixture.deinit();
@@ -261,7 +293,7 @@ test "loam leases and completions cannot alias another store or opening" {
     try std.testing.expectError(error.InvalidLease, store.release(foreign));
     try store.release(old_lease);
     try store.deinit();
-    fixture.backend.close();
+    try fixture.backend.close();
     store.* = try core.Store.init(std.testing.allocator, try fixture.backend.open(), &f.schemas, f.limits);
     const new_read = (try store.acquire(id)).read;
     try std.testing.expectEqual(old_read.ticket.sequence, new_read.ticket.sequence);

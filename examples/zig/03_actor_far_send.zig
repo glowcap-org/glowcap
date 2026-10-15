@@ -22,7 +22,7 @@ const actors = glowcap.actors;
 const Greeter = struct {
     greeting: []const u8,
 
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
         // A partner chooses the arity, so read the argument through the
         // accessor: a `greet` with no argument breaks its own answer instead of

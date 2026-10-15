@@ -1,17 +1,25 @@
+---
+type: static
+description: How to join a Spritely Goblins vat to a Rooms room alongside glowcap peers.
+sources:
+  - resource: /apps/rooms/demos/
+  - resource: /apps/rooms/web/
+  - resource: /conformance/goblins-peer/
+---
+
 # Bringing a Spritely Goblins vat into the room
 
 A [Spritely Goblins](https://spritely.institute/goblins/) vat can join the same Rooms room as glowcap peers. The
-peers in the [development guide](developing.md) are all glowcap, and they talk to each other on glowcap's own wire
-profile. A Goblins vat speaks the OCapN v1.0 baseline instead. Each connection settles its own profile from what its two
-ends offer, so the Goblins member uses the baseline while the glowcap members keep using the native profile with each
-other.
+peers in the [development guide](developing.md) all talk to each other on glowcap's own wire profile. A Goblins vat
+speaks the OCapN v1.0 baseline instead. Each connection settles its profile from what its two ends offer, so the
+Goblins member uses the baseline while the glowcap members keep glowcap's own profile with each other.
 
-Watching this takes three terminals and a browser.
+This walkthrough takes three terminals and a browser.
 
-First, start the browser UI with the live timeline turned on. This walkthrough uses the cleartext TCP testing adapter,
-the shortest path, because it needs no extra transport process. (The repository also has an iroh netlayer for Goblins,
-used by the automated encrypted scenario. It is an adapter kept here, not a transport Goblins ships.) The TCP Rooms
-server listens on port 9099:
+First, start the browser UI with the live timeline turned on. It uses the cleartext TCP testing adapter because that
+needs no extra transport process. (The repository also has an iroh netlayer for Goblins, used by the automated
+encrypted scenario. It is an adapter kept here, not a transport Goblins ships.) The TCP Rooms server listens on port
+9099:
 
 ```sh
 zig build rooms-web -Dtransport=tcp -- --trace
@@ -39,8 +47,7 @@ quits. Anything else you type is a line in the room. The trailing `9200` is the 
 which is where other members reach it privately.
 
 What you type appears in the browser, and what the browser types appears here. On the viewer's stage, the new session
-is labeled `goblins-carol` and drawn on `syrup/v1_0`, while yours stays on `capnp/next`. That is one room with two
-implementations, and each connection uses the profile its own two ends agreed on.
+is labeled `goblins-carol` and drawn on `syrup/v1_0`, while yours stays on `capnp/next`.
 
 `zig build goblins-rooms` runs the same meeting without the browser and checks it. A scripted Goblins vat and a glowcap
 client exchange lines in one room, and the server's trace must show both profiles. The scripted member is

@@ -14,7 +14,7 @@ export interface HostFinalizerState {
 	diagnosticId: bigint;
 	/** Process-global trampoline rows owned by this Host. */
 	behaviorIds: Set<bigint>;
-	/** Allocation policy retained until native Host release consumes ownership. */
+	/** Allocation policy retained until FFI Host release consumes ownership. */
 	context: Context | null;
 	releaseFailureReported: boolean;
 	retry?: FinalizerRetry;
@@ -40,7 +40,7 @@ export function releaseHostState(
 		retireHostFinalizerState(state);
 		return;
 	}
-	const failure = new GlowcapError(rc, hostLastError() ?? `native Host release failed (code ${rc})`);
+	const failure = new GlowcapError(rc, hostLastError() ?? `FFI Host release failed (code ${rc})`);
 	const consumed = releaseConsumed(rc);
 	if (!checked && !state.releaseFailureReported && state.context != null) {
 		state.releaseFailureReported = true;

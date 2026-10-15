@@ -1,11 +1,11 @@
 // The WebRTC browser-peer proof in a REAL browser (ADR-0089). A headless
 // Chromium is the offerer: it bundles `@glowcap/web` (the wasm protocol core) and
 // `@glowcap/webrtc` (`RtcPeer` over RTCPeerConnection), brings up a DataChannel to
-// the native answerer (`answerer.zig`, over the `glowcap_webrtc_*` sidecar), and
+// the Zig answerer (`answerer.zig`, over the `glowcap_webrtc_*` sidecar), and
 // runs a full keyed OCapN session over that channel: fetch the answerer's
 // `greeter`, call `greet`, and check the reply.
 //
-// This is the browser twin of `webrtc-interop` (two native peers). There the
+// This is the browser twin of `webrtc-interop` (two Zig peers). There the
 // signaling is ferried in-process between two Zig peers; here it crosses a real
 // process and runtime boundary. This harness ferries it out of band over the
 // answerer's stdio, one JSON line each way, the stand-in for the OCapN
@@ -16,7 +16,7 @@
 // Signaling is relay-less: no STUN, no TURN. Both peers gather loopback/host
 // candidates on the same host and connect directly. The answerer includes its
 // loopback candidate; Chromium runs with mDNS host-candidate obfuscation
-// disabled so its host candidates are raw IPs the native peer can reach.
+// disabled so its host candidates are raw IPs the Zig peer can reach.
 //
 // Needs deno, the wasm module (`zig build wasm-driver`), the sidecar-linked
 // answerer (`zig build webrtc-answerer`, needs cargo), and a Playwright Chromium
@@ -34,7 +34,7 @@ const WASM = new URL("../../zig-out/wasm/glowcap_host.wasm", import.meta.url);
 const PROBE = new URL("./probe.ts", import.meta.url).pathname;
 const deadline = setTimeout(() => fail("browser-peer scenario timed out after 60s"), 60_000);
 
-// The native answerer: the sidecar-linked keyed server. Piped stdio carries
+// The Zig answerer: the sidecar-linked keyed server. Piped stdio carries
 // signaling.
 const answerer = new Deno.Command(ANSWERER, {
 	stdin: "piped",
@@ -68,7 +68,7 @@ try {
 		args: [
 			"--no-sandbox",
 			// Force raw host-IP candidates instead of Chromium's privacy mDNS
-			// (.local) names the native crate cannot resolve on loopback.
+			// (.local) names the Rust crate cannot resolve on loopback.
 			"--disable-features=WebRtcHideLocalIpsWithMdns",
 		],
 	});
@@ -115,7 +115,7 @@ try {
 
 	console.log(
 		"PASS: a real headless Chromium ran @glowcap/web + @glowcap/webrtc, brought up a " +
-			"DataChannel to the native answerer, and greeted it over a keyed OCapN session",
+			"DataChannel to the Zig answerer, and greeted it over a keyed OCapN session",
 	);
 } finally {
 	clearTimeout(deadline);

@@ -25,7 +25,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // The DM itself is `dm_tabs_proof.ts`'s scenario, run here for its
 // telemetry; that test owns the claim that the message arrives.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives,
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives,
 // and a Playwright Chromium (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web/dm_trace_proof.ts`.
 

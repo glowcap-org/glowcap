@@ -4,7 +4,7 @@
 ;;
 ;; Locator semantics belong to OCapN and transport realization belongs to the
 ;; selected product package. This module only chooses between two explicit
-;; seams: a driver-provider for a native loop or a byte-connector for a
+;; seams: a driver-provider for a driver loop or a byte-connector for a
 ;; byte-fed Host. It never classifies a locator into a transport-specific sum.
 ;;
 ;; Lazy-require breaks the session ↔ dial cycle: dial lazy-requires session
@@ -114,7 +114,7 @@
 
 ;; Construct one long-lived Host plus exactly one transport execution model.
 ;; Provider and connector values retain their own archive/configuration policy;
-;; connectors advertise the symbols this binding routes, while the native
+;; connectors advertise the symbols this binding routes, while the FFI
 ;; driver registry alone owns provider symbols.
 (define (open-runtime #:providers [providers #f]
                       #:connectors [connectors #f]
@@ -157,7 +157,7 @@
      (when (host-loop-of m)
        (unless adopted-host (host-close! m))
        (raise-glowcap 'open-runtime ERR-INVALID-ARGUMENT
-                      "a native-loop Host cannot be transferred to a connector Runtime"))
+                      "a driver-loop Host cannot be transferred to a connector Runtime"))
      ;; Validate the complete registry before mutating the Host, so installation
      ;; is transactional even when the caller supplied it.
      (for* ([connector (in-list connectors)]
@@ -195,7 +195,7 @@
                         #:pending [pending 'cancel]
                         #:grace-ms [grace-ms grace-unspecified])
   (unless (runtime? rt) (raise-argument-error 'runtime-close! "runtime?" rt))
-  ;; Every explicit request reaches the shared native barrier. In particular,
+  ;; Every explicit request reaches the shared FFI barrier. In particular,
   ;; a later cancel must be able to escalate an in-progress finish.
   (host-close! (runtime-host rt) #:pending pending #:grace-ms grace-ms))
 

@@ -5,7 +5,7 @@
 // to argv. Each client configures an unusable local fallback, so success proves
 // the target's advertised relay route selected the bridge.
 //
-// Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts [--native-wss] -- <client argv...>
+// Run: deno run -A bindings/proofs/keyed_relay_rendezvous/harness.ts [--wss] -- <client argv...>
 
 import { awaitMarker, fail, runProofOrFail } from "../_support/harness.ts";
 
@@ -21,10 +21,10 @@ const installedArchiveEnv = {
 
 const sep = Deno.args.indexOf("--");
 const harnessArgs = sep === -1 ? [...Deno.args] : Deno.args.slice(0, sep);
-if (harnessArgs.some((arg) => arg !== "--native-wss")) {
-	fail(`unknown harness option: ${harnessArgs.find((arg) => arg !== "--native-wss")}`);
+if (harnessArgs.some((arg) => arg !== "--wss")) {
+	fail(`unknown harness option: ${harnessArgs.find((arg) => arg !== "--wss")}`);
 }
-const nativeWss = harnessArgs.includes("--native-wss");
+const overWss = harnessArgs.includes("--wss");
 const clientArgv = sep === -1 ? [...Deno.args] : Deno.args.slice(sep + 1);
 if (clientArgv.length === 0) fail("harness needs a client argv after --");
 
@@ -45,7 +45,7 @@ const clientCode = await runProofOrFail({
 			"0",
 		],
 		cwd: ROOT,
-		env: nativeWss
+		env: overWss
 			? {
 				...installedArchiveEnv,
 				GLOWCAP_RELAY_TLS_CERT: TLS_CERT,
@@ -56,12 +56,12 @@ const clientCode = await runProofOrFail({
 		stderr: "inherit",
 	});
 	const relayPort = await awaitMarker(relay, "DENO-RELAY-READY", "relay");
-	const relayUrl = `${nativeWss ? "wss" : "ws"}://localhost:${relayPort}/relay`;
+	const relayUrl = `${overWss ? "wss" : "ws"}://localhost:${relayPort}/relay`;
 
 	const peer = processes.spawn("deno", {
 		args: [
 			"run",
-			...(nativeWss ? ["--unsafely-ignore-certificate-errors=localhost"] : []),
+			...(overWss ? ["--unsafely-ignore-certificate-errors=localhost"] : []),
 			"--allow-net",
 			"--allow-ffi",
 			"--allow-env",
@@ -79,11 +79,11 @@ const clientCode = await runProofOrFail({
 	const client = processes.spawn(clientArgv[0], {
 		args: [...clientArgv.slice(1), locator],
 		cwd: ROOT,
-		env: nativeWss
+		env: overWss
 			? {
 				...installedArchiveEnv,
-				GLOWCAP_PROOF_NATIVE_RELAY_URL: relayUrl,
-				GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE: TLS_ROOT,
+				GLOWCAP_PROOF_WSS_RELAY_URL: relayUrl,
+				GLOWCAP_PROOF_WSS_RELAY_CA_FILE: TLS_ROOT,
 			}
 			: installedArchiveEnv,
 		stdout: "inherit",

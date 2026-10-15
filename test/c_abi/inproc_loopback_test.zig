@@ -1,12 +1,12 @@
 //! C-ABI frame-boundary loopback over the in-process endpoints, the socket-free
-//! sibling of `endpoint_loopback_test`. It proves the `glowcap_inproc_*` handles
+//! counterpart of `driver_loop/loopback_test.zig`. It proves the `glowcap_inproc_*` handles
 //! drive a real handshake + bootstrap fetch when the *host* owns the peer and
 //! shuttles frames itself, with two peers in one process wired by in-process
 //! pipes. The transport itself has no fd. The C listener adapter adds one
 //! `WakeChannel` so foreign runtimes can park a reactor without blocking it.
 //!
 //! The peers are `engine.Peer`s driven through the public Zig boundary
-//! (`recvStreamPrefix` / `takeOutbound`). The only thing under test that is new
+//! (`recvPacket` / `takeOutbound`). The only thing under test
 //! is the C inproc-endpoint surface bridging bytes to that boundary on a string
 //! designator instead of a host:port.
 
@@ -303,7 +303,7 @@ test "c-abi inproc readiness stays armed for every queued dial" {
     try std.testing.expectEqual(@as(usize, 0), try std.posix.poll(&pollfd, 0));
 }
 
-test "c-abi inproc release resolves a racing native accept" {
+test "c-abi inproc release resolves a racing Zig accept" {
     var netlayer: ?*ci.GlowcapInprocNetlayer = null;
     try std.testing.expectEqual(c.GLOWCAP_OK, ci.glowcap_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;

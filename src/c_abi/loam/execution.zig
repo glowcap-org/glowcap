@@ -1,7 +1,7 @@
 //! Synchronous transaction evaluation for embedding-owned atomic KV stores.
-//! A missing input suspends the batch cursor. Earlier writes stay in the same
-//! atomic transaction. Only get suspends. Put and remove consume bytes synchronously.
-//! Only a terminal database event can retire a plan and permit installation.
+//! A missing row or key walk suspends the batch, and earlier writes stay in the same transaction.
+//! Put and remove consume their bytes synchronously, and a returned row lasts until the next callback.
+//! Only a terminal database event retires a plan and permits installation.
 const std = @import("std");
 const common = @import("common.zig");
 const work = @import("work.zig");
@@ -11,10 +11,12 @@ pub const GlowcapLoamKvFn = *const fn (?*anyopaque, u32, ?[*]const u8, usize, ?*
 pub const Kv = struct {
     callback: GlowcapLoamKvFn,
     context: ?*anyopaque,
+    /// The key a walk last returned, kept so its row can be read back.
+    key: [core.max_key_bytes]u8 = undefined,
     fn call(self: *Kv, op: u32, key: []const u8, input: ?*const GlowcapLoamBytes, output: ?*GlowcapLoamBytes) !void {
         switch (self.callback(self.context, op, key.ptr, key.len, input, output)) {
             common.shared.GLOWCAP_OK => {},
-            common.shared.GLOWCAP_ERR_WOULD_BLOCK => return if (op == 0) error.RecordUnloaded else error.WriteWouldBlock,
+            common.shared.GLOWCAP_ERR_WOULD_BLOCK => return if (op == 0 or op == 3) error.RecordUnloaded else error.WriteWouldBlock,
             else => return error.StorageFailure,
         }
     }
@@ -32,10 +34,21 @@ pub const Kv = struct {
     pub fn remove(self: *Kv, key: []const u8) !void {
         try self.call(2, key, null, null);
     }
-    // This fixed-resource projection has no collection submission API. A
-    // future cursor projection must preserve bounded transaction-local walks.
-    pub fn next(_: *Kv, _: []const u8, _: ?[]const u8) !?core.CollectionRow {
-        return error.UnsupportedCollection;
+    /// The first row under `prefix` strictly after `after`, in key order. The
+    /// embedding answers the key and the row is read back through `get`.
+    pub fn next(self: *Kv, prefix: []const u8, after: ?[]const u8) !?core.CollectionRow {
+        const floor: GlowcapLoamBytes = if (after) |bytes| .{ .data = bytes.ptr, .len = bytes.len, .present = 1 } else .{};
+        var out: GlowcapLoamBytes = .{};
+        try self.call(3, prefix, &floor, &out);
+        if (out.present > 1) return error.InvalidArgument;
+        if (out.present == 0) return null;
+        const found = try common.slice(u8, out.data, out.len);
+        if (found.len == 0 or found.len > self.key.len or !std.mem.startsWith(u8, found, prefix)) return error.InvalidArgument;
+        if (after) |bytes| if (std.mem.order(u8, found, bytes) != .gt) return error.InvalidArgument;
+        @memcpy(self.key[0..found.len], found);
+        const key = self.key[0..found.len];
+        const value = (try self.get(key)) orelse return error.Corrupt;
+        return .{ .key = key, .value = value };
     }
 };
 pub fn claim(identity: []const u8, mode: core.OpenMode, previous: ?[]const u8) !core.Metadata {
@@ -47,20 +60,10 @@ pub fn claim(identity: []const u8, mode: core.OpenMode, previous: ?[]const u8) !
 pub fn plan(request: work.Request, evaluation: ?*core.Batch.Evaluation, kv: *Kv) !work.Result {
     return switch (request) {
         .write => .{ .write = .{ .committed = try evaluation.?.advance(kv) } },
-        .recover => |batch| .{ .recover = try batch.resolve(try metadata(kv)) },
+        .recover => |batch| .{ .recover = try batch.resolve(try core.backend.metadata(kv)) },
         .lookup => |lookup| .{ .lookup = try lookup.read(kv) },
-        .read => |read| blk: {
-            const meta = try metadata(kv);
-            if (meta.store != read.ticket.store or meta.incarnation != read.ticket.incarnation or meta.revision != read.ticket.revision) return error.StaleCompletion;
-            const bytes = (try kv.get(&read.id.key())) orelse break :blk .{ .read = .missing };
-            if (bytes.len > read.buffer.len) return error.RecordTooLarge;
-            @memcpy(read.buffer[0..bytes.len], bytes);
-            break :blk .{ .read = .{ .found = .{ .length = bytes.len, .metadata = meta } } };
-        },
+        .read => |read| .{ .read = try core.backend.readRecord(kv, read) },
     };
-}
-fn metadata(kv: *Kv) !core.Metadata {
-    return core.Metadata.decode((try kv.get(core.metadata_key)) orelse return error.Corrupt);
 }
 pub fn finish(request: work.Request, planned: ?work.Result, outcome: u32) !work.Result {
     return switch (outcome) {
@@ -77,49 +80,72 @@ pub fn finish(request: work.Request, planned: ?work.Result, outcome: u32) !work.
 }
 pub fn startupPlan(owner: *common.Store, recovery: bool, kv: *Kv) !void {
     if (owner.attachments != 0) return error.Busy;
-    if (owner.startup_result != null) return error.Busy;
-    const batch = if (recovery) try owner.value.recoveryBatch() else owner.startup_batch orelse blk: {
+    if (owner.store_result != null) return error.Busy;
+    if (recovery) {
+        const batch = try owner.value.recoveryBatch();
+        owner.store_result = try batch.resolve(try core.backend.metadata(kv));
+        return;
+    }
+    if (owner.store_batch) |batch| {
+        if (batch.collection != null) return error.Busy;
+    } else {
         const ticket = try owner.value.prepare();
-        const batch = try owner.value.beginWrite(ticket);
-        owner.startup_batch = batch;
-        break :blk batch;
-    };
-    if (!recovery and owner.startup_evaluation == null) owner.startup_evaluation = core.Batch.Evaluation.init(&owner.startup_batch.?);
-    const result: core.Resolution = if (recovery) try batch.resolve(try metadata(kv)) else .{ .committed = try owner.startup_evaluation.?.advance(kv) };
-    owner.startup_result = result;
+        owner.store_batch = try owner.value.beginWrite(ticket);
+    }
+    try evaluate(owner, kv);
+}
+/// Evaluate one bounded collection batch of at most `work_limit` steps plus the
+/// steps that finish its open unit. `startupFinish` retires it like a write, and
+/// a suspended startup write refuses it until that write is finished.
+pub fn collectPlan(owner: *common.Store, work_limit: usize, kv: *Kv) !void {
+    if (owner.attachments != 0) return error.Busy;
+    if (owner.store_result != null) return error.Busy;
+    if (owner.store_batch) |batch| {
+        if (batch.collection == null) return error.Busy;
+    } else {
+        const ticket = try owner.value.prepareCollection(work_limit);
+        owner.store_batch = try owner.value.beginWrite(ticket);
+    }
+    try evaluate(owner, kv);
+}
+fn evaluate(owner: *common.Store, kv: *Kv) !void {
+    if (owner.store_evaluation == null) owner.store_evaluation = core.Batch.Evaluation.init(&owner.store_batch.?);
+    // Advance into a local first, because a suspended step must leave no result.
+    const result: core.Resolution = .{ .committed = try owner.store_evaluation.?.advance(kv) };
+    owner.store_result = result;
 }
 pub fn startupFinish(owner: *common.Store, recovery: bool, outcome: u32) !void {
     if (owner.attachments != 0) return error.Busy;
     if (outcome > 2 or (recovery and outcome == 2)) return error.InvalidArgument;
     if (recovery) {
         if (outcome != 0) {
-            owner.startup_result = null;
+            owner.store_result = null;
             return error.RecoveryRequired;
         }
-        const result = owner.startup_result orelse return error.WorkerNotRetired;
+        const result = owner.store_result orelse return error.WorkerNotRetired;
         try owner.value.resolve((try owner.value.recoveryBatch()).ticket, result);
-        owner.startup_batch = null;
-        owner.startup_evaluation = null;
-        owner.startup_result = null;
+        owner.store_batch = null;
+        owner.store_evaluation = null;
+        owner.store_result = null;
         if (result == .unchanged) return error.WriteNotCommitted;
     } else {
-        const batch = owner.startup_batch orelse return error.StaleCompletion;
+        const batch = owner.store_batch orelse return error.StaleCompletion;
         const result: core.Outcome = switch (outcome) {
-            0 => .{ .committed = (owner.startup_result orelse return error.WorkerNotRetired).committed },
+            0 => .{ .committed = (owner.store_result orelse return error.WorkerNotRetired).committed },
             1 => .{ .unchanged = error.WriteNotCommitted },
             2 => .unknown,
             else => unreachable,
         };
         defer {
-            owner.startup_result = null;
-            owner.startup_evaluation = null;
+            owner.store_result = null;
+            owner.store_evaluation = null;
         }
         owner.value.completeWrite(batch.ticket, result) catch |err| {
-            if (owner.value.phase != .uncertain) owner.startup_batch = null;
+            if (owner.value.phase != .uncertain) owner.store_batch = null;
             return err;
         };
         if (owner.value.phase == .uncertain) return error.RecoveryRequired;
-        owner.startup_batch = null;
+        owner.store_batch = null;
         if (outcome == 1) return error.WriteNotCommitted;
     }
 }

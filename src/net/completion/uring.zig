@@ -1,7 +1,7 @@
 //! The Linux io_uring completion backend for `completion.Loop`.
 //!
 //! This file implements the completion-backend interface documented in
-//! `completion.Loop` (`loop.zig`). It provides the io_uring primitive and native
+//! `completion.Loop` (`loop.zig`). It provides the io_uring primitive and Zig
 //! TCP socket operations. All portable connection orchestration lives in
 //! `completion.Loop`, which is generic over this backend. Linux reaches this
 //! backend through `linux.zig`. That selector uses the epoll sibling when the
@@ -28,7 +28,6 @@ const IoUring = linux.IoUring;
 
 const completion = @import("loop.zig");
 const model = @import("model");
-const poll_wait = @import("../poll.zig");
 const socket_tcp = @import("socket_tcp.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
 const Listeners = @import("uring_listeners.zig").Listeners;
@@ -79,6 +78,12 @@ pub const Backend = struct {
     /// policy and arrives later through `openListener`.
     listener_ip4: [4]u8,
     listeners: Listeners = .{},
+    /// The first refused submission after a connect entry was queued. That
+    /// entry names a stack address the kernel copies only on a successful
+    /// submit, so once the submit refuses, nothing may hand the queue to the
+    /// kernel again: every later submit and poll reports this cause, and the
+    /// loop retires with it.
+    fault: ?anyerror = null,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -112,6 +117,10 @@ pub const Backend = struct {
         // a different Linux backend.
         var ring = IoUring.init(queue_entries, 0) catch |err| return classifyInitFailure(err);
         errdefer ring.deinit();
+        // `poll` waits inside the ring with a timeout, which the kernel takes
+        // as an extended enter argument from 5.11. The provided-buffer ring
+        // below needs 5.19, so this only keeps the refusal exact.
+        if (ring.features & linux.IORING_FEAT_EXT_ARG == 0) return error.IoUringSystemOutdated;
 
         // The kernel requires a power-of-two ring; round the requested pool up.
         const count = try std.math.ceilPowerOfTwo(u16, @max(read_buffers, 1));
@@ -160,24 +169,27 @@ pub const Backend = struct {
     /// Take a free SQE, flushing the submission queue to the kernel when it is
     /// full. A dispatch batch can arm more operations than the ring has SQ
     /// entries (each of up to 256 completions may arm a recv and a send), and
-    /// SQEs otherwise flush only in `poll`, so without this a busy batch would
+    /// SQEs otherwise flush only in `poll` and `flush`, so without this a busy batch would
     /// fail healthy submissions, closing live connections or, on the accept
     /// re-arm, killing the whole loop. The mid-batch flush is safe: the kernel
     /// buffers completion overflow, and `poll` still reaps everything.
     fn getSqe(self: *Backend) !*linux.io_uring_sqe {
+        if (self.fault) |err| return err;
         return self.ring.get_sqe() catch {
-            _ = try self.ring.submit();
+            try self.submitRing();
             return self.ring.get_sqe();
         };
     }
 
     /// Hand queued submissions to the kernel without reaping. Until then a
     /// submitted operation cannot complete, so `readinessFd` cannot report it.
+    /// An empty submission queue costs no syscall: the ring's shared head and
+    /// tail say whether anything waits, and an enter with nothing to submit
+    /// and nothing to wait for does no work.
     pub fn flush(self: *Backend) !void {
-        _ = self.ring.submit() catch |err| switch (err) {
-            error.SignalInterrupt => return,
-            else => return err,
-        };
+        if (self.fault) |err| return err;
+        if (self.ring.sq_ready() == 0) return;
+        try self.submitRing();
     }
 
     /// Nothing here waits on a timer: every completion arrives through the
@@ -224,8 +236,24 @@ pub const Backend = struct {
         sqe.prep_connect(fd, @ptrCast(&addr), @sizeOf(@TypeOf(addr)));
         sqe.user_data = user_data;
         // io_uring stores the sockaddr pointer in the SQE. Submit immediately so
-        // the kernel copies it before this stack frame goes away.
-        _ = try self.ring.submit();
+        // the kernel copies it before this stack frame goes away. A refusal
+        // leaves the entry queued with that address, so it latches `fault`.
+        self.submitRing() catch |err| {
+            self.fault = err;
+            return err;
+        };
+    }
+
+    /// Hand the submission queue to the kernel, retrying a signal interrupt,
+    /// which leaves the queue as it was.
+    fn submitRing(self: *Backend) !void {
+        while (true) {
+            _ = self.ring.submit() catch |err| switch (err) {
+                error.SignalInterrupt => continue,
+                else => return err,
+            };
+            return;
+        }
     }
 
     /// Arm a buffer-select recv: the kernel picks a pool buffer when data
@@ -310,30 +338,65 @@ pub const Backend = struct {
         IoUring.buf_ring_advance(self.buf_ring, 1);
     }
 
-    /// Flush queued submissions, wait for completions, and copy up to `out.len`
-    /// completions back to the server, surfacing each selected pool buffer as a
-    /// borrowed view. A negative `timeout_ms` blocks until at least one
-    /// completion. A non-negative value waits at most that many milliseconds and
-    /// returns 0 when nothing completes in time.
+    /// Flush queued submissions, reap, and otherwise wait inside the ring
+    /// for the first completion or `timeout_ms` (negative waits without
+    /// limit), copying up to `out.len` completions back with each selected
+    /// pool buffer as a borrowed view. The kernel runs the receive work it
+    /// owes this thread inside the wait, before it checks the queue, so a
+    /// reply that lands while the thread parks wakes it once. A poll on the
+    /// ring's descriptor would wake the thread once to run that work and
+    /// again for the completion it posts. A zero timeout submits and then
+    /// peeks: the completion ring is shared memory, so an empty ring is
+    /// final without a wait syscall. A signal ends the turn empty, and the
+    /// loop owns the deadline.
     pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
         if (self.listeners.close_ready.items.len != 0) {
             var produced: usize = 0;
             self.listeners.emitClosed(out, &produced);
             return produced;
         }
-        if (timeout_ms >= 0) {
-            _ = self.ring.submit() catch |err| switch (err) {
-                error.SignalInterrupt => return 0,
-                else => return err,
-            };
-            if (try self.drainCompletions(out)) |n| return n;
-            const ready = try waitForCompletion(self.ring.fd, timeout_ms);
-            if (ready == 0) return 0;
-        } else {
-            _ = self.ring.submit_and_wait(1) catch |err| switch (err) {
-                error.SignalInterrupt => return 0,
-                else => return err,
-            };
+        try self.flush();
+        if (try self.drainCompletions(out)) |n| return n;
+        if (timeout_ms == 0) return 0;
+        try self.waitInRing(timeout_ms);
+        return (try self.drainCompletions(out)) orelse 0;
+    }
+
+    fn waitInRing(self: *Backend, timeout_ms: i32) !void {
+        var ts: linux.kernel_timespec = .{
+            .sec = @divTrunc(timeout_ms, 1000),
+            .nsec = @as(i64, @mod(timeout_ms, 1000)) * std.time.ns_per_ms,
+        };
+        const arg: linux.io_uring_getevents_arg = .{
+            .sigmask = 0,
+            .sigmask_sz = 0,
+            .pad = 0,
+            .ts = if (timeout_ms < 0) 0 else @intFromPtr(&ts),
+        };
+        const res = linux.syscall6(
+            .io_uring_enter,
+            @as(u32, @bitCast(self.ring.fd)),
+            0,
+            1,
+            linux.IORING_ENTER_GETEVENTS | linux.IORING_ENTER_EXT_ARG,
+            @intFromPtr(&arg),
+            @sizeOf(linux.io_uring_getevents_arg),
+        );
+        switch (linux.errno(res)) {
+            .SUCCESS, .TIME, .INTR => {},
+            .BUSY => return error.CompletionQueueOvercommitted,
+            else => return error.IoUringWaitFailed,
+        }
+    }
+
+    /// Reap what the kernel has already completed and submit nothing, so a
+    /// caller that batches its submissions for one later `flush` can still
+    /// turn completions into state between verbs.
+    pub fn peek(self: *Backend, out: []completion.Completion) !usize {
+        if (self.listeners.close_ready.items.len != 0) {
+            var produced: usize = 0;
+            self.listeners.emitClosed(out, &produced);
+            return produced;
         }
         return (try self.drainCompletions(out)) orelse 0;
     }
@@ -455,18 +518,6 @@ pub const Backend = struct {
     }
 };
 
-fn waitForCompletion(fd: linux.fd_t, timeout_ms: i32) !usize {
-    var fds = [_]std.posix.pollfd{.{
-        .fd = fd,
-        .events = std.posix.POLL.IN,
-        .revents = 0,
-    }};
-    return poll_wait.waitInterruptible(&fds, timeout_ms) catch |err| switch (err) {
-        error.SignalInterrupt => 0,
-        else => return err,
-    };
-}
-
 const ListenerCancelDisposition = enum { resolved, wait_for_target };
 
 /// An exact async-cancel either retires the target, finds it already retired,
@@ -495,10 +546,6 @@ pub const white_box = if (builtin.is_test) struct {
 
     pub fn cancelResolved(result: i32) bool {
         return classifyListenerCancel(result) == .resolved;
-    }
-
-    pub fn waitForCompletionOnce(fd: linux.fd_t, timeout_ms: i32) !usize {
-        return waitForCompletion(fd, timeout_ms);
     }
 
     /// Drive one real loopback dial-and-accept through the backend and report

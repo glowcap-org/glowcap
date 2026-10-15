@@ -22,6 +22,7 @@ pub const VowLocation = vat.VowLocation;
 pub const ListenerReservation = vat.ListenerReservation;
 pub const ResolverPairReservation = vat.ResolverPairReservation;
 pub const Message = vat.Message;
+pub const Delivery = vat.Delivery;
 pub const OpaqueMessage = vat.OpaqueMessage;
 pub const IngressId = vat.IngressId;
 pub const QueueLimits = vat.QueueLimits;

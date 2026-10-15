@@ -117,13 +117,15 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 					match event {
 					Err(error) => break Err(error.into()),
 					Ok(None) => break Ok(()),
-					Ok(Some(policy::Incoming::Offer { id, description })) => {
+					Ok(Some(policy::Incoming::Offer { id, description, .. })) => {
+						// Not declined: the id names the exchange already being
+						// answered, and a decline would end that one.
 						if pending.contains_key(id.as_str()) {
 							accepted(Err(Error::Admission("duplicate Rooms WebRTC exchange")));
 							continue;
 						}
 						if pending.len() == MAX_PENDING_OFFERS {
-							accepted(Err(Error::Admission("too many pending Rooms WebRTC offers")));
+							accepted(Err(decline(&directory, &id, Error::Admission("too many pending Rooms WebRTC offers"))));
 							continue;
 						}
 						let (tx, candidates) = mpsc::channel(policy::MAX_EVENTS);
@@ -132,9 +134,9 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 						pending.insert(key.clone(), Pending { candidates: tx, budget: Arc::new(Semaphore::new(policy::MAX_EVENTS)), stop });
 						let (host, directory, config) = (host.clone(), directory.clone(), configuration());
 						workers.spawn_local(async move {
-							let offer = Offer { id, description, candidates, stop: stopping };
+							let offer = Offer { id: id.clone(), description, candidates, stop: stopping };
 							let result = answer(&host, &directory, offer, config, handshake).await;
-							(key, result)
+							(key, result.map_err(|refused| decline(&directory, &id, refused)))
 						});
 					},
 					Ok(Some(policy::Incoming::Candidate { id, candidate })) => {
@@ -179,6 +181,16 @@ impl<D: Deadline + Tasks + Clone + 'static> Listener<D> {
 			retirement,
 		}
 	}
+}
+
+/// Tell the member that offered `id` why this peer is not answering it, so
+/// it does not wait out the signaling deadline. A failure to tell it stays
+/// beside the refusal.
+fn decline<D: Deadline + Tasks + Clone + 'static>(directory: &Route<D>, id: &policy::Id, refused: Error) -> Error {
+	let declined = policy::Reason::parse(&refused.to_string())
+		.map_err(Error::from)
+		.and_then(|reason| directory.signal_decline(id, &reason).map_err(Error::from));
+	refused.retain(declined)
 }
 
 async fn stopped(stop: &mut watch::Receiver<Option<Stop>>) -> Stop {

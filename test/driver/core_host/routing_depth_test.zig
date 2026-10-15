@@ -11,7 +11,7 @@ const core = glowcap.driver.core;
 const actors = glowcap.actors;
 
 const LocalActor = struct {
-    pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Message) !model.Argument {
+    pub fn handle(_: *LocalActor, _: *actors.Turn, _: actors.Delivery) !model.Argument {
         return .{ .void = {} };
     }
 };

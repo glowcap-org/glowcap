@@ -4,7 +4,7 @@ use super::{Directory, StorageError, atomic, read};
 use crate::HostPlatform;
 use glowcap::{
 	Host, Result,
-	loam::{self, Limits, Store},
+	loam::{self, Limits, OpenMode, Sqlite, Store},
 };
 use rooms_runtime::session::managed::{Bootstrap, BootstrapOptions, Opened, schemas};
 use std::{num::NonZeroUsize, path::Path, sync::Arc};
@@ -32,16 +32,23 @@ impl Custody {
 	/// Load or initialize private metadata while retaining exclusive ownership.
 	pub fn prepare(self) -> Result<Prepared> {
 		let directory = self.directory;
-		for name in ["session.json", "effects.json", "grants.json"] {
+		for name in [
+			"session.json",
+			"effects.json",
+			"grants.json",
+			"loam/data.mdb",
+			"loam/lock.mdb",
+		] {
 			if directory
 				.path()
 				.join(name)
 				.try_exists()
 				.map_err(|error| storage(error.into()))?
 			{
-				return Err(loam::refusal(
-					"retired Rooms session storage requires an explicit operator reset",
-				));
+				return Err(loam::refusal(format!(
+					"Rooms session directory {} contains retired storage ({name}); back up the entire session directory and choose a fresh session-state directory; current sessions use SQLite",
+					directory.path().display(),
+				)));
 			}
 		}
 		let bootstrap = match read(&directory.path().join(METADATA), Bootstrap::BYTES).map_err(storage)? {
@@ -98,10 +105,10 @@ impl Prepared {
 	pub fn directory(&self) -> &Arc<Directory> {
 		&self.directory
 	}
-	/// Opens the existing LMDB adapter under explicit physical and resident
+	/// Opens the session's SQLite store under explicit physical and resident
 	/// budgets. A confirmed anchor cannot create a missing Store. Unknown open
 	/// outcomes are refused and keep the metadata for an exact next attempt.
-	pub async fn start(self, host: Host, limits: Limits, map_bytes: usize, live_capacity: u32) -> Result<Session> {
+	pub async fn start(self, host: Host, limits: Limits, capacity_bytes: usize, live_capacity: u32) -> Result<Session> {
 		let path = self.directory.path().join(STORE);
 		if !path.try_exists().map_err(|error| storage(error.into()))? {
 			if self.bootstrap.anchor.is_some() {
@@ -113,18 +120,21 @@ impl Prepared {
 				.map_err(|error| storage(error.into()))?;
 			self.directory.sync().map_err(|error| storage(error.into()))?;
 		}
-		let store = if self.bootstrap.anchor.is_none() {
-			Store::open_bootstrap(&path, self.bootstrap.store_identity, map_bytes, &schemas(), limits)?
+		let mode = if self.bootstrap.anchor.is_none() {
+			OpenMode::Bootstrap
 		} else {
-			Store::open(
-				&path,
-				self.bootstrap.store_identity,
-				false,
-				map_bytes,
-				&schemas(),
-				limits,
-			)?
+			OpenMode::Open
 		};
+		let store = Store::open(
+			Sqlite {
+				path,
+				identity: self.bootstrap.store_identity,
+				mode,
+				capacity_bytes,
+			},
+			&schemas(),
+			limits,
+		)?;
 		let directory = self.directory;
 		let opened = self
 			.bootstrap

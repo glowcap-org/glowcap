@@ -202,7 +202,7 @@ fn probeEngineModule(
     return module;
 }
 
-pub fn nativeCompositionModule(
+pub fn tlsMbedtlsModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
@@ -210,7 +210,7 @@ pub fn nativeCompositionModule(
     engine: *std.Build.Module,
 ) *std.Build.Module {
     const module = b.createModule(.{
-        .root_source_file = b.path("src/net/tls/native_mbedtls.zig"),
+        .root_source_file = b.path("src/net/tls/mbedtls_composition.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -264,7 +264,7 @@ pub fn relayAbiModules(
     production.linkSystemLibrary("c", .{});
     check.linkSystemLibrary("c", .{});
     family.secure_check.dependOn(&b.addObject(.{
-        .name = "native-secure-relay-c-abi-check",
+        .name = "secure-relay-c-abi-check",
         .root_module = production,
     }).step);
     return .{ .production = production, .check = check };
@@ -330,14 +330,14 @@ fn relayAbiModule(
     model: *std.Build.Module,
     net: *std.Build.Module,
     c_abi_shared: *std.Build.Module,
-    native_relay: *std.Build.Module,
+    relay_tls: *std.Build.Module,
 ) *std.Build.Module {
     return common.transportAbiModule(b, target, optimize, "src/c_abi/net_transport/relay/mod.zig", &.{
         .{ .name = "foundation", .module = foundation },
         .{ .name = "model", .module = model },
         .{ .name = "net", .module = net },
         .{ .name = "c_abi_shared", .module = c_abi_shared },
-        .{ .name = "native_relay", .module = native_relay },
+        .{ .name = "relay_tls", .module = relay_tls },
     });
 }
 
@@ -350,48 +350,48 @@ pub fn addFamily(
 ) Family {
     const dependency = add(b);
     const engine = engineModule(b, target, optimize, dependency, foundation, net);
-    const native_tls = nativeCompositionModule(b, target, optimize, net, engine);
-    const native_relay = b.addModule("glowcap_native_relay", .{
-        .root_source_file = b.path("src/net/transport/keyed_relay/native_mbedtls.zig"),
+    const tls_mbedtls = tlsMbedtlsModule(b, target, optimize, net, engine);
+    const relay_tls = b.addModule("glowcap_relay_tls", .{
+        .root_source_file = b.path("src/net/transport/keyed_relay/wss_mbedtls.zig"),
         .target = target,
         .optimize = optimize,
     });
-    native_relay.addImport("foundation", foundation);
-    native_relay.addImport("net", net);
-    native_relay.addImport("native_tls", native_tls);
+    relay_tls.addImport("foundation", foundation);
+    relay_tls.addImport("net", net);
+    relay_tls.addImport("tls_mbedtls", tls_mbedtls);
     const check_tls = b.createModule(.{
-        .root_source_file = b.path("test/support/native_tls_stub.zig"),
+        .root_source_file = b.path("test/support/tls_stub.zig"),
         .target = target,
         .optimize = optimize,
     });
     check_tls.addImport("foundation", foundation);
     check_tls.addImport("net", net);
     const check_relay = b.createModule(.{
-        .root_source_file = b.path("src/net/transport/keyed_relay/native_mbedtls.zig"),
+        .root_source_file = b.path("src/net/transport/keyed_relay/wss_mbedtls.zig"),
         .target = target,
         .optimize = optimize,
     });
     check_relay.addImport("foundation", foundation);
     check_relay.addImport("net", net);
-    check_relay.addImport("native_tls", check_tls);
+    check_relay.addImport("tls_mbedtls", check_tls);
     const test_module = b.createModule(.{
         .root_source_file = b.path("test/net/mbedtls_engine_test.zig"),
         .target = target,
         .optimize = optimize,
     });
     test_module.addImport("mbedtls", engine);
-    test_module.addImport("native_relay", native_relay);
-    const tests = b.addTest(.{ .name = "native-tls-test", .root_module = test_module });
+    test_module.addImport("relay_tls", relay_tls);
+    const tests = b.addTest(.{ .name = "relay-tls-test", .root_module = test_module });
     const probe_engine = probeEngineModule(b, target, optimize, dependency, foundation, net);
-    const probe_tls = nativeCompositionModule(b, target, optimize, net, probe_engine);
+    const probe_tls = tlsMbedtlsModule(b, target, optimize, net, probe_engine);
     const probe_relay = b.createModule(.{
-        .root_source_file = b.path("src/net/transport/keyed_relay/native_mbedtls.zig"),
+        .root_source_file = b.path("src/net/transport/keyed_relay/wss_mbedtls.zig"),
         .target = target,
         .optimize = optimize,
     });
     probe_relay.addImport("foundation", foundation);
     probe_relay.addImport("net", net);
-    probe_relay.addImport("native_tls", probe_tls);
+    probe_relay.addImport("tls_mbedtls", probe_tls);
     const allocation_probe = b.createModule(.{
         .root_source_file = b.path("test/support/mbedtls_allocation_probe.zig"),
         .target = target,
@@ -401,34 +401,34 @@ pub fn addFamily(
     allocation_probe.addImport("allocation_probe_c", allocationProbeHeaders(b, target, optimize));
     allocation_probe.addIncludePath(b.path("test/support"));
     const live_module = b.createModule(.{
-        .root_source_file = b.path("tools/check/native_tls_relay_client.zig"),
+        .root_source_file = b.path("tools/check/relay_tls_client.zig"),
         .target = target,
         .optimize = optimize,
     });
     live_module.addImport("foundation", foundation);
     live_module.addImport("net", net);
-    live_module.addImport("native_relay", probe_relay);
-    live_module.addImport("native_tls", probe_tls);
+    live_module.addImport("relay_tls", probe_relay);
+    live_module.addImport("tls_mbedtls", probe_tls);
     live_module.addImport("allocation_probe", allocation_probe);
     const live_client = b.addExecutable(.{
-        .name = "native-tls-relay-client",
+        .name = "relay-tls-client",
         .root_module = live_module,
     });
     const live = execution.addSystemCommand(b, .real_internet, &.{"bash"});
-    live.addFileArg(b.path("tools/check/native-tls-relay-live.sh"));
+    live.addFileArg(b.path("tools/check/relay-tls-live.sh"));
     live.addArtifactArg(live_client);
-    const secure_check = b.step("native-tls-build", "Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)");
+    const secure_check = b.step("relay-tls-build", "Fetch by checksum, compile, and test Glowcap's private Mbed TLS engine (needs network)");
     secure_check.dependOn(&execution.addZigTest(b, tests, .unit_test).step);
     secure_check.dependOn(&live.step);
     return .{
-        .tls = native_tls,
-        .relay = native_relay,
+        .tls = tls_mbedtls,
+        .relay = relay_tls,
         .check_relay = check_relay,
         .secure_check = secure_check,
     };
 }
 
-/// Compile the relay Zig first-calls against the native relay module. They
+/// Compile the relay Zig first-calls against the relay TLS module. They
 /// stay out of the default glowcap snippet walk for the same reason iroh does:
 /// Mbed TLS is an optional composition, not part of `lib_mod`.
 pub fn addSiteRelayExamples(
@@ -436,7 +436,7 @@ pub fn addSiteRelayExamples(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     lib_mod: *std.Build.Module,
-    native_relay: *std.Build.Module,
+    relay_tls: *std.Build.Module,
     site_zig_examples_check: *std.Build.Step,
 ) void {
     const examples = [_]struct { name: []const u8, path: []const u8 }{
@@ -447,7 +447,7 @@ pub fn addSiteRelayExamples(
     for (examples) |example| {
         common.addSiteZigExampleCompile(b, target, optimize, example.name, example.path, &.{
             .{ .name = "glowcap", .module = lib_mod },
-            .{ .name = "native_relay", .module = native_relay },
+            .{ .name = "relay_tls", .module = relay_tls },
         }, site_zig_examples_check);
     }
 }

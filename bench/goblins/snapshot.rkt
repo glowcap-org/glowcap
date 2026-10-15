@@ -1,8 +1,8 @@
 #lang racket/base
 ;; Goblins half of the S5 snapshot benchmark, the counterpart to glowcap's
-;; `bench/snapshot_bench.zig`. It measures Goblins' local time-travel natively
-;; (Racket), to sit beside glowcap's native (Zig) numbers. Because that is
-;; native-Racket vs native-Zig, compare the *shape* of each cost and the
+;; `bench/snapshot_bench.zig`. It measures Goblins' local time-travel in
+;; Racket, to sit beside glowcap's Zig numbers. Because that compares Racket
+;; with Zig, compare the *shape* of each cost and the
 ;; *algorithmic tradeoff*, not the absolute nanoseconds. Every number is a
 ;; median over repeated warmed samples.
 ;;
@@ -17,7 +17,7 @@
 ;;     an N-entry immutable hash to a path-copied version, O(log N), the shape
 ;;     glowcap's persistent actors mirror.
 ;;
-;; Measured natively rather than through the shared wire suite because
+;; Measured in-process rather than through the shared wire suite because
 ;; snapshot/restore is a local actormap operation, not an OCapN conversation, and
 ;; glowcap does not project it over the C ABI the Racket binding drives. Run it:
 ;;

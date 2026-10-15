@@ -83,6 +83,7 @@ async function openHeldConnection(reuse?: Runtime): Promise<HeldConnection> {
 		await session.fetch("root");
 		return { runtime: heldRuntime, session, serving, closeRuntime: reuse == null };
 	} catch (error) {
+		// best-effort: this unwind rethrows the connect error, and a failed runtime close would only mask it.
 		if (reuse == null) await heldRuntime.close().catch(() => {});
 		throw error;
 	}

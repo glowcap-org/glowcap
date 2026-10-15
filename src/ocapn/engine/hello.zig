@@ -25,8 +25,8 @@ const Peer = engine.Peer;
 /// session once the partner's own start-session arrives. The signed
 /// locator is what the partner verifies, so `locator` must be the one the
 /// partner expects (for a Goblins partner, a `tcp` transport with
-/// `#f`-encoded empty hints). Borrowed inputs are cloned into the outbound
-/// queue, exactly as `sendCopying` documents.
+/// `#f`-encoded empty hints). Borrowed inputs are the caller's again when this
+/// returns, exactly as `sendBorrowed` documents.
 pub fn sendKeyedStartSession(
     self: *Peer,
     locator: model.PeerLocator,
@@ -80,7 +80,7 @@ pub fn sendKeyedStartSessionExact(
     const signed = try codec.signed.locationBytes(self.allocator, canonical);
     defer self.allocator.free(signed);
     const sig = foundation.crypto.sign(&session_secret, signed);
-    try self.sendCopying(.{
+    try self.sendBorrowed(.{
         .start_session = .{
             // Always the baseline, never `version`: see `validateStartSession`.
             // The caller's preference is in the hints this peer just stamped.
@@ -172,7 +172,7 @@ pub fn advertisedLocator(
 }
 
 /// Scratch for the hint entries a hello adds to its caller's locator.
-/// The returned locator borrows this storage until `sendCopying` clones it.
+/// The returned locator borrows this storage until `sendBorrowed` returns.
 /// Callers initialize with `.{}` and call `deinit` afterward.
 pub const HelloHints = struct {
     inline_entries: [inline_hint_entries]model.HintEntry = undefined,

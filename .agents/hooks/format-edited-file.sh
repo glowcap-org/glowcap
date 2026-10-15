@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# glowcap: format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript).
+# glowcap: Format a single agent-edited file (Zig, Rust, TypeScript/TSX/JavaScript).
 # Python and Racket have no single-file formatter on PATH; the
 # `bindings-fmt-check` gate holds them.
 #

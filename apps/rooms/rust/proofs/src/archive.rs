@@ -1,5 +1,5 @@
 //! Existing TypeScript wire captures plus index/authority invariants, executed
-//! unchanged in the native and browser Wasm contract.
+//! unchanged in the host and browser Wasm contract.
 use crate::arguments::{Arg, from_fixture};
 use rooms_application::archive::{
 	Access, Body, ConversationKind, Coordinates, Facet, Filter, Kind, LineState, Record, ShareKind,

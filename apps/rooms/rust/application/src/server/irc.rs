@@ -4,7 +4,7 @@
 //! the seat a member holds on it, and the gateway an operator administers
 //! as an ordinary bridge gateway. Sockets, timers, TLS, and the file live
 //! in the adapter.
-pub mod front;
+pub mod clients;
 pub mod gateway;
 pub mod model;
 pub mod protocol;

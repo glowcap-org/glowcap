@@ -1,4 +1,4 @@
-"""Typed projection of the native carrier failure location."""
+"""Typed projection of the FFI carrier failure location."""
 
 from __future__ import annotations
 

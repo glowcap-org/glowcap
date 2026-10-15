@@ -24,23 +24,13 @@ pub fn checkStabilityAreaTableRecurringClaims(
         return;
     };
 
-    const begin = "<!-- ci-gate-list:begin -->";
-    const end = "<!-- ci-gate-list:end -->";
-    const from = std.mem.indexOf(u8, doc, begin) orelse {
-        try appendViolation(gpa, violations, "{s}: no `{s}` marker; the area table cannot be checked against the gate list", .{ doc_path, begin });
+    const ci_path = "ci/gates.sh";
+    const ci = root.readFileAlloc(io, ci_path, arena, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for area-table recurring check with {s}", .{ ci_path, @errorName(err) });
         return;
     };
-    const to = std.mem.indexOf(u8, doc, end) orelse {
-        try appendViolation(gpa, violations, "{s}: no `{s}` marker; the area table cannot be checked against the gate list", .{ doc_path, end });
-        return;
-    };
-    if (to < from) {
-        try appendViolation(gpa, violations, "{s}: gate-list markers are out of order", .{doc_path});
-        return;
-    }
-
     var listed: std.ArrayList([]const u8) = .empty;
-    try inventories.collectBuildSteps(arena, doc[from + begin.len .. to], "- `zig build ", &listed);
+    try inventories.collectBuildSteps(arena, ci, "\ngate zig build ", &listed);
 
     const header = "| Area | Evidence | What remains |";
     const hit = std.mem.indexOf(u8, doc, header) orelse {
@@ -118,7 +108,7 @@ pub fn checkPerformanceLiveSocket(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const site_path = "site/content/performance.smd";
-    const ladder_path = "docs/ladder.md";
+    const bench_path = "bench/README.md";
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -127,16 +117,16 @@ pub fn checkPerformanceLiveSocket(
         try appendViolation(gpa, violations, "{s}: failed to read for live-socket check with {s}", .{ site_path, @errorName(err) });
         return;
     };
-    const ladder = root.readFileAlloc(io, ladder_path, arena, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for live-socket check with {s}", .{ ladder_path, @errorName(err) });
+    const bench = root.readFileAlloc(io, bench_path, arena, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for live-socket check with {s}", .{ bench_path, @errorName(err) });
         return;
     };
 
-    if (std.mem.indexOf(u8, ladder, "--live-max=500000") == null) return;
+    if (std.mem.indexOf(u8, bench, "--live-max=500000") == null) return;
     if (std.mem.indexOf(u8, site, "not a live-socket") != null or
         std.mem.indexOf(u8, site, "extrapolation, not a live") != null)
     {
-        try appendViolation(gpa, violations, "{s}: denies a live-socket 500k run that {s} still records (`--live-max=500000`)", .{ site_path, ladder_path });
+        try appendViolation(gpa, violations, "{s}: denies a live-socket 500k run that {s} still records (`--live-max=500000`)", .{ site_path, bench_path });
     }
 }
 

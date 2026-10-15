@@ -99,8 +99,8 @@ consumers that share positions out-of-band (paired-peer tests, examples that
 wire both ends by hand) use an explicit `exportObject` / `register_export`
 grant. `ExportTable.retain` asserts the row exists, so a baseline-less
 count cannot be minted by accident. Pinned by the admission and GC-floor
-scenarios in `test/session/session_test.zig` and the end-to-end
-spawned-capability probe in `test/driver/blocking_session_test.zig`. The external
+scenarios in `test/session/grant_test.zig` and the end-to-end
+spawned-capability probe in `test/driver/session_loopback_test.zig`. The external
 arbiters are the live Goblins interop and the upstream OCapN suite, which
 exercise fetch, GC, and withdraw against these rules.
 

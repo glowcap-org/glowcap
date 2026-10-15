@@ -439,6 +439,7 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
   font-size: 0.85rem;
   line-height: 1.4;
   color: var(--ink-soft);
+  text-wrap: balance;
 }
 
 .toc-links a:hover {
@@ -497,6 +498,9 @@ html.js .hero-mark:not(.mark-shaded):not(.mark-still) > .icon-mark {
   padding: 0.32rem 0.7rem;
   border-radius: var(--radius-chip);
   color: var(--ink);
+  /* A link that takes two lines splits them evenly rather than leaving one
+     word on the second. */
+  text-wrap: balance;
 }
 
 .nav-link:hover,

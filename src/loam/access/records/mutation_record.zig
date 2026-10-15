@@ -1,4 +1,6 @@
 //! A mutation retains exact request bytes, result bytes and their durable edges.
+//! The facet mask marks result edges that replay as a facet guarded by the
+//! invoking endpoint instead of as the edge's own authority.
 const std = @import("std");
 const loam = @import("loam_records");
 const syrup = @import("syrup");
@@ -8,12 +10,19 @@ const profile = @import("profile.zig");
 pub const MutationRecord = struct {
     intent: []const u8,
     result: []const u8,
+    /// Bit `i` set: edge `i` replays as a dependent facet of the invoking
+    /// endpoint.
+    facets: u64 = 0,
     pub const max_encoded_bytes = 64 * 1024;
     pub const max_edges = 64;
+    comptime {
+        std.debug.assert(max_edges <= @bitSizeOf(@FieldType(MutationRecord, "facets")));
+    }
 
     pub fn encodedSizeBound(intent_bytes: usize, result_bytes: usize) !usize {
         const header = try syrup.render.measureRecord(writeHeader, .{});
-        const fields = try std.math.add(usize, try s.byteStringSize(intent_bytes), try s.byteStringSize(result_bytes));
+        // The mask is at most twenty decimal digits and its `+`.
+        const fields = try std.math.add(usize, try std.math.add(usize, try s.byteStringSize(intent_bytes), try s.byteStringSize(result_bytes)), 21);
         return @min(try std.math.add(usize, try std.math.add(usize, header, fields), 1), max_encoded_bytes);
     }
 
@@ -34,7 +43,8 @@ pub const MutationRecord = struct {
         try s.readByte(view.payload, &cursor, '<');
         if (!std.mem.eql(u8, try s.readSymbol(view.payload, &cursor), "access:mutation")) return error.InvalidRecord;
         if (try s.readPositiveInt(view.payload, &cursor) != 1) return error.UnsupportedVersion;
-        const result: MutationRecord = .{ .intent = try s.readBytesLimited(view.payload, &cursor, view.payload.len), .result = try s.readBytesLimited(view.payload, &cursor, view.payload.len) };
+        const result: MutationRecord = .{ .intent = try s.readBytes(view.payload, &cursor), .result = try s.readBytes(view.payload, &cursor), .facets = try s.readPositiveInt(view.payload, &cursor) };
+        if (view.edge_count < 64 and result.facets >> @intCast(view.edge_count) != 0) return error.InvalidRecord;
         try s.readByte(view.payload, &cursor, '>');
         try s.expectEnd(view.payload, cursor);
         return result;
@@ -44,6 +54,7 @@ pub const MutationRecord = struct {
         try writeHeader(sink);
         try s.writeBytes(sink, self.intent);
         try s.writeBytes(sink, self.result);
+        try s.writePositiveInt(sink, self.facets);
         try s.endRecord(sink);
     }
 

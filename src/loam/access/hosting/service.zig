@@ -38,9 +38,7 @@ pub const ContentCall = opaque {
     pub fn retainSource(self: *ContentCall) !driver.Capability {
         const value = state(self);
         const owner = value.call.attachment;
-        const entry = for (owner.entries) |*candidate| {
-            if (candidate.actor != null and candidate.id.eql(value.call.view.id)) break candidate;
-        } else return error.NotDurable;
+        const entry = owner.liveEntry(value.call.view.id) orelse return error.NotDurable;
         return owner.host.retainLocalCapability(entry.actor.?);
     }
     /// Reserve independent effect custody before replacing content with its
@@ -61,6 +59,27 @@ pub const ContentCall = opaque {
     /// Bytes must survive callback return. Allocate them from `allocator()`.
     pub fn replace(self: *ContentCall, payload: []const u8) void {
         state(self).replacement = payload;
+    }
+
+    /// The content of declared participant `index`, with the same payload and
+    /// field edits as the bound content. Its changes commit in this call's
+    /// batch. Disclosure through it still applies the invoking grant.
+    pub fn participant(self: *ContentCall, index: usize) !*ContentCall {
+        const value = state(self);
+        if (index >= value.participants.len) return error.NoSuchParticipant;
+        return value.participants[index].handle();
+    }
+
+    /// The first payload of the child this method declared with
+    /// `ContentBehavior.create`. Its field naming the child's endpoint is
+    /// appended to the bound content. Bytes must survive callback return.
+    /// The method returns `.void`, and the call replies with the child as a
+    /// facet of the invoking endpoint, as `discloseDependent` would.
+    pub fn createChild(self: *ContentCall, payload: []const u8) !void {
+        const value = state(self);
+        if (!value.creates) return error.NoDeclaredChild;
+        if (value.child_payload == null) try reserveEdge(value);
+        value.child_payload = payload;
     }
 
     /// Borrow exact prepared field custody for an edit or internal act. This
@@ -169,14 +188,7 @@ pub const ContentCall = opaque {
     pub fn appendReference(self: *ContentCall, replacement: driver.Capability) !void {
         const value = state(self);
         if (value.graph != null) return error.NotReferenceField;
-        const schema = for (value.call.attachment.store.cache.schemas) |candidate| {
-            if (candidate.id == value.view.schema and candidate.version == value.view.schema_version) break candidate;
-        } else return error.UnsupportedSchema;
-        var removed: usize = 0;
-        for (value.edits.items) |edit| if (edit.replacement == null) {
-            removed += 1;
-        };
-        if (value.view.edge_count - removed + value.appended.items.len >= schema.max_edges) return error.TooManyEdges;
+        try reserveEdge(value);
         try value.appended.ensureUnusedCapacity(value.call.arena(), 1);
         value.appended.appendAssumeCapacity(try capture(value, replacement));
     }
@@ -305,10 +317,24 @@ pub const ContentCallState = struct {
     receipt: bool,
     retry: RetryMode,
     operation: ?*storage.Operation = null,
+    participants: []ContentCallState = &.{},
+    creates: bool = false,
+    child_payload: ?[]const u8 = null,
 
     pub fn init(call: *hosting.Call, view: loam.RecordView, intent: hosting.Call.Intent, receipt: bool, retry: RetryMode) ContentCallState {
         call.requireDisclosedReply();
         return .{ .call = call, .view = view, .intent = intent, .receipt = receipt, .retry = retry };
+    }
+
+    /// A participant's content in a call whose reply policy the bound content
+    /// already set. It offers no participants or child of its own.
+    pub fn initParticipant(bound: *const ContentCallState, view: loam.RecordView) ContentCallState {
+        return .{ .call = bound.call, .view = view, .intent = bound.intent, .receipt = bound.receipt, .retry = bound.retry, .operation = bound.operation };
+    }
+
+    /// Whether the callback proposed any write to this content.
+    pub fn writes(self: *const ContentCallState) bool {
+        return self.replacement != null or self.edits.items.len != 0 or self.appended.items.len != 0 or self.graph_replaced;
     }
 
     pub fn handle(self: *ContentCallState) *ContentCall {
@@ -324,17 +350,22 @@ fn state(call: *ContentCall) *ContentCallState {
     return @ptrCast(@alignCast(call));
 }
 
+/// Refuse a field append, including a created child's field, that would
+/// exceed the bound content's schema edge limit.
+fn reserveEdge(value: *const ContentCallState) !void {
+    const schema = for (value.call.attachment.store.cache.schemas) |candidate| {
+        if (candidate.id == value.view.schema and candidate.version == value.view.schema_version) break candidate;
+    } else return error.UnsupportedSchema;
+    var removed: usize = 0;
+    for (value.edits.items) |edit| if (edit.replacement == null) {
+        removed += 1;
+    };
+    const child: usize = @intFromBool(value.child_payload != null);
+    if (value.view.edge_count - removed + value.appended.items.len + child >= schema.max_edges) return error.TooManyEdges;
+}
+
 fn requireStrongEdge(view: loam.RecordView, index: usize) !void {
-    if (index >= view.edge_count) return error.NoSuchEdge;
-    var edges = view.edges();
-    var current: usize = 0;
-    while (edges.next()) |edge| : (current += 1) {
-        if (current == index) {
-            if (edge.strength != .strong) return error.NotDurable;
-            return;
-        }
-    }
-    unreachable;
+    if ((try view.edgeAt(index)).strength != .strong) return error.NotDurable;
 }
 
 pub const RetryMode = enum { read_only, idempotent, receipt };
@@ -351,6 +382,10 @@ pub const ContentInvocation = struct {
     /// pages for Graph.Spec.requirement_verbs. Other requirements read root data.
     /// References and invocation receive the complete admitted graph.
     graph: ?graph.Snapshot = null,
+    /// Declared participants in order, present to the resource and create
+    /// declarations and to invocation. Empty for requirement and participant
+    /// declaration.
+    participants: []const ParticipantView = &.{},
     verb: []const u8,
     args: []const driver.Value,
 };
@@ -403,9 +438,18 @@ pub const ContentBehavior = struct {
     /// mutate(sequence, method, arguments). Reads and idempotent effects may be
     /// called directly. Classification is pure and precedes invocation.
     retry: *const fn (?*anyopaque, []const u8, []const driver.Value) anyerror!RetryMode,
-    /// Optional structural effect, decoded before invocation. Shared admission
-    /// checks source and placement parents under this method's requirement.
-    resource: ?*const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror!?storage.ResourceChange.Action = null,
+    /// Optional structural effect, decoded before invocation with participants
+    /// loaded. Shared admission checks source and placement parents under this
+    /// method's requirement through every grant the call carries.
+    resource: ?*const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror!?ResourceEffect = null,
+    /// Optional child of the bound resource, decoded before invocation. The
+    /// method must be receipt-backed, supplies the child's first payload with
+    /// `ContentCall.createChild`, and cannot also declare a structural effect.
+    create: ?*const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror!?Creation = null,
+    /// Pure declaration of up to `max_participants` more resources of the same
+    /// owner this method reads or changes. Each is admitted by every grant the
+    /// call carries under its own requirement, before invocation.
+    participants: ?*const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror![]const Participant = null,
     /// Declare the invoking grant's requirement for each forwarded method.
     /// The separately held target checks its own authority when dispatched.
     dependent_requirement: ?*const fn (?*anyopaque, std.mem.Allocator, ContentInvocation) anyerror!core.Policy.Requirement = null,
@@ -423,6 +467,40 @@ pub const ContentBehavior = struct {
     invoke: *const fn (?*anyopaque, *ContentCall, ContentInvocation) anyerror!driver.Value,
 };
 
+/// The most extra resources one hosted call can touch beside its bound one.
+pub const max_participants = 2;
+
+/// A further resource of the bound owner. A field names a strong field of the
+/// bound content. An argument names a capability argument that designates a
+/// same-owner endpoint or dependent facet on this attachment. Designation
+/// admits nothing: the requirement does, through every grant of the call.
+pub const Participant = struct {
+    source: union(enum) { field: usize, argument: usize },
+    requirement: core.Policy.Requirement,
+};
+
+/// One loaded participant: canonical resource metadata and its content row.
+pub const ParticipantView = struct {
+    resource: storage.Operation.BoundResource,
+    content: loam.RecordView,
+    /// The bound content's strong field that names this participant: the
+    /// declared field for a field participant, and otherwise the first field
+    /// storing its endpoint, or null when none does. A capability a field
+    /// disclosed designates that field's endpoint, so a caller can name a
+    /// listed node by the capability it holds instead of by a position that
+    /// may shift.
+    field: ?usize,
+};
+
+/// A structural change of the bound resource or of one participant.
+pub const ResourceEffect = struct {
+    target: union(enum) { bound, participant: usize } = .bound,
+    action: storage.ResourceChange.Action,
+};
+
+/// The child a creating method adds under its bound resource.
+pub const Creation = struct { kind: core.KindId, schema: u64, version: u32 = 1 };
+
 pub const Service = struct {
     context: ?*anyopaque = null,
     capabilities: *storage.Capabilities,
@@ -438,6 +516,10 @@ pub const Service = struct {
     decode_derive: ?*const fn (?*anyopaque, std.mem.Allocator, core.ResourceId, []const driver.Value) anyerror!core.GrantLedger.Issue = null,
     decode_managed_derive: ?*const fn (?*anyopaque, std.mem.Allocator, core.ResourceId, []const driver.Value) anyerror!ManagedIssue = null,
     decode_attenuation: ?*const fn (?*anyopaque, std.mem.Allocator, core.Control.Powers, []const driver.Value) anyerror!core.Control.Powers = null,
+    /// The use descriptor an owner's created children are stored under, so a
+    /// stored child never depends on who created it. Readers still reach it
+    /// through a dependent facet that applies their own grant.
+    child_descriptor: ?*const fn (?*anyopaque, core.OwnerId) ?loam.ObjectId = null,
     /// Embedding entropy boundary: fill fresh unpredictable bytes, including
     /// across restart. Called during preparation. Never expose these bytes.
     entropy: ?EntropySource = null,
@@ -459,7 +541,7 @@ pub const Service = struct {
     pub const behavior_count = 4;
     pub fn behaviors(self: *Service) [behavior_count]hosting.Behavior {
         return .{
-            .{ .schema = records.profile.endpoint, .version = records.EndpointRecord.version, .context = self, .prepare = working.prepare, .invoke = working.invoke },
+            .{ .schema = records.profile.endpoint, .version = records.EndpointRecord.version, .context = self, .prepare = working.prepare, .invoke = @import("commit.zig").invoke },
             @import("observation.zig").behavior(self),
             @import("maintenance.zig").behavior(self),
             @import("maintenance.zig").terminalBehavior(),

@@ -25,8 +25,13 @@ pub const HandlerFailure = struct {
         return @errorFromInt(self.ordinal);
     }
 };
+/// A reply borrows the active turn in either representation. `returned`
+/// carries model containers and `viewed` lends a sequence backing. A near
+/// call materializes views into the turn arena. A served reply remains a
+/// view through interception and is copied once into the retained answer.
 pub const HandlerResult = union(enum) {
     returned: model.Argument,
+    viewed: model.view.Argument,
     refused: HandlerFailure,
 
     pub fn fromResult(result: anyerror!model.Argument) HandlerResult {
@@ -34,37 +39,59 @@ pub const HandlerResult = union(enum) {
     }
 };
 
-/// A message to an actor: a verb (method selector) and its arguments. From the
-/// handler's side the verb and args are borrowed for the duration of the turn:
-/// a handler never frees them, and one that keeps a value past its turn copies
-/// it first.
+/// A message a caller sends: a verb (method selector) and the arguments it
+/// owns. `send`, `tell`, `near`, and `forward` borrow both only for the call.
+/// The local arm clones them into the queue and the far arm encodes them
+/// onto the wire before the call returns.
 pub const Message = struct {
     verb: []const u8,
     args: []const model.Argument = &.{},
 
+    /// This message as a handler reads it. The owned arguments project into
+    /// views in place, so a near call hands the handler the caller's storage.
+    pub fn delivery(self: Message) Delivery {
+        return .{ .verb = self.verb, .args = .fromOwnedSlice(self.args) };
+    }
+};
+
+/// A message as a handler receives it: the verb and its arguments as views,
+/// borrowed for the duration of the turn. A wire deliver's views read the
+/// frame's bytes where they lie, and a local call's views project the
+/// caller's owned arguments, so no path copies a value a handler never reads.
+/// A handler never frees them, and one that keeps a value past its turn
+/// copies it first (`Argument.toOwned`).
+pub const Delivery = struct {
+    verb: []const u8,
+    args: model.view.Args = .fromOwnedSlice(&.{}),
+    /// How many reference and handoff slots `args` holds at every depth,
+    /// when session validation counted them for a wire deliver, or null
+    /// when nothing counted (a near call, a forward). The Host reads zero
+    /// as leave to hand its handler the views as they are.
+    reference_slots: ?u32 = null,
+
     /// What an argument accessor refuses. A handler returns these like any
     /// other error, and the vat turns a handler error into the partner's
     /// `op:resolve` break, so a malformed call breaks its own answer instead
-    /// of reaching the host.
-    pub const ArgError = error{ MissingArgument, WrongArgumentType };
+    /// of reaching the host. `MalformedView` is a codec-backed element that
+    /// did not project, which session validation makes unreachable on a
+    /// wire deliver.
+    pub const ArgError = error{ MissingArgument, WrongArgumentType, MalformedView };
 
     /// The argument at `i`, or `MissingArgument`.
     ///
     /// Arity is the *partner's* choice: `serve` peels the leading symbol as the
     /// verb and hands the rest through, so a deliver carrying only a verb
-    /// arrives with no arguments at all. An unchecked index on that is a safety
-    /// panic in a safe build and an out-of-bounds read otherwise, which on a
-    /// multi-session host takes down every other session with it. The typed
-    /// accessors below are shorter to write than the unwrap they replace, so
-    /// there is no cheaper wrong path left. `msg.args` is still there for a
-    /// handler that has already checked `args.len`.
-    pub fn arg(self: Message, i: usize) ArgError!model.Argument {
-        if (i >= self.args.len) return error.MissingArgument;
-        return self.args[i];
+    /// arrives with no arguments at all. The typed accessors below are shorter
+    /// to write than the match they replace, so there is no cheaper wrong path
+    /// left. `args` is still there for a handler that walks them all.
+    pub fn arg(self: Delivery, i: usize) ArgError!model.view.Argument {
+        const count = self.args.len() catch return error.MalformedView;
+        if (i >= count) return error.MissingArgument;
+        return self.args.at(i) catch error.MalformedView;
     }
 
     /// The `bytes` argument at `i`.
-    pub fn argBytes(self: Message, i: usize) ArgError![]const u8 {
+    pub fn argBytes(self: Delivery, i: usize) ArgError![]const u8 {
         return switch (try self.arg(i)) {
             .bytes => |b| b,
             else => error.WrongArgumentType,
@@ -72,7 +99,7 @@ pub const Message = struct {
     }
 
     /// The `string` argument at `i`.
-    pub fn argString(self: Message, i: usize) ArgError![]const u8 {
+    pub fn argString(self: Delivery, i: usize) ArgError![]const u8 {
         return switch (try self.arg(i)) {
             .string => |s| s,
             else => error.WrongArgumentType,
@@ -80,11 +107,21 @@ pub const Message = struct {
     }
 
     /// The `integer` argument at `i`.
-    pub fn argInt(self: Message, i: usize) ArgError!i64 {
+    pub fn argInt(self: Delivery, i: usize) ArgError!i64 {
         return switch (try self.arg(i)) {
             .integer => |n| n,
             else => error.WrongArgumentType,
         };
+    }
+
+    /// The send shape of this delivery, borrowed for one call. A delivery
+    /// built over an owned slice lends that slice as is, so a forward of
+    /// owned arguments copies nothing. A delivery over views materializes
+    /// them into `allocator`, the one copy a forwarded wire deliver pays when
+    /// it leaves the turn the views belong to.
+    pub fn toMessage(self: Delivery, allocator: std.mem.Allocator) model.view.Error!Message {
+        if (self.args.ownedSlice()) |args| return .{ .verb = self.verb, .args = args };
+        return .{ .verb = self.verb, .args = try self.args.toOwnedSlice(allocator) };
     }
 };
 
@@ -129,11 +166,11 @@ pub const OpaqueMessage = struct {
 
 /// Exactly one queue representation. Opaque payloads never enter a Port or a
 /// codec, and only behaviors that explicitly support them receive them.
-pub const Delivery = union(enum) {
+pub const Queued = union(enum) {
     message: Message,
     owned: OpaqueMessage,
 
-    pub fn retire(self: *Delivery, reason: ?[]const u8) void {
+    pub fn retire(self: *Queued, reason: ?[]const u8) void {
         const retired = self.*;
         self.* = .{ .message = .{ .verb = "" } };
         switch (retired) {
@@ -155,7 +192,7 @@ pub const HostedActor = struct {
     ctx: *anyopaque,
     /// Invoked on each deliver. Returns the reply, borrowed for the turn, the
     /// vat clones it onto the wire or a listener, or an error (settled broken).
-    handle: *const fn (ctx: *anyopaque, turn: *Turn, msg: Message) Result,
+    handle: *const fn (ctx: *anyopaque, turn: *Turn, msg: Delivery) Result,
     /// Optional adapter-local delivery. Ordinary model handlers never receive
     /// opaque payloads through their data-only contract.
     /// Null means success. Refusal names immutable archive-owned failure text.

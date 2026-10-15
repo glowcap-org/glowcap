@@ -134,9 +134,11 @@ pub const Tor = struct {
                     std.debug.print("tor: {s}\n", .{text[at..line_end]});
                     return error.TorFailed;
                 }
-            } else |_| {}
+            } else |_| {
+                // tolerant: Tor creates its log after launch, so an unreadable log is retried on the next poll until the bootstrap deadline below.
+            }
             if (wait.expired(self.io, deadline)) return error.TorBootstrapTimedOut;
-            std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(250), .real) catch {};
+            try std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(250), .real);
         }
     }
 
@@ -171,6 +173,7 @@ pub const Tor = struct {
 
     pub fn stop(self: *Tor) void {
         self.child.kill(self.io);
+        // best-effort: a data directory that cannot be removed stays behind in the run's scratch location and holds no live process.
         std.Io.Dir.cwd().deleteTree(self.io, self.dir) catch {};
         self.gpa.free(self.cookie_bytes);
         self.gpa.free(self.log_path);

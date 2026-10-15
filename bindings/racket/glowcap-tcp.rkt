@@ -37,7 +37,7 @@
          (only-in "private/tcp-listen.rkt"
                   server? server-host server-locator server-uri server-port
                   server-close! accept listen listen-keyed-tcp listen-noise-tcp)
-         "private/native-parent.rkt"
+         "private/ffi-parent.rkt"
          "private/seam.rkt")
 
 (provide tcp-address-designator tcp-locator keyed-tcp-locator noise-tcp-locator
@@ -80,20 +80,20 @@
 (struct connection (handle read-gate write-gate netlayer) #:mutable)
 
 (define (netlayer-forget! nl child)
-  (native-parent-forget! (netlayer-owner nl) child))
+  (ffi-parent-forget! (netlayer-owner nl) child))
 
 (define (make-netlayer [config (make-tcp-config)])
   (define-values (rc h) (glowcap_tcp_netlayer_new (tcp-config->c config)))
   (check/tcp rc)
   (define nl
     (netlayer
-     (make-native-parent h glowcap_tcp_netlayer_release
+     (make-ffi-parent h glowcap_tcp_netlayer_release
                          glowcap_tcp_netlayer_shutdown)))
   (register-finalizer nl (lambda (q) (netlayer-release! q)))
   nl)
 
 (define (netlayer-release! nl)
-  (native-parent-release!
+  (ffi-parent-release!
    (netlayer-owner nl)
    (lambda (child)
      (cond [(listener? child) (listener-release! child)]
@@ -102,7 +102,7 @@
 (define (netlayer-listen nl host [port 0])
   (define bs (string->bytes/utf-8 host))
   (define lst
-    (native-parent-open-child
+    (ffi-parent-open-child
      (netlayer-owner nl) 'netlayer-listen
      (lambda (parent-handle)
        (define-values (rc h)
@@ -120,7 +120,7 @@
                           #:options [options #f])
   (define bs (string->bytes/utf-8 host))
   (define cn
-    (native-parent-open-child
+    (ffi-parent-open-child
      (netlayer-owner nl) 'netlayer-connect
      (lambda (parent-handle)
        (define-values (rc h)
@@ -133,7 +133,7 @@
   (register-finalizer
    cn
    (lambda (q)
-     (run-native-finalizer! "tcp-connection.finalize"
+     (run-ffi-finalizer! "tcp-connection.finalize"
                             (lambda () (connection-release! q))
                             #:layer 'transport)))
   cn)
@@ -171,7 +171,7 @@
      (check/tcp rc)
      (define nl (listener-netlayer lst))
      (define cn
-       (native-parent-adopt-or-release!
+       (ffi-parent-adopt-or-release!
         (netlayer-owner nl)
         (connection h (make-semaphore 1) (make-semaphore 1) nl)
         connection-release!
@@ -179,7 +179,7 @@
      (register-finalizer
       cn
       (lambda (q)
-        (run-native-finalizer! "tcp-connection.finalize"
+        (run-ffi-finalizer! "tcp-connection.finalize"
                                (lambda () (connection-release! q))
                                #:layer 'transport)))
      cn)))
@@ -187,7 +187,7 @@
 (define (listener-release! lst)
   (when (listener-handle lst)
     ;; Wake an accepter parked on readiness, then take the same gate that owns
-    ;; readiness + native accept. Native release can therefore never free the
+    ;; readiness + FFI accept. FFI release can therefore never free the
     ;; listener under an in-flight blocking FFI call.
     (semaphore-post (listener-closing lst))
     (glowcap_tcp_listener_shutdown (listener-handle lst))
@@ -196,7 +196,7 @@
      (lambda ()
        (when (listener-handle lst)
          ;; rktio registrations are per descriptor and re-armed by each 'read
-         ;; call. Remove the registration before native release closes the
+         ;; call. Remove the registration before FFI release closes the
          ;; borrowed fd.
          (unsafe-file-descriptor->semaphore (listener-readiness-fd lst) 'remove)
          (glowcap_tcp_listener_release (listener-handle lst))

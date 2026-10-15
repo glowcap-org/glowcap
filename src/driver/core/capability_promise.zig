@@ -33,11 +33,9 @@ pub const rollbackProjection = promise_projection.rollback;
 pub fn liftInlineGive(
     self: *Host,
     session: *HostSession,
-    give: model.HandoffGive,
+    give: model.view.HandoffGive,
 ) !Host.CapabilityLift {
-    var handoff: model.Handoff = .{ .give = give };
-    const give_view = model.view.Handoff.fromOwned(&handoff).give;
-    var projected = try engine.handoff_recipient.projectGiveForRedeem(self.allocator, give_view);
+    var projected = try engine.handoff_recipient.projectGiveForRedeem(self.allocator, give);
     defer projected.deinit(self.allocator);
 
     if (self.next_capability_promise == std.math.maxInt(u64))
@@ -108,9 +106,9 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
         switch (outcome) {
             .claimed => {},
             .resolve => |projected| {
-                recipient.served.port.peer.sendAnswerTargetResolutionCopying(
+                recipient.served.port.peer.sendAnswerTargetResolutionViewCopying(
                     projection.answer_target,
-                    .{ .fulfill = projected },
+                    model.view.Resolution{ .fulfill = projected },
                 ) catch |err| switch (err) {
                     // The prepared lift rolls back with `prepared`; the
                     // projection stays owed and the drain parks on this
@@ -156,8 +154,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
                         routed.session,
                         routed.target,
                         .{ .verb = message.verb, .args = prepared.values },
-                        message.arena.allocator(),
-                        message.retained_capabilities,
+                        &prepared,
                     );
                     self.attachDeferredVow(
                         pending.result_vow.?,
@@ -178,8 +175,7 @@ pub fn fulfill(self: *Host, id: capability.PromiseId, route_id: model.Capability
                         routed.session,
                         routed.target,
                         .{ .verb = message.verb, .args = prepared.values },
-                        message.arena.allocator(),
-                        message.retained_capabilities,
+                        &prepared,
                     );
                     _ = prepared.commit();
                 },
@@ -373,7 +369,7 @@ fn queueMessage(
     const row = self.capability_promises.getPtr(id) orelse unreachable;
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     errdefer arena.deinit();
-    var retained: std.ArrayListUnmanaged(Host.StagedCapabilityRetain) = .empty;
+    var retained: std.ArrayListUnmanaged(capability.Ref) = .empty;
     errdefer promise_values.rollbackRetains(self, retained.items);
     const owned_verb = try arena.allocator().dupe(u8, verb);
     const owned_values = try promise_values.cloneValues(self, arena.allocator(), values, &retained);
@@ -436,7 +432,7 @@ fn releaseRetainedCapabilities(self: *Host, pending: *Row.PendingOperation) anye
     switch (pending.action) {
         .send, .tell => |*message| while (message.release_head < message.retained_capabilities.len) {
             const retained = message.retained_capabilities[message.release_head];
-            if (!retained.transferred) try self.releaseCapability(retained.ref, 1);
+            try self.releaseCapability(retained, 1);
             message.release_head += 1;
         },
         .listen => {},
@@ -569,8 +565,7 @@ fn releaseRetainedCapabilitiesTerminal(self: *Host, pending: *Row.PendingOperati
     switch (pending.action) {
         .send, .tell => |*message| while (message.release_head < message.retained_capabilities.len) {
             const retained = message.retained_capabilities[message.release_head];
-            if (!retained.transferred)
-                self.releaseCapabilityTerminal(retained.ref, closing_peer);
+            self.releaseCapabilityTerminal(retained, closing_peer);
             message.release_head += 1;
         },
         .listen => {},

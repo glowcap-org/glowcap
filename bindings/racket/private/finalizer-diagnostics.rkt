@@ -1,5 +1,5 @@
 #lang racket/base
-;; Process-surviving diagnostics for failures observed after their native
+;; Process-surviving diagnostics for failures observed after their FFI
 ;; lifecycle owner has already been collected.
 
 (require "constants.rkt"
@@ -7,7 +7,7 @@
 
 (provide (struct-out failure-event)
          record-runtime-failure!
-         run-native-finalizer!
+         run-ffi-finalizer!
          take-runtime-failures!)
 
 (struct failure-event
@@ -103,7 +103,7 @@
      (set! next-sequence (min (add1 next-sequence) u64-max))
      (set! count (add1 count)))))
 
-(define (run-native-finalizer! operation release #:layer [layer 'binding])
+(define (run-ffi-finalizer! operation release #:layer [layer 'binding])
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
                      (record-runtime-failure! layer operation error)

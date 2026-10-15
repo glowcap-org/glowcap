@@ -18,7 +18,7 @@ const runtime = await init({
 	relayUrl: (locator) => `ws://127.0.0.1:${relayPort}/relay?locator=${encodeURIComponent(locator)}`,
 });
 
-// The relay owns native iroh reachability; the browser Runtime owns the
+// The relay owns FFI iroh reachability; the browser Runtime owns the
 // explicit byte connector selected at init.
 const session = await runtime.connect(runtime.parseLocator(uri));
 const greeter = await session.fetch("greeter");

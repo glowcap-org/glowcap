@@ -1,4 +1,4 @@
-//! The native loop tier (ADR-0112): the public `connect`/`listen` route for
+//! The driver loop tier (ADR-0112): the public `connect`/`listen` route for
 //! the shapes the driver archive carries, over a thin package around one
 //! `GlowcapDriverLoop`.
 //!
@@ -42,16 +42,16 @@ use crate::session_shared::{SessionShared, io_err};
 use crate::sys::{self, host as ffi_host};
 use crate::trampoline::DeliverGuard;
 use crate::{ContextInner, Error, Locator, PendingWork, Result};
-use native::ReleaseOutcome;
+use ffi::ReleaseOutcome;
 
 mod close;
+mod ffi;
 pub(crate) mod handle;
-mod native;
 mod progress;
 mod provider;
 mod sessions;
 
-pub use native::{DriverLoop, DriverLoopOptions, ProviderPackage};
+pub use ffi::{DriverLoop, DriverLoopOptions, ProviderPackage};
 pub use provider::Provider;
 pub(crate) use sessions::loop_session;
 
@@ -64,7 +64,7 @@ enum UnclaimedSession {
 	Closed(Option<Error>),
 }
 
-/// The tokio face of one native loop (ADR-0112): the shared owner the public
+/// The tokio face of one driver loop (ADR-0112): the shared owner the public
 /// `connect`/`listen` route drives. It parks the running `LocalSet` on the
 /// loop's readiness descriptor, steps with a zero timeout when it signals or
 /// when a Host verb kicks, and routes drained events: dial outcomes into
@@ -73,9 +73,9 @@ enum UnclaimedSession {
 /// handle here is `!Send` by construction.
 pub(crate) struct LoopShared {
 	driver: DriverLoop,
-	// A transferred Host may borrow a caller-supplied allocator. Native driver
+	// A transferred Host may borrow a caller-supplied allocator. FFI driver
 	// teardown uses that allocator, so its lease must outlive the driver rather
-	// than only the wrapper Host that no longer owns native release.
+	// than only the wrapper Host that no longer owns FFI release.
 	_context: Option<Rc<ContextInner>>,
 	/// The identity half of the loop host's 64-byte seed, retained so the
 	/// adopted wrapper Host answers `designator()` like a byte-fed one.
@@ -112,16 +112,33 @@ pub(crate) struct LoopShared {
 	/// re-check never depends on a fixed re-poll interval.
 	activity: Notify,
 	wrapper: RefCell<Option<Weak<HostShared>>>,
+	/// Values a transport provider needs to outlive the C driver, such as the
+	/// state its callbacks read. Declared after `driver` so they drop once the
+	/// driver's release has run every callback.
+	#[cfg(feature = "webrtc")]
+	retained: RefCell<Vec<Box<dyn std::any::Any>>>,
 }
 
-#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+#[cfg(any(
+	feature = "tcp",
+	feature = "iroh",
+	feature = "onion",
+	feature = "relay",
+	feature = "webrtc"
+))]
 struct PendingListenerSetup {
 	lp: Rc<LoopShared>,
 	listener: u64,
 	armed: bool,
 }
 
-#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+#[cfg(any(
+	feature = "tcp",
+	feature = "iroh",
+	feature = "onion",
+	feature = "relay",
+	feature = "webrtc"
+))]
 impl Drop for PendingListenerSetup {
 	fn drop(&mut self) {
 		if !self.armed || self.lp.released.get() {
@@ -137,7 +154,7 @@ impl LoopShared {
 	}
 
 	/// Transfer a refused terminal release together with the Host shell whose
-	/// native-facing state can retire only after a later consuming attempt.
+	/// FFI-facing state can retire only after a later consuming attempt.
 	fn defer_failed_release(self: &Rc<Self>, host: Rc<HostShared>, mut failure: Error) {
 		let retry = try_spawn_local_handle(async {
 			crate::finalizer::drain();
@@ -198,10 +215,12 @@ impl LoopShared {
 			accept_wake: Notify::new(),
 			activity: Notify::new(),
 			wrapper: RefCell::new(None),
+			#[cfg(feature = "webrtc")]
+			retained: RefCell::new(Vec::new()),
 		}))
 	}
 
-	/// Promote an existing wrapper Host to the native driver before its first
+	/// Promote an existing wrapper Host to the FFI driver before its first
 	/// network operation. The loop points back weakly. The Host owns the loop,
 	/// so dropping or closing the Host remains the terminal lifetime boundary.
 	pub(crate) fn take_host(host: &Rc<HostShared>, handshake_ms: u32, settle_ms: u32) -> Result<Rc<LoopShared>> {
@@ -234,7 +253,16 @@ impl LoopShared {
 			accept_wake: Notify::new(),
 			activity: Notify::new(),
 			wrapper: RefCell::new(Some(Rc::downgrade(host))),
+			#[cfg(feature = "webrtc")]
+			retained: RefCell::new(Vec::new()),
 		}))
+	}
+
+	/// Keep `value` alive until this loop drops, after the C driver's release
+	/// has run its last callback.
+	#[cfg(feature = "webrtc")]
+	pub(crate) fn retain_until_teardown(&self, value: Box<dyn std::any::Any>) {
+		self.retained.borrow_mut().push(value);
 	}
 
 	pub(crate) fn guard_handle(&self) -> Result<()> {
@@ -266,7 +294,7 @@ impl LoopShared {
 		}
 		for (_, waiter) in self.pending_dials.borrow_mut().drain() {
 			// A missing receiver is the caller's cancellation; the operation is
-			// already terminal here and owns no native handle.
+			// already terminal here and owns no FFI handle.
 			drop(waiter.send(Err(error.clone())));
 		}
 		for (_, waiter) in self.pending_listeners.borrow_mut().drain() {
@@ -309,14 +337,20 @@ impl LoopShared {
 		self.released.get()
 	}
 
-	/// Register a provider through the native driver's occupancy authority.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+	/// Register a provider through the FFI driver's occupancy authority.
+	#[cfg(any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	))]
 	pub(crate) fn add_provider(&self, provider: ProviderPackage<'_>) -> Result<()> {
 		self.guard_handle()?;
 		self.driver.add_provider(provider)
 	}
 
-	/// The public wrapper Host adopted over this loop's native host: every
+	/// The public wrapper Host adopted over this loop's FFI host: every
 	/// application verb, publish trampoline, and vow settle works on it, while
 	/// the loop stays the one action drain and the one release authority.
 	/// Built on first call. Call it on the driving thread.
@@ -330,7 +364,7 @@ impl LoopShared {
 		Ok(host)
 	}
 
-	/// Arm the readiness descriptor and the native driver's progress clock on
+	/// Arm the readiness descriptor and the FFI driver's progress clock on
 	/// the running `LocalSet`. Descriptor readiness advances I/O. The clock
 	/// advances silent handshake, listener, and close deadlines. The descriptor
 	/// is duplicated so the park task's registration can never race the loop's
@@ -342,7 +376,7 @@ impl LoopShared {
 		}
 		let started = (|| {
 			let fd = self.driver.readiness_fd()?;
-			// SAFETY: `fd` is the readiness descriptor the native loop owns and keeps open until the loop is released,
+			// SAFETY: `fd` is the readiness descriptor the driver loop owns and keeps open until the loop is released,
 			// and `guard_handle` above proved the loop unreleased; no await separates this borrow from
 			// `try_clone_to_owned`, which duplicates it into an `OwnedFd` before the borrow ends.
 			let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) }
@@ -359,7 +393,7 @@ impl LoopShared {
 				};
 				loop {
 					// Arm activity before reading the deadline. A verb or sibling
-					// step that changes the native wait between those operations
+					// step that changes the FFI wait between those operations
 					// wakes this select and makes it rebuild the clock.
 					let activity = lp.step_activity();
 					tokio::pin!(activity);
@@ -463,7 +497,7 @@ impl LoopShared {
 		self.activity.notify_waiters();
 	}
 
-	/// The close drivers' park bound, delegated to the native deadline export.
+	/// The close drivers' park bound, delegated to the FFI deadline export.
 	pub(crate) fn step_wait(&self) -> Result<Option<std::time::Duration>> {
 		self.driver.step_wait()
 	}
@@ -477,7 +511,7 @@ impl LoopShared {
 		}
 		self.guard_handle()?;
 		// Serving releases application frames parked behind the handshake and
-		// may invoke a hosted behavior before the native call returns.
+		// may invoke a hosted behavior before the FFI call returns.
 		let host = self.wrapper.borrow().as_ref().and_then(Weak::upgrade);
 		let _deliver = host.as_ref().map(DeliverGuard::enter_host);
 		self.driver.session_serve(session)?;

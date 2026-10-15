@@ -10,7 +10,7 @@
 #
 # Versions and hashes come from each tool's own release channel (ziglang.org,
 # static.rust-lang.org, the GitHub releases API, registry.npmjs.org,
-# nodejs.org, postgresql.org, pypi.org, download.racket-lang.org, codeberg.org,
+# nodejs.org, pypi.org, download.racket-lang.org, codeberg.org,
 # registry-1.docker.io). Edits go through staged copies that are validated
 # whole (bash syntax, hash shape, anchored replacement) before they land, so a
 # bump that cannot rewrite one of its files changes none of them. pins.sh

@@ -20,6 +20,8 @@ use tokio_tungstenite::tungstenite::{
 };
 const HANDSHAKE: Duration = Duration::from_secs(10);
 const HEAD_DEADLINE: Duration = Duration::from_secs(5);
+/// The connection prefix held for admission, see `connection_head`.
+const HEAD_BYTES: usize = 4096;
 
 /// Accept sockets for as long as the endpoint stands. Every connection task
 /// is owned here: a panic in one is reported, and aborting this task takes
@@ -223,7 +225,7 @@ async fn connection(mut stream: TcpStream, feed: Shared, trace_host: Host, swiss
 	};
 	serve_viewer(session, feed).await;
 }
-/// One 4096-byte prefix belongs to connection admission until either handshake
+/// One `HEAD_BYTES` prefix belongs to connection admission until either handshake
 /// consumes it. Fragmented input needs owned replay bytes because raw CapTP and
 /// HTTP share this socket. Peeking cannot wait for new bytes without polling.
 /// The normalized HTTP text is separate bounded parse scratch and retires at
@@ -232,7 +234,7 @@ async fn connection_head(
 	stream: &mut (impl tokio::io::AsyncRead + Unpin),
 ) -> std::io::Result<(Option<String>, Vec<u8>)> {
 	use tokio::io::AsyncReadExt;
-	let mut head = vec![0u8; 4096];
+	let mut head = vec![0u8; HEAD_BYTES];
 	let mut size = 0;
 	loop {
 		let read = stream.read(&mut head[size..]).await?;
@@ -309,7 +311,7 @@ mod tests {
 		let (head, prefix) = connection_head(&mut raw.as_slice()).await.unwrap();
 		assert!(head.is_none());
 		assert_eq!(prefix, raw);
-		let mut oversized = vec![b'x'; 4096];
+		let mut oversized = vec![b'x'; super::HEAD_BYTES];
 		oversized[..4].copy_from_slice(b"GET ");
 		assert_eq!(
 			connection_head(&mut oversized.as_slice()).await.unwrap_err().kind(),

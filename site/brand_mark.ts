@@ -1,5 +1,5 @@
-// The site's shader marks: the heroes of the front door and the Rooms front
-// door.
+// The site's shader marks, the heroes of the front door and the Rooms front
+// door, and the mycelium under every page (apps/rooms/web/ui/mycelium.ts).
 //
 // The mark is drawn three ways across this project, and which one a place gets
 // is decided by what the mark is doing there. As an object, saying whose page
@@ -19,6 +19,10 @@
 /// <reference lib="dom" />
 
 import { type MarkPlay, start } from "../apps/rooms/web/ui/mark_gpu_live.ts";
+import { startMycelium } from "../apps/rooms/web/ui/mycelium.ts";
+
+// The network of threads behind every page, shared with Rooms.
+startMycelium();
 
 for (const home of document.querySelectorAll<HTMLElement>(".hero-mark")) {
 	const host = home.querySelector<HTMLElement>(".mark-live");

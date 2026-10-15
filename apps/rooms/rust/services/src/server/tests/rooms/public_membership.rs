@@ -9,7 +9,7 @@ async fn named(directory: &Directory<HostPlatform>, name: &str) -> Vec<rooms_app
 		.session()
 		.send(
 			directory.reference(),
-			rooms_application::directory::LIST,
+			rooms_application::directory::NAMED,
 			&[name.into()],
 		)
 		.await
@@ -69,7 +69,7 @@ async fn dormant() {
 		.await
 		.unwrap();
 	assert!(
-		directory.list().await.unwrap().is_empty(),
+		directory.list(None).await.unwrap().rooms.is_empty(),
 		"no occupancy before subscription"
 	);
 	let entry = named(&directory, "QUIET").await.remove(0);
@@ -99,7 +99,7 @@ async fn dormant() {
 		Some("observer")
 	);
 	client.session().send(&seat, "leave", &[]).await.unwrap();
-	assert!(directory.list().await.unwrap().is_empty());
+	assert!(directory.list(None).await.unwrap().rooms.is_empty());
 	assert_eq!(named(&directory, "Quiet").await[0].id, entry.id);
 	let manager = managed.manager_link;
 	closing_tolerated(peer.close(PendingWork::Cancel).await);
@@ -182,9 +182,10 @@ async fn journey() {
 	let entrance = directory.open("Public recovery").await.unwrap();
 	let (alice_room, _lines, _, _) = join(&alice, entrance, "Alice").await;
 	let publication = directory
-		.list()
+		.list(None)
 		.await
 		.unwrap()
+		.rooms
 		.remove(0)
 		.id
 		.text()
@@ -219,13 +220,14 @@ async fn journey() {
 		closing_tolerated(reader_runtime.close(PendingWork::Cancel).await);
 	}
 	alice_room.leave().await.unwrap();
-	assert!(directory.list().await.unwrap().is_empty());
+	assert!(directory.list(None).await.unwrap().rooms.is_empty());
 	let replacement = directory.open("Public recovery").await.unwrap();
 	let (replacement_room, _replacement_lines, _, _) = join(&alice, replacement, "Alice").await;
 	let current = directory
-		.list()
+		.list(None)
 		.await
 		.unwrap()
+		.rooms
 		.remove(0)
 		.id
 		.text()

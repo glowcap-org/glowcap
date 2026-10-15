@@ -35,6 +35,7 @@ const capability = @import("capability.zig");
 const crossed_hellos = @import("crossed_hellos.zig");
 const session_directory = @import("sessions/directory.zig");
 const host_action = @import("host/action.zig");
+const host_pump = @import("host/pump.zig");
 const host_admission = @import("host/admission.zig");
 const host_configuration = @import("host/configuration.zig");
 const host_delivery = @import("host/delivery.zig");
@@ -102,7 +103,7 @@ pub const Host = struct {
     opts: Options,
     /// One actor graph and turn scheduler for every session Port in this Host.
     vat: actors.Vat,
-    sessions: std.AutoHashMapUnmanaged(engine.PeerHandle, *HostSession) = .{},
+    sessions: foundation.handle_table.Mirror(engine.PeerHandle, *HostSession) = .empty,
     /// Aggregate pending-work count. Session close reads its own compact
     /// counter. Host close reads this O(1) authority instead of rescanning live
     /// sessions or adapter-owned operation rows on every progress turn.
@@ -166,7 +167,7 @@ pub const Host = struct {
     transport_profiles: std.StringHashMapUnmanaged(model.transport.Metadata) = .empty,
     /// Host-wide bootstrap aliases. A fetch performs one keyed discovery lookup
     /// and lazily projects the actor onto the requesting Port.
-    publications: std.StringHashMapUnmanaged(publish_mod.Publication) = .empty,
+    publications: foundation.bearer_table.Table(publish_mod.Publication) = .empty,
     /// Lowering receipts held until the running turn's outcome (ADR-0194).
     turn_receipts: host_capability_lower.TurnReceipts = .{},
     publication_lookup: ?*const @import("publication_lookup.zig").Lookup = null,
@@ -196,13 +197,13 @@ pub const Host = struct {
     /// their rows at settlement. Embedder-facing rows retain the answer position
     /// through settlement and retire on explicit release, preserving promise
     /// pipelining until the public handle itself dies.
-    vows: std.AutoHashMapUnmanaged(u64, *VowRow) = .{},
+    vows: foundation.identity_hash.Map(u64, *VowRow) = .{},
     next_vow: u64 = 1,
     /// Host resolver id → its session-less vow row and the vat resolver it
     /// settles (ADR-0102). A row is consumed by the first settle attempt, so
     /// the map holds exactly the live settle authorities. Freed with the
     /// host. Ids are host-scoped, from their own counter, and never reused.
-    resolver_index: std.AutoHashMapUnmanaged(u64, ResolverIndexEntry) = .{},
+    resolver_index: foundation.identity_hash.Map(u64, ResolverIndexEntry) = .{},
     next_resolver: u64 = 1,
     /// Enlivens waiting on a dial this host staged (`enlivenSelectOrDial`,
     /// ADR-0098). Each row holds the vow id minted for the caller *before*
@@ -222,6 +223,12 @@ pub const Host = struct {
     /// design: `pending_flush` is encode work and `actions.flush` is the
     /// embedder write signal.
     pending_flush: engine.ActionFifo(engine.PeerHandle) = .{},
+    /// Sessions whose peer holds answer releases at its queue tail
+    /// (`engine.Peer.holdsAnswerReleases`). They are not encode work: the
+    /// session's next message carries them, and `flushHeldReleases` sends
+    /// them alone when the embedder is about to park. Reserved like
+    /// `pending_flush`, one slot per live session.
+    held_releases: engine.ActionFifo(engine.PeerHandle) = .{},
     /// At most one host-global continuation notice may be parked in `actions`.
     /// This is distinct from per-session flush deduplication because Node work
     /// may remain with no session that can represent its wake.
@@ -268,7 +275,6 @@ pub const Host = struct {
     /// unchecked release-mode data races.
     owner_tid: host_admission.OwnerThreadId = host_admission.initial_owner_thread_id,
 
-    pub const BootstrapDurability = host_configuration.BootstrapDurability;
     pub const InitError = host_configuration.InitError;
     pub const Options = host_configuration.Options;
 
@@ -488,6 +494,7 @@ pub const Host = struct {
     /// The action queue (`host/action.zig`): the payload shapes and the
     /// borrowed/owned pops over the Host-owned FIFO.
     pub const nextAction = host_action.nextAction;
+    pub const flushHeldReleases = host_pump.flushHeldReleases;
     pub const hasRunnableWork = host_action.hasRunnableWork;
     pub const retryBorrowedAction = host_action.retryBorrowedAction;
     pub const peekAction = host_action.peekAction;
@@ -582,12 +589,9 @@ pub const Host = struct {
 
     // Application Value/capability lowering and its retained staging transaction.
     pub const PreparedValues = host_capability_lower.PreparedValues;
-    pub const StagedCapabilityRetain = host_capability_lower.StagedCapabilityRetain;
     pub const retainValueCapabilities = host_capability_lower.retainValueCapabilities;
-    pub const releaseUntransferredCapabilityRetains = host_capability_lower.releaseUntransferredCapabilityRetains;
+    pub const releaseCapabilityRetains = host_capability_lower.releaseCapabilityRetains;
     const releaseValueCapabilitiesTerminalAt = host_capability_lower.releaseValueCapabilitiesTerminalAt;
-    const beginOutboundStagingLeases = host_capability_lower.beginOutboundStagingLeases;
-    const finishOutboundStagingLeases = host_capability_lower.finishOutboundStagingLeases;
     pub const servedSendWithStaging = host_capability_lower.servedSendWithStaging;
     pub const servedTellWithStaging = host_capability_lower.servedTellWithStaging;
     pub const PreparedCapability = host_capability_lower.PreparedCapability;
@@ -612,6 +616,7 @@ pub const Host = struct {
     /// Refusal rolls back those grants without changing the result owner.
     pub const projectOwnedValue = @import("host/capabilities/completion.zig").projectOwnedValue;
     pub const liftValues = host_capability_lift.liftValues;
+    pub const liftView = host_capability_lift.liftView;
 
     // Raw/opaque target routing and the bounded foreign-Argument policy.
     pub const RoutedSend = host_capability_routing.RoutedSend;
@@ -629,3 +634,4 @@ pub const Host = struct {
 
 pub const HostTurn = host_hosting.HostTurn;
 pub const Hosting = host_hosting.Hosting;
+pub const Args = @import("host/args.zig").Args;

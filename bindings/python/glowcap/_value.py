@@ -11,6 +11,7 @@ There is one value vocabulary from application through FFI. Re-exported from the
 
 from __future__ import annotations
 
+import array
 from dataclasses import dataclass
 from typing import Callable, TypeAlias
 
@@ -122,10 +123,13 @@ class Forward:
         self.args = list(args or [])
 
 
-# An argument is a native Python value or a wrapper:
+# An argument is a plain Python value or a wrapper:
 #   int, float, bool, bytes, str, Symbol, Keyword, ErrorValue, None (void), Ref,
-#   list, Set, Tagged, Struct.
-Argument: TypeAlias = int | float | bool | bytes | str | Symbol | Keyword | ErrorValue | None | Ref | list | Set | Tagged | Struct
+#   list, Set, Tagged, Struct, and ``array.array('q')``, a list of integers
+#   sent as one run of words (a peer's list of integers arrives as a list).
+Argument: TypeAlias = (
+    int | float | bool | bytes | str | Symbol | Keyword | ErrorValue | None | Ref | list | Set | Tagged | Struct | array.array[int]
+)
 
 # An actor: handle a ``(verb, args)`` call and return a reply (``None`` is the
 # OCapN void). ``args`` may contain :class:`Ref`s (capabilities handed to you);

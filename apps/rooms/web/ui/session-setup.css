@@ -7,7 +7,7 @@
 	place-items: center;
 	padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
 		max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
-	background: var(--page-bg);
+	/* The page's own ground shows through, and the mycelium in it. */
 	color: var(--ink);
 }
 /* Not one of the card steps, and not by accident: this is the whole page

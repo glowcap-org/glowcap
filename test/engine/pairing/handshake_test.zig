@@ -40,7 +40,7 @@ test "paired peers can exchange traffic once open" {
     defer pair.deinit();
 
     // p1 delivers against p2's permanently addressable bootstrap export.
-    try pair.p1.sendCopying(.{
+    try pair.p1.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
             .args = &.{.{ .bytes = "ping" }},
@@ -213,7 +213,7 @@ test "sendKeyedStartSession preserves arbitrary locator hint maps" {
     try std.testing.expect(p2.sessionIsOpen());
     var event = p2.pollEvent().?;
     defer event.deinit();
-    const received = (try event.view()).start_session.acceptable_location;
+    const received = event.view().start_session.acceptable_location;
     const received_hints = try received.hints.toOwned(allocator);
     defer model.freeHints(allocator, received_hints);
     try std.testing.expectEqual(@as(usize, hints.len + 3), received_hints.entries.len);
@@ -242,7 +242,7 @@ test "a hello naming anything but the baseline version is refused before it is s
     defer peer.deinit();
 
     const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
-    try std.testing.expectError(session.Error.CaptpVersionMismatch, peer.sendCopying(.{
+    try std.testing.expectError(session.Error.CaptpVersionMismatch, peer.sendBorrowed(.{
         .start_session = .{
             .captp_version = .next,
             .session_pubkey = .{ .bytes = &@as([32]u8, @splat(0)) },
@@ -279,7 +279,7 @@ test "a negotiated fallback retains its hello under the baseline profile" {
     try std.testing.expectEqual(model.CaptpVersion.v1_0, receiver.session_state.captp_version);
     var event = receiver.pollEvent().?;
     defer event.deinit();
-    const hello = (try event.view()).start_session;
+    const hello = event.view().start_session;
     try std.testing.expectEqual(model.CaptpVersion.v1_0, hello.captp_version);
     try std.testing.expectEqualStrings(locator.designator, hello.acceptable_location.designator);
 }
@@ -293,7 +293,7 @@ test "negotiation uses the local preference actually stated on the wire" {
     });
     defer receiver.deinit();
 
-    try receiver.sendCopying(handshake.startSession("tcp", "127.0.0.1:1"));
+    try receiver.sendBorrowed(handshake.startSession("tcp", "127.0.0.1:1"));
     try std.testing.expect(receiver.session_state.handshake_local_sent);
     try std.testing.expectEqual(model.Preference.baseline, receiver.session_state.local_preference);
 
@@ -514,7 +514,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
     var pair = try pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
 
-    try pair.p1.sendCopying(.{
+    try pair.p1.sendBorrowed(.{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
             .args = &.{.{ .bytes = "ping" }},
@@ -538,7 +538,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
     }
     try std.testing.expectEqual(@as(?model.ImportPosition, .from(resolver_export)), pair.p2.session_state.resolverForInboundAnswer(.fromWire(.from(42))));
 
-    try pair.p2.sendCopying(.{
+    try pair.p2.sendBorrowed(.{
         .resolve = .{
             .answer = .from(42),
             .resolution = .{ .fulfill = .{ .bytes = "pong" } },
@@ -554,7 +554,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
 
-    const view = try event.view();
+    const view = event.view();
     try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
     try std.testing.expectEqualSlices(u8, "pong", view.resolve.resolution.fulfill.bytes);
 }

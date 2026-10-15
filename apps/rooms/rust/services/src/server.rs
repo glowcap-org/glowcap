@@ -29,7 +29,7 @@ mod signaling;
 mod state;
 
 pub use capabilities::CapabilityQuery;
-pub use config::{Config, HELP, PostgresConfig, Storage, Transport};
+pub use config::{Config, HELP, Transport};
 pub use error::Error;
 pub use notice::{Notice, Report};
 pub(crate) use operations::trace::locator as trace_locator;

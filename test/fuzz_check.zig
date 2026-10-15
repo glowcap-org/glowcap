@@ -11,6 +11,7 @@
 //! `@embedFile` paths reaches outside the package and the build refuses them.
 
 comptime {
+    _ = @import("foundation/fuzz_test.zig");
     _ = @import("codec/fuzz_test.zig");
     _ = @import("engine/fuzz_test.zig");
     _ = @import("driver/fuzz_test.zig");

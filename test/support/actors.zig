@@ -16,7 +16,7 @@ const model = glowcap.ocapn.model;
 /// instead of passing on another scenario's greeting.
 pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) type {
     return struct {
-        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
             _ = self;
             _ = turn;
             if (!std.mem.eql(u8, msg.verb, verb)) return error.NoSuchMethod;
@@ -30,7 +30,7 @@ pub fn StaticReplyActor(comptime verb: []const u8, comptime reply: []const u8) t
 /// behaviors speak opaque capabilities (`driver.Hosting`).
 pub fn StaticReplyValueActor(comptime verb: []const u8, comptime reply: []const u8) type {
     return struct {
-        pub fn handle(self: *@This(), ht: *glowcap.driver.HostTurn, v: []const u8, args: []const glowcap.driver.Value) !glowcap.driver.Value {
+        pub fn handle(self: *@This(), ht: *glowcap.driver.HostTurn, v: []const u8, args: glowcap.driver.Args) !glowcap.driver.Value {
             _ = self;
             _ = ht;
             _ = args;
@@ -45,7 +45,7 @@ pub fn StaticReplyValueActor(comptime verb: []const u8, comptime reply: []const 
 /// deliveries or drives amplification.
 pub const Counter = struct {
     hits: i64 = 0,
-    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
         self.hits += 1;

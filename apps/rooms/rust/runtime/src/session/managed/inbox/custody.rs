@@ -86,6 +86,7 @@ pub(super) fn demand(args: &[Argument]) -> std::result::Result<usize, String> {
 				| Argument::Keyword(value)
 				| Argument::Error(value) => value.len(),
 				Argument::BigInteger { digits, .. } => digits.len(),
+				Argument::Integers(words) => words.len().checked_mul(8)?,
 				Argument::List(value) | Argument::Set(value) => fields(value, depth + 1, nodes)?,
 				Argument::Tagged { tag, value } => tag.len().checked_add(fields(value, depth + 1, nodes)?)?,
 				Argument::Struct(value) => {

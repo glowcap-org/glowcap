@@ -2,16 +2,7 @@
 
 import { Ref } from "@glowcap/runtime";
 import type { Argument, Session } from "@glowcap/runtime";
-import {
-	DIRECTORY,
-	ENTER,
-	LIST_PUBLICATIONS,
-	NOTIFY,
-	OPEN,
-	REGISTER,
-	SUBSCRIBE,
-	WATCH_PUBLICATIONS,
-} from "../../lib/protocol.ts";
+import { DIRECTORY, ENTER, NOTIFY, OPEN, REGISTER, SUBSCRIBE, WATCH_PUBLICATIONS } from "../../lib/protocol.ts";
 import { NO_SUCH_ROOM, ROOM_EXISTS, type RoomsErrorCode, roomsErrorOf } from "../../lib/errors.ts";
 import { type Message, Room } from "../../lib/room/client.ts";
 import { loopbackTcpDesignator } from "../../lib/locator.ts";
@@ -333,13 +324,6 @@ function directoryRoomRecord(raw: unknown): DirectoryRoomRecord {
 	);
 	assert(offers === null || offers === "observer" || offers === "participant", "invalid public membership offer");
 	return { name, count, id, kind, origin, proof, offers };
-}
-
-/** Decode the directory's canonical room-publication snapshot. */
-export async function listRooms(session: Session): Promise<DirectoryRoomRecord[]> {
-	const directory = await session.fetch(DIRECTORY);
-	const raw = await session.send(directory, LIST_PUBLICATIONS, []) as unknown[];
-	return raw.map(directoryRoomRecord);
 }
 
 export function recordDirectoryEvent(events: DirectoryWatchEvent[], args: Argument[]): void {

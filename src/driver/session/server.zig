@@ -1,4 +1,4 @@
-//! Owning native listener/server handle and one-call listen constructor.
+//! Owning Zig listener/server handle and one-call listen constructor.
 //!
 //! Server owns listener admission and one shared-runtime lease. Accepted
 //! Sessions move their own lease into the client handle. Stopping admission
@@ -199,11 +199,15 @@ pub const Server = struct {
         try self.runtime.refuseReentry();
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
-        const deadline = if (timeout_ms < 0) null else net.clock.nowMs(self.runtime.io) + @as(i64, timeout_ms);
+        var now_ms = self.runtime.nowMs();
+        const deadline = if (timeout_ms < 0) null else now_ms + @as(i64, timeout_ms);
         while (!ready(self)) {
-            const remaining: i32 = if (deadline) |end| @intCast(@max(0, end - net.clock.nowMs(self.runtime.io))) else -1;
+            const remaining: i32 = if (deadline) |end| @intCast(@max(0, end - now_ms)) else -1;
             _ = try self.runtime.stepAnyToward(remaining, .{ .condition = .{ .ctx = self, .reached_fn = ready } });
-            if (deadline) |end| if (net.clock.nowMs(self.runtime.io) >= end) break;
+            if (deadline) |end| {
+                now_ms = self.runtime.nowMs();
+                if (now_ms >= end) break;
+            }
         }
         return ready(self);
     }

@@ -184,7 +184,7 @@ export const threeVatHandoffMixed = TimelineDocument.parse({
 		},
 		{
 			// Alice and Carol are both glowcap → they speak glowcap's
-			// native glowcap-next wire shape. The other two sessions are
+			// glowcap-next wire shape. The other two sessions are
 			// forced to v1_0 (Goblins-canonical) because Bob is a
 			// Goblins-flavor peer. Per-session negotiation across both codec and
 			// CapTP-version axes in one picture.

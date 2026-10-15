@@ -1,4 +1,4 @@
-// A rooms chat client, written on glowcap actors in native Deno.
+// A rooms chat client, written on glowcap actors in Deno.
 //
 // It connects to the directory, enters the named room (opening it if it does not
 // exist yet), publishes a local `inbox` actor, and hands the room a capability to
@@ -62,8 +62,11 @@ export async function runClient(
 	// Discovery: show the rooms that already have people in them, then follow the
 	// live list, both the snapshot (`list`) and the change feed (`watch`).
 	const live = await dir.list();
+	const more = live.next === null ? "" : " and more";
 	console.log(
-		`[${nick}] rooms: ${live.length ? live.map((r) => `${r.name} (${r.count})`).join(", ") : "(none yet)"}`,
+		`[${nick}] rooms: ${
+			live.rooms.length ? live.rooms.map((r) => `${r.name} (${r.count})`).join(", ") : "(none yet)"
+		}${more}`,
 	);
 	await dir.watch((e) => console.log(`[${nick}] directory: ${e.kind} ${e.name} (${e.count})`));
 	const room = await enterOrOpen(dir, roomName);

@@ -52,7 +52,7 @@ from ._ffi_ocapn import (
     _str_buf,
 )
 from ._ffi_tcp import _TcpConfig, _TcpStreamOptions, _tcp_lib
-from ._native import NativeHandle, _NativeHandleOwner
+from ._ffi import FfiHandle, _FfiHandleOwner
 from ._locator import Locator, designator_host_port
 from ._socket_address import address_designator
 from ._transport import (
@@ -241,13 +241,13 @@ def _release_netlayer(raw) -> None:
     _tcp_lib.glowcap_tcp_netlayer_release(raw)
 
 
-class TcpConnection(_NativeHandleOwner):
+class TcpConnection(_FfiHandleOwner):
     """A blocking TCP connection: the ``glowcap_tcp_*`` frame shuttle over one
     socket. Closed on release / context exit."""
 
     def __init__(self, raw, netlayer: "TcpNetlayer"):
         self._netlayer = netlayer
-        self._native = NativeHandle(
+        self._ffi = FfiHandle(
             raw,
             _release_connection,
             _shutdown_connection,
@@ -257,7 +257,7 @@ class TcpConnection(_NativeHandleOwner):
         self._reads = threading.Lock()
         self._writes = threading.Lock()
         if not netlayer._adopt(self):
-            self._native.close()
+            self._ffi.close()
             raise RuntimeError("TCP netlayer is released")
 
     def __enter__(self) -> "TcpConnection":
@@ -267,12 +267,12 @@ class TcpConnection(_NativeHandleOwner):
         self.close()
 
     def close(self) -> None:
-        self._native.close()
+        self._ffi.close()
         self._netlayer._forget(self)
 
     def read_frame(self) -> bytes:
         """Block for one whole frame. Raises GlowcapError(ERR_CLOSED) on clean EOF."""
-        with self._reads, self._native.lease() as raw:
+        with self._reads, self._ffi.lease() as raw:
             frame = _ManagedFrame()
             _check_tcp(
                 _tcp_lib.glowcap_tcp_conn_read_frame(
@@ -283,7 +283,7 @@ class TcpConnection(_NativeHandleOwner):
 
     def write_frame(self, frame: bytes) -> None:
         f, _borrowed = _borrowed_byte_frame(frame)
-        with self._writes, self._native.lease() as raw:
+        with self._writes, self._ffi.lease() as raw:
             _check_tcp(
                 _tcp_lib.glowcap_tcp_conn_write_frame(
                     raw, ctypes.byref(f), None, 0, None
@@ -291,12 +291,12 @@ class TcpConnection(_NativeHandleOwner):
             )
 
 
-class TcpListener(_NativeHandleOwner):
+class TcpListener(_FfiHandleOwner):
     """A bound TCP listener. Closed on release / context exit."""
 
     def __init__(self, raw, netlayer: "TcpNetlayer"):
         self._netlayer = netlayer
-        self._native = NativeHandle(
+        self._ffi = FfiHandle(
             raw,
             _release_listener,
             _tcp_lib.glowcap_tcp_listener_shutdown,
@@ -305,7 +305,7 @@ class TcpListener(_NativeHandleOwner):
         )
         self._accepts = threading.Lock()
         if not netlayer._adopt(self):
-            self._native.close()
+            self._ffi.close()
             raise RuntimeError("TCP netlayer is released")
 
     def __enter__(self) -> "TcpListener":
@@ -315,12 +315,12 @@ class TcpListener(_NativeHandleOwner):
         self.close()
 
     def close(self) -> None:
-        self._native.close()
+        self._ffi.close()
         self._netlayer._forget(self)
 
     def port(self) -> int:
         out = ctypes.c_uint16()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_tcp(_tcp_lib.glowcap_tcp_listener_port(raw, ctypes.byref(out)))
         return out.value
 
@@ -331,7 +331,7 @@ class TcpListener(_NativeHandleOwner):
         :meth:`close`.
         """
         out = ctypes.c_int32()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_tcp(
                 _tcp_lib.glowcap_tcp_listener_readiness_fd(raw, ctypes.byref(out))
             )
@@ -345,7 +345,7 @@ class TcpListener(_NativeHandleOwner):
         options: "Optional[StreamOptions]" = None,
     ) -> TcpConnection:
         raw_options, options_ptr = _stream_options_ptr(options)
-        with self._accepts, self._native.lease() as raw:
+        with self._accepts, self._ffi.lease() as raw:
             out = ctypes.c_void_p()
             _check_tcp(
                 _tcp_lib.glowcap_tcp_accept(
@@ -363,7 +363,7 @@ class TcpListener(_NativeHandleOwner):
             return TcpConnection(out, self._netlayer)
 
 
-class TcpNetlayer(_NativeHandleOwner):
+class TcpNetlayer(_FfiHandleOwner):
     """Owns the blocking-TCP I/O backend. Outlives the connections made from it.
     Released on :meth:`release` / context exit."""
 
@@ -375,7 +375,7 @@ class TcpNetlayer(_NativeHandleOwner):
                 ctypes.byref(raw_config), ctypes.byref(out)
             )
         )
-        self._native = NativeHandle(
+        self._ffi = FfiHandle(
             out,
             _release_netlayer,
             _tcp_lib.glowcap_tcp_netlayer_shutdown,
@@ -407,7 +407,7 @@ class TcpNetlayer(_NativeHandleOwner):
                     children = list(self._children)
             for child in children:
                 child.close()
-            self._native.close()
+            self._ffi.close()
 
     def _adopt(self, child: "TcpConnection | TcpListener") -> bool:
         with self._children_lock:
@@ -425,7 +425,7 @@ class TcpNetlayer(_NativeHandleOwner):
         from ._ffi_driver import _TransportProvider
 
         package = _TransportProvider()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_tcp(
                 _tcp_lib.glowcap_tcp_transport_provider(raw, ctypes.byref(package))
             )
@@ -438,12 +438,12 @@ class TcpNetlayer(_NativeHandleOwner):
                 if self._release_requested or self._children:
                     raise RuntimeError("TCP netlayer is not transferable")
                 self._release_requested = True
-            self._native.drop_reference()
+            self._ffi.drop_reference()
 
     def listen(self, host: str, port: int = 0) -> TcpListener:
         buf, n = _str_buf(host)
         out = ctypes.c_void_p()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_tcp(
                 _tcp_lib.glowcap_tcp_listen(
                     raw, ctypes.cast(buf, ctypes.c_void_p), n, port, ctypes.byref(out)
@@ -463,7 +463,7 @@ class TcpNetlayer(_NativeHandleOwner):
         buf, n = _str_buf(host)
         out = ctypes.c_void_p()
         raw_options, options_ptr = _stream_options_ptr(options)
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_tcp(
                 _tcp_lib.glowcap_tcp_connect(
                     raw,
@@ -484,7 +484,7 @@ class TcpNetlayer(_NativeHandleOwner):
 
 
 def provider(config: "Optional[Config]" = None) -> Provider:
-    """Build the configured native package for all TCP profiles."""
+    """Build the configured FFI package for all TCP profiles."""
     selected = config if config is not None else Config()
 
     async def install(loop) -> None:

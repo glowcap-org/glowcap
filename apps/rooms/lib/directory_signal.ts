@@ -54,8 +54,8 @@ export class DirectorySignaling {
 	}
 
 	/** File this member's WebRTC signaling inbox with the directory
-	 * (`offerSignaling`): offers and candidates aimed at this member's `webrtc`
-	 * designator arrive on it as `offer(id, sdp)` / `candidate(id, ice)`. */
+	 * (`offerSignaling`): offers and candidates aimed at this member's Host key
+	 * arrive on it as `offer(id, sdp, from?)` / `candidate(id, ice)`. */
 	async offerSignaling(inbox: Ref): Promise<void> {
 		await ask(
 			this.session,

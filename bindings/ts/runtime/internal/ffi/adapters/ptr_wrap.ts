@@ -1,6 +1,6 @@
 // Internal: the pointer-marshalling spine the runtime adapters share.
 //
-// Deno and Bun each model a native pointer their own way (Deno an opaque
+// Deno and Bun each model an FFI pointer their own way (Deno an opaque
 // `PointerValue`, Bun a JavaScript number) while the seam above speaks only
 // `bigint`. Both adapters apply the identical plan: convert the
 // pointer-typed parameters and result at each call, and leave a pointer-free
@@ -11,7 +11,7 @@
 
 import type { Ptr, SymbolDef, Symbols } from "../runtime.ts";
 
-/** An adapter's pointer bridge: its native pointer representation to and from
+/** An adapter's pointer bridge: its FFI pointer representation to and from
  * the seam's `bigint`. */
 export interface PtrBridge<NP> {
 	toPtr(p: NP): Ptr;
@@ -55,8 +55,8 @@ export function wrapSymbols<NP>(
 }
 
 /** Wrap a callback body so pointer arguments arrive as `bigint` and a pointer
- *  result returns as the runtime's native pointer. This is the mirror image of
- * `wrapSymbols`, for the JS function a native callback invokes. */
+ *  result returns as the runtime's FFI pointer. This is the mirror image of
+ * `wrapSymbols`, for the JS function an FFI callback invokes. */
 export function wrapCallbackFn<NP>(
 	def: SymbolDef,
 	fn: (...args: unknown[]) => unknown,

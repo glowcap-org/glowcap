@@ -81,10 +81,10 @@ here.
 
 ## Evidence
 
-- `apps/rooms/test/trace/cap_test.ts`: the write refusal (the headline), the
+- `apps/rooms/rust/services/src/server/operations/trace/managed_tests.rs`: the write refusal (the headline), the
   viewer refusal, the admission mark, trace-off minting nothing with a stale
   swiss answering nothing, and the announcement carrying the persisted swiss.
-- `apps/rooms/test/trace/endpoint_test.ts`: the endpoint's merged-feed
+- `apps/rooms/rust/services/src/server/tests/operations/trace.rs`: the endpoint's merged-feed
   contracts, with every socket presenting the capability.
 - `zig build rooms-web-page`: the third toggle's take flow, three-pane tab
   bar, and drop-erases in a real Chromium.

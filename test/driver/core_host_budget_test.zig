@@ -405,7 +405,7 @@ const Counter = support_actors.Counter;
 /// connection's own dispatch.
 const SelfFlood = struct {
     amp: actors.Ref,
-    pub fn handle(self: *SelfFlood, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *SelfFlood, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "flood")) return error.NoSuchMethod;
         var i: usize = 0;
         while (i < flood_turns) : (i += 1) {
@@ -421,7 +421,7 @@ const SiblingFlood = struct {
     host: *Host,
     sibling: *HostSession,
     target: model.Reference,
-    pub fn handle(self: *SiblingFlood, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *SiblingFlood, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "flood")) return error.NoSuchMethod;
         var i: usize = 0;

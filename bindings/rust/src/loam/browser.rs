@@ -27,6 +27,12 @@ extern "C" {
 	#[wasm_bindgen(catch, js_name = put)]
 	fn js_put(rows: &JsValue, key: &Uint8Array, value: Option<&Uint8Array>) -> std::result::Result<(), JsValue>;
 }
+/// Await a promise the JavaScript shim settles. Settlement enters Rust once.
+async fn settled(statistics: &RefCell<StorageStatistics>, promise: Promise) -> std::result::Result<JsValue, JsValue> {
+	let result = JsFuture::from(promise).await;
+	statistics.borrow_mut().count_callback();
+	result
+}
 fn js_error(value: JsValue) -> crate::Error {
 	invalid(&format!("browser Loam storage: {value:?}"))
 }
@@ -102,10 +108,6 @@ pub(super) struct Terminal {
 }
 impl Storage {
 	async fn transaction(&self, write: bool, mut evaluate: impl FnMut(&mut Plan) -> Result<i32> + 'static) -> Terminal {
-		{
-			let mut statistics = self.statistics.borrow_mut();
-			statistics.transactions = statistics.transactions.saturating_add(1);
-		}
 		let mut plan = match Plan::new(self.limit, write, Rc::clone(&self.statistics)) {
 			Ok(plan) => plan,
 			Err(error) => {
@@ -120,10 +122,16 @@ impl Storage {
 		// cannot erase NotFound, capacity, or corruption distinctions at recovery.
 		let failure = Rc::new(RefCell::new(None));
 		let callback_failure = Rc::clone(&failure);
+		let entries = Rc::clone(&self.statistics);
 		let step = Closure::wrap(Box::new(
-			move |rows: JsValue, key: JsValue, value: JsValue| -> std::result::Result<JsValue, JsValue> {
+			move |rows: JsValue, key: JsValue, value: JsValue, cursor: bool| -> std::result::Result<JsValue, JsValue> {
+				entries.borrow_mut().count_callback();
 				let apply = || -> Result<JsValue> {
-					plan.input(rows, key, value)?;
+					if cursor {
+						plan.input_cursor(rows, key, value)?;
+					} else {
+						plan.input(rows, key, value)?;
+					}
 					let code = evaluate(&mut plan)?;
 					plan.output(code)
 				};
@@ -134,10 +142,16 @@ impl Storage {
 				})
 			},
 		)
-			as Box<dyn FnMut(JsValue, JsValue, JsValue) -> std::result::Result<JsValue, JsValue>>);
+			as Box<dyn FnMut(JsValue, JsValue, JsValue, bool) -> std::result::Result<JsValue, JsValue>>);
 		let terminal = async {
+			{
+				// A transaction is counted where it crosses into JavaScript.
+				let mut statistics = self.statistics.borrow_mut();
+				statistics.transactions = statistics.transactions.saturating_add(1);
+				statistics.count_js_call();
+			}
 			let promise = js_execute(&self.owner, write, step.as_ref().unchecked_ref()).map_err(js_error)?;
-			let result = JsFuture::from(promise).await.map_err(js_error)?;
+			let result = settled(&self.statistics, promise).await.map_err(js_error)?;
 			// A malformed terminal result cannot establish non-commit. Fence
 			// writes conservatively; Promise rejection only occurs before I/O.
 			let parsed = (|| -> Result<Terminal> {
@@ -177,11 +191,13 @@ impl Storage {
 	}
 	async fn close(&self, store: *mut ffi::GlowcapLoamStore) -> Result<()> {
 		if !self.closed.get() {
+			self.statistics.borrow_mut().count_js_call();
 			js_quiescent(&self.owner).map_err(js_error)?;
-			check(unsafe { ffi::glowcap_loam_store_release(store) }, false)?;
+			check(unsafe { ffi::glowcap_loam_store_release(store) })?;
 			self.closed.set(true);
 		}
-		JsFuture::from(js_close(&self.owner).map_err(js_error)?)
+		self.statistics.borrow_mut().count_js_call();
+		settled(&self.statistics, js_close(&self.owner).map_err(js_error)?)
 			.await
 			.map_err(js_error)?;
 		Ok(())
@@ -216,7 +232,7 @@ impl Storage {
 				if let Err(error) = backend.close(store).await {
 					crate::record_runtime_failure(crate::FailureLayer::Binding, "loam-browser.release", error);
 				}
-			} else if let Err(error) = check(rc, false) {
+			} else if let Err(error) = check(rc) {
 				// Unresolved authority retains its database and exclusive lock.
 				// Report once; releasing either would admit a stale writer.
 				crate::record_runtime_failure(crate::FailureLayer::Binding, "loam-browser.recovery", error);
@@ -271,22 +287,21 @@ impl Store {
 		}
 		let schemas: Vec<_> = schemas.iter().map(|s| s.raw()).collect();
 		// Validate schemas and budgets before opening or durably claiming storage.
-		check(
-			unsafe { ffi::glowcap_loam_validate_configuration(schemas.as_ptr(), schemas.len(), &limits.raw()) },
-			false,
-		)?;
+		check(unsafe { ffi::glowcap_loam_validate_configuration(schemas.as_ptr(), schemas.len(), &limits.raw()) })?;
 		let limit = limits.record_bytes.max(ffi::GLOWCAP_LOAM_METADATA_SIZE);
 		Plan::input_capacity(limit)?;
 		let name = name.to_owned();
 		retained(async move {
-			let owner = JsFuture::from(js_open(&name, mode != 0).map_err(js_error)?)
+			let statistics: Rc<RefCell<StorageStatistics>> = Default::default();
+			statistics.borrow_mut().count_js_call();
+			let owner = settled(&statistics, js_open(&name, mode != 0).map_err(js_error)?)
 				.await
 				.map_err(js_error)?;
 			let backend = Storage {
 				owner,
 				closed: Cell::new(false),
 				limit,
-				statistics: Default::default(),
+				statistics,
 			};
 			let slot = Rc::new(Cell::new(core::ptr::null_mut()));
 			let output = Rc::clone(&slot);
@@ -297,33 +312,27 @@ impl Store {
 						Err(error) => return Ok(error.code),
 					};
 					let mut metadata = [0u8; ffi::GLOWCAP_LOAM_METADATA_SIZE];
-					check(
-						unsafe {
-							ffi::glowcap_loam_metadata_claim(
-								identity.as_ptr(),
-								mode,
-								previous.map_or(core::ptr::null(), |v| v.as_ptr()),
-								previous.map_or(0, |v| v.len()),
-								metadata.as_mut_ptr(),
-								metadata.len(),
-							)
-						},
-						false,
-					)?;
+					check(unsafe {
+						ffi::glowcap_loam_metadata_claim(
+							identity.as_ptr(),
+							mode,
+							previous.map_or(core::ptr::null(), |v| v.as_ptr()),
+							previous.map_or(0, |v| v.len()),
+							metadata.as_mut_ptr(),
+							metadata.len(),
+						)
+					})?;
 					let mut store = core::ptr::null_mut();
-					check(
-						unsafe {
-							ffi::glowcap_loam_store_new(
-								metadata.as_ptr(),
-								metadata.len(),
-								schemas.as_ptr(),
-								schemas.len(),
-								&limits.raw(),
-								&mut store,
-							)
-						},
-						false,
-					)?;
+					check(unsafe {
+						ffi::glowcap_loam_store_new(
+							metadata.as_ptr(),
+							metadata.len(),
+							schemas.as_ptr(),
+							schemas.len(),
+							&limits.raw(),
+							&mut store,
+						)
+					})?;
 					output.set(store);
 					plan.put(b"m", Some(&metadata))?;
 					Ok(crate::sys::OK)
@@ -331,9 +340,10 @@ impl Store {
 				.await;
 			if terminal.outcome != 0 {
 				if !slot.get().is_null() {
-					check(unsafe { ffi::glowcap_loam_store_release(slot.get()) }, false)?;
+					check(unsafe { ffi::glowcap_loam_store_release(slot.get()) })?;
 				}
-				JsFuture::from(js_close(&backend.owner).map_err(js_error)?)
+				backend.statistics.borrow_mut().count_js_call();
+				settled(&backend.statistics, js_close(&backend.owner).map_err(js_error)?)
 					.await
 					.map_err(js_error)?;
 				return Err(terminal
@@ -353,6 +363,47 @@ impl Store {
 		})
 		.await
 	}
+	/// Run one bounded collection step of `work_limit` units plus the steps that
+	/// finish an open unit. Returns true while the cycle has more to do. The
+	/// step waits for a creation in flight, is refused while an attachment is
+	/// live or a creation is staged, and a refused or aborted step committed
+	/// nothing. An indeterminate IndexedDB outcome leaves the store needing the
+	/// same recovery as a creation.
+	pub async fn collect(&self, work_limit: usize) -> Result<bool> {
+		claim_store_batch(&self.inner).await;
+		let inner = Rc::clone(&self.inner);
+		retained(async move {
+			let _done = CreationDone(Rc::clone(&inner));
+			let store = inner.store;
+			let terminal = inner
+				.backend
+				.transaction(true, move |plan| {
+					Ok(unsafe {
+						ffi::glowcap_loam_store_collect_plan(store, work_limit, Some(callback), plan.context())
+					})
+				})
+				.await;
+			// A batch that never reached evaluation left no staging, so there is
+			// nothing to abort, and the refusal that stopped it is the cause.
+			let rc = unsafe { ffi::glowcap_loam_store_finish(store, 0, terminal.outcome) };
+			if let Err(error) = check(rc) {
+				return Err(match terminal.failure {
+					Some(physical) if rc == ffi::GLOWCAP_LOAM_ERR_STALE_COMPLETION => physical,
+					Some(physical) => error.with_secondary(physical),
+					None => error,
+				});
+			}
+			if let Some(error) = terminal.failure {
+				return Err(error);
+			}
+			let mut collecting = 0u32;
+			// SAFETY: `store` is the live portable Store this handle owns, released only by `close`, and
+			// `collecting` is a valid output for the call.
+			check(unsafe { ffi::glowcap_loam_store_collecting(store, &mut collecting) })?;
+			Ok(collecting != 0)
+		})
+		.await
+	}
 	pub async fn recover_creation(&self) -> Result<Resource> {
 		while self.inner.creation_active.get() {
 			self.inner.creation_changed.notified().await;
@@ -366,7 +417,7 @@ impl Store {
 			.ok_or_else(|| invalid("there is no retained creation result"))?;
 		let inner = Rc::clone(&self.inner);
 		let result = if let Some(code) = inner.creation_outcome.get() {
-			check(code, false)
+			check(code)
 		} else {
 			inner.creation_active.set(true);
 			retained(async move { startup(&inner, true).await }).await
@@ -384,15 +435,27 @@ impl Store {
 		Ok(resource)
 	}
 }
-pub(super) async fn startup(inner: &Rc<StoreInner>, recovery: bool) -> Result<()> {
-	struct Done(Rc<StoreInner>);
-	impl Drop for Done {
-		fn drop(&mut self) {
-			self.0.creation_active.set(false);
-			self.0.creation_changed.notify_waiters();
-		}
+/// Wait until no store-level batch is in flight, then claim the flag for the
+/// caller. A creation commit, a creation recovery, and a collection step each
+/// finish through `glowcap_loam_store_finish`, which retires whichever batch is
+/// open, so only one may be in flight. The claim has no await after the wait,
+/// so nothing interleaves between them.
+pub(super) async fn claim_store_batch(inner: &StoreInner) {
+	while inner.creation_active.get() {
+		inner.creation_changed.notified().await;
 	}
-	let _done = Done(Rc::clone(inner));
+	inner.creation_active.set(true);
+}
+/// Clears the store-level batch flag when the holder's work ends, however it ends.
+struct CreationDone(Rc<StoreInner>);
+impl Drop for CreationDone {
+	fn drop(&mut self) {
+		self.0.creation_active.set(false);
+		self.0.creation_changed.notify_waiters();
+	}
+}
+pub(super) async fn startup(inner: &Rc<StoreInner>, recovery: bool) -> Result<()> {
+	let _done = CreationDone(Rc::clone(inner));
 	let store = inner.store;
 	let terminal = inner
 		.backend
@@ -404,13 +467,13 @@ pub(super) async fn startup(inner: &Rc<StoreInner>, recovery: bool) -> Result<()
 	if !recovery && terminal.outcome == 1 && rc == ffi::GLOWCAP_LOAM_ERR_STALE_COMPLETION {
 		// The database refused before evaluation prepared a write. Retire
 		// the still-unsubmitted staging through its ordinary abort boundary.
-		check(unsafe { ffi::glowcap_loam_store_abort(store) }, false)?;
+		check(unsafe { ffi::glowcap_loam_store_abort(store) })?;
 		rc = ffi::GLOWCAP_LOAM_ERR_UNCHANGED;
 	}
 	if rc == crate::sys::OK || rc == ffi::GLOWCAP_LOAM_ERR_UNCHANGED {
 		inner.creation_outcome.set(Some(rc));
 	}
-	if let Err(error) = check(rc, false) {
+	if let Err(error) = check(rc) {
 		return Err(if let Some(physical) = terminal.failure {
 			error.with_secondary(physical)
 		} else {

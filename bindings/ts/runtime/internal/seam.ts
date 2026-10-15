@@ -17,10 +17,10 @@ export function ab(b: Uint8Array): Uint8Array<ArrayBuffer> {
 	return b as Uint8Array<ArrayBuffer>;
 }
 
-/** Copy `len` bytes at `ptrValue` out of native memory into JS-owned storage
+/** Copy `len` bytes at `ptrValue` out of FFI memory into JS-owned storage
  * (empty for NULL/0). This is the one place byte ownership is established: every
  * adapter's `readMemory` returns a freshly-owned `ArrayBuffer`, so the result
- * outlives the native storage and a caller never re-copies it (no defensive
+ * outlives the FFI storage and a caller never re-copies it (no defensive
  * `.slice()` on a `readBytes` result). */
 export function readBytes(ptrValue: Ptr, len: bigint): Uint8Array {
 	if (ptrValue === NULL || len === 0n) return new Uint8Array(0);

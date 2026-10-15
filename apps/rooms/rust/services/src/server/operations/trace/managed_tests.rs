@@ -239,6 +239,7 @@ fn tcp_config(state: std::path::PathBuf) -> Config {
 		relay_url: None,
 		relay_alias_url: None,
 		dial_transports: vec!["tcp".into()],
+		ice_servers: vec![],
 	}
 }
 

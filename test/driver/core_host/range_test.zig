@@ -60,7 +60,7 @@ const PublicationProbe = harness.PublicationProbe;
 /// application a second session beside a reply, and hosting the reply inbox on
 /// the wrong one of the two is a one-word mistake.
 const Pad = struct {
-    pub fn handle(self: *Pad, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Pad, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = turn;
         _ = msg;

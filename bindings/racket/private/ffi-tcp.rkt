@@ -15,9 +15,9 @@
 ;; gen-binding-racket-ffi`); this module owns the prose and re-provides them.
 ;; connect/accept/read/write park the calling thread on the socket; the
 ;; generated `#:blocking?` marks keep the runtime GC-cooperative during the
-;; park (they do not free the place's green threads — this one-call surface
+;; park (they do not free the place's green threads: this one-call surface
 ;; is driven single-threaded). Netlayer shutdown cancels a connect owned by a
-;; different native thread before parent release joins it.
+;; different FFI thread before parent release joins it.
 (require ffi/unsafe
          "ffi-shared.rkt"
          "ffi-tcp-gen.rkt")

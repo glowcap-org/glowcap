@@ -12,8 +12,8 @@
 //!
 //! This measures core *peer state* only, and since ADR-0054 the core state is
 //! also the dominant per-connection cost: the completion loop's read buffers
-//! are a shared backend-owned pool (`BackendOptions.read_buffers`, default 256 x
-//! 16 KiB, about 4 MiB total), so an idle connection holds zero read-buffer
+//! are a shared backend-owned pool (`BackendOptions.read_buffers` buffers of
+//! `default_read_buffer_bytes` each), so an idle connection holds zero read-buffer
 //! bytes and the 500k extrapolation below is the warmed footprint plus
 //! one pool. The opt-in live phase complements that marginal-state figure with
 //! process RSS from real loopback sockets: every unique signed session fetches
@@ -38,7 +38,7 @@ const model = glowcap.ocapn.model;
 /// actor cell, the per-connection state a loop-driven host (ADR-0057) carries
 /// on top of the bare `engine.Peer`.
 const BenchGreeter = struct {
-    pub fn handle(self: *BenchGreeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *BenchGreeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = turn;
         _ = msg;

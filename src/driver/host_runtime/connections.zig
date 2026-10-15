@@ -45,7 +45,7 @@ pub fn bindResidentWire(
     const registered = &self.residents.items[resident_index];
     const resident = registered.resident;
     const request_id = try Internal.mintRuntimeId(&registered.next_request);
-    var attempt = switch (dialer.startDial(request_id, locator, options)) {
+    var attempt = switch (dialer.startDial(request_id, locator, options, .application)) {
         .admitted => |attempt| attempt,
         .failed => |failure| return failure.classification,
     };
@@ -75,7 +75,7 @@ fn awaitResidentConnect(
     defer std.debug.assert(self.pending_resident_dials.remove(key));
     const deadline_ms: ?i64 = switch (budget) {
         .unbounded => null,
-        .ms => |v| net.clock.nowMs(self.io) + v,
+        .ms => |v| self.nowMs() + v,
     };
     while (true) {
         try Internal.applySettleMailbox(self);
@@ -87,7 +87,7 @@ fn awaitResidentConnect(
             .failed => |failure| failure.classification,
         };
         const timeout: i32 = if (deadline_ms) |deadline| blk: {
-            const remaining = deadline - net.clock.nowMs(self.io);
+            const remaining = deadline - self.nowMs();
             if (remaining <= 0) return Error.HandshakeTimedOut;
             break :blk std.math.cast(i32, remaining) orelse std.math.maxInt(i32);
         } else -1;
@@ -120,14 +120,14 @@ pub fn adoptResidentConn(
     }
     try Internal.reserveCloseEvent(self);
     errdefer Internal.releaseCloseEvent(self);
-    try self.wires.ensureUnusedCapacity(self.allocator, 1);
+    try self.wires.reserve(self.allocator, session.peer_handle);
     try self.resident_wires.ensureUnusedCapacity(self.allocator, 1);
     const wire = try self.allocator.create(Wire);
     wire.* = .{
         .link = .{ .index = resident_index, .conn = conn },
         .session = session,
     };
-    self.wires.putAssumeCapacity(session.peer_handle, wire);
+    self.wires.placeReserved(session.peer_handle, wire);
     self.resident_wires.putAssumeCapacity(.{ .resident = resident_index, .conn = conn }, wire);
     self.open_wire_count += 1;
     _ = claimed.take();

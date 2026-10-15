@@ -198,7 +198,7 @@ const Deferring = struct {
     session: *HostSession,
     out_resolver: *u64,
 
-    pub fn handle(self: *Deferring, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Deferring, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "work")) return error.NoSuchMethod;
         self.out_resolver.* = try self.host.deferTurn(self.session, turn);
         return .{ .void = {} };
@@ -379,7 +379,7 @@ test "core host: local and foreign deferrals publish no Host or Vat authority" {
         expected: anyerror,
         refused: *bool,
 
-        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
             _ = msg;
             _ = self.host.deferTurn(self.session, turn) catch |err| {
                 if (err != self.expected) return err;
@@ -434,7 +434,7 @@ test "core host: a served tell cannot mint resolver authority" {
         session: *HostSession,
         refused: *bool,
 
-        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
             _ = msg;
             _ = self.host.deferTurn(self.session, turn) catch |err| {
                 if (err != error.NoAnswer) return err;

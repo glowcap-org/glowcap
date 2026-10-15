@@ -60,8 +60,8 @@ with local grants and runtime policy algebra.
 [ADR-0155](ADR-0155-access-prepared-grant-writes.md) adds graph reservations and
 prepared grant writes. Persistent storage, actor integration, C archives, and
 Rust bindings remain unimplemented. Rooms still uses its current application
-model and grant machinery. The [implementation plan](../../planning/rooms.md)
-owns their replacement. No compatibility adapter or fallback exists.
+model and grant machinery. The [roadmap](../../roadmap.md) tracks their
+replacement. No compatibility adapter or fallback exists.
 
 No wire behavior changes. The first model tests consume the graph and scopes.
 Application integration remains unimplemented. Resource IDs cannot be published

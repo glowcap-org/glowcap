@@ -296,6 +296,8 @@ export const MAX_ROOM_MEMBERS = APPLICATION_DATA.MAX_ROOM_MEMBERS;
 export const MAX_ROOM_OFFLINE = APPLICATION_DATA.MAX_ROOM_OFFLINE;
 export const MAX_SESSION_DIRECTORY_ROWS = APPLICATION_DATA.MAX_SESSION_DIRECTORY_ROWS;
 export const MAX_DIRECTORY_DISCOVERY_ROWS = APPLICATION_DATA.MAX_DIRECTORY_DISCOVERY_ROWS;
+/** The most UTF-16 units a `listPublications` page cursor holds. */
+export const MAX_DIRECTORY_CURSOR = APPLICATION_DATA.MAX_DIRECTORY_CURSOR;
 /** What a reader who steps away without writing a reason is away for.
  *
  * Both the menu that sets a standing and the `/away` command use this word, so

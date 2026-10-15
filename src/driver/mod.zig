@@ -1,4 +1,4 @@
-//! The native Zig application surface over CapTP sessions and transport I/O.
+//! The Zig application surface over CapTP sessions and transport I/O.
 //!
 //! `actors.Vat` is a sync, no-I/O turn loop. `net` is where I/O lives.
 //! A networked Zig app normally has to open a socket, bind a vat to the peer, pump
@@ -67,6 +67,7 @@ pub const Value = driver_core.Value;
 pub const Reply = driver_core.Reply;
 pub const Hosting = driver_core.Hosting;
 pub const HostTurn = driver_core.HostTurn;
+pub const Args = driver_core.Args;
 pub const Settled = driver_core.Settled;
 pub const unreachable_client_designator = driver_core.unreachable_client_designator;
 /// The turn-time spawn-at-export verb (see `driver_core`'s `spawnAt`): a
@@ -88,7 +89,7 @@ pub fn drawSessionSecret(io: std.Io) Error!crypto.SecretKey {
 }
 
 const session = @import("session.zig");
-/// The owning native runtime (ADR-0090): transport I/O and a blocking,
+/// The owning Zig runtime (ADR-0090): transport I/O and a blocking,
 /// poll-multiplexed pump around one byte-fed Host. `connect`/`listen` build one
 /// underneath. An app that wants several sessions under one Host identity
 /// builds it explicitly.

@@ -30,7 +30,7 @@ const opts: driver.SessionOptions = .{
 };
 
 const Echo = struct {
-    pub fn handle(_: *Echo, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+    pub fn handle(_: *Echo, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
         if (!std.mem.eql(u8, verb, "ping")) return error.NoSuchMethod;
         return .{ .string = "pong through a foreign provider" };
     }

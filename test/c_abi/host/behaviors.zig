@@ -96,7 +96,7 @@ pub fn typedBehavior(
     out_reply: *c.GlowcapArgument,
 ) callconv(.c) i32 {
     _ = turn;
-    if (!std.mem.eql(u8, verb[0..verb_len], "typed") or args_len != 6) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!std.mem.eql(u8, verb[0..verb_len], "typed") or args_len != 7) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     const values = args orelse return c.GLOWCAP_ERR_NULL_POINTER;
     const set = values[0];
     const tagged = values[1];
@@ -104,6 +104,7 @@ pub fn typedBehavior(
     const big = values[3];
     const structured = values[4];
     const error_value = values[5];
+    const integers = values[6];
     if (set.kind != c.GLOWCAP_ARG_SET or set.items_len != 2 or set.items == null) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     if (set.items.?[0].kind != c.GLOWCAP_ARG_INTEGER or set.items.?[0].integer != 1) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
     if (set.items.?[1].kind != c.GLOWCAP_ARG_INTEGER or set.items.?[1].integer != 2) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
@@ -123,6 +124,11 @@ pub fn typedBehavior(
     if (error_value.kind != c.GLOWCAP_ARG_ERROR or error_value.bytes == null or
         !std.mem.eql(u8, error_value.bytes.?[0..error_value.bytes_len], "typed failure value"))
         return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    // A run of integers lent by the sender arrives as the list it means.
+    if (integers.kind != c.GLOWCAP_ARG_LIST or integers.items_len != 3 or integers.items == null) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    for (integers.items.?[0..3], [_]i64{ 7, -8, 9 }) |item, word| {
+        if (item.kind != c.GLOWCAP_ARG_INTEGER or item.integer != word) return c.GLOWCAP_ERR_INVALID_ARGUMENT;
+    }
     const capture: *TypedCapture = @ptrCast(@alignCast(ctx.?));
     capture.seen = true;
     capture.nested_ref = tagged.items.?[0].reference;

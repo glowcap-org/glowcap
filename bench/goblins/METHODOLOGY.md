@@ -1,8 +1,15 @@
+---
+type: static
+description: What the Goblins, glowcap and glowcap-with-time-travel benchmarks hold constant and what they cannot.
+sources:
+  - resource: /bench/goblins/
+---
+
 # Benchmark methodology
 
 The Goblins, glowcap, and glowcap-with-time-travel series share an application
 and conversation shape. The harness holds some things constant and cannot hold
-others. This page lists both.
+others, and the sections below list both.
 
 ## Shared application
 

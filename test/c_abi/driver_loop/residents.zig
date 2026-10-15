@@ -177,7 +177,7 @@ pub const InvalidMultiplexedResident = struct {
         return drained(out_count, cap + 1);
     }
 
-    pub fn startConnect(ctx: ?*anyopaque, request: u64, _: ?*const cdrv.GlowcapLocatorView, _: ?*const cshared.GlowcapTransportOperationOptions, out_failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
+    pub fn startConnect(ctx: ?*anyopaque, request: u64, _: ?*const cdrv.GlowcapLocatorView, _: ?*const cshared.GlowcapTransportOperationOptions, _: ?*const cshared.GlowcapDialOrigin, out_failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
         const self: *InvalidMultiplexedResident = @ptrCast(@alignCast(ctx.?));
         if (!self.connect_io or self.pending_request != null)
             return providerFailure(out_failure, c.GLOWCAP_ERR_INVALID_ARGUMENT, "InvalidTestDial");
@@ -505,7 +505,7 @@ pub const AsyncFailureResident = struct {
         return drained(out_count, 1);
     }
 
-    pub fn startConnect(ctx: ?*anyopaque, request: u64, _: ?*const cdrv.GlowcapLocatorView, _: ?*const cshared.GlowcapTransportOperationOptions, out_failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
+    pub fn startConnect(ctx: ?*anyopaque, request: u64, _: ?*const cdrv.GlowcapLocatorView, _: ?*const cshared.GlowcapTransportOperationOptions, _: ?*const cshared.GlowcapDialOrigin, out_failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
         const resident = self(ctx);
         if (resident.pending != null)
             return providerFailure(out_failure, c.GLOWCAP_ERR_INVALID_ARGUMENT, "DialAlreadyPending");

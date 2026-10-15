@@ -60,7 +60,7 @@ pub const PrepareListenerLocatorOutcome = union(enum) {
     failed: net.netlayer.ListenFailure,
 };
 
-/// A taker for application-visible completions the native face would
+/// A taker for application-visible completions the Zig face would
 /// otherwise free. Reservation makes post-commit publication infallible.
 pub const CompletionSink = struct {
     ctx: *anyopaque,
@@ -82,7 +82,7 @@ pub const CloseObserver = struct {
 };
 
 /// How a HostRuntime is driven, chosen once at construction. The blocking
-/// native face waits on the live wires itself. The stepped face hands an
+/// Zig face waits on the live wires itself. The stepped face hands an
 /// embedder one readiness descriptor and publishes through the recipients
 /// below (ADR-0112).
 pub const DriveOptions = union(enum) {

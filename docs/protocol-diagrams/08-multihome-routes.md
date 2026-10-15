@@ -1,3 +1,13 @@
+---
+type: static
+description: Diagrams of the glowcap-next multi-home extension, where one peer is named by a durable key across several routes.
+sources:
+  - resource: /src/ocapn/session/id_route.zig
+  - resource: /src/ocapn/model/route_bundle.zig
+  - resource: /src/ocapn/model/peer_locator.zig
+  - resource: /docs/decisions/adr/ADR-0125-identity-route-multihome.md
+---
+
 # Multi-home routes `[glowcap-next]`
 
 These flows extend the single-location baseline of the OCapN Locators and
@@ -39,8 +49,8 @@ its key is only a dial target.
 ## MH-2: Negotiating the vocabulary
 
 Route vocabulary is a named `glowcap-next` feature. A first hello carries
-none of it, because the sender does not yet know what the partner accepts.
-Only after both signed hellos advertise the feature does the settled session
+none of it, because the sender cannot know what the partner accepts before
+the partner's hello arrives. Only after both signed hellos advertise the feature does the settled session
 admit it. A hello that carries an `id` route outside such an offer is malformed.
 
 ```mermaid
@@ -76,13 +86,16 @@ flowchart TD
 
 ## MH-4: Dialing an `id` bundle
 
-No physical `id` session exists. The generic dial planner refuses the symbol.
-Only the pending-dial expansion resolves it into concrete routes. Source order
-is the explicit rank: Node races at most the first two strong routes, refills
-that bounded window in order, and accepts the first proved completion. It
-cancels every still-running loser. Weak fallbacks begin one at a time only
-after every strong route fails. A weak fallback may complete the withdrawal
-its signed gift authorized, and nothing more.
+No physical `id` session exists. The generic dial planner refuses the symbol,
+and only the pending-dial expansion resolves it into concrete routes.
+
+- Source order is the explicit rank.
+- Node races at most the first two strong routes, refills that bounded window
+  in order, and accepts the first proved completion. It cancels every
+  still-running loser.
+- Weak fallbacks begin one at a time, only after every strong route fails.
+- A weak fallback may complete the withdrawal its signed gift authorized, and
+  nothing more.
 
 ```mermaid
 sequenceDiagram

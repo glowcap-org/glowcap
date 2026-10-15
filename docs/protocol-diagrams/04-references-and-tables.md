@@ -1,3 +1,12 @@
+---
+type: static
+description: Diagrams of reference descriptors and the export, import, and answer tables they index.
+sources:
+  - resource: /src/ocapn/session/references/
+  - resource: /src/ocapn/session/slot_table.zig
+  - resource: /src/ocapn/session/bimap.zig
+---
+
 # References and tables
 
 These diagrams follow the CapTP Specification section Descriptors.

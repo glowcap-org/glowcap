@@ -1,4 +1,4 @@
-//! Per-session memory footprint budget: the runtime half of step 2.
+//! Per-session memory footprint budget: the runtime half.
 //!
 //! The 500k-connection destination is a budget every struct on the session path
 //! answers to. Its inline half is held by the compiler: `engine.Peer` carries a
@@ -19,8 +19,8 @@
 //! sessions. That is the core's obligation. It is not the whole per-connection
 //! cost. The outbound queue dominates it (`steady_outbound_bytes`, 16 KiB per
 //! buffer across the front/back pair), and the live socket measurement is
-//! step 5, but the core must never be what makes 500k impossible, and this gate
-//! is what proves it does not drift there silently.
+//! `zig build bench-peer-scaling`'s. The core must never be what makes 500k
+//! impossible, and this gate proves it does not drift there silently.
 //!
 //! `zig build bench-peer-scaling` reports the live measured numbers and the 500k
 //! extrapolation for idle, warmed, and active sessions. This test is the gate the
@@ -44,8 +44,8 @@ const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 /// The committed per-connection core-state ceiling. The inline struct budget is
 /// the compiler-held half (`engine.peer_session_struct_budget_bytes`). This is
 /// the warmed total, struct plus session heap. Crossing it is a design event that
-/// raises the budget here and in docs/ladder.md step 2 (the ladder owns the
-/// numbers), with the bytes justified, not a number to quietly nudge up.
+/// raises the budget here, with the bytes justified, not a number to quietly
+/// nudge up.
 const warmed_total_budget_bytes: u64 = 2048;
 
 fn warmPeer(peer: *engine.Peer) !void {
@@ -90,13 +90,15 @@ test "a warmed session holds its per-connection footprint budget" {
 
     var i: u64 = 0;
     while (i < sample) : (i += 1) peers[i].deinit();
+    // Every peer is released. A budget failure below must not free them again.
+    created = 0;
 
     const heap_per_peer = (after - before) / sample;
     const bytes_per_conn = @sizeOf(engine.Peer) + heap_per_peer;
 
     if (bytes_per_conn > warmed_total_budget_bytes) {
         std.debug.print(
-            "footprint regression: warmed session is {d} B/conn (struct {d} + heap {d}), over the {d}-byte budget, see docs/ladder.md step 2\n",
+            "footprint regression: warmed session is {d} B/conn (struct {d} + heap {d}), over the {d}-byte budget\n",
             .{ bytes_per_conn, @sizeOf(engine.Peer), heap_per_peer, warmed_total_budget_bytes },
         );
         return error.FootprintBudgetExceeded;

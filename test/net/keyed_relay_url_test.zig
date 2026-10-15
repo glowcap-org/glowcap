@@ -1,5 +1,5 @@
 //! Relay URL admission. Live DNS acquisition is exercised by the resident
-//! loopback in `keyed_relay_test.zig`. These cases pin the bounded grammar.
+//! loopback in `test/net/keyed_relay/`. These cases pin the bounded grammar.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -131,7 +131,7 @@ test "RelayUrl refuses unsupported or ambiguous HTTP endpoints" {
         try std.testing.expectError(error.InvalidRelayUrl, keyed_relay.RelayUrl.parse(url));
 }
 
-test "relay route corpus pins native admission and byte-exact request targets" {
+test "relay route corpus pins Zig admission and byte-exact request targets" {
     const Case = struct {
         route: []const u8,
         request_target: []const u8,

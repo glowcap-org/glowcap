@@ -27,14 +27,18 @@ pub fn retainRead(owner: *h.Attachment, read: core.Read, operation: ?usize) void
     unreachable; // One slot per cache slot, which owns every pending read.
 }
 
-pub fn nextWork(owner: *h.Attachment) !?h.Work {
+/// Submit the staged write, if one waits. A worker whose reads are full
+/// takes only this.
+pub fn nextWrite(owner: *h.Attachment) !?core.Batch {
     try owner.topLevel();
-    if (owner.writing) |*write| {
-        if (!write.submitted and !write.uncertain) {
-            write.submitted = true;
-            return .{ .write = write.batch };
-        }
-    }
+    const write = if (owner.writing) |*write| write else return null;
+    if (write.submitted or write.uncertain) return null;
+    write.submitted = true;
+    return write.batch;
+}
+
+pub fn nextWork(owner: *h.Attachment) !?h.Work {
+    if (try nextWrite(owner)) |batch| return .{ .write = batch };
     for (owner.reads) |*slot| if (slot.*) |*read| {
         if (!read.submitted) {
             read.submitted = true;

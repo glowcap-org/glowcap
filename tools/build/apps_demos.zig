@@ -1,6 +1,6 @@
 //! The cross-language application demos beside rooms: the tasks board, the
 //! tools (delegation/attenuation/revocation) demo, and the accountability
-//! application with its three-party attribution test. The native clients
+//! application with its three-party attribution test. The Zig clients
 //! compile under `check`. The demos are siblings that need deno.
 
 const std = @import("std");
@@ -15,6 +15,7 @@ pub fn register(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     lib_mod: *std.Build.Module,
+    loam_sqlite: *std.Build.Module,
     check_step: *std.Build.Step,
     runtime_gate: *execution.RuntimeGate,
     pin_port: ?u16,
@@ -24,7 +25,7 @@ pub fn register(
 ) void {
     // The tasks cross-language application demo: a capability-secure shared task
     // board with CRUD operations and live change notifications through capability
-    // callbacks. One Zig-built native client plus the Deno server and
+    // callbacks. One Zig-built client plus the Deno server and
     // Deno/Python/Racket/Rust clients, all managing tasks on one board over TCP. Like
     // rooms, it needs `deno` (which hosts the board and runs the orchestrator)
     // and the Zig client, always built here. Python, Racket, and Rust join when their
@@ -32,24 +33,38 @@ pub fn register(
     const tasks_client_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-tasks-client", "apps/tasks/zig/client.zig");
     tasks_client_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tasks_client_exe.step);
+    const tasks_server_exe = glowcapExecutable(b, lib_mod, target, optimize, "glowcap-tasks-server", "apps/tasks/zig/server.zig");
+    tasks_server_exe.root_module.addImport("glowcap_loam_sqlite", loam_sqlite);
+    tasks_server_exe.root_module.link_libc = true;
+    check_step.dependOn(&tasks_server_exe.step);
+    // The board server for a reader's own terminal, started from the
+    // repository root so `--data` names a checkout-relative directory.
+    const tasks_server_run = execution.addArtifact(b, .service, tasks_server_exe);
+    tasks_server_run.setCwd(b.path("."));
+    tasks_server_run.addPassthruArgs();
+    b.step("tasks-server", "Serve a Tasks board over TCP; pass -- --data=DIR [--port=N]").dependOn(&tasks_server_run.step);
 
     const tasks_demo = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{
-        "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "deno",               "run", "--allow-ffi", "--allow-read", "--allow-write", "--allow-net", "--allow-run", "--allow-env",
         "apps/tasks/demo.ts",
     });
     tasks_demo.addArtifactArg(tasks_client_exe);
+    tasks_demo.addArtifactArg(tasks_server_exe);
     if (pin_port) |p| tasks_demo.addArg(b.fmt("--port={d}", .{p}));
     if (attach) tasks_demo.addArg("--attach");
     const tasks_demo_step = b.step("demo-tasks", "Run the cross-language tasks board demo (needs deno; joins python3/racket/cargo clients when present)");
     tasks_demo_step.dependOn(&tasks_demo.step);
 
-    const tasks_app_test = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{
-        "deno", "test", "apps/tasks/deno/containment_test.ts",
-    });
-    tasks_app_test.has_side_effects = true;
-    const tasks_app_test_step = b.step("tasks-app-test", "Run the task board's bounded-state and lifecycle tests (needs deno)");
-    tasks_app_test_step.dependOn(&tasks_app_test.step);
-    runtime_gate.add(tasks_app_test_step);
+    // The board server over loopback TCP with a temporary SQLite store. It needs
+    // no other runtime, so `check` runs it.
+    const tasks_board_mod = b.createModule(.{ .root_source_file = b.path("apps/tasks/zig/board_test.zig"), .target = target, .optimize = optimize, .link_libc = true });
+    tasks_board_mod.addImport("glowcap", lib_mod);
+    tasks_board_mod.addImport("glowcap_loam_sqlite", loam_sqlite);
+    const tasks_board_test = b.addTest(.{ .name = "tasks-board", .root_module = tasks_board_mod });
+    const run_tasks_board = execution.addZigTest(b, tasks_board_test, .unit_test);
+    const tasks_app_test_step = b.step("tasks-app-test", "Run the task board server over TCP, across a restart of its SQLite store");
+    tasks_app_test_step.dependOn(&run_tasks_board.step);
+    check_step.dependOn(tasks_app_test_step);
 
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
     // coordinator hands an agent capabilities to tools, attenuated to read-only,
@@ -87,7 +102,7 @@ pub fn register(
 
     // ── Accountability application ───────────────────────────────────────────
     // accountability-on-glowcap: a real worked application that runs ON glowcap's
-    // own runtime. Two native glowcap peers complete an OCapN handshake over a
+    // own runtime. Two Zig glowcap peers complete an OCapN handshake over a
     // real loopback TCP socket; the host publishes an Affordance capability and
     // the caller invokes it, and every invocation produces a signed,
     // transparency-logged Episode attributing the attested caller. Identity

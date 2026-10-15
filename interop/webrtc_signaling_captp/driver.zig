@@ -74,7 +74,7 @@ const greeting = "hello over webrtc signaling captp";
 const Greeter = struct {
     done: *std.atomic.Value(bool),
 
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
         self.done.store(true, .release);
@@ -118,10 +118,12 @@ fn exporterHalf(
     var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
     defer pump.deinit();
 
-    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    // Publish before the handshake settles: the dialer's fetch can arrive in
+    // the same pump round that opens the session.
     var served = std.atomic.Value(bool).init(false);
-    _ = try host.sessionPublish(session, "greeter", Greeter, .{ .done = &served });
-    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 30_000);
+    _ = try host.publish("greeter", Greeter, .{ .done = &served });
+    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 10_000);
 }
 
 /// The recipient half: bring the channel up over the signaling session, then

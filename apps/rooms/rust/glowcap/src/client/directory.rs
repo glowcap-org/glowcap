@@ -132,17 +132,19 @@ impl<D: Deadline> Directory<D> {
 			_ => Err(directory::Error::Location.into()),
 		}
 	}
-	pub async fn list(&self) -> Result<Vec<directory::RoomInfo>, Error> {
+	/// One page of the live rooms. Pass nothing for the first page and the
+	/// page's `next` for the one after it.
+	pub async fn list(&self, after: Option<&directory::Cursor>) -> Result<directory::Page, Error> {
 		let reply = self
 			.client
 			.call(
 				&self.reference,
 				directory::LIST,
-				&[],
+				&cursor_args(after),
 				"the directory did not answer its room list",
 			)
 			.await?;
-		Ok(directory::rooms(&Value(&reply.0))?)
+		Ok(directory::page(&Value(&reply.0))?)
 	}
 	/// The caller retains its recovery key until the durable effect is settled.
 	/// Both temporary capabilities stay owned across the bootstrap observation.
@@ -191,4 +193,13 @@ fn link(reply: Argument) -> Result<String, Error> {
 		return Err(directory::Error::Link.into());
 	}
 	Ok(link)
+}
+
+/// What `listPublications` is asked with: nothing for the first page, the
+/// directory's own cursor text after it.
+pub(crate) fn cursor_args(after: Option<&directory::Cursor>) -> Vec<Argument> {
+	after
+		.map(|cursor| Argument::String(cursor.text()))
+		.into_iter()
+		.collect()
 }

@@ -12,7 +12,7 @@ export const managedAccessText = {
 	"sharingLead":
 		"Give a person or device its own link to this workspace, allowing only what you choose. Pause or revoke it any time.",
 	"issuancePolicy": "Pause, revoke or rename it later from its card.",
-	"noControl": "Nothing to manage yet. A workspace link someone gave you lets you use it, not manage it.",
+	"noControl": "Nothing to manage. A workspace link someone gave you lets you use it, not manage it.",
 	"editLead": "Change what this access allows, pause it, or revoke it.",
 	"endedLead": "This access was revoked. It no longer works, and nothing about it can change.",
 	"ancestor": "An access it was created under is paused or revoked, which limits this one too.",
@@ -138,10 +138,10 @@ export const issueLead = (label: string | null): string =>
 		: `A new link under ${label}, allowing only what you choose within it.`;
 /** A row's short account of its access: the picker's names, side by side. */
 export const permissionLine = (names: readonly string[]): string =>
-	names.length === 0 ? "Allows nothing yet." : names.join(" · ");
+	names.length === 0 ? "Allows nothing." : names.join(" · ");
 export const allowedPermissions = (names: readonly string[]): string =>
 	names.length === 0
-		? "Allows nothing yet."
+		? "Allows nothing."
 		: `Allows ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`}.`;
 export const savedControlSource = (id: string): string => `Saved management control ${id}`;
 export const permissionDependency = (permission: string, prerequisite: string): string =>

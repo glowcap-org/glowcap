@@ -6,11 +6,11 @@ import { spawnWeb } from "../support/web_front.ts";
 // the handoff-give by dialing the member through serve.ts's `/relay` iroh path,
 // and its message lands on the member's own endpoint, never through the room.
 //
-// The member (Bob) is a native iroh peer in this process, so its inbox is a
+// The member (Bob) is a host iroh peer in this process, so its inbox is a
 // local array we can assert on. serve.ts runs the room + relay over iroh
 // (`--transport=iroh`), so the relay can dial Bob's iroh node.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives and
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives and
 // the iroh sidecar (`cargo`), and a Playwright Chromium. Run:
 //   deno run --allow-all apps/rooms/test/web/dm_test.ts
 
@@ -60,7 +60,7 @@ spawnWeb({
 	stderr: "inherit",
 });
 
-// Bob: a native iroh member in this process. He mints one Host publication inbox per peer
+// Bob: a host iroh member in this process. He mints one Host publication inbox per peer
 // the directory asks him for, served on his own iroh endpoint (the redeem
 // target), joins the room, and registers his iroh locator.
 const bobInbox: string[] = [];
@@ -85,7 +85,7 @@ const bobAccepting = (async () => {
 	for await (const session of bobEndpoint) {
 		// A settled serve loop does not release its Session wrapper. Keep every
 		// accepted owner until teardown closes it explicitly, or the shared driver
-		// loop reaches sidecar release with a live native session still registered.
+		// loop reaches sidecar release with a live host session still registered.
 		const serving = session.serve().catch(() => {});
 		bobAccepted.set(session, serving);
 	}

@@ -74,6 +74,9 @@ pub struct ObservationNotices {
 	pub target: bool,
 	pub inventory: bool,
 	pub management: bool,
+	/// Something below the target changed. Only a grant whose own scope covers
+	/// the target's subtree receives this.
+	pub subtree: bool,
 }
 #[derive(Clone, Copy, Debug)]
 pub struct ObservationDescription<'a> {
@@ -113,7 +116,7 @@ impl<'a> ObservationDescription<'a> {
 			}
 			_ => ObservedDescription::Control(ControlDescription::read(source)?),
 		};
-		if flags.len() > 4 {
+		if flags.len() > 5 {
 			return Err(invalid("invalid observation notices"));
 		}
 		let mut notices = ObservationNotices::default();
@@ -126,6 +129,7 @@ impl<'a> ObservationDescription<'a> {
 				"target" => &mut notices.target,
 				"inventory" => &mut notices.inventory,
 				"management" => &mut notices.management,
+				"subtree" => &mut notices.subtree,
 				_ => return Err(invalid("unknown observation notice")),
 			};
 			if *selected {

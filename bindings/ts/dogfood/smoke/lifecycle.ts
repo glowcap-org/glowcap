@@ -25,14 +25,14 @@ export async function run(managed: Runtime): Promise<void> {
 	// and keep accepting, so one port scan cannot take down a long-lived server.
 	{
 		await using probeHost = new Host();
-		// Host-wide publications hand their JS callback ownership to the native
+		// Host-wide publications hand their JS callback ownership to the FFI
 		// Vat. Unpublish retires the actor; the next outermost turn is the borrowed
 		// reply boundary that drops its box and invokes the shared free callback.
 		probeHost.publish("retired", () => null);
 		const publishedCtx = probeHost.publicationCtx("retired");
 		assert(
 			publishedCtx !== undefined,
-			"Host publication exposes its native callback context",
+			"Host publication exposes its FFI callback context",
 		);
 		const retiredCtx: bigint = publishedCtx;
 		assert(
@@ -66,7 +66,7 @@ export async function run(managed: Runtime): Promise<void> {
 			);
 			assert(
 				entryFor(retiredCtx) === undefined,
-				"the next native turn should release a retired publication's JS behavior",
+				"the next FFI turn should release a retired publication's JS behavior",
 			);
 			await session.close();
 		}
@@ -78,7 +78,7 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// Bind policy and reachability are different facts. A wildcard address needs
-	// an explicit dialable advertisement; the native driver owns admission.
+	// an explicit dialable advertisement; the driver owns admission.
 	{
 		let wildcardError: GlowcapError | null = null;
 		try {
@@ -130,7 +130,7 @@ export async function run(managed: Runtime): Promise<void> {
 			silent.close();
 			await server.close();
 		}
-		ok("the native driver bypasses a silent peer and wildcard reachability is explicit");
+		ok("the driver bypasses a silent peer and wildcard reachability is explicit");
 	}
 
 	// Host teardown owns listener admission: an accept already parked for the next
@@ -325,7 +325,7 @@ export async function run(managed: Runtime): Promise<void> {
 	}
 
 	// Host-wide close is also a physical transport barrier. A channel refusal has
-	// no later Session owner once the native Host is consumed, so the Host close
+	// no later Session owner once the FFI Host is consumed, so the Host close
 	// must return it rather than merely marking the rejected promise handled.
 	{
 		const listener = await listenTcp("127.0.0.1", 0);

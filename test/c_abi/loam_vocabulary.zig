@@ -12,14 +12,24 @@ pub fn check(service: *access.hosting.Service) !void {
     const mask = [_]Value{.{ .bytes = &unsigned }};
     const bounds = [_]Value{.{ .bytes = &unsigned }};
     const args = [_]Value{ .{ .bytes = &identity }, .{ .list = &mask }, .{ .list = &bounds } };
-    const derive_args = [_]Value{ args[0], args[1], args[2], .{ .integer = 0 } };
+    const derive_args = [_]Value{ .{ .symbol = "object" }, args[0], args[1], args[2], .{ .integer = 0 } };
     const terms: core.Terms = .{ .scope = .{ .object = resource }, .policy = (try service.decode_derive.?(service.context, std.testing.allocator, resource, &derive_args)).ceiling.policy };
+    // The scope symbol selects the resource alone or its whole subtree, and
+    // nothing else decodes.
+    var scoped = derive_args;
+    scoped[0] = .{ .symbol = "subtree" };
+    try std.testing.expect((try service.decode_derive.?(service.context, std.testing.allocator, resource, &scoped)).ceiling.scope.owned_subtree.eql(resource));
+    for ([_]Value{ .{ .symbol = "children" }, .{ .string = "object" }, .{ .void = {} } }) |wrong| {
+        scoped[0] = wrong;
+        try std.testing.expectError(error.InvalidArguments, service.decode_derive.?(service.context, std.testing.allocator, resource, &scoped));
+    }
+    try std.testing.expectError(error.InvalidArguments, service.decode_derive.?(service.context, std.testing.allocator, resource, derive_args[1..]));
     const bound: core.Control.Powers = .{ .policy_ceiling = terms };
     const edit = [_]Value{ .{ .bytes = &unsigned }, args[0], args[1], args[2] };
     const decoded = try service.decode_control(service.context, std.testing.allocator, bound, "set-policy", &edit);
     try std.testing.expect(decoded.set_policy.scope.object.eql(resource));
     try std.testing.expectEqual(std.math.maxInt(u64), decoded.set_policy.policy.permissions);
-    try std.testing.expectEqual(@as(?u64, std.math.maxInt(u64)), decoded.set_policy.policy.bounds[0]);
+    try std.testing.expectEqual(@as(?u64, std.math.maxInt(u64)), decoded.set_policy.policy.bound(0));
     try std.testing.expectEqual(std.math.maxInt(u64), @backingInt(try service.decode_control_revision.?("set-policy", &edit)));
     try std.testing.expectError(error.Denied, service.decode_control(service.context, std.testing.allocator, .{}, "set-policy", &edit));
     for (0..edit.len) |length| try std.testing.expectError(error.InvalidArguments, service.decode_control(service.context, std.testing.allocator, bound, "set-policy", edit[0..length]));

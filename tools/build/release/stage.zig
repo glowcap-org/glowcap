@@ -13,9 +13,9 @@ pub const Manifest = struct {
     rooms: bool = false,
 };
 
-pub const helpers = &.{ "rooms-server", "rooms-session", "rooms-web", "rooms-archive", "rooms-chat", "rooms-irc-front", "rooms-irc-bridge" };
+pub const helpers = &.{ "rooms-server", "rooms-session", "rooms-web", "rooms-archive", "rooms-chat", "rooms-irc-server", "rooms-irc-bridge" };
 pub const product: Manifest = .{
-    .dynamic_archives = &.{"glowcap_net_transport_iroh"},
+    .dynamic_archives = &.{ "glowcap_net_transport_iroh", "glowcap_net_transport_webrtc" },
     .binaries = &.{"glowcap"},
     .helpers = helpers,
     .rooms = true,
@@ -102,6 +102,8 @@ pub fn add(b: *std.Build, target: std.Build.ResolvedTarget, version: std.Semanti
             \\  done
             \\done
             \\for name in {s}; do cp "include/$name" "$stage/tree/include/"; done
+            \\# A packaged README is read as plain text, so it drops the doc's OKF header.
+            \\without_header() {{ awk 'NR == 1 && $0 == "---" {{ head = 1; next }} head && $0 == "---" {{ head = 0; gap = 1; next }} head {{ next }} gap && $0 == "" {{ gap = 0; next }} {{ gap = 0; print }}' "$1"; }}
             \\for name in {s}; do cp "$prefix/bin/$name" "$stage/tree/bin/"; done
             \\for name in {s}; do cp "$prefix/libexec/$name" "$stage/tree/libexec/"; done
             \\if [ '{s}' = true ]; then
@@ -115,10 +117,10 @@ pub fn add(b: *std.Build, target: std.Build.ResolvedTarget, version: std.Semanti
             \\  browser=$(tr -d '\n' < "$stage/tree/share/glowcap/rooms/source.version")
             \\  case "$browser" in *[!a-f0-9]*|'') echo 'invalid browser revision' >&2; exit 1;; esac
             \\  test "${{#browser}}" -eq 64
-            \\  cp apps/rooms/host.md "$stage/tree/README.md"
+            \\  without_header apps/rooms/host.md > "$stage/tree/README.md"
             \\else
             \\  browser=''
-            \\  cp bindings/PACKAGING.md "$stage/tree/README.md"
+            \\  without_header bindings/PACKAGING.md > "$stage/tree/README.md"
             \\fi
             \\revision=$(git rev-parse HEAD)
             \\dirty=false

@@ -67,7 +67,7 @@ test "an app-queued op:abort commits outbound then closes the CapTP session" {
     try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
     // recordSend must not close, the partner still needs to take the frame
     // after step encodes it.
-    try pair.p1.sendCopying(.{ .abort = .{ .kind = .graceful_shutdown, .message = "done" } });
+    try pair.p1.sendBorrowed(.{ .abort = .{ .kind = .graceful_shutdown, .message = "done" } });
     try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
 
     _ = try pair.p1.step();
@@ -82,7 +82,7 @@ test "an app-queued op:abort commits outbound then closes the CapTP session" {
 
     try std.testing.expectError(
         session.Error.SessionClosed,
-        pair.p1.sendCopying(.{ .deliver = .{
+        pair.p1.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = .{ .import_position = .from(0) } },
             .args = &.{},
         } }),
@@ -159,7 +159,7 @@ test "a promise cycle breaks dependent work without emitting a session abort" {
 
     // p1 calls p2's export, allocating answer 42 (pending on p2), then
     // pipelines a call against it so the resolve below has a queue to drain.
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
         .answer = .from(42),
@@ -171,7 +171,7 @@ test "a promise cycle breaks dependent work without emitting a session abort" {
         var event = p2.pollEvent().?;
         event.deinit();
     }
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(43),
@@ -183,7 +183,7 @@ test "a promise cycle breaks dependent work without emitting a session abort" {
     // p2 resolves answer 42 to itself. The stored-resolution walker terminates
     // both the listener and dependent answer 43 without treating one promise
     // graph as a peer-wide protocol failure.
-    try p2.sendCopying(.{ .resolve = .{
+    try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(42) } } } },
     } });
@@ -194,4 +194,24 @@ test "a promise cycle breaks dependent work without emitting a session abort" {
     try std.testing.expect(std.mem.indexOf(u8, wire, "op:abort") == null);
     try std.testing.expectEqual(session.AnswerStatus.broken, p2.session_state.inboundAnswer(.from(43)).?.status);
     try std.testing.expectEqual(session.State.open, p2.session_state.state);
+}
+
+test "a malformed sturdyref argument is refused at validation as a malformed frame" {
+    // The decoder frames the record and the session projects it while
+    // validating the argument, so the refusal keeps the codec's verdict and
+    // closes the session like any other malformed frame.
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.pairedV1_0Syrup(allocator);
+    defer pair.deinit();
+    pair.p1.session_state.features.sturdyref = true;
+
+    const trailing = "<10'op:deliver<11'desc:export0+>[<15'ocapn-sturdyref<10'ocapn-peer3'tcp11\"127.0.0.1:0{}>5:swiss3:xyz>]ff>";
+    try std.testing.expectError(
+        error.MalformedView,
+        pair.p1.recvBorrowed(.{ .bytes = trailing, .shape = .byte }),
+    );
+    try std.testing.expectEqual(session.State.closed, pair.p1.session_state.state);
+    const cause = pair.p1.lastAbort().?;
+    try std.testing.expectEqual(engine.abort_projection.Domain.codec, cause.domain);
+    try std.testing.expectEqual(model.AbortKind.malformed_frame, cause.kind.?);
 }

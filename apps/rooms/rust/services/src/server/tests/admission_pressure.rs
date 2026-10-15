@@ -3,13 +3,13 @@ use super::*;
 use rooms_glowcap::client::room::Room;
 
 #[tokio::test]
-#[ignore = "full native connection-cap acceptance; run alone under its 25 second deadline"]
-async fn crowded_native_room_isolates_slow_inboxes_and_finishes_cleanup() {
+#[ignore = "full host connection-cap acceptance; run alone under its 25 second deadline"]
+async fn crowded_host_room_isolates_slow_inboxes_and_finishes_cleanup() {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			tokio::time::timeout(Duration::from_secs(25), async {
 				let temp = Temp::new();
-				// This load fixture creates the native connection cap in one
+				// This load fixture creates the host connection cap in one
 				// burst. Only its unproved-start envelope changes; message limits stay real.
 				let settings = rooms_application::admission::Settings::parse(
 					|key| (key == "admission-rates").then(|| "http-start=256/256".into()),
@@ -42,7 +42,7 @@ async fn crowded_native_room_isolates_slow_inboxes_and_finishes_cleanup() {
 					inboxes.push(incoming);
 					runtimes.push(runtime);
 				}
-				assert_eq!(members.len(), 128, "exercise the actual native serving cap");
+				assert_eq!(members.len(), 128, "exercise the actual host serving cap");
 				let mut healthy = inboxes.remove(0);
 				let mut slow = inboxes.pop().unwrap();
 				let mut readers = Vec::new();
@@ -65,7 +65,7 @@ async fn crowded_native_room_isolates_slow_inboxes_and_finishes_cleanup() {
 					Err(rooms_application::room::inbox::queue::Error::Overflow)
 				));
 				println!(
-					"crowded native room: peers={}, posts=381, healthy round-trip us={}, slow inbox overflow bounded",
+					"crowded host room: peers={}, posts=381, healthy round-trip us={}, slow inbox overflow bounded",
 					members.len(),
 					started.elapsed().as_micros() / 381
 				);

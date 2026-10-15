@@ -30,6 +30,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const glowcap = @import("glowcap");
+const profile = @import("support/profile.zig");
 
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
@@ -42,7 +43,7 @@ const model = glowcap.ocapn.model;
 const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// The enforced ceiling for one warm inbound dispatch turn under `--gate`
-/// (ReleaseFast). docs/ladder.md step 2 owns this number. It is a tripwire at
+/// (ReleaseFast). This constant owns the number. It is a tripwire at
 /// roughly an order of magnitude over the measured figure, so crossing it
 /// means a structural regression (an accidental copy in the loop, a Debug-only
 /// path leaking into hot code, an asymptotic slip), never machine noise,
@@ -73,7 +74,7 @@ fn runGate(io: std.Io, backing: std.mem.Allocator) !void {
 
     if (min_ns > gate_warm_dispatch_ceiling_ns) {
         std.debug.print(
-            "perf_gate FAIL warm_dispatch min_ns={d:.1} ceiling_ns={d:.1} — docs/ladder.md step 2\n",
+            "perf_gate FAIL warm_dispatch min_ns={d:.1} ceiling_ns={d:.1} — bench/dispatch_scaling_bench.zig\n",
             .{ min_ns, gate_warm_dispatch_ceiling_ns },
         );
         std.process.exit(1);
@@ -124,6 +125,7 @@ fn runOrder(
     order: []const u32,
     rounds: usize,
     samples: []u64,
+    label: []const u8,
 ) !OrderStats {
     const turns = order.len * rounds;
 
@@ -131,10 +133,15 @@ fn runOrder(
     // dispatch path) land outside the measured window.
     for (order) |i| try driveOneTurn(&peers[i]);
 
+    var phase: [48]u8 = undefined;
+    profile.begin();
     const batch_start = nowNs(io);
     for (0..rounds) |_| {
         for (order) |i| try driveOneTurn(&peers[i]);
     }
+    const name = try std.fmt.bufPrint(phase[0 .. phase.len - 1], "dispatch-{s}-{d}", .{ label, peers.len });
+    phase[name.len] = 0;
+    profile.end(phase[0..name.len :0]);
     const batch_elapsed: f64 = @floatFromInt(nowNs(io) - batch_start);
 
     var sample_index: usize = 0;
@@ -184,11 +191,11 @@ fn measure(
     const order = try backing.alloc(u32, n);
     defer backing.free(order);
     for (order, 0..) |*slot, i| slot.* = @intCast(i);
-    const sequential = try runOrder(io, peers, order, rounds, samples);
+    const sequential = try runOrder(io, peers, order, rounds, samples, "sequential");
 
     var prng = std.Random.DefaultPrng.init(0x70616e63616b65); // fixed seed: reproducible order
     prng.random().shuffle(u32, order);
-    const shuffled = try runOrder(io, peers, order, rounds, samples);
+    const shuffled = try runOrder(io, peers, order, rounds, samples, "shuffled");
 
     return .{
         .peers = n,
@@ -308,6 +315,6 @@ fn writeReport(gpa: std.mem.Allocator, io: std.Io, results: []const Measurement,
     , .{ overhead_ns, @tagName(builtin.mode) });
 
     var dir = std.Io.Dir.cwd();
-    dir.createDirPath(io, "zig-out/bench-reports") catch {};
+    try dir.createDirPath(io, "zig-out/bench-reports");
     try dir.writeFile(io, .{ .sub_path = "zig-out/bench-reports/dispatch-scaling.md", .data = b.items });
 }

@@ -38,10 +38,10 @@ const Greeter = support_actors.StaticReplyValueActor("greet", "hello from the st
 const AbortingGreeter = struct {
     session: *driver.Session,
 
-    pub fn handle(self: *AbortingGreeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *AbortingGreeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = args;
         if (!std.mem.eql(u8, verb, "greet")) return error.NoSuchMethod;
-        try self.session.peer().sendCopying(.{ .abort = .{ .kind = .unauthorized, .message = abort_diagnostic } });
+        try self.session.peer().sendBorrowed(.{ .abort = .{ .kind = .unauthorized, .message = abort_diagnostic } });
         _ = try ht.deferAnswer();
         return .{ .void = {} };
     }

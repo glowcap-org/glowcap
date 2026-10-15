@@ -29,7 +29,7 @@ const SendThen = struct {
     target: Capability,
     gift: Capability,
 
-    pub fn handle(self: *SendThen, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *SendThen, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();

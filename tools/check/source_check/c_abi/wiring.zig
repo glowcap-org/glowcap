@@ -199,11 +199,11 @@ pub fn checkUnwiredHostPluginApis(
     }
     // Cap'n Proto set encode-once: deleted 2N helpers must not return.
     for ([_][]const u8{ "canonicalSetOrder", "encodeArgumentKey" }) |needle| {
-        if (try fileContains(io, gpa, root, "src/ocapn/codec/capnp/encode.zig", needle)) {
-            try appendViolation(gpa, violations, "src/ocapn/codec/capnp/encode.zig: `{s}` must stay deleted — use encodeArgumentSetList", .{needle});
+        if (try fileContains(io, gpa, root, "src/ocapn/codec/capnp/encode_arguments.zig", needle)) {
+            try appendViolation(gpa, violations, "src/ocapn/codec/capnp/encode_arguments.zig: `{s}` must stay deleted — use encodeArgumentSetList", .{needle});
         }
     }
-    try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/capnp/encode.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/capnp/encode_arguments.zig", &.{
         "encodeArgumentSetList",
     });
     try expectFileContains(io, gpa, root, violations, "src/driver/core/host/interception.zig", &.{

@@ -117,6 +117,17 @@ export function put(rows, key, value) {
 	else rows.put(value, key);
 }
 
+// The least key after every key that starts with `prefix`, or undefined when
+// every byte is 0xFF (the range then has no upper bound).
+function successor(prefix) {
+	const bytes = Uint8Array.from(prefix);
+	let end = bytes.length;
+	while (end > 0 && bytes[end - 1] === 0xff) end--;
+	if (end === 0) return undefined;
+	bytes[end - 1]++;
+	return bytes.subarray(0, end);
+}
+
 export function execute(owner, write, step) {
 	if (owner.closed) return Promise.reject(new Error("Loam database is closed"));
 	return new Promise((resolve) => {
@@ -144,10 +155,28 @@ export function execute(owner, write, step) {
 		};
 		transaction.oncomplete = () => finish(false);
 		transaction.onabort = () => finish(true);
-		const advance = (key, value) => {
+		const advance = (key, value, cursor = false) => {
 			try {
-				const plan = step(rows, key, value);
-				if (plan[0] === 0) {
+				const plan = step(rows, key, value, cursor);
+				if (plan[0] === 2) {
+					const prefix = plan[1];
+					const after = plan[2];
+					const lower = after ?? prefix;
+					const upper = successor(prefix);
+					const range = upper
+						? IDBKeyRange.bound(lower, upper, after != null, true)
+						: IDBKeyRange.lowerBound(lower, after != null);
+					const request = rows.openCursor(range, "next");
+					pending = request;
+					request.onsuccess = () => {
+						const found = request.result;
+						request.onsuccess = null;
+						pending = undefined;
+						// IndexedDB returns binary keys as ArrayBuffers.
+						if (found) advance(new Uint8Array(found.key), found.value, true);
+						else advance(undefined, undefined, true);
+					};
+				} else if (plan[0] === 0) {
 					const missing = plan[1];
 					const request = rows.get(missing);
 					pending = request;

@@ -1,7 +1,7 @@
-//! The native Zig client for the per-language consumer-cost bench. It drives the
+//! The Zig client for the per-language consumer-cost bench. It drives the
 //! taskboard unit against the fixed Zig host and prints one NDJSON metric line,
 //! the same schema every other language's bench client emits (see
-//! `bench/langs/contract.md`). Being native Zig on the same core every binding
+//! `bench/langs/contract.md`). Being Zig on the same core every binding
 //! wraps, it is the zero-overhead reference row: no interpreter, no JIT, no GC.
 //!
 //!   zig_bench <mode> <host> <port> <n>
@@ -21,7 +21,7 @@ const tcp = glowcap.net.tcp;
 
 const frame_cap: usize = 1 << 16;
 const client_name = "zig";
-const runtime_name = "native-zig";
+const runtime_name = "zig";
 
 /// One bench unit: create a task, assign it, complete it, read its status, and
 /// assert the status settled to the bytes `done`. The same four verbs every
@@ -177,7 +177,7 @@ fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const 
 const Counter = struct {
     count: i64 = 0,
 
-    pub fn handle(self: *Counter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Counter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = ht;
         _ = args;
         if (!std.mem.eql(u8, verb, "hit")) return error.NoSuchMethod;
@@ -200,12 +200,13 @@ fn serveLocalCounter(server: *driver.Server) void {
         std.debug.print("zig_bench local: publish failed: {t}\n", .{err});
         std.process.exit(1);
     };
+    // tolerant: the dialing half leaving ends serve with a connection error, which is this fiber's normal exit, and the dialer reports any real failure.
     conn.serve() catch {};
 }
 
 /// Run `n` sequential hit units against `target` on `conn`, one settle per
 /// send, returning the sorted per-turn latencies (ns). Asserts the final count
-/// equals `n` (native Zig is ahead-of-time, so there is no warmup ahead of the
+/// equals `n` (Zig is ahead-of-time compiled, so there is no warmup ahead of the
 /// window and the counter starts at zero).
 fn measureHits(io: std.Io, conn: *driver.Session, target: driver.Capability, n: usize, samples: []u64) !void {
     var arena_state = std.heap.ArenaAllocator.init(conn.allocator);
@@ -239,7 +240,7 @@ fn percentileNs(sorted_ns: []const u64, p: f64) f64 {
 }
 
 /// The `local` mode (see contract.md): (a) in_lang, a counter spawned on this
-/// connection's vat, hit through the native near path, no wire, (b) via_host,
+/// connection's vat, hit through the near path, no wire, (b) via_host,
 /// the same behavior published across a loopback pair inside this process, so
 /// every turn pays wire codec, feed, and dispatch both ways. The orchestrator's
 /// host/port arguments are unused. The pair is self-contained.

@@ -15,11 +15,11 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
     try p1.session_state.registerImport(.from(7));
 
     // Sending a deliver that wants an answer on a v1.0 session mints the
-    // resolver export at encode time (`v1_0.prepareOutboundDeliver`) and puts
-    // its mention on the wire, which must carry the same wire-delta retain
+    // resolver export at admission (`outbound/encoded.zig`) and puts its
+    // mention on the wire, which must carry the same wire-delta retain
     // `recordSend` would have added: local reference + one wire mention.
     const resolver_export = p1.session_state.next_export_position;
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
         .answer = .from(42),
@@ -85,12 +85,12 @@ test "a gc wave over many answered delivers drops every V1.0 resolver link" {
     defer peer.deinit();
     try peer.session_state.registerImport(.from(7));
 
-    // Send a wave of answered delivers; encoding each mints its resolver
-    // export in order (`v1_0.prepareOutboundDeliver`).
+    // Send a wave of answered delivers; admitting each mints its resolver
+    // export in order (`outbound/encoded.zig`).
     const wave = 64;
     const first_resolver = peer.session_state.next_export_position;
     for (0..wave) |i| {
-        try peer.sendCopying(.{ .deliver = .{
+        try peer.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{},
             .answer = .from(i),
@@ -111,7 +111,7 @@ test "a gc wave over many answered delivers drops every V1.0 resolver link" {
     // both directions of its link.
     var positions: [wave - 1]u64 = undefined;
     for (&positions, 0..) |*position, i| position.* = i;
-    try peer.sendCopying(.{ .gc_answer = .{ .positions = &positions } });
+    try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &positions } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     {
         var frame = peer.takeOutbound().?;

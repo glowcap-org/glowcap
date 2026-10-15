@@ -18,36 +18,41 @@ It is built as follows:
   the binding steps. Transport packages build their listeners and return a
   `Server` on that same loop.
 - The byte-fed pump serves channels the runtime owns, and the low-level
-  blocking transports are available for embedding.
+  blocking transports are available for programs that run their own loop.
 
 The optional encrypted-QUIC transport ships separately as
-[`@glowcap/iroh`](../iroh/README.md).
+[`@glowcap/iroh`](../iroh/README.md), so an application that never uses iroh
+never installs its Rust library. Pass its `provider(config)` or
+`connector(config)` when opening a Runtime.
 
-One source serves three runtimes. All runtime coupling (the FFI, the sockets, and the struct layout)
-lives behind a seam in [`internal/ffi/runtime.ts`](internal/ffi/runtime.ts). The seam binds an
-adapter injected before load (that is how [`@glowcap/web`](../web/README.md) runs this module in a
-browser over WebAssembly), and otherwise detects the host and `import()`s the matching adapter, so
-`bun:ffi` never loads on the wrong runtime. Like the archives it rides (ADR-0059), the binding is
-a la carte: you import the core plus whichever transports you want, and each module opens only its
-own archive. See [`../../README.md`](../../README.md) for the shipped C ABI surface and how the
-bindings are checked.
+One source serves three runtimes. Everything that differs between them (the FFI,
+the sockets, and the struct layout) lives in
+[`internal/ffi/runtime.ts`](internal/ffi/runtime.ts). That module uses an
+adapter injected before load, which is how [`@glowcap/web`](../web/README.md)
+runs this package in a browser over WebAssembly. Otherwise it detects the
+runtime and `import()`s the matching adapter, so `bun:ffi` never loads on the
+wrong runtime.
+
+Like the C libraries under it (ADR-0059), the binding lets you pick what you need: import the
+core plus the transports you want, and each module opens only its own archive.
+[`../../README.md`](../../README.md) describes the API all bindings share.
 
 ## Runtimes
 
-| Runtime                  | Tier                 | FFI seam               | How it runs                               |
+| Runtime                  | Tier                 | FFI                    | How it runs                               |
 | ------------------------ | -------------------- | ---------------------- | ----------------------------------------- |
 | [Deno](https://deno.com) | tested (build check) | `Deno.dlopen`          | `deno run --allow-ffi --allow-read`       |
 | [Bun](https://bun.sh)    | tested (build check) | `bun:ffi`              | `bun run`                                 |
 | Browser                  | tested (build check) | WebAssembly (ADR-0070) | [`@glowcap/web`](../web/README.md) `init` |
 
 Deno and Bun each have a `zig build` binding check (`deno-dogfood`, `bun-dogfood`), and the browser
-path has `web-peer-test`. Deno's check covers the driver-loop application surface. Bun's check
+path has `web-peer-test`. Deno's check covers the driver-loop application API. Bun's check
 covers the synchronous Host and locator ABI and shows that driver-loop and blocking transport
-lifecycles fail closed. Any other runtime is refused at load with an error.
+lifecycles refuse with an error. Any other runtime is refused at load with an error.
 
 ## The modules
 
-The public surface is one core module plus one module per built-in transport, declared in
+The public API is one core module plus one module per built-in transport, declared in
 [`deno.json`](deno.json)'s `exports` map (the JSR manifest, which Bun also reads). Each maps
 to an archive and opens only that archive through the runtime shim's `dlopen`, so importing the core
 never loads a transport and importing one transport never loads another.
@@ -61,11 +66,7 @@ never loads a transport and importing one transport never loads another.
 | `@glowcap/inproc` | [`../inproc/mod.ts`](../inproc/mod.ts) | Socket-free in-process frame transport |
 | `@glowcap/onion` | [`../onion/mod.ts`](../onion/mod.ts) | Tor provider, listener, and raw transport handles |
 | `@glowcap/relay` | [`../relay/mod.ts`](../relay/mod.ts) | `keyed-relay` and `noise-relay` provider package |
-| `@glowcap/runtime/ffi` | [`ffi.ts`](ffi.ts) | FFI seam used by transport packages, not an application import |
-
-The optional encrypted-QUIC transport is a separate package, [`@glowcap/iroh`](../iroh/README.md),
-so a consumer that never speaks iroh never installs the Rust-sidecar artifact. Pass its
-`provider(config)` or `connector(config)` when opening a Runtime.
+| `@glowcap/runtime/ffi` | [`ffi.ts`](ffi.ts) | Foreign-function layer for transport packages, not an application import |
 
 The core imports no concrete transport. The value and Host APIs work on their own, and a Runtime
 that connects needs a provider or connector that you pass.
@@ -115,8 +116,8 @@ const greeter = await session.fetch("greeter"); // a capability, by name
 console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
-`Runtime.open` commits the selected transport authority once. `Runtime.connect`
-selects only among those retained providers or connectors and does not infer a
+`Runtime.open` keeps the providers and connectors you pass it. `Runtime.connect`
+chooses only among them and does not infer a
 transport from a locator. Passing `adoptHost` transfers an existing Host into
 the Runtime, and `Runtime.close()` is then that Host's terminal shutdown barrier.
 
@@ -131,7 +132,7 @@ All three TCP-profile listeners accept `ListenOptions` for `host`, `codec`, and
 the optional `advertisedHost`. Keyed and Noise listeners also accept `seed`.
 A wildcard bind requires an advertised host, because a bound interface is not
 a dialable route and glowcap will not sign the wildcard into a Host locator.
-The driver owns admission and handshake concurrency.
+The driver accepts connections and limits concurrent handshakes.
 
 ## The transports
 
@@ -143,9 +144,9 @@ with no kernel transport.
 
 `writeFrame` copies the frame immediately, so its caller may mutate the
 supplied bytes as soon as the method returns. Concurrent writes are serialized
-under a bounded queue. Its byte waterline is the connection's `maxFrameBytes`,
-no single write or admitted set may cross that line, and at most 16 writes may
-be pending. A call beyond either bound rejects.
+under a bounded queue with two limits: no single write or admitted set may cross
+the connection's `maxFrameBytes`, and at most <!-- value transport/ffi_frame.ts maxPendingWrites -->16<!-- /value --> writes may be pending.
+A call beyond either limit rejects.
 
 ```ts
 import { Netlayer } from "@glowcap/inproc";
@@ -174,17 +175,16 @@ The raw TCP, inproc, and onion shuttles are asynchronous only on a runtime that
 moves a potentially parking call off the JavaScript event loop. Deno does. Bun's
 FFI executes the call synchronously, so those raw transports refuse
 construction before allocating a handle, since even an idle release may join
-backend work. Core TCP/inproc sessions work on both runtimes through their
-runtime adapters. A Bun raw-transport adapter would need a worker-owned
-executor that holds handle lifetime, cancellation, and release.
+backend work. Core TCP and inproc sessions work on both runtimes through their
+runtime adapters.
 
 ## Build checks
 
 [`../dogfood/zig_smoke.ts`](../dogfood/zig_smoke.ts) is the one consumer both
 `zig build deno-dogfood` and `zig build bun-dogfood` run. Deno drives real OCapN conversations
-through the application API (fetch/send, pipelining, projections, proxies, GC, both codecs) and
+through the application API (fetch/send, pipelining, result indexing, proxies, GC, both codecs) and
 shuttles a frame through both the TCP and in-process transports. Bun proves the common synchronous
-Host, locator, and sturdyref surface and the explicit refusal boundary for operations its FFI
+Host, locator, and sturdyref API and the explicit refusal boundary for operations its FFI
 cannot move off the JavaScript event loop. Deno's FFI needs `--allow-ffi --allow-read`. The build
 step passes them and resolves the shared libraries relative to `zig-out/`.
 
@@ -192,6 +192,7 @@ step passes them and resolves the shared libraries relative to `zig-out/`.
 zig build bindings        # builds the glowcap archives, runs every binding consumer
 ```
 
-The `@glowcap/runtime/cleanup` subpath provides bounded secondary-error custody
-and ordered rollback helpers without importing a Host or FFI adapter. The same
-helpers are exported from `@glowcap/runtime`, and both paths share one custody map.
+The `@glowcap/runtime/cleanup` subpath runs rollback steps in order and keeps
+any failures they raise attached to the original error, up to a fixed count.
+It imports no Host or FFI adapter. `@glowcap/runtime` exports the same
+helpers, and both paths share one record of attached failures.

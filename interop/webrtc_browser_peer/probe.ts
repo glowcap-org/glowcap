@@ -2,11 +2,11 @@
 
 // The browser offerer for the WebRTC browser-peer proof (ADR-0089). A
 // real headless Chromium bundles this: `@glowcap/web`'s wasm Host plus
-// `@glowcap/webrtc`'s `RtcPeer`. It brings up a DataChannel to the native
+// `@glowcap/webrtc`'s `RtcPeer`. It brings up a DataChannel to the Zig
 // answerer (`interop/webrtc_browser_peer/answerer.zig`) through the harness's
 // stdio signaling ferry, then runs a full keyed OCapN session over that channel
 // ,  fetch the answerer's `greeter`, call `greet`, and check the reply. This is
-// the browser twin of `webrtc-interop` (two native peers): here one end is a
+// the browser twin of `webrtc-interop` (two Zig peers): here one end is a
 // browser tab driving the protocol core in wasm, with the DataChannel standing
 // in for the WebSocket the relay path uses.
 //
@@ -99,6 +99,7 @@ async function main(): Promise<void> {
 		stack.bareLocator("webrtc", designator),
 		channel,
 	);
+	// tolerant: serve rejects when the partner hangs up, which ends the probe's session normally, and the probe's own calls report real failures.
 	session.serve().catch(() => {});
 	try {
 		const greeter = await session.fetch("greeter");

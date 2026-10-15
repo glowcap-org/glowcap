@@ -17,6 +17,10 @@ const deposit_gift_args = [_]model.Argument{
     .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
 };
 
+/// A list of integers, which rides as a run of words (ADR-0243).
+const integer_samples = [_]model.Argument{ .{ .integer = 100 }, .{ .integer = -200 }, .{ .integer = 300 } };
+const integer_list_args = [_]model.Argument{ .{ .symbol = "report" }, .{ .list = &integer_samples } };
+
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -41,6 +45,12 @@ pub fn main() !void {
             .target = .{ .far = .{ .import_position = .from(0) } },
             .args = &deposit_gift_args,
             .answer = null,
+            .resolve_me_desc = null,
+        } } },
+        .{ "op_deliver_integers.bin", .{ .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(7) } },
+            .args = &integer_list_args,
+            .answer = .from(43),
             .resolve_me_desc = null,
         } } },
         .{ "op_resolve_fulfill.bin", .{ .resolve = .{

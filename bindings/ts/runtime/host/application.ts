@@ -30,8 +30,8 @@ import { asLiveRef } from "../promise.ts";
 import { Session } from "../session.ts";
 import {
 	type BehaviorEntry,
+	type FfiBehaviorOwner,
 	hostedFreePointer,
-	type NativeBehaviorOwner,
 	registerBehavior,
 	trampolinePointer,
 	unregisterBehavior,
@@ -53,7 +53,7 @@ export interface SessionLimitOptions {
 	readonly maxRetainedSentAnswerBytes?: bigint | number;
 }
 
-export abstract class HostApplication extends HostLifecycle implements NativeBehaviorOwner {
+export abstract class HostApplication extends HostLifecycle implements FfiBehaviorOwner {
 	installConnectors(connectors: readonly Connector[]): void {
 		const pending = new Map<string, Connector>();
 		for (const connector of connectors) {
@@ -293,17 +293,17 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		return name;
 	}
 
-	/** Retain one callback entry for this Host's native lifetime. */
-	registerHostedBehavior(entry: BehaviorEntry, nativeOwned = false): bigint {
-		const ctx = registerBehavior(entry, nativeOwned ? this : undefined);
+	/** Retain one callback entry for this Host's FFI lifetime. */
+	registerHostedBehavior(entry: BehaviorEntry, ffiOwned = false): bigint {
+		const ctx = registerBehavior(entry, ffiOwned ? this : undefined);
 		this._behaviorEntries.set(ctx, entry);
 		this._finalizerState.behaviorIds.add(ctx);
 		return ctx;
 	}
 
-	/** Native `HostedActor.free`: forget the JS owner exactly when its actor's
+	/** FFI `HostedActor.free`: forget the JS owner exactly when its actor's
 	 * final alias/export/gift root is gone. */
-	nativeBehaviorReleased(ctx: bigint): void {
+	ffiBehaviorReleased(ctx: bigint): void {
 		this._behaviorEntries.delete(ctx);
 		this._finalizerState.behaviorIds.delete(ctx);
 		for (const [name, held] of this._publications) {
@@ -355,7 +355,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 
 	/** Remove the Host-wide alias `name` (alias-only): a later fetch misses on
 	 * every session, while issued `Ref`s and deposited gifts keep the exact
-	 * actor. Its JS behavior is released with that actor's final native root.
+	 * actor. Its JS behavior is released with that actor's final FFI root.
 	 * Returns false when no such alias exists. */
 	unpublish(name: string): boolean {
 		const bytes = utf8Encoder.encode(name);
@@ -381,7 +381,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		this._sessions.set(ptr, session);
 	}
 
-	/** Retain one physical channel-close barrier independently of the native
+	/** Retain one physical channel-close barrier independently of the FFI
 	 * Session address. Binding-internal: Session registers exactly once when it
 	 * creates the close promise. */
 	trackSessionRetirement(retirement: Promise<void>): void {
@@ -395,7 +395,7 @@ export abstract class HostApplication extends HostLifecycle implements NativeBeh
 		void retirement.catch(() => {});
 	}
 
-	/** Stop tracking this released wrapper. Native addresses may be recycled;
+	/** Stop tracking this released wrapper. FFI addresses may be recycled;
 	 * stale teardown must never delete a newer Session registered at the same
 	 * address. The operation is identity over the exact registered instance,
 	 * so any object reference names it. Binding-internal. */

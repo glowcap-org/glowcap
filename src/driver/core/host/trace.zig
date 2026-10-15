@@ -76,9 +76,11 @@ fn reportOpen(self: *Host, session: *HostSession, sink: trace.Sink) void {
     var session_id: []const u8 = &.{};
     if (state.partnerSessionKey()) |partner_key_bytes| {
         if (crypto.PeerKey.fromSlice(partner_key_bytes)) |partner_key| {
-            session_id_digits = trace.sessionId(session.sessionSecret().publicKey(), partner_key);
+            session_id_digits = trace.sessionId(session.sessionPublicKey(), partner_key);
             session_id = &session_id_digits;
-        } else |_| {}
+        } else |_| {
+            // tolerant: a partner key that does not parse leaves the trace's session id empty, and the open event still emits.
+        }
     }
     emit(self, sink, .{ .session_open = .{
         .session = session.peer_handle,

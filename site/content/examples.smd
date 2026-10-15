@@ -1,6 +1,6 @@
 ---
 .title = "Examples",
-.description = "Choose a runnable glowcap example: Zig API chapters, handoff, pipelining, embedding from C, or a complete application.",
+.description = "Choose a runnable glowcap example: Zig API chapters, handoff, pipelining, using it from C, or a complete application.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -13,7 +13,7 @@ Every program below uses the same CapTP API. For a first call in code, use
 
 Rooms is a browser chat application in which the page is a glowcap peer. It
 holds room capabilities, hosts inboxes, retains history, and opens direct
-conversations after a room introduces their two ends.
+conversations after a room introduces two members.
 
 ```sh
 zig build rooms-web
@@ -52,7 +52,7 @@ buffer-explicit and many-session helpers.
 [the modules]($link.page('modules')) page shows which API level each chapter
 uses.
 
-# Embed from C
+# Use it from C
 
 [host_embedder_pump.c](https://github.com/jimisaacs/glowcap/blob/main/examples/c/host_embedder_pump.c)
 is the first C program to read. It drives two byte-fed `GlowcapHost` instances
@@ -62,12 +62,8 @@ for linking, ownership, the host allocator, and transport composition.
 
 # Try another application
 
-| App | What it shows | Run |
-| --- | --- | --- |
-| [tasks](https://github.com/jimisaacs/glowcap/blob/main/apps/tasks/) | Shared task state across peers | `zig build demo-tasks` |
-| [tools](https://github.com/jimisaacs/glowcap/blob/main/apps/tools/) | Delegation, attenuation, and revocation | `zig build demo-tools` |
-| [accountability](https://github.com/jimisaacs/glowcap/blob/main/apps/accountability-on-glowcap/) | Signed calls above an OCapN session | `zig build demo-accountability` |
-
-Tasks and tools need Deno. Accountability runs a Zig host with Deno and Python
-callers. They double as binding examples, and the
-[bindings overview]($link.page('bindings')) points to each language.
+Tasks, tools, and accountability are smaller applications that run across
+several languages. The
+[application list](https://github.com/jimisaacs/glowcap/blob/main/apps/README.md)
+says what each one shows and how to run it. They double as binding examples,
+and the [bindings overview]($link.page('bindings')) points to each language.

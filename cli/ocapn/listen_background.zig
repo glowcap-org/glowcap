@@ -173,7 +173,7 @@ fn consumeTestTerminalFailure(handle: *Handle) bool {
 /// listener is closed, so the locator in `info` stays accurate).
 pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
     if (ctx.background_listener != null) {
-        ctx.logErr("a listener is already running (see `info`); `close` it first", .{});
+        ctx.logErr("a listener is already running (see `info`). `close` it first", .{});
         return exit_codes.usage;
     }
     const bind = parsed.flagString("bind") orelse "127.0.0.1:0";
@@ -270,7 +270,7 @@ pub fn start(ctx: *Ctx, parsed: *cmd_types.Parsed) !u8 {
         const line = try std.fmt.bufPrint(&buf, "{s}\n", .{uri});
         try ctx.writeResult(line);
     }
-    ctx.logInfo("listening in the background; `close` stops it", .{});
+    ctx.logInfo("listening in the background. `close` stops it", .{});
     return exit_codes.ok;
 }
 

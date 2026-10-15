@@ -35,13 +35,17 @@ pub const Spec = struct {
     /// and forwarding reuse the same prepared graph without restoring fields.
     requirement_verbs: []const []const u8 = &.{},
 
+    pub const max_schemas = 128;
+    pub const max_requirement_verbs = 128;
+    pub const max_requirement_verb_bytes = 256;
+
     pub fn requirementNeedsGraph(self: Spec, verb: []const u8) bool {
         for (self.requirement_verbs) |name| if (std.mem.eql(u8, name, verb)) return true;
         return false;
     }
 
     pub fn validate(self: Spec, store: *loam.Store, root: Schema) !void {
-        if (self.requirement_verbs.len > 128) return error.InvalidGraphLimits;
+        if (self.requirement_verbs.len > max_requirement_verbs) return error.InvalidGraphLimits;
         for (self.requirement_verbs, 0..) |name, index| {
             if (name.len == 0 or name.len > 256) return error.InvalidGraphMethod;
             for (self.requirement_verbs[0..index]) |prior| if (std.mem.eql(u8, prior, name)) return error.DuplicateGraphMethod;

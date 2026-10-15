@@ -59,7 +59,7 @@ pub const unobserved_outcome_cap_rows: []const Ban = &.{
         .kind = .require,
         .needles = &.{"pub const unobserved_outcome_cap: usize = 1024;"},
         .check = "unobserved-outcome-cap",
-        .why = "the shared unobserved-outcome FIFO cap lives in binding_policy and reaches bindings through generated mirrors; change that owner, then regenerate and update docs",
+        .why = "the shared unobserved-outcome FIFO cap lives in binding_policy and reaches bindings through generated mirrors; change that owner, then regenerate the mirrors and doc values",
     },
     .{
         .where = .{ .file = "bindings/ts/runtime/host/state.ts" },
@@ -81,13 +81,6 @@ pub const unobserved_outcome_cap_rows: []const Ban = &.{
         .needles = &.{"_MAX_UNOBSERVED_OUTCOMES = _abi.BINDING_UNOBSERVED_OUTCOME_CAP"},
         .check = "unobserved-outcome-cap",
         .why = "Python's Host vow table must consume the generated binding-policy cap instead of carrying its own literal",
-    },
-    .{
-        .where = .{ .file = "bindings/README.md" },
-        .kind = .require,
-        .needles = &.{"at most 1024 settled outcomes"},
-        .check = "unobserved-outcome-cap",
-        .why = "the bindings README states the shared unobserved-outcome FIFO cap; keep it in step with binding_policy",
     },
 };
 

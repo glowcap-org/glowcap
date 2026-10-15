@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
-import secrets
 from typing import Optional, Union
 
 from ._constants import (
@@ -27,14 +26,19 @@ from ._abi_value import _DEFAULT_CODEC
 from ._errors import GlowcapError
 from ._ffi_iroh import _IrohReadyEvent
 from ._host import Host
-from ._iroh_native import (
+from ._iroh_ffi import (
     IrohConfig,
     IrohConnection,
     IrohNetlayer,
     Reachability,
     adopt_loop_provider,
 )
-from ._server import DriverServer, prepare_driver_loop, _rollback_listener_construction
+from ._server import (
+    DriverServer,
+    listener_seed,
+    prepare_driver_loop,
+    _rollback_listener_construction,
+)
 from ._transport import Connector, _rollback_failed_transport
 
 
@@ -486,7 +490,7 @@ async def dial_locator_for_relay(
 class IrohServer(DriverServer):
     """A driver-owned iroh listener.
 
-    The supplied Host, when present, is transferred into the same native loop
+    The supplied Host, when present, is transferred into the same driver loop
     that owns the iroh resident. The driver owns listener admission and keeps
     yielded sessions alive until their own release.
     """
@@ -501,22 +505,11 @@ class IrohServer(DriverServer):
         seed: "Optional[bytes]" = None,
         host: "Optional[Host]" = None,
     ) -> "IrohServer":
-        if seed is not None and len(seed) != 32:
-            raise GlowcapError(_ERR_INVALID_ARGUMENT, "listen: seed must be 32 bytes")
-        if host is not None and seed is not None:
-            raise GlowcapError(
-                _ERR_INVALID_ARGUMENT,
-                "listen: seed and host are alternative identity sources",
-            )
-        selected_seed = (
-            seed
-            if seed is not None
-            else (host.seed if host is not None else secrets.token_bytes(32))
-        )
-        return await cls._open_native_loop(config, selected_seed, host)
+        selected_seed = listener_seed(seed, host)
+        return await cls._open_ffi_loop(config, selected_seed, host)
 
     @classmethod
-    async def _open_native_loop(
+    async def _open_ffi_loop(
         cls,
         config: IrohConfig,
         secret_seed: bytes,

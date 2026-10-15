@@ -1,9 +1,25 @@
-// PLANNED: glowcap has no managed WebRTC Runtime adapter yet.
-// The Rust WebRTC dial API is not yet public; this shows the planned shape.
-// Pass the signaling capability you already hold.
-//
-// use glowcap::{webrtc, Runtime, RuntimeConfig};
-//
-// let partner = webrtc::locator("<64 lowercase hex characters from the peer>");
-// let runtime = Runtime::open(RuntimeConfig::connectors([webrtc::connector(signaling)])).await?;
+use std::rc::Rc;
+
+use glowcap::webrtc::{self, SignalingAuthority};
+use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+
+// Your signaling carries the offer and each candidate to the peer the locator
+// names, over a path you already hold, such as an OCapN capability both peers
+// can reach, and brings the answer and the peer's candidates back. Drive the
+// runtime from a tokio `LocalSet`: the callbacks run on the thread that steps it.
+// Cargo.toml: glowcap = { …, features = ["webrtc"] }
+let signaling: Rc<dyn SignalingAuthority> = todo!("your SignalingAuthority");
+let partner = webrtc::locator("<64 lowercase hex characters from the peer>");
+
+let runtime =
+    Runtime::open(RuntimeConfig::providers([webrtc::provider(signaling, webrtc::Config::default())])).await?;
 // From here, the CapTP workflow is transport-independent.
+let session = runtime.connect(&partner, ConnectOptions::default()).await?;
+let greeter = session.fetch("greeter").await?; // a capability this peer published
+match session.send(&greeter, "greet", &["world".into()]).await {
+    Ok(Argument::String(reply)) => println!("{reply}"),
+    Ok(other) => println!("unexpected reply: {other:?}"),
+    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+}
+session.close(PendingWork::Cancel).await?;
+runtime.close(PendingWork::Cancel).await?;

@@ -1,7 +1,7 @@
 // The public client package surface that accompanies the Room implementation.
 
 export { Directory, signalingRoute } from "../directory.ts";
-export { readRoomEvent, type RoomEvent, type RoomInfo } from "../directory_publications.ts";
+export { readRoomEvent, type RoomEvent, type RoomInfo, type RoomPage } from "../directory_publications.ts";
 export { DirectMessage } from "../direct_message.ts";
 export { DirectoryPeering, type DurableRoom, RoomPublication } from "../peering.ts";
 export { PostedLine } from "../posted_line.ts";

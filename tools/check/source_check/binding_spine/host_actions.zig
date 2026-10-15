@@ -327,10 +327,10 @@ pub fn checkBindingHostActionSpine(
         "glowcap_locator_clone",
     });
     // Shared codec order spine: both encode paths must import codec_order.
-    try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/syrup/encode.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/syrup/canonical_collection.zig", &.{
         "@import(\"codec_order\")",
     });
-    try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/capnp/encode.zig", &.{
+    try expectFileContains(io, gpa, root, violations, "src/ocapn/codec/capnp/encode_arguments.zig", &.{
         "@import(\"codec_order\")",
     });
     // Stale locator-bearing or ticket-only DIAL prose must not return in the C

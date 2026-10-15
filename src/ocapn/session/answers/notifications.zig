@@ -3,6 +3,7 @@
 //! accepted resolver/listener obligation and its one stored resolution.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 const answers = @import("store.zig");
 const session = @import("../mod.zig");
@@ -65,7 +66,7 @@ fn prepareDetachedCapacity(self: *Session, additional: u32) !void {
     }
     const store = try self.allocator.create(answers.DetachedAnswerStore);
     errdefer self.allocator.destroy(store);
-    store.* = .{};
+    store.* = .{ .rows = .keyed(self.wire_hash_multiplier) };
     errdefer store.rows.deinit(self.allocator);
     try store.rows.ensureUnusedCapacity(self.allocator, additional);
     self.detached_inbound_answers = store;
@@ -75,10 +76,13 @@ fn prepareDetachedCapacity(self: *Session, additional: u32) !void {
 /// answer. Attaching an empty payload is ownership-neutral. The authoritative
 /// counts, links, and rows remain unchanged if a later allocation refuses.
 pub fn prepareGc(self: *Session, positions: []const u64) !void {
+    // A release names one or a few answers, so both records below hold
+    // their rows in place and touch the arena only for a long vector. The
+    // positions are the peer's words.
     const scratch = self.recv_scratch.allocator();
-    var decrements: std.AutoHashMapUnmanaged(u64, u64) = .empty;
+    var decrements: foundation.inline_rows.Table(u64, u64, 8, .wire) = .keyed(self.wire_hash_multiplier);
     defer decrements.deinit(scratch);
-    try decrements.ensureUnusedCapacity(scratch, @intCast(positions.len));
+    try decrements.ensureUnusedCapacity(scratch, positions.len);
     for (positions) |position| {
         const entry = decrements.getOrPutAssumeCapacity(position);
         if (!entry.found_existing) entry.value_ptr.* = 0;
@@ -86,10 +90,10 @@ pub fn prepareGc(self: *Session, positions: []const u64) !void {
             return error.GcUnderflow;
     }
 
-    var attached: std.ArrayListUnmanaged(model.AnswerName) = .empty;
+    var attached: foundation.inline_rows.List(model.AnswerName, 8) = .empty;
     defer attached.deinit(scratch);
-    try attached.ensureTotalCapacityPrecise(scratch, positions.len);
-    errdefer for (attached.items) |name| {
+    try attached.ensureUnusedCapacity(scratch, positions.len);
+    errdefer for (attached.items()) |name| {
         const row = self.inbound_answers.getPtr(name) orelse unreachable;
         const answer_payload = row.payload orelse unreachable;
         row.payload = null;
@@ -193,11 +197,12 @@ pub fn validateSettlement(
     target: answers.AnswerTarget,
     answer_payload: *answers.AnswerPayload,
     resolution_value: model.Resolution,
+    inventory: session.Inventory,
 ) !void {
     const found = payload(self, target) orelse return error.InvalidReference;
     if (found != answer_payload) return error.InvalidReference;
     if (answer_payload.resolution != null) return error.UnexpectedMessage;
-    try self.validateSentResolutionValue(resolution_value);
+    try self.validateSentResolutionValue(resolution_value, inventory);
 }
 
 pub fn releasePayload(self: *Session, answer_payload: *answers.AnswerPayload) void {

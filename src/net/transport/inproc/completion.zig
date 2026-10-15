@@ -16,9 +16,9 @@ const exchange_mod = @import("exchange.zig");
 
 const crypto = foundation.crypto;
 pub const Exchange = exchange_mod.Exchange;
+pub const Sink = exchange_mod.Sink;
 const End = exchange_mod.End;
 const Listener = exchange_mod.Listener;
-const Sink = exchange_mod.Sink;
 
 /// The exchange this backend dials and listens through. Without one, an
 /// `inproc` dial or listen is refused and the platform serves alone.
@@ -157,7 +157,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return self.platform.readinessFd();
         }
 
+        /// The owner may wait next: mark the sink parked so a writer wakes
+        /// that wait, then hand the platform its queue. With nothing open
+        /// there is no writer, so the sink's lock is left alone.
         pub fn flush(self: *Self) !void {
+            if (!self.idle()) self.sink.park();
             return self.platform.flush();
         }
 
@@ -314,32 +318,63 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
+            return collect(self, out, timeout_ms);
+        }
+
+        pub fn peek(self: *Self, out: []completion.Completion) !usize {
+            return collect(self, out, null);
+        }
+
+        /// `wait_ms` null reaps what the platform already completed and
+        /// submits nothing. The sink is parked across a wait and looking
+        /// otherwise, so a writer nudges only an owner that needs it, and
+        /// every pass settles the ends with news whether or not a nudge came.
+        fn collect(self: *Self, out: []completion.Completion, wait_ms: ?i32) !usize {
+            if (self.idle()) return completion.passThrough(&self.platform, out, wait_ms);
             try self.sink.wake_failure.check();
             if (!self.wake_armed) {
                 try self.platform.submitRecv(wake_user_data, self.sink.wake.read);
                 self.wake_armed = true;
             }
-            var platform_completions: [256]completion.Completion = undefined;
-            const total = std.math.add(usize, self.ready_reserved, platform_completions.len) catch
-                return error.OutOfMemory;
-            try self.ready.ensureUnusedCapacity(self.allocator, total);
-            const wait_ms: i32 = if (self.ready.len() > 0) 0 else timeout_ms;
-            const count = try self.platform.poll(&platform_completions, wait_ms);
-            for (platform_completions[0..count]) |comp| {
-                if (comp.user_data != wake_user_data) {
-                    self.ready.appendAssumeCapacity(comp);
-                    continue;
-                }
-                if (comp.borrowed.active()) self.platform.recycleBorrowed(comp);
-                self.wake_armed = false;
-                if (!comp.recv_no_buffer and comp.result <= 0) return error.SignalReadFailed;
-                self.sink.wake.drain() catch |err| {
-                    self.sink.wake_failure.record(err);
-                    return err;
-                };
-                self.harvest();
-            }
-            return self.ready.drain(out);
+            const owed = self.ready.drain(out);
+            const room = out[owed..];
+            const count = if (wait_ms) |timeout_ms| blk: {
+                const wait = if (owed > 0) 0 else timeout_ms;
+                if (wait != 0) self.sink.park();
+                break :blk try self.platform.poll(room, wait);
+            } else try self.platform.peek(room);
+            self.sink.look();
+            const kept = try completion.keepForeign(room, count, Self, self);
+            // Every record the harvest publishes sits on a seat its row
+            // reserved, so the pass needs no room of its own.
+            self.harvest();
+            return owed + kept + self.ready.drain(room[kept..]);
+        }
+
+        /// Nothing open, armed, or owed. The wake read is the one completion
+        /// this adapter owns, and a writer exists only through a connection
+        /// or the listener, so with none of those and the wake unarmed the
+        /// pass is the platform's alone. The wake arms on the first pass with
+        /// something open and stays armed until a writer lands, so an adapter
+        /// that has opened and closed a connection keeps its chores.
+        fn idle(self: *const Self) bool {
+            return self.conns.count() == 0 and self.listener == null and !self.wake_armed and self.ready.len() == 0;
+        }
+
+        pub fn ownsCompletion(user_data: u64) bool {
+            return user_data == wake_user_data;
+        }
+
+        /// The wake read completed: the signal is consumed here and the next
+        /// pass arms it again.
+        pub fn dispatchOwned(self: *Self, comp: completion.Completion) !void {
+            if (comp.borrowed.active()) self.platform.recycleBorrowed(comp);
+            self.wake_armed = false;
+            if (!comp.recv_no_buffer and comp.result <= 0) return error.SignalReadFailed;
+            self.sink.wake.drain() catch |err| {
+                self.sink.wake_failure.record(err);
+                return err;
+            };
         }
 
         /// Settle the ends with news, one at a time so I/O runs outside the

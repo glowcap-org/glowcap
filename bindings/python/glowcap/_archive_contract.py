@@ -1,4 +1,4 @@
-"""Pre-call compatibility check for separately loaded native archives."""
+"""Pre-call compatibility check for separately loaded FFI archives."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def require_archive_fingerprint(
         read = resolve()
     except AttributeError as error:
         raise RuntimeError(
-            f"{stem}: missing archive fingerprint; rebuild the native libraries from this checkout"
+            f"{stem}: missing archive fingerprint; rebuild the FFI libraries from this checkout"
         ) from error
     read.argtypes = []
     read.restype = ctypes.c_uint64
@@ -23,5 +23,5 @@ def require_archive_fingerprint(
     if actual != expected:
         raise RuntimeError(
             f"{stem}: callable surface does not match this binding "
-            f"(expected {expected:016x}, got {actual:016x}); rebuild the native libraries"
+            f"(expected {expected:016x}, got {actual:016x}); rebuild the FFI libraries"
         )

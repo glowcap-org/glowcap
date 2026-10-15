@@ -75,7 +75,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     var node = engine.Node.init(allocator, repeated(32, 0x63));
     defer node.deinit();
     node.setGifterSessionResolver(resolver_fixture.resolver());
-    _ = try node.registerPeerOver(&exporter);
+    resolver_fixture.peer_handle = try node.registerPeerOver(&exporter);
     try exporter.session_state.transitionToOpen();
 
     // The withdraw arrives on the wire before any deposit: `deposit-gift` and

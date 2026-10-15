@@ -7,7 +7,7 @@ decision: "The netlayer is a `net` layer outside the sync no-I/O core: it is the
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0110]
+amended_by: [ADR-0110, ADR-0229]
 ---
 
 # ADR-0030 Netlayer connection & per-connection memory posture

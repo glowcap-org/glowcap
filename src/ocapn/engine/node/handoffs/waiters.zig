@@ -29,7 +29,7 @@ const Group = struct {
     changed_index: usize = no_change,
 };
 
-/// All exact gift groups rooted in one live Gifter–Exporter session. Making
+/// All exact gift groups rooted in one live Gifter-Exporter session. Making
 /// the gifter the outer key means session close touches only its own groups.
 /// Unrelated tenants never enter that teardown path.
 const GifterGroups = struct {

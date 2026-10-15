@@ -350,12 +350,17 @@ def webrtc_sigs(_WebrtcReadyEvent, _WebrtcConfig, _TransportProvider):
     u64 = ctypes.c_uint64
     i32 = ctypes.c_int32
     size_p = ctypes.POINTER(size)
+    u64_p = ctypes.POINTER(u64)
     return {
         "glowcap_webrtc_archive_fingerprint": ([], u64),
         "glowcap_webrtc_last_error": ([P, size], size),
         "glowcap_webrtc_netlayer_new": ([ctypes.POINTER(_WebrtcConfig), ctypes.POINTER(P)], i32),
         "glowcap_webrtc_netlayer_readiness_fd": ([P], i32),
         "glowcap_webrtc_netlayer_drain_ready": ([P, ctypes.POINTER(_WebrtcReadyEvent), size, size_p], i32),
+        "glowcap_webrtc_netlayer_provide_offer": ([P, P, size, P, size, u64_p], i32),
+        "glowcap_webrtc_netlayer_provide_answer": ([P, u64, P, size], i32),
+        "glowcap_webrtc_netlayer_provide_candidate": ([P, u64, P, size], i32),
+        "glowcap_webrtc_netlayer_fail_exchange": ([P, u64], i32),
         "glowcap_webrtc_netlayer_release": ([P], i32),
         "glowcap_webrtc_peer_new": ([P, i32, ctypes.POINTER(P)], i32),
         "glowcap_webrtc_peer_authorize_remote": ([P, P, size], i32),

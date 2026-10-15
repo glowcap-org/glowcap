@@ -50,7 +50,7 @@ export function archiveDmLead(nick: string): string {
 export const archiveRoomLead =
 	"A room keeps no past of its own. What you have of this one is yours, and you can hand a read-only copy of it to one member over a direct line. It does not put them in the room.";
 export const archivePeerHintNobody =
-	"Nobody in this room can receive one yet. It travels over a direct message, and that needs a member who has registered for them here.";
+	"Nobody in this room can receive one. It travels over a direct message, and that needs a member who has registered for them here.";
 export const archivePeerHint =
 	"A member's nickname. It travels over a direct message, so it goes to one person and reaches nothing else of yours.";
 export const archiveWhatTitle = "What to hand over";

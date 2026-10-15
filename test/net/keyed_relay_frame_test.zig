@@ -1,6 +1,6 @@
 //! The relay's RFC 6455 upgrade and frame grammar. These units pin the exact
 //! client subset independently of the resident listener and connection
-//! lifecycle scenarios in `keyed_relay_test.zig`.
+//! lifecycle scenarios in `test/net/keyed_relay/`.
 
 const std = @import("std");
 const keyed_relay = @import("glowcap").net.relay;

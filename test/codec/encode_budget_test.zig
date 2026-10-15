@@ -154,3 +154,44 @@ test "encoding a large deliver costs one exact allocation and zero reallocs" {
     try std.testing.expectEqual(@as(usize, 0), counter.grows);
     try std.testing.expectEqual(@as(usize, 0), counter.shrinks);
 }
+
+test "a small dictionary needs only the final frame allocation on either codec" {
+    const entries = [_]model.StructEntry{
+        .{ .key = "count", .value = .{ .integer = 64 } },
+        .{ .key = "sum", .value = .{ .integer = 1234567 } },
+    };
+    const args = [_]model.Argument{.{ .@"struct" = &entries }};
+    const message = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+    } };
+    inline for (.{ syrup.encodeMessage, capnp.encodeMessage }) |encode| {
+        var counter = TotalCountingAllocator{ .backing = std.testing.allocator };
+        var frame = try encode(counter.allocator(), message);
+        defer frame.deinit();
+        try std.testing.expectEqual(@as(usize, 1), counter.allocs);
+        try std.testing.expectEqual(@as(usize, 0), counter.grows);
+    }
+}
+
+test "a spilled dictionary order releases every allocation on either codec" {
+    inline for (.{ model.CodecId.syrup, model.CodecId.capnp }) |codec|
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, encodeSpilled, .{codec});
+}
+
+fn encodeSpilled(allocator: std.mem.Allocator, codec: model.CodecId) !void {
+    const keys = [_][]const u8{ "a", "b", "c", "d", "e", "f", "g", "h", "i" };
+    var entries: [keys.len]model.StructEntry = undefined;
+    for (&entries, keys) |*entry, key| entry.* = .{ .key = key, .value = .{ .integer = 1 } };
+    const args = [_]model.Argument{.{ .@"struct" = &entries }};
+    const message = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+    } };
+    var frame = switch (codec) {
+        .syrup => try syrup.encodeMessage(allocator, message),
+        .capnp => try capnp.encodeMessage(allocator, message),
+        _ => unreachable,
+    };
+    defer frame.deinit();
+}

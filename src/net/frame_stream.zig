@@ -229,50 +229,42 @@ pub fn fillThroughSpill(
     return fillStep(r);
 }
 
-/// Block until one whole `codec_id` frame is available on `r`, returning it as an
-/// owned `Frame` (a shape-correct copy lifted out of the read buffer, so the
-/// buffer is free to advance). `Closed` is returned on a graceful boundary EOF.
-/// A frame larger than the read buffer (but within `max_frame_bytes`)
-/// accumulates in the caller's `spill` and decodes from there.
+/// Block until one whole envelope is available on `r`, returning its body as
+/// an owned `Frame` (a shape-correct copy lifted out of the read buffer, so
+/// the buffer is free to advance). `Closed` is returned on a graceful boundary
+/// EOF. A frame larger than the read buffer (but within `max_frame_bytes`)
+/// accumulates in the caller's `spill` and is lifted from there.
+///
+/// The envelope's length is the boundary, and the body is not walked here:
+/// the session that admits the frame parses it once under its negotiated
+/// profile (`engine.Peer.recvBorrowed`) and refuses a body that is not
+/// exactly one frame of the codec, so a peer-less stream never decodes.
 pub fn readFrameFrom(
     r: *std.Io.Reader,
     allocator: std.mem.Allocator,
     codec_id: model.CodecId,
     max_frame_bytes: usize,
     spill: *Spill,
-    scan: *codec.framing.StreamScan,
 ) FrameError!foundation.Frame {
     while (true) {
         const supply = if (spill.isActive()) spill.bytes() else r.buffered();
         if (supply.len > 0) {
             switch (outerPrefix(supply, max_frame_bytes)) {
-                .decoded => |outer| switch (codec.dispatch.framePrefix(codec_id, outer.body, scan, max_frame_bytes)) {
-                    .complete => |consumed| {
-                        // The byte-string body is one frame, not an arbitrary
-                        // concatenation of otherwise valid codec values.
-                        if (consumed != outer.body.len) return error.MalformedFrame;
-                        // `framePrefix` above already accepted this codec, so its
-                        // shape is registered; a null here would mean the two
-                        // dispatchers disagree, which we classify as malformed.
-                        const shape = codec.dispatch.frameShape(codec_id) orelse return error.MalformedFrame;
-                        const view: foundation.FrameView = .{
-                            .bytes = outer.body,
-                            .shape = shape,
-                        };
-                        // The one shape-aware owned copy (8-aligned for `word`).
-                        const frame = engine.ownedFrameFromView(allocator, view) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            // Structural framing accepted the frame, so a shape
-                            // violation cannot occur; classify defensively.
-                            error.InvalidFrameShape => return error.MalformedFrame,
-                        };
-                        if (spill.isActive()) spill.consume(allocator, outer.consumed, spill_retain_bytes) else r.toss(outer.consumed);
-                        return frame;
-                    },
-                    // The outer byte string is complete, so its bounded body
-                    // cannot become a complete inner frame by reading more.
-                    .incomplete, .malformed => return error.MalformedFrame,
-                    .too_large => return error.FrameTooLarge,
+                .decoded => |outer| {
+                    const shape = codec.dispatch.frameShape(codec_id) orelse return error.MalformedFrame;
+                    const view: foundation.FrameView = .{
+                        .bytes = outer.body,
+                        .shape = shape,
+                    };
+                    // The one shape-aware owned copy (8-aligned for `word`).
+                    const frame = engine.ownedFrameFromView(allocator, view) catch |err| switch (err) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        // A `word` body whose length is not a whole number of
+                        // words cannot be one frame of that codec.
+                        error.InvalidFrameShape => return error.MalformedFrame,
+                    };
+                    if (spill.isActive()) spill.consume(allocator, outer.consumed, spill_retain_bytes) else r.toss(outer.consumed);
+                    return frame;
                 },
                 .incomplete => {},
                 .malformed => return error.MalformedFrame,
@@ -287,10 +279,18 @@ pub fn readFrameFrom(
     }
 }
 
+/// Outcome of applying one envelope off a byte-stream prefix.
+pub const RecvStream = union(enum) {
+    /// One frame applied. The caller may discard the first `consumed` bytes.
+    consumed: usize,
+    /// The prefix holds only part of an envelope. Append bytes and retry.
+    incomplete,
+};
+
 /// Apply one outer-framed byte-stream message to `peer`. The outer length owns
-/// the stream boundary. `recvBorrowed` validates the complete bounded body as
-/// exactly one codec frame and preserves the engine's one-parse apply path.
-pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !engine.Peer.RecvStream {
+/// the stream boundary. `recvBorrowed` retains the complete bounded body once,
+/// parses it once as exactly one codec frame, and refuses anything else.
+pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !RecvStream {
     const outer = switch (outerPrefix(bytes, peer.limits().max_frame_bytes)) {
         .incomplete => return .incomplete,
         .malformed => {
@@ -312,14 +312,13 @@ pub fn recvOuterPrefix(peer: *engine.Peer, bytes: []const u8) !engine.Peer.RecvS
 }
 
 /// The verdict of draining whole frames from one received chunk.
-const DrainVerdict = enum {
+pub const DrainVerdict = enum {
     /// Every whole frame applied. Any partial tail is now in the spill.
     ok,
-    /// The stream is unrecoverable. When the codec refused the frame, the
-    /// peer has already queued an `op:abort` to flush before the connection
-    /// closes, and the incomplete-at-cap refusal queues one too: it runs
-    /// through `recvStreamPrefix`, which projects the same typed abort a
-    /// decoder refusal does.
+    /// The stream is unrecoverable. When the envelope or the frame was
+    /// refused, the peer has already queued an `op:abort` to flush before the
+    /// connection closes (`recvOuterPrefix` projects the same typed abort a
+    /// decoder refusal does).
     fail,
     /// A spill allocation failed. Close the connection.
     close,
@@ -393,10 +392,6 @@ pub const FrameStream = struct {
     /// Bounded overflow for frames larger than the read buffer. Inactive (and
     /// allocation-free) while frames fit the buffer.
     spill: Spill = .{},
-    /// How far the codec has got framing the partial frame at the front of the
-    /// supply, so a frame arriving over several reads is walked once rather
-    /// than once per read.
-    scan: codec.framing.StreamScan = .{},
 
     pub fn initStream(
         io: std.Io,
@@ -433,7 +428,7 @@ pub const FrameStream = struct {
     /// Block for one whole frame as an owned `Frame` (allocated, like the spill,
     /// from the stream's own allocator). `Closed` on graceful EOF.
     pub fn readFrame(self: *FrameStream) FrameError!foundation.Frame {
-        return readFrameFrom(&self.reader.interface, self.allocator, self.codec_id, self.max_frame_bytes, &self.spill, &self.scan);
+        return readFrameFrom(&self.reader.interface, self.allocator, self.codec_id, self.max_frame_bytes, &self.spill);
     }
 
     /// Write one frame's borrowed bytes and flush.

@@ -5,10 +5,10 @@
 //! outbound retention contract: a frame larger than the write window survives
 //! `would_block`, resumes on `ev_writable`, and never reorders.
 //!
-//! Validated against injected defects: with `handleResidentEvent`'s
-//! `ev_connect` arm dropped, the dial hangs to `HandshakeTimedOut` and both
-//! tests fail. With `pushPendingResident` resuming from offset zero, the
-//! throttled call dies on a corrupt frame. Restored, both pass.
+//! Defects it catches: with `handleResidentEvent`'s `ev_connect` arm
+//! dropped, the dial hangs to `HandshakeTimedOut` and both tests fail. With
+//! `pushPendingResident` resuming from offset zero, the throttled call dies on
+//! a corrupt frame.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -117,6 +117,8 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
     const gifter_session = try recipient.connectLocator(gifter_locator, .inherit);
     const view = try driver.Session.adopt(&recipient, gifter_session);
     defer view.deinit();
+    // The application started this dial itself, so no session introduced it.
+    try std.testing.expect(fake.last_introducer == null);
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -129,8 +131,11 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
     try std.testing.expect(introduced.fulfilled == .capability);
 
     // The redeem dial the give provoked also went through the resident: two
-    // live resident connections, none of any other kind.
+    // live resident connections, none of any other kind. That dial carried
+    // the gifter as its introducer, named by the designator the gifter signed.
     try std.testing.expectEqual(@as(usize, 2), fake.conns.count());
+    const last_introducer = fake.last_introducer orelse return error.TestExpectedIntroducer;
+    try std.testing.expectEqualStrings(gifter_locator.designator, last_introducer[0..fake.last_introducer_len]);
 
     const greeted = try view.call(introduced.fulfilled.capability, "greet", &.{}, arena);
     try std.testing.expect(greeted == .fulfilled and greeted.fulfilled == .string);

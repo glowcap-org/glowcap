@@ -32,5 +32,3 @@ futures-util = { workspace = true, features = ["async-await", "sink"] }
 tokio-tungstenite = { workspace = true, features = ["connect"] }
 sha2.workspace = true
 nix.workspace = true
-tokio-postgres.workspace = true
-tokio-postgres-rustls.workspace = true

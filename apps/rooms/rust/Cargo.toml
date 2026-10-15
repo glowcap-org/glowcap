@@ -12,28 +12,45 @@ license = "Apache-2.0"
 publish = false
 
 [workspace.dependencies]
+# dep serde: Serializes Rooms records and configuration.
 serde = { version = "=1.0.229", default-features = false, features = ["derive", "alloc", "rc"] }
+# dep serde_json: JSON for Rooms records, configuration and the web protocol.
 serde_json = { version = "=1.0.154", default-features = false, features = ["alloc", "raw_value"] }
+# dep hmac: Signs grant, share and link tokens.
 hmac = { version = "=0.13.0", default-features = false }
+# dep sha2: SHA-256 for tokens and content history.
 sha2 = { version = "=0.11.1", default-features = false }
 glowcap = { package = "glowcap-rust-dogfood", path = "../../../bindings/rust", default-features = false, features = ["async"] }
+# dep tokio: The async runtime for the Rooms server, sessions and services.
 tokio = { version = "=1.53.2", default-features = false, features = ["rt", "macros", "sync", "time"] }
+# dep url: Parses links in messages and link previews.
 url = { version = "=2.5.8", default-features = false }
+# dep tokio-tungstenite: WebSockets between the Rooms server and its clients.
 tokio-tungstenite = { version = "=0.30.0", default-features = false }
+# dep futures-util: Stream and sink helpers for WebSockets.
 futures-util = { version = "=0.3.34", default-features = false }
+# dep tokio-rustls: TLS for the Rooms server and its bootstrap client.
 tokio-rustls = { version = "=0.26.6", default-features = false }
+# dep bytes: Byte buffers for WebSocket frames.
 bytes = "=1.12.1"
+# dep wasm-bindgen: Rooms' browser build.
 wasm-bindgen = "=0.2.129"
+# dep wasm-bindgen-futures: Runs Rust futures on the browser's event loop.
 wasm-bindgen-futures = "0.4"
+# dep js-sys: JavaScript built-ins for the browser build.
 js-sys = "0.3"
+# dep web-sys: Browser APIs for the browser build.
 web-sys = "0.3"
+# dep gloo-timers: Timers in the browser build.
 gloo-timers = "0.4"
+# dep hyper: The Rooms HTTP server.
 hyper = { version = "=1.12.0", default-features = false, features = ["http1"] }
+# dep hyper-util: Connection helpers for the HTTP server.
 hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio"] }
+# dep http-body-util: Request and response bodies for the HTTP server.
 http-body-util = { version = "=0.1.5", default-features = false }
+# dep nix: Unix signals, file sync and polling for storage and the server process.
 nix = { version = "=0.31.3", default-features = false, features = ["signal", "fs", "poll"] }
-tokio-postgres = "=0.7.18"
-tokio-postgres-rustls = { version = "=0.14.0", default-features = false, features = ["ring"] }
 
 # The floor every crate answers to, in the manifest rather than only on the
 # command line the gate happens to use. That distinction is the point: with the

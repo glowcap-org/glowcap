@@ -1,8 +1,14 @@
+---
+type: static
+description: The command line and NDJSON protocol every per-language bench client speaks to the orchestrator.
+sources:
+  - resource: /bench/langs/
+---
+
 # bench-langs client contract
 
-Every per-language bench client speaks the same contract, so the orchestrator
-(`orchestrator.zig`) drives them uniformly. This file is the schema that the
-orchestrator and each client implement.
+Every per-language bench client implements this contract, so the orchestrator
+(`orchestrator.zig`) drives them uniformly.
 
 ## Invocation
 
@@ -93,7 +99,7 @@ names the concrete runtime and version where the client can determine it.
 ```
 
 - `local`: the local-turn instrument. The unit is not the taskboard
-  script but one send→settle against a local counter actor whose behavior
+  script but one send-and-settle against a local counter actor whose behavior
   answers the verb `hit` by incrementing a count and returning it. The client
   runs `n` such units **sequentially** (each settled before the next) on two
   paths and reports both in nanoseconds per turn (mean and p99):
@@ -117,11 +123,8 @@ names the concrete runtime and version where the client can determine it.
 {"v":1,"metric":"local","client":"<name>","suite":"local-turn","n":<n>,"in_lang_ns":<f>,"in_lang_p99_ns":<f>,"via_host_ns":<f|null>,"via_host_p99_ns":<f|null>,"ratio":<f|null>,"runtime":"<label>","warmup_n":<int>}
 ```
 
-  `ratio` is `via_host_ns / in_lang_ns`. `in_lang` is the binding dispatching a
-  local actor in its own runtime. `via_host` is the loopback route through the
-  C host, which includes a loopback round trip and two wire-codec passes. The
-  mode answers what the C host path costs per binding. It does not measure the
-  wire alone.
+  `ratio` is `via_host_ns / in_lang_ns`. The mode answers what the C host path
+  costs per binding. It does not measure the wire alone.
 
 ## Warmup and GC hygiene
 

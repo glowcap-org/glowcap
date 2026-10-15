@@ -337,6 +337,9 @@ fn checkMermaidBlocksInFile(
         if (std.mem.indexOfScalar(u8, line, ';') != null) {
             try appendViolation(gpa, violations, "{s}:{d}: Mermaid reads ';' as a statement separator even inside note and label text, so the rest of the line becomes a broken statement at render time. Reword without the semicolon.", .{ path, line_no });
         }
+        if ((try mermaidBlockKind(block.items)) == .state and stateLabelHasColon(trimmed)) {
+            try appendViolation(gpa, violations, "{s}:{d}: a state diagram's transition label ends at its first ':', so a second one (as in op:abort) fails to render. Name the operation without its prefix.", .{ path, line_no });
+        }
 
         try block.appendSlice(gpa, line);
         try block.append(gpa, '\n');
@@ -345,6 +348,14 @@ fn checkMermaidBlocksInFile(
     if (in_mermaid) {
         try appendViolation(gpa, violations, "{s}:{d}: Mermaid block is not closed", .{ path, block_start });
     }
+}
+
+/// A transition `A --> B: label` takes everything after its first colon as the
+/// label, and Mermaid's state grammar refuses a colon inside it.
+fn stateLabelHasColon(line: []const u8) bool {
+    if (std.mem.indexOf(u8, line, "-->") == null) return false;
+    const label = std.mem.indexOfScalar(u8, line, ':') orelse return false;
+    return std.mem.indexOfScalar(u8, line[label + 1 ..], ':') != null;
 }
 
 fn mermaidBlockKind(block: []const u8) !?MermaidKind {
@@ -475,6 +486,9 @@ fn checkFenceIndentFile(
 
 test "mermaidBlockKind recognizes supported diagram heads" {
     try std.testing.expectEqual(MermaidKind.flowchart, (try mermaidBlockKind("flowchart TD\n    A --> B\n")).?);
+    try std.testing.expect(stateLabelHasColon("A --> B: typed op:abort queued"));
+    try std.testing.expect(!stateLabelHasColon("A --> B: abort queued"));
+    try std.testing.expect(!stateLabelHasColon("[*] --> Open"));
     try std.testing.expectEqual(MermaidKind.sequence, (try mermaidBlockKind("\nsequenceDiagram\n    A->>B: hello\n")).?);
     try std.testing.expectEqual(MermaidKind.state, (try mermaidBlockKind("stateDiagram-v2\n    [*] --> Open\n")).?);
     try std.testing.expect(try mermaidBlockKind("notMermaid\n    A\n") == null);

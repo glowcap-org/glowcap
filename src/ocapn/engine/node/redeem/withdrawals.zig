@@ -118,8 +118,9 @@ pub fn begin(
     const withdraw_answer = try session.allocateAnswer();
     // Sign with the introducing session: the give named that identity as its
     // recipient_key. The exporter session supplies its own side/session names.
-    const recipient_secret = Internal.sessionSecret(self, redeem.recipientPeer(dest)) orelse
+    var recipient_secret = Internal.sessionSecret(self, redeem.recipientPeer(dest)) orelse
         return queueFailure(self, dest, "handoff redeem failed: introducing session is gone");
+    defer std.crypto.secureZero(u8, std.mem.asBytes(&recipient_secret));
     session.sendWithdrawGift(
         recipient_secret,
         give,

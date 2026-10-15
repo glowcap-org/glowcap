@@ -1,4 +1,4 @@
-// The one TypeScript projection of native driver failures. Event failures and
+// The one TypeScript projection of driver failures. Event failures and
 // deterministic provider/release barriers share the same typed facts; the
 // binding copies borrowed names and attaches the first counted consequence,
 // but owns no transport or lifecycle policy.
@@ -129,7 +129,7 @@ export function driverCall(
 	}
 }
 
-/** Pointer-form convenience for native package registration. */
+/** Pointer-form convenience for FFI package registration. */
 export function addDriverProvider(
 	call: (provider: Ptr, out: Uint8Array<ArrayBuffer>) => number,
 	provider: Uint8Array,
@@ -138,7 +138,7 @@ export function addDriverProvider(
 	if (outcome.error !== null) throw outcome.error;
 }
 
-/** Request one listener stop. False means native retirement is committed and
+/** Request one listener stop. False means FFI retirement is committed and
  * the loop must keep stepping before the same identity can be claimed. */
 export function closeDriverListener(handle: Ptr, listener: bigint): boolean {
 	const outcome = driverCall(

@@ -136,17 +136,17 @@
 ;; context, and settle the reply. Only the behavior call is application policy:
 ;; its raises (an attenuator's "Attenuated", a revoked caretaker's "Revoked",
 ;; an unknown-method error) cross the boundary as a broken answer. Decode,
-;; routing, reply encoding, and native settlement failures remain binding/wire
+;; routing, reply encoding, and FFI settlement failures remain binding/wire
 ;; failures and unwind into the Session owner instead of being mislabeled as a
 ;; partner-visible behavior result.
 (define (serve-foreign-call v turn verb-ptr verb-len args-ptr args-len out-reply run)
   (define method (decode-verb verb-ptr verb-len))
   (define args (args<-c args-ptr args-len))
-  ;; A native callback can only run synchronously inside the pump's feed
+  ;; An FFI callback can only run synchronously inside the pump's feed
   ;; bracket. The arriving Session supplies routing; never retain the Port
   ;; that happened to create this Host-owned actor.
   (define carrier (current-deliver-owner))
-  (unless carrier (error "hosted callback ran outside native Host progress"))
+  (unless carrier (error "hosted callback ran outside FFI Host progress"))
   ;; A callback can arrive on an internal redeemed session with no public
   ;; wrapper. The turn still supplies exact Host identity; per-session policy
   ;; exists only when the Host registry already owns a wrapper.

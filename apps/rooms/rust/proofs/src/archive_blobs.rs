@@ -1,4 +1,4 @@
-//! Reader authority and file admission execute unchanged in native and Wasm.
+//! Reader authority and file admission execute unchanged on the host and in Wasm.
 use crate::{
 	archive::Passables,
 	arguments::{Arg, text},

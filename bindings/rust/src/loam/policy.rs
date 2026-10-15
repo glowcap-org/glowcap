@@ -126,7 +126,6 @@ impl Policy {
 					None => ffi::glowcap_loam_policy_value(&self.raw, &requirement.raw, &mut raw),
 				}
 			},
-			false,
 		)?;
 		Ok(PolicyValue { raw })
 	}
@@ -149,13 +148,19 @@ impl PolicyValue {
 		}
 	}
 	/// Arguments for the shared `derive` method, including its receipt sequence.
-	pub fn derive_arguments(self, sequence: u32, depth: u16) -> Vec<Argument> {
-		self.derivation_arguments(sequence, depth, None)
+	pub fn derive_arguments(self, sequence: u32, scope: Scope, depth: u16) -> Vec<Argument> {
+		self.derivation_arguments(sequence, scope, depth, None)
 	}
 	/// Arguments for `derive-managed`, returning [use Ref, child control Ref].
 	/// Editing and lifecycle powers are explicit and admitted by the shared engine.
-	pub fn managed_derive_arguments(self, sequence: u32, depth: u16, powers: ControlPowers) -> Vec<Argument> {
-		self.derivation_arguments(sequence, depth, Some(powers))
+	pub fn managed_derive_arguments(
+		self,
+		sequence: u32,
+		scope: Scope,
+		depth: u16,
+		powers: ControlPowers,
+	) -> Vec<Argument> {
+		self.derivation_arguments(sequence, scope, depth, Some(powers))
 	}
 	/// Arguments for `mutate(sequence, "set-policy", ...)` on a held control.
 	/// The control supplies scope. The policy cannot exceed its editing ceiling.
@@ -171,9 +176,16 @@ impl PolicyValue {
 	/// One final argument spine and bounded owned leaves survive the caller's
 	/// Session future. Reserve the exact spine. No temporary policy Vec or growth
 	/// reallocation participates in building a derivation or mutation request.
-	fn derivation_arguments(self, sequence: u32, depth: u16, powers: Option<ControlPowers>) -> Vec<Argument> {
-		let mut args = Vec::with_capacity(if powers.is_some() { 6 } else { 5 });
+	fn derivation_arguments(
+		self,
+		sequence: u32,
+		scope: Scope,
+		depth: u16,
+		powers: Option<ControlPowers>,
+	) -> Vec<Argument> {
+		let mut args = Vec::with_capacity(if powers.is_some() { 7 } else { 6 });
 		args.push(Argument::Integer(i64::from(sequence)));
+		args.push(scope.argument());
 		self.append_arguments(&mut args);
 		args.push(Argument::Integer(i64::from(depth)));
 		if let Some(powers) = powers {
@@ -202,20 +214,24 @@ impl PolicyValue {
 impl IssuePolicy {
 	/// Receipt-backed control issuance uses its own derivation sequence. It
 	/// does not exercise use delegation. The original use path bounds children.
-	/// One final twelve-field spine owns both policy triples through exact replay.
-	/// No temporary policy vector or growth reallocation precedes admission.
+	/// One final thirteen-field spine owns both policy triples through exact
+	/// replay. Ceiling and initial policy share `scope`. No temporary policy
+	/// vector or growth reallocation precedes admission.
+	#[allow(clippy::too_many_arguments)]
 	pub fn issue_arguments(
 		self,
 		sequence: u32,
 		revision: u64,
+		scope: Scope,
 		depth: u16,
 		powers: ControlPowers,
 		label: &str,
 		paused: bool,
 	) -> Vec<Argument> {
-		let mut args = Vec::with_capacity(12);
+		let mut args = Vec::with_capacity(13);
 		args.push(Argument::Integer(i64::from(sequence)));
 		args.push(Argument::Bytes(revision.to_be_bytes().to_vec()));
+		args.push(scope.argument());
 		self.ceiling.append_arguments(&mut args);
 		self.configured.append_arguments(&mut args);
 		args.push(Argument::Integer(i64::from(depth)));
@@ -223,6 +239,26 @@ impl IssuePolicy {
 		args.push(Argument::String(label.into()));
 		args.push(Argument::Boolean(paused));
 		args
+	}
+}
+
+/// What a share covers: the resource the endpoint names alone, or that
+/// resource and every descendant, including ones added later. The policy's
+/// kind rules decide which permissions each scope can carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+	Object,
+	Subtree,
+}
+impl Scope {
+	fn argument(self) -> Argument {
+		Argument::Symbol(
+			match self {
+				Scope::Object => "object",
+				Scope::Subtree => "subtree",
+			}
+			.into(),
+		)
 	}
 }
 

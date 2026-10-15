@@ -264,7 +264,7 @@ test "loam local recipe survives reverse attachment startup and collection while
     try source.destroy();
     host.deinit();
     try store.deinit();
-    backend.close();
+    try backend.close();
     store = try f.loam.core.Store.init(a, try backend.open(), &schemas, limits);
     host = @import("../../support/core_host.zig").init(a, @splat(0x72), .{});
     source = try f.hosting.Attachment.create(a, &host, &store, &f.behaviors, .{ .reference_scope = &scope, .attachment_name = "source" });

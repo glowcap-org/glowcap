@@ -5,7 +5,7 @@ use super::{
 };
 use glowcap::{
 	Argument, Host, Ref, Result,
-	loam::{self, Continuation, ControlPowers, EffectExecution, EffectResult, PendingContinuation, PolicyValue},
+	loam::{self, Continuation, ControlPowers, EffectExecution, EffectResult, PendingContinuation, PolicyValue, Scope},
 };
 use rooms_application::session::effect::Reply;
 use rooms_glowcap::client::{Deadline, Tasks};

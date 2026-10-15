@@ -1,4 +1,4 @@
-//! Stable C facade for the native onion provider archive.
+//! Stable C facade for the Zig onion provider archive.
 //!
 //! The facade owns opaque-handle validation, construction, teardown, and the
 //! fixed C surface. `provider/` projects the generic stream-provider contract.

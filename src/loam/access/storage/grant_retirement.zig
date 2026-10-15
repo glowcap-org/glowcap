@@ -14,23 +14,25 @@ pub const Path = struct {
         return self.ids[0..self.count];
     }
 };
-pub fn prepare(read: *Read, grant: core.GrantView.Record) !Path {
+/// The terminal grant and every surviving ancestor, nearest first.
+pub fn prepare(read: *Read, grant: core.GrantId, parent: ?core.GrantId) !Path {
     try read.prepareHistory();
     var result: Path = .{};
-    result.ids[0] = grant.id;
+    result.ids[0] = grant;
     result.count = 1;
     var grants = try read.grantView();
-    var cursor = grant.parent;
+    var cursor = parent;
     while (cursor) |id| {
         if (result.count == result.ids.len) return error.DepthLimit;
         for (result.slice()) |prior| if (prior.eql(id)) return error.InvalidRecord;
-        const parent = grants.get(id) catch |err| switch (err) {
+        const next = grants.borrow(id) catch |err| switch (err) {
             error.Gone => break,
             else => return err,
         };
+        defer grants.release();
         result.ids[result.count] = id;
         result.count += 1;
-        cursor = parent.parent;
+        cursor = next.parent;
     }
     return result;
 }
@@ -45,7 +47,7 @@ pub fn stage(read: *Read, path: *const Path, child_edit: ?*@import("directory_ed
         value.value.grant.child_count -= 1;
         value.value.grant.revision = read.header.version.grants;
         value.value.inventory = try history.stamp(read, @backingInt(read.header.version.grants));
-        var edges: [515]loam.Edge = undefined;
+        var edges: [records.GrantRecord.max_edges]loam.Edge = undefined;
         var iterator = parent.view.edges();
         var count: usize = 0;
         while (iterator.next()) |edge| {

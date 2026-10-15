@@ -49,6 +49,17 @@ require_unchecked_dev() {
 
 require_unchecked_dev
 
+# Two worktrees can each take the next decision record number from the dev
+# they observed. The rebase below merges both files cleanly, so the duplicate
+# is only visible on the rebased tree, and this check refuses it there, before
+# the shared ref moves.
+refuse_duplicate_adr_ids() {
+	[[ ${mode} == publish ]] || return 0
+	local duplicates
+	duplicates=$(git ls-tree --name-only HEAD docs/decisions/adr/ | sed -nE 's|^docs/decisions/adr/(ADR-[0-9]+)-.*|\1|p' | sort | uniq -d)
+	[[ -z ${duplicates} ]] || die "decision record id taken twice on the rebased tree: ${duplicates//$'\n'/, }; renumber yours to the next free id and retry"
+}
+
 # `main` and `dev` can advance between any two commands because every worktree
 # shares the refs. Absorb both observed integration lines, then publish by
 # fast-forwarding `dev` only if it still equals that observation. A failed
@@ -87,6 +98,7 @@ for attempt in {1..16}; do
 	# single commit as written, several only as one squash named by -m.
 	# The branch's own commits are those neither dev nor main already holds;
 	# main's commits that dev lacks ride below them and land unsquashed.
+	refuse_duplicate_adr_ids
 	head=$(git rev-parse HEAD)
 	own=$(git rev-list --count --right-only --cherry-pick "${main_tip}...${head}" "^${dev_tip}")
 	[[ ${own} -gt 0 ]] || die "${branch} has no commits of its own beyond dev"

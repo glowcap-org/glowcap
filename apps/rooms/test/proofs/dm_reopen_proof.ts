@@ -37,8 +37,8 @@ import { spawnWeb } from "../support/web_front.ts";
 // The second is the shape a reader reports as "it just does not send, and
 // nothing appears on the timeline", which is why it is worth naming.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives
-// (serve.ts's room server is native), and a Playwright Chromium
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives
+// (serve.ts's room server is the Rust process), and a Playwright Chromium
 // (the devcontainer image ships one).
 // Run: `deno run --allow-all apps/rooms/test/web/dm_reopen_proof.ts`.
 

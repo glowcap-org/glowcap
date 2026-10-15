@@ -1,4 +1,4 @@
-"""Native relay provider composition for the asyncio driver loop.
+"""Relay archive provider composition for the asyncio driver loop.
 
 One ``RelayRuntime`` installs one archive-owned package advertising both
 ``keyed-relay`` and ``noise-relay``. The driver selects the profile and owns
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import ipaddress
-import secrets
 from typing import Never, Optional, TYPE_CHECKING
 from urllib.parse import urlsplit
 
@@ -21,7 +20,7 @@ from ._ffi_driver import _TransportProvider
 from ._ffi_ocapn import _str_buf, _read_last_error
 from ._ffi_relay import _RelayConfig, _relay_lib
 from ._locator import Locator
-from ._native import NativeHandle, _NativeHandleOwner
+from ._ffi import FfiHandle, _FfiHandleOwner
 from ._transport import (
     Connector,
     Provider,
@@ -155,7 +154,7 @@ class _Profile:
     ) -> "DriverServer":
         """Register this profile's durable key at the relay and accept sessions.
 
-        The native relay provider holds the registration socket open and the
+        The relay archive's provider holds the registration socket open and the
         driver owns admission, handshakes, and session lifetime. Iterate the
         returned server for each accepted :class:`glowcap.Session`. ``seed``
         is a 32-byte secret kept across restarts so the advertised locator
@@ -169,23 +168,13 @@ class _Profile:
         from ._abi_value import _DEFAULT_CODEC
         from ._server import (
             DriverServer,
+            listener_seed,
             prepare_driver_loop,
             _rollback_listener_construction,
         )
 
-        if seed is not None and len(seed) != 32:
-            raise GlowcapError(_c.ERR_INVALID_ARGUMENT, "listen: seed must be 32 bytes")
-        if host is not None and seed is not None:
-            raise GlowcapError(
-                _c.ERR_INVALID_ARGUMENT,
-                "listen: seed and host are alternative identity sources",
-            )
         config = RelayConfig(relay_url, register_url, trust_pem)
-        selected_seed = (
-            seed
-            if seed is not None
-            else (host.seed if host is not None else secrets.token_bytes(32))
-        )
+        selected_seed = listener_seed(seed, host)
         selected_codec = host.codec if host is not None else _DEFAULT_CODEC
         prepared = prepare_driver_loop(host, selected_codec, seed=selected_seed)
         loop = prepared.loop
@@ -231,7 +220,7 @@ def _check_relay(code: int) -> None:
 
 @dataclass(frozen=True, slots=True)
 class RelayConfig:
-    """The copied URLs and immutable trust used by one native relay runtime."""
+    """The copied URLs and immutable trust used by one relay archive runtime."""
 
     relay_url: str
     register_url: str = ""
@@ -249,7 +238,7 @@ def _release_runtime(raw) -> None:
     _check_relay(_relay_lib.glowcap_relay_runtime_release(raw, None, 0, None))
 
 
-class RelayRuntime(_NativeHandleOwner):
+class RelayRuntime(_FfiHandleOwner):
     """Owns the relay archive runtime until its provider is installed."""
 
     def __init__(self, config: RelayConfig):
@@ -281,25 +270,25 @@ class RelayRuntime(_NativeHandleOwner):
                 ctypes.byref(c_config), ctypes.byref(out)
             )
         )
-        self._native = NativeHandle(out, _release_runtime, label="relay runtime")
+        self._ffi = FfiHandle(out, _release_runtime, label="relay runtime")
 
     def release(self) -> None:
-        self._native.close()
+        self._ffi.close()
 
     def _transport_provider(self) -> _TransportProvider:
         package = _TransportProvider()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_relay(
                 _relay_lib.glowcap_relay_transport_provider(raw, ctypes.byref(package))
             )
         return package
 
     def _relinquish_provider_reference(self) -> None:
-        self._native.drop_reference()
+        self._ffi.drop_reference()
 
 
 def provider(config: RelayConfig | str, register_url: str = "") -> Provider:
-    """Build the configured native keyed-relay/noise-relay package."""
+    """Build the configured FFI keyed-relay/noise-relay package."""
     if isinstance(config, str):
         config = RelayConfig(config, register_url)
 
@@ -328,7 +317,7 @@ def connector(config: RelayConfig | str) -> Connector:
     if config.relay_alias_url:
         raise GlowcapError(
             _c.ERR_INVALID_ARGUMENT,
-            "relay aliases require the native relay provider",
+            "relay aliases require the relay archive's provider",
         )
 
     async def realize(host, locator, handshake_timeout_ms):

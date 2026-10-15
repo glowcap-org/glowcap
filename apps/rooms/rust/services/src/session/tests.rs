@@ -39,6 +39,7 @@ fn tcp_config(state: PathBuf) -> Config {
 		relay_url: None,
 		relay_alias_url: None,
 		dial_transports: vec!["tcp".into()],
+		ice_servers: vec![],
 	}
 }
 struct Running {
@@ -101,8 +102,35 @@ fn session_relay_alias_requires_a_configured_registry_and_resolves_environment()
 	.unwrap()
 	.unwrap();
 	assert_eq!(config.relay_alias_url.as_deref(), Some("wss://rooms.example/relay"));
-	assert!(transports::Needs::configured(&[], config.relay_url, config.relay_alias_url).is_ok());
-	assert!(transports::Needs::configured(&[], None, Some("wss://rooms.example/relay".into())).is_err());
+	assert!(transports::Needs::configured(&[], config.relay_url, config.relay_alias_url, vec![]).is_ok());
+	assert!(transports::Needs::configured(&[], None, Some("wss://rooms.example/relay".into()), vec![]).is_err());
+	let webrtc = Config::parse(
+		[
+			"--state=place".into(),
+			"--dial-transports=tcp,webrtc".into(),
+			"--ice-servers=".into(),
+		],
+		|_| None,
+	)
+	.unwrap()
+	.unwrap();
+	assert!(webrtc.ice_servers.is_empty());
+	let needs = transports::Needs::configured(&webrtc.dial_transports, None, None, webrtc.ice_servers).unwrap();
+	assert!(needs.dials(transports::Family::Webrtc));
+	assert!(!needs.dials(transports::Family::Relay));
+	assert!(
+		Config::parse(["--state=place".into(), "--dial-transports=webrtc,quic".into()], |_| {
+			None
+		})
+		.is_err()
+	);
+	assert!(
+		Config::parse(
+			["--state=place".into(), "--ice-servers=turn:relay.example".into()],
+			|_| None
+		)
+		.is_err()
+	);
 }
 
 #[tokio::test]

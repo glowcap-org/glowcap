@@ -5,6 +5,7 @@
 //! that must run while projection callbacks are still valid.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 const session = @import("session");
 
@@ -25,6 +26,10 @@ pub const NegotiatingOptions = struct {
     /// Shared staged-plus-encoded outbound ceiling. Null leaves a raw Peer
     /// unlimited until a Host installs its explicit waterline.
     outbound_high_water_bytes: ?usize = null,
+    /// A fresh secret for this session's wire-keyed tables, mixed into the
+    /// multiplier the node keyed at registration (ADR-0218). Null keeps the
+    /// node's multiplier, for a peer no host postures.
+    wire_hash_salt: ?u64 = null,
 };
 
 /// Peer over an already-open V1.0 Session. Real connections negotiate instead.
@@ -61,6 +66,12 @@ pub fn reposture(self: *Peer, options: NegotiatingOptions) void {
     );
     self.session_state.features = options.features;
     self.session_state.limits = options.limits;
+    if (options.wire_hash_salt) |salt| {
+        self.session_state.keyWireTables(foundation.identity_hash.saltedMultiplier(
+            self.session_state.wire_hash_multiplier,
+            salt,
+        ));
+    }
     self.verify_partner_handshake = options.verify_partner_handshake;
     self.outbound_budget = options.outbound_high_water_bytes orelse std.math.maxInt(usize);
 }

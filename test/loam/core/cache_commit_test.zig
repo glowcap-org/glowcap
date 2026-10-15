@@ -1,7 +1,7 @@
 //! Commit-aware residency preserves unchanged bytes without refreshing old
 //! leases or pending reads. Internal storage authority is the committed batch.
-//! Calibrated by disabling cache promotion and by checking a slot's refreshed
-//! revision instead of the lease's acquisition revision. Both fail these tests.
+//! Disabling cache promotion, or checking a slot's refreshed revision instead
+//! of the lease's acquisition revision, fails these tests.
 const std = @import("std");
 const f = @import("fixture.zig");
 

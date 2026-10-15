@@ -58,6 +58,7 @@ async function dialable(server: IrohServer): Promise<[string, string]> {
  * remember it so teardown can close it. Ends when the server closes. */
 async function acceptLoopWithServed(server: IrohServer, served: Session[]): Promise<void> {
 	for await (const session of server) {
+		// tolerant: a session's serve rejects when its partner hangs up, which is that session's normal end.
 		session.serve().catch(() => {});
 		served.push(session);
 	}

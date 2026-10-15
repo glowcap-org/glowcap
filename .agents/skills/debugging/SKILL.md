@@ -14,15 +14,15 @@ the assertion each destroy it.
   A gate passes by exit code ([cli rule](../../rules/cli.md#gates)).
 - Reproduce alone and small before changing anything: the narrowest failing
   step, `-Dtest-filter=<name>`, and a deadline around anything that dials. A
-  failure you cannot reproduce alone is not yet a fact. A flake has a cause,
-  and fixing it fixes a real defect.
+  failure you cannot reproduce alone is not a fact. A flake has a cause, and
+  fixing it fixes a real defect.
 - For protocol behavior, read `conformance/` (pinned Goblins source, upstream
   suite, draft spec) before designing around the failure.
 
 ## Many failures at once
 
 When several proofs fail, take the whole inventory in one concurrent run (the
-Rooms browser family runs in parallel; see `apps/rooms/developing.md`), then
+Rooms browser family runs in parallel, per `apps/rooms/developing.md`), then
 group failures by first error before fixing any, since one cause often owns a
 cluster. Probe in a copy of the failing proof kept outside the repository,
 with console capture, DOM dumps and screenshots, so product sources never
@@ -48,14 +48,14 @@ never from `git checkout`/`git restore`.
 
 A candidate fix is the most expensive experiment and rules out only itself.
 After two disproved fixes in a row, stop guessing and measure a difference.
-Reach for a fix once you can say what breaks.
+Write a fix once you can say what breaks.
 
 ## Prove, don't assume
 
 When reasoning passes through "this can't be null / reordered / reused," make it
 observable: an assert, a focused test, or a log written to a file with `>|`
 (zsh `noclobber` silently keeps a stale log on `>`). Write the causal chain from
-symptom to root in one paragraph; where it stalls is the missing knowledge.
+symptom to root in one paragraph. Where it stalls is the missing knowledge.
 
 A probe that reports nothing may be aimed wrong. Before filing "the feature does
 nothing," make the same harness show a positive case working.

@@ -57,10 +57,7 @@ const matrix = [_]Cell{
     .{ .binding = .zig, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/zig.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/noise-relay.zig", .fence = "zig" } } },
-    // Native bindings ship the low-level WebRTC signaling and channel pieces,
-    // but not a managed application Session adapter. Their transport-page
-    // snippets make the intended gap explicit without claiming checked support.
-    .{ .binding = .zig, .transport = .webrtc, .dial = .{ .planned = true, .example = .{ .file = "dial/webrtc.zig", .fence = "zig" } } },
+    .{ .binding = .zig, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .inproc, .dial = .{ .supported = true, .example = .{ .file = "dial/inproc.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/inproc.zig", .fence = "zig" } } },
     // ADR-0125's id has route-bundle core vocabulary but no
     // provider archive or managed Session example yet.
@@ -92,7 +89,7 @@ const matrix = [_]Cell{
     .{ .binding = .python, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.python", .fence = "python" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/python.python", .fence = "python" } } },
     .{ .binding = .python, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.python", .fence = "python" } } },
     .{ .binding = .python, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.python", .fence = "python" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/noise-relay.python", .fence = "python" } } },
-    .{ .binding = .python, .transport = .webrtc, .dial = .{ .planned = true, .example = .{ .file = "dial/webrtc.python", .fence = "python" } } },
+    .{ .binding = .python, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.python", .fence = "python" } } },
 
     .{ .binding = .rust, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/tcp.rust", .fence = "rust" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/tcp.rust", .fence = "rust" } } },
     .{ .binding = .rust, .transport = .keyed_tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-tcp.rust", .fence = "rust" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/keyed-tcp.rust", .fence = "rust" } } },
@@ -101,7 +98,7 @@ const matrix = [_]Cell{
     .{ .binding = .rust, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.rust", .fence = "rust" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/rust.rust", .fence = "rust" } } },
     .{ .binding = .rust, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.rust", .fence = "rust" } } },
     .{ .binding = .rust, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.rust", .fence = "rust" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/noise-relay.rust", .fence = "rust" } } },
-    .{ .binding = .rust, .transport = .webrtc, .dial = .{ .planned = true, .example = .{ .file = "dial/webrtc.rust", .fence = "rust" } } },
+    .{ .binding = .rust, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.rust", .fence = "rust" } } },
 
     .{ .binding = .racket, .transport = .tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/tcp.racket", .fence = "scheme" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/tcp.racket", .fence = "scheme" } } },
     .{ .binding = .racket, .transport = .keyed_tcp, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-tcp.racket", .fence = "scheme" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/keyed-tcp.racket", .fence = "scheme" } } },
@@ -110,7 +107,7 @@ const matrix = [_]Cell{
     .{ .binding = .racket, .transport = .onion, .dial = .{ .supported = true, .example = .{ .file = "dial/onion.racket", .fence = "scheme" } }, .listen = .{ .supported = true, .example = .{ .file = "onion/racket.racket", .fence = "scheme" } } },
     .{ .binding = .racket, .transport = .keyed_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/keyed-relay.racket", .fence = "scheme" } } },
     .{ .binding = .racket, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.racket", .fence = "scheme" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/noise-relay.racket", .fence = "scheme" } } },
-    .{ .binding = .racket, .transport = .webrtc, .dial = .{ .planned = true, .example = .{ .file = "dial/webrtc.racket", .fence = "scheme" } } },
+    .{ .binding = .racket, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.racket", .fence = "scheme" } } },
     // Racket exposes raw in-process frame connections, not a managed Session
     // listener/dial pair, so it is outside this application-level matrix.
     .{ .binding = .racket, .transport = .inproc },

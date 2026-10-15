@@ -96,7 +96,7 @@ const registered = [_]Table{
     },
     .{
         .file = "ocapn/session/gc.zig",
-        .name = "map",
+        .name = "PendingFold",
         .owner = "Positions in one session's own tables, reached through the typed GC verbs.",
         .epoch = "Counters are per position and cleared when the row they count is released.",
     },
@@ -283,6 +283,12 @@ const registered = [_]Table{
         .epoch = "Stable and never reused during the netlayer lifetime. A row remains while either the caller handle or the provider claim owns a reference, and stale readiness resolves to nothing.",
     },
     .{
+        .file = "c_abi/net_transport/webrtc/ownership.zig",
+        .name = "exchanges",
+        .owner = "Exchange ids in two disjoint ranges: request ids the driver registry mints for this provider's dials, and ids with the high bit set that this netlayer mints for its accepts in `provide_offer`. Both are named again in the provider verbs and the application's `provide_*` calls.",
+        .epoch = "One row from `start_connect` or `provide_offer` until the exchange ends. The registry never reuses a request id while its dial is pending, the accept counter is monotonic, and a `provide_*` call naming a finished exchange is refused.",
+    },
+    .{
         .file = "c_abi/net_transport/relay/runtime/mod.zig",
         .name = "by_id",
         .owner = "Connection ids minted by one relay runtime and returned only through handles from that same provider lease.",
@@ -297,7 +303,7 @@ const registered = [_]Table{
     .{
         .file = "net/transport/webrtc/backend/state.zig",
         .name = "adopting",
-        .owner = "The same synthetic-descriptor namespace as `pending_dials`, reserved by `adoptAnswerer` for signaled inbound peers.",
+        .owner = "The same synthetic-descriptor namespace as `pending_dials`, reserved by `startAnswer` or `adoptAnswerer` for signaled inbound peers.",
         .epoch = "Monotonic and never reused. A row lives from adoption through the channel's open or its close.",
     },
     .{
@@ -408,32 +414,57 @@ fn isBareKeyType(key: []const u8) bool {
     return false;
 }
 
-/// The key type of a hash-map declaration on `line`, or null when the line
-/// declares no map. A `StringHashMap` keys on bytes, which is bare by
-/// construction and has no key argument to read.
+/// The map forms this tree declares, with the position of the key argument.
+/// `identity_hash.MapOf` names the key's provenance first.
+const map_forms = [_]struct { needle: []const u8, key_arg: usize }{
+    .{ .needle = "AutoHashMapUnmanaged(", .key_arg = 0 },
+    .{ .needle = "AutoHashMap(", .key_arg = 0 },
+    .{ .needle = "identity_hash.Map(", .key_arg = 0 },
+    .{ .needle = "identity_hash.Managed(", .key_arg = 0 },
+    .{ .needle = "identity_hash.ArrayMap(", .key_arg = 0 },
+    .{ .needle = "identity_hash.MapOf(", .key_arg = 1 },
+    .{ .needle = "identity_hash.WireMap(", .key_arg = 0 },
+    .{ .needle = "inline_rows.Table(", .key_arg = 0 },
+};
+
+/// Whether `line` declares a map keyed on a bare type. A `StringHashMap` or
+/// a `bearer_table.Table` keys on bytes, which is bare by construction and
+/// has no key argument to read.
 fn bareKeyOn(line: []const u8) bool {
-    for ([_][]const u8{ "StringHashMapUnmanaged(", "StringHashMap(" }) |needle| {
+    for ([_][]const u8{ "StringHashMapUnmanaged(", "StringHashMap(", "bearer_table.Table(" }) |needle| {
         if (std.mem.indexOf(u8, line, needle) != null) return true;
     }
-    for ([_][]const u8{ "AutoHashMapUnmanaged(", "AutoHashMap(" }) |needle| {
-        const at = std.mem.indexOf(u8, line, needle) orelse continue;
-        const rest = line[at + needle.len ..];
-        // The key runs to the first comma outside any brackets, so `[N]u8`
-        // survives and a nested generic does not end the key early.
-        var depth: usize = 0;
-        for (rest, 0..) |c, i| {
-            switch (c) {
-                '[', '(' => depth += 1,
-                ']', ')' => {
-                    if (depth == 0) return isBareKeyType(rest[0..i]);
-                    depth -= 1;
-                },
-                ',' => if (depth == 0) return isBareKeyType(rest[0..i]),
-                else => {},
-            }
-        }
+    for (map_forms) |form| {
+        const at = std.mem.indexOf(u8, line, form.needle) orelse continue;
+        const key = typeArgument(line[at + form.needle.len ..], form.key_arg) orelse continue;
+        return isBareKeyType(key);
     }
     return false;
+}
+
+/// The `index`th comma-separated argument of a generic call's argument list.
+/// An argument runs to the next comma outside any brackets, so `[N]u8`
+/// survives and a nested generic does not end it early.
+fn typeArgument(args: []const u8, index: usize) ?[]const u8 {
+    var depth: usize = 0;
+    var start: usize = 0;
+    var seen: usize = 0;
+    for (args, 0..) |c, i| {
+        switch (c) {
+            '[', '(' => depth += 1,
+            ']', ')' => {
+                if (depth == 0) return if (seen == index) std.mem.trim(u8, args[start..i], " ") else null;
+                depth -= 1;
+            },
+            ',' => if (depth == 0) {
+                if (seen == index) return std.mem.trim(u8, args[start..i], " ");
+                seen += 1;
+                start = i + 1;
+            },
+            else => {},
+        }
+    }
+    return null;
 }
 
 fn isRegistered(file: []const u8, name: []const u8) bool {

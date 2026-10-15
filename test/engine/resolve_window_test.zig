@@ -43,7 +43,7 @@ test "a projection anchoring while the receiver's resolve is queued still settle
     // unemitted on `pending_send`, so answer 11 reads settled before its
     // emit-time drain. Storing the resolution at record time is what lets the
     // op:get below find 11's value rather than a settled-but-resolutionless row.
-    try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .@"struct" = &.{
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "name", .value = .{ .string = "tabby" } },
     } } } } });
 
@@ -64,7 +64,7 @@ test "a chained projection whose inner answer's resolve is still queued reaches 
 
     // Answer 11 is fully settled and drained.
     try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
-    try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .tagged = .{
+    try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "row",
         .value = &.{ .{ .string = "alice" }, .{ .string = "bob" } },
     } } } } });
@@ -98,7 +98,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     try p2.session_state.registerExport(.from(7));
 
     // p1 delivers to p2's export, allocating answer 42 (p2 owes it).
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
         .answer = .from(42),
@@ -112,7 +112,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     }
 
     // p1 pipelines a call against answer 42.
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(43),
@@ -125,7 +125,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     // outbound, so the call dispatches while 42's resolve still sits on
     // `pending_send`. The call sees the near value and delivers locally, not
     // against a synthetic "pipelined target already broken".
-    try p2.sendCopying(.{ .resolve = .{
+    try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
     } });
@@ -139,7 +139,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     var local_event = p2.pollEvent().?;
     defer local_event.deinit();
     try std.testing.expectEqual(engine.EventKind.deliver, local_event.kind());
-    const view = try local_event.view();
+    const view = local_event.view();
     try std.testing.expect(view.deliver.target == .near);
     try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(43)), view.deliver.answer);
@@ -158,7 +158,7 @@ test "a failed immediate pipeline dispatch keeps its inbound commit and closes" 
 
     // Record a local target while leaving the resolve queued. The inbound
     // pipelined deliver therefore dispatches immediately against this value.
-    try peer.sendCopying(.{ .resolve = .{
+    try peer.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
     } });
@@ -197,7 +197,7 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
     try p1.session_state.registerExport(.from(9));
 
     // p1 delivers to p2's export, allocating answer 42.
-    try p1.sendCopying(.{ .deliver = .{
+    try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
         .answer = .from(42),
@@ -211,7 +211,7 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
     }
 
     // p1 listens on the promise (answer 42), nominating its export 9.
-    try p1.sendCopying(.{ .listen = .{
+    try p1.sendBorrowed(.{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .listener = .{ .near = .{ .export_position = .from(9) } },
         .mode = .settling_only,
@@ -223,7 +223,7 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
     // listen inbound. The listen installs while 42's resolve is unemitted; the
     // stored resolution lets it fire at once with "ok" rather than against a
     // synthetic break (or get stranded waiting on an emit-time fire).
-    try p2.sendCopying(.{ .resolve = .{
+    try p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .bytes = "ok" } },
     } });
@@ -241,8 +241,8 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
             var event = event_value;
             defer event.deinit();
             if (event.kind() != .deliver) continue;
-            const view = try event.view();
-            if (view != .deliver or view.deliver.target != .near) continue;
+            const view = event.view();
+            if (view.* != .deliver or view.deliver.target != .near) continue;
             if (view.deliver.target.near.export_position.int() != 9) continue;
             try std.testing.expectEqualStrings("fulfill", (try view.deliver.args.at(0)).symbol);
             try std.testing.expectEqualStrings("ok", (try view.deliver.args.at(1)).bytes);

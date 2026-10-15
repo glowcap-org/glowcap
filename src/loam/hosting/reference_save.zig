@@ -6,7 +6,7 @@ const core = @import("loam_core");
 const driver = @import("driver_core");
 const h = @import("attachment.zig");
 const Recipe = @import("reference_recipe.zig").Recipe;
-pub const max_uri_bytes = @import("reference_recipe.zig").schema.max_payload - 1;
+pub const max_uri_bytes = @import("reference_recipe.zig").max_uri_bytes;
 
 pub fn allocationBound(count: usize, uri_bytes: usize) !@import("call_memory.zig").AllocationBound {
     var bound: @import("call_memory.zig").AllocationBound = .{};
@@ -103,15 +103,15 @@ pub fn beginPrepared(owner: *h.Attachment, allocator: std.mem.Allocator, scratch
     const self = try allocator.create(State);
     errdefer allocator.destroy(self);
     const retains = try owner.host.retainValueCapabilities(scratch, &.{.{ .capability = capability }});
-    errdefer owner.host.releaseUntransferredCapabilityRetains(retains);
+    errdefer owner.host.releaseCapabilityRetains(retains);
     if (owner.capture(target)) |edge| {
-        self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0].ref, .recipe = .{ .edge = edge }, .state = .ready };
+        self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0], .recipe = .{ .edge = edge }, .state = .ready };
         return @ptrCast(self);
     } else |err| if (err != error.NotDurable) return err;
     if (owner.options.reference_scope) |scope| {
         if (scope.capture(owner, target)) |local| {
             const bytes = try allocator.dupe(u8, local.attachment);
-            self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0].ref, .recipe = .{ .recipe = .{ .local = .{ .attachment = bytes, .target = local.target } } }, .bytes = bytes, .state = .ready };
+            self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0], .recipe = .{ .recipe = .{ .local = .{ .attachment = bytes, .target = local.target } } }, .bytes = bytes, .state = .ready };
             return @ptrCast(self);
         } else |err| if (err != error.NotDurable) return err;
     }
@@ -126,7 +126,7 @@ pub fn beginPrepared(owner: *h.Attachment, allocator: std.mem.Allocator, scratch
     const written = try model.uri.writeSturdyrefForProfileBounded(.v1_0, sturdy, bytes);
     std.debug.assert(written.complete and written.len == length);
     const enliven = if (work) |lease| try lease.enliven(owner.host, allocator, sturdy) else try owner.host.enlivenCapability(allocator, sturdy);
-    self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0].ref, .recipe = .{ .recipe = .{ .foreign = bytes } }, .bytes = bytes, .enliven = enliven, .state = .pending };
+    self.* = .{ .owner = owner, .allocator = allocator, .capability = retains[0], .recipe = .{ .recipe = .{ .foreign = bytes } }, .bytes = bytes, .enliven = enliven, .state = .pending };
     _ = self.result();
     return @ptrCast(self);
 }

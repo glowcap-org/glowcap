@@ -17,7 +17,7 @@
 //   2. The vat answers, over the connection the message arrived on. A browser
 //      opens no listener, so this is the only path back to it, and it is the
 //      half that makes a direct message a conversation rather than a drop box.
-//   3. The vat starts one of its own. A native glowcap member registers, the vat
+//   3. The vat starts one of its own. A glowcap member registers, the vat
 //      asks the room to introduce it, and Goblins redeems that give by dialing
 //      the member directly. The member observes the exact line and then refuses
 //      its call; the vat reports that refusal without printing `DM SENT`. This
@@ -79,9 +79,9 @@ const REPLY_PREFIX = "got your DM: ";
 const FROM_VAT = `${REPLY_PREFIX}${TO_VAT}`;
 const TO_VAT_AGAIN = "hello again on a new direct line";
 
-/** The native glowcap member the vat direct-messages, and the line it sends. */
-const NATIVE_NICK = "native-bob";
-const TO_NATIVE = "hello bob, privately, from a goblins vat";
+/** The glowcap member the vat direct-messages, and the line it sends. */
+const GLOWCAP_NICK = "glowcap-bob";
+const TO_GLOWCAP = "hello bob, privately, from a goblins vat";
 
 /** The word the vat's own trace publisher says it runs, which is how a record
  * from the vat is told from one the room or the tab produced. */
@@ -143,18 +143,18 @@ function expectWireProvenance(
 	}
 }
 
-/** Every line the native glowcap member has been sent directly.
+/** Every line the glowcap member has been sent directly.
  *
  * It records and then refuses. That gives the vat a completed negative delivery
  * result: the line demonstrably arrived, while `DM SENT` must remain absent. */
-const nativeInbox: string[] = [];
+const glowcapInbox: string[] = [];
 const recordOnlyDm: Behavior = (verb: string, args: Argument[]): never => {
 	if (verb !== DM) throw new Error(`dm has no method ${verb}`);
-	nativeInbox.push(String(args[0]));
-	throw new Error("the native inbox refused after observing the line");
+	glowcapInbox.push(String(args[0]));
+	throw new Error("the glowcap inbox refused after observing the line");
 };
 
-/** Stand the native glowcap member up where the vat can dial it, and hand back
+/** Stand the glowcap member up where the vat can dial it, and hand back
  * the locator it registers under.
  *
  * Over TCP that locator is a loopback address. Over iroh it is the member's
@@ -162,7 +162,7 @@ const recordOnlyDm: Behavior = (verb: string, args: Argument[]): never => {
  * endpoint only knows once it has learned them, so this waits for them.
  * `@glowcap/iroh` is imported here rather than at the top of the file so the TCP
  * arm never loads the sidecar it does not use. */
-async function startNativeMember() {
+async function startGlowcapMember() {
 	if (!IROH) {
 		const host = roomsHost();
 		const listener = await roomsListen("127.0.0.1", 0, host);
@@ -175,7 +175,7 @@ async function startNativeMember() {
 	const listener = await listen({ reachability: Reachability.Direct }, { host });
 	await until(
 		() => listener.directAddresses.length > 0,
-		"the native member's iroh direct addresses",
+		"the glowcap member's iroh direct addresses",
 		IROH_DIRECT_ADDRESSES_MS,
 	);
 	return { host, listener, locator: listener.uri };
@@ -204,9 +204,9 @@ const vatPort = freePort();
 let browser: Browser | null = null;
 let web: Deno.ChildProcess | null = null;
 let vat: Deno.ChildProcess | null = null;
-let nativeListener: { close: () => void } | null = null;
-let nativeDir: Directory | null = null;
-let nativeRuntime: Awaited<ReturnType<typeof openRoomsRuntime>> | null = null;
+let glowcapListener: { close: () => void } | null = null;
+let glowcapDir: Directory | null = null;
+let glowcapRuntime: Awaited<ReturnType<typeof openRoomsRuntime>> | null = null;
 let closeViewer: (() => Promise<void>) | null = null;
 
 try {
@@ -255,9 +255,9 @@ try {
 			// The other direction, (3): the vat waits for this member to register
 			// and then asks the room to introduce it.
 			"--dm",
-			NATIVE_NICK,
+			GLOWCAP_NICK,
 			"--dm-text",
-			TO_NATIVE,
+			TO_GLOWCAP,
 			...(IROH ? [] : ["--local-port", String(vatPort)]),
 			roomLocator,
 			ROOM,
@@ -302,39 +302,40 @@ try {
 	// The vat is already watching the directory, so this member registering is
 	// what sets the vat's own introduction going.
 	{
-		const native = await startNativeMember();
-		nativeListener = native.listener;
-		nativeRuntime = await openRoomsRuntime({
-			host: native.host,
+		const glowcap = await startGlowcapMember();
+		glowcapListener = glowcap.listener;
+		glowcapRuntime = await openRoomsRuntime({
+			host: glowcap.host,
 			iroh: IROH ? { reachability: (await import("@glowcap/iroh")).Reachability.Direct } : undefined,
 		});
 		(async () => {
-			for await (const session of native.listener) session.serve().catch(() => {});
+			// tolerant: a session's serve rejects when its partner hangs up, which is that session's normal end.
+			for await (const session of glowcap.listener) session.serve().catch(() => {});
 		})();
-		nativeDir = await Directory.connect(roomLocator, (l) => dial(l, nativeRuntime!));
-		const nativeRoom = await enterOrOpen(nativeDir, ROOM);
-		await Room.subscribe(nativeDir.session, nativeRoom, NATIVE_NICK);
+		glowcapDir = await Directory.connect(roomLocator, (l) => dial(l, glowcapRuntime!));
+		const glowcapRoom = await enterOrOpen(glowcapDir, ROOM);
+		await Room.subscribe(glowcapDir.session, glowcapRoom, GLOWCAP_NICK);
 		// The inbox the room hands the vat when it asks to be introduced. It is
 		// minted on demand, so the vat's first `introduce` is refused pending and its
 		// second one carries this.
-		const nativeOfferer = inboxPublisher(native.host).offerer({
-			dir: () => nativeDir,
+		const glowcapOfferer = inboxPublisher(glowcap.host).offerer({
+			dir: () => glowcapDir,
 			behaviorFor: () => recordOnlyDm,
-			skip: (peer) => peer.toLowerCase() === NATIVE_NICK,
+			skip: (peer) => peer.toLowerCase() === GLOWCAP_NICK,
 			// Narrated rather than swallowed. An inbox this member fails to offer
 			// leaves the vat's introduction pending forever, and a pending
 			// introduction is silent on both sides.
-			onError: (peer, err) => console.error(`  [native] no inbox for ${peer}:`, err),
+			onError: (peer, err) => console.error(`  [glowcap] no inbox for ${peer}:`, err),
 		});
 		// The locator registered here is what the room stamps as this member's
 		// exporter location, and therefore what the vat's give has to name.
-		await nativeDir.register(NATIVE_NICK, native.locator, {
+		await glowcapDir.register(GLOWCAP_NICK, glowcap.locator, {
 			onMintInboxFor: (peer, registrationId, opening) => {
-				console.log(`  [native] the room asked for an inbox for ${peer}`);
-				nativeOfferer.offer(peer, registrationId, opening);
+				console.log(`  [glowcap] the room asked for an inbox for ${peer}`);
+				glowcapOfferer.offer(peer, registrationId, opening);
 			},
 		});
-		console.log(`  [native] registered as ${NATIVE_NICK} at ${native.locator}`);
+		console.log(`  [glowcap] registered as ${GLOWCAP_NICK} at ${glowcap.locator}`);
 	}
 
 	// The browser tab.
@@ -385,7 +386,7 @@ try {
 		{ timeout: WAIT_MS },
 	).catch(() => fail(`the tab never rendered the vat's reply "${FROM_VAT}"`));
 
-	// (3) The vat's own direct message, to a native glowcap member.
+	// (3) The vat's own direct message, to a glowcap member.
 	//
 	// This is the corner the other three do not reach. Here the give names a
 	// *glowcap* exporter and a Goblins recipient redeems it, so the location the
@@ -397,14 +398,14 @@ try {
 	// connection, so the gifter composes the two.
 	{
 		await until(
-			() => nativeInbox.includes(TO_NATIVE),
-			"the native glowcap member to receive the vat's direct message",
+			() => glowcapInbox.includes(TO_GLOWCAP),
+			"the glowcap member to receive the vat's direct message",
 		);
 		await until(
-			() => vatSaid(new RegExp(`^! could not direct message to ${NATIVE_NICK}:`)),
-			"the Goblins vat to report the native member's asynchronous refusal",
+			() => vatSaid(new RegExp(`^! could not direct message to ${GLOWCAP_NICK}:`)),
+			"the Goblins vat to report the glowcap member's asynchronous refusal",
 		);
-		if (vatSaid(new RegExp(`^DM SENT ${NATIVE_NICK}$`))) {
+		if (vatSaid(new RegExp(`^DM SENT ${GLOWCAP_NICK}$`))) {
 			fail("the vat narrated a refused direct message as sent");
 		}
 	}
@@ -575,11 +576,13 @@ try {
 			`then carried a new message and reply before closing cleanly`,
 	);
 } finally {
+	// best-effort: this teardown runs after the verdict, and a close that fails leaks only that handle's process or socket.
 	if (closeViewer) await closeViewer().catch(() => {});
 	if (browser) await browser.close().catch(() => {});
-	if (nativeDir) await nativeDir.close().catch(() => {});
-	if (nativeListener) nativeListener.close();
-	if (nativeRuntime) await nativeRuntime.close().catch(() => {});
+	if (glowcapDir) await glowcapDir.close().catch(() => {});
+	if (glowcapListener) glowcapListener.close();
+	// best-effort: same teardown after the verdict, and a runtime that fails to close leaks only its own sockets.
+	if (glowcapRuntime) await glowcapRuntime.close().catch(() => {});
 	for (const child of [vat, web]) {
 		if (!child) continue;
 		try {

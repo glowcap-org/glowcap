@@ -154,7 +154,7 @@ class _ListenersMixin(DriverLoopMixinBase):
     def advertise_listener(
         self, listener: ListenerLike, locator: Union[Locator, str]
     ) -> None:
-        """Replace this listener's advertised locator through its native owner."""
+        """Replace this listener's advertised locator through its FFI owner."""
         listener = self._listener_id(listener)
         parsed = parse_locator(locator) if isinstance(locator, str) else locator
         with _OwnedLocator.create(parsed) as owned:
@@ -174,13 +174,13 @@ class _ListenersMixin(DriverLoopMixinBase):
         """Commit one listener stop after preserving committed accepts.
 
         Provider teardown may remain asynchronous. In that case loop progress
-        retries the native barrier. :meth:`wait_listener_closed` observes its
+        retries the FFI barrier. :meth:`wait_listener_closed` observes its
         terminal result.
         """
         listener = self._listener_id(listener)
         # A terminal setup event may already be queued while the caller is
-        # cancelling its waiter. Consume it before asking native code to
-        # cancel; a failed setup has already retired its native identity.
+        # cancelling its waiter. Consume it before asking FFI code to
+        # cancel; a failed setup has already retired its FFI identity.
         self._dispatch_many(self._pop_events())
         owner = self._listeners.get(listener)
         if owner is None:
@@ -215,11 +215,11 @@ class _ListenersMixin(DriverLoopMixinBase):
             self._listener_close_waiters[listener] = waiter
         # The listener teardown belongs to the loop, not to any one waiter.
         # Caller cancellation abandons only this await; a later close can join
-        # the same native barrier and observe its terminal outcome.
+        # the same FFI barrier and observe its terminal outcome.
         await asyncio.shield(waiter)
 
     def _advance_closing_listeners(self) -> None:
-        """Retry native listener barriers after one productive driver step."""
+        """Retry FFI listener barriers after one productive driver step."""
         for listener in tuple(self._closing_listeners):
             try:
                 closed = _close_listener(self._h, listener)
@@ -309,7 +309,7 @@ class _ListenersMixin(DriverLoopMixinBase):
             except asyncio.QueueEmpty:
                 return
             if isinstance(item, int):
-                self._native_session_release(ctypes.c_void_p(item))
+                self._ffi_session_release(ctypes.c_void_p(item))
 
     def completion(self, vow: int) -> "asyncio.Future[bool]":
         """A future settled by the vow's COMPLETION event (True on SETTLE.

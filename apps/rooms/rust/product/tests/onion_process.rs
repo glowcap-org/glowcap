@@ -81,7 +81,7 @@ fn command(binary: &str, state: &Path, control: &Path, socks: &Path, port: u16) 
 
 #[test]
 #[ignore = "requires tor executable; starts local Tor with networking disabled"]
-fn native_peers_restore_onion_keys_before_readiness() {
+fn session_peers_restore_onion_keys_before_readiness() {
 	let runtime = tokio::runtime::Builder::new_current_thread()
 		.enable_all()
 		.build()

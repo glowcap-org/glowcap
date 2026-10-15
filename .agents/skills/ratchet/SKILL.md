@@ -11,17 +11,16 @@ description: >-
 
 [agent-scaffolding](../../rules/agent-scaffolding.md) defines the ratchet: a
 session ends by asking what it learned that the scaffolding did not teach, and
-the lesson lands before the session does. This skill is the landing
-procedure.
+the lesson lands before the session does. Follow these steps to land it.
 
 ## 1. Name the lesson
 
 One sentence: the mistake a future agent could repeat, or the move that
-worked and is not yet taught. A lesson that needs more than one sentence is a
-topic; split it.
+worked that no guidance teaches. A lesson that needs more than one sentence is
+a topic, so split it.
 
 Check the existing owner first. If it already teaches or enforces the lesson,
-report that and add nothing. The review is required, a new rule is not.
+report that and add nothing.
 
 ## 2. Choose the strongest layer
 
@@ -34,25 +33,26 @@ report that and add nothing. The review is required, a new rule is not.
 | A line that stopped paying rent | a deletion                    | wherever it sits                                                       |
 
 Prose is the weakest layer. A rule sentence that could be a check is a check
-not yet written; when the check lands, the sentence shrinks to a pointer.
+waiting to be written, and when the check lands the sentence shrinks to a
+pointer.
 
 ## 3. Landing a check
 
 - Test behavior by driving the owning interface and observing effects and
-  failures. A substring in a script does not prove the script's behavior.
-  Put static cross-file checks beside their concern under
+  failures, because a substring in a script does not prove the script's
+  behavior. Put static cross-file checks beside their concern under
   [`tools/check/source_check/`](../../../tools/check/source_check/) and wire it
   in [`source_check.zig`](../../../tools/check/source_check.zig). Layer-import
-  checks belong in `arch_check.zig`; runtime dependency checks belong in
+  checks belong in `arch_check.zig` and runtime dependency checks in
   `toolchain_check.zig`. Executable workflow regressions use their owning
   behavior gate instead of growing the static gate.
-- A substring claim is one `Ban` row in a table joined into `bans.all`;
-  prefer a row over bespoke code. Anything needing parsing or cross-file
-  state is a `pub fn check…` in the owning module, called from the driver.
+- A substring claim is one `Ban` row in a table joined into `bans.all`, which
+  beats bespoke code. Anything needing parsing or cross-file state is a
+  `pub fn check…` in the owning module, called from the driver.
 - **Validate the check against the defect it claims to catch.** Introduce the
   violation, watch the owning check fail for that reason, then restore the
   correct behavior and require a pass. A check that has never fired proves
-  nothing, the same discipline [tests](../../rules/tests.md) demands of a new
+  nothing, the discipline [tests](../../rules/tests.md) also demands of a new
   property target.
 - Checks pay rent too: prefer one general check to fifty string bans, and
   retire stale tombstones (see agent-scaffolding's budget).
@@ -60,15 +60,16 @@ not yet written; when the check lands, the sentence shrinks to a pointer.
 ## 4. Landing a rule or skill edit
 
 - A rule is `.agents/rules/<name>.md` with frontmatter (`description:` plus
-  `globs:` or `alwaysApply: true`), one symlink
-  `.cursor/rules/<name>.mdc -> ../../.agents/rules/<name>.md`, and a row in
-  the [rules table](../../README.md). `.claude/rules` is a directory
-  symlink; there is nothing to add there.
+  `globs:` or `alwaysApply: true`) and one symlink
+  `.cursor/rules/<name>.mdc -> ../../.agents/rules/<name>.md`.
+  `.claude/rules` is a directory symlink, so add nothing there.
 - A skill is `.agents/skills/<name>/SKILL.md` with frontmatter whose `name:`
-  equals the directory name, plus a row in the [index](../../README.md).
-- The budget binds every addition: find the sentence the new line displaces
-  or compresses before writing it, and put it in the rule that owns the
-  surface, not a new grab-bag rule.
+  equals the directory name.
+- Then run `zig build gen-agent-index`. The [index](../../README.md) shows
+  the first sentence of each `description`, so write that sentence to stand
+  alone.
+- Before writing a new line, find the sentence it displaces or compresses,
+  and put it in the rule that owns the surface, not a new grab-bag rule.
 
 ## 5. Prune
 

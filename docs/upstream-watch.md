@@ -1,9 +1,20 @@
+---
+type: living
+description: Open OCapN and Goblins questions that glowcap cannot settle alone.
+sources: []
+---
+
 # Waiting on upstream
 
 These are open questions in OCapN and Spritely Goblins that glowcap cannot
 settle alone, so they are not on [the roadmap](roadmap.md). Each section names
 the proposal deciding it, because `glowcap-next` follows current direction as
-well as merged text. Every number below was open at the last review.
+well as merged text. Each number below was open on October 13, 2026.
+
+What the pinned draft says and which profile speaks each section is the
+[conformance manifest](ocapn-conformance.md). Draft text merged past the pin
+is glowcap work, listed under [OCapN direction](roadmap.md#ocapn-direction) on
+the roadmap.
 
 Where two pinned sources disagree, `zig build ocapn-findings-check` reproduces
 the disagreement against the exact upstream revisions this repository pins, and
@@ -17,15 +28,16 @@ OCapN PR 288 changes `op:start-session` from four fields to five by adding a
 signature records with 32-byte Ed25519 public keys and 64-byte signatures.
 That is a wire-breaking session change.
 
-The merged text currently names the required version as `Ed25519_SHA256` when
-describing the sender and `Ed25519` when describing the receiver. Keep the
-specification pin at `d05fd192be530b448e6d80c14714b9ff16644c4e` until that
-contract is consistent and glowcap can move its session codecs, fixtures, live
-Goblins checks, and both profiles together.
+PR 288 merged on September 8, 2026. The merged text names the required
+version as `Ed25519_SHA256` when describing the sender and `Ed25519` when
+describing the receiver, and the implementation guide's example hello writes
+`Ed25519`. The specification pin stays at
+`d05fd192be530b448e6d80c14714b9ff16644c4e` until the text names one version
+and a Goblins release speaks it, so that the session codecs, fixtures, live
+Goblins checks, and both profiles move together.
 
-As of September 13, 2026, the Racket and Guile Goblins issues for this change
-are open and unassigned, with no public implementation. Racket Goblins `master`
-and the pinned OCapN suite still use the four-field record.
+The Racket and Guile Goblins issues for this change are open and unassigned.
+Racket Goblins `master` and the pinned OCapN suite use the four-field record.
 
 The [transition plan](planning/ocapn-crypto-version-handshake.md) lists what
 must be ready upstream and the steps after that.
@@ -35,21 +47,6 @@ must be ready upstream and the steps after that.
 Goblins does not marshal Null and the upstream encoding is unsettled, so
 glowcap keeps unknown Syrup records as tagged values. Converging would mean a
 model arm, codec round trips, and a live Goblins check.
-
-## Live `op:untag`
-
-glowcap accepts the operation from every 1.0 peer and sends it only after the
-partner advertises the `untag` feature. Goblins has no live marshaller for it,
-so no outside implementation exercises it yet.
-
-## Promise-listening proposal
-
-The settled draft shows two operands, while Goblins and the upstream test suite
-use a third Boolean, `wants_partial`. OCapN PR 282 instead proposes integer
-listen modes, removes the inline resolver from next-profile delivers, and makes
-shortening listens mandatory. V1.0 follows Goblins. `glowcap-next` follows the
-proposal while it is under review. The reviewed proposal revision is
-`9ee6bb20e25fdd358b2c408fe76d38e4dd151d34`.
 
 ## Locator hints type
 
@@ -83,14 +80,7 @@ its own replacement sessions never move backward
 (`zig build goblins-rooms-dm-iroh`). Independent receivers cannot coordinate a
 counter the protocol assigns to separate sessions.
 `zig build goblins-rooms-matrix-iroh` reproduces the rejection, and
-`conformance/ocapn-findings/` holds the source evidence.
-
-## Promise settlement
-
-Goblins CapTP 1.0 uses resolver-callback fulfill and break. OCapN PR 282 also
-uses resolver callbacks, but obtains them through a following `op:listen`.
-`glowcap-next` follows that proposal and sends no wire `op:resolve`. Revisit the
-next profile when the proposal changes or settles.
+`conformance/ocapn-findings/` holds the source records.
 
 ## Message ordering
 
@@ -102,7 +92,7 @@ retargeted deliver leaves on the same wire its predecessors left on. A test in
 `test/engine/peer/shortening_test.zig` pins the retargeting and same-wire
 emission.
 
-The receiver's half has no live outside evidence. Automatic shortening runs
+No live check with an outside peer covers the receiver's half. Automatic shortening runs
 only under `glowcap-next`, the Goblins checks use CapTP 1.0, and two glowcap
 peers cannot test it either, because glowcap mints no free-standing promise for
 a partner to listen on. Watch the proposal for a requirement that reaches
@@ -124,7 +114,7 @@ The draft model lists neither Set nor Keyword. Goblins marshals both, so glowcap
 follows the Goblins wire, including canonical set order and duplicate refusal.
 Issue 283 asks whether the model should carry maps and sets, and issue 275 asks
 the wider question of a single concrete encoding. Either could move glowcap's
-Syrup surface, and neither is settled.
+Syrup encoding, and neither is decided.
 
 ## Sturdyrefs and tagged values in the model
 
@@ -149,7 +139,7 @@ iroh adapter, and `zig build goblins-iroh` holds a live session over it in both
 directions. Watch upstream for an iroh netlayer: if Spritely ships one, the
 locator value and hint names are what have to agree.
 
-## Native Zig QUIC
+## Zig QUIC
 
 glowcap uses iroh and does not implement QUIC. The decision reopens when
 iroh's protocols stabilize and a production Zig QUIC stack exists
@@ -167,7 +157,7 @@ locator shape are what have to agree before the symbols can converge.
 
 The `id` locator from
 [ADR-0125](decisions/adr/ADR-0125-identity-route-multihome.md) is glowcap's
-own, gated behind the negotiated `multi_location` feature, and the
+own, available only with the negotiated `multi_location` feature, and the
 [multi-home routes diagrams](protocol-diagrams/08-multihome-routes.md) describe
 it. Carrier wrapping, route-key binding, and the hint schema are what must be
 reconciled with future spec text.

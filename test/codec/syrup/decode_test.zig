@@ -1,6 +1,7 @@
 //! What Syrup decode admits and refuses: invalid UTF-8, duplicate keys,
 //! malformed and non-canonical bytes, oversized collections, start-session
 //! fields, and single-byte corruption anywhere in a frame failing loudly.
+//! Locator hints have their own file, `decode_hints_test.zig`.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -11,9 +12,7 @@ const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
 
 const harness = @import("harness.zig");
-const expectFixtureBytes = harness.expectFixtureBytes;
 const repeatedByte = harness.repeatedByte;
-const hexToOwned = harness.hexToOwned;
 
 test "Syrup rejects invalid UTF-8 String and Symbol values without allocating" {
     const invalid = &.{@as(u8, 0xff)};
@@ -53,6 +52,30 @@ test "Syrup rejects invalid UTF-8 String and Symbol values without allocating" {
     const unicode_body = try syrup.decodeBody(.{ .bytes = unicode_frame, .shape = .byte });
     try std.testing.expectEqualSlices(u8, "\xc3\xa9", (try unicode_body.deliver.args.at(0)).string);
     try std.testing.expectEqualSlices(u8, "\xf0\x9f\x98\x80", (try unicode_body.deliver.args.at(1)).symbol);
+}
+
+test "text validity holds at every length and every position of a non-ASCII byte" {
+    // The validator reads a word at a time and then a short tail without a
+    // loop, so a byte with its top bit set must be seen wherever it lands:
+    // a stray continuation byte refuses the text, and a two-byte character
+    // is accepted, at every position of every short length.
+    var buf: [24]u8 = undefined;
+    var len: usize = 0;
+    while (len <= buf.len) : (len += 1) {
+        @memset(buf[0..len], 'a');
+        try std.testing.expect(syrup.shared.textValid(buf[0..len]));
+        var pos: usize = 0;
+        while (pos < len) : (pos += 1) {
+            @memset(buf[0..len], 'a');
+            buf[pos] = 0xff;
+            try std.testing.expect(!syrup.shared.textValid(buf[0..len]));
+            if (pos + 1 < len) {
+                buf[pos] = 0xc3;
+                buf[pos + 1] = 0xa9;
+                try std.testing.expect(syrup.shared.textValid(buf[0..len]));
+            }
+        }
+    }
 }
 
 test "Syrup decodes an unrecognised captp-version rather than calling the frame malformed" {
@@ -99,104 +122,6 @@ test "a session refuses an unrecognised captp-version as a version mismatch" {
         glowcap.ocapn.session.Error.CaptpVersionMismatch,
         peer.recvBorrowed(view),
     );
-}
-
-test "Syrup decode refuses duplicate feature hints as a noncanonical dictionary" {
-    const allocator = std.testing.allocator;
-    var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.verify_partner_handshake = false;
-
-    const frame_bytes: []const u8 =
-        "<16'op:start-session3\"1.0" ++
-        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
-        "<10'ocapn-peer3'tcp9\"127.0.0.1{16\"glowcap/features0\"16\"glowcap/features10\"pipelining}>" ++
-        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
-    try std.testing.expectError(
-        syrup.Error.MalformedFrame,
-        syrup.decodeBody(view),
-    );
-    try std.testing.expectError(syrup.Error.MalformedFrame, peer.recvBorrowed(view));
-    try std.testing.expect(!peer.session_state.handshake_remote_received);
-}
-
-test "Syrup locator hints reject string and symbol spellings of one name" {
-    const frame_bytes: []const u8 =
-        "<16'op:start-session3\"1.0" ++
-        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
-        "<10'ocapn-peer3'tcp9\"127.0.0.1{1\"a1\"x1'a1\"y}>" ++
-        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
-    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(view));
-}
-
-test "Syrup locator hints require string keys" {
-    const frame_bytes: []const u8 =
-        "<16'op:start-session3\"1.0" ++
-        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
-        "<10'ocapn-peer3'tcp9\"127.0.0.1{1'a1\"x}>" ++
-        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
-    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(view));
-}
-
-test "a session refuses malformed reserved profile hints on the borrowed start-session path" {
-    const allocator = std.testing.allocator;
-    const hint_maps = [_][]const u8{
-        "{21\"glowcap/captp-version7\"ocapn-2}",
-        "{13\"glowcap/codec3:bad}",
-        "{16\"glowcap/features[1+]}",
-    };
-    inline for (hint_maps) |hint_map| {
-        var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
-        defer peer.deinit();
-        peer.verify_partner_handshake = false;
-
-        const frame_bytes: []const u8 =
-            "<16'op:start-session3\"1.0" ++
-            "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
-            "<10'ocapn-peer3'tcp9\"127.0.0.1" ++ hint_map ++ ">" ++
-            "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-        const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
-        try std.testing.expectError(
-            glowcap.ocapn.session.Error.MalformedMessage,
-            peer.recvBorrowed(view),
-        );
-        try std.testing.expect(!peer.session_state.handshake_remote_received);
-    }
-}
-
-test "Syrup decodes a start-session whose location carries non-empty hints" {
-    // A real netlayer (the OCapN conformance suite's `tcp-testing-only`) puts the
-    // address in the locator's hints map `{host …, port …}`. The decoder must
-    // consume it so the whole frame decodes, and borrowed decode must expose the
-    // entries through `BorrowedHints.lazy` (Cap'n Proto parity) so a Host can
-    // dial without a separate re-parse. Goblins uses `#f` hints, so this shape
-    // was unexercised until an external peer sent a hinted locator.
-    const allocator = std.testing.allocator;
-    const frame_bytes: []const u8 =
-        "<16'op:start-session3\"1.0" ++
-        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
-        "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.14\"port5\"52833}>" ++
-        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
-    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
-    const body = try syrup.decodeBody(view);
-    try std.testing.expect(body == .start_session);
-    try std.testing.expectEqualStrings("127.0.0.1", body.start_session.acceptable_location.designator);
-    try std.testing.expect(body.start_session.acceptable_location.hints == .lazy);
-
-    const owned = try body.toOwned(allocator);
-    defer {
-        allocator.free(owned.start_session.session_pubkey.bytes);
-        allocator.free(owned.start_session.acceptable_location.transport);
-        allocator.free(owned.start_session.acceptable_location.designator);
-        model.freeHints(allocator, owned.start_session.acceptable_location.hints);
-        allocator.free(owned.start_session.acceptable_location_sig.bytes);
-    }
-    try std.testing.expectEqual(@as(usize, 2), owned.start_session.acceptable_location.hints.entries.len);
-    try std.testing.expectEqualStrings("host", owned.start_session.acceptable_location.hints.entries[0].name);
-    try std.testing.expectEqualStrings("52833", owned.start_session.acceptable_location.hints.entries[1].value.string);
 }
 
 test "a deliver carrying a Struct (dictionary) argument decodes to the struct arm" {
@@ -318,68 +243,6 @@ test "a single collection wider than the decode element cap is refused" {
     }
 }
 
-test "decodeBody exposes borrowed views for start-session and nested handoff" {
-    {
-        const fixture = protocol_oracle.fixtureByName("op_start_session_v1_0.bin").?;
-        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
-
-        try std.testing.expectEqual(model.CaptpVersion.v1_0, decoded.start_session.captp_version);
-        try std.testing.expectEqual(@as(usize, 32), decoded.start_session.session_pubkey.len);
-        try std.testing.expectEqualStrings("memory", decoded.start_session.acceptable_location.transport);
-        try std.testing.expectEqualStrings("exporter", decoded.start_session.acceptable_location.designator);
-        const sig = decoded.start_session.acceptable_location_sig.halves;
-        try std.testing.expectEqual(@as(usize, 64), sig.r.len + sig.s.len);
-    }
-
-    {
-        const fixture = protocol_oracle.fixtureByName("op_deliver_withdraw_gift.bin").?;
-        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
-        const handoff = (try decoded.deliver.args.at(1)).handoff;
-        try std.testing.expect(handoff == .receive);
-        try std.testing.expect(handoff.receive.signed_give.raw_signed != null);
-    }
-}
-
-test "typed handoff projection ignores an earlier complete envelope inside bytes" {
-    const allocator = std.testing.allocator;
-    const fixture = protocol_oracle.fixtureByName("desc_handoff_give_signed.bin").?;
-    const give = try syrup.decodeSignedHandoffGiveOwned(allocator, fixture.bytes());
-    defer model.freeHandoffGive(allocator, give);
-    var handoff: model.Handoff = .{ .give = give };
-    const args = [_]model.Argument{
-        .{ .bytes = fixture.bytes() },
-        .{ .handoff = &handoff },
-    };
-    var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(7) },
-        .args = &args,
-    } });
-    defer frame.deinit();
-
-    const deliver = (try syrup.decodeBody(frame.view())).deliver;
-    const decoy = (try deliver.args.at(0)).bytes;
-    const projected = (try deliver.args.at(1)).handoff.give;
-    const signed = projected.raw_signed orelse return error.MissingSignedGiveSpan;
-
-    try std.testing.expectEqualSlices(u8, fixture.bytes(), decoy);
-    try std.testing.expectEqualSlices(u8, fixture.bytes(), signed);
-    try std.testing.expect(@intFromPtr(signed.ptr) >= @intFromPtr(decoy.ptr) + decoy.len);
-}
-
-test "standalone signed handoff-give decode refuses trailing bytes" {
-    const allocator = std.testing.allocator;
-    const fixture = protocol_oracle.fixtureByName("desc_handoff_give_signed.bin").?;
-    var bytes: std.ArrayList(u8) = .empty;
-    defer bytes.deinit(allocator);
-
-    try bytes.appendSlice(allocator, fixture.bytes());
-    try bytes.append(allocator, 'x');
-    try std.testing.expectError(
-        syrup.Error.MalformedFrame,
-        syrup.decodeSignedHandoffGiveOwned(allocator, bytes.items),
-    );
-}
-
 test "decodeOwned materializes start-session fields" {
     const allocator = std.testing.allocator;
     const fixture = protocol_oracle.fixtureByName("op_start_session_v1_0.bin").?;
@@ -404,32 +267,6 @@ test "decodeOwned materializes start-session fields" {
     try std.testing.expectEqual(@as(usize, 64), decoded.start_session.acceptable_location_sig.bytes.len);
 }
 
-test "borrowed start-session decode refuses noncanonical hint order" {
-    const entries = [_]model.HintEntry{
-        .{ .name = "a", .value = .{ .string = "x" } },
-        .{ .name = "b", .value = .{ .string = "y" } },
-    };
-    var frame = try syrup.encodeMessageForProfile(std.testing.allocator, .v1_0, .{
-        .start_session = .{
-            .captp_version = .v1_0,
-            .session_pubkey = .{ .bytes = &repeatedByte(32, 0xaa) },
-            .acceptable_location = .{
-                .transport = "tcp",
-                .designator = "x",
-                .hints = .{ .entries = &entries },
-            },
-            .acceptable_location_sig = .{ .bytes = &repeatedByte(64, 0xbb) },
-        },
-    });
-    defer frame.deinit();
-
-    const canonical = "{1\"a1\"x1\"b1\"y}";
-    const reversed = "{1\"b1\"y1\"a1\"x}";
-    const at = std.mem.indexOf(u8, frame.bytes(), canonical) orelse return error.MissingHintMap;
-    @memcpy(@constCast(frame.bytes())[at..][0..reversed.len], reversed);
-    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(frame.view()));
-}
-
 test "Syrup decode rejects non-byte frame shape" {
     const frame = glowcap.foundation.FrameView{
         .bytes = "<8'op:abort13\"shutting down>",
@@ -437,6 +274,27 @@ test "Syrup decode rejects non-byte frame shape" {
     };
 
     try std.testing.expectError(syrup.Error.InvalidFrameShape, syrup.decodeBody(frame));
+}
+
+test "a record label the decoder matches is never read as a symbol, and one it keeps as data is" {
+    // A label that equals no known spelling is refused by the reader that
+    // matched it, whatever its bytes, so the UTF-8 check is skipped there.
+    // The message op, a resolution, a reference and an error all refuse.
+    const unmatched_labels = [_]struct { frame: []const u8, err: syrup.Error }{
+        .{ .frame = "<10'op:deli\xff\xff<11'desc:export7+>[]ff>", .err = syrup.Error.UnsupportedMessage },
+        .{ .frame = "<10'op:deliver<11'desc:ex\xff\xff\xff7+>[]ff>", .err = syrup.Error.UnsupportedReference },
+        .{ .frame = "<10'op:resolve<11'desc:export7+><15'resolve:ful\xff\xff\xff1+>>", .err = syrup.Error.MalformedFrame },
+    };
+    for (unmatched_labels) |case| {
+        const view = glowcap.foundation.FrameView{ .bytes = case.frame, .shape = .byte };
+        try std.testing.expectError(case.err, syrup.decodeBody(view));
+    }
+    // A foreign record's label becomes the tag the application reads, so it
+    // is checked where it becomes data, and a bad one is malformed.
+    const foreign = "<10'op:deliver<11'desc:export1+>[5'break<16'exn:fail:my\xff\xffery>]ff>";
+    const foreign_view = glowcap.foundation.FrameView{ .bytes = foreign, .shape = .byte };
+    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(foreign_view));
+    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeOwned(std.testing.allocator, foreign_view));
 }
 
 test "Syrup decodes a foreign record argument as Tagged, so a Goblins break payload survives" {
@@ -542,7 +400,7 @@ test "Syrup: corrupting any byte of a frame stays total: typed error or message,
     }
 }
 
-test "profile-less Syrup framing accepts next listen modes without projecting semantics" {
+test "a next listen mode is refused under v1.0 and projected under next" {
     const allocator = std.testing.allocator;
     for ([_]model.ListenMode{ .settling_only, .shortening_or_settling }) |mode| {
         var frame = try syrup.encodeMessageForProfile(allocator, .next, .{ .listen = .{
@@ -552,18 +410,13 @@ test "profile-less Syrup framing accepts next listen modes without projecting se
         } });
         defer frame.deinit();
 
-        const boundary = syrup.framePrefix(frame.bytes(), frame.bytes().len);
-        try std.testing.expect(boundary == .complete);
-        try std.testing.expectEqual(frame.bytes().len, boundary.complete);
-
-        try std.testing.expect(syrup.decodePrefix(frame.bytes(), frame.bytes().len) == .malformed);
         try std.testing.expectError(error.MalformedFrame, syrup.decodeBody(frame.view()));
         const next_body = try syrup.decodeBodyForProfile(.next, frame.view());
         try std.testing.expectEqual(mode, next_body.listen.mode);
     }
 }
 
-test "profile-less Syrup framing accepts the next deliver arity" {
+test "the next deliver arity is refused under v1.0 and projected under next" {
     const allocator = std.testing.allocator;
     var frame = try syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(4) },
@@ -572,13 +425,39 @@ test "profile-less Syrup framing accepts the next deliver arity" {
     } });
     defer frame.deinit();
 
-    const boundary = syrup.framePrefix(frame.bytes(), frame.bytes().len);
-    try std.testing.expect(boundary == .complete);
-    try std.testing.expectEqual(frame.bytes().len, boundary.complete);
-
-    try std.testing.expect(syrup.decodePrefix(frame.bytes(), frame.bytes().len) == .malformed);
+    try std.testing.expectError(error.MalformedFrame, syrup.decodeBody(frame.view()));
     const next_body = try syrup.decodeBodyForProfile(.next, frame.view());
     try std.testing.expectEqual(model.AnswerPosition.from(6), next_body.deliver.answer.?);
+}
+
+test "a known label matches only its canonical form" {
+    // The op and reference readers match a label they know as one
+    // comparison against its canonical form. A match must admit exactly
+    // what the general reader would: the same label, in bounds, with no
+    // other spelling.
+    const frame = "<13'op:gc-answers[7+]>";
+    _ = try syrup.decodeBody(.{ .bytes = frame, .shape = .byte });
+    // A frame that ends inside the label is malformed, not unsupported.
+    try std.testing.expectError(error.MalformedFrame, syrup.decodeBody(.{ .bytes = frame[0..10], .shape = .byte }));
+    // A known label with a wrong width, or one byte off at its end, is no
+    // match, and the general reader then refuses the label it does not know.
+    const unsupported_ops = [_][]const u8{ "<14'op:gc-answers![7+]>", "<13'op:gc-answerz[7+]>" };
+    for (unsupported_ops) |bytes| {
+        try std.testing.expectError(
+            syrup.Error.UnsupportedMessage,
+            syrup.decodeBody(.{ .bytes = bytes, .shape = .byte }),
+        );
+    }
+    const unsupported_references = [_][]const u8{
+        "<10'op:deliver<12'desc:export!7+>[]ff>",
+        "<10'op:deliver<11'desc:exporz7+>[]ff>",
+    };
+    for (unsupported_references) |bytes| {
+        try std.testing.expectError(
+            syrup.Error.UnsupportedReference,
+            syrup.decodeBody(.{ .bytes = bytes, .shape = .byte }),
+        );
+    }
 }
 
 test "Syrup decode refuses non-canonical digit spellings" {
@@ -589,6 +468,8 @@ test "Syrup decode refuses non-canonical digit spellings" {
     // lean on.
     const cases = [_][]const u8{
         "<8'op:abort013\"shutting down>", // leading-zero string length
+        "<010'op:deliver<11'desc:export7+>[]42+f>", // leading-zero op label width
+        "<10'op:deliver<011'desc:export7+>[]42+f>", // leading-zero reference label width
         "<10'op:deliver<11'desc:export07+>[]42+f>", // leading-zero position
         "<10'op:deliver<11'desc:export7+>[00+]42+f>", // leading-zero integer magnitude
         "<10'op:deliver<11'desc:export7+>[0-]42+f>", // negative zero

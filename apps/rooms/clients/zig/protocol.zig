@@ -1,5 +1,5 @@
 //! How this client reads the Rooms wire: the generated grammar beside this
-//! file, and the native checks that hold one wire argument to a declared field.
+//! file, and the Zig checks that hold one wire argument to a declared field.
 //!
 //! `protocol_gen.zig` is the table every sibling client reads, emitted from
 //! `tools/gen/rooms_protocol.zig` by `zig build gen-rooms-protocol`. Nothing
@@ -176,6 +176,31 @@ pub fn watchEvent(args: []const driver.Value) WatchError!?RoomInfo {
         return if (kind.room) roomInfo(args[1..]) else null;
     }
     return error.UnknownWatchEvent;
+}
+
+/// Where the rows and the cursor sit in a `listPublications` page.
+const page = struct {
+    const rooms = indexOf(&gen.list_page_fields, "rooms");
+    const next = indexOf(&gen.list_page_fields, "next");
+};
+
+/// One `listPublications` page: its publication rows, and the cursor that asks
+/// for the next page, null on the last one.
+pub const RoomPage = struct {
+    rows: []const driver.Value,
+    next: ?[]const u8,
+};
+
+/// The page `listPublications` answered, when it is the declared record and
+/// every row is a publication.
+pub fn roomPage(arg: driver.Value) ?RoomPage {
+    if (arg != .list or !fits(&gen.list_page_fields, arg.list)) return null;
+    const rows = arg.list[page.rooms].list;
+    for (rows) |row| {
+        if (row != .list or roomInfo(row.list) == null) return null;
+    }
+    const next = arg.list[page.next];
+    return .{ .rows = rows, .next = if (next == .void) null else next.string };
 }
 
 /// Where the rooms and the registrations sit in the watch snapshot.

@@ -20,6 +20,23 @@
 //! the whole reason this is a spill rather than a buffer per connection, and it
 //! is the kind of property that stays true until one refactor makes it false
 //! and nothing says so.
+//!
+//! Five targets live here. The first, `readOne`, is the blocking frame read
+//! above. The second, `lifecycle_drive`, runs the completion loop against a
+//! fuzzer-driven backend and compares its derived counts against a walk of the
+//! slots after the schedule drains. The third, `stream_plan`, feeds known
+//! frames through arbitrary chunk geometry and asks that each comes back whole,
+//! in order, once. The last two, at the end of the file, feed the Tor onion
+//! transport's parsers whatever a daemon the operator runs might send: one
+//! control-port reply line, and the SOCKS5 greeting reply, connect reply head,
+//! and service id. They assert that every refusal is one of the parser's own
+//! errors and that a split reply field is a view into the line it came from. Validated by
+//! injecting a reply field whose value runs one byte past its line, which the
+//! seeds caught, and a `checkServiceId` that accepts a 55 byte id, which the
+//! search found within its first few runs. They cannot reach a control line
+//! past `max_line_bytes`, because the buffer is that size, a reply that
+//! spans several lines, which the driver assembles, or the SOCKS5 reader's
+//! socket reads, which the parsers never see.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -74,7 +91,6 @@ fn readOne(_: void, smith: *std.testing.Smith) anyerror!void {
         var test_reader = std.testing.Reader.init(read_buf[0..read_len], calls[0..call_count]);
         const reader = &test_reader.interface;
         var spill: net.Spill = .{};
-        var scan: net.StreamScan = .{};
         defer spill.deinit(gpa);
 
         // Keep reading until the stream refuses or runs out. A frame that ends
@@ -84,7 +100,7 @@ fn readOne(_: void, smith: *std.testing.Smith) anyerror!void {
         // otherwise spend the whole budget in one input.
         var frames: usize = 0;
         while (frames < 64) : (frames += 1) {
-            var frame = net.readFrameFrom(reader, gpa, codec_id, frame_cap, &spill, &scan) catch break;
+            var frame = net.readFrameFrom(reader, gpa, codec_id, frame_cap, &spill) catch break;
             frame.deinit();
 
             // A drained spill has freed its storage, not merely emptied it.
@@ -206,15 +222,12 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 // how the stream ends.
 //
 // Geometry is the whole subject, because it is what decides which of the two
-// byte supplies a frame is decoded from. A frame that fits the read buffer is
-// decoded where it landed and the spill never opens. A frame larger than the
-// buffer cannot be, so returning it whole is itself the evidence the spill
-// carried it (ADR-0041). And past `codec.framing.scan_threshold_bytes` pending
-// bytes the codec stops decoding on every read and walks a resumable scan
-// instead, which withholds the decoder, and with it the decoder's own refusal,
-// so `codec.dispatch.framePrefix` owes the frame cap in its place. One
-// synthesized frame and the open-record tail both reach past that threshold, so
-// a stream here crosses every one of those handovers.
+// byte supplies a frame is lifted from. A frame that fits the read buffer is
+// lifted from where it landed and the spill never opens. A frame larger than
+// the buffer cannot be, so returning it whole is itself the evidence the spill
+// carried it (ADR-0041). The synthesized frame is several kilobytes against
+// reads of under a hundred bytes, so the spill grows over dozens of absorbs
+// before it drains, and a stream here crosses every one of those handovers.
 //
 // What is asserted, beyond not crashing and not leaking:
 //
@@ -222,8 +235,9 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 //     is the coalesce contract stated as an equality rather than as an absence
 //     of crashes: a byte dropped, duplicated, or read twice fails here.
 //   - The read after the last frame gives the verdict the tail earned: a clean
-//     end is `Closed`, a record opened and never closed is `FrameTooLarge`, and
-//     a frame cut short mid-way is `TruncatedFrame`.
+//     end is `Closed`, an envelope declaring more than the cap is
+//     `FrameTooLarge` before any of its body arrives, and a frame cut short
+//     mid-way is `TruncatedFrame`.
 //   - The spill stays inside the cap that admitted it plus the one read that
 //     carried it there, and a spill that is not accumulating has freed its
 //     storage rather than merely emptied it (`net.spill_retain_bytes` is zero at
@@ -233,11 +247,10 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 //
 // The harness's own claims are checked before the search runs, in
 // `ratifyStreamShapes`: every corpus frame is one whole admissible frame, the
-// synthesized frame crosses the scan threshold at every argument count the plan
-// can choose and stays under the cap, and the open-record tail is refused at the
-// cap rather than at the end of the stream. A geometry claim nobody checks is
-// how the first target in this file spent a while never touching the spill it
-// exists for.
+// synthesized frame is larger than any read buffer at every argument count the
+// plan can choose and stays under the cap, and an over-cap declaration is
+// refused on its length alone. A geometry claim nobody checks is how the first
+// target in this file spent a while never touching the spill it exists for.
 //
 // Validated against defects rather than against a passing tree. Each of these
 // was injected into the production path, one at a time, and the search asked to
@@ -245,53 +258,37 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 // (`net.absorbFrom` absorbing one byte fewer than it tosses); bytes duplicated
 // on the way in (tossing one fewer than it absorbs); a consumed frame's last
 // byte left in the spill for the next frame to trip over; a drained spill
-// retaining its storage instead of freeing it; the cap refusal removed from the
-// withheld-decode arm of `codec.dispatch.framePrefix`; and the resumable scan
-// letting a length-prefixed leaf's payload move its depth.
-//
-// Two of those are worth spelling out, because of what caught them.
-//
-// The missing cap refusal was caught by the spill bound, not by the tail's
-// verdict, the verdict still came back `FrameTooLarge`, because the scan settles
-// once its own cursor passes the cap and the decoder then refuses. What had
-// changed was how much had piled up first. Asserting boundedness separately from
-// the verdict is the whole reason that was visible.
-//
-// The scan defect is why the synthesized frame carries byte-string arguments
-// whose payload spells `<`. Two earlier attempts at the same defect class
-// escaped: dropping the scan's digit arm and dropping its symbol arm both make
-// the walk fail *early*, and failing early hands the question straight to the
-// decoder, which is the safe direction. So this target can only see a scan defect
-// that keeps the walk going while miscounting depth, and it needs a frame with a
-// payload that can be miscounted to see even that. The escape shaped the frame;
-// without those arguments the whole class was invisible here.
+// retaining its storage instead of freeing it; and the cap check removed from
+// the envelope's length (`net.outerPrefix`), which the spill bound caught
+// before the tail's verdict did, because what changed was how much had piled
+// up first. Asserting boundedness separately from the verdict is the whole
+// reason that was visible. Before ADR-0110 the stream was framed by walking
+// the inner codec, and this target found two defects in that walk; the
+// envelope has no walk, and its body is opaque bytes that come back
+// byte-identical or not at all.
 //
 // What it does not reach, measured rather than assumed:
 //
-//   - A scan that gives up too early, per the escape above. By design that costs
-//     a wasted decode and nothing observable, so nothing here can judge it;
-//     `test/codec` drives `scanStream` directly, which is the right instrument
-//     for the walk itself.
-//   - Which of the two cap mirrors refused an over-cap prefix. The decoder
-//     refuses one byte later than `framePrefix` does, and one read buffer is
-//     wider than the byte between them.
+//   - A body that is not one frame of the codec. The blocking read lifts the
+//     envelope's body whole and the session refuses it at admission, which
+//     `test/engine/completion_seam_test.zig` pins and the completion-loop
+//     target above reaches.
 //   - `net.drainWholeFrames`, the other spill consumer at this tier. It carries a
 //     chunk tail into the same spill for the readiness loops, but it drives a
 //     `Peer` rather than returning frames, so the target below it is the
 //     completion-loop one above.
-//   - Cap'n Proto. Its frames declare their length up front, so it
-//     has no scan and no self-delimiting grammar to resume, and the corpus this
-//     target checks streams against is Syrup.
+//   - Cap'n Proto. The envelope carries either codec the same way, and the
+//     corpus this target checks streams against is Syrup.
 //
 // Reachability was measured the same way as the defects, by asserting a state
 // unreachable and letting the search refute it: a stream carrying two or more
-// frames, one of them past the scan threshold, under the large cap, ending in an
-// open record turns up within a few dozen runs.
+// frames, one of them larger than the read buffer, under the large cap, ending
+// in an over-cap declaration turns up within a few dozen runs.
 //
 // Under `zig build test` the search does not run: the corpus is the regression
 // seeds alone, so the ratification is what the ordinary suite gets from this
-// target. It is not a small part, a scan that miscounts a leaf's payload fails
-// it outright, with no fuzzer involved.
+// target. It is not a small part: a corpus frame the codec no longer accepts
+// whole fails it outright, with no fuzzer involved.
 
 /// Streams the fuzzer found here, replayed by the ordinary suite so a bug it
 /// caught cannot come back quietly. Its own list, separate from the two above,
@@ -305,4 +302,88 @@ test "fuzz: a frame stream returns every frame fed to it whole, in order, once" 
     // still replay, so a stream that broke the reader once runs on every
     // ordinary suite from then on.
     try std.testing.fuzz({}, stream_plan.driveStream, .{ .corpus = stream_regression_seeds[0..] });
+}
+
+// ── Tor's replies, as a daemon the operator runs might send them ─────────────
+
+const control = net.onion.control;
+const socks5 = net.onion.socks5;
+
+/// Control reply lines the fuzzer found here, replayed by the ordinary suite so
+/// a parser bug it caught cannot come back quietly. Its own list because a saved
+/// line means nothing to the SOCKS5 readers.
+const control_regression_seeds = [_][]const u8{};
+
+/// SOCKS5 reply bytes the fuzzer found here, replayed by the ordinary suite.
+const socks_regression_seeds = [_][]const u8{};
+
+/// A bounded view must lie inside the input it was cut from.
+fn within(input: []const u8, part: []const u8) bool {
+    const start = @intFromPtr(part.ptr);
+    const base = @intFromPtr(input.ptr);
+    return start >= base and start + part.len <= base + input.len;
+}
+
+fn parseControlLine(line: []const u8) !void {
+    const reply = control.parseLine(line) catch |err| switch (err) {
+        error.LineTooLong, error.MalformedReply, error.InvalidCredential => return,
+    };
+    _ = reply.isOk();
+    try std.testing.expect(within(line, reply.text));
+    if (reply.field()) |kv| {
+        try std.testing.expect(within(line, kv.key));
+        try std.testing.expect(within(line, kv.value));
+        try std.testing.expect(std.mem.indexOfScalar(u8, kv.key, '=') == null);
+    }
+}
+
+fn controlReplyLine(_: void, smith: *std.testing.Smith) anyerror!void {
+    var buf: [control.max_line_bytes]u8 = undefined;
+    const input = buf[0..smith.slice(&buf)];
+    try parseControlLine(control.trimLineEnding(input));
+    try parseControlLine(input);
+}
+
+const control_seeds = [_][]const u8{
+    seeds.seed("250 OK"),
+    seeds.seed("250-ServiceID=abc"),
+    seeds.seed("250-ServiceID=wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd"),
+    seeds.seed("515 Bad authentication"),
+    seeds.seed("650 HS_DESC UPLOADED"),
+    seeds.seed("250+onion_line=\r\n"),
+};
+
+test "fuzz: arbitrary control-port reply lines never crash the Tor reply parser" {
+    try std.testing.fuzz({}, controlReplyLine, .{ .corpus = (control_seeds ++ control_regression_seeds)[0..] });
+}
+
+fn socksReplyBytes(_: void, smith: *std.testing.Smith) anyerror!void {
+    var buf: [64]u8 = undefined;
+    const input = buf[0..smith.slice(&buf)];
+
+    socks5.checkGreetingReply(input) catch |err| switch (err) {
+        error.InvalidServiceId, error.ProtocolViolation, error.ConnectRefused => {},
+    };
+    if (input.len >= socks5.connect_reply_head_len) {
+        const head = input[0..socks5.connect_reply_head_len];
+        socks5.checkConnectReply(head) catch |err| switch (err) {
+            error.InvalidServiceId, error.ProtocolViolation, error.ConnectRefused => {},
+        };
+        _ = socks5.boundAddress(head) catch |err| switch (err) {
+            error.InvalidServiceId, error.ProtocolViolation, error.ConnectRefused => {},
+        };
+    }
+    socks5.checkServiceId(input) catch |err| switch (err) {
+        error.InvalidServiceId, error.ProtocolViolation, error.ConnectRefused => {},
+    };
+}
+
+const socks_seeds = [_][]const u8{
+    seeds.seed(&[_]u8{ 0x05, 0x00 }),
+    seeds.seed(&[_]u8{ 0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0 }),
+    seeds.seed("wy46gxdweyqn5m7ntzwlxinhdia2jjanlsh37gxklwhfec7yxqr4k3qd"),
+};
+
+test "fuzz: arbitrary SOCKS5 reply bytes never crash the reply readers" {
+    try std.testing.fuzz({}, socksReplyBytes, .{ .corpus = (socks_seeds ++ socks_regression_seeds)[0..] });
 }

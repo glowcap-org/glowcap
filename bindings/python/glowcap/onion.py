@@ -61,7 +61,7 @@ from ._ffi_ocapn import (
 from ._ffi_onion import _onion_lib, _OnionConfig
 from ._host import Host
 from ._locator import Locator
-from ._native import NativeHandle, _NativeHandleOwner
+from ._ffi import FfiHandle, _FfiHandleOwner
 from ._server import DriverServer, prepare_driver_loop, _rollback_listener_construction
 from ._transport import Provider, _rollback_failed_provider
 
@@ -102,7 +102,7 @@ _SERVICE_KEY_CAP = _c.ONION_SERVICE_KEY_CAP
 
 @dataclass(frozen=True, slots=True)
 class OnionConfig:
-    """Configuration for one Tor-backed native onion provider."""
+    """Configuration for one Tor-backed FFI onion provider."""
 
     socks: str
     control: str = ""
@@ -149,13 +149,13 @@ def _shutdown_conn(raw) -> None:
     _check_onion(_onion_lib.glowcap_onion_conn_shutdown(raw))
 
 
-class OnionConnection(_NativeHandleOwner):
+class OnionConnection(_FfiHandleOwner):
     """One onion connection carrying one OCapN session, framed on the codec its
     constructor named. Closed on release / context exit."""
 
     def __init__(self, raw, netlayer: "OnionNetlayer"):
         self._netlayer = netlayer
-        self._native = NativeHandle(
+        self._ffi = FfiHandle(
             raw,
             _release_conn,
             _shutdown_conn,
@@ -165,7 +165,7 @@ class OnionConnection(_NativeHandleOwner):
         self._reads = threading.Lock()
         self._writes = threading.Lock()
         if not netlayer._adopt(self):
-            self._native.close()
+            self._ffi.close()
             raise RuntimeError("onion netlayer is released")
 
     def __enter__(self) -> OnionConnection:
@@ -175,7 +175,7 @@ class OnionConnection(_NativeHandleOwner):
         self.close()
 
     def close(self) -> None:
-        self._native.close()
+        self._ffi.close()
         self._netlayer._forget(self)
 
     def readiness_fd(self) -> int:
@@ -185,7 +185,7 @@ class OnionConnection(_NativeHandleOwner):
         guarantee: a fragmented frame can make :meth:`read_frame` wait for later
         bytes. The connection owns this descriptor. Do not close it."""
         out = ctypes.c_int32()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_onion(
                 _onion_lib.glowcap_onion_conn_readiness_fd(raw, ctypes.byref(out))
             )
@@ -196,7 +196,7 @@ class OnionConnection(_NativeHandleOwner):
 
         Prefer selecting on :meth:`readiness_fd` first. This parks when nothing has
         arrived."""
-        with self._reads, self._native.lease() as raw:
+        with self._reads, self._ffi.lease() as raw:
             frame = _ManagedFrame()
             _check_onion(
                 _onion_lib.glowcap_onion_conn_read_frame(
@@ -207,7 +207,7 @@ class OnionConnection(_NativeHandleOwner):
 
     def write_frame(self, frame: bytes) -> None:
         f, _borrowed = _borrowed_byte_frame(frame)
-        with self._writes, self._native.lease() as raw:
+        with self._writes, self._ffi.lease() as raw:
             _check_onion(
                 _onion_lib.glowcap_onion_conn_write_frame(
                     raw, ctypes.byref(f), None, 0, None
@@ -215,7 +215,7 @@ class OnionConnection(_NativeHandleOwner):
             )
 
 
-class OnionListener(_NativeHandleOwner):
+class OnionListener(_FfiHandleOwner):
     """A live onion service: the control session keeping it published plus the local
     endpoint Tor forwards it to.
 
@@ -226,7 +226,7 @@ class OnionListener(_NativeHandleOwner):
         self, raw, service_id: str, service_key: bytes, netlayer: "OnionNetlayer"
     ):
         self._netlayer = netlayer
-        self._native = NativeHandle(
+        self._ffi = FfiHandle(
             raw,
             _release_listener,
             _onion_lib.glowcap_onion_listener_shutdown,
@@ -235,7 +235,7 @@ class OnionListener(_NativeHandleOwner):
         )
         self._accepts = threading.Lock()
         if not netlayer._adopt(self):
-            self._native.close()
+            self._ffi.close()
             raise RuntimeError("onion netlayer is released")
         #: The version 3 service id Tor minted or restored, without its ``.onion``
         #: suffix. This is the designator a partner dials.
@@ -252,7 +252,7 @@ class OnionListener(_NativeHandleOwner):
         self.close()
 
     def close(self) -> None:
-        self._native.close()
+        self._ffi.close()
         self._netlayer._forget(self)
 
     def readiness_fd(self) -> int:
@@ -263,7 +263,7 @@ class OnionListener(_NativeHandleOwner):
         Owned by the listener: do not close it, and do not use it after
         :meth:`close`."""
         out = ctypes.c_int32()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_onion(
                 _onion_lib.glowcap_onion_listener_readiness_fd(raw, ctypes.byref(out))
             )
@@ -274,7 +274,7 @@ class OnionListener(_NativeHandleOwner):
         ``False`` on timeout. Lets an accept loop check a stop flag instead of
         parking, without closing the listener from another thread."""
         out = ctypes.c_uint32()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_onion(
                 _onion_lib.glowcap_onion_listener_wait(
                     raw, timeout_ms, ctypes.byref(out), None, 0, None
@@ -291,7 +291,7 @@ class OnionListener(_NativeHandleOwner):
 
         The partner's claimed location is unverified here: Tor tells a hidden service
         nothing about who dialed it."""
-        with self._accepts, self._native.lease() as raw:
+        with self._accepts, self._ffi.lease() as raw:
             out = ctypes.c_void_p()
             _check_onion(
                 _onion_lib.glowcap_onion_accept(
@@ -307,7 +307,7 @@ class OnionListener(_NativeHandleOwner):
             return OnionConnection(out, self._netlayer)
 
 
-class OnionNetlayer(_NativeHandleOwner):
+class OnionNetlayer(_FfiHandleOwner):
     """Owns where Tor listens and the one I/O backend its streams block on. Outlives
     the connections and listeners made from it. Released on :meth:`release` / context
     exit.
@@ -333,7 +333,7 @@ class OnionNetlayer(_NativeHandleOwner):
         forward_b = _bytes_of(forward)
 
         # Held in locals for the duration of the call below: the config borrows these
-        # pointers, and the native side copies out of them before returning.
+        # pointers, and the FFI side copies out of them before returning.
         buffers = [
             ctypes.create_string_buffer(b, len(b)) if b else None
             for b in (socks_b, control_b, secret_b, key_b, forward_b)
@@ -356,7 +356,7 @@ class OnionNetlayer(_NativeHandleOwner):
             _onion_lib.glowcap_onion_netlayer_new(ctypes.byref(cfg), ctypes.byref(out))
         )
         # Annotated because `release` clears it, the same shape `_host.py` uses.
-        self._native = NativeHandle(
+        self._ffi = FfiHandle(
             out,
             _release_netlayer,
             _onion_lib.glowcap_onion_netlayer_shutdown,
@@ -387,7 +387,7 @@ class OnionNetlayer(_NativeHandleOwner):
                     children = list(self._children)
             for child in children:
                 child.close()
-            self._native.close()
+            self._ffi.close()
 
     def _adopt(self, child: OnionConnection | OnionListener) -> bool:
         with self._children_lock:
@@ -404,7 +404,7 @@ class OnionNetlayer(_NativeHandleOwner):
         from ._ffi_driver import _TransportProvider
 
         package = _TransportProvider()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_onion(
                 _onion_lib.glowcap_onion_transport_provider(raw, ctypes.byref(package))
             )
@@ -417,7 +417,7 @@ class OnionNetlayer(_NativeHandleOwner):
                 if self._release_requested or self._children:
                     raise RuntimeError("onion netlayer is not transferable")
                 self._release_requested = True
-            self._native.drop_reference()
+            self._ffi.drop_reference()
 
     def listen(self) -> OnionListener:
         """Ask Tor for an onion service and bind its local end.
@@ -429,7 +429,7 @@ class OnionNetlayer(_NativeHandleOwner):
         key_buf = ctypes.create_string_buffer(_SERVICE_KEY_CAP)
         key_len = ctypes.c_size_t()
         out = ctypes.c_void_p()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_onion(
                 _onion_lib.glowcap_onion_listen(
                     raw,
@@ -466,7 +466,7 @@ class OnionNetlayer(_NativeHandleOwner):
         d = _bytes_of(service_id)
         buf = ctypes.create_string_buffer(d, len(d))
         out = ctypes.c_void_p()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_onion(
                 _onion_lib.glowcap_onion_connect(
                     raw,
@@ -556,7 +556,7 @@ async def listen(
 
 
 def provider(config: OnionConfig) -> Provider:
-    """Build the configured native onion provider package."""
+    """Build the configured FFI onion provider package."""
     async def install(loop) -> None:
         netlayer = OnionNetlayer(
             socks=config.socks,

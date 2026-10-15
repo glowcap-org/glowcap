@@ -1,10 +1,11 @@
 //! Authority tests for the session-owned `engine.bootstrap.gifts.GiftRegistry`:
 //! deposit / withdraw bookkeeping, recipient match, monotonic handoff-count
-//! replay rejection, re-deposit replacement, and the deposited-gift cap. Gift withdrawal moves authority only behind signature
-//! verification, so these exercise the registry the way the verified callers do
+//! replay rejection, re-deposit replacement, and the deposited-gift cap. Gift
+//! withdrawal moves authority only behind signature verification, so these
+//! exercise the registry the way the verified callers do
 //! (`engine.bootstrap.resolveForWithdraw`, the test-support
-//! `cross_peer.withdrawGift` harness),
-//! never through the unauthenticated generic recv path.
+//! `cross_peer.withdrawGift` harness), never through the unauthenticated
+//! generic recv path.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

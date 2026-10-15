@@ -10,6 +10,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const promise_capture = @import("../../support/capture.zig");
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
@@ -43,7 +44,7 @@ const OwnsBlob = struct {
     blob: []u8,
     blob_allocator: std.mem.Allocator,
 
-    pub fn handle(self: *OwnsBlob, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *OwnsBlob, turn: *Turn, msg: Delivery) !model.Argument {
         _ = self;
         _ = turn;
         _ = msg;
@@ -169,7 +170,7 @@ test "a listener registered after the promise settled is refused" {
 test "a refused settlement copy breaks its waiter and leaves the next turn live" {
     const Reply = struct {
         calls: *usize,
-        pub fn handle(self: *@This(), _: *Turn, _: Message) !model.Argument {
+        pub fn handle(self: *@This(), _: *Turn, _: Delivery) !model.Argument {
             self.calls.* += 1;
             return .{ .bytes = "owned reply" };
         }
@@ -224,7 +225,7 @@ test "a refused settlement copy breaks its waiter and leaves the next turn live"
 const MutateThenFail = struct {
     n: i64,
 
-    pub fn handle(self: *MutateThenFail, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *MutateThenFail, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "bump-then-fail")) {
@@ -265,7 +266,7 @@ const Swappable = struct {
     pub const snapshot_persistent = true;
     label: [8]u8,
 
-    pub fn handle(self: *const Swappable, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const Swappable, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "peek")) return .{ .bytes = &self.label };
         return error.NoSuchMethod;
@@ -276,7 +277,7 @@ const Swapper = struct {
     pub const snapshot_persistent = true;
     label: [8]u8,
 
-    pub fn handle(self: *const Swapper, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const Swapper, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "peek")) return .{ .bytes = &self.label };
         if (std.mem.eql(u8, msg.verb, "swap")) {
             try turn.become(Swapper, .{ .label = "new-name".* });
@@ -289,7 +290,7 @@ const Swapper = struct {
 const Caller = struct {
     target: actors.Ref,
 
-    pub fn handle(self: *const Caller, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const Caller, turn: *Turn, msg: Delivery) !model.Argument {
         _ = msg;
         // Hold the first reply across a second call that becomes.
         const peeked = try turn.near(self.target, .{ .verb = "peek" });

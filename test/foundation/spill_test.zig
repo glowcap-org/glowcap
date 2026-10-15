@@ -92,3 +92,23 @@ test "a partial consume compacts the remainder to the front" {
     try std.testing.expect(spill.isActive());
     try std.testing.expectEqualSlices(u8, &[_]u8{ 3, 4, 5 }, spill.bytes());
 }
+
+test "zero consumption preserves waiting bytes but still releases an empty spill" {
+    const allocator = std.testing.allocator;
+    var spill: Spill = .{};
+    defer spill.deinit(allocator);
+    try spill.absorbBytes(allocator, "pending");
+    const storage = spill.buf;
+    spill.consume(allocator, 0, 0);
+    try std.testing.expectEqual(storage.ptr, spill.buf.ptr);
+    try std.testing.expectEqual(storage.len, spill.buf.len);
+    try std.testing.expectEqualStrings("pending", spill.bytes());
+    try spill.absorbBytes(allocator, " tail");
+    spill.consume(allocator, 0, 0);
+    try std.testing.expectEqualStrings("pending tail", spill.bytes());
+    spill.consume(allocator, spill.len, spill.buf.len);
+    try std.testing.expectEqual(@as(usize, 0), spill.len);
+    try std.testing.expect(spill.buf.len != 0);
+    spill.consume(allocator, 0, 0);
+    try std.testing.expectEqual(@as(usize, 0), spill.buf.len);
+}

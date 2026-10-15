@@ -22,13 +22,12 @@ All four wrap the same C ABI and present the same application model:
 
 ## Shared API
 
-Names follow each language's conventions, but the operations are the
-same. Each binding README gives the concrete signature and how ownership is
-expressed.
+Names follow each language's conventions. Each binding README gives the
+concrete signature and how ownership is expressed.
 
 | Operation | Purpose |
 | --- | --- |
-| `runtime.connect(locator)` | Dial an `ocapn://` peer through explicitly composed transport authority and return a session. |
+| `runtime.connect(locator)` | Dial an `ocapn://` peer through the transports you composed into the Runtime and return a session. |
 | `transport.listen(config)` | Accept partners and return one session per connection. |
 | `session.listen(ref)` | Ask to be notified when a far capability you hold settles. CapTP 1.0 accepts far promises and live far objects. `glowcap-next` accepts only far promises. |
 | `fetch(name)` | Fetch a capability published by the partner. |
@@ -39,90 +38,91 @@ expressed.
 | `serve()` | Keep handling inbound calls until the session closes. |
 | `close()` | Close the session. |
 | `publishDurable(behavior, entropy?)` | Create a durable swiss name for a behavior. Omit the entropy to generate it locally. Keep it to restore the same name on a Host rebuilt from the same seed. |
-| `closed()` | Wait for the session to end, without closing it or starting inbound delivery. TypeScript calls this `onClose`, and Racket calls it `session-wait-closed`. |
+| `closed()` | Wait for the session to end, without closing it or starting inbound delivery. TypeScript has `onClose(listener)`, which runs a callback once when the session ends. Racket calls it `session-wait-closed`. |
 
 Rust, Python, and Racket load the Host and the driver, then install the
-transport archives you need. [Using glowcap from C](../docs/consuming-from-c.md)
-lists them. Wasm, browser WebRTC, and a bare relay locator drive the byte-fed
+transport archives you need ([Using glowcap from C](../docs/consuming-from-c.md)
+lists them). Wasm, browser WebRTC, and a bare relay locator drive the byte-fed
 Host directly instead. To listen on a wildcard interface (`0.0.0.0` or `::`),
-give an explicit advertised host. The bind address is only a local socket, and
-partners dial the advertised host.
+give an advertised host, because partners dial it and the bind address is only
+a local socket.
 
-The bindings also offer sturdyref enlivenment, promise pipelining,
-attenuation, revocation, and distributed garbage collection, on by default in
-Rust and opt-in per session elsewhere.
+The bindings also restore saved references (sturdyrefs), pipeline calls on
+promises, attenuate, revoke, and collect references no peer still holds.
+That last one, distributed garbage collection, is on by default in Rust and
+opt-in per session elsewhere.
 
 ### References
 
-A `Ref` is opaque. Pass it as an argument and the binding picks the right wire
+A `Ref` is opaque. Pass it as an argument and the binding picks the wire
 reference, so application code never handles import or export numbers.
 
 Two `Ref`s are equal when they name the same capability on the Host: Rust
 `==`, Python `==`, Racket `equal?`, and TypeScript `Ref.equals`. TypeScript's
-`===` compares the wrapper objects instead, which stay distinct because each
-wrapper is released separately.
+`===` compares wrapper objects, which stay distinct because each is released
+separately.
 
-Releasing a `Ref` spends that one occurrence, including its Rust clones.
-Calls through a spent occurrence are refused, even if another occurrence keeps
-the same target alive. Releasing one occurrence does not revoke the others.
-Once the release succeeds, the wrapper stays spent. Only a refusal
-before that point can be retried. In Racket, a later drain failure is kept on
-the surviving Host and reported when the Runtime closes. It does not undo the
-release or spend another occurrence.
+Releasing a `Ref` spends that one occurrence, including its Rust clones:
+
+- Calls through a spent occurrence are refused, even if another occurrence
+  keeps the same target alive. Releasing one occurrence does not revoke the
+  others.
+- Once the release succeeds, the wrapper stays spent. Only a refusal before
+  that point can be retried.
+- In Racket, a later drain failure is kept on the surviving Host and reported
+  when the Runtime closes. It does not undo the release or spend another
+  occurrence.
 
 A send that cannot be issued returns a failed promise. TypeScript keeps the
-original thrown value through awaiting, projection, and dependent sends, and
+original thrown value through awaiting, indexing into the result, and dependent sends, and
 reports a scheduler or callback failure as itself, not as an invalid argument.
 
 ### Profiles and limits
 
-Each Host can choose the `native` or `interop` profile as one setting. The
-binding looks the name up in generated ABI constants, so an application never
-pairs a codec with a CapTP version by hand. The individual codec and version
-selectors are still available for protocol tests and peers with unusual
-preferences.
+Each Host chooses the `glowcap` or `interop` profile as one setting. The binding
+looks the name up in generated ABI constants, so an application never pairs a
+codec with a CapTP version by hand. The individual codec and version selectors
+remain for protocol tests and peers with unusual preferences.
 
-Each Host also takes optional session limits, using the language's usual
-style for named arguments. Frame admission, pending-answer queue entries,
-transient outbound bytes, and durable sent-answer bytes are set independently.
-An omitted or zero field keeps the Host's current value, and a change applies
-only to sessions created afterwards.
+Each Host also takes optional session limits as named arguments. Limits
+for accepted frames, queued pending answers, transient outbound bytes, and
+durable sent-answer bytes are set independently. An omitted or zero field keeps the
+Host's current value, and a change applies only to sessions created afterwards.
 
 ## A call can introduce another peer
 
 Three-party handoff is part of the ordinary call path. If a result names a
-capability hosted by another peer, the host opens or reuses the required
-session and settles the call with the live capability.
+capability hosted by another peer, the Host opens or reuses the required
+session and returns the live capability.
 
-`send_redeeming` (named in each language's style) covers the less common case
-where the caller also needs the direct exporter session for session-specific
-operations or peer identity. The capability itself remains Host-scoped.
+`send_redeeming` (named in each language's style) covers the case where the
+caller also needs the direct exporter session for session-specific operations
+or peer identity. The capability itself stays Host-scoped.
 
 Promises can be call targets before they settle, so a chain of dependent sends
 can cross the network in one round trip. Await only the last promise when you
 do not need the intermediate results. A promise belongs to the Host that
-created it. Any Session of that Host may use it, and a different Host refuses
+created it: any Session of that Host may use it, and a different Host refuses
 it.
 
 ## Closing sessions and hosts
 
-Closing a session ends one connection. Closing a host first stops its listeners
-from admitting new sessions, then ends every session it owns, including
+Closing a session ends one connection. Closing a Host first stops its listeners
+accepting new sessions, then ends every session it owns, including
 connections it opened while redeeming handoffs.
 
-A Runtime owns its Host and transport composition. Closing one session ends one
-connection. Closing the Runtime ends its listeners, Host, and remaining
-sessions. An application can transfer an existing Host when several
-fronts must share one identity: `adoptHost` in TypeScript, `adopt_host` in
-Python and Rust, and `#:adopt-host` in Racket. The Runtime becomes the shutdown
-barrier for the Host it adopts.
+A Runtime owns its Host and transport composition. Closing the Runtime ends its
+listeners, Host, and remaining sessions. When several parts of an application
+must share one identity, hand the Runtime an existing Host: `adoptHost` in
+TypeScript, `adopt_host` in Python and Rust, and `#:adopt-host` in Racket. The
+Runtime becomes the shutdown barrier for the Host it adopts.
 
 | Language | Host shutdown |
 | --- | --- |
-| Rust | `Host::close(PendingWork::Cancel).await` requests terminal close for every clone and waits for the native loop or Host-owned byte-channel tasks to stop before releasing the Host. |
-| TypeScript | `await host.close()` requests terminal close immediately and waits for the native loop or Host-owned byte-channel work to stop before releasing the Host. |
+| Rust | `Host::close(PendingWork::Cancel).await` requests terminal close for every clone and waits for the driver loop or Host-owned byte-channel tasks to stop before releasing the Host. |
+| TypeScript | `await host.close()` requests terminal close immediately and waits for the driver loop or Host-owned byte-channel work to stop before releasing the Host. |
 | Python | `await host.close()` waits for Host-owned dial work and listener shutdown before releasing the Host. |
-| Racket | `host-close!` stops the native loop or byte-channel workers before releasing native state. Callback-time release is parked until the turn returns. |
+| Racket | `host-close!` stops the driver loop or byte-channel workers before releasing C-side state. Callback-time release is parked until the turn returns. |
 
 ## Where the languages differ
 
@@ -137,11 +137,11 @@ barrier for the Host it adopts.
   gives up observing the session while delivery continues. Cancelling a
   Python `serve()` task ends that session: the loop closes the transport on
   the way out, as it does for every other exit.
-- TypeScript, Python, and Rust keep at most 1024 settled outcomes that no
+- TypeScript, Python, and Rust keep at most <!-- value ../tools/gen/binding/policy.zig unobserved_outcome_cap -->1,024<!-- /value --> settled outcomes that no
   caller has awaited yet, a cap the binding-policy generator writes into all
   three. Past it, the oldest result is dropped and a late await fails. Racket
   waits at the call site and needs no queue.
-- Racket keeps its native actor vocabulary: `spawn`, `$`, `<-`, `on`, `bcom`,
+- Racket keeps its own actor vocabulary: `spawn`, `$`, `<-`, `on`, `bcom`,
   and `methods`.
 - Every binding has a regular check in which Goblins dials it as a server,
   enlivens a Host-wide actor, and calls it. All four also dial Goblins and
@@ -151,40 +151,43 @@ A `send` or `tell` to an actor spawned by the same session stays in process in
 every binding.
 
 Cleaning up a deferred reply uses the Host's `resolver_abandon` operation. It
-breaks an answer that is still live, and succeeds quietly if settlement or
-session shutdown already consumed it. An id the Host never created is refused.
-Rust calls it when a resolver is dropped, TypeScript and Python call it for
+breaks an answer that is still live, succeeds quietly if settlement or session
+shutdown already consumed it, and refuses an id the Host never created. Rust
+calls it when a resolver is dropped, TypeScript and Python call it for
 automatic async completion cleanup, and Racket exposes `resolver-abandon!`.
-Explicit resolver fulfillment and break settle exactly once.
+Explicit resolver fulfillment and break settle once.
 
 ## Transports
 
-iroh, onion, Noise, and WebRTC are the transports for real deployments, and
-[known limitations](../docs/boundaries.md#transports-and-peer-identity) says
-what each one proves. iroh and onion are optional archives: iroh links a Rust
-sidecar, and onion needs a Tor daemon you run. The TCP archive carries
+iroh, onion, Noise, and WebRTC are the transports for real deployments
+([known limitations](../docs/boundaries.md#transports-and-peer-identity) says
+what each one proves). iroh and onion are optional archives: iroh links a Rust
+library, and onion needs a Tor daemon you run. The TCP archive carries
 `noise-tcp`, plus the testing `tcp` and `inproc`.
 
 Applications call `runtime.connect(locator)` after composing the Runtime with
 the provider or connector they need. Each optional transport package owns its
-locator construction, configuration, setup, and options. The generic binding
-code never names a concrete transport.
+locator construction, configuration, setup, and options, and the generic
+binding code never names a concrete transport.
 
 ### Onion and WebRTC
 
-- Every native binding composes onion into the generic driver for ordinary
-  Session hosting. The raw frame handles stay available for embedding. A
-  program that uses only TCP does not load them.
+- Every binding that loads the C library composes onion into the generic driver
+  for ordinary Session hosting, and the raw frame handles stay available for
+  programs that run their own loop. A program that uses only TCP does not load the onion archive.
 - TypeScript's raw onion transport runs on Deno's off-thread FFI. Bun's FFI
   cannot run it without blocking Bun's event loop, so onion operations refuse
   on Bun.
-- Rust, Python, and Racket expose WebRTC's optional native C companion as raw
-  FFI, including multiplexed readiness and try-I/O. Its endpoint
-  configuration is provider-neutral ICE data: URLs plus optional TURN username
-  and password. For native programs this raw companion is the supported
-  interface, and signaling and Host composition are up to you.
-- TypeScript uses the browser's `RTCPeerConnection` instead and does not load
-  the companion. Its browser package is the application-level WebRTC adapter.
+- Rust, Python, Racket, and Deno dial WebRTC through the optional C library
+  with `webrtc.provider(signaling)` and answer offers with `webrtc.listen`
+  (`listen-webrtc` in Racket): the library runs each signaling exchange and
+  your `SignalingAuthority` carries the offer, answer, and candidates. Its configuration is ICE data: URLs plus optional TURN username
+  and password. Rust, Python, and Racket also expose the library's raw
+  multiplexed readiness and try-I/O interface.
+- In a browser, TypeScript uses the browser's `RTCPeerConnection` instead and
+  does not load the library. Its browser package dials with `connector` and
+  answers with `listener`, over the same `SignalingAuthority`, and the
+  `/driver` entry is the Deno provider.
 
 ### Relays
 
@@ -198,37 +201,33 @@ The relay package exposes one Zig provider through the C ABI.
   accepts sessions through the binding's ordinary server type.
 - Managed browser and event-loop connectors use their runtime's own WebSocket,
   while the byte-fed Host still handles Noise and CapTP.
-- Provider installation, listener close, and the final loop release all
-  report through one versioned driver-failure record. A binding copies the
-  primary failure and cleanup facts from it and never decides by reading
-  diagnostic text.
-- A refused final release can be retried. The binding keeps one owner for the
-  retry, tries at most once at each later safe point, and retires the owner
-  once when a final result arrives. Any release or cleanup failure
+- Failures from installing a provider, closing a listener, or releasing the
+  loop come back as one versioned failure record. A binding reads that record
+  and never parses error text.
+- If the final release is refused, the binding retries it once at each later
+  safe point and stops when a result arrives. A release or cleanup failure
   along the way is recorded as a consequence of the original failure.
 
 Rust keeps unfinished releases if their thread exits, because the C code may
-still borrow the Rust callbacks or allocator and destroying those owners would
-be unsafe. Finish close and any required recovery on the owning thread to
-reclaim them. Abandoned releases stay allocated for the process lifetime.
-Successful retries release the owner and return empty finalizer queue storage.
+still borrow the Rust callbacks or allocator. Finish close and any required
+recovery on the owning thread to reclaim them. Abandoned releases stay
+allocated for the process lifetime.
 
 ### Failures with no caller
 
 Some failures have no caller left to receive them, such as a finalizer that
-refuses or a retirement that fails after the code that asked for it has moved
-on. Such a failure is neither logged nor dropped. It becomes one typed record in
-the Host's bounded diagnostic journal, and the application drains the journal
-when it chooses:
+refuses or a shutdown step that fails after the code that asked for it has
+moved on. Such a failure becomes one typed record in a bounded list the Host
+keeps, and the application drains that list when it chooses:
 
 - Rust: `Host::take_failures`
 - TypeScript: `host.takeFailures()`
 - Python: `host.take_failures()`
 - Racket: `host-take-failures!`
 
-A full journal drops its oldest record and counts the loss, so a drained set
+A full list drops its oldest record and counts the loss, so a drained set
 never looks like a complete history. A failure that a call returns, or that a
-close reports, never appears in the journal as well.
+close reports, never appears in the list as well.
 
 ## Building and checking
 
@@ -236,23 +235,21 @@ close reports, never appears in the journal as well.
 zig build bindings
 ```
 
-The complete binding check needs Cargo, Deno, Bun, Python, and Racket. The
-devcontainer includes them. Focused build steps are listed in each language
-README.
+The complete binding check needs Cargo, Deno, Bun, Python, and Racket, which
+the devcontainer includes. Each language README lists focused build steps.
 
-Binding maintainers should read [Developing a binding](DEVELOPING.md). The
-per-binding proof families, one scenario run once per language, live in
-[`proofs/`](proofs/README.md).
-Packagers and release operators should read
-[Finding and publishing the C archives](PACKAGING.md).
+- Binding maintainers: [Developing a binding](DEVELOPING.md). The proof
+  families, one scenario run once per language, live in
+  [`proofs/`](proofs/README.md).
+- Packagers and release operators:
+  [Finding and publishing the C archives](PACKAGING.md).
 
 ## Loam resources
 
-Rust's optional `loam` feature exposes the persistent-resource lifecycle through
-`libglowcap_loam` and its LMDB companion. It shares the Host and capability
-owners. Zig owns policy, transaction installation and recovery, and the binding
-owns callbacks and retired storage jobs. See the [lifecycle
-guide](../docs/loam/c-and-rust.md) for the scope and evidence. Compiled for
+Rust's optional `loam` feature manages persistent Loam resources through
+`libglowcap_loam` and its LMDB companion, using the same Host and capabilities
+as the rest of the binding. The [lifecycle
+guide](../docs/loam/c-and-rust.md) covers the API and its tests. Compiled for
 `wasm32-unknown-unknown`, the same feature stores to IndexedDB, as the [browser
 guide](../docs/loam/browser.md) describes. TypeScript, Python, and Racket have
-no Loam projection.
+no Loam API.

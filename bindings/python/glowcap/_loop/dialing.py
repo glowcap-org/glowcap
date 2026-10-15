@@ -21,7 +21,7 @@ class _DialingMixin(DriverLoopMixinBase):
         locator: Union[Locator, str],
     ) -> int:
         """Begin a nonblocking dial and await its session handle. Connect
-        completion and the handshake advance through zero-timeout native steps
+        completion and the handshake advance through zero-timeout FFI steps
         on the event-loop thread."""
         aio = self._started_loop()
         owned = (
@@ -57,7 +57,7 @@ class _DialingMixin(DriverLoopMixinBase):
     def _rearm_progress_timer(self) -> None:
         """Project glowcap's nearest pending-work deadline onto asyncio.
 
-        The native driver owns which operation is due and all timeout policy.
+        The FFI driver owns which operation is due and all timeout policy.
         This binding owns only the scheduler timer that calls the next step.
         """
         if self._progress_timer is not None:

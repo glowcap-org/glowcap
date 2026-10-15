@@ -1,4 +1,4 @@
-//! Ownership of one native driver loop. Holding a [`LoopHandle`] proves the
+//! Ownership of one FFI driver loop. Holding a [`LoopHandle`] proves the
 //! loop is unreleased, so its verbs are safe functions: the only unsafe act is
 //! adopting the pointer `glowcap_driver_take_host` wrote, and the only way to
 //! give the loop up is the consuming [`LoopHandle::release`], which hands the
@@ -10,14 +10,14 @@ use crate::sys::GlowcapTransportProvider;
 use crate::sys::driver::{self as ffi, GlowcapDriverLoop};
 use crate::{Error, Result, sys};
 
-/// One live native driver loop. The loop stays allocated until `release`
+/// One live FFI driver loop. The loop stays allocated until `release`
 /// consumes this handle. Dropping the handle without releasing leaks the loop,
 /// which is why every owner either releases it or parks it with the finalizer.
 pub(crate) struct LoopHandle(NonNull<GlowcapDriverLoop>);
 
-/// What one release attempt did with native ownership.
+/// What one release attempt did with FFI ownership.
 pub(crate) enum Released {
-	/// Native ownership is gone, with the release's own outcome.
+	/// FFI ownership is gone, with the release's own outcome.
 	Consumed(Result<()>),
 	/// The driver refused before consuming. The loop is still live.
 	Refused { handle: LoopHandle, error: Error },

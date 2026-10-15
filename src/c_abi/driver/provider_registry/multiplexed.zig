@@ -1,4 +1,4 @@
-//! Adapt one foreign multiplexed provider table to the native resident contract.
+//! Adapt one foreign multiplexed provider table to the Zig resident contract.
 
 const std = @import("std");
 const foundation = @import("foundation");
@@ -135,6 +135,7 @@ pub const Adapter = struct {
         request_id: usize,
         locator: model.PeerLocator,
         options: net.OperationOptions,
+        origin: net.DialOrigin,
     ) net.MultiplexedDialRawStartOutcome {
         const self = of(ctx);
         var hint_stack: [shared.locator_adapter.inline_hint_capacity]shared.GlowcapLocatorHintView = undefined;
@@ -145,12 +146,14 @@ pub const Adapter = struct {
             ) };
         defer projection.deinit(self.owner.allocator);
         var options_storage: shared.GlowcapTransportOperationOptions = undefined;
+        var origin_storage: shared.GlowcapDialOrigin = undefined;
         var report = shared.transport_provider.emptyProviderFailure();
         const code = self.table.start_connect.?(
             self.table.ctx,
             @intCast(request_id),
             &projection.view,
             validation.projectOperationOptions(options, &options_storage),
+            shared.transport_provider.projectDialOrigin(origin, &origin_storage),
             &report,
         );
         if (code != GLOWCAP_OK) {

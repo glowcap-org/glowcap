@@ -1,6 +1,6 @@
 //! Receipt decoding owns containers and refuses malformed inputs before effects.
-//! Validated against omitted partial-container cleanup (truncation leaks and
-//! allocation-failure imbalance) and acceptance of a missing record terminator.
+//! It fails if partial-container cleanup is omitted (truncation leaks and
+//! allocation-failure imbalance) or a missing record terminator is accepted.
 //! This enumerates one nested value, not arbitrary wire inputs or capability
 //! restoration: custody refusal is exercised separately below.
 const std = @import("std");
@@ -15,6 +15,29 @@ const Context = struct {
         return error.UndeclaredCapability;
     }
 };
+
+test "loam integer runs obey the durable list depth boundary" {
+    const a = std.testing.allocator;
+    var context: Context = .{};
+    var tree: [Codec.max_depth + 1]Value = undefined;
+    for (tree[0..Codec.max_depth], 0..) |*item, i| item.* = .{ .list = tree[i + 1 ..][0..1] };
+    tree[Codec.max_depth] = .{ .integers = &.{std.math.minInt(i64)} };
+    try std.testing.expectError(error.UnsupportedArgument, Codec.encode(a, tree[0], &context));
+    // One fewer wrapper admits the integer children and round-trips as lists.
+    const bytes = try Codec.encode(a, tree[1], &context);
+    defer a.free(bytes);
+    const decoded = try Codec.decode(Value, a, bytes, &context);
+    defer Codec.free(a, decoded);
+    const again = try Codec.encode(a, decoded, &context);
+    defer a.free(again);
+    try std.testing.expectEqualStrings(bytes, again);
+    // An empty list has no child beyond the boundary.
+    tree[Codec.max_depth] = .{ .integers = &.{} };
+    const empty = try Codec.encode(a, tree[0], &context);
+    defer a.free(empty);
+    const empty_decoded = try Codec.decode(Value, a, empty, &context);
+    defer Codec.free(a, empty_decoded);
+}
 
 test "loam mutation receipt value decoding releases nested allocations on truncation and allocation failure" {
     const a = std.testing.allocator;
@@ -71,7 +94,8 @@ test "loam receipt topology bounds actual mixed encodings and empty key tag pref
     try std.testing.expect(bytes.len <= bound);
     try std.testing.expect(bound < Codec.max_bytes);
     const Receipt = g.loam.access.records.MutationRecord;
-    const receipt = try (Receipt{ .intent = bytes, .result = bytes }).encodeAlloc(std.testing.allocator);
+    // A full facet mask is the widest receipt the bound must cover.
+    const receipt = try (Receipt{ .intent = bytes, .result = bytes, .facets = std.math.maxInt(u64) }).encodeAlloc(std.testing.allocator);
     defer std.testing.allocator.free(receipt);
     try std.testing.expectEqual(receipt.len, try Receipt.encodedSizeBound(bytes.len, bytes.len));
     try std.testing.expectError(error.Overflow, Codec.encodedSizeBound(Value, std.math.maxInt(usize), 0, 0, 0));

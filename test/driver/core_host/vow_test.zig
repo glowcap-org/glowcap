@@ -274,6 +274,8 @@ test "core host: releasing an in-flight enliven clears dedup state for immediate
     try std.testing.expectEqual(baseline_operations + 1, pair.a.pendingOperations());
     try client.vowRelease(first);
     try std.testing.expectEqual(baseline_operations, pair.a.pendingOperations());
+    // The answer row leaves with the release frame, which the park encodes.
+    try std.testing.expect(try client.flushHeldReleases());
     try std.testing.expectEqual(baseline_answers, pair.a.served.port.peer.session_state.outbound_answers.len());
 
     // The first release removed the session's in-flight swissnum marker. A
@@ -283,6 +285,7 @@ test "core host: releasing an in-flight enliven clears dedup state for immediate
     try std.testing.expect(retry != first);
     try client.vowRelease(retry);
     try std.testing.expectEqual(baseline_operations, pair.a.pendingOperations());
+    try std.testing.expect(try client.flushHeldReleases());
     try std.testing.expectEqual(baseline_answers, pair.a.served.port.peer.session_state.outbound_answers.len());
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
 }

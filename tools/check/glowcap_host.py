@@ -3,8 +3,8 @@
 
 Uses the public CLI from a foreign cwd. Docker is a recording fixture here;
 the release workflow separately runs the actual image on both Linux targets.
-Damaged inventories, unrelated executables, failed builds, and a missing
-database secret must fail without activating or destroying another product.
+Damaged inventories, unrelated executables, and failed builds must fail
+without activating or destroying another product.
 The build gives installation, deployment, and the exhausted query budget
 separate process limits. Individual product commands also retain their deadlines.
 """
@@ -145,13 +145,13 @@ if os.environ.get('FAIL_INSPECT') and a[:2] == ['image', 'inspect'] and '--forma
     sys.exit(1)
 image = 'sha256:' + 'a' * 64
 if a[:2] == ['volume', 'ls'] and os.environ.get('EXISTING_VOLUME'):
-    print('glowcap-rooms-postgres\\nglowcap-rooms-session-state\\nglowcap-rooms-directory-state\\noperator-extra-volume')
-    if os.environ.get('CUSTOM_VOLUMES'): print('custom-session\\ncustom-directory\\ncustom-postgres')
+    print('glowcap-rooms-session-state\\nglowcap-rooms-directory-state\\noperator-extra-volume')
+    if os.environ.get('CUSTOM_VOLUMES'): print('custom-session\\ncustom-directory')
 if a[:1] == ['compose'] and a[-3:] == ['config', '--format', 'json']:
     prefix = 'custom-' if os.environ.get('CUSTOM_VOLUMES') else 'glowcap-rooms-'
-    names = ['session', 'directory', 'postgres'] if os.environ.get('CUSTOM_VOLUMES') else ['session-state', 'directory-state', 'postgres']
+    names = ['session', 'directory'] if os.environ.get('CUSTOM_VOLUMES') else ['session-state', 'directory-state']
     model = {'services': {}, 'volumes': {}}
-    for service, source, target, name in zip(['session', 'directory', 'postgres'], ['session-state', 'directory-state', 'postgres'], ['/session-state', '/state', '/var/lib/postgresql'], names):
+    for service, source, target, name in zip(['session', 'directory'], ['session-state', 'directory-state'], ['/session-state', '/state'], names):
         model['services'][service] = {'volumes': [{'type': 'volume', 'source': source, 'target': target}]}
         model['volumes'][source] = {'name': prefix + name, 'external': bool(os.environ.get('EXTERNAL_VOLUMES'))}
     if os.environ.get('BIND_VOLUME'): model['services']['session']['volumes'][0]['type'] = 'bind'
@@ -201,19 +201,6 @@ def deployment(binary, root, scratch):
                    "--dir", workspace, env=env, **kwargs)
     call("doctor")
     assert not workspace.exists(), "doctor created state"
-    env["EXISTING_VOLUME"] = "1"
-    call("up", "--image", "example/rooms:test", ok=False)
-    assert not (workspace / "secrets/storage-db-password").exists()
-    # A failed first up leaves a directory, not a configured deployment.
-    # Reset must protect an existing database before selecting a missing image.
-    before_calls = log.read_text()
-    incomplete = call("reset", "all", "--yes", ok=False)
-    assert "MissingDatabaseSecret" in incomplete.stderr and str(workspace) in incomplete.stderr, incomplete.stderr
-    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
-    assert not any("up" in a or "down" in a or a[:2] == ["volume", "rm"] for a in new_calls)
-    diagnosis = call("doctor")
-    assert "selected image: none" in diagnosis.stdout and "database secret: missing" in diagnosis.stdout
-    del env["EXISTING_VOLUME"]
     before_up = log.read_text()
     started = call("up", "--image", "example/rooms:test")
     assert "Shared-session workspace capability:\nocapn://fixture" in started.stdout, started.stdout
@@ -233,31 +220,6 @@ def deployment(binary, root, scratch):
                         if json.loads(line)[-2:] == ["directory", "capabilities"])
     assert "GLOWCAP_ROOMS_LOCATOR=ocapn://fixture" in capabilities, capabilities
     assert any(value.startswith("GLOWCAP_ROOMS_TRACE_LOCATOR=ocapn://127.0.0.1%3A9300.tcp") for value in capabilities), capabilities
-    secret = workspace / "secrets/storage-db-password"
-    password = secret.read_bytes()
-    assert len(password.strip()) == 64 and secret.stat().st_mode & 0o777 == 0o600
-    diagnosis = call("doctor")
-    assert "database secret: present (not authenticated)" in diagnosis.stdout
-    assert password.decode().strip() not in diagnosis.stdout + diagnosis.stderr
-    # A selected image alone does not make reset safe to restart.
-    env["EXISTING_VOLUME"] = "1"
-    secret.unlink()
-    before_calls = log.read_text()
-    incomplete = call("reset", "all", "--yes", ok=False)
-    assert "MissingDatabaseSecret" in incomplete.stderr and str(workspace) in incomplete.stderr
-    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
-    assert not any("up" in a or "down" in a or a[:2] == ["volume", "rm"] for a in new_calls)
-    secret.write_bytes(b"\n")
-    diagnosis = call("doctor")
-    assert "database secret: empty" in diagnosis.stdout
-    before_calls = log.read_text()
-    incomplete = call("reset", "all", "--yes", ok=False)
-    assert "EmptyDatabaseSecret" in incomplete.stderr and str(workspace) in incomplete.stderr
-    new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
-    assert not any("up" in a or "down" in a or a[:2] == ["volume", "rm"] for a in new_calls)
-    secret.write_bytes(password)
-    secret.chmod(0o600)
-    del env["EXISTING_VOLUME"]
     selection = (workspace / "image").read_text()
     assert selection == "sha256:" + "a" * 64 + "\n"
     override = workspace / "docker-compose.override.yml"
@@ -267,7 +229,7 @@ def deployment(binary, root, scratch):
     call("up")
     up_calls = [json.loads(line) for line in log.read_text()[before_up:].splitlines()]
     assert not any("--force-recreate" in args for args in up_calls), "unchanged up forcibly replaced healthy services"
-    assert override.read_bytes() == before and secret.read_bytes() == password
+    assert override.read_bytes() == before
     assert not (workspace / ".operation-lock").exists()
     assert not list(workspace.glob(".image-build-*"))
     before_restart = len(log.read_text())
@@ -279,7 +241,7 @@ def deployment(binary, root, scratch):
     waited = next(i for i, args in enumerate(restart_calls) if "up" in args and "--wait" in args)
     assert restarted < waited, "restart returned before checking service health"
     assert (workspace / "image").read_text() == selection
-    assert override.read_bytes() == before and secret.read_bytes() == password
+    assert override.read_bytes() == before
     # A recoverable probe may trigger a pull, but its diagnostics still belong
     # to the operator rather than disappearing into the presence check.
     env["FAIL_INSPECT"] = "1"
@@ -335,7 +297,6 @@ def deployment(binary, root, scratch):
     before_calls = log.read_text()
     call("status")
     call("down")
-    assert secret.read_bytes() == password
     assert not any(json.loads(line)[:2] == ["volume", "rm"] for line in log.read_text()[len(before_calls):].splitlines())
     compose = "\n".join(line.split("#", 1)[0] for line in (workspace / "compose.yml").read_text().splitlines())
     assert "zig-out" not in compose and ":/runtime" not in compose, "deployment mounts mutable build output"
@@ -347,8 +308,7 @@ def deployment(binary, root, scratch):
     assert "ConfirmationRequired" in refusal.stderr
     new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
     assert not any(a[:2] == ["volume", "rm"] or "down" in a for a in new_calls)
-    volumes = {"session": "glowcap-rooms-session-state", "state": "glowcap-rooms-directory-state",
-               "storage": "glowcap-rooms-postgres"}
+    volumes = {"session": "glowcap-rooms-session-state", "state": "glowcap-rooms-directory-state"}
     for unit in (*volumes, "all"):
         before_calls = log.read_text()
         reset = call("reset", unit, "--yes")
@@ -360,16 +320,15 @@ def deployment(binary, root, scratch):
         assert removed == (list(volumes.values()) if unit == "all" else [volumes[unit]])
         assert next(i for i, a in enumerate(new_calls) if "down" in a) < next(i for i, a in enumerate(new_calls) if a[:2] == ["volume", "rm"])
         assert next(i for i, a in enumerate(new_calls) if "up" in a) > max(i for i, a in enumerate(new_calls) if a[:2] == ["volume", "rm"])
-        assert secret.read_bytes() == password
-    env["FAIL_VOLUME"] = volumes["storage"]
+    env["FAIL_VOLUME"] = volumes["state"]
     before_calls = log.read_text()
     failure = call("reset", "all", "--yes", ok=False)
-    assert "stack remains stopped" in failure.stderr and volumes["storage"] in failure.stderr
+    assert "stack remains stopped" in failure.stderr and volumes["state"] in failure.stderr
     new_calls = [json.loads(line) for line in log.read_text()[len(before_calls):].splitlines()]
     assert [a[-1] for a in new_calls if a[:2] == ["volume", "rm"]] == list(volumes.values())
     assert not any("up" in a for a in new_calls), "partial reset silently restarted"
     del env["FAIL_VOLUME"]
-    selected_volumes(call, env, log, secret, password)
+    selected_volumes(call, env, log)
     print("glowcap-host-test: verified install, atomic selection, refusal and Docker command lifecycle passed")
 
 

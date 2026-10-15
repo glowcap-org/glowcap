@@ -233,6 +233,11 @@ const ScriptPlatform = struct {
     pub fn submitAccept(_: *ScriptPlatform, _: u64, _: Fd) !void {
         delegated_accepts += 1;
     }
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *ScriptPlatform, out: []net.completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     pub fn poll(_: *ScriptPlatform, out: []net.completion.Completion, _: i32) !usize {
         if (!emit_platform_readiness) return 0;
         emit_platform_readiness = false;
@@ -455,7 +460,7 @@ test "managed iroh: dial admission pressure retains its retry classification" {
     var adapter = try iroh.MultiplexedAdapter.init(std.testing.allocator, &endpoint);
     defer std.debug.assert(adapter.deinit() == null);
     dial_start_result = 7;
-    const outcome = adapter.multiplexed().dialer().?.startDial(1, iroh.locator("node"), .inherit);
+    const outcome = adapter.multiplexed().dialer().?.startDial(1, iroh.locator("node"), .inherit, .application);
     const failure = outcome.failed;
     try std.testing.expectEqual(error.WouldBlock, failure.classification);
     try std.testing.expectEqual(error.WouldBlock, failure.chain.cause);

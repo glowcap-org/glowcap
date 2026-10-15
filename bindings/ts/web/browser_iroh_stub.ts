@@ -1,4 +1,4 @@
-// Browser arm of @glowcap/iroh: iroh is a native-only transport, so a browser
+// Browser arm of @glowcap/iroh: iroh is an FFI-only transport, so a browser
 // dial rides a byte relay instead of QUIC. `browser-bundle.json` maps
 // `@glowcap/iroh` (and `/internal`) here; the runtime's one dial path
 // (`dial.ts`'s peer-id arm) lands in `_connectIroh`, which opens a WebSocket
@@ -16,11 +16,11 @@ import { IROH_RELAY_DIAL_ALLOWANCE_MS } from "./relay_budget.ts";
 // single byte moves, so the caller's handshake bound is widened by that budget
 // here. Otherwise a dial that is still working reads as
 // a silent partner.
-const NATIVE_ONLY =
-	"glowcap web: iroh is a native-only transport; a browser needs init({ relayUrl }) naming a byte relay to dial it";
+const FFI_ONLY =
+	"glowcap web: iroh is an FFI-only transport; a browser needs init({ relayUrl }) naming a byte relay to dial it";
 
 const unavailable = (): never => {
-	throw new Error(NATIVE_ONLY);
+	throw new Error(FFI_ONLY);
 };
 
 export const listen = unavailable;
@@ -43,7 +43,7 @@ export class IrohServer {
 
 /** The runtime's peer-id dial arm in a browser: open the configured relay's
  * WebSocket for the locator and establish the session over that byte pipe.
- * Signature mirrors the native `_connectIroh(nodeId, directAddresses,
+ * Signature mirrors the FFI `_connectIroh(nodeId, directAddresses,
  * reachability, host, handshakeTimeoutMs)`; reachability is the relay's concern
  * here, so it is accepted and unused. The handshake bound is not: a relay that
  * accepts this socket and then never bridges anything is exactly the silent
@@ -51,7 +51,7 @@ export class IrohServer {
  * socket's behalf. A caller that asked for no bound still gets none.
  *
  * The session is told that the far end holds `nodeId`
- * (`Session.bindVerifiedChannelKey`, ADR-0105). The native arm reads that off
+ * (`Session.bindVerifiedChannelKey`, ADR-0105). The FFI arm reads that off
  * the QUIC connection it opened; here the relay opened it, and iroh completes a
  * dial only against the endpoint it was asked for, so the fact is the relay's
  * and this passes it on. It rests on the relay being the one the page was
@@ -70,7 +70,7 @@ export async function _connectIroh(
 	handshakeTimeoutMs?: number | null,
 ): Promise<unknown> {
 	const relayUrl = _relayUrl();
-	if (relayUrl === null) throw new Error(NATIVE_ONLY);
+	if (relayUrl === null) throw new Error(FFI_ONLY);
 	const runtimeApi = await import("@glowcap/runtime");
 	const hints = new Map<string, string>();
 	if (directAddresses.length > 0) {

@@ -1,6 +1,6 @@
 ---
 .title = "What you can depend on",
-.description = "The recurring evidence behind glowcap's protocol, transports, bindings, and platforms.",
+.description = "The checks behind glowcap's protocol, transports, bindings, and platforms.",
 .date = .date("2026-07-25T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -9,14 +9,15 @@
 glowcap has no stable release yet. Pin a commit, and treat the API as able to
 move. None of the checks below is a compatibility or security promise.
 
-Three kinds of evidence sit behind a claim:
+Three kinds of checks sit behind a claim:
 
-- In-tree checks (`zig build check`) show glowcap agrees with itself: scenarios,
-  fixtures, budgets, and public examples.
-- Recurring live checks on every main and `dev` push and every pull request
-  talk to the upstream OCapN suite and to a
-  [Spritely Goblins](https://spritely.institute/goblins/) vat. A Chromium Wasm
-  peer over local WSS is in that recurring set.
+- Checks in the repository (`zig build check`) show glowcap agrees with itself:
+  scenarios, fixtures, budgets, and public examples.
+- Recurring live checks on every push to the main and `dev` branches talk to the upstream
+  OCapN suite and to a
+  [Spritely Goblins](https://spritely.institute/goblins/) vat. A Chromium browser
+  running the WebAssembly build also connects over a local secure WebSocket. A pull request runs the Zig
+  tests and formatting only.
 - On-demand checks cover Tor, two-NAT iroh, public certificates, and
   browser-to-browser WebRTC.
 
@@ -24,7 +25,7 @@ A live Goblins session proves protocol interop, not API stability. A live iroh
 endpoint proves the transport stack, not agreement with another CapTP
 implementation.
 
-The evidence is current only when the
+These results count only when the
 [checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
 is green for the commit you are evaluating. The
 [repository stability page](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)

@@ -20,7 +20,7 @@ import process from "node:process";
 import { formatPeerUri, TRANSPORT_KEYED_RELAY } from "@glowcap/runtime";
 import { recordingReplyDm } from "../../lib/dm_reply.ts";
 import { inboxPublisher } from "../../lib/dm_inbox.ts";
-import { startServer } from "../support/native_server.ts";
+import { startServer } from "../support/installed_server.ts";
 import { dial, loopbackTcpDesignator, roomsHost, roomsListen } from "../../lib/locator.ts";
 import { enterOrOpen } from "../../lib/enter_room.ts";
 import { DirectMessage, Directory, Room } from "../../lib/room/client.ts";

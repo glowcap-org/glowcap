@@ -273,7 +273,7 @@ pub struct Connection<'a> {
 mod blocking;
 
 #[cfg(feature = "async")]
-/// A native-loop onion listener yielding ordinary high-level [`Session`]s.
+/// A driver-loop onion listener yielding ordinary high-level [`Session`]s.
 ///
 /// The generic driver owns Tor execution, admission, and accepted-session
 /// pumping. This type exposes only the driver's canonical locator and the
@@ -343,8 +343,8 @@ pub async fn listen(config: Config<'_>, options: ListenOptions) -> Result<Server
 	let (listener, service_key) = crate::server::bind_loop_listener(
 		options.identity,
 		crate::abi_constants::TRANSPORT_ONION,
-		|_host, lp| std::future::ready(ensure_loop_provider(&lp, &config).map(|()| String::new())),
-		|lp, listener, _designator| lp.listener_restoration_state(listener),
+		|_host, lp| std::future::ready(ensure_loop_provider(&lp, &config).map(|()| (String::new(), ()))),
+		|lp, listener, _designator, ()| lp.listener_restoration_state(listener),
 	)
 	.await?;
 	Ok(Server { listener, service_key })

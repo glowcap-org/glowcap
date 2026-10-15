@@ -73,7 +73,7 @@
          break-far-vows-bytes!
          transport-closed-bytes!)
 
-;; The Session or Host whose native progress call is running. Hosted callbacks
+;; The Session or Host whose FFI progress call is running. Hosted callbacks
 ;; fire synchronously inside that call; the turn itself then identifies the
 ;; exact ingress Session.
 (define current-deliver-owner (make-parameter #f))
@@ -154,7 +154,7 @@
                          (void))])
         (fire)))
     (when (drain-effects-resume current)
-      ;; A native yield is an explicit scheduler boundary. Run its continuation
+      ;; An FFI yield is an explicit scheduler boundary. Run its continuation
       ;; in a nested Racket thread: the caller still joins the complete drain,
       ;; while progress does not depend on an elapsed-time sleep or immediate
       ;; re-entry into the FFI callback's scheduler turn.
@@ -389,7 +389,7 @@
         (lambda ()
           ;; Release and feed serialize on this same host lock. The guard must
           ;; live here, not before lock acquisition, or close can free the
-          ;; native handle while this thread is waiting to feed it.
+          ;; FFI handle while this thread is waiting to feed it.
           (guard-open 'session-serve c)
           (define buf (pin-immobile got))
           (define rc
@@ -503,7 +503,7 @@
         (lambda ()
           (transport-closed-bytes! c #"connection closed"))))
     ;; EOF is terminal ownership, not only a promise notification. Retire the
-    ;; native session so the Host's strong session registry cannot retain one
+    ;; FFI session so the Host's strong session registry cannot retain one
     ;; dead row per disconnected partner.
     (close-session-transport! c)
     (with-handlers ([(lambda (_) #t)

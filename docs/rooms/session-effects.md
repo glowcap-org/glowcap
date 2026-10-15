@@ -1,131 +1,149 @@
+---
+type: static
+description: How Rooms managed commands keep source admission, held targets, and recoverable outcomes across external effects.
+sources:
+  - resource: /apps/rooms/rust/application/src/content/session/
+  - resource: /apps/rooms/rust/proofs/src/session_executor.rs
+---
+
 # Rooms session admission and effect execution
 
-Living-state surface. The [session guide](session.md) maps production owners
-and startup. This page describes how managed commands preserve source admission,
-target custody and recoverable outcomes across external effects.
+When a session posts a line, joins a room or changes a grant, the answer can
+be lost. Each such change records who made it and what it targets before it
+runs, so its outcome can be found again after a crash. The
+[session guide](session.md) says which code owns each part.
 
 ## Admission and receipts
 
-`content::session::requirements` declares application admission. `EffectReceipt`
-records the original source, resource incarnation, exact target fields and
-canonical intent before dispatch. Typed custody resolves each selected target
-once. Local and wire calls use the same executor. Local ownership retains
-explicit root use and control capabilities.
+`content::session::requirements` declares which permissions each change
+needs. Before a change is sent, its `EffectReceipt` records the original
+source, the resource incarnation, the exact target fields and the canonical
+request. Typed storage resolves each selected target once. Local calls and
+calls over the wire use the same executor, and a local owner holds explicit
+root use and control capabilities.
 
-The shared hosting boundary retains an owned continuation, its bounded reply
-allowance and completion/cancellation custody. Confirmed receipt commit
-activates dispatch. Abort discards the reservation. Unknown commit retains it
-behind recovery. A borrowed callback invocation cannot outlive its turn.
+The shared Host keeps an owned continuation for each change: a bounded reply
+allowance and the right to complete or cancel it. The change is sent only
+once its receipt is confirmed committed. If the commit aborts, the
+reservation is discarded. If the commit outcome is unknown, the reservation
+waits for recovery. A borrowed callback cannot outlive its turn.
 
-Dispatch, recovery and protected delivery recheck the original source and
-target authority. Replacement of a conversation or custody slot cannot redirect
-pending work. Returned capabilities stay exact retained results. Replay cannot
-mint replacements. Malformed acknowledgments preserve uncertainty even when
-the upstream operation applied.
+Sending, recovery and protected delivery all recheck the original source and
+its authority over the target. Replacing a conversation or a storage slot
+cannot redirect pending work. A returned capability is kept exactly as it
+came back, and a replay cannot mint a new one. A malformed acknowledgment
+leaves the outcome unknown even if the change did happen upstream.
 
-Recovery requires the caller's held pending-effect or result authority together
-with ResolvePending. An operation ID cannot select another grant's receipt.
-Concurrent resumes share one dispatch owner. Changed intent refuses, and replay
-pressure cannot evict an unresolved receipt. A missing receipt confirms absence.
-It does not authorize preparing or resending the original effect.
+Recovery needs the caller's own pending-change or result authority plus
+`ResolvePending`. An operation ID cannot select another grant's receipt.
+Concurrent resumes share one sender. A changed request is refused, and
+replay pressure cannot evict an unresolved receipt. A missing receipt
+confirms the change never happened, and does not permit preparing or
+resending it.
 
 ## Cancellation, source loss and shutdown
 
-Canceling a caller's wait releases its observer. Committed work retains its
-targets and private execution through settlement. Source pause or revocation
-prevents further dispatch and protected disclosure, while exact completed
-custody remains available to internal settlement.
+Cancelling a caller's wait releases only its observer. Committed work keeps
+its targets and runs to settlement. Pausing or revoking the source stops any
+further sending and protected disclosure, while the completed result stays
+available to settle internally.
 
-The executor distinguishes failure before target admission (`unsent`) from
-failure afterward (`unknown`). The application receipt owns the judgment about
-durable application. Temporary result allocation refusal keeps the completed
-reply for retry without redispatch. Permanent reply-size or identity refusal
-settles as unknown instead of retrying forever.
+The executor tells a failure before the target admitted the change
+(`unsent`) from a failure after it (`unknown`). The application receipt
+decides whether the change took effect durably. If memory for the result is
+refused temporarily, the completed reply is kept for a retry without sending the
+change again. A reply too large, or with the wrong identity, settles as
+unknown instead of retrying forever.
 
-Shutdown drains physical workers before releasing their buffers. Failed close
-retains the full composition for another attempt, including its original serving
-tasks. The Host remains alive while private settlement needs it. Durable receipts
-remain until explicit terminal retirement.
+Shutdown drains workers before releasing their buffers. A failed close keeps
+everything, including the original serving tasks, for another attempt. The
+Host stays alive while settlement still needs it, and durable receipts stay
+until they are explicitly retired.
 
 ## Atomic acquisition
 
-Workspace acquisition retains source, imported capabilities, expected revision
-and complete candidate intent across cancellation and retry. ManageCustody and
-ReplaceWorkspace are required. Stale revisions return explicit conflict before
-saving capabilities or changing content. Unknown replies keep the original
-candidate. Only confirmed conflict permits bounded re-preparation through the
-same source.
+Saving a whole workspace keeps the source, imported capabilities, expected
+revision and the complete candidate across cancellation and retry. It needs
+`ManageCustody` and `ReplaceWorkspace`. A stale revision returns a conflict
+before any capability is saved or content changes. An unknown reply keeps the
+original candidate. Only a confirmed conflict allows preparing it again, a
+bounded number of times, through the same source.
 
-Result acquisition atomically adopts seat, topic, file and initiating endpoint
-fields with intent. Invalid selection imports nothing. Exact replay changes no
-revision, and intervening edits refuse the retained candidate. Receipt targets
-retain independent occurrences when workspace custody is released.
+Saving a result adopts its seat, topic, file and initiating endpoint fields
+together with the request. An invalid selection imports nothing. An exact
+replay changes no revision, and edits made in between refuse the kept
+candidate. Receipt targets keep their own references when workspace storage
+is released.
 
-Occupied custody accepts only the same actual capability, with its checked role
-and generation. Releasing local fields requires no working upstream grant and
-restores no predecessor authority. Created-room adoption appends through the
-receipt's exact directory target while preserving unrelated current fields.
-Removing or replacing that directory refuses adoption.
+An occupied slot accepts only the same capability, with its checked role and
+generation. Releasing local fields needs no working upstream grant and brings
+back no earlier authority. Adopting a created room appends it through the
+receipt's exact directory target and leaves unrelated fields alone. If that
+directory was removed or replaced, adoption is refused.
 
 ## Exact upstream operations
 
-Application dispatch declarations own argument validation and role selection.
-Entry, RoomAccess and RoomControl remain separate actual targets. Moderation,
-policy edits and unregistration use the selected management capability.
-Missing moderation authority cannot fall back to entry. `ensureRoomLink`
-uses RoomControl and saves its returned RoomAccess separately from descriptive
+Application dispatch declarations validate arguments and pick the role.
+Entry, RoomAccess and RoomControl stay separate targets. Moderation, policy
+edits and unregistration use the selected management capability, and missing
+moderation authority never falls back to entry. `ensureRoomLink` uses
+RoomControl and saves the RoomAccess it returns apart from the descriptive
 coordinates.
 
-Discovery and introductions retain selected directory/name fields. Direct
-transitions retain the actual inbox, source, scalar arguments and registration
-witness. Interrupted observation and settlement keep those same targets.
-Canonical upstream conversation identity and generation govern history and
-line identity. Session permissions add admission. They cannot replace upstream
-membership or authorship checks.
+Discovery and introductions keep the selected directory and name. Direct
+conversations keep the actual inbox, source, arguments and registration
+witness, and an interrupted observation or settlement keeps those same
+targets. The upstream conversation's identity and generation decide history
+and line identity. Session permissions add a check of their own. They never
+replace the room's membership or authorship checks.
 
 ## Files and mediated readers
 
-Room uploads retain original RoomFiles, optional Line and source blobs before
-dispatch. Confirmed staging precedes post/refile. The acknowledged primary
-effect precedes bounded filling. If filling fails, the applied line remains
-with an explicit incomplete-file outcome. The worker retains its complete fill
-future through interruption, including an append awaiting acknowledgment.
-Sender leases pin sources through settlement. Expiry and in-flight reads own
-independent lifetimes.
+A room upload keeps the original RoomFiles, the optional Line and the source
+blobs before anything is sent.
 
-Direct delivery lends shared read scopes over the admitted sources, then sends
-one direct post/refile. Those scopes keep immutable continuation custody after
-worker retirement. They allow only the declared read methods and capability
-results. Delivery stages no file bytes and performs no source reads.
+- Staging is confirmed before the post or refile. The post is acknowledged
+  before the file is filled, in bounded pieces.
+- If filling fails, the posted line stays, marked as having an incomplete
+  file.
+- The worker keeps the whole fill through an interruption, including an
+  append still waiting for acknowledgment.
+- Sender leases hold the sources until settlement. Expiry and reads already
+  in flight have their own lifetimes.
 
-History, archive and file facades retain exact upstream targets and the original
-session source. Every chunk and protected result rechecks both admissions.
-Independent archive selection needs ReadArchive. Files also need ReadFile.
-Explicit reader release prevents disclosure from an in-flight read.
-Forwarding budgets derive complete page and blob reply demand from application
-bounds and shared sizing, with bounded temporary result storage.
+Direct delivery lends shared read access to the admitted sources, then sends
+one direct post or refile. That access outlives the worker that created it,
+and allows only the declared read methods and capability results. Delivery
+copies no file bytes and reads no source itself.
+
+History, archive and file readers keep their exact upstream targets and the
+original session source, and every chunk and protected result rechecks both.
+Choosing an archive needs `ReadArchive`, and files also need `ReadFile`.
+Releasing a reader stops disclosure from a read already in flight. Forwarding
+budgets for whole pages and blobs come from application limits and shared
+sizing, with bounded temporary storage for results.
 
 ## Observation
 
-Snapshot, watch and local observation use the same source admission. The runtime
-materializes one snapshot per tick and projects it for each checked source.
-Observation registrations retain exact receiver, authenticated cursor and
-cancellation custody. Policy narrowing and source loss invalidate cached lines,
-previews, roster and unread summaries. Queued delivery after loss reveals status
-only. Independent cancellation cannot retire another receiver.
+Snapshots, watches and local observation pass the same source check. The
+runtime builds one snapshot per tick and projects it for each checked source.
+A registration keeps its exact receiver, authenticated cursor and the right
+to cancel. Narrowing a policy or losing the source invalidates cached lines,
+previews, roster and unread counts. Delivery queued after that loss reveals
+only status. Cancelling one receiver cannot retire another.
 
 ## Evidence
 
-The shared Zig owning-delivery proofs check exact arguments and replies, failed
-turn rollback, Host retirement, forwarding, deferred refusal and cancellation.
-C/Rust continuation limits project count, bytes, target occurrences and reply
-capacity from that owner. Reservations borrow the turn. Confirmation transfers
-custody once to the executor.
+The shared Zig delivery tests check exact arguments and replies, rollback of
+a failed turn, Host retirement, forwarding, deferred refusal and
+cancellation. The C and Rust continuation limits on count, bytes, target
+references and reply capacity come from that same owner. A reservation
+borrows the turn, and confirmation hands it to the executor once.
 
 The [runtime executor scenarios](../../apps/rooms/rust/proofs/src/session_executor.rs)
-run the same contracts on Linux and Chromium. They cover pause/revoke during
-waits, replacement before polling, wrong recovery grants, duplicate resumes,
-lost replies, constructor/refill refusal and cold unresolved replay without
-another upstream act. LMDB and IndexedDB proofs physically reopen storage and
-retain the foreign exporter. Production page journeys additionally establish
-consumer adoption, shared-session recovery, files and management behavior.
+run the same contracts on Linux and Chromium. They cover pause and revoke
+during a wait, replacement before polling, wrong recovery grants, duplicate
+resumes, lost replies, refused construction or refill, and replaying a cold
+unresolved change without another upstream act. The SQLite and IndexedDB tests
+reopen real storage and keep the foreign exporter. The production page tests
+add saving results, shared-session recovery, files and management.

@@ -1,11 +1,11 @@
 const std = @import("std");
 const glowcap = @import("glowcap");
-const native_relay = @import("native_relay");
+const relay_tls = @import("relay_tls");
 
 pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
     // The key names the peer; the hint names the relay that can reach it.
     const relay_url = "wss://relay.example/relay";
-    var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+    var tls = switch (relay_tls.initTlsOwner(io, allocator, .system)) {
         .ready => |ready| ready.owner,
         .failed => return error.RelayUnavailable,
     };

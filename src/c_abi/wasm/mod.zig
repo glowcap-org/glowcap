@@ -37,20 +37,22 @@ comptime {
 /// `glowcap_*` call, then frees it with `glowcap_wasm_free` once the call
 /// returns. The caller tracks `len`. Free must pass the same value.
 ///
-/// The returned offset is byte-aligned only. A caller that stores a wider type
-/// here (an out-parameter struct such as `GlowcapManagedFrame`) relies on
-/// wasm's unaligned linear-memory access, which is well defined on this target.
+/// The returned offset is 8-aligned, because an input the library reads as
+/// words (a `GLOWCAP_ARG_INTEGERS` run) must be, and an out-parameter struct
+/// such as `GlowcapManagedFrame` lands on its own alignment.
 export fn glowcap_wasm_alloc(len: usize) usize {
     if (len == 0) return 0;
-    const buf = shared.library_allocator.alloc(u8, len) catch return 0;
+    const buf = shared.library_allocator.alignedAlloc(u8, wasm_block_alignment, len) catch return 0;
     return @intFromPtr(buf.ptr);
 }
+
+const wasm_block_alignment: std.mem.Alignment = .@"8";
 
 /// Free a block from `glowcap_wasm_alloc`. `ptr`/`len` must match the values the
 /// allocation returned and requested. A zero pointer or length is a no-op.
 export fn glowcap_wasm_free(ptr: usize, len: usize) void {
     if (ptr == 0 or len == 0) return;
-    const p: [*]u8 = @ptrFromInt(ptr);
+    const p: [*]align(wasm_block_alignment.toByteUnits()) u8 = @ptrFromInt(ptr);
     shared.library_allocator.free(p[0..len]);
 }
 
@@ -159,7 +161,7 @@ export fn glowcap_wasm_loam_archive_fingerprint() u64 {
 // shared imported trampoline as its behavior and tells objects apart by the
 // `ctx` argument. The JavaScript adapter supplies the behavior import and a
 // separately typed hosted-free import. The latter drops the JS registry row
-// exactly when the native actor loses its final root; retaining every displaced
+// exactly when the Zig actor loses its final root; retaining every displaced
 // publication until Host close would turn alias churn into an unbounded leak.
 // These are adapter seams only: the module adds no CapTP semantics, and the
 // ctx→object ownership stays in the browser adapter (ADR-0070 Milestone 1).
@@ -167,7 +169,7 @@ export fn glowcap_wasm_loam_archive_fingerprint() u64 {
 /// The one behavior trampoline the browser adapter implements. Its signature
 /// mirrors `GlowcapHostBehavior`. On wasm32 every pointer and `usize`
 /// is an `i32`, so the seven parameters and the `i32` result are all `i32` on
-/// the wire. The vat calls it through the same fn-pointer path a native host
+/// the wire. The vat calls it through the same fn-pointer path a Zig host
 /// uses. The vat borrows `verb`/`args` for the call and copies `out_reply`'s
 /// payload the instant the trampoline returns, so the adapter keeps those bytes
 /// valid across the return. Any non-OK return settles the answer broken.
@@ -181,8 +183,8 @@ extern "env" fn glowcap_behavior_trampoline(
     out_reply: *shared.GlowcapArgument,
 ) callconv(.c) i32;
 
-/// Notify the JavaScript adapter that native ownership of a hosted behavior
-/// ended. Its signature mirrors `GlowcapHostFree`.
+/// Notify the JavaScript adapter that Zig ownership of a hosted behavior
+/// ended. Its signature mirrors `GlowcapHostCtxFree`.
 extern "env" fn glowcap_hosted_free_trampoline(ctx: ?*anyopaque) callconv(.c) void;
 
 /// Return the behavior function pointer the browser adapter registers when it

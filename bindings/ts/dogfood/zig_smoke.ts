@@ -16,13 +16,13 @@ await ensureRuntimeReady();
 
 await shared.run();
 
-// Bun's FFI runs native calls on the JavaScript thread. It can use the
-// byte-fed client path, but it cannot host a native-driver listener or own a
+// Bun's FFI runs calls on the JavaScript thread. It can use the
+// byte-fed client path, but it cannot host a driver listener or own a
 // blocking transport lifecycle until its adapter gains a worker executor.
 // Prove that boundary, then stop before the Deno-only listener scenarios.
 if (runtime === "bun") {
 	await bunRefusals.run();
-	ok("proved Host and locator ABI surfaces and refused parking native lifecycles");
+	ok("proved Host and locator ABI surfaces and refused parking FFI lifecycles");
 	process.exit(0);
 }
 

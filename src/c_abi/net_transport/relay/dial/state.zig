@@ -1,4 +1,4 @@
-//! One cancelable native relay dial owned by the multiplexed runtime.
+//! One cancelable relay dial owned by the multiplexed runtime.
 
 const std = @import("std");
 

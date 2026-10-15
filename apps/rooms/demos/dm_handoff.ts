@@ -35,7 +35,7 @@
 import process from "node:process";
 import { Ref } from "@glowcap/runtime";
 import type { Behavior, Host, Session } from "@glowcap/runtime";
-import type { ServerEndpoint } from "../test/support/native_server.ts";
+import type { ServerEndpoint } from "../test/support/installed_server.ts";
 import { dial } from "../lib/locator.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "../lib/protocol.ts";
 import { INTRODUCTION_PENDING, roomsErrorOf } from "../lib/errors.ts";
@@ -76,7 +76,7 @@ export interface DmTransport {
 	 * setup is synchronous returns the endpoint directly rather than wrapping it
 	 * in an idle promise. */
 	startMember(who: string): MemberEndpoint | Promise<MemberEndpoint>;
-	/** Start the native rendezvous server and wait for its dialable locator. */
+	/** Start the rendezvous server and wait for its dialable locator. */
 	startRoom(): ServerEndpoint | Promise<ServerEndpoint>;
 }
 

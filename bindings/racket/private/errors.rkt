@@ -75,7 +75,7 @@
 ;; archive's own last-error slot.
 (define (check/host code) (check-with code host-last-error))
 
-;; Whether a final native release crossed its ownership boundary. The Host and
+;; Whether a final FFI release crossed its ownership boundary. The Host and
 ;; driver release contracts share one pre-commit refusal: INVALID-ARGUMENT.
 ;; Every other result is a teardown outcome and names an already-consumed
 ;; handle, even when `check/host` or `check/driver` must still raise it.
@@ -104,7 +104,7 @@
 
 ;; Raise the first lifecycle failure after cleanup has completed, attaching a
 ;; later failure when both are glowcap errors. This is the common close-barrier
-;; tail for native releases that consume their handle even when they report an
+;; tail for FFI releases that consume their handle even when they report an
 ;; error.
 (define (raise-retained-failures primary cleanup)
   (cond

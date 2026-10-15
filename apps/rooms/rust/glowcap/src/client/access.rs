@@ -2,7 +2,7 @@
 //! sequences belong to the caller's retained request, including after timeout.
 use super::*;
 use glowcap::loam::{
-	ControlDescription, ControlPowers, GrantDescription, InventoryPage, IssuePolicy, PolicyValue, UseDescription,
+	ControlDescription, ControlPowers, GrantDescription, InventoryPage, IssuePolicy, PolicyValue, Scope, UseDescription,
 };
 /// A reply the client parsed once before keeping it. The field stays private,
 /// so `validated` is the only way in and `view` re-reads what it admitted.
@@ -67,7 +67,7 @@ impl Issuance {
 		paused: bool,
 	) -> Self {
 		Self {
-			arguments: policy.issue_arguments(sequence, revision, depth, powers, label, paused),
+			arguments: policy.issue_arguments(sequence, revision, Scope::Object, depth, powers, label, paused),
 		}
 	}
 }

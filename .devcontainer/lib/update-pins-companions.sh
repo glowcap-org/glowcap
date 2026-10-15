@@ -43,10 +43,6 @@ glowcap_pins_companions() {
             printf '%s\t%s\t%s\n' \
                 apps/rooms/web/deploy/rooms.Dockerfile "gcr.io/distroless/cc-debian13@${old}" "gcr.io/distroless/cc-debian13@${new}"
             ;;
-        postgres)
-            printf '%s\t%s\t%s\n' \
-                apps/rooms/web/deploy/docker-compose.yml "postgres:${old}" "postgres:${new}"
-            ;;
         python)
             printf '%s\t%s\t%s\n' \
                 conformance/ocapn-conformance/pyproject.toml \

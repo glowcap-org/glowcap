@@ -34,6 +34,8 @@ pub fn startListener(
     tag: u64,
     observer: ListenerObserver,
 ) !void {
+    self.enterDriver();
+    defer self.leaveDriver();
     try Internal.admitApplicationOperation(self);
     const provider = Internal.providerFor(self, transport) orelse return Error.UnknownTransport;
     if (self.residents.items[provider.resident].resident.acceptor() == null)
@@ -114,7 +116,7 @@ pub fn startListener(
     }
 }
 
-/// Explicitly blocking native convenience over `startListener`. Product
+/// Explicitly blocking Zig convenience over `startListener`. Product
 /// loops and bindings use the staged operation directly.
 pub fn bindListener(
     self: *HostRuntime,
@@ -161,7 +163,7 @@ fn cancelListenerObserver(self: *HostRuntime, observer_ctx: *anyopaque) void {
 fn listenerSetupDeadline(self: *const HostRuntime) ?i64 {
     return switch (self.opts.listener_setup) {
         .unbounded => null,
-        .ms => |v| net.clock.nowMs(self.io) + v,
+        .ms => |v| self.nowMs() + v,
     };
 }
 
@@ -237,7 +239,7 @@ fn removePendingListener(self: *HostRuntime, row: *PendingListener) void {
 }
 
 pub fn advancePendingListeners(self: *HostRuntime) void {
-    const now = net.clock.nowMs(self.io);
+    const now = self.nowMs();
     var i: usize = 0;
     while (i < self.pending_listeners.items.len) {
         const row = self.pending_listeners.items[i];

@@ -66,7 +66,7 @@ same way. One table describes one wire shape.
 Each profile asks for answer notification differently. On V1.0 an
 answered `op:deliver` is augmented with a synthesized resolver export and
 settles through a callback deliver
-(`engine.v1_0.prepareOutboundDeliver`,
+(`engine.outbound.encoded.admit`,
 `engine.v1_0.encodeResolveAsCallback`,
 `session.v1_0.mintOutboundResolver`). Next sends an
 answered operation with no inline resolver, then follows it with a mandatory
@@ -123,7 +123,7 @@ amendment.
 - `engine.inbound.InboundDeliverClass.resolver_callback_resolve` classifies a
   resolver-callback deliver.
 - `src/ocapn/engine/listen.zig` is one verb with no allocation on the wire
-  path: `sendCopying` clones an `op:listen`'s two position-only references.
+  path: `sendBorrowed` clones an `op:listen`'s two position-only references.
   Three POD rows per live application listen, in tables no partner can grow:
   every row is minted by this side, so the bound is the application's
   listens. Next also maintains one private shortening subscription per remote

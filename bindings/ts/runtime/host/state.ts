@@ -46,8 +46,8 @@ import {
 	type FeatureSet,
 	INTEROP_CAPTP_VERSION,
 	INTEROP_CODEC,
-	NATIVE_CAPTP_VERSION,
-	NATIVE_CODEC,
+	OWN_CAPTP_VERSION,
+	OWN_CODEC,
 } from "../value.ts";
 import {
 	type HostFinalizerState,
@@ -119,7 +119,7 @@ export abstract class HostState {
 	// reachable for teardown, and `exporterFor` maps a redeemed reply's route
 	// (a GlowcapHostSession pointer) back to its `Session` wrapper.
 	protected readonly _sessions = new Map<Ptr, Session>();
-	// Physical channel closes can outlive the native Session pointer that
+	// Physical channel closes can outlive the FFI Session pointer that
 	// initiated them. Keep their promises at the Host barrier after the wrapper
 	// unregisters, so Host close cannot lose a late transport refusal.
 	protected readonly _sessionRetirements = new Set<Promise<void>>();
@@ -141,8 +141,8 @@ export abstract class HostState {
 		readonly controller: AbortController;
 		readonly promise: Promise<void>;
 	}>();
-	// Action drains may await transport I/O after popping native actions. Keep
-	// every admitted drain under Host teardown so none can resume after native
+	// Action drains may await transport I/O after popping FFI actions. Keep
+	// every admitted drain under Host teardown so none can resume after FFI
 	// Host storage is released.
 	protected readonly _actionDrains = new Set<Promise<void>>();
 	// Explicit embedder-owned byte-channel authority, retained by transport so
@@ -154,7 +154,7 @@ export abstract class HostState {
 	// mid-turn close never leaks its C handle. Mirrors Python/Rust.
 	protected readonly _parkedReleases: Array<() => void> = [];
 	// Trampoline ctx ids of this host's live Host publicationes, by published name.
-	// Native actor retirement drops their strong behavior ownership; Host release
+	// FFI actor retirement drops their strong behavior ownership; Host release
 	// is the final catch-all. Keyed by name so `Session.publishedRef` can find the
 	// ctx.
 	protected readonly _publications = new Map<string, bigint>();
@@ -166,13 +166,13 @@ export abstract class HostState {
 	// may contain a behavior that captures this Host; that cycle is local and
 	// therefore collectable.
 	protected readonly _behaviorEntries = new Map<bigint, BehaviorEntry>();
-	// The native loop that owns this Host's handle, when this wrapper was
+	// The driver loop that owns this Host's handle, when this wrapper was
 	// adopted over a loop's host (ADR-0112). In that mode the C loop is the
 	// action drain: the kick verbs nudge a loop step instead of running the
 	// binding drain, and release belongs to `DriverLoop.close`.
 	protected _driverLoop: DriverLoopHandle | null = null;
 	// The shared close-activity notifier (wake-all): a close driver arms it
-	// before reading native close progress, and every native verb that can
+	// before reading FFI close progress, and every FFI verb that can
 	// advance close-relevant state resolves it after the verb returns. Null
 	// while no arm is outstanding.
 	protected _closeActivity: { promise: Promise<void>; resolve: () => void } | null = null;
@@ -198,9 +198,9 @@ export abstract class HostState {
 		}
 		const durableSeed = seed ?? crypto.getRandomValues(new Uint8Array(32));
 		// Keep the binding's own copy: callers can reuse or mutate their input
-		// without changing the identity native Host already retained.
+		// without changing the identity FFI Host already retained.
 		this._seed = new Uint8Array(durableSeed);
-		if (opts.profile !== undefined && opts.profile !== "native" && opts.profile !== "interop") {
+		if (opts.profile !== undefined && opts.profile !== "glowcap" && opts.profile !== "interop") {
 			throw new GlowcapError(INVALID_ARGUMENT, `Host: unknown profile ${JSON.stringify(opts.profile)}`);
 		}
 		if (opts.profile !== undefined && (opts.codec !== undefined || opts.captpVersion !== undefined)) {
@@ -209,13 +209,13 @@ export abstract class HostState {
 				"Host: profile cannot be combined with codec or captpVersion",
 			);
 		}
-		this.codec = opts.profile === "native"
-			? NATIVE_CODEC
+		this.codec = opts.profile === "glowcap"
+			? OWN_CODEC
 			: opts.profile === "interop"
 			? INTEROP_CODEC
 			: opts.codec ?? DEFAULT_CODEC;
-		this.captpVersion = opts.profile === "native"
-			? NATIVE_CAPTP_VERSION
+		this.captpVersion = opts.profile === "glowcap"
+			? OWN_CAPTP_VERSION
 			: opts.profile === "interop"
 			? INTEROP_CAPTP_VERSION
 			: opts.captpVersion ?? DEFAULT_CAPTP_VERSION;
@@ -338,7 +338,7 @@ export abstract class HostState {
 		return this._raw;
 	}
 
-	/** Whether terminal Host teardown has invalidated the native handle. */
+	/** Whether terminal Host teardown has invalidated the FFI handle. */
 	get released(): boolean {
 		return this._raw === NULL;
 	}
@@ -376,14 +376,14 @@ export abstract class HostState {
 		});
 	}
 
-	/** The native loop that owns this Host, or null for a byte-fed Host.
+	/** The driver loop that owns this Host, or null for a byte-fed Host.
 	 * Binding-internal: the dial executor routes a dial on a loop-owned Host
 	 * onto that same loop (ADR-0112). */
 	get driverLoop(): DriverLoopHandle | null {
 		return this._driverLoop;
 	}
 
-	/** Refuse operations only after the native handle has been invalidated. */
+	/** Refuse operations only after the FFI handle has been invalidated. */
 	assertHandle(): void {
 		if (this._raw === NULL) {
 			throw new GlowcapError(CLOSED, "Host is closed");
@@ -396,7 +396,7 @@ export abstract class HostState {
 		this._unobservedHead = 0;
 	}
 
-	/** Transfer native ownership to a DriverLoop after its ABI claim succeeds;
+	/** Transfer FFI ownership to a DriverLoop after its ABI claim succeeds;
 	 * only that loop may release the handle. Binding-internal. */
 	attachDriverLoop(driverLoop: DriverLoopHandle): HostFinalizerState {
 		if (this._raw === NULL || this._releaseStarted || this._driverLoop != null) {
@@ -493,7 +493,7 @@ export abstract class HostState {
 	}
 
 	/** Arm the shared close-activity waiter. A close driver arms before it
-	 * reads native progress (the lost-wakeup discipline): a state advance
+	 * reads FFI progress (the lost-wakeup discipline): a state advance
 	 * landing after the arm resolves the returned promise, and one landing
 	 * before it is visible to the progress read that follows. Wake-all: every
 	 * armed driver shares the one promise. Binding-internal. */
@@ -506,7 +506,7 @@ export abstract class HostState {
 		return this._closeActivity.promise;
 	}
 
-	/** Wake every parked close driver. Called after a native verb that can
+	/** Wake every parked close driver. Called after an FFI verb that can
 	 * advance close-relevant state returns: a byte feed, a drained action
 	 * batch, a resolver settle, a close call (escalation), a session release,
 	 * or a loop step that ran work (`DriverLoop` parks its close drivers on
@@ -520,7 +520,7 @@ export abstract class HostState {
 	}
 
 	/** The longest a close driver may wait before re-polling progress:
-	 * milliseconds to the nearest native FINISH grace deadline (the Host's own
+	 * milliseconds to the nearest FFI FINISH grace deadline (the Host's own
 	 * or any session's), or -1 when none is pending and only activity can
 	 * advance terminal progress. */
 }

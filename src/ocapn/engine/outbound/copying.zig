@@ -1,20 +1,17 @@
 //! Explicit borrowed-to-owned conveniences at the Peer boundary.
 //!
 //! The engine's internal send spine moves ownership. These are the named copy
-//! points for static/test/FFI callers and application replies whose borrowed
-//! values must survive queueing.
+//! points for application replies whose borrowed resolution must survive
+//! queueing in the answer store. A borrowed message goes through
+//! `outbound.enqueueBorrowed`, which copies only the kinds the queue keeps.
 
+const Peer = @import("../mod.zig").Peer;
 const model = @import("model");
 const session = @import("session");
 const outbound = @import("../outbound.zig");
 
-pub fn send(self: anytype, message: model.Message) !void {
-    const owned = try model.cloneMessage(self.allocator, message);
-    return self.send(owned);
-}
-
 pub fn answer(
-    self: anytype,
+    self: *Peer,
     answer_name: model.AnswerName,
     resolution: model.Resolution,
 ) !void {
@@ -26,7 +23,7 @@ pub fn answer(
 }
 
 pub fn answerTarget(
-    self: anytype,
+    self: *Peer,
     target: session.AnswerTarget,
     resolution: model.Resolution,
 ) !void {
@@ -37,7 +34,22 @@ pub fn answerTarget(
     );
 }
 
-fn cloneResolution(self: anytype, resolution: model.Resolution) !model.Resolution {
+/// Copy a turn-borrowed resolution directly into the answer store's owner.
+/// The views may borrow handler state or the inbound frame. Admission can
+/// queue the answer past both lifetimes, so the retained tree owns its bytes.
+pub fn answerTargetView(
+    self: *Peer,
+    target: session.AnswerTarget,
+    resolution: model.view.Resolution,
+) !void {
+    return outbound.enqueueAnswerTargetResolutionOwned(
+        self,
+        target,
+        try resolution.toOwned(self.allocator),
+    );
+}
+
+pub fn cloneResolution(self: *Peer, resolution: model.Resolution) !model.Resolution {
     return switch (resolution) {
         .fulfill => |value| .{ .fulfill = try model.cloneArgument(self.allocator, value) },
         .@"break" => |reason| .{ .@"break" = .{

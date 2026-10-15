@@ -11,7 +11,6 @@ const resource: core.ResourceId = .{ .owner = owner, .slot = 3, .generation = 1 
 const terms: core.Terms = .{ .scope = .{ .object = resource }, .policy = .{
     .schema = @fromBackingInt(std.mem.readInt(u128, wide, .big)),
     .permissions = 1,
-    .bounds = @splat(null),
 } };
 const sample: Record = .{ .grant = .{
     .id = .{ .owner = owner, .slot = 0, .generation = 1 },
@@ -105,7 +104,8 @@ test "access grant maximum selections and integers fit the encoded bound" {
     maximal.grant.parent.?.slot -= 1;
     maximal.grant.ceiling.scope = .{ .objects = &ids };
     maximal.grant.ceiling.policy.permissions = std.math.maxInt(u64);
-    @memset(&maximal.grant.ceiling.policy.bounds, std.math.maxInt(u64));
+    maximal.grant.ceiling.policy.bounds = @splat(std.math.maxInt(u64));
+    maximal.grant.ceiling.policy.bound_mask = std.math.maxInt(u16);
     maximal.grant.configured = maximal.grant.ceiling;
     maximal.grant.revision = @fromBackingInt(std.math.maxInt(u64));
     maximal.grant.delegation_depth = std.math.maxInt(u16);

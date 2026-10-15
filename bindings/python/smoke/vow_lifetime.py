@@ -1,4 +1,4 @@
-"""Native vow adoption, release retry, and finalizer ownership scenarios."""
+"""FFI vow adoption, release retry, and finalizer ownership scenarios."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ async def abandoned_vow_drops_pending_completion() -> None:
 
 
 async def promise_adoption_releases_every_post_mint_failure() -> None:
-    """A binding setup refusal cannot orphan the native vow it follows."""
+    """A binding setup refusal cannot orphan the FFI vow it follows."""
 
     for failing in ("mint", "serve", "schedule", "track"):
         failure = RuntimeError(failing)
@@ -105,7 +105,7 @@ def gc_release_refusal_stays_owned() -> None:
 
 
 def retired_gc_ignores_late_finalizers() -> None:
-    """A consumed native Host leaves no queue for late wrapper collection."""
+    """A consumed FFI Host leaves no queue for late wrapper collection."""
 
     class LiveHost:
         released = False
@@ -180,5 +180,5 @@ def retired_gc_ignores_late_finalizers() -> None:
     else:
         raise AssertionError("scheduler refusal disappeared")
     retry_gc.park_vow(37)
-    assert retry_gc.pending_vows == [37], "retry duplicated one native vow release"
+    assert retry_gc.pending_vows == [37], "retry duplicated one FFI vow release"
     assert retry_host.scheduled == 1, "retry did not reschedule the retained release"

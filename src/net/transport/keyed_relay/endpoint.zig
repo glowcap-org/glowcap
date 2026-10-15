@@ -1,4 +1,4 @@
-//! Native relay endpoint acquisition: DNS/IP resolution and TCP connection.
+//! Relay endpoint acquisition: DNS/IP resolution and TCP connection.
 
 const std = @import("std");
 

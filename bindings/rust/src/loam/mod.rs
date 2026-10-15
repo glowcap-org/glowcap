@@ -5,11 +5,31 @@ pub(crate) mod browser;
 mod content;
 mod reads;
 pub use reads::{ReadInterface, ReadMethod, ReadScopeBounds};
+#[cfg(not(target_arch = "wasm32"))]
+mod archive;
 mod content_graph;
 mod creation;
 #[cfg(not(target_arch = "wasm32"))]
+mod executor;
+#[cfg(not(target_arch = "wasm32"))]
 mod lmdb;
+#[cfg(not(target_arch = "wasm32"))]
+mod sqlite;
+#[cfg(not(target_arch = "wasm32"))]
+mod volatile;
+#[cfg(not(target_arch = "wasm32"))]
+pub use archive::OpenMode;
 pub use creation::StagedResource;
+#[cfg(not(target_arch = "wasm32"))]
+pub use executor::Engine;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use executor::Executor;
+#[cfg(not(target_arch = "wasm32"))]
+pub use lmdb::Lmdb;
+#[cfg(not(target_arch = "wasm32"))]
+pub use sqlite::Sqlite;
+#[cfg(not(target_arch = "wasm32"))]
+pub use volatile::Volatile;
 mod continuation;
 pub use continuation::{Continuation, ContinuationBounds, ContinuationReservation, PendingContinuation};
 mod effect_execution;
@@ -49,7 +69,7 @@ mod invocation_bounds;
 pub use invocation_bounds::{InvocationBounds, ValueBounds};
 mod staging_bounds;
 pub use policy::{
-	ControlPowers, IssuePolicy, KindRule, Operator, Policy, PolicyValue, Requirement, control_revision,
+	ControlPowers, IssuePolicy, KindRule, Operator, Policy, PolicyValue, Requirement, Scope, control_revision,
 	parse_control_revision,
 };
 pub use staging_bounds::StagingBounds;
@@ -62,6 +82,7 @@ pub const STALE_COMPLETION: i32 = ffi::GLOWCAP_LOAM_ERR_STALE_COMPLETION;
 pub const DENIED: i32 = ffi::GLOWCAP_LOAM_ERR_DENIED;
 pub const UNCHANGED: i32 = ffi::GLOWCAP_LOAM_ERR_UNCHANGED;
 pub const APPLICATION_REFUSED: i32 = ffi::GLOWCAP_LOAM_ERR_APPLICATION;
+pub const CORRUPT: i32 = ffi::GLOWCAP_LOAM_ERR_CORRUPT;
 
 /// Construct a content callback refusal. The callback boundary
 /// reports APPLICATION_REFUSED to Zig. Local detail is not forwarded or queued.
@@ -73,27 +94,14 @@ pub fn refusal(message: impl Into<String>) -> Error {
 pub(super) fn invalid(message: &str) -> Error {
 	Error::with_detail(crate::sys::ERR_INVALID_ARGUMENT, message.to_owned())
 }
-pub(super) fn check(code: i32, _storage: bool) -> Result<()> {
+pub(super) fn check(code: i32) -> Result<()> {
 	if code == crate::sys::OK {
 		return Ok(());
 	}
 	let mut bytes = [0u8; 512];
-	// SAFETY: `bytes` is a local `[u8; 512]` live for the call; each reader needs no handle, reads the calling thread's
+	// SAFETY: `bytes` is a local `[u8; 512]` live for the call; the reader needs no handle, reads the calling thread's
 	// last-error slot, and copies at most `bytes.len()` bytes into it, returning the count.
-	let len = unsafe {
-		if _storage {
-			#[cfg(not(target_arch = "wasm32"))]
-			{
-				ffi::glowcap_loam_lmdb_last_error(bytes.as_mut_ptr(), bytes.len())
-			}
-			#[cfg(target_arch = "wasm32")]
-			{
-				ffi::glowcap_loam_last_error(bytes.as_mut_ptr(), bytes.len())
-			}
-		} else {
-			ffi::glowcap_loam_last_error(bytes.as_mut_ptr(), bytes.len())
-		}
-	};
+	let len = unsafe { ffi::glowcap_loam_last_error(bytes.as_mut_ptr(), bytes.len()) };
 	Err(Error::with_detail(
 		code,
 		String::from_utf8_lossy(&bytes[..len]).into_owned(),
@@ -124,7 +132,6 @@ impl Schema {
 			// SAFETY: `self.raw()` is a temporary `GlowcapLoamSchema` that lives to the end of this statement and the
 			// callee only reads it; `bytes` is a local out-parameter the callee writes.
 			unsafe { ffi::glowcap_loam_schema_size_bound(&self.raw(), &mut bytes) },
-			false,
 		)?;
 		Ok(bytes)
 	}
@@ -248,7 +255,9 @@ pub struct Store {
 }
 pub(super) struct StoreInner {
 	#[cfg(not(target_arch = "wasm32"))]
-	storage: Cell<*mut ffi::GlowcapLoamLmdb>,
+	executor: std::sync::Arc<dyn Executor>,
+	#[cfg(not(target_arch = "wasm32"))]
+	released: Cell<bool>,
 	#[cfg(target_arch = "wasm32")]
 	backend: browser::Storage,
 	#[cfg(target_arch = "wasm32")]
@@ -288,7 +297,6 @@ impl Store {
 					&mut raw,
 				)
 			},
-			false,
 		)?;
 		let inner = Rc::new(AttachmentInner {
 			raw: Cell::new(raw),
@@ -317,7 +325,7 @@ impl Store {
 impl StoreInner {
 	#[cfg(not(target_arch = "wasm32"))]
 	fn live(&self) -> Result<()> {
-		if self.storage.get().is_null() {
+		if self.released.get() {
 			Err(invalid("store is closed"))
 		} else {
 			Ok(())
@@ -325,14 +333,12 @@ impl StoreInner {
 	}
 	#[cfg(not(target_arch = "wasm32"))]
 	fn close(&self) -> Result<()> {
-		if self.storage.get().is_null() {
+		if self.released.get() {
 			return Ok(());
 		}
-		// SAFETY: `self.storage.get()` is this `StoreInner`'s non-null (checked above) `GlowcapLoamLmdb` handle from
-		// `glowcap_loam_lmdb_open`, released here and then replaced by null so no later use sees it; on a refusal such
-		// as Busy the callee leaves it alive.
-		check(unsafe { ffi::glowcap_loam_lmdb_release(self.storage.get()) }, true)?;
-		self.storage.set(core::ptr::null_mut());
+		// A refusal such as Busy leaves the storage owner alive for a retry.
+		self.executor.check(self.executor.release())?;
+		self.released.set(true);
 		Ok(())
 	}
 }
@@ -341,7 +347,7 @@ impl Drop for StoreInner {
 		#[cfg(not(target_arch = "wasm32"))]
 		if let Err(error) = self.close() {
 			crate::record_runtime_failure(crate::FailureLayer::Binding, "loam-store.release", error);
-			crate::finalizer::park_loam_store(self.storage.replace(core::ptr::null_mut()));
+			crate::finalizer::park_loam_store(std::sync::Arc::clone(&self.executor));
 		}
 		#[cfg(target_arch = "wasm32")]
 		self.backend.retire(self.store);
@@ -383,13 +389,10 @@ impl Attachment {
 			// SAFETY: `GlowcapReference` is a plain C struct of integers and null pointers; all-zero is a valid value,
 			// and the callee fills it before it is read.
 			let mut raw = unsafe { core::mem::zeroed() };
-			check(
-				// SAFETY: `owner.store.storage.get()` and `owner.raw.get()` are the storage and attachment handles that
-				// `owner`, an `Rc<AttachmentInner>` held by this call, keeps live; `object` is a borrowed
-				// `GlowcapLoamObject` the callee only reads; `raw` is an out-parameter the callee fills.
-				unsafe { ffi::glowcap_loam_lmdb_restore(owner.store.storage.get(), owner.raw.get(), object, &mut raw) },
-				true,
-			)?;
+			owner
+				.store
+				.executor
+				.check(owner.store.executor.restore(owner.raw.get(), object, &mut raw))?;
 			let mut reference = Ref::bare_id(raw.id);
 			reference.attach_guard(crate::gc::owned_guard(&owner.host, raw.id));
 			Ok(reference)
@@ -465,7 +468,7 @@ impl AttachmentInner {
 		// SAFETY: `self.raw.get()` is this `AttachmentInner`'s non-null handle from `glowcap_loam_attach`, released
 		// only by its teardown; a refusal such as Busy preserves the handle, so it is cleared only after this call
 		// succeeds.
-		check(unsafe { ffi::glowcap_loam_attachment_release(self.raw.get()) }, false)?;
+		check(unsafe { ffi::glowcap_loam_attachment_release(self.raw.get()) })?;
 		self.raw.set(core::ptr::null_mut());
 		self.callbacks.borrow_mut().take();
 		Ok(())
@@ -479,7 +482,7 @@ impl AttachmentInner {
 		// SAFETY: `self.raw.get()` is this `AttachmentInner`'s non-null handle from `glowcap_loam_attach`, released
 		// only by its teardown; `pending` is a local out-parameter the callee writes.
 		let rc = unsafe { ffi::glowcap_loam_has_pending_work(self.raw.get(), &mut pending) };
-		check(rc, false)?;
+		check(rc)?;
 		Ok(pending != 0)
 	}
 	async fn progress(self: &Rc<Self>) -> Result<bool> {
@@ -496,7 +499,6 @@ impl AttachmentInner {
 			// only by its teardown and `progress` returned early if it was null; `progressed` is a local out-parameter
 			// the callee writes.
 			unsafe { ffi::glowcap_loam_advance(self.raw.get(), &mut progressed) },
-			false,
 		)?;
 
 		loop {
@@ -506,7 +508,6 @@ impl AttachmentInner {
 				// released only by its teardown and `progress` returned early if it was null; `raw` is an out-parameter
 				// the callee fills with a work handle or leaves null.
 				unsafe { ffi::glowcap_loam_next_work(self.raw.get(), 0, &mut raw) },
-				false,
 			)?;
 			if raw.is_null() {
 				return Ok(progressed != 0);

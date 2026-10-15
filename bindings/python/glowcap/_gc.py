@@ -95,7 +95,7 @@ class HostGc:
             self._h = h
 
     def retire(self) -> None:
-        """Retire queues whose native Host owner has been consumed."""
+        """Retire queues whose FFI Host owner has been consumed."""
         with self._lock:
             self._h = None
             self.pending.clear()
@@ -123,9 +123,9 @@ class HostGc:
         return ref
 
     def track_argument(self, value: "Argument") -> "Argument":
-        """Track every capability occurrence in a native-projected value.
+        """Track every capability occurrence in an FFI-projected value.
 
-        Containers stay intact. Only ``Ref`` leaves receive finalizers. Native
+        Containers stay intact. Only ``Ref`` leaves receive finalizers. FFI
         projection minted one Host retain per occurrence, so equal ids in two
         leaves receive two independent death rites.
         """
@@ -165,7 +165,7 @@ class HostGc:
         h.schedule_drain(self._drain_scheduled)
 
     def track_vow(self, handle, vow: int):
-        """Release one native Host vow when its public wrapper dies."""
+        """Release one FFI Host vow when its public wrapper dies."""
         weakref.finalize(handle, self._on_vow_dropped, vow)
         return handle
 
@@ -186,7 +186,7 @@ class HostGc:
     def drain_gc(self) -> None:
         # Drain the parked GC releases on the loop thread: one release delta
         # per reclaimed token, then a kick so the op:gc-exports flushes. A
-        # token leaves the queue only after its native release commits.
+        # token leaves the queue only after its FFI release commits.
         with self._lock:
             failure = self._background_failure
             self._background_failure = None

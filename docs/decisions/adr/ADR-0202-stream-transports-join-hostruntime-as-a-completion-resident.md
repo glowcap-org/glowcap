@@ -7,7 +7,7 @@ decision: "HostRuntime runs stream transports by presenting a completion backend
 supersedes: []
 superseded_by: []
 amends: [ADR-0193]
-amended_by: []
+amended_by: [ADR-0212]
 ---
 
 # ADR-0202 Stream transports join HostRuntime as a completion resident

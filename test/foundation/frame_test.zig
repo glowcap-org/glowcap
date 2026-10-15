@@ -162,3 +162,43 @@ test "empty frames are valid borrowed views" {
     try std.testing.expectEqual(@as(usize, 0), frame.bytes().len);
     try std.testing.expectEqual(@as(usize, 0), view.bytes.len);
 }
+
+test "a headed frame keeps its head beside shape-aligned bytes in one block" {
+    const allocator = std.testing.allocator;
+    const Head = struct { words: [5]u64 };
+    var frame = try foundation.Frame.initHeaded(allocator, Head, u64, 0, &[_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 }, .word);
+    defer frame.deinit();
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, frame.bytes());
+    try std.testing.expect(std.mem.Alignment.fromByteUnits(8).check(@intFromPtr(frame.bytes().ptr)));
+    const head = frame.head(Head).?;
+    head.words = .{ 9, 9, 9, 9, 9 };
+    try std.testing.expectEqual(@as(u64, 9), frame.head(Head).?.words[4]);
+    try std.testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4, 5, 6, 7, 8 }, frame.bytes());
+    try std.testing.expect(frame.head(u8) == null);
+}
+
+test "a headed frame refuses a shape its bytes do not fit and frees the block" {
+    try std.testing.expectError(
+        error.InvalidFrameShape,
+        foundation.Frame.initHeaded(std.testing.allocator, u64, u64, 0, &[_]u8{ 1, 2, 3 }, .word),
+    );
+}
+
+test "a plain owned frame carries no head" {
+    const allocator = std.testing.allocator;
+    const storage = try allocator.dupe(u8, "abc");
+    var frame = try foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
+    defer frame.deinit();
+    try std.testing.expect(frame.head(u8) == null);
+}
+
+test "a headed frame hands its head only to the type it was built for" {
+    const allocator = std.testing.allocator;
+    const Built = struct { words: [2]u64 };
+    const Other = struct { halves: [4]u32 };
+    comptime std.debug.assert(@sizeOf(Built) == @sizeOf(Other));
+    var frame = try foundation.Frame.initHeaded(allocator, Built, u64, 0, &[_]u8{ 1, 2, 3, 4, 5, 6, 7, 8 }, .word);
+    defer frame.deinit();
+    try std.testing.expect(frame.head(Built) != null);
+    try std.testing.expect(frame.head(Other) == null);
+}

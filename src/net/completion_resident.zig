@@ -7,13 +7,13 @@
 //! the runtime through the machinery it already owns for iroh and WebRTC,
 //! with no per-connection read buffer.
 //!
-//! The descriptor is the platform backend's own. Each verb ends with a
-//! nonblocking `poll` that turns completions into records, because an adapter
-//! may complete an operation synchronously into its ready queue where no
-//! descriptor reports it. While records wait, a wake channel armed as a
-//! backend readiness poll (`submitPoll`) keeps the descriptor readable, which
-//! makes it level-shaped as the contract requires. The poll consumes no pool
-//! buffer.
+//! The descriptor is the platform backend's own, and it reports what the
+//! kernel holds. Each verb ends with a nonblocking `poll` that turns
+//! completions into records, because an adapter may complete an operation
+//! synchronously into its ready queue where no descriptor reports it. A
+//! record reaped that way waits in the resident, which answers the contract's
+//! `ready_pending` query, and the runtime services it before it parks
+//! (ADR-0212).
 //!
 //! Reads keep one completed receive per connection and lend it through the
 //! contract's borrowed-read group, so the runtime feeds the core from the pool
@@ -38,7 +38,6 @@ const model = @import("model");
 const completion = @import("completion/loop.zig");
 const netlayer = @import("netlayer.zig");
 const resident_mod = @import("multiplexed_resident.zig");
-const wake_channel = @import("wake_channel.zig");
 const completions = @import("completion_resident/completions.zig");
 const teardown = @import("completion_resident/teardown.zig");
 const listening = @import("completion_resident/listening.zig");
@@ -87,12 +86,16 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         const retireIfQuiet = Completions.retireIfQuiet;
         const recycle = Completions.recycle;
         const forgetStarved = Completions.forgetStarved;
-        const signalRecords = Completions.signalRecords;
-        const armWake = Completions.armWake;
-        const latch = Completions.latch;
+        const beforeWait = Completions.beforeWait;
+        const queueSend = Completions.queueSend;
+        const submitQueued = Completions.submitQueued;
+        pub const latch = Completions.latch;
 
         pub const Recv = union(enum) {
             idle,
+            /// The re-arm waits in `recv_queue` for the `beforeWait` that
+            /// precedes a park.
+            queued,
             armed,
             /// The pool buffer that waits for `try_read`, and how much of it
             /// has been read.
@@ -111,6 +114,8 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             back: std.ArrayListUnmanaged(u8) = .empty,
             sent: usize = 0,
             sending: bool = false,
+            /// Staged bytes wait in `send_queue` for the next `beforeWait`.
+            send_queued: bool = false,
             /// A refused `try_write` owes an `ev_writable` record.
             owes_writable: bool = false,
             write_failure: ?anyerror = null,
@@ -132,6 +137,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             inflight: u8 = 1,
         };
 
+        /// Accepted sockets a listener holds for the runtime to claim before
+        /// it stops accepting. The kernel's listen backlog holds arrivals past
+        /// this, so a flood of connections costs this many descriptors per
+        /// listener and no more until the runtime claims one.
+        pub const max_unclaimed_accepts: usize = 64;
+
         /// Completions name a listener by `token`, minted here and never
         /// reused, so a stopped listener's late accept cannot reach a later
         /// listener that the runtime gave the same route.
@@ -149,14 +160,20 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         allocator: std.mem.Allocator,
         backend: Backend,
         options: Options,
-        wake: wake_channel.WakeChannel,
-        wake_armed: bool = false,
-        wake_nudged: bool = false,
-        wake_cancel_submitted: bool = false,
+        /// Records reaped from the kernel and not yet handed to the runtime.
+        /// `ready_pending` reports them, because no descriptor does.
         records: std.ArrayListUnmanaged(ReadyEvent) = .empty,
-        conns: std.AutoHashMapUnmanaged(usize, Conn) = .empty,
-        dials: std.AutoHashMapUnmanaged(usize, Dial) = .empty,
-        listeners: std.AutoHashMapUnmanaged(usize, *Listener) = .empty,
+        /// Connections whose flushed batch starts at the next `beforeWait`.
+        /// Bounded by the connections with staged bytes; capacity is kept.
+        send_queue: std.ArrayListUnmanaged(usize) = .empty,
+        /// Connections whose receive re-arms at the `beforeWait` that
+        /// precedes a park. Bounded by the open connections; capacity is kept.
+        recv_queue: std.ArrayListUnmanaged(usize) = .empty,
+        /// Descriptors whose readiness wakes the park, armed as it begins.
+        watches: std.ArrayListUnmanaged(completions.Watch) = .empty,
+        conns: foundation.identity_hash.Map(usize, Conn) = .empty,
+        dials: foundation.identity_hash.Map(usize, Dial) = .empty,
+        listeners: foundation.identity_hash.Map(usize, *Listener) = .empty,
         starved: std.ArrayListUnmanaged(usize) = .empty,
         spare_sends: std.ArrayListUnmanaged(std.ArrayListUnmanaged(u8)) = .empty,
         next_conn: usize = 1,
@@ -169,8 +186,8 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         failure: ?anyerror = null,
         /// Structured failures a backend lent with a failed completion, kept
         /// until the runtime claims them. Only failed rows have an entry.
-        conn_failures: std.AutoHashMapUnmanaged(usize, foundation.FailureChain) = .empty,
-        dial_failures: std.AutoHashMapUnmanaged(usize, foundation.FailureChain) = .empty,
+        conn_failures: foundation.identity_hash.Map(usize, foundation.FailureChain) = .empty,
+        dial_failures: foundation.identity_hash.Map(usize, foundation.FailureChain) = .empty,
 
         /// Ownership of `backend` transfers on entry, including every error
         /// path.
@@ -184,7 +201,6 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 .allocator = allocator,
                 .backend = owned,
                 .options = options,
-                .wake = try wake_channel.WakeChannel.open(),
                 .spare_sends = spare_sends,
             };
         }
@@ -200,6 +216,9 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         pub fn deinit(self: *Self) void {
             std.debug.assert(self.drained());
             self.records.deinit(self.allocator);
+            self.send_queue.deinit(self.allocator);
+            self.recv_queue.deinit(self.allocator);
+            self.watches.deinit(self.allocator);
             self.conns.deinit(self.allocator);
             self.dials.deinit(self.allocator);
             self.conn_failures.deinit(self.allocator);
@@ -209,12 +228,11 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             for (self.spare_sends.items) |*spare| spare.deinit(self.allocator);
             self.spare_sends.deinit(self.allocator);
             self.backend.deinit();
-            self.wake.deinit();
         }
 
         pub fn drained(self: *const Self) bool {
             return self.conns.count() == 0 and self.dials.count() == 0 and
-                self.listeners.count() == 0 and self.closing_listeners == 0 and self.listen_waits == 0 and !self.wake_armed;
+                self.listeners.count() == 0 and self.closing_listeners == 0 and self.listen_waits == 0;
         }
 
         /// The first resident-wide failure, which `drain_ready` reports to the
@@ -229,7 +247,12 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
 
         const vtable = MultiplexedResident.VTable{
             .readiness_fd = readinessFd,
+            .ready_pending = readyPending,
+            .before_wait = beforeWaitVerb,
+            .reap = reapVerb,
             .wait_bound_ms = waitBoundMs,
+            .park = parkVerb,
+            .watch = watchVerb,
             .drain_ready = drainReady,
             .try_read = tryRead,
             .borrowed_read = .{ .lend = lend, .release = release },
@@ -264,9 +287,32 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
         }
 
         fn readinessFd(ctx: *anyopaque) i32 {
+            return of(ctx).backend.readinessFd();
+        }
+
+        /// Records wait, or a failure the runtime must take at `drain_ready`.
+        fn readyPending(ctx: *anyopaque) bool {
             const self = of(ctx);
-            self.armWake();
-            return self.backend.readinessFd();
+            return self.records.items.len != 0 or self.failure != null;
+        }
+
+        fn beforeWaitVerb(ctx: *anyopaque, after: resident_mod.AfterTurn) void {
+            // Writes made during a turn are only queued. They go to the kernel
+            // in one submit when the runtime is about to wait (ADR-0213). A
+            // receive re-arm waits for the same moment (ADR-0220).
+            of(ctx).beforeWait(after);
+        }
+
+        fn reapVerb(ctx: *anyopaque) void {
+            of(ctx).pump();
+        }
+
+        fn parkVerb(ctx: *anyopaque, timeout_ms: i32) bool {
+            return Completions.park(of(ctx), timeout_ms);
+        }
+
+        fn watchVerb(ctx: *anyopaque, fd: i32) error{OutOfMemory}!void {
+            return Completions.watch(of(ctx), fd);
         }
 
         fn drainReady(ctx: *anyopaque, out: []ReadyEvent) resident_mod.ContractError!usize {
@@ -277,8 +323,6 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             @memcpy(out[0..count], self.records.items[0..count]);
             std.mem.copyForwards(ReadyEvent, self.records.items[0 .. self.records.items.len - count], self.records.items[count..]);
             self.records.shrinkRetainingCapacity(self.records.items.len - count);
-            self.wake_nudged = false;
-            self.signalRecords();
             return count;
         }
 
@@ -301,7 +345,6 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                         conn.recv = .idle;
                         self.recycle(spent);
                         self.armRecv(id, conn);
-                        self.pump();
                     }
                     return @intCast(n);
                 },
@@ -309,10 +352,9 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 .failed => return -1,
                 .idle => {
                     self.armRecv(id, conn);
-                    self.pump();
                     return resident_mod.would_block;
                 },
-                .armed, .starved => return resident_mod.would_block,
+                .queued, .armed, .starved => return resident_mod.would_block,
             }
         }
 
@@ -328,10 +370,9 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 .failed => return .dead,
                 .idle => {
                     self.armRecv(id, conn);
-                    self.pump();
                     return .would_block;
                 },
-                .armed, .starved => return .would_block,
+                .queued, .armed, .starved => return .would_block,
             }
         }
 
@@ -339,7 +380,6 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             const self = of(ctx);
             const conn = self.conns.getPtr(id) orelse return;
             if (conn.close != .open or conn.recv != .holding) return;
-            defer self.pump();
             const spent = conn.recv.holding.comp;
             conn.recv = .idle;
             self.recycle(spent);
@@ -348,7 +388,6 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
 
         fn tryWrite(ctx: *anyopaque, id: usize, bytes: []const u8) isize {
             const self = of(ctx);
-            defer self.pump();
             const conn = self.conns.getPtr(id) orelse return -1;
             if (conn.write_failure != null or conn.close != .open) return -1;
             if (self.backend.wireFraming(conn.fd) == .message) return self.stagePacket(conn, bytes);
@@ -364,7 +403,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 conn.owes_writable = true;
                 return resident_mod.would_block;
             };
-            // The send starts at `flushWrites`, so one batch leaves together.
+            // The batch starts at `flushWrites` and leaves at `beforeWait`.
             return @intCast(take);
         }
 
@@ -387,9 +426,11 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
 
         fn flushWrites(ctx: *anyopaque, id: usize) void {
             const self = of(ctx);
-            defer self.pump();
+            // This only queues the send for this connection. The kernel gets
+            // it in the next submit, the one `beforeWait` makes before the
+            // runtime parks, so a turn's writes leave together.
             const conn = self.conns.getPtr(id) orelse return;
-            self.startSend(id, conn);
+            self.queueSend(id, conn);
         }
 
         fn takeFailure(ctx: *anyopaque, id: usize) ?foundation.FailureChain {
@@ -429,6 +470,15 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 self.forgetStarved(id);
                 self.recycle(held);
             } else self.forgetStarved(id);
+            // A batch flushed before the close leaves ahead of the shutdown.
+            // `shutdownFd` acts at once, so the send goes to the kernel here
+            // rather than at `beforeWait`, where it would find the socket
+            // shut and the partner would see no `op:abort` before the close.
+            if (conn.send_queued) {
+                conn.send_queued = false;
+                self.startSend(id, conn);
+                self.submitQueued();
+            }
             conn.close = .closing;
             self.backend.shutdownFd(conn.fd);
             var outcome: resident_mod.TeardownOutcome = .complete;
@@ -437,6 +487,11 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             } else |err| {
                 self.backend.closeFd(conn.fd);
                 outcome = .{ .failed = .init(err) };
+                // The descriptor is closed and its armed operations complete
+                // nowhere, so a row still counting them can never retire.
+                // The resident is the smallest scope that can report that,
+                // and its owner retires it.
+                if (conn.inflight != 0) self.latch(err);
             }
             self.retireIfQuiet(id, conn);
             return outcome;
@@ -454,6 +509,7 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             request_id: usize,
             locator: model.PeerLocator,
             options: netlayer.OperationOptions,
+            _: netlayer.DialOrigin,
         ) resident_mod.RawDialStartOutcome {
             const self = of(ctx);
             defer self.pump();

@@ -1,4 +1,4 @@
-//! Poll reactor and terminal cleanup for the native relay provider runtime.
+//! Poll reactor and terminal cleanup for the relay provider runtime.
 //!
 //! The runtime owns its tables and wake channels. This module owns the one
 //! reactor thread's polling, readiness projection, and removal transactions.

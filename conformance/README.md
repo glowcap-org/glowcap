@@ -1,25 +1,25 @@
 # conformance/
 
-External conformance checks for glowcap: the authorities for correct behavior
-that would hold even if glowcap were rewritten from scratch. This directory holds the
-upstream OCapN test suite, the Spritely Goblins peer that glowcap dials, the
-spec submodules kept for citation, the Goblins reference implementation of the
-accountability application, and the KERI and episode reference verifiers that check it.
-The worked accountability application *on glowcap* is not an authority. It lives
-beside the other worked applications under
-[`../apps/`](../apps/accountability-on-glowcap/). The live
-cross-implementation drivers (glowcap talking to Goblins or to another glowcap
-over iroh) are not external authority either. They live in
+External authorities for correct behavior, the checks that would still hold if
+glowcap were rewritten from scratch. This directory holds the upstream OCapN
+test suite, the Spritely Goblins peer that glowcap dials, the spec submodules
+kept for citation, the Goblins reference implementation of the accountability
+application, and the KERI and episode verifiers that check it.
+
+Two neighbors are not authorities. The accountability application on glowcap
+lives with the other worked applications in
+[`../apps/`](../apps/accountability-on-glowcap/). The live drivers that connect
+glowcap to Goblins, or to another glowcap over iroh, live in
 [`../interop/`](../interop/README.md).
-The toolchains these need are Racket with Goblins and Python, which
-[`../.devcontainer/`](../.devcontainer/) provides, so nothing here vendors its
-own runtime.
+
+The toolchains are Racket with Goblins and Python. The
+[devcontainer](../.devcontainer/) provides them, so nothing here vendors a
+runtime.
 
 ## First-time setup
 
-The `upstream/` directories are git submodules and are empty in a fresh clone.
-The devcontainer fills them when it opens. From a checkout that has not been
-through that hook (idempotent):
+The `upstream/` directories are git submodules, empty in a fresh clone. The
+devcontainer fills them when it opens. Elsewhere, run this (it is idempotent):
 
 ```sh
 bash conformance/bootstrap-submodules.sh
@@ -39,22 +39,21 @@ bash conformance/bootstrap-submodules.sh
 | [`ocapn-spec/`](ocapn-spec/)                               | OCapN spec (submodule), kept for citations.                                                                                   | none                                                                |
 | [`syrup/`](syrup/)                                         | Syrup spec (submodule), kept for citations.                                                                                   | none                                                                |
 
-For a one-page map of what these build checks prove versus live Goblins interop, see
-[`../docs/community-review.md`](../docs/community-review.md).
+[`../docs/community-review.md`](../docs/community-review.md) maps what these
+build checks prove against what live Goblins interop proves.
 
 ## Posture
 
 - **Submodule `upstream/` trees are read-only.** Bump the pin, never edit in
   place.
-- **Toolchains and their direct inputs are pinned.** Racket, Goblins, the
-  direct Racket packages these checks add, and Python come from the
-  devcontainer at committed versions. The crypto-lib atomic compatibility
-  patch is committed and verified against both source and output hashes.
-  Python wrappers use committed `uv` locks. The `run.sh` wrappers call
-  `racket` / `uv run` directly. Racket's `--auto` dependencies resolve
-  from its catalogs, so only the named direct package sources are pinned.
-- **The canonical positive Syrup byte corpus lives at
-  [`../test/oracle/corpus/`](../test/oracle/corpus/)** and is checked by
-  `zig build oracle-check` (protocol reference fixtures). This directory holds
-  the live, process-level checks that the in-tree reference corpus cannot
-  capture.
+- **Toolchains and their direct inputs are pinned.** The devcontainer fixes
+  Racket, Goblins, the direct Racket packages these checks add, and Python at
+  committed versions. The crypto-lib atomic compatibility patch is committed and
+  verified against both source and output hashes. Python wrappers use committed
+  `uv` locks. The `run.sh` wrappers call `racket` and `uv run` directly. Racket
+  resolves `--auto` dependencies from its catalogs, so only the named direct
+  package sources are pinned.
+- **The positive Syrup byte corpus lives in
+  [`../test/oracle/corpus/`](../test/oracle/corpus/)** and
+  `zig build oracle-check` checks it. This directory holds the live,
+  process-level checks that corpus cannot capture.

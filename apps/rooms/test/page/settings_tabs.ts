@@ -1,6 +1,7 @@
 // Settings tab layout checks shared by page-sized browser scenarios.
 
 import type { Page } from "playwright";
+import { waitForFiniteAnimations } from "../support/animations.ts";
 import { fail } from "./harness.ts";
 import { inkContrast } from "../ink_contrast.ts";
 
@@ -104,9 +105,7 @@ export async function proveSelectedTabContrast(page: Page): Promise<void> {
 	const failures: string[] = [];
 	for (const appearance of ["light", "dark"] as const) {
 		await page.evaluate((theme) => document.documentElement.setAttribute("data-theme", theme), appearance);
-		await page.evaluate(() =>
-			Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {})))
-		);
+		await waitForFiniteAnimations(page);
 		const measured = await inkContrast(page, '.tabs .tab[aria-selected="true"]');
 		if (measured === null) failures.push(`the chosen tab could not be measured in ${appearance}`);
 		else if (measured.ratio < 4.5) {

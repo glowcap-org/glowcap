@@ -7,9 +7,7 @@ const types = @import("grant_types.zig");
 const identity = @import("identity.zig");
 const Graph = @import("graph.zig").Graph;
 const Ledger = @import("grants.zig").GrantLedger;
-const Entry = types.Entry;
-const planner = @import("grant_plan.zig");
-const Plan = planner.GrantPlan;
+const Plan = @import("grant_plan.zig").GrantPlan;
 const GrantId = identity.GrantId;
 const Error = types.Error;
 
@@ -33,7 +31,7 @@ pub const Write = struct {
     ticket: Ticket,
     version: types.Version,
     record: types.Record,
-    parent_record: ?types.Record,
+    parent: ?Plan.Changes.Parent,
 };
 
 pub const Pending = struct {
@@ -131,29 +129,30 @@ fn checkReservation(self: *Ledger, pending: *Pending) Error!void {
 fn writeView(self: *const Ledger, pending: *const Pending) Error!Write {
     var grants = self.readView();
     const changes = try pending.plan.changes(&grants);
-    return .{ .ticket = pending.ticket, .version = changes.event.version, .record = changes.record, .parent_record = changes.parent_record };
+    defer changes.release(&grants);
+    return .{ .ticket = pending.ticket, .version = changes.event.version, .record = changes.record, .parent = changes.parent };
 }
 
 fn commit(self: *Ledger, pending: *Pending) types.Change {
     const plan = &pending.plan;
     const next: identity.Revision = @fromBackingInt(@backingInt(pending.ticket.base.grants) + 1);
     switch (plan.delta) {
-        .issue => |entry| {
-            self.entries[plan.grant.slot] = entry;
+        .issue => |record| {
+            self.records[plan.grant.slot] = record;
             self.used += 1;
-            if (entry.parent) |parent| {
-                self.entries[parent.slot].child_count += 1;
-                self.entries[parent.slot].revision = next;
+            if (record.parent) |parent| {
+                self.records[parent.slot].child_count += 1;
+                self.records[parent.slot].revision = next;
             }
         },
         .policy => |replacement| {
-            self.entries[plan.grant.slot].configured.deinit(self.allocator);
-            self.entries[plan.grant.slot].configured = replacement;
+            self.records[plan.grant.slot].configured.deinitOwned(self.allocator);
+            self.records[plan.grant.slot].configured = replacement.terms;
         },
-        .status => |status| self.entries[plan.grant.slot].status = status,
-        .label => |label| self.entries[plan.grant.slot].label = label,
+        .status => |status| self.records[plan.grant.slot].status = status,
+        .label => |label| self.records[plan.grant.slot].label = label,
     }
-    self.entries[plan.grant.slot].revision = next;
+    self.records[plan.grant.slot].revision = next;
     self.current_revision = next;
     const change: types.Change = .{ .version = self.version(), .grant = plan.grant, .kind = plan.kind };
     // Reservation was checked immediately before this synchronous commit.
@@ -168,11 +167,9 @@ fn discard(self: *Ledger, pending: *Pending) void {
     self.pending = null;
 }
 
-pub fn lookup(self: *const Ledger, id: GrantId) Error!*const Entry {
+pub fn lookup(self: *const Ledger, id: GrantId) Error!*const types.Record {
     if (id.owner != self.graph.owner) return error.ForeignOwner;
     if (id.slot >= self.used) return error.UnknownGrant;
     if (id.generation != 1) return error.Gone;
-    return &self.entries[id.slot];
+    return &self.records[id.slot];
 }
-
-pub const recordOf = planner.recordOf;

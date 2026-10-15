@@ -19,7 +19,7 @@ fn refuse(_: void, _: core.Value) !core.Value {
 const Nested = struct {
     fields: [2]model.Argument,
 
-    pub fn handle(self: *Nested, _: *actors.Turn, _: actors.Message) !model.Argument {
+    pub fn handle(self: *Nested, _: *actors.Turn, _: actors.Delivery) !model.Argument {
         return .{ .tagged = .{ .tag = "two references", .value = &self.fields } };
     }
 };
@@ -159,7 +159,7 @@ test "Host completion borrowed retry and discard release exactly their owned occ
 
 const Large = struct {
     fields: []const model.Argument,
-    pub fn handle(self: *Large, _: *actors.Turn, _: actors.Message) !model.Argument {
+    pub fn handle(self: *Large, _: *actors.Turn, _: actors.Delivery) !model.Argument {
         return .{ .list = self.fields };
     }
 };

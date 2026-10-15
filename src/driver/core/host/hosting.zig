@@ -5,6 +5,7 @@
 //! capability registry, or traversal state of its own.
 
 const std = @import("std");
+const value_views = @import("../value_views.zig");
 
 const model = @import("model");
 const actors = @import("actors");
@@ -14,6 +15,7 @@ const served_mod = @import("../served.zig");
 const capability = @import("../capability.zig");
 const value_mod = @import("../value.zig");
 const capability_routing = @import("capabilities/routing.zig");
+const args_mod = @import("args.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -52,9 +54,9 @@ pub const HostTurn = struct {
         return lease.fork();
     }
 
-    pub fn localArguments(self: *HostTurn) !struct { verb: []const u8, args: []const value_mod.Value } {
+    pub fn localArguments(self: *HostTurn) !struct { verb: []const u8, args: args_mod.Args } {
         const args = try @import("local_delivery.zig").arguments(self.turn);
-        return .{ .verb = args.verb, .args = args.args };
+        return .{ .verb = args.verb, .args = .fromValues(args.args, self.turn.arena) };
     }
 
     pub fn prepareLocalReply(self: *HostTurn, reply: value_mod.Value) !void {
@@ -115,7 +117,7 @@ pub const HostTurn = struct {
         var prepared = try self.host.prepareValues(session, self.turn.arena, values);
         defer prepared.deinit();
         try capability_routing.validateRoutedArguments(self.host, session, prepared.values);
-        const reply = try self.turn.forward(routed, .{ .verb = verb, .args = prepared.values });
+        const reply = try self.turn.forward(routed, .{ .verb = verb, .args = .fromOwnedSlice(prepared.values) });
         _ = prepared.commit();
         return self.host.liftValue(session, self.turn.arena, reply);
     }
@@ -139,32 +141,41 @@ pub const HostTurn = struct {
 /// declares
 ///
 /// ```zig
-/// pub fn handle(self: *B, ht: *HostTurn, verb: []const u8, args: []const Value) !Value
+/// pub fn handle(self: *B, ht: *HostTurn, verb: []const u8, args: Args) !Value
 /// ```
 ///
-/// Inbound wire arguments are lifted through the ingress session (so a
-/// delivered capability arrives as one canonical opaque identity), and the
-/// returned reply is lowered through the same session's Port. Both walks use
-/// the turn arena, whose lifetime is the borrowed reply's contract. The owning
-/// `Session.spawn` / `Session.publish` and Host-wide `publish` wrap every
-/// behavior in this adapter. The base Vat and the serve core keep the
-/// wire-shaped contract.
+/// A wire deliver that session validation counted no reference or handoff
+/// slot in reaches the handler as the frame's views (`Args.fromViews`), read
+/// where they lie. One that carries a capability is lifted through the
+/// ingress session first, so a delivered capability arrives as one canonical
+/// opaque identity under one lift transaction, and the handler reads values
+/// (`Args.fromValues`). A served reply carrying no capability lends its
+/// values through a view until the engine copies the retained answer.
+/// A near reply or one carrying a capability is lowered through the same
+/// session's Port. Both representations borrow the active turn. The owning `Session.spawn` /
+/// `Session.publish` and Host-wide `publish` wrap every behavior in this
+/// adapter. The base Vat and the serve core keep the wire-shaped contract.
 pub fn Hosting(comptime B: type) type {
     return struct {
         inner: B,
 
-        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !actors.HostedActor.Result {
             const port = turn.port orelse {
-                if (@hasDecl(B, "handleLocal")) return self.inner.handleLocal(turn, msg);
+                if (@hasDecl(B, "handleLocal")) return .{ .returned = try self.inner.handleLocal(turn, msg) };
                 return actors.Error.NotConnected;
             };
             const served: *Served = @fieldParentPtr("port", port);
             const session: *HostSession = @alignCast(@fieldParentPtr("served", served));
             const host = session.host;
-            const values = try host.liftValues(session, turn.arena, msg.args);
             var host_turn = HostTurn{ .host = host, .session = session, .turn = turn };
-            const reply = try self.inner.handle(&host_turn, msg.verb, values);
-            return host.lowerValue(session, turn.arena, reply);
+            const args: args_mod.Args = if (msg.reference_slots == 0)
+                .fromViews(msg.args, &host_turn)
+            else
+                .fromValues(try host.liftValues(session, turn.arena, msg.args), turn.arena);
+            const reply = try self.inner.handle(&host_turn, msg.verb, args);
+            if (turn.origin == .served and !value_views.carriesCapability(&.{reply}))
+                return .{ .viewed = try value_views.argument(&reply) };
+            return .{ .returned = try host.lowerValue(session, turn.arena, reply) };
         }
 
         pub fn handleOpaque(self: *@This(), turn: *actors.Turn, _: actors.OpaqueMessage) !void {

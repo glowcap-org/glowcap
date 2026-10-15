@@ -1,4 +1,4 @@
-//! `hosting.Worker` slot admission, recovery exclusion, and completion order.
+//! `hosting.Worker` slot and reader admission, recovery exclusion, and completion order.
 const std = @import("std");
 const f = @import("fixture.zig");
 const Worker = f.hosting.Worker;
@@ -62,7 +62,7 @@ test "loam worker drive quiesces to the state the hand loop reaches" {
     try by_worker.init(.{});
     defer by_worker.deinit();
     var slots: [1]Worker.Slot = undefined;
-    var worker: Worker = .init(&slots);
+    var worker: Worker = .init(&slots, by_worker.data.backend.readerCapacity());
 
     var hand_capture: f.Capture = .{};
     var worker_capture: f.Capture = .{};
@@ -87,7 +87,7 @@ test "loam worker refuses a second request when every slot is taken" {
     try fixture.init(.{});
     defer fixture.deinit();
     var slots: [1]Worker.Slot = undefined;
-    var worker: Worker = .init(&slots);
+    var worker: Worker = .init(&slots, fixture.data.backend.readerCapacity());
     var capture: f.Capture = .{};
     try queueAdd(&fixture, &capture);
 
@@ -100,12 +100,46 @@ test "loam worker refuses a second request when every slot is taken" {
     try std.testing.expectEqual(@as(?i64, 4), capture.value);
 }
 
+test "loam worker admits reads up to the engine's readers and still offers the write" {
+    var fixture: f.Fixture = undefined;
+    try fixture.init(.{});
+    defer fixture.deinit();
+    var slots: [2]Worker.Slot = undefined;
+    var worker: Worker = .init(&slots, 1);
+    var capture: f.Capture = .{};
+    fixture.data.store.evict();
+    try queueAdd(&fixture, &capture);
+
+    const read = (try worker.next(fixture.attached, false)).?;
+    try std.testing.expect(read.request == .read);
+    // A slot is free, but the one read the engine admits is taken.
+    try std.testing.expectError(error.Busy, worker.next(fixture.attached, false));
+    try Worker.run(read, &fixture.data.backend);
+    try worker.complete(read, fixture.attached);
+    // The read holds its reader until release, and the write it enabled
+    // needs none, so the worker offers it once the call stages it.
+    for (0..8) |_| {
+        try fixture.host.vat.drive();
+        try fixture.attached.advance();
+        if (fixture.attached.writing != null) break;
+    } else return error.DidNotStage;
+    const write = (try worker.next(fixture.attached, false)).?;
+    try std.testing.expect(write.request == .write);
+    try worker.release(read);
+    try Worker.run(write, &fixture.data.backend);
+    try worker.complete(write, fixture.attached);
+    try worker.release(write);
+    try driveUntilQuiet(&fixture, &worker);
+    try std.testing.expectEqual(@as(?i64, 4), capture.value);
+    try std.testing.expectEqual(@as(usize, 0), worker.reading);
+}
+
 test "loam worker recovery excludes ordinary work in both directions" {
     var fixture: f.Fixture = undefined;
     try fixture.init(.{});
     defer fixture.deinit();
     var slots: [2]Worker.Slot = undefined;
-    var worker: Worker = .init(&slots);
+    var worker: Worker = .init(&slots, fixture.data.backend.readerCapacity());
     var capture: f.Capture = .{};
     try queueAdd(&fixture, &capture);
 
@@ -134,7 +168,7 @@ test "loam worker refuses to complete a slot that has not run" {
     try fixture.init(.{});
     defer fixture.deinit();
     var slots: [1]Worker.Slot = undefined;
-    var worker: Worker = .init(&slots);
+    var worker: Worker = .init(&slots, fixture.data.backend.readerCapacity());
     var capture: f.Capture = .{};
     try queueAdd(&fixture, &capture);
 
@@ -157,9 +191,9 @@ test "loam worker leaves a sibling attachment's uncertain write to its owner" {
     const sibling = try f.hosting.Attachment.create(std.testing.allocator, &fixture.host, &fixture.data.store, &f.behaviors, .{});
     defer sibling.destroy() catch unreachable;
     var slots: [1]Worker.Slot = undefined;
-    var worker: Worker = .init(&slots);
+    var worker: Worker = .init(&slots, fixture.data.backend.readerCapacity());
     var sibling_slots: [1]Worker.Slot = undefined;
-    var sibling_worker: Worker = .init(&sibling_slots);
+    var sibling_worker: Worker = .init(&sibling_slots, fixture.data.backend.readerCapacity());
     var capture: f.Capture = .{};
     try queueAdd(&fixture, &capture);
 

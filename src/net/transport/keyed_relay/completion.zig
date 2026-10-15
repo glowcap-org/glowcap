@@ -39,7 +39,7 @@ pub const LoopConnectTarget = dial_resolver.LoopConnectTarget;
 pub const DialResolver = dial_resolver.DialResolver;
 pub const ResidentPolicy = @import("completion/resident_policy.zig").ResidentPolicy;
 
-/// A host-platform completion backend with native keyed-relay dials and, when
+/// A host-platform completion backend with keyed-relay dials and, when
 /// configured with a registration, a listener that accepts dialers through
 /// the relay. Ordinary TCP dials and listeners delegate straight to `Platform`.
 /// `keyed-relay` dials use synthetic negative fds and drive TCP connect,
@@ -605,6 +605,10 @@ pub fn CompletionBackend(comptime Platform: type) type {
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
             return Poll.poll(self, out, timeout_ms);
+        }
+
+        pub fn peek(self: *Self, out: []completion.Completion) !usize {
+            return Poll.peek(self, out);
         }
 
         fn startRelayDial(self: *Self, user_data: u64, target: @FieldType(ConnectTarget, "keyed_relay")) !Fd {

@@ -348,11 +348,6 @@ pub fn expandGcExportReleases(
     return extra.items.len;
 }
 
-fn shorteningTarget(self: *const Session, source: model.ImportPosition) ?model.ImportPosition {
-    const entry = self.imported_promises.get(source) orelse return null;
-    return if (entry.shortening_target == source) null else entry.shortening_target;
-}
-
 /// The stable edge out of `source` whose retain the session owns: the only
 /// kind the closure on `source`'s final release may spend. Routing follows
 /// every edge. Spending follows this one.
@@ -379,35 +374,31 @@ fn rewriteReference(self: *Session, reference: model.Reference) model.Reference 
     return .{ .far = model.FarRef.promise(current.int()) };
 }
 
-fn rewriteArguments(self: *Session, args: []const model.Argument) void {
-    for (@constCast(args)) |*arg| rewriteArgument(self, arg);
-}
-
-fn rewriteArgument(self: *Session, arg: *model.Argument) void {
-    switch (arg.*) {
-        .reference => |reference| arg.* = .{ .reference = rewriteReference(self, reference) },
-        .list, .set => |items| rewriteArguments(self, items),
-        .tagged => |tagged| rewriteArguments(self, tagged.value),
-        .@"struct" => |entries| for (@constCast(entries)) |*entry| rewriteArgument(self, &entry.value),
-        else => {},
+/// Rewrite the far promises the inventory lists, with `root` resolving its
+/// by-value root.
+fn rewriteSlots(self: *Session, inventory: session.Inventory, root: ?*model.Argument) void {
+    for (inventory.slots) |slot| {
+        const argument = slot.at(root);
+        if (argument.* == .reference) argument.* = .{ .reference = rewriteReference(self, argument.reference) };
     }
 }
 
-pub fn rewriteResolution(self: *Session, resolution: *model.Resolution) void {
-    if (resolution.* == .fulfill) rewriteArgument(self, &resolution.fulfill);
+pub fn rewriteResolution(self: *Session, resolution: *model.Resolution, inventory: session.Inventory) void {
+    const root: ?*model.Argument = if (resolution.* == .fulfill) &resolution.fulfill else null;
+    rewriteSlots(self, inventory, root);
 }
 
 /// Rewrite every far promise in one owned outbound message through the
 /// authoritative shortening forest. POD references change in place. No heap is
 /// allocated or copied.
-pub fn rewriteMessage(self: *Session, message: *model.Message) void {
+pub fn rewriteMessage(self: *Session, message: *model.Message, inventory: session.Inventory) void {
     switch (message.*) {
         .deliver => |*deliver| {
             deliver.target = rewriteReference(self, deliver.target);
             if (deliver.resolve_me_desc) |reference| deliver.resolve_me_desc = rewriteReference(self, reference);
-            rewriteArguments(self, deliver.args);
+            rewriteSlots(self, inventory, null);
         },
-        .resolve => |*resolve| rewriteResolution(self, &resolve.resolution),
+        .resolve => |*resolve| rewriteResolution(self, &resolve.resolution, inventory),
         .listen => |*listen| {
             listen.target = rewriteReference(self, listen.target);
             listen.listener = rewriteReference(self, listen.listener);

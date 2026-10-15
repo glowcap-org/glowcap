@@ -16,11 +16,9 @@ paths:
 
 A committed script is a small program. It earns a file when its behavior will
 be run again and no existing product command, build helper, or library is the
-clearer owner.
-
-Judge a helper's behavior before its form. A request for consistency gives the
-helper the contract below. Remove a helper only when its behavior no longer
-earns a place.
+clearer owner. Judge a helper's behavior before its form: a request for
+consistency gives the helper the contract below, and only behavior that no
+longer earns a place removes it.
 
 ## Before adding a file
 
@@ -35,7 +33,7 @@ owns placement:
 - Contributor commands are `zig build` steps. A script may implement a step
   when it owns process supervision, shell integration, or another boundary the
   build graph cannot express clearly.
-- A shipped deployable's operator interface belongs to the product CLI;
+- A shipped deployable's operator interface belongs to the product CLI, and
   its deployment templates ship with the product.
 - Check and generator bodies live under `tools/check` and `tools/gen`.
 - Container and agent workflow scripts stay with `.devcontainer/` and
@@ -48,13 +46,13 @@ front is the build step, operations front, hook, or skill that owns it.
 
 Every committed script names or demonstrates:
 
-- its caller and the effect it owns;
-- its arguments, environment inputs, output, and failure status;
-- whether it resolves paths from its own location or receives a working
-  directory from its caller;
-- the runtime already owned by the environment where it runs;
-- cleanup, signal, retry, and destructive behavior that the effect requires;
-- the focused test or check that proves its ordinary and failure paths.
+- Its caller and the effect it owns.
+- Its arguments, environment inputs, output, and failure status.
+- Whether it resolves paths from its own location or receives a working
+  directory from its caller.
+- The runtime already owned by the environment where it runs.
+- Cleanup, signal, retry, and destructive behavior that the effect requires.
+- The focused test or check that proves its ordinary and failure paths.
 
 Use POSIX `sh` only when the target host needs that portability. Use Bash when
 arrays, process groups, or Bash-specific facilities make the implementation
@@ -64,8 +62,8 @@ add a dependency for convenience that the target environment does not own.
 
 Quote paths and values, reject malformed arguments before effects, and avoid
 ambient working-directory assumptions. When a caller owns the working
-directory, make that visible at the call site and exercise it in the test. A
-script callable from outside the repository root needs a non-root-cwd test.
+directory, make that visible at the call site and exercise it in the test.
+A script callable from outside the repository root needs a non-root-cwd test.
 
 ## Maintenance
 

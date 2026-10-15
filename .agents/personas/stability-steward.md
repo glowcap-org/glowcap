@@ -1,7 +1,7 @@
 ---
 slug: stability-steward
 title: Stability steward
-summary: >-
+description: >-
   Support tiers a consumer can plan against: a claim is the evidence that runs
   for it, promises are narrow and kept, and every downgrade is stated plainly.
 ---

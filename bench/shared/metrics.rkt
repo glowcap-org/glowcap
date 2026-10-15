@@ -3,7 +3,7 @@
 ;; percentiles, throughput math, and process RSS sampling from /proc. Pure
 ;; functions plus one filesystem read; no actor, peer, or substrate code lives
 ;; here. The substrate bench (bench/goblins) drives them; the per-language
-;; consumer-cost bench (bench/langs) reimplements the same instrument natively in
+;; consumer-cost bench (bench/langs) reimplements the same instrument in
 ;; its Zig orchestrator, so it needs no Racket on the driving path.
 
 (require racket/list racket/port)

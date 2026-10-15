@@ -124,9 +124,9 @@ nick parts. Outbound, it posts under its own registered, SASL-authenticated nick
 with a visible `<nick>` prefix, throttled below the network's flood limit.
 Everything it injects is visibly bridge-backed, nothing from IRC is presented as
 verified, and a direct message to an IRC nick terminates at the bridge because
-there is no capability on the far side. The front is one more listener speaking
+there is no capability on the far side. The IRC server is one more listener speaking
 the IRC client protocol, translating each verb onto the directory and room
-capabilities every front uses: a refused join becomes a numeric, and a DM rides
+capabilities every client uses: a refused join becomes a numeric, and a DM rides
 the real introduction path. The two edges share one IRC vocabulary module so the
 mapping has one authority, and they never talk to each other.
 
@@ -135,9 +135,9 @@ mapping has one authority, and they never talk to each other.
 - Per-user IRC citizenship on a public network remains subject to that
   network's connection, account, and flood policies. Rooms does not imply the
   network permits it.
-- The IRC front accepts no IRC capabilities and projects no steward or operator
+- The IRC server accepts no IRC capabilities and projects no steward or operator
   authority. If modes are ever added they act through a room capability the
-  front holds, never a separate privilege system.
+  IRC server holds, never a separate privilege system.
 - The builtin gateway proves a connection-provider, channel, and room-publication
   seam. A transferable contract for external bouncers or other edge providers
   does not exist. The directory must not grow IRC policy when one is
@@ -187,7 +187,7 @@ rules. The `rooms-web-*` browser proofs (`zig build rooms-web-routes`,
 tab-side model, including creating a link from the visible control and using a
 private room's link after a server restart. The bridge is checked in both
 directions against a scripted in-process IRC server fixture through the native
-Rooms profile and the Goblins-compatible 1.0/Syrup floor. The front is checked
+Rooms profile and the Goblins-compatible 1.0/Syrup floor. The IRC server is checked
 by socket-driven goldens that prove the complete channel vocabulary plus
 introduced direct messages meeting over Noise on one live peer connection.
 `zig build goblins-rooms`, `zig build goblins-rooms-peering`, and
@@ -200,4 +200,4 @@ and continues using the already-handed room. Live Libera is an opt-in demo.
 Related: [ADR-0125](ADR-0125-identity-route-multihome.md) for the route bundle
 a peered room carries, [ADR-0126](ADR-0126-durable-room-stewardship.md) and
 [ADR-0127](ADR-0127-room-steward-operator.md) for the steward authority the
-IRC front does not project.
+IRC server does not project.

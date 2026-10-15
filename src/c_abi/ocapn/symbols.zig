@@ -28,10 +28,10 @@ pub const symbols = [_]Symbol{
     .{
         .name = "glowcap_context_allocate_lifecycle_id",
         .out_params = &.{1},
-        .rust_omit = "native Host construction assigns Host identity; Rust currently owns no other Context-scoped diagnostic lifecycle",
-        .ts_omit = "native Host construction assigns Host identity; TypeScript currently owns no other Context-scoped diagnostic lifecycle",
-        .python_omit = "native Host construction assigns Host identity; Python currently owns no other Context-scoped diagnostic lifecycle",
-        .racket_omit = "native Host construction assigns Host identity; Racket currently owns no other Context-scoped diagnostic lifecycle",
+        .rust_omit = "Zig Host construction assigns Host identity; Rust currently owns no other Context-scoped diagnostic lifecycle",
+        .ts_omit = "Zig Host construction assigns Host identity; TypeScript currently owns no other Context-scoped diagnostic lifecycle",
+        .python_omit = "Zig Host construction assigns Host identity; Python currently owns no other Context-scoped diagnostic lifecycle",
+        .racket_omit = "Zig Host construction assigns Host identity; Racket currently owns no other Context-scoped diagnostic lifecycle",
     },
     .{
         .name = "glowcap_context_next_failure",

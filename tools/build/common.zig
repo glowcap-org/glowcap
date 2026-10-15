@@ -53,6 +53,14 @@ pub fn addRootedSystemCommand(
     return run;
 }
 
+/// Check one Rust crate's formatting without writing. A crate's test step
+/// depends on this, so the tree that edits the crate learns about an
+/// unformatted file instead of the next tree to run `bindings-fmt-check`.
+/// `--all` reaches every member of a workspace manifest.
+pub fn rustFmtCheck(b: *std.Build, manifest: []const u8) *std.Build.Step.Run {
+    return addRootedSystemCommand(b, .build_tool, &.{ "cargo", "fmt", "--all", "--check", "--manifest-path", manifest });
+}
+
 /// Absolute path under the repository root, for environment variables passed
 /// to subprocesses that cannot consume a `LazyPath`.
 pub fn rootPath(b: *std.Build, sub_path: []const u8) []const u8 {

@@ -12,6 +12,7 @@ const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const promise_capture = @import("../../support/capture.zig");
 const cross_peer = @import("../../support/cross_peer.zig");
 
@@ -27,7 +28,7 @@ const SendBack = struct {
     broke: *bool,
     reentry: ?*Reentry = null,
 
-    pub fn handle(self: *SendBack, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *SendBack, turn: *Turn, msg: Delivery) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "recover")) {
             try turn.tell(self.target, .{ .verb = "increment" });
             return .{ .void = {} };
@@ -190,7 +191,7 @@ test "turn rollback allocates nothing and keeps pending failure listeners cancel
             const listener = self.port.takeListener(self.vat, self.first) orelse return;
             self.cancelled.* = listener.ctx == ctx and listener.func == firstBreak;
         }
-        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
             const target: actors.Ref = .{ .far = model.FarRef.object(7) };
             self.first = try turn.send(target, .{ .verb = "first" });
             try self.port.on(turn.vat, self.first, .{ .ctx = self, .func = firstBreak });

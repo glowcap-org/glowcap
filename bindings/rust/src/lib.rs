@@ -2,24 +2,27 @@
 //! you hold as a [`Session`].
 //!
 //! The shared raw C ABI lives in the private `sys` module. The one
-//! exception is `webrtc`, whose public contract is the native companion
-//! archive's multiplexed readiness and try-I/O boundary.
-//! What you use is the application surface every glowcap binding speaks,
-//! [`Runtime::connect`] plus transport-module `listen`, a [`Session`] with `fetch`/`send`/`tell`/
-//! `spawn`/`publish`, one opaque [`Ref`] capability type, a Rust [`Argument`]
-//! enum, and `Result` for fallible calls, over the symbol-disjoint
-//! `libglowcap_host` and `libglowcap_driver` archives (ADR-0112). The Host
-//! archive owns `glowcap_host_*`. The driver exports only `glowcap_driver_*`
-//! and adopts a quiescent Host. Bounded `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, and routed relay dials and
+//! exception is `webrtc`, which also exposes the C library's multiplexed
+//! readiness and try-I/O boundary beside its provider.
+//!
+//! What you use is the application surface every glowcap binding speaks:
+//! [`Runtime::connect`] plus a transport module's `listen`, a [`Session`] with
+//! `fetch`/`send`/`tell`/`spawn`/`publish`, one opaque [`Ref`] capability type,
+//! a Rust [`Argument`] enum, and `Result` for fallible calls. It rides the
+//! symbol-disjoint `libglowcap_host` and `libglowcap_driver` archives
+//! (ADR-0112). The Host archive owns `glowcap_host_*`. The driver exports only
+//! `glowcap_driver_*` and adopts a quiescent Host.
+//!
+//! Bounded `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, and routed relay dials and
 //! listeners ride the loop (`driver_loop`). A quiescent caller-supplied Host
 //! transfers to that same runtime before its first network operation. The
 //! byte-fed pump serves explicit externally supplied channels such as a bare
 //! relay locator's configured WebSocket fallback. The [`Host`] owns
 //! `engine.Node` (router) and every CapTP decision. Goblins' `mycapn` is two
-//! roles: product maps to Host, router tables map to `engine.Node` (ADR-0079). This
-//! crate moves bytes and honors the host's action queue on the byte-fed
-//! path. This is the dogfood consumer `zig build rust-dogfood` runs, so the
-//! ergonomic surface covered.
+//! roles: the product maps to the Host and the router tables map to
+//! `engine.Node` (ADR-0079). This crate moves bytes and honors the host's
+//! action queue on the byte-fed path. It is also the consumer that
+//! `zig build rust-dogfood` runs to cover the ergonomic surface.
 //!
 //! # Composable modules, à la carte
 //!
@@ -124,7 +127,13 @@ mod runtime;
 // transport that hosts through the driver archive.
 #[cfg(all(
 	feature = "async",
-	any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay")
+	any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	)
 ))]
 mod server;
 #[cfg(feature = "async")]
@@ -164,7 +173,7 @@ pub mod tcp;
 mod driver_event;
 #[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 mod driver_failure;
-/// Native `DriverLoop` tier and the route used by `Runtime` transports.
+/// FFI `DriverLoop` tier and the route used by `Runtime` transports.
 #[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 pub mod driver_loop;
 #[cfg(feature = "async")]
@@ -247,12 +256,12 @@ mod tests {
 		let error = require_archive_fingerprint("test", 0x5678, 0x1234).unwrap_err();
 		assert_eq!(error.kind(), ErrorKind::Internal);
 		assert!(error.message().unwrap().contains("callable surface does not match"));
-		assert!(error.message().unwrap().contains("rebuild the native libraries"));
+		assert!(error.message().unwrap().contains("rebuild the FFI libraries"));
 	}
 
 	#[cfg(feature = "async")]
 	#[test]
-	fn unknown_native_classifications_are_returned_failures() {
+	fn unknown_ffi_classifications_are_returned_failures() {
 		assert!(!lifecycle_is_closed(sys::LIFECYCLE_ACTIVE).unwrap());
 		assert!(lifecycle_is_closed(sys::LIFECYCLE_CLOSED).unwrap());
 		assert_eq!(lifecycle_is_closed(u32::MAX).unwrap_err().kind(), ErrorKind::Internal);
@@ -294,7 +303,7 @@ mod tests {
 	}
 
 	#[test]
-	fn arguments_convert_from_and_into_native_rust_values() {
+	fn arguments_convert_from_and_into_ffi_rust_values() {
 		// Build an argument list out of plain Rust values, literals infer.
 		let args: Vec<Argument> = vec![42.into(), 3.5.into(), true.into(), "hi".into(), ().into()];
 		assert_eq!(args[0].as_i64(), Some(42));
@@ -533,7 +542,7 @@ mod tests {
 
 	#[cfg(feature = "async")]
 	#[test]
-	fn unknown_native_argument_kind_is_a_returned_failure() {
+	fn unknown_ffi_argument_kind_is_a_returned_failure() {
 		// SAFETY: `GlowcapArgument` is a plain C struct of integers and null pointers; all-zero is a valid value, and
 		// the test sets `kind` before it is read.
 		let mut c = unsafe { core::mem::zeroed::<sys::GlowcapArgument>() };

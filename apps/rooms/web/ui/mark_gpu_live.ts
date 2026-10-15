@@ -1,5 +1,5 @@
 // The shader mark, live in a page: one device for every mark on it, a loop
-// for each, and the three ways a mark plays.
+// for each, and the four ways a mark plays.
 //
 // The opening screen's mark loops the whole cycle: grow, strike, stand, fade,
 // and again. An arriving mark runs that cycle once and is a lockup afterwards,

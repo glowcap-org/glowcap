@@ -41,7 +41,7 @@ pub fn selectImage(state: Config, docker: Docker, image: []const u8, build: []co
         const present = try docker.capture(&.{ "image", "inspect", requested });
         if (!present.term.success()) {
             docker.run(&.{ "pull", requested }, 1800) catch |err| {
-                log.err(state.io, "could not obtain image {s}; select a published --image or use --build with a prepared Linux product", .{requested});
+                log.err(state.io, "could not obtain image {s}. Select a published --image or use --build with a prepared Linux product", .{requested});
                 return err;
             };
         }
@@ -80,7 +80,7 @@ pub fn up(docker: Docker) !void {
     const networks = try docker.query(&.{ "network", "ls", "--format", "{{.Name}}" });
     if (!config.containsLine(networks, "glowcap-rooms-net")) try docker.run(&.{ "network", "create", "glowcap-rooms-net" }, 30);
     docker.run(try docker.composeArgs(&.{ "up", "-d", "--wait", "--wait-timeout", "210" }), 240) catch |err| {
-        log.err(docker.io, "deployment did not become healthy; inspect `glowcap apps rooms deployment logs` using the same --dir", .{});
+        log.err(docker.io, "deployment did not become healthy. Inspect `glowcap apps rooms deployment logs` using the same --dir", .{});
         return err;
     };
     const locator = try rooms(docker, "directory", &.{}, &.{"locator"});
@@ -113,14 +113,12 @@ fn rooms(docker: Docker, service: []const u8, options: []const []const u8, opera
 pub const Unit = enum {
     session,
     state,
-    storage,
     all,
 
     fn description(self: Unit) []const u8 {
         return switch (self) {
             .session => "the shared workspace, session identity, and all session access links",
-            .state => "the directory identity, grants, and issued room links",
-            .storage => "kept public-room history",
+            .state => "the directory identity, grants, issued room links, and kept public-room history",
             .all => "all Rooms data, identities, grants, and access links",
         };
     }
@@ -129,9 +127,9 @@ pub const Unit = enum {
 pub fn reset(docker: Docker, unit: Unit, confirmed: bool) !void {
     const selected = try volumes_config.Selected.load(docker);
     defer selected.deinit();
-    var targets: [3][]const u8 = undefined;
+    var targets: [2][]const u8 = undefined;
     var count: usize = 0;
-    for ([_]Unit{ .session, .state, .storage }) |candidate| {
+    for ([_]Unit{ .session, .state }) |candidate| {
         if (unit != .all and unit != candidate) continue;
         const kind = std.meta.stringToEnum(volumes_config.Kind, @tagName(candidate)).?;
         const target = try selected.name(kind, true);
@@ -145,16 +143,16 @@ pub fn reset(docker: Docker, unit: Unit, confirmed: bool) !void {
     if (unit != .all and !config.containsLine(volumes, targets[0])) return error.MissingDeploymentVolume;
     log.writeMsg(docker.io, try std.fmt.allocPrint(docker.gpa, "Reset {s} permanently removes {s}. To restart while keeping data and links, use `deployment restart`.\n", .{ @tagName(unit), unit.description() }));
     if (!confirmed and !try confirmReset(docker, unit)) {
-        log.writeMsg(docker.io, "Reset cancelled; no services or volumes were changed.\n");
+        log.writeMsg(docker.io, "Reset cancelled. No services or volumes were changed.\n");
         return;
     }
     try docker.run(try docker.composeArgs(&.{"down"}), 120);
     // The override may declare other volumes. Even `all` only removes the
-    // three explicit custody units, never every volume Compose can name.
+    // two named units (session and state), never every volume Compose can name.
     for (targets[0..count]) |target| {
         if (config.containsLine(volumes, target)) {
             docker.run(&.{ "volume", "rm", target }, 60) catch |err| {
-                log.err(docker.io, "reset could not remove {s}; the stack remains stopped and earlier selected volumes may already have been removed. Inspect the data before running deployment up", .{target});
+                log.err(docker.io, "reset could not remove {s}. The stack remains stopped and earlier selected volumes may already have been removed. Inspect the data before running deployment up", .{target});
                 return err;
             };
         }
@@ -164,7 +162,7 @@ pub fn reset(docker: Docker, unit: Unit, confirmed: bool) !void {
 
 fn confirmReset(docker: Docker, unit: Unit) !bool {
     const tty = Io.Dir.cwd().openFile(docker.io, "/dev/tty", .{}) catch |err| {
-        log.err(docker.io, "reset needs an interactive terminal ({s}); use --yes only to confirm destruction without prompting", .{@errorName(err)});
+        log.err(docker.io, "reset needs an interactive terminal ({s}). Use --yes only to confirm destruction without prompting", .{@errorName(err)});
         return error.ConfirmationRequired;
     };
     defer tty.close(docker.io);

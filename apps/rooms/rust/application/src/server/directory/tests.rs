@@ -19,7 +19,7 @@ fn request(nick: &str, inbox: &'static str) -> Register<&'static str> {
 		allocation: crate::directory::registration::NicknameAllocation::Exact,
 		locator: "ocapn://peer.tcp".into(),
 		own_locator: true,
-		webrtc: None,
+		host_key: None,
 		inbox,
 		voucher: None,
 		claimant: None,
@@ -218,10 +218,10 @@ fn a_proved_peer_reconnecting_replaces_its_own_rows() {
 fn a_webrtc_designator_belongs_to_its_first_writer() {
 	let mut dir = Dir::default();
 	let mut alice = request("Alice", "a-inbox");
-	alice.webrtc = Some("designator".into());
+	alice.host_key = Some("designator".into());
 	dir.register(1, alice.clone(), id(1), 0).expect("registers");
 	let mut bob = request("Bob", "b-inbox");
-	bob.webrtc = Some("designator".into());
+	bob.host_key = Some("designator".into());
 	let refusal = dir.register(2, bob, id(2), 0).unwrap_err();
 	assert_eq!(refusal.code, Some(FailureCode::NotYourLocator));
 	// The holder may re-register with it.
@@ -440,10 +440,10 @@ fn watchers_and_snapshot_rows_are_bounded() {
 
 fn signaling_pair(dir: &mut Dir) {
 	let mut alice = request("Alice", "a-inbox");
-	alice.webrtc = Some("da".into());
+	alice.host_key = Some("da".into());
 	dir.register(1, alice, id(1), 0).expect("registers");
 	let mut bob = request("Bob", "b-inbox");
-	bob.webrtc = Some("db".into());
+	bob.host_key = Some("db".into());
 	dir.register(2, bob, id(2), 0).expect("registers");
 }
 
@@ -469,6 +469,8 @@ fn an_exchange_routes_between_its_two_ends_only() {
 	);
 	let offered = dir.signal_offer(1, "db", "reply", 0).expect("offers");
 	assert_eq!(offered.id, "x0");
+	// The target learns the originator by the designator signaling routes it by.
+	assert_eq!(offered.from.as_deref(), Some("da"));
 	assert_eq!(
 		offered.target,
 		Route {
@@ -496,6 +498,20 @@ fn an_exchange_routes_between_its_two_ends_only() {
 	assert_eq!(done.reply, "reply");
 	assert_eq!(dir.signal_candidate(1, "x0"), None);
 	assert_eq!(dir.next_signaling_expiry(), None);
+}
+
+#[test]
+fn only_the_answering_member_declines_and_the_originator_hears_why() {
+	let mut dir = Dir::default();
+	signaling_pair(&mut dir);
+	dir.offer_signaling(2, "b-signaling").expect("offers");
+	dir.signal_offer(1, "db", "reply", 0).expect("offers");
+	assert_eq!(dir.signal_decline(1, "x0", "busy").unwrap_err().code, None);
+	assert_eq!(dir.signal_decline(2, "x9", "busy"), Ok(None));
+	let declined = dir.signal_decline(2, "x0", "busy").expect("declines").expect("drops");
+	assert_eq!(declined.reply, "reply");
+	assert_eq!(declined.reason.as_deref(), Some("the member declined the offer: busy"));
+	assert!(!dir.signaling_open("x0"));
 }
 
 #[test]
@@ -553,7 +569,7 @@ fn a_registration_leaving_drops_the_exchanges_aimed_at_it() {
 	dir.signal_offer(1, "db", "reply", 0).expect("offers");
 	// The target re-registers: the exchange aimed at its old row is told.
 	let mut bob = request("Bob", "b-inbox-2");
-	bob.webrtc = Some("db".into());
+	bob.host_key = Some("db".into());
 	let effects = dir.register(2, bob, id(3), 0).expect("re-registers");
 	assert_eq!(effects.dropped.len(), 1);
 	assert_eq!(effects.dropped[0].originator, 1);
@@ -569,7 +585,7 @@ fn a_registration_leaving_drops_the_exchanges_aimed_at_it() {
 	assert!(effects.dropped[0].reason.is_some());
 	// The originator closing tells nobody: it is gone.
 	let mut bob = request("Bob", "b-inbox-3");
-	bob.webrtc = Some("db".into());
+	bob.host_key = Some("db".into());
 	dir.register(2, bob, id(4), 0).expect("registers");
 	dir.offer_signaling(2, "b-signaling-3").expect("offers");
 	dir.signal_offer(1, "db", "reply-3", 0).expect("offers");

@@ -179,7 +179,7 @@ pub const Builder = struct {
     }
 
     /// Append `n` zeroed words. Return the segment index of the first.
-    pub fn allocWords(self: *Builder, allocator: std.mem.Allocator, n: usize) !usize {
+    pub inline fn allocWords(self: *Builder, allocator: std.mem.Allocator, n: usize) std.mem.Allocator.Error!usize {
         std.debug.assert(self.words.items.len >= frame_header_words);
         const start = self.words.items.len;
         try self.words.appendNTimes(allocator, 0, n);
@@ -198,9 +198,15 @@ pub const Builder = struct {
     /// Pack `bytes` little-endian into the words starting at `start_idx`. The
     /// caller must have allocated `wordsForBytes(bytes.len)` words there.
     pub fn setBytes(self: *Builder, start_idx: usize, bytes: []const u8) void {
-        for (bytes, 0..) |byte, i| {
-            const word = &self.words.items[start_idx + i / WORD_BYTES];
-            word.* |= @as(u64, byte) << @intCast((i % WORD_BYTES) * 8);
+        const whole = bytes.len / WORD_BYTES;
+        for (self.words.items[start_idx..][0..whole], 0..) |*word, i| {
+            word.* |= std.mem.readInt(u64, bytes[i * WORD_BYTES ..][0..WORD_BYTES], .little);
+        }
+        const tail = bytes[whole * WORD_BYTES ..];
+        if (tail.len != 0) {
+            var last: u64 = 0;
+            for (tail, 0..) |byte, i| last |= @as(u64, byte) << @intCast(i * 8);
+            self.words.items[start_idx + whole] |= last;
         }
     }
 
@@ -217,7 +223,7 @@ pub const Builder = struct {
     ///
     /// `toOwnedSlice` trims the growable buffer's spare capacity, which the
     /// allocators glowcap ships against do in place. One that cannot falls back
-    /// to `std`'s allocate-and-copy, the same cost this method replaced.
+    /// to `std`'s allocate-and-copy.
     pub fn finishOwned(self: *Builder, allocator: std.mem.Allocator) !foundation.Frame {
         std.debug.assert(self.words.items.len >= frame_header_words);
         const frame_words = try self.words.toOwnedSlice(allocator);

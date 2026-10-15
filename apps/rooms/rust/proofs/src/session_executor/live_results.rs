@@ -238,6 +238,7 @@ async fn run_case(external: bool) {
 						"derive-managed",
 						&upstream_terms.managed_derive_arguments(
 							1,
+							Scope::Object,
 							1,
 							ControlPowers {
 								policy_ceiling: Some(upstream_terms),

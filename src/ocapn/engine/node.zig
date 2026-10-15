@@ -44,6 +44,7 @@ const fifo = @import("fifo.zig");
 const node_actions = @import("node/actions.zig");
 const passable = @import("node/passable.zig");
 const passable_batches = @import("node/passable/batches.zig");
+const passable_staging = @import("node/passable/staging.zig");
 const passable_leases = @import("node/passable/leases.zig");
 const handoff_gifts = @import("node/handoffs/gifts.zig");
 const gift_origination = @import("node/handoffs/gifts/origination.zig");
@@ -71,7 +72,7 @@ const PeerSlot = peer_membership.Slot;
 
 /// How a session's own signing key is obtained (ADR-0097).
 ///
-/// A `desc:handoff-give` names the gifter–exporter *session*, and its
+/// A `desc:handoff-give` names the gifter-exporter *session*, and its
 /// signature must therefore be made by that session's key. The node holds one
 /// durable key and does not own session key material, so the layer that does
 /// answers here. `resolve` returns null for a peer it does not know, and the
@@ -124,7 +125,11 @@ pub const Node = struct {
     /// session identity through `sessionSecret`. `SecretKey.seed` recovers the
     /// 32 bytes it was built from, so they are not stored twice.
     secret: crypto.SecretKey,
-    /// Gifter–Exporter session -> fixed-size gift tag -> receiver sessions whose
+    /// The root of every session's wire-hash multiplier (ADR-0218), derived
+    /// from the identity seed under its own domain. Handed to each session
+    /// at registration beside its export range, so no posture carries it.
+    wire_hash_secret: u64,
+    /// Gifter-Exporter session -> fixed-size gift tag -> receiver sessions whose
     /// parked withdrawals depend on that exact gift. This is scheduler state,
     /// never capability authority: each Peer still owns the signed receive,
     /// exact gift id, and replay count. The nested owner makes gifter closure
@@ -151,23 +156,18 @@ pub const Node = struct {
     /// cannot infer a carrier from a partner's advertised locator, which may
     /// name another route.
     transport_resolver: ?TransportResolver = null,
-    /// Registered CapTP sessions keyed by `peer_handle`: the node-owned,
+    /// Registered CapTP sessions by `peer_handle`: the node-owned,
     /// heap-pinned peer for each live session, whose stable address the
     /// embedder's `net.Connection` borrows. Presence is the entire liveness
-    /// marker, and a removed session's row leaves with it, so the table holds
-    /// live sessions rather than every session the node has ever registered. A
-    /// dense array of slots could not do that, because a slot cannot be
-    /// reclaimed without reusing its handle.
-    ///
-    /// Handles are drawn from `next_peer_handle` and never reused. That is not
-    /// bookkeeping: a redeemed route keeps naming its exporter session
-    /// after that session dies, and `routeReference` reads the missing peer to
-    /// fail the route closed. Hand the same handle to a later session and the
-    /// stale route would forward a redeemed capability onto it instead.
-    peers: std.AutoHashMapUnmanaged(PeerHandle, PeerSlot) = .empty,
-    /// The next peer handle to hand out. Monotonic, so no handle is ever reused.
-    /// At one session per nanosecond a `u64` lasts longer than the hardware.
-    next_peer_handle: u64 = 0,
+    /// marker, and a removed session's row is freed for a later session, so
+    /// the table holds live sessions rather than every session the node has
+    /// ever registered. The handle names its row and that row's generation,
+    /// and a handle never means a later session. That is not bookkeeping: a
+    /// redeemed route keeps naming its exporter session after that session
+    /// dies, and `routeReference` reads the missing peer to fail the route
+    /// closed. Let the same handle reach a later session and the stale route
+    /// would forward a redeemed capability onto it instead.
+    peers: foundation.handle_table.Owner(PeerHandle, PeerSlot) = .empty,
     /// V1 Goblins compares a receive count against state on its long-lived
     /// Gifter-Exporter coordinator, not the fresh Receiver-Exporter session
     /// named by the certificate. Automatic V1 redeems therefore issue from one
@@ -263,6 +263,7 @@ pub const Node = struct {
         return .{
             .allocator = allocator,
             .secret = crypto.SecretKey.fromSeed(seed),
+            .wire_hash_secret = export_ranges.wireHashSecret(seed),
             .next_export_base = base,
             .export_base_end = exportBaseEndFor(base),
         };
@@ -596,10 +597,10 @@ pub const Internal = struct {
     pub const failWithdrawsForPeer = redeem_withdrawals.failForPeer;
     pub const failInlinePassableBatchesForHome = passable_batches.failForHome;
     pub const sweepPromiseProxiesForPeer = proxy_settlement.sweepForPeer;
-    pub const stageOutbound = passable_batches.stageOutbound;
+    pub const stageOutbound = passable_staging.stageOutbound;
     pub const stagedWithdrawn = passable_batches.stagedWithdrawn;
     pub const provisionalClosed = passable_batches.provisionalClosed;
-    pub const stageInlinePassable = passable_batches.stage;
+    pub const stageInlinePassable = passable_staging.stage;
     pub const claimOutboundStagingLease = passable_leases.claim;
     pub const unclaimOutboundStagingLease = passable_leases.unclaim;
     pub const sessionSecret = Node.sessionSecret;

@@ -35,7 +35,7 @@ pub const service_key_cap_rows: []const Ban = &.{
         .why = "Rust onion FFI uses the generated service-key cap instead of carrying its own literal",
     },
     .{
-        .where = .{ .file = "bindings/ts/onion/native.ts" },
+        .where = .{ .file = "bindings/ts/onion/ffi_archive.ts" },
         .kind = .require,
         .needles = &.{"new Uint8Array(ONION_SERVICE_KEY_CAP)"},
         .check = "onion-service-key-cap",

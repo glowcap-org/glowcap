@@ -485,7 +485,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     // path-shaped identity for either one.
     try p1.session_state.registerExport(.from(9));
     try p2.session_state.registerImport(.from(9));
-    try p2.sendCopying(.{ .deliver = .{
+    try p2.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(9) },
         .args = &.{.{ .reference = .{ .near = model.NearRef.object(cap_export) } }},
     } });

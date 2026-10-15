@@ -23,7 +23,7 @@ const CapturedRef = harness.CapturedRef;
 
 const Recorder = struct {
     log: *std.ArrayList(u8),
-    pub fn handle(self: *Recorder, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Recorder, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         try self.log.append(std.testing.allocator, msg.verb[0]);
         return .{ .void = {} };
@@ -36,7 +36,7 @@ const GiftThenPlain = struct {
     target: Capability,
     gift: Capability,
 
-    pub fn handle(self: *GiftThenPlain, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *GiftThenPlain, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();

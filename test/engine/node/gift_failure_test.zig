@@ -50,7 +50,7 @@ test "foreign-promise preparation rolls back when the recipient message is refus
 
     try home.session_state.registerImport(.from(4));
     const foreign = try node.enrollForeign(home_id, .{ .far = model.FarRef.promise(4) });
-    try std.testing.expectError(error.InvalidReference, recipient.sendCopying(.{ .deliver = .{
+    try std.testing.expectError(error.InvalidReference, recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(99) },
         .args = &.{.{ .reference = foreign }},
     } }));
@@ -92,7 +92,7 @@ test "mixed object and promise projections publish only after gift entropy" {
     try home.session_state.registerImport(.from(5));
     const object = try node.enrollForeign(home_id, .{ .far = model.FarRef.object(4) });
     const promise = try node.enrollForeign(home_id, .{ .far = model.FarRef.promise(5) });
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = object }, .{ .reference = promise } },
     } });
@@ -122,7 +122,7 @@ test "mixed object and promise projections publish only after gift entropy" {
         recipient.session_state.captp_version,
         recipient_frame.view(),
     )).deliver;
-    try std.testing.expect((try delivered.args.at(0)).handoff == .give);
+    try std.testing.expect((try (try delivered.args.at(0)).handoff.project()) == .give);
     const projected = (try delivered.args.at(1)).reference;
     try std.testing.expect(projected == .far and projected.far.kind == .promise);
 
@@ -185,7 +185,7 @@ test "closing a promise home breaks only the mixed projection's answer" {
     try promise_home.session_state.registerImport(.from(5));
     const object = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
     const promise = try node.enrollForeign(promise_home_id, .{ .far = model.FarRef.promise(5) });
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = object }, .{ .reference = promise } },
         .answer = .from(31),
@@ -235,7 +235,7 @@ test "inline gift entropy failure breaks only the answered message" {
         exporter_id,
         .{ .far = model.FarRef.object(4) },
     );
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = foreign }, .{ .reference = foreign } },
         .answer = .from(32),
@@ -287,7 +287,7 @@ test "terminal cancellation retires an inline batch and its admission budget" {
         .args = &.{.{ .reference = foreign }},
     } };
 
-    try recipient.sendCopying(message);
+    try recipient.sendBorrowed(message);
     try std.testing.expectEqual(@as(usize, 1), node.pendingGiftEffects());
     try std.testing.expect(recipient.queuedOutboundBytes() > 0);
     node.cancelPendingGifts();
@@ -299,7 +299,7 @@ test "terminal cancellation retires an inline batch and its admission budget" {
 
     // The occurrence cap and terminal action seat retired with the batch, so
     // the same live session can admit new work instead of remaining wedged.
-    try recipient.sendCopying(message);
+    try recipient.sendBorrowed(message);
     try std.testing.expectEqual(@as(usize, 1), node.pendingGiftEffects());
     const fresh = node.nextAction().?.need_gift_id.ticket;
     node.cancelPendingGifts();
@@ -337,7 +337,7 @@ test "closing an inline gift exporter retires a tell without condemning its reci
         exporter_id,
         .{ .far = model.FarRef.object(4) },
     );
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = foreign }, .{ .reference = foreign } },
     } });
@@ -382,7 +382,7 @@ test "inline gift recipient refusal publishes no prepared deposit" {
         exporter_id,
         .{ .far = model.FarRef.object(4) },
     );
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
         .answer = .from(33),

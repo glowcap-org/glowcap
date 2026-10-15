@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Internal: the Racket-owned state and terminal diagnostic journal for one
-;; native CapTP Session. Pump, action, and public verbs consume this vocabulary;
-;; this leaf owns no native protocol decisions.
+;; FFI CapTP Session. Pump, action, and public verbs consume this vocabulary;
+;; this leaf owns no FFI protocol decisions.
 
 (require "../constants.rkt"
          "../ffi-host.rkt"
@@ -12,15 +12,15 @@
 
 (provide (all-defined-out))
 
-;; A session carries its pump state, vat, Host, native handle, bounded outbound
+;; A session carries its pump state, vat, Host, FFI handle, bounded outbound
 ;; queue, and lifecycle barriers. Handoff redemption and routed sends remain
 ;; Host-owned; queue byte accounting lives in `pending-writes.rkt`.
 (struct session
-  (async vat host native pending-writes write-gate outbound-frame outbound-prefix
+  (async vat host ffi pending-writes write-gate outbound-frame outbound-prefix
          release-pending? close-result
          closing-state wire-failure transport-lost? transport-close-started?))
 
-(define (session-ptr c) (session-native c))
+(define (session-ptr c) (session-ffi c))
 (define (session-closed? c) (unbox (async-connection-closed? (session-async c))))
 (define (session-released? c) (unbox (async-connection-released? (session-async c))))
 (define (session-closing? c) (unbox (session-closing-state c)))
@@ -43,7 +43,7 @@
   (when failure (raise failure)))
 
 ;; Close the physical byte channel exactly once. A close refusal is terminal
-;; evidence, but never skips native retirement or replaces an earlier cause.
+;; evidence, but never skips FFI retirement or replaces an earlier cause.
 (define (close-session-transport! c)
   (set-box! (session-closing-state c) #t)
   (when (box-cas! (session-transport-close-started? c) #f #t)

@@ -114,6 +114,7 @@ pub const Token = enum {
     subscribe_publication,
     list,
     list_publications,
+    named_publications,
     watch,
     watch_publications,
     unwatch_publications,
@@ -162,6 +163,7 @@ pub const Token = enum {
     signal_answer,
     signal_candidate,
     signal_done,
+    signal_decline,
     sig_offer,
     sig_accepted,
     sig_answer,
@@ -206,6 +208,7 @@ pub const Token = enum {
             .subscribe_publication => "subscribePublication",
             .list => "list",
             .list_publications => "listPublications",
+            .named_publications => "namedPublications",
             .watch => "watch",
             .watch_publications => "watchPublications",
             .unwatch_publications => "unwatchPublications",
@@ -254,6 +257,7 @@ pub const Token = enum {
             .signal_answer => "signalAnswer",
             .signal_candidate => "signalCandidate",
             .signal_done => "signalDone",
+            .signal_decline => "signalDecline",
             .sig_offer => "offer",
             .sig_accepted => "accepted",
             .sig_answer => "answer",
@@ -309,6 +313,7 @@ pub const verbs = [_]Verb{
     .{ .name = Token.open.wire(), .replies = true, .on = .directory },
     .{ .name = Token.enter.wire(), .replies = true, .on = .directory },
     .{ .name = Token.list_publications.wire(), .replies = true, .on = .directory },
+    .{ .name = Token.named_publications.wire(), .replies = true, .on = .directory },
     .{ .name = Token.watch_publications.wire(), .replies = true, .on = .directory },
     .{ .name = Token.unwatch_publications.wire(), .replies = true, .on = .directory },
     .{ .name = Token.register.wire(), .replies = true, .on = .directory },
@@ -346,6 +351,11 @@ const registration_event_fields = [_]Field{
 
 const truncated_fields = [_]Field{.{ .name = "omitted", .ty = .natural }};
 
+const list_page_fields = [_]Field{
+    .{ .name = "rooms", .ty = .list },
+    .{ .name = "next", .ty = .text, .nullable = true },
+};
+
 const watch_snapshot_fields = [_]Field{
     .{ .name = "rooms", .ty = .list },
     .{ .name = "registrations", .ty = .list },
@@ -382,6 +392,7 @@ pub const Fields = enum {
     publication,
     registration_event,
     truncated,
+    list_page,
     watch_snapshot,
     registration_row,
     subscribe_answer,
@@ -396,6 +407,7 @@ pub const Fields = enum {
             .publication => &publication_fields,
             .registration_event => &registration_event_fields,
             .truncated => &truncated_fields,
+            .list_page => &list_page_fields,
             .watch_snapshot => &watch_snapshot_fields,
             .registration_row => &registration_row_fields,
             .subscribe_answer => &subscribe_answer_fields,
@@ -413,6 +425,7 @@ pub const Fields = enum {
             .publication => "PUBLICATION_FIELDS",
             .registration_event => "REGISTRATION_EVENT_FIELDS",
             .truncated => "TRUNCATED_FIELDS",
+            .list_page => "LIST_PAGE_FIELDS",
             .watch_snapshot => "WATCH_SNAPSHOT_FIELDS",
             .registration_row => "REGISTRATION_ROW_FIELDS",
             .subscribe_answer => "SUBSCRIBE_ANSWER_FIELDS",
@@ -430,6 +443,7 @@ pub const Fields = enum {
             .publication => "One directory publication: a listPublications row, and what a room watch kind carries after its tag.",
             .registration_event => "What a member watch kind carries after its tag.",
             .truncated => "What the truncation watch kind carries after its tag.",
+            .list_page => "What listPublications answers: one page of publication rows, and the cursor that asks for the page after it, null on the last page. The cursor is the directory's own word: pass it back exactly.",
             .watch_snapshot => "What watchPublications answers: the baseline a watcher folds deltas into.",
             .registration_row => "One row of the snapshot's registrations.",
             .subscribe_answer => "What subscribe answers.",

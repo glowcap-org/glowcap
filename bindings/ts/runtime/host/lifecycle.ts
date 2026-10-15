@@ -38,7 +38,7 @@ export abstract class HostLifecycle extends HostState {
 		return wait > 2_147_483_647n ? 2_147_483_647 : Number(wait);
 	}
 
-	/** Park a close driver until host activity or the nearest native FINISH
+	/** Park a close driver until host activity or the nearest FFI FINISH
 	 * grace deadline; with no finite deadline pending the driver parks on
 	 * `activity` alone. Binding-internal: `_doClose` and the byte-fed session
 	 * close drive wait through it. */
@@ -117,7 +117,7 @@ export abstract class HostLifecycle extends HostState {
 		if (failure !== null) throw failure;
 	}
 
-	/** Retire every channel the consumed native owner made unreachable. The
+	/** Retire every channel the consumed FFI owner made unreachable. The
 	 * first physical-close failure stays primary and every later one is attached
 	 * in observation order; wrapper retirement itself never short-circuits. */
 	protected async _joinSessionRetirements(sessions: readonly Session[]): Promise<void> {
@@ -126,7 +126,7 @@ export abstract class HostLifecycle extends HostState {
 		// what preserves a session that unregistered before this snapshot; the
 		// return is the local authority for every session still present in it.
 		for (const session of sessions) {
-			this._sessionRetirements.add(session.nativeOwnerDidRelease());
+			this._sessionRetirements.add(session.ffiOwnerDidRelease());
 		}
 		while (this._sessionRetirements.size !== 0) {
 			const batch = [...this._sessionRetirements];
@@ -147,7 +147,7 @@ export abstract class HostLifecycle extends HostState {
 	}
 
 	/** Request terminal teardown and wait until every action drain, dial, and
-	 * admission worker has stopped before the native Host is released. */
+	 * admission worker has stopped before the FFI Host is released. */
 	close(options: CloseOptions = {}): Promise<void> {
 		const encoded = encodeCloseOptions(options);
 		if (this._driverLoop != null) {
@@ -170,7 +170,7 @@ export abstract class HostLifecycle extends HostState {
 		return this._releasePromise ?? Promise.resolve();
 	}
 
-	/** Drain tracing while the native Host is still readable. Irreversible
+	/** Drain tracing while the FFI Host is still readable. Irreversible
 	 * wrapper cleanup waits for `finishLoopTeardown` after driver release. */
 	prepareLoopTeardown(): void {
 		if (this._raw === NULL) return;

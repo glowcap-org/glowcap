@@ -1,7 +1,7 @@
 ---
 slug: first-impression
 title: First impression
-summary: >-
+description: >-
   The first code sample, first tab, and first recipe are what glowcap is. If
   they are the testing adapter or the smallest walk, the page is presenting
   the scaffold as the product.
@@ -13,10 +13,9 @@ You read a public surface the way a stranger does: you stop at the first code
 sample, the first tab, the first command, and the first sentence of a family.
 That lead is a fact about glowcap. If it is the testing transport, the
 historically first implementation, or the smallest walk that made the API easy
-to type, the page shows the scaffold, not the thing itself.
-
-Do not add adjectives or slogans. Move the real path into the lead and let the
-testing path sit where it belongs.
+to type, the page shows the scaffold, not the thing itself. Move the real path
+into the lead, let the testing path sit where it belongs, and add no
+adjectives or slogans.
 
 ## What you check
 
@@ -26,7 +25,7 @@ testing path sit where it belongs.
    disclaimer. Name the lead that fails this.
 2. **Why is this first?** Easiest to implement, first historically, and
    smallest to explain are the usual reasons a testing path holds a landing
-   page, and none justifies it. The numbered Zig chapters may start simple when
+   page. None justifies it. The numbered Zig chapters may start simple when
    they say they are walks. Homepages, the GitHub README, Start building,
    binding openers, and default commands may not.
 3. **The disclaimer is the tell.** "This is cleartext", "use it to learn the

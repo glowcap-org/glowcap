@@ -22,7 +22,7 @@ test "Rooms exposes one product tree with one session and team lifecycle" {
     for ([_][]const u8{ "up", "status", "logs", "trace", "down", "restart", "reset", "doctor" }) |name| {
         try std.testing.expect(rooms.findChild("deployment").?.findChild(name).?.run != null);
     }
-    for ([_][]const u8{ "bridge", "front" }) |name| try std.testing.expect(rooms.findChild("irc").?.findChild(name).?.run != null);
+    for ([_][]const u8{ "bridge", "serve" }) |name| try std.testing.expect(rooms.findChild("irc").?.findChild(name).?.run != null);
     try std.testing.expect(rooms.findChild("archive").?.findChild("serve").?.run != null);
     try std.testing.expect(rooms.findChild("directory").?.findChild("serve").?.run != null);
 }

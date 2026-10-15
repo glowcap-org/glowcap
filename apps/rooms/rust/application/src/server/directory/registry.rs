@@ -1,6 +1,6 @@
 //! Who is registered: one name per live connection, the inboxes each member
 //! offered for particular peers, the vouchers that carry a name to another
-//! connection, and the `webrtc` designators signaling routes by.
+//! connection, and the Host keys WebRTC signaling routes by.
 mod inboxes;
 mod requests;
 mod signaling;
@@ -35,7 +35,10 @@ pub struct Register<R> {
 	/// Whether the connection proved the locator is its own, or nothing could
 	/// be checked. Only a keyed connection can be refused here.
 	pub own_locator: bool,
-	pub webrtc: Option<String>,
+	/// The member's Host key, when the locator's designator is that key.
+	/// WebRTC signaling routes by it, and an offer from the member is named
+	/// by it.
+	pub host_key: Option<String>,
 	pub inbox: R,
 	pub voucher: Option<[u8; NAME_VOUCHER_BYTES]>,
 	/// The durable peer identity the connection proved, when it proved one. A
@@ -65,7 +68,7 @@ struct Registration<C, R> {
 	id: Id,
 	connection: C,
 	claimant: Option<String>,
-	webrtc: Option<String>,
+	host_key: Option<String>,
 	inbox: R,
 	/// Offers are scoped by peer registration and opening identity.
 	offered: inboxes::Offers<R>,
@@ -99,7 +102,7 @@ pub(super) struct Registry<C, R> {
 	by_claimant: BTreeMap<String, BTreeSet<String>>,
 	offerers_by_target: BTreeMap<String, BTreeSet<String>>,
 	request_targets_by_requester: BTreeMap<String, BTreeSet<String>>,
-	webrtc: BTreeMap<String, String>,
+	by_host_key: BTreeMap<String, String>,
 }
 
 impl<C, R> Default for Registry<C, R> {
@@ -112,7 +115,7 @@ impl<C, R> Default for Registry<C, R> {
 			by_claimant: BTreeMap::new(),
 			offerers_by_target: BTreeMap::new(),
 			request_targets_by_requester: BTreeMap::new(),
-			webrtc: BTreeMap::new(),
+			by_host_key: BTreeMap::new(),
 		}
 	}
 }
@@ -139,6 +142,13 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			.and_then(|key| self.rows.get(key))
 			.map(|row| row.nick.as_str())
 	}
+	/// The Host key `connection` registered, if any.
+	pub fn host_key_of(&self, connection: C) -> Option<&str> {
+		self.by_connection
+			.get(&connection)
+			.and_then(|key| self.rows.get(key))
+			.and_then(|row| row.host_key.as_deref())
+	}
 	pub fn registrar(&self, key: &str) -> Option<C> {
 		self.rows.get(key).map(|row| row.connection)
 	}
@@ -147,7 +157,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		Some((row.connection, row.signaling.clone()?))
 	}
 	pub fn signaling_target(&self, designator: &str) -> Option<(String, (C, R))> {
-		let key = self.webrtc.get(designator)?;
+		let key = self.by_host_key.get(designator)?;
 		Some((key.clone(), self.signaling_of(key)?))
 	}
 	/// Registered members in folded-name order, for discovery.
@@ -252,17 +262,17 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 				));
 			}
 		}
-		// First writer holds a `webrtc` designator while its connection stands:
-		// accepting a second claim would route every bring-up aimed at the
-		// holder into the claimant's inbox.
-		if let Some(designator) = &request.webrtc
-			&& let Some(holder) = self.webrtc.get(designator).and_then(|held| self.rows.get(held))
+		// First writer holds a Host key while its connection stands: accepting
+		// a second claim would route every bring-up aimed at the holder into
+		// the claimant's inbox, and name the claimant's offers as the holder.
+		if let Some(designator) = &request.host_key
+			&& let Some(holder) = self.by_host_key.get(designator).and_then(|held| self.rows.get(held))
 		{
 			let own_name = fold(&holder.nick) == key;
 			if !own_name && !same_claimant((holder.connection, holder.claimant.as_deref()), caller) {
 				return Err(Refusal::coded(
 					FailureCode::NotYourLocator,
-					format!("that webrtc designator is already registered to \"{}\"", holder.nick),
+					format!("that key is already registered to \"{}\"", holder.nick),
 				));
 			}
 		}
@@ -315,7 +325,7 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 			id: id.clone(),
 			connection,
 			claimant: request.claimant,
-			webrtc: request.webrtc.clone(),
+			host_key: request.host_key.clone(),
 			inbox: request.inbox.clone(),
 			offered: Default::default(),
 			requests: BTreeMap::new(),
@@ -327,8 +337,8 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		if let Some(claimant) = &row.claimant {
 			insert_index(&mut self.by_claimant, claimant.clone(), key.clone());
 		}
-		if let Some(designator) = request.webrtc {
-			self.webrtc.insert(designator, key.clone());
+		if let Some(designator) = request.host_key {
+			self.by_host_key.insert(designator, key.clone());
 		}
 		self.rows.insert(key, row);
 		withdrawn.effects.tell(
@@ -399,10 +409,10 @@ impl<C: Copy + Ord, R: Clone> Registry<C, R> {
 		if self.by_connection.get(&row.connection).is_some_and(|held| held == key) {
 			self.by_connection.remove(&row.connection);
 		}
-		if let Some(designator) = &row.webrtc
-			&& self.webrtc.get(designator).is_some_and(|held| held == key)
+		if let Some(designator) = &row.host_key
+			&& self.by_host_key.get(designator).is_some_and(|held| held == key)
 		{
-			self.webrtc.remove(designator);
+			self.by_host_key.remove(designator);
 		}
 		let effects = &mut withdrawn.effects;
 		for (target, offered) in row.offered.into_entries() {

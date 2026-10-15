@@ -1,4 +1,4 @@
-//! Live Goblins over Tor: a native glowcap peer and a real Spritely Goblins vat
+//! Live Goblins over Tor: a glowcap peer and a real Spritely Goblins vat
 //! hold an OCapN CapTP session across a hidden service circuit.
 //!
 //! This is the check the onion netlayer was written for. `onion` is the one
@@ -331,7 +331,7 @@ fn connectWhilePublishing(
         return driver.connect(allocator, io, transports, locator, .ephemeral, session_opts) catch |err| switch (err) {
             error.ConnectionRefused, error.ConnectionLost, error.NetworkUnreachable => {
                 if (harness.expired(io, deadline)) return err;
-                std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2_000), .real) catch {};
+                try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2_000), .real);
                 continue;
             },
             else => return err,

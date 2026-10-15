@@ -1,4 +1,4 @@
-//! Exact relay stream failures at the native owner boundary.
+//! Exact relay stream failures at the Zig owner boundary.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

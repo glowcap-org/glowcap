@@ -7,7 +7,6 @@ const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
 const syrup = glowcap.ocapn.codec.syrup;
-const render = @import("syrup").render;
 const protocol_oracle = @import("../../oracle/protocol_oracle.zig");
 const handoff_fixtures = @import("../../support/handoff_fixtures.zig");
 
@@ -15,33 +14,6 @@ const harness = @import("harness.zig");
 const expectFixtureBytes = harness.expectFixtureBytes;
 const repeatedByte = harness.repeatedByte;
 const hexToOwned = harness.hexToOwned;
-
-test "exact renderer contains measure-fill divergence" {
-    const DivergentWriter = struct {
-        fn overfill(sink: anytype, pass: *usize) !void {
-            pass.* += 1;
-            for (0..pass.*) |_| try sink.append('x');
-        }
-
-        fn underfill(sink: anytype, pass: *usize) !void {
-            pass.* += 1;
-            const count: usize = if (pass.* == 1) 2 else 1;
-            for (0..count) |_| try sink.append('x');
-        }
-    };
-
-    var overfill_pass: usize = 0;
-    try std.testing.expectError(
-        error.EncoderInvariantViolation,
-        render.renderRecordExact(std.testing.allocator, DivergentWriter.overfill, .{&overfill_pass}),
-    );
-
-    var underfill_pass: usize = 0;
-    try std.testing.expectError(
-        error.EncoderInvariantViolation,
-        render.renderRecordExact(std.testing.allocator, DivergentWriter.underfill, .{&underfill_pass}),
-    );
-}
 
 test "Syrup locator encoding uses typed locator and preserves empty false hints" {
     const allocator = std.testing.allocator;
@@ -139,7 +111,7 @@ test "signed handoff give keeps original signed payload bytes through decode" {
     try frame.appendSlice(allocator, "]99+f>");
     const decoded = try syrup.decodeBody(.{ .bytes = frame.items, .shape = .byte });
     const handoff_arg = try decoded.deliver.args.at(1);
-    const handoff = try handoff_arg.handoff.toOwned(allocator);
+    const handoff = try (try handoff_arg.handoff.project()).toOwned(allocator);
     defer glowcap.ocapn.model.owned.freeHandoff(allocator, handoff);
     const give = handoff.receive.signed_give;
 

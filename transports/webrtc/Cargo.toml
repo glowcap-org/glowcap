@@ -1,8 +1,7 @@
-# The WebRTC DataChannel netlayer sidecar (ADR-0089). Phase 1 shipped the
-# de-risk probe binary below; phase 2 adds the staticlib C ABI
+# The WebRTC DataChannel netlayer sidecar (ADR-0089): the staticlib C ABI
 # `libglowcap_webrtc_sidecar.a` that the Zig resident
 # (`src/net/transport/webrtc.zig`) drives, the same private byte-level seam the
-# iroh sidecar ships. The probe binary stays for the phase-1 datachannel gate.
+# iroh sidecar ships, plus the probe binary below that the datachannel gate runs.
 #
 # Cargo.lock is committed, like transports/iroh's: the webrtc crate pulls a
 # large transitive tree (DTLS, SCTP, ICE, STUN, SDP), and the lockfile is what
@@ -34,7 +33,7 @@ undocumented_unsafe_blocks = "deny"
 # The staticlib is named `glowcap_webrtc_sidecar` so it emits
 # `libglowcap_webrtc_sidecar.a`: the private byte-level seam the Zig resident
 # links, distinct from the public frame-level archive
-# `libglowcap_net_transport_webrtc` (ADR-0059, phase 3).
+# `libglowcap_net_transport_webrtc` (ADR-0059).
 name = "glowcap_webrtc_sidecar"
 crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"
@@ -50,10 +49,15 @@ path = "src/probe.rs"
 # The runtime owner, task barrier, and readiness channel both sidecars share
 # (transports/sidecar-common).
 glowcap-sidecar-common = { path = "../sidecar-common", version = "=0.1.0" }
+# dep webrtc: Data channels behind the `webrtc` transport.
 webrtc = "=0.21.1"
+# dep tokio: The runtime the WebRTC peer runs on.
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "io-std", "io-util", "sync", "time"] }
+# dep async-trait: Async methods on the peer's traits.
 async-trait = "0.1"
+# dep serde_json: JSON signaling messages.
 serde_json = "1"
+# dep bytes: Byte buffers for data channel messages.
 bytes = "1"
 
 [dev-dependencies]

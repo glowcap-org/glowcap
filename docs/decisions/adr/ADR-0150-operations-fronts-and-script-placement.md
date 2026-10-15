@@ -153,8 +153,8 @@ contract, and verification.
 `zig build source-check` holds every documented `zig build` command to a real
 step and every step to a line in `docs/build-steps.md`, so the two developer
 launches cannot go undocumented. `tools/check/toolchain_check.zig` holds the
-scripts the gate may reach. `checkOpsFrontsCallZigOnly` in
-`tools/check/source_check/project_shape/ops_fronts.zig` holds the direction:
+scripts the gate may reach. The source check on the ops front held the direction, and ADR-0175 moved that front to
+`cli/app/rooms/deployment.zig`:
 the build graph names no deployment directory, and the front runs no build
 tool and no `zig` verb but `build`. The deployment front is exercised by hand
 on a Docker host. `./ops doctor` reports the machine's half without touching

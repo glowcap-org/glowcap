@@ -1,5 +1,5 @@
-// Public and binding-internal composition for @glowcap/iroh. Native archive
-// ownership lives in native.ts; channel.ts owns the runtime readiness pump.
+// Public and binding-internal composition for @glowcap/iroh. FFI archive
+// ownership lives in ffi_archive.ts; channel.ts owns the runtime readiness pump.
 
 import {
 	bareLocator,
@@ -15,13 +15,19 @@ import {
 	stringHint,
 	TRANSPORT_IROH,
 } from "@glowcap/runtime";
-import { DriverListener, DriverLoop, DriverServer, retainCleanupFailures } from "@glowcap/runtime/transport";
+import {
+	DriverListener,
+	DriverLoop,
+	DriverServer,
+	prepareListenerLoop,
+	retainCleanupFailures,
+} from "@glowcap/runtime/transport";
 import { CLOSED, INVALID_ARGUMENT } from "@glowcap/runtime/ffi";
 import { IrohChannel, IrohLoop } from "./channel.ts";
-import { type IrohConfig, IrohConnection, IrohNetlayer } from "./native.ts";
+import { type IrohConfig, IrohConnection, IrohNetlayer } from "./ffi_archive.ts";
 
 export { Reachability } from "@glowcap/runtime";
-export { type IrohConfig, IrohConnection, IrohNetlayer, locator } from "./native.ts";
+export { type IrohConfig, IrohConnection, IrohNetlayer, locator } from "./ffi_archive.ts";
 
 export type ListenOptions =
 	| {
@@ -67,7 +73,7 @@ export function provider(config: IrohConfig): import("@glowcap/runtime").DriverP
 	};
 }
 
-/** Configure an explicit byte-fed iroh connector. Native applications should
+/** Configure an explicit byte-fed iroh connector. FFI applications should
  * normally prefer `provider`; this form is for embedders that own
  * the channel pump. */
 export function connector(config: IrohConfig): Connector {
@@ -180,7 +186,7 @@ export async function _connectIroh(
  * reconnect policy.
  * The channel owns the loop and netlayer; calling `close()` cleans up
  * both and terminates the connection. For transparent relay endpoints
- * (e.g., browser peer → relay → native iroh). */
+ * (e.g., browser peer → relay → FFI iroh). */
 export async function dialLocatorForRelay(
 	locator: string,
 	reachability: Reachability,
@@ -244,7 +250,7 @@ export class IrohServer extends DriverServer {
  * Ed25519 secret key for a stable endpoint id, or omitted for a fresh random
  * one shared with the `Host`. Pass `host` only when it was built from the same
  * seed, so netlayer and session share one identity (ADR-0075). The no-Host path
- * registers the endpoint with the generic native loop. A supplied Host is
+ * registers the endpoint with the generic driver loop. A supplied Host is
  * transferred to that loop transactionally. Needs the iroh ABI library
  * (`zig build iroh-abi`).
  *
@@ -255,21 +261,7 @@ export async function listen(
 	config: IrohConfig,
 	options: ListenOptions = {},
 ): Promise<IrohServer> {
-	const { seed: suppliedSeed, host } = options;
-	const seed = suppliedSeed ?? host?.seed ?? crypto.getRandomValues(new Uint8Array(32));
-	if (suppliedSeed != null && suppliedSeed.length !== 32) {
-		throw new GlowcapError(INVALID_ARGUMENT, "listen: seed must be 32 bytes");
-	}
-	if (suppliedSeed != null && host != null) {
-		throw new GlowcapError(
-			INVALID_ARGUMENT,
-			"listen: seed and host are alternative identity sources",
-		);
-	}
-	const existingLoop = host?.driverLoop;
-	const loop = existingLoop == null
-		? host == null ? DriverLoop.open({ seed }) : DriverLoop.takeHost(host)
-		: existingLoop as DriverLoop;
+	const { loop, ownsLoop } = prepareListenerLoop(options.host, options.seed, undefined);
 	let listener: DriverListener | null = null;
 	try {
 		const endpoint = await _ensureIrohProvider(loop, config);
@@ -284,7 +276,7 @@ export async function listen(
 		const server = new IrohServer(
 			listener,
 			endpointNodeId,
-			host == null ? loop : undefined,
+			ownsLoop ? loop : undefined,
 		);
 		listener = null;
 		return server;
@@ -292,7 +284,7 @@ export async function listen(
 		const cleanups: Array<() => void | Promise<void>> = [];
 		const failedListener = listener;
 		if (failedListener != null) cleanups.push(() => failedListener.close());
-		if (host == null) cleanups.push(() => loop.close());
+		if (ownsLoop) cleanups.push(() => loop.close());
 		await retainCleanupFailures(error, cleanups);
 		throw error;
 	}

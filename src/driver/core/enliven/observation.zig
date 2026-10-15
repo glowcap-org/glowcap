@@ -112,7 +112,7 @@ pub const Enliven = struct {
         const ref = self.host.liftCapability(session, reference) catch |err| {
             // A cache hit contributes no wire occurrence. Another unprojected
             // completion may still own the import that cache entry names.
-            if (occurrence == .wire) self.host.discardCapabilityObservation(session, reference);
+            if (occurrence == .wire) self.host.discardCapabilityObservation(session, .fromOwned(&reference));
             self.fail(.broken, @errorName(err));
             return;
         };
@@ -174,7 +174,7 @@ pub const Recipient = union(enum) {
         if (self == .action) return;
         if (row.answer_release == .peer_visible)
             row.observer_release = try session.served.port.peer.reserveAnswerRelease();
-        // A pending dial can resume in another native archive's code image.
+        // A pending dial can resume in another Zig archive's code image.
         // Retain the installed listener rather than reconstructing its address
         // in the archive that later destroys this operation.
         const observer = self.observed.listener();

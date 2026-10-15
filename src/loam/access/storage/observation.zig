@@ -29,7 +29,7 @@ const State = struct {
     pub const Cursor = cursors.Cursor;
     pub const Snapshot = snapshots.Snapshot;
     pub const Control = snapshots.Control;
-    pub const Notices = packed struct(u8) { access: bool = false, target: bool = false, inventory: bool = false, management: bool = false, padding: u4 = 0 };
+    pub const Notices = packed struct(u8) { access: bool = false, target: bool = false, inventory: bool = false, management: bool = false, subtree: bool = false, padding: u3 = 0 };
     pub const Result = struct { cursor: Cursor, snapshot: Snapshot, notices: Notices = .{}, resync: bool = false, changed: bool = true };
     pub const Step = @import("read.zig").Step;
 
@@ -126,7 +126,7 @@ const State = struct {
                 for (batch.value.effects) |effect| self.project(effect);
                 self.batch_index += 1;
             }
-            const empty = !self.flags.access and !self.flags.target and !self.flags.inventory and !self.flags.management;
+            const empty = !self.flags.access and !self.flags.target and !self.flags.inventory and !self.flags.management and !self.flags.subtree;
             if (empty) {
                 // The scoped digest changed, but current authority can hide the
                 // old effect's branch. Deliver only the authorized snapshot.
@@ -156,12 +156,19 @@ const State = struct {
                 if (contains(core.GrantId, prepared.grants[0..prepared.grant_count], grant.change.grant) and grant.change.kind != .issued) self.flags.access = true;
                 if (prepared.snapshot == .control and prepared.active() and contains(core.GrantId, grant.path, own)) self.flags.inventory = true;
             },
-            .content => |content| if (prepared.snapshot == .use and prepared.active() and content.id.eql(self.context.target.?)) {
-                self.flags.target = true;
+            .content => |content| if (prepared.snapshot == .use and prepared.active()) {
+                if (content.id.eql(self.context.target.?)) {
+                    self.flags.target = true;
+                } else if (prepared.subtree and contains(core.ResourceId, content.path, self.context.target.?)) self.flags.subtree = true;
             },
-            .resource => |resource| if (prepared.snapshot == .use and contains(core.ResourceId, prepared.resources[0..prepared.resource_count], resource.id)) {
-                self.flags.access = true;
-                if (prepared.active() and resource.id.eql(self.context.target.?)) self.flags.target = true;
+            .resource => |resource| if (prepared.snapshot == .use) {
+                if (contains(core.ResourceId, prepared.resources[0..prepared.resource_count], resource.id)) {
+                    self.flags.access = true;
+                    if (prepared.active() and resource.id.eql(self.context.target.?)) self.flags.target = true;
+                }
+                // A child created, moved in or out, or deleted below the target.
+                const below = contains(core.ResourceId, resource.before, self.context.target.?) or contains(core.ResourceId, resource.after, self.context.target.?);
+                if (prepared.subtree and !resource.id.eql(self.context.target.?) and below) self.flags.subtree = true;
             },
             .control => |control| if (prepared.snapshot == .control and control.kind == .revoked) {
                 // Availability already includes the exact management dependency
@@ -172,6 +179,7 @@ const State = struct {
         if (!prepared.active()) {
             self.flags.target = false;
             self.flags.inventory = false;
+            self.flags.subtree = false;
         }
     }
 

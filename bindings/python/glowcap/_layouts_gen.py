@@ -201,7 +201,7 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("dropped", 120, 8),
         ("digest", 128, 16),
     )),
-    "GLOWCAP_DRIVER_OPTIONS": (48, (
+    "GLOWCAP_DRIVER_OPTIONS": (56, (
         ("abi_version", 0, 4),
         ("struct_size", 8, 8),
         ("wire_buffer_bytes", 16, 8),
@@ -209,6 +209,7 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("handshake_ms", 32, 4),
         ("listener_setup_ms", 36, 4),
         ("settle_ms", 40, 4),
+        ("busy_poll_ns", 48, 8),
     )),
     "GLOWCAP_DRIVER_FAILURE": (80, (
         ("abi_version", 0, 4),
@@ -293,11 +294,19 @@ LAYOUTS: dict[str, tuple[int, tuple[tuple[str, int, int], ...]]] = {
         ("username", 16, 16),
         ("credential", 32, 16),
     )),
-    "GLOWCAP_WEBRTC_CONFIG": (24, (
+    "GLOWCAP_WEBRTC_SIGNALING": (40, (
+        ("ctx", 0, 8),
+        ("send_offer", 8, 8),
+        ("send_answer", 16, 8),
+        ("send_candidate", 24, 8),
+        ("done", 32, 8),
+    )),
+    "GLOWCAP_WEBRTC_CONFIG": (64, (
         ("ice_servers", 0, 8),
         ("ice_server_count", 8, 8),
         ("include_loopback_candidates", 16, 4),
         ("worker_threads", 20, 4),
+        ("signaling", 24, 40),
     )),
     "GLOWCAP_ONION_CONFIG": (88, (
         ("socks", 0, 8),

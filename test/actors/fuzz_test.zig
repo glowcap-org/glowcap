@@ -57,7 +57,7 @@ const corpus = @import("../support/corpus_seeds.zig");
 const Counter = struct {
     n: i64,
 
-    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "bump")) {

@@ -22,6 +22,7 @@ import { actionRefusal } from "../error_text.ts";
 import { refusalText } from "../../../lib/text/failure.ts";
 import {
 	gatewayClose,
+	gatewayCloseAsk,
 	gatewayCloseLabel,
 	gatewayDeleteSavedSay,
 	gatewayDeleteWithLeasesSay,
@@ -304,7 +305,7 @@ export function GatewayPane({ state }: { state: BridgeGateway | null }) {
 														variant="quiet"
 														onClick={() => setConfirmingClose(connection.id)}
 													>
-														Close {state.connectionNoun}…
+														{gatewayCloseAsk(state.connectionNoun)}
 													</Button>
 												</div>
 											)}

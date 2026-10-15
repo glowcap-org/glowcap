@@ -81,13 +81,12 @@ glowcap_pins_require_hex64() {
 #   manual - a generation move; bump prints the procedure instead of editing
 # ---------------------------------------------------------------------------
 
-GLOWCAP_PINS_DEPS="debian distroless postgres zig zls rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
+GLOWCAP_PINS_DEPS="debian distroless zig zls rust rustup-init deno node npm bun playwright uv python serena claude codex cursor-agent opencode devcontainer-cli racket goblins"
 
 glowcap_pins_dep_var() {
     case "$1" in
         debian) echo DEBIAN_BASE_DIGEST ;;
         distroless) echo DISTROLESS_BASE_DIGEST ;;
-        postgres) echo POSTGRES_IMAGE_PIN ;;
         zig) echo ZIG_VERSION ;;
         zls) echo ZLS_SOURCE_REVISION ;;
         rust) echo RUST_VERSION ;;
@@ -126,7 +125,6 @@ glowcap_pins_dep_gate() {
     case "$1" in
         debian) echo "zig build check" ;;
         distroless) echo "release workflow Linux image proofs" ;;
-        postgres) echo "docker compose config + zig build rooms-rust-test" ;;
         zig) echo "zig build check with the new toolchain" ;;
         zls) echo "rebuild + post-create.sh (verify-toolchains)" ;;
         rust) echo "zig build check (rust-dogfood rides it)" ;;
@@ -139,14 +137,14 @@ glowcap_pins_dep_gate() {
     esac
 }
 
-# Most pins are installed into the development image. PostgreSQL is consumed
-# only by the production Compose project, so rebuilding the devcontainer would
+# Most pins are installed into the development image. The Distroless base is
+# consumed only by the Rooms server image, so rebuilding the devcontainer would
 # not adopt or prove it. The harness seeds are not image content either: a
 # bump is proven by the cold-seed smoke run, and the running cache adopts it
 # on the next explicit ensure or a cold first use.
 glowcap_pins_dep_requires_devcontainer_rebuild() {
     case "$1" in
-        postgres | distroless | claude | codex | opencode | cursor-agent) return 1 ;;
+        distroless | claude | codex | opencode | cursor-agent) return 1 ;;
         *) return 0 ;;
     esac
 }
@@ -162,13 +160,6 @@ glowcap_pins_query_version() {
                 --header "Accept: application/vnd.oci.image.index.v1+json" \
                 https://gcr.io/v2/distroless/cc-debian13/manifests/latest \
                 | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }'
-            ;;
-        postgres)
-            local version digest
-            version="$(glowcap_pins_fetch https://www.postgresql.org/versions.json \
-                | jq -r '[.[] | select(.current == true)] | max_by(.major | tonumber) | "\(.major).\(.latestMinor)"')"
-            digest="$(glowcap_pins_docker_hub_index_digest library/postgres "${version}-alpine")"
-            printf '%s-alpine@%s\n' "${version}" "${digest}"
             ;;
         # The newest Zig release, not master: ZLS and Zine follow releases, and
         # a dev build tends to outrun them.
@@ -227,7 +218,6 @@ glowcap_pins_latest_version() {
     version="$(glowcap_pins_query_version "${dep}")" || return 1
     case "${dep}" in
         debian | distroless) pattern='^sha256:[0-9a-f]{64}$' ;;
-        postgres) pattern='^[0-9]+\.[0-9]+-alpine@sha256:[0-9a-f]{64}$' ;;
         zls | goblins) pattern='^[0-9a-f]{40}$' ;;
         zig) pattern='^[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+\+[0-9a-f]+)?$' ;;
         racket) pattern='^[0-9]+\.[0-9]+(\.[0-9]+)?$' ;;

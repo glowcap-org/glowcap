@@ -109,7 +109,7 @@ pub const ShorteningCallbackPlan = struct {
         self: ShorteningCallbackPlan,
         introduced: *const session.validate.IntroducedImports,
     ) usize {
-        var count = introduced.promise_mentions.items.len;
+        var count = introduced.promise_mentions.count();
         if (!self.sourceIsHeld()) count += 1;
         if (self.hasSettlingConsumer()) count += 1;
         return count;
@@ -282,9 +282,9 @@ pub fn prepareIntroducedPromiseShortening(
     errdefer prepared.abandon(self);
     if (self.session_state.captp_version != .next) return prepared;
 
-    try prepared.nominations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.items.len);
-    try prepared.reservations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.items.len);
-    for (introduced.promise_mentions.items) |source| {
+    try prepared.nominations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.count());
+    try prepared.reservations.ensureTotalCapacity(self.allocator, introduced.promise_mentions.count());
+    for (introduced.promise_mentions.items()) |source| {
         const nomination = (try self.session_state.nominateShorteningResolver(source)) orelse continue;
         prepared.nominations.appendAssumeCapacity(nomination);
         const message: model.Message = .{ .listen = .{

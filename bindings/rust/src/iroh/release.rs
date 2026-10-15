@@ -17,7 +17,7 @@ type ReleaseFn = unsafe fn(usize) -> i32;
 type CloseFn = unsafe fn(usize);
 
 fn call_release(release: ReleaseFn, raw: usize) -> Result<()> {
-	// SAFETY: `release` is `release_native` in production and a counting stub in the tests, and `raw` is the address of
+	// SAFETY: `release` is `release_ffi` in production and a counting stub in the tests, and `raw` is the address of
 	// the `GlowcapIrohNetlayer` its owner passed in; `NetlayerRelease::start` and `fallback` reach this call only after
 	// moving the phase to `RELEASE_RUNNING`, so the release runs at most once and this frame is the handle's last
 	// owner.
@@ -32,8 +32,8 @@ fn call_release(release: ReleaseFn, raw: usize) -> Result<()> {
 
 // A release task is retained until its blocking call has completed. The
 // reserved/running split lets a last-resort Drop fallback claim a queued task:
-// the fallback drops the retained handle, runs the native release itself, and a
-// task that starts later observes the running claim and skips the native call.
+// the fallback drops the retained handle, runs the FFI release itself, and a
+// task that starts later observes the running claim and skips the FFI call.
 // Release remains exactly once even when the explicit waiter is cancelled.
 struct NetlayerRelease {
 	phase: AtomicU8,
@@ -123,7 +123,7 @@ impl NetlayerRelease {
 				if let Some(task) = lock_iroh(&self.task, "iroh-release-task-lock-poison").take() {
 					task.abort();
 				}
-				// SAFETY: `close` is `close_native` in production, and `raw` is the address of the
+				// SAFETY: `close` is `close_ffi` in production, and `raw` is the address of the
 				// `GlowcapIrohNetlayer` this `NetlayerRaw` is dropping; this frame holds the `RELEASE_RUNNING` claim,
 				// so no release has run yet, and `close` is a shutdown lever that does not free the handle.
 				unsafe { close(raw) };
@@ -139,13 +139,13 @@ impl NetlayerRelease {
 	}
 }
 
-unsafe fn close_native(raw: usize) {
+unsafe fn close_ffi(raw: usize) {
 	// SAFETY: the caller passes a live netlayer handle. `close` is a shutdown
 	// lever, not a free, so it is callable while other owners still hold `raw`.
 	unsafe { ffi::glowcap_iroh_netlayer_close(raw as *mut GlowcapIrohNetlayer) };
 }
 
-unsafe fn release_native(raw: usize) -> i32 {
+unsafe fn release_ffi(raw: usize) -> i32 {
 	// SAFETY: the caller has already joined the dispatcher task, so this frame
 	// is the handle's last owner and the release is the final use of `raw`.
 	unsafe {
@@ -190,9 +190,9 @@ impl NetlayerRaw {
 
 	pub(super) fn close(&self) {
 		// SAFETY: `self.raw` is the `GlowcapIrohNetlayer` handle this `NetlayerRaw` owns; its only caller, `release`,
-		// runs this before starting the one native release, and `close_native` is a shutdown lever callable while other
+		// runs this before starting the one FFI release, and `close_ffi` is a shutdown lever callable while other
 		// owners still hold the handle.
-		unsafe { close_native(self.raw as usize) };
+		unsafe { close_ffi(self.raw as usize) };
 	}
 
 	pub(super) async fn release(self: &Arc<NetlayerRaw>) -> Result<()> {
@@ -201,14 +201,14 @@ impl NetlayerRaw {
 			return self.release.wait().await;
 		}
 		self.close();
-		self.release.start(self.raw as usize, release_native);
+		self.release.start(self.raw as usize, release_ffi);
 		self.release.wait().await
 	}
 
 	/// Drop this construction reference without closing the endpoint. Valid
-	/// only once another owner holds its own native reference, the driver's
+	/// only once another owner holds its own FFI reference, the driver's
 	/// provider lease, retained when the package was registered, because the
-	/// endpoint keeps running on that reference alone. The one native release
+	/// endpoint keeps running on that reference alone. The one FFI release
 	/// still runs exactly once, and the `Drop` fallback afterwards sees a
 	/// finished release and sends no close.
 	pub(super) async fn relinquish(self: &Arc<NetlayerRaw>) -> Result<()> {
@@ -216,14 +216,14 @@ impl NetlayerRaw {
 		if self.release.phase.load(Ordering::Acquire) == RELEASE_DONE {
 			return self.release.wait().await;
 		}
-		self.release.start(self.raw as usize, release_native);
+		self.release.start(self.raw as usize, release_ffi);
 		self.release.wait().await
 	}
 }
 
 impl Drop for NetlayerRaw {
 	fn drop(&mut self) {
-		self.release.fallback(self.raw as usize, close_native, release_native);
+		self.release.fallback(self.raw as usize, close_ffi, release_ffi);
 	}
 }
 

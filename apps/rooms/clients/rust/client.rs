@@ -1,4 +1,4 @@
-//! A rooms chat client, written on glowcap actors in native Rust.
+//! A rooms chat client, written on glowcap actors in Rust.
 //!
 //! It enters the named room, waits until everyone it expects is present, posts
 //! one line, and collects each expected member's line as the room pushes it
@@ -77,11 +77,13 @@ fn format_rooms(rooms: &[RoomInfo]) -> String {
 }
 
 /// The friendly entry the client uses: connect, show and follow discovery (the
-/// `list` snapshot and the `watch` change feed), then enter the room (opening it
+/// first `list` page and the `watch` change feed), then enter the room (opening it
 /// if new) and subscribe as `nick`.
 async fn join_room(locator: &str, room_name: &str, nick: &str) -> Result<Room, String> {
 	let dir = Directory::connect(locator).await?;
-	println!("[{nick}] rooms: {}", format_rooms(&dir.list().await?));
+	let page = dir.list(None).await?;
+	let more = if page.next.is_some() { " and more" } else { "" };
+	println!("[{nick}] rooms: {}{more}", format_rooms(&page.rooms));
 	let watch_nick = nick.to_string();
 	dir.watch(move |kind, room| {
 		let count = room.count.map_or("unknown".to_string(), |count| count.to_string());

@@ -1,5 +1,5 @@
 #lang racket/base
-;; The live timeline producer: a veneer over the native tap. The core is the
+;; The live timeline producer: a veneer over the FFI tap. The core is the
 ;; one owner of the facts: `glowcap_host_set_trace` reports every session's
 ;; open (with the partner's designator, the wire name both peers of the
 ;; session derive, whether a durable identity verified the name, and the codec
@@ -30,7 +30,7 @@
 (define sink (box #f))
 ;; The installed process-wide observer is the owner of its first callback
 ;; failure. Observation stays non-load-bearing, but diagnostics never disappear
-;; at the native callback boundary.
+;; at the FFI callback boundary.
 ;; The display label the application chose for its own endpoint, or #f. The `a`
 ;; endpoint itself is always the host's own key designator: it is what a partner
 ;; names it by, so one peer stays one node in a feed several producers share.
@@ -63,7 +63,7 @@
 (define next-cookie (box 1))
 ;; The one C-callable callback object, boxed for the process's life so the
 ;; collector never reclaims executable memory the core still holds.
-(define native-cb (box #f))
+(define ffi-cb (box #f))
 ;; Payload bytes forwarded per message (whole frame under the cap, head +
 ;; true length above it).
 (define PAYLOAD-CAP BINDING-TRACE-PAYLOAD-CAP-BYTES)
@@ -72,7 +72,7 @@
   (call-with-semaphore registry-gate thunk))
 
 ;; Return strong owner/row pairs and prune wrappers the collector has already
-;; retired. The strong owner lasts through the caller's native installation.
+;; retired. The strong owner lasts through the caller's FFI installation.
 (define (live-hosts)
   (with-registry
    (lambda ()
@@ -120,7 +120,7 @@
 (define (emit! row ev)
   (define s (unbox sink))
   ;; Trace observation cannot become protocol control flow, and no Racket
-  ;; exception may cross the native callback frame.
+  ;; exception may cross the FFI callback frame.
   (when s
     (with-handlers ([(lambda (_) #t)
                      (lambda (error)
@@ -133,12 +133,12 @@
       (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD)
       #f))
 
-(define (on-native-event ctx borrowed-event)
+(define (on-ffi-event ctx borrowed-event)
   (with-handlers ([(lambda (_) #t)
                    (lambda (error)
                      ;; Decoder failures are callerless binding failures. Keep
                      ;; them behind the Host diagnostic owner and never unwind
-                     ;; through the native callback frame.
+                     ;; through the FFI callback frame.
                      (define cookie (if ctx (cast ctx _pointer _intptr) 0))
                      (define row
                        (with-registry
@@ -149,9 +149,9 @@
                      (when row
                        (with-handlers ([(lambda (_) #t) (lambda (_) (void))])
                          ((trace-host-report! row) "trace.decode" error))))])
-    (on-native-event/checked ctx borrowed-event)))
+    (on-ffi-event/checked ctx borrowed-event)))
 
-(define (on-native-event/checked ctx borrowed-event)
+(define (on-ffi-event/checked ctx borrowed-event)
   (when (unbox sink)
     ;; Racket's FFI array-field view does not safely index an inline C array
     ;; through a callback's borrowed cstruct wrapper. Snapshot the fixed event
@@ -259,7 +259,7 @@
 ;; The SET half of the annotation channel: an application states which
 ;; partner a session carries, named for the same session row the tap names. A
 ;; claim, never identity. This module sits below the session structs
-;; (host.rkt requires it), so the session-level verb passes its owner and native
+;; (host.rkt requires it), so the session-level verb passes its owner and FFI
 ;; session handle. No sink, or a host the trace never attached: silently
 ;; nothing, like every trace emit.
 (define (trace-annotate-session! owner session-ptr label)
@@ -279,15 +279,15 @@
                        'meta (hasheq 'label label)))))))
 
 (define (callback!)
-  (unless (unbox native-cb)
-    (set-box! native-cb (function-ptr on-native-event _GlowcapTraceCallback)))
-  (unbox native-cb))
+  (unless (unbox ffi-cb)
+    (set-box! ffi-cb (function-ptr on-ffi-event _GlowcapTraceCallback)))
+  (unbox ffi-cb))
 
 (define (cookie->ctx cookie) (cast cookie _intptr _pointer))
 
 ;; Install `next` (replacing any prior sink), start the clock, and register
-;; the native tap on every live host (a host minted later registers itself).
-;; Returns an uninstall thunk that also clears the native tap.
+;; the FFI tap on every live host (a host minted later registers itself).
+;; Returns an uninstall thunk that also clears the FFI tap.
 (define (enable-trace! next #:self-label [label #f])
   (with-registry
    (lambda ()
@@ -327,7 +327,7 @@
   (apply-current-trace! owner row))
 
 ;; Binding-internal: a released host leaves the registry. The core dropped
-;; its own sink row with the host, so no native call is needed.
+;; its own sink row with the host, so no FFI call is needed.
 (define (trace-detach-host! owner)
   (with-registry
    (lambda ()

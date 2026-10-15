@@ -141,10 +141,10 @@ The checked measurements are:
 - the Vat is charged once per Host, independent of session count
 - the fixed queue chunk is 4,152 bytes, below its 4,224-byte metadata ceiling
 - the one Vat-wide spare retains at most 4,096 payload-arena bytes
-- the per-session `HostSession` ceiling is 528 bytes
+- the per-session `HostSession` ceiling is `host_session_struct_budget_bytes`
 
-[The footprint table](../../ladder.md#2-performance-at-scale) records the current
-session and Host budgets.
+The [performance page](../../../site/content/performance.smd) charts the
+current session and Host costs.
 
 ## Scope (what this does not decide)
 

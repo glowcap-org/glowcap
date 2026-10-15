@@ -141,7 +141,7 @@
     (define close-error #f)
     (define m (driver-loop-host lp))
     (with-handlers ([exn? (lambda (e) (set! close-error e))])
-      (when (loop-native-live? lp)
+      (when (loop-ffi-live? lp)
         (let join-close ()
           ;; Arm the generation before the retry. A provider retirement that
           ;; lands between the call and the park bumps this exact snapshot, so
@@ -213,7 +213,7 @@
 
 (define (loop-server-host s) (driver-loop-host (loop-server-lp s)))
 
-;; Drive a retirement already committed by the native driver. Racket supplies
+;; Drive a retirement already committed by the FFI driver. Racket supplies
 ;; stepping and projects effects; the driver decides when the last claimed
 ;; session permits ordinary cancel close. The wait is event-driven: snapshot
 ;; the host progress event before stepping (so a rival path's step landing
@@ -247,14 +247,14 @@
           (sync/timeout (/ wait-ms 1000.0) gen)
           (sync gen))
       (loop)))
-  (host-release-after-native-close! m))
+  (host-release-after-ffi-close! m))
 
 (define (run-loop-retirement! lp)
   (with-handlers ([converts-to-broken?
                    (lambda (error) (loop-background-failed! lp error))])
     (drive-loop-retirement! lp)))
 
-;; A bare server owns the Host it created. Commit native retirement once and
+;; A bare server owns the Host it created. Commit FFI retirement once and
 ;; let the driver preserve every session handle already returned.
 (define (driver-loop-retire! lp)
   (define state (driver-loop-state lp))

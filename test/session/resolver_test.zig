@@ -486,3 +486,42 @@ test "resolver purpose replacement evicts a colliding resolver in both direction
     try std.testing.expect(s.outbound_resolver_link.getByKey(second) == null);
     try std.testing.expect(s.outbound_resolver_link.getByValue(.{ .shortening_pending = source_five }) == null);
 }
+
+test "every field of a resolver purpose is a word of its identity" {
+    // The purpose side of the outbound link is keyed on these words, so two
+    // purposes that differ in any field must differ in some word, or the
+    // table answers one purpose's lookup with the other's export.
+    const one: session.PromiseIncarnation = .{ .position = .from(1), .row_id = 1 };
+    const one_reincarnated: session.PromiseIncarnation = .{ .position = .from(1), .row_id = 2 };
+    const two: session.PromiseIncarnation = .{ .position = .from(2), .row_id = 1 };
+    const distinct = [_]session.ResolverPurpose{
+        .{ .application_answer = .from(1) },
+        .{ .application_answer = .from(2) },
+        .{ .local_promise_answer = .{ .wire = .from(1) } },
+        .{ .local_promise_answer = .{ .virtual = .from(1) } },
+        .{ .node_settling = .{ .resolver_export = .from(1) } },
+        .{ .node_settling = .{ .resolver_export = .from(2) } },
+        .{ .node_settling = .{ .resolver_export = .from(1), .settling_source = one } },
+        .{ .node_settling = .{ .resolver_export = .from(1), .settling_source = one_reincarnated } },
+        .{ .node_settling = .{ .resolver_export = .from(1), .settling_source = two } },
+        .{ .retired = .{ .resolver_export = .from(1), .state = .pending } },
+        .{ .retired = .{ .resolver_export = .from(1), .state = .complete } },
+        .{ .retired = .{ .resolver_export = .from(2), .state = .pending } },
+        .{ .retired = .{ .resolver_export = .from(1), .settling_source = one, .state = .pending } },
+        .{ .retired = .{ .resolver_export = .from(1), .settling_source = one_reincarnated, .state = .pending } },
+        .{ .retired = .{ .resolver_export = .from(1), .settling_source = one, .state = .complete } },
+        .{ .shortening_pending = one },
+        .{ .shortening_pending = one_reincarnated },
+        .{ .shortening_pending = two },
+        .{ .shortening_complete = one },
+        .{ .shortening_complete = one_reincarnated },
+    };
+    const identity_hash = glowcap.foundation.identity_hash;
+    for (distinct, 0..) |left, i| {
+        try std.testing.expect(identity_hash.eql(left, left));
+        for (distinct[i + 1 ..]) |right| {
+            try std.testing.expect(!identity_hash.eql(left, right));
+            try std.testing.expect(!std.mem.eql(u64, &identity_hash.words(left), &identity_hash.words(right)));
+        }
+    }
+}

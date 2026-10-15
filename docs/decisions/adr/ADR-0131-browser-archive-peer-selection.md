@@ -93,7 +93,7 @@ only when the reader shares one direct conversation.
 
 ## Evidence
 
-`apps/rooms/test/archive/target_test.ts` proves serialized concurrent selection,
+`apps/rooms/rust/services/src/session_archive/tests.rs` proves serialized concurrent selection,
 ordered target retirement, post-commit cleanup refusal, operation-local failure,
 keeper attribution, and write refusal without device fallback (ADR-0144 keeps
 reads of records the device already holds).

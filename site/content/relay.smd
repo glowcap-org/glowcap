@@ -11,64 +11,55 @@ socket. A browser cannot listen or dial raw TCP or QUIC, so it uses this path.
 The session's keys stay at the two ends
 ([ADR-0086](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
 
-# Byte transparency
+# The relay only moves bytes
 
-The keyed `op:start-session` handshake and every capability that follows it run
-between the browser and the far peer. The relay never parses a frame and never
+The keyed `op:start-session` handshake and every message after it run between the browser and the far peer. The relay never parses a frame and never
 holds a capability. On a cleartext path it can still read every byte, so use
-`noise-relay` when the relay must see only ciphertext. Native providers and the
-browser's managed connector both speak it, and the byte-fed Host owns the
-sealing.
+`noise-relay` when the relay must see only ciphertext. The Zig provider, the
+other language providers, and the browser connector all speak it.
 
 # Reaching the other side
 
-A peer with a socket dials the address it wants. A browser has none, so the relay
-reaches the far side two ways.
+A browser has no socket to dial with, so the relay reaches the far side one of
+two ways.
 
 ## Dialing a far peer
 
 The browser names a target and the relay dials it. The reference relay reads
 the target off the WebSocket's query: `?to=host:port` opens a TCP socket, and
 `?locator=<ocapn-uri>` opens an iroh channel. The relay then pipes the
-WebSocket to whatever it dialed. Rooms embeds the same pump behind its own
-`/relay?target=<locator>` route and classifies the locator with
-`glowcap_host_plan_dial`, as a native dial does.
+WebSocket to whatever it dialed. Rooms runs the same pump behind its own `/relay` route.
 
 [The browser names the peer it wants. The relay dials it over tcp or iroh and pipes the two together. The keyed session runs end to end, and the relay only moves bytes.]($image.siteAsset('diagram-relay-dial.svg'))
 
-The dial policy is the embedding app's. The [rooms demo]($link.page('examples'))
-pins its TCP target to the room server, so a classified TCP dial reaches the room
-and nothing else. An iroh target may be any key-verified node, a wider reach the
-app accepts and bounds with its own admission caps.
+The app that hosts the relay sets the dial policy. The [rooms demo]($link.page('examples'))
+pins its TCP target to the room server, so a TCP dial reaches the room
+and nothing else. An iroh target may be any key-verified node, a wider reach the app accepts and limits with its own caps on connections.
 
-## Cold-dial rendezvous
+## When both ends are browsers
 
-When both ends are browsers, neither can be dialed. A browser registers its key with
+Neither browser can be dialed, so one registers its key with
 the relay and leaves an inbound socket held there. A second browser, holding an
-introduction that names that key, cold-dials it, and the relay bridges the dialer to
+introduction that names that key, dials it, and the relay bridges the dialer to
 the held socket. The room that made the introduction carries no part of the
 session
 ([ADR-0088](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
 
 [One browser registers and waits. The other redeems an introduction by cold-dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers.]($image.siteAsset('diagram-relay-rendezvous.svg'))
 
-Both paths run through one byte pump, so rendezvous and direct dialing share
-their backpressure and teardown behavior.
+Both paths run through one byte pump, so they share backpressure (a slow reader slows the sender) and shutdown behavior.
 
 # Bounded resources
 
-Backpressure on both legs caps the bytes in flight: a stalled reader stops the
-relay reading its partner, so the stall reaches the sender instead of piling up
-in the middle. An idle timeout reclaims silent sessions. A relayed connection
-costs buffers but no CapTP session state. The embedding app sets its own limits
-on live sessions and held registrations, as the
-[rooms demo]($link.page('examples')) does. The relay counts bytes and sessions,
-never messages, because it reads none.
+Backpressure on both legs caps the bytes in flight: when a reader stalls, the relay stops reading from its partner, so the stall reaches the sender. An idle timeout
+reclaims silent sessions. A relayed connection costs buffers but no CapTP
+session state. The hosting app sets its own limits on live sessions and held registrations, as the [rooms demo]($link.page('examples')) does. The relay
+counts bytes and sessions, never messages.
 
 # The same contract on every runtime
 
-`@glowcap/relay` is the Deno reference. Python, Rust, and Racket provide the
-same forwarding, backpressure, and idle-reclaim behavior.
+`@glowcap/relay` is the Deno reference. Python, Rust, and Racket forward,
+apply backpressure, and reclaim idle sessions the same way.
 
 # Locators
 
@@ -88,10 +79,10 @@ when the relay and network are already trusted. Each tab stops once the
 runtime and locator are ready, and the binding page covers connect, fetch, and
 call.
 
-The snippets use `wss://` with platform trust: native code passes `.system`,
-and the bindings use the host WebSocket. The native provider also accepts
-cleartext `ws` on a network you already trust. It has not been tested live
-with a public certificate.
+The snippets use `wss://` with platform trust: Zig passes `.system`, and the
+bindings use the host WebSocket. The Zig provider also accepts cleartext `ws`
+on a network you already trust. It has not been tested live with a public
+certificate.
 
 ```=html
 <!-- site-examples:dial:relay GENERATED by `zig build gen-site-examples`; edits are overwritten -->
@@ -103,12 +94,12 @@ with a public certificate.
 > ```zig
 > const std = @import("std");
 > const glowcap = @import("glowcap");
-> const native_relay = @import("native_relay");
+> const relay_tls = @import("relay_tls");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Noise_XK seals the session end to end; the relay forwards ciphertext.
 >     const relay_url = "wss://relay.example/relay";
->     var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+>     var tls = switch (relay_tls.initTlsOwner(io, allocator, .system)) {
 >         .ready => |ready| ready.owner,
 >         .failed => return error.RelayUnavailable,
 >     };
@@ -206,12 +197,12 @@ with a public certificate.
 > ```zig
 > const std = @import("std");
 > const glowcap = @import("glowcap");
-> const native_relay = @import("native_relay");
+> const relay_tls = @import("relay_tls");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // The key names the peer; the hint names the relay that can reach it.
 >     const relay_url = "wss://relay.example/relay";
->     var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+>     var tls = switch (relay_tls.initTlsOwner(io, allocator, .system)) {
 >         .ready => |ready| ready.owner,
 >         .failed => return error.RelayUnavailable,
 >     };
@@ -311,10 +302,9 @@ A listening peer registers its durable key with the relay and keeps the
 registration alive while it accepts sessions. Persist the identity seed so
 the advertised locator survives a restart. TypeScript, Python, Rust, and
 Racket provide managed `noise-relay` listeners. Zig registers through the
-native relay provider (the `"glowcap_native_relay"` build module, which
-builds Mbed TLS from source) and `driver.listen`, with platform trust for
-`wss://`.
-A browser never listens.
+relay provider (the `"glowcap_relay_tls"` build module, which builds Mbed
+TLS from source) and `driver.listen`, with platform trust for `wss://`. A
+browser never listens.
 
 Cleartext keyed registration uses the same constructor with the keyed profile:
 `resident(.keyed)` in Zig, `keyed.listen` in TypeScript, Python, and Rust, or
@@ -329,13 +319,13 @@ relay path is not sealed.
 > ```zig
 > const std = @import("std");
 > const glowcap = @import("glowcap");
-> const native_relay = @import("native_relay");
+> const relay_tls = @import("relay_tls");
 >
 > pub fn example(io: std.Io, allocator: std.mem.Allocator) !void {
 >     // Register this key at the relay; Noise_XK seals every accepted CapTP stream.
 >     const seed = @as([32]u8, @splat(7)); // load durable secret bytes in a real service
 >     const secret = glowcap.foundation.crypto.SecretKey.fromSeed(seed);
->     var tls = switch (native_relay.initTlsOwner(io, allocator, .system)) {
+>     var tls = switch (relay_tls.initTlsOwner(io, allocator, .system)) {
 >         .ready => |ready| ready.owner,
 >         .failed => return error.RelayUnavailable,
 >     };
@@ -441,8 +431,8 @@ deno run --allow-net --allow-ffi --allow-env --allow-read \
 ```
 
 It relays wherever a WebSocket points it, named by `?to=` or `?locator=`, and
-reclaims a silent session after `GLOWCAP_RELAY_IDLE_MS` (one minute by
-default). Target allowlists and admission limits belong to the embedding app,
+reclaims a silent session after the idle timeout that `GLOWCAP_RELAY_IDLE_MS`
+sets. Allowed targets and connection limits belong to the app that hosts the relay,
 as in the Rooms
 [`relay.rs`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/rust/services/src/web/relay.rs).
 The [relay README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/relay/README.md)

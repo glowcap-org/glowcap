@@ -7,6 +7,7 @@ pub const symbols = [_]shared.symbols.Symbol{
     .{ .name = "glowcap_loam_lmdb_work_run" },
     .{ .name = "glowcap_loam_lmdb_restore", .out_params = &.{3} },
     .{ .name = "glowcap_loam_lmdb_commit" },
+    .{ .name = "glowcap_loam_lmdb_collect" },
     .{ .name = "glowcap_loam_lmdb_last_error" },
     .{ .name = "glowcap_loam_lmdb_clear_last_error" },
     .{ .name = "glowcap_loam_lmdb_archive_fingerprint" },

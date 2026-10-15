@@ -12,13 +12,15 @@ workspace = true
 rooms-application = { path = "../application" }
 rooms-glowcap = { path = "../glowcap" }
 rooms-runtime = { path = "../runtime" }
-glowcap = { workspace = true, features = ["tcp", "iroh", "relay", "onion"] }
+glowcap = { workspace = true, features = ["tcp", "iroh", "relay", "onion", "webrtc"] }
 tokio = { workspace = true, features = ["net", "io-util", "fs"] }
+# dep getrandom: Entropy for session and storage secrets.
 getrandom = "=0.4.3"
 serde = { workspace = true, features = ["std"] }
 tokio-tungstenite = { workspace = true, features = ["connect", "rustls-tls-native-roots"] }
 futures-util = { workspace = true, features = ["sink"] }
 tokio-rustls = { workspace = true, features = ["ring", "tls12"] }
+# dep rustls-native-certs: Trusts the operating system's certificate store.
 rustls-native-certs = "=0.8.5"
 bytes.workspace = true
 

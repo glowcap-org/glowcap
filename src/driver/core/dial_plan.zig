@@ -1,12 +1,12 @@
 //! Pure dial and accept planning: the transport dispatch, designator
-//! validation, host:port resolution, and reachability decision that every
-//! language binding used to re-express in its own `connect` / `dial_exporter`
-//! and `Server.accept`. It is sans-io: it decides *what* to dial or sign and
+//! validation, host:port resolution, and reachability decision that
+//! every language binding's `connect` / `dial_exporter` and `Server.accept`
+//! shares. It is sans-io: it decides *what* to dial or sign and
 //! the caller opens the byte channel, so it lives in `driver_core` under the
 //! I/O ban and reuses `model.transport.Known` for transport posture, the one
 //! TCP host:port admission `model.uri.tcpConnectHostPort`, and the one key
 //! designator predicate `foundation.crypto.PeerKey.fromDesignator`. Nothing
-//! here parses a URI or re-encodes those rules. It composes them. The native
+//! here parses a URI or re-encodes those rules. It composes them. The Zig
 //! `tcp.DialResolver` / `iroh.DialResolver` call the same hostport / key
 //! helpers, so this is that path's byte-fed twin, not a second copy of its
 //! rules.

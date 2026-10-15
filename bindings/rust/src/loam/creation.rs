@@ -35,7 +35,7 @@ impl Store {
 		// key[33]` array; all-zero is a valid value, and the callee fills it before it is read.
 		let mut raw = unsafe { core::mem::zeroed() };
 		check(
-			// SAFETY: `self.inner.store` is the `GlowcapLoamStore` borrowed from the LMDB storage owner `self.inner`
+			// SAFETY: `self.inner.store` is the `GlowcapLoamStore` borrowed from the storage executor `self.inner`
 			// holds, live because `live()` above found that owner unreleased; `policy.raw` is borrowed from `policy`
 			// and `identity`, `initial`, and `schema` are borrowed from this call's arguments, all live for the whole
 			// call (header: inputs are borrowed, the payload is copied into staging), and `raw` is the local
@@ -54,7 +54,6 @@ impl Store {
 					&mut raw,
 				)
 			},
-			false,
 		)?;
 		Ok(StagedResource {
 			inner: self.inner.clone(),
@@ -99,10 +98,10 @@ impl StagedResource {
 	/// A refused abort keeps this guard available for an exact retry.
 	pub fn abort(&mut self) -> Result<()> {
 		if self.staged {
-			// SAFETY: `self.inner.store` is the `GlowcapLoamStore` borrowed from the LMDB storage owner `self.inner`
-			// holds; while `self.staged` is true the Store is in its staging phase, so `glowcap_loam_lmdb_release`
+			// SAFETY: `self.inner.store` is the `GlowcapLoamStore` borrowed from the storage executor `self.inner`
+			// holds; while `self.staged` is true the Store is in its staging phase, so the executor's `release`
 			// refuses Busy and the handle stays alive. The call takes no other pointer.
-			check(unsafe { ffi::glowcap_loam_store_abort(self.inner.store) }, false)?;
+			check(unsafe { ffi::glowcap_loam_store_abort(self.inner.store) })?;
 			self.staged = false;
 		}
 		Ok(())
@@ -119,20 +118,21 @@ impl StagedResource {
 	#[cfg(not(target_arch = "wasm32"))]
 	pub fn commit(mut self) -> Result<Resource> {
 		self.submitting()?;
-		// SAFETY: `self.inner.storage` is the non-null `GlowcapLoamLmdb` handle from `glowcap_loam_lmdb_open`
-		// (`submitting` checked `live()` just above), released only by `StoreInner::close`; the call takes no other
-		// pointer and runs on the Host thread outside any turn.
-		let rc = unsafe { ffi::glowcap_loam_lmdb_commit(self.inner.storage.get()) };
+		let rc = self.inner.executor.commit();
 		if rc != ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {
 			self.inner.pending_creation.borrow_mut().take();
 		}
-		check(rc, true)?;
+		self.inner.executor.check(rc)?;
 		Ok(self.resource)
 	}
 	#[cfg(target_arch = "wasm32")]
 	pub async fn commit(mut self) -> Result<Resource> {
-		self.submitting()?;
-		self.inner.creation_active.set(true);
+		super::browser::claim_store_batch(&self.inner).await;
+		if let Err(error) = self.submitting() {
+			self.inner.creation_active.set(false);
+			self.inner.creation_changed.notify_waiters();
+			return Err(error);
+		}
 		let inner = self.inner.clone();
 		super::browser::retained(async move { super::browser::startup(&inner, false).await }).await?;
 		self.inner.creation_outcome.set(None);

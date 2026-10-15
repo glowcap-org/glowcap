@@ -98,6 +98,8 @@ pub const Capabilities = struct {
         state.staged = true;
         return .{ .change = result.change, .derived_use = derived, .derived_control = control };
     }
+    /// Stage the control prepared by `prepareAttenuationCopying`. The new
+    /// descriptor retains its parent control and the same exact grant.
     pub fn stageAttenuatedControl(self: *Capabilities, operation: *Operation, rooted: bool) !loam.ObjectId {
         const state = op.state(operation);
         if (state.binding.owner != self) return error.ForeignOperation;

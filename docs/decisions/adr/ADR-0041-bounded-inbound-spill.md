@@ -107,7 +107,7 @@ negotiated cap.
   (`test/net/frame_stream_test.zig`), pump-path spill carriage,
   truncation-while-spilling, and over-cap-while-spilling
   (`test/net/connection_test.zig`), and a real-socket keyed handshake through a
-  64-byte client read buffer (`test/driver/blocking_session_test.zig`).
+  64-byte client read buffer (`test/driver/session_loopback_test.zig`).
 
 ## Notes
 

@@ -4,7 +4,7 @@ use crate::{
 	fields::{Nullable, SafeInteger, Text},
 	room::policy::MembershipKind,
 };
-use alloc::{collections::BTreeSet, vec::Vec};
+use alloc::{collections::BTreeSet, string::String, vec::Vec};
 
 fn text<A: Argument, const N: usize, const NONEMPTY: bool>(value: A) -> Option<Text<N, NONEMPTY>> {
 	let value = value.text()?;
@@ -83,6 +83,105 @@ pub fn rooms<A: Argument>(raw: &A) -> Result<Vec<RoomInfo>, Error> {
 		result.push(entry);
 	}
 	Ok(result)
+}
+/// Where a listing walk stands: the source of the last row a page answered
+/// and the key that source lists the row under. The directory mints it and
+/// reads it back, and a client passes it back exactly. The next page starts
+/// strictly after this position in listing order, so a room that closes
+/// between two pages moves no other row, and a room open for a whole walk is
+/// answered exactly once.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cursor {
+	pub kind: PublicationKind,
+	pub key: String,
+}
+impl Cursor {
+	/// The most UTF-16 units a cursor's text may hold.
+	pub const MAX_TEXT: usize = 256;
+	/// Read a cursor back from the text a page answered: the source's wire
+	/// kind, a colon, and the key.
+	pub fn parse(text: &str) -> Option<Self> {
+		if !Text::<{ Self::MAX_TEXT }, true>::accepts_utf16(text.encode_utf16()) {
+			return None;
+		}
+		let (kind, key) = text.split_once(':')?;
+		let kind = match kind {
+			"local" => PublicationKind::Local,
+			"foreign" => PublicationKind::Foreign,
+			"bridge" => PublicationKind::Bridge,
+			_ => return None,
+		};
+		(!key.is_empty()).then(|| Self { kind, key: key.into() })
+	}
+	/// The text a page carries the cursor as.
+	pub fn text(&self) -> String {
+		alloc::format!("{}:{}", self.kind.wire(), self.key)
+	}
+	/// Whether a row listed under `key` by a `kind` source comes after this
+	/// position, by kind and then by key text, so a walk resumed here answers
+	/// it. A source whose index orders its keys differently (local rooms)
+	/// resumes through `start` and its own index instead.
+	pub fn precedes(&self, kind: PublicationKind, key: &str) -> bool {
+		(self.kind, self.key.as_str()) < (kind, key)
+	}
+	/// Where a `kind` source starts its walk for a cursor: `None` when every
+	/// row of the source comes before the cursor, otherwise the key the
+	/// source resumes after, absent when it walks from its first row.
+	pub fn start(after: Option<&Self>, kind: PublicationKind) -> Option<Option<&str>> {
+		match after {
+			None => Some(None),
+			Some(cursor) if cursor.kind == kind => Some(Some(cursor.key.as_str())),
+			Some(cursor) => (cursor.kind < kind).then_some(None),
+		}
+	}
+}
+impl serde::Serialize for Cursor {
+	fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+		serializer.serialize_str(&self.text())
+	}
+}
+/// One `listPublications` answer: at most `MAX_ROWS` rooms in listing
+/// order, and the cursor that asks for the page after it when more remain.
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Page {
+	pub rooms: Vec<RoomInfo>,
+	pub next: Option<Cursor>,
+}
+impl Page {
+	/// The page at the head of `walk`, which yields each row with the key its
+	/// source lists it under, already positioned after the caller's cursor.
+	/// The page's cursor is the position of its last row.
+	pub fn cut(walk: impl IntoIterator<Item = (String, RoomInfo)>) -> Self {
+		let mut rooms = Vec::new();
+		let mut last = None;
+		for (key, room) in walk {
+			if rooms.len() == MAX_ROWS {
+				return Self { rooms, next: last };
+			}
+			last = Some(Cursor { kind: room.kind, key });
+			rooms.push(room);
+		}
+		Self { rooms, next: None }
+	}
+}
+/// Read a `listPublications` answer. A continuation needs rows before it, so
+/// a directory cannot keep a reader paging through empty answers, and it must
+/// have the form a directory mints: a source kind, a colon, and a key.
+pub fn page<A: Argument>(raw: &A) -> Result<Page, Error> {
+	if raw.list_len() != Some(2) {
+		return Err(Error::List);
+	}
+	let rooms = rooms(&raw.at(0).ok_or(Error::List)?)?;
+	let next = raw.at(1).ok_or(Error::List)?;
+	let next = if next.is_null() {
+		None
+	} else {
+		Some(Cursor::parse(next.text().ok_or(Error::List)?).ok_or(Error::List)?)
+	};
+	if next.is_some() && rooms.is_empty() {
+		return Err(Error::List);
+	}
+	Ok(Page { rooms, next })
 }
 #[derive(Debug, serde::Serialize)]
 pub struct Snapshot {

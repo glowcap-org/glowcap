@@ -3,8 +3,8 @@
 // A sentence a person reads is written here and nowhere else. That keeps the
 // product's voice reviewable in one set of files and gives a translator one
 // place to work from. `zig build source-check` holds the rule: a reader-facing
-// literal in a file this catalog owns is refused, and the list of files not yet
-// moved is closed and goes to zero.
+// literal in a file this catalog owns is refused. Only the component specimen
+// pages are exempt.
 //
 // ## Two registers, one product
 //

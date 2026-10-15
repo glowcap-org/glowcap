@@ -122,7 +122,7 @@ pub fn pendingBootstrapAction(
 
     if (std.mem.eql(u8, method, "withdraw-gift")) {
         const handoff = switch ((try it.next()) orelse return null) {
-            .handoff => |h| h,
+            .handoff => |h| try h.project(),
             else => return null,
         };
         if ((try it.next()) != null) return null;
@@ -392,7 +392,7 @@ fn giveGifterSide(give: model.view.HandoffGive) [32]u8 {
     return gifter;
 }
 
-/// Resolve a borrowed give to the still-open Gifter–Exporter session it names.
+/// Resolve a borrowed give to the still-open Gifter-Exporter session it names.
 /// This performs no allocation or signature work, so admission checks can run
 /// before materializing untrusted handoff data.
 pub fn liveGifterSession(resolver: ?gifts.GifterSessionResolver, give: model.view.HandoffGive) ?gifts.GifterSession {

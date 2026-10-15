@@ -4,7 +4,13 @@ use super::*;
 
 impl LoopShared {
 	/// The listener's complete canonical OCapN locator.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+	#[cfg(any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	))]
 	pub(crate) fn listener_locator(&self, listener: u64) -> Result<Locator> {
 		self.guard_handle()?;
 		self.driver.listener_locator(listener)
@@ -23,16 +29,28 @@ impl LoopShared {
 		self.driver.advertise_listener(listener, &locator)
 	}
 
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+	#[cfg(any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	))]
 	pub(crate) fn select_listener(&self, listener: u64) -> Result<()> {
 		self.guard_handle()?;
 		self.driver.select_listener(listener)
 	}
 
 	/// Stop one listener while keeping the loop and yielded sessions alive.
-	/// Provider teardown may span steps. The returned future joins that native
+	/// Provider teardown may span steps. The returned future joins that FFI
 	/// barrier and preserves its exact asynchronous failure.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+	#[cfg(any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	))]
 	pub(crate) async fn close_listener(self: &Rc<Self>, listener: u64) -> Result<()> {
 		self.begin_listener_close(listener)?;
 		loop {
@@ -107,9 +125,15 @@ impl LoopShared {
 	}
 
 	/// A dropped setup future may race a committed READY event. Remove its
-	/// waiter before draining native events, then retire either the still-pending
+	/// waiter before draining FFI events, then retire either the still-pending
 	/// or newly-active binding state without exposing a listener to the caller.
-	#[cfg(any(feature = "tcp", feature = "iroh", feature = "onion", feature = "relay"))]
+	#[cfg(any(
+		feature = "tcp",
+		feature = "iroh",
+		feature = "onion",
+		feature = "relay",
+		feature = "webrtc"
+	))]
 	pub(super) fn cancel_listener_setup(self: &Rc<Self>, listener: u64) {
 		self.pending_listeners.borrow_mut().remove(&listener);
 		if self.released.get() {
@@ -122,7 +146,7 @@ impl LoopShared {
 	}
 
 	/// Release accepted sessions that a closing server never yielded. The
-	/// native listener-close contract preserves committed events. The public
+	/// FFI listener-close contract preserves committed events. The public
 	/// server contract transfers only sessions returned by `accept`.
 	pub(crate) fn discard_accepts(&self, listener: u64) {
 		let queued = self.accepts.borrow().len();
@@ -149,9 +173,9 @@ impl LoopShared {
 
 	/// Release a handle the binding never transferred to an application. The
 	/// loop remains its owner on refusal, so tracking is removed only after the
-	/// native release commits.
+	/// FFI release commits.
 	pub(super) fn release_unclaimed_session(&self, session: *mut ffi_host::GlowcapHostSession) {
-		if self.native_session_release(session).is_ok() {
+		if self.ffi_session_release(session).is_ok() {
 			self.unclaimed_sessions.borrow_mut().remove(&(session as usize));
 		}
 	}
@@ -170,7 +194,7 @@ impl LoopShared {
 	/// Release one loop-owned session through the loop's own verb, which also
 	/// drops queued events naming it. A no-op once the loop is released: the
 	/// loop's release freed its sessions itself.
-	pub(crate) fn native_session_release(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
+	pub(crate) fn ffi_session_release(&self, session: *mut ffi_host::GlowcapHostSession) -> Result<()> {
 		if self.released.get() {
 			return Ok(());
 		}
@@ -179,7 +203,7 @@ impl LoopShared {
 }
 /// Wrap a loop-minted session handle as the public [`Session`], over the
 /// adopted wrapper Host: every session verb, promise, and trampoline works on
-/// it, with the native loop as the transport and the drain.
+/// it, with the driver loop as the transport and the drain.
 pub(crate) fn loop_session(lp: &Rc<LoopShared>, session: *mut ffi_host::GlowcapHostSession) -> Result<Session> {
 	let host = lp.wrapper_host()?;
 	let shared = SessionShared::new_loop(session, host, Rc::clone(lp));

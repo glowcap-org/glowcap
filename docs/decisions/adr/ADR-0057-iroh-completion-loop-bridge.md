@@ -140,7 +140,7 @@ module because it links the Rust staticlib. The sidecar surface is in
   further writes refuse. Other live-write failures and unfinished task permits
   remain teardown failures. The sidecar lifecycle test fixes this ordering, and
   the native Rooms archive test covers active-client shutdown.
-- **Native Zig QUIC stays rejected.** ADR-0055's flip condition is unchanged.
+- **Zig QUIC stays rejected.** ADR-0055's flip condition is unchanged.
   This bridge makes the sidecar scale, which removes the main reason for a
   native rewrite.
 
@@ -150,7 +150,7 @@ module because it links the Rust staticlib. The sidecar surface is in
   the ~500k the footprint bench targets. The netlayer keeps one I/O model (the
   loop) with no second blocking path to maintain.
 - **Register QUIC's UDP socket fd in the loop and run QUIC in Zig.** Rejected:
-  that is native Zig QUIC (ADR-0055).
+  that is Zig QUIC (ADR-0055).
 - **Busy-poll the sidecar from the loop.** Rejected: it burns a core.
 
 ## Consequences

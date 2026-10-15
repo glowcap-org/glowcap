@@ -56,7 +56,7 @@ pub fn serveRegistered(
     defer conn.deinit();
 
     const hex = identity.toDesignator();
-    try peer.sendCopying(startSession(hex[0..]));
+    try peer.sendBorrowed(startSession(hex[0..]));
 
     while (true) {
         const progress = conn.pump() catch |err| switch (err) {

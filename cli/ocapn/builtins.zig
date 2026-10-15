@@ -26,10 +26,10 @@ pub const demo_verbs = [_]DemoVerb{
 };
 
 const Greeter = struct {
-    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = self;
-        if (args.len != 1 or args[0] != .string) return error.BadInvocation;
-        const who = args[0].string;
+        if ((try args.len()) != 1) return error.BadInvocation;
+        const who = try args.string(0);
         if (std.mem.eql(u8, verb, "greet")) {
             return .{ .string = try std.fmt.allocPrint(ht.turn.arena, "Hello, {s}", .{who}) };
         }
@@ -92,12 +92,13 @@ fn formatSay(arena: std.mem.Allocator, msg: []const u8, figure: []const u8) ![]c
 }
 
 const Echo = struct {
-    pub fn handle(self: *Echo, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Echo, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
         _ = self;
         _ = ht;
         if (!std.mem.eql(u8, verb, "echo")) return error.NoSuchMethod;
-        if (args.len != 1) return error.BadInvocation;
-        return args[0];
+        if (arg_values.len != 1) return error.BadInvocation;
+        return arg_values[0];
     }
 };
 

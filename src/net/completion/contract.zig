@@ -64,12 +64,18 @@
 //!     release the exact receive buffer or cold-path failure record after the
 //!     loop has consumed it.
 //!   * `pub fn poll(self: *Backend, out: []Completion,
-//!     timeout_ms: i32) !usize;`: flush submissions and wait; a timeout or
-//!     explicit wake with no completions returns zero.
+//!     timeout_ms: i32) !usize;`: flush submissions and wait in the
+//!     backend's own queue; a timeout or explicit wake with no completions
+//!     returns zero. The resident parks the runtime here.
+//!   * `pub fn peek(self: *Backend, out: []Completion) !usize;`: reap what
+//!     the kernel already completed and submit nothing, so a caller that
+//!     batches its submissions for one later `flush` can still turn
+//!     completions into state between its verbs.
 //!
-//! A platform backend also provides one readiness verb for adapters that run
-//! I/O on descriptors they do not own (`net/transport/external/completion.zig`).
-//! The loop never calls it:
+//! Every backend also provides one readiness verb for descriptors it does not
+//! own. Adapters run I/O through it (`net/transport/external/completion.zig`),
+//! and the completion resident arms it on the runtime's other wake descriptors
+//! as each park begins. The loop never calls it:
 //!
 //!   * `pub fn submitPoll(self: *Backend, user_data: u64, fd: Fd,
 //!     interest: Interest) !void;`: complete once with a non-negative
@@ -288,6 +294,7 @@ pub fn validateBackend(comptime Backend: type) void {
         "submitClose",
         "recycleBorrowed",
         "poll",
+        "peek",
         "verifiedChannelKey",
         "applyKeepalive",
     };
@@ -430,6 +437,46 @@ pub fn failureFromErrno(errno: std.posix.E) anyerror {
         .NOSPC => error.SystemResources,
         else => error.Unexpected,
     };
+}
+
+/// One adapter pass over its caller's `out`. The adapter drains what it
+/// already owes into `out` first, reaps the backend it wraps into the room
+/// after that, and settles the reaped records here: each one
+/// `Owner.ownsCompletion` names goes to `Owner.dispatchOwned(ctx, record)`,
+/// which projects what it owes onto the adapter's ready queue, and every
+/// other record keeps its place, moved up over the owned ones. The count
+/// left comes back, and the adapter drains the projections into the room
+/// after it.
+///
+/// No record is copied on the way through an adapter that owns none of
+/// them, and an adapter's own record never reaches its caller. What was
+/// owed earlier leaves first, so a flood on wrapped connections cannot
+/// starve the adapter's own, and each connection's records keep their
+/// order: a wrapped connection's never enter the ready queue, and an
+/// adapter connection's projections leave it as they were owed. A dispatch
+/// that fails returns at once and the pass is lost with it, as a refused
+/// poll is.
+/// Hand a pass to the backend an adapter wraps, unchanged: the caller's room
+/// and the caller's wait. An adapter takes this path when nothing of its own
+/// is open, armed, or owed, so no record the backend returns can be the
+/// adapter's and no chore is due. Only the adapter knows its rows, so its own
+/// predicate names those conditions, and every one is a table count or a
+/// flag the adapter already keeps, never a scan.
+pub fn passThrough(inner: anytype, out: []Completion, wait_ms: ?i32) !usize {
+    return if (wait_ms) |timeout_ms| inner.poll(out, timeout_ms) else inner.peek(out);
+}
+
+pub fn keepForeign(out: []Completion, n: usize, comptime Owner: type, ctx: anytype) !usize {
+    var kept: usize = 0;
+    for (out[0..n]) |record| {
+        if (Owner.ownsCompletion(record.user_data)) {
+            try Owner.dispatchOwned(ctx, record);
+        } else {
+            out[kept] = record;
+            kept += 1;
+        }
+    }
+    return kept;
 }
 
 /// Cursor-backed queue shared by readiness backends and transport adapters.

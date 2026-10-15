@@ -7,7 +7,7 @@ pub(super) struct VowTable {
 	/// FIFO of settled-but-unobserved vow ids, for the eviction cap.
 	unobserved: RefCell<VecDeque<u64>>,
 	/// Exact terminal projection failure for late observers after teardown has
-	/// cleared per-vow rows. Protocol authority remains in the native Host or
+	/// cleared per-vow rows. Protocol authority remains in the FFI Host or
 	/// driver loop. This only preserves the binding-side observation cause.
 	terminal_failure: RefCell<Option<Error>>,
 }
@@ -70,7 +70,7 @@ impl VowTable {
 					rows.remove(&vow);
 					drop(rows);
 					// Send failure proves the awaiting future was cancelled. The vow
-					// row is terminal and removed, and no native handle belongs to this
+					// row is terminal and removed, and no FFI handle belongs to this
 					// binding-side delivery.
 					drop(waiter.send(outcome));
 					return;
@@ -150,7 +150,7 @@ struct VowRow {
 	state: VowState,
 	/// Host whose application retain this outcome owns. Session opt-in is
 	/// sampled at mint. Host-owned lookup results always track their retains.
-	/// Weak custody cannot keep the native Host alive after retirement.
+	/// Weak custody cannot keep the FFI Host alive after retirement.
 	gc_host: Option<std::rc::Weak<HostShared>>,
 }
 

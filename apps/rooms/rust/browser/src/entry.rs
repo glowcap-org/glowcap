@@ -14,7 +14,7 @@ pub fn direct_conversation_id(directory: js_sys::JsString, registration: js_sys:
 		.ok_or_else(|| js_sys::Error::new("Invalid direct conversation identity").into())
 }
 
-/// Stable directory identity uses the same policy and locator parser as native
+/// Stable directory identity uses the same policy and locator parser as host
 /// Rooms. This does not dial, create a Host, or install a JavaScript ABI adapter.
 #[wasm_bindgen(js_name = directoryAuthority)]
 pub fn directory_authority(locator: js_sys::JsString) -> Result<Option<String>, JsValue> {

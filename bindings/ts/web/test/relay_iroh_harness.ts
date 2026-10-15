@@ -4,7 +4,7 @@
 // for every runtime's relay; the relay under test is named on the command line.
 //
 // Three processes keep the module graphs honest:
-//   serve_iroh_host.ts   native dlopen runtime; binds a real iroh endpoint
+//   serve_iroh_host.ts   FFI dlopen runtime; binds a real iroh endpoint
 //                        (relay-less Direct on loopback) and publishes a greeter.
 //   the relay            the program under test, dialing `?locator=<uri>` over
 //                        iroh and piping bytes both ways without parsing them.
@@ -14,16 +14,7 @@
 //
 // The assertion is a fetch-and-call round trip through the whole chain.
 
-import {
-	fail,
-	kill,
-	parseHarnessArgs,
-	readToken,
-	ROOT,
-	spawnNative,
-	spawnRelay,
-	WASM,
-} from "./relay_harness_common.ts";
+import { fail, kill, parseHarnessArgs, readToken, ROOT, spawnFfi, spawnRelay, WASM } from "./relay_harness_common.ts";
 
 const HOST = new URL("./serve_iroh_host.ts", import.meta.url).pathname;
 const PROBE = new URL("./iroh_relay_probe.ts", import.meta.url).pathname;
@@ -36,7 +27,7 @@ const deadline = setTimeout(
 );
 Deno.unrefTimer(deadline);
 
-const host = spawnNative(HOST);
+const host = spawnFfi(HOST);
 const relay = spawnRelay(inv);
 
 try {

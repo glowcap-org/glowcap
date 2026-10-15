@@ -35,7 +35,7 @@ const Probe = struct {
         get(context).retries += 1;
         return h.contents[0].retry(null, verb, args);
     }
-    fn resource(context: ?*anyopaque, arena: std.mem.Allocator, input: h.access.ContentInvocation) !?h.c.storage.ResourceChange.Action {
+    fn resource(context: ?*anyopaque, arena: std.mem.Allocator, input: h.access.ContentInvocation) !?h.access.ResourceEffect {
         get(context).resources += 1;
         return h.contents[0].resource.?(null, arena, input);
     }

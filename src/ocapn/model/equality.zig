@@ -97,8 +97,9 @@ fn float64Hash(x: f64) u64 {
 /// `referencesStructurallyEqual`
 /// compares. A sturdyref's locator hints are left out because equality leaves
 /// them out: two locators differing only in dial advice name the same peer. A
-/// promise contributes its answer position.
-fn hashReference(h: *std.hash.Wyhash, ref: anytype) void {
+/// promise contributes its answer position. A borrowed sturdyref projects
+/// first, so the view walk carries `ProjectError`.
+fn hashReference(h: *std.hash.Wyhash, ref: anytype) model.view.ProjectError!void {
     h.update(std.mem.asBytes(&@backingInt(std.meta.activeTag(ref))));
     switch (ref) {
         .near => |x| {
@@ -114,7 +115,8 @@ fn hashReference(h: *std.hash.Wyhash, ref: anytype) void {
             h.update(std.mem.asBytes(&@backingInt(x.kind)));
         },
         .promise => |x| h.update(std.mem.asBytes(&x.answer_position.int())),
-        .sturdy => |x| {
+        .sturdy => |boxed| {
+            const x = if (comptime @TypeOf(boxed) == model.view.LazySturdyRef) try boxed.project() else boxed;
             h.update(x.peer.transport);
             h.update(x.peer.designator);
             h.update(x.swissnum);
@@ -123,7 +125,7 @@ fn hashReference(h: *std.hash.Wyhash, ref: anytype) void {
     }
 }
 
-/// Fold a handoff into `h` over fields both `handoffsEqual` and `giveEqual`
+/// Fold a handoff into `h` over fields both `handoffsEqual` and `viewHandoffsEqual`
 /// compare. `raw_signed` is excluded for the same reason equality excludes it:
 /// it caches a wire encoding, not identity. The signatures are excluded because
 /// the borrowed shape spells one as a union rather than bytes. The gift id and
@@ -184,9 +186,9 @@ fn viewArgumentHashDepth(arg: model.view.Argument, depth: usize) model.view.Proj
         },
         .boolean => |x| h.update(std.mem.asBytes(&x)),
         .float64 => |x| h.update(std.mem.asBytes(&float64Hash(x))),
-        .reference => |x| hashReference(&h, x),
+        .reference => |x| try hashReference(&h, x),
         .@"error" => |x| h.update(x.message),
-        .handoff => |x| hashHandoff(&h, x),
+        .handoff => |x| hashHandoff(&h, try x.project()),
         .void => {},
         .list => |items| {
             var it = items.iterator();
@@ -285,9 +287,9 @@ fn viewArgumentsEqualDepth(
         .symbol => |x| b == .symbol and std.mem.eql(u8, x, b.symbol),
         .string => |x| b == .string and std.mem.eql(u8, x, b.string),
         .keyword => |x| b == .keyword and std.mem.eql(u8, x, b.keyword),
-        .reference => |x| b == .reference and viewReferencesEqual(x, b.reference),
+        .reference => |x| b == .reference and try viewReferencesEqual(x, b.reference),
         .@"error" => |x| b == .@"error" and std.mem.eql(u8, x.message, b.@"error".message),
-        .handoff => |x| b == .handoff and try viewHandoffsEqual(x, b.handoff, scratch),
+        .handoff => |x| b == .handoff and try viewHandoffsEqual(try x.project(), try b.handoff.project(), scratch),
         .integer => |x| b == .integer and x == b.integer,
         .boolean => |x| b == .boolean and x == b.boolean,
         .float64 => |x| b == .float64 and float64Equal(x, b.float64),
@@ -305,18 +307,23 @@ fn viewArgumentsEqualDepth(
 fn viewReferencesEqual(
     a: model.view.Reference,
     b: model.view.Reference,
-) bool {
+) model.view.ProjectError!bool {
     return switch (a) {
         .near => |x| b == .near and x.export_position == b.near.export_position and x.kind == b.near.kind,
         .far => |x| b == .far and x.import_position == b.far.import_position and x.kind == b.far.kind,
         .routed => |x| b == .routed and x.id == b.routed.id and x.kind == b.routed.kind,
         .promise => |x| b == .promise and x.answer_position == b.promise.answer_position,
-        .sturdy => |x| b == .sturdy and
-            std.mem.eql(u8, x.peer.transport, b.sturdy.peer.transport) and
-            std.mem.eql(u8, x.peer.designator, b.sturdy.peer.designator) and
-            std.mem.eql(u8, x.swissnum, b.sturdy.swissnum),
+        .sturdy => |x| b == .sturdy and try lazySturdyRefsEqual(x, b.sturdy),
         .broken => |x| b == .broken and std.mem.eql(u8, x.message, b.broken.message),
     };
+}
+
+fn lazySturdyRefsEqual(a: model.view.LazySturdyRef, b: model.view.LazySturdyRef) model.view.ProjectError!bool {
+    const x = try a.project();
+    const y = try b.project();
+    return std.mem.eql(u8, x.peer.transport, y.peer.transport) and
+        std.mem.eql(u8, x.peer.designator, y.peer.designator) and
+        std.mem.eql(u8, x.swissnum, y.swissnum);
 }
 
 fn viewArgsEqualDepth(

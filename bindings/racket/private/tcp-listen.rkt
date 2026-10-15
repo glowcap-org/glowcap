@@ -1,5 +1,5 @@
 #lang racket/base
-;; Native TCP-provider listener surface. The driver owns provider sockets,
+;; FFI TCP-provider listener surface. The driver owns provider sockets,
 ;; admission, handshakes, events, session release, and canonical locator
 ;; metadata. `tcp`, `keyed-tcp`, and `noise-tcp` share one server shape and one
 ;; setup path; only their locator profile differs. The setup path itself is

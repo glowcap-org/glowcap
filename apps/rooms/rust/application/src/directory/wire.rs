@@ -1,7 +1,7 @@
 //! The directory's discovery values drawn as wire arguments: the inverse of
 //! the readers in `discovery`, kept beside them so a directory answers in
 //! exactly the shape a client reads, and one round trip proves both.
-use super::{Event, Member, RoomInfo, Snapshot};
+use super::{Event, Member, Page, RoomInfo, Snapshot};
 use crate::{session::snapshot::BuildArguments, text::DocumentText};
 use alloc::{string::String, vec, vec::Vec};
 
@@ -50,6 +50,18 @@ pub fn room_row<B: BuildArguments>(entry: &RoomInfo, shape: Shape) -> Vec<B::Val
 
 pub fn rooms<B: BuildArguments>(rooms: &[RoomInfo], shape: Shape) -> B::Value {
 	B::list(rooms.iter().map(|entry| B::list(room_row::<B>(entry, shape))).collect())
+}
+
+/// A `listPublications` answer: `[rows, next]`, where `next` is the cursor
+/// of the following page or null on the last one.
+pub fn page<B: BuildArguments>(page: &Page) -> B::Value {
+	B::list(vec![
+		rooms::<B>(&page.rooms, Shape::Publication),
+		match &page.next {
+			Some(next) => B::text(next.text()),
+			None => B::null(),
+		},
+	])
 }
 
 fn member_row<B: BuildArguments>(member: &Member) -> B::Value {
@@ -218,6 +230,67 @@ mod tests {
 		assert_eq!(read.len(), 1);
 		assert_eq!(read[0].name, held.rooms[0].name);
 		assert_eq!(read[0].kind, PublicationKind::Local);
+	}
+
+	#[test]
+	fn a_listing_pages_by_cursor_and_reads_back() {
+		use crate::directory::{Cursor, MAX_ROWS};
+		let keyed = |n: usize| {
+			let mut room = garden(PublicationKind::Local);
+			room.id = Text(alloc::format!("~{n:032x}").as_str().into());
+			(alloc::format!("#room{n:04}"), room)
+		};
+		let walk = |after: Option<&Cursor>, closed: usize| {
+			(0..MAX_ROWS + 3)
+				.filter(move |n| *n != closed)
+				.map(keyed)
+				.filter(move |(key, room)| after.is_none_or(|cursor| cursor.precedes(room.kind, key)))
+				.collect::<Vec<_>>()
+		};
+		let first = Page::cut(walk(None, usize::MAX));
+		let last_key = alloc::format!("#room{:04}", MAX_ROWS - 1);
+		assert_eq!(first.rooms.len(), MAX_ROWS);
+		assert_eq!(
+			first.next,
+			Some(Cursor {
+				kind: PublicationKind::Local,
+				key: last_key.clone(),
+			})
+		);
+		let drawn = page::<Build>(&first);
+		assert_eq!(crate::directory::page(&&drawn).unwrap(), first);
+		assert_eq!(first.next.as_ref().unwrap().text(), alloc::format!("local:{last_key}"));
+		// The last row of the first page closes before the second page is
+		// asked for: the walk still resumes after its key, so no row is
+		// skipped or answered twice.
+		let rest = Page::cut(walk(first.next.as_ref(), MAX_ROWS - 1));
+		assert_eq!((rest.rooms.len(), &rest.next), (3, &None));
+		assert_eq!(rest.rooms[0].id, keyed(MAX_ROWS).1.id);
+		// A page that exactly fits the rest of the walk is the last page.
+		let exact = Page::cut((0..MAX_ROWS).map(keyed));
+		assert_eq!((exact.rooms.len(), &exact.next), (MAX_ROWS, &None));
+		// A later source lists after every row of an earlier one.
+		let foreign = Cursor {
+			kind: PublicationKind::Foreign,
+			key: "#a".into(),
+		};
+		assert!(!foreign.precedes(PublicationKind::Local, "#z"));
+		assert!(foreign.precedes(PublicationKind::Foreign, "#b"));
+		assert!(foreign.precedes(PublicationKind::Bridge, "#a"));
+		let past = Page::cut(walk(Some(&foreign), usize::MAX));
+		assert_eq!((past.rooms.len(), past.next), (0, None));
+		// A cursor reads back only in the form a directory mints.
+		assert_eq!(Cursor::parse("foreign:#a"), Some(foreign));
+		assert_eq!(Cursor::parse("garden"), None);
+		assert_eq!(Cursor::parse("elsewhere:#a"), None);
+		assert_eq!(Cursor::parse("local:"), None);
+		// A continuation after an empty page would let a directory keep a
+		// reader paging forever.
+		let stalled = page::<Build>(&Page {
+			rooms: Vec::new(),
+			next: first.next.clone(),
+		});
+		assert!(crate::directory::page(&&stalled).is_err());
 	}
 
 	#[test]

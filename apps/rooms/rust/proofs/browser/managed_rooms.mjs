@@ -303,7 +303,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 		await peerNotice((event) => event.notice.kind === "registered");
 		const peerReader = await peerSession.directoryReader("home");
 		held.push(peerReader);
-		const publication = (await peerReader.list()).find((row) => row.name === name);
+		const publication = (await peerReader.list()).rooms.find((row) => row.name === name);
 		if (!publication) throw new Error("counterpart did not discover the exact public entry");
 		const peerIntent = await peerSession.snapshot();
 		const accept = await peerSession.preparePublicRoom(peerIntent.revision, JSON.stringify({

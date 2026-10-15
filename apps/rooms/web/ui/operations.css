@@ -168,7 +168,6 @@
 	overflow: auto;
 	overscroll-behavior: contain;
 	padding: var(--gap-section);
-	background: var(--page-bg);
 }
 .chunk-loading-page .well,
 .chunk-loading-catalog .well {
@@ -194,7 +193,6 @@
 	-webkit-overflow-scrolling: touch;
 	display: flex;
 	flex-direction: column;
-	background: var(--page-bg);
 	/* The capability navigation responds to the content cell, not the browser:
 	   the members rail may take a column without changing the viewport. */
 	container-type: inline-size;

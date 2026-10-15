@@ -49,7 +49,7 @@
 ;; vow is registered weakly in the host's vow table the instant it is minted,
 ;; under the same host lock as the minting FFI call. A listener promotes that
 ;; row to strong ownership; otherwise dropping the public handle can release a
-;; still-pending native answer. The action drain's SETTLE/FAIL arms record the
+;; still-pending FFI answer. The action drain's SETTLE/FAIL arms record the
 ;; outcome here, and no settle callback crosses the C boundary.
 (struct session-vow (session id [state #:mutable] [listeners #:mutable] track-gc? pipeline-target?
                              [release-armed #:mutable]) #:transparent)
@@ -60,8 +60,8 @@
   (hash-set! (host-vows m) (session-vow-id v) (make-weak-box v))
   (track-vow! m v (session-vow-id v) (session-vow-release-armed v)))
 
-;; Run the binding-side adoption that follows one successful native mint. A
-;; refusal cannot leave the native row ownerless: the cleanup arm removes any
+;; Run the binding-side adoption that follows one successful FFI mint. A
+;; refusal cannot leave the FFI row ownerless: the cleanup arm removes any
 ;; partial observation row and parks release on the Host owner thread.
 (define (with-minted-vow-guard adopt abandon)
   (with-handlers ([(lambda (_) #t)
@@ -91,13 +91,13 @@
 ;; cannot be the blocking kind. A promise-returning verb whose failure arrives
 ;; as a raise puts the failure on a channel the caller's settle-side handler
 ;; never watches, and the caller goes on using a route it thinks it cleared.
-;; The handle owns no native vow, so it carries no id, joins no host table,
+;; The handle owns no FFI vow, so it carries no id, joins no host table,
 ;; releases nothing, and is settled the moment it exists.
 (define (failed-vow c error)
   (session-vow c #f (cons 'failed error) '() #f #f #f))
 
 ;; Whether this handle stands for an operation that never left: the tell is the
-;; missing native vow id, which every issued operation has.
+;; missing FFI vow id, which every issued operation has.
 (define (unissued-vow? v) (not (session-vow-id v)))
 
 ;; Run one handle-returning verb and report a synchronous issue failure on the
@@ -119,7 +119,7 @@
     (release-host-unit!
      m
      (lambda ()
-       ;; Recheck under the Host lock, then spend only after native success.
+       ;; Recheck under the Host lock, then spend only after FFI success.
        ;; A refusal needs no rollback, and a later interruption cannot rearm.
        (when (unbox armed)
          (check/host (glowcap_host_vow_release
@@ -317,7 +317,7 @@
 ;; `glowcap_host_vow_send` / `glowcap_host_session_tell`, and register any answer
 ;; vow. Local-hosted targets stay in Session
 ;; (`session-send-local`). Outside a turn, flush after every mint so an
-;; unobserved eventual-send still makes progress; the native Host keeps the
+;; unobserved eventual-send still makes progress; the FFI Host keeps the
 ;; answer target addressable through fast settlement until the public vow is
 ;; released. Inside a turn `session-flush!` defers to the host unwind.
 ;; An empty verb symbol is a methodless positional deliver (verb length zero on

@@ -1,7 +1,7 @@
 //! Structured transport failures and scalar-callback adapters.
 //!
 //! Runtime owners keep the structured outcomes. Scalar adapters exist only at
-//! native vtable declarations whose implementation has no richer cause chain.
+//! Zig vtable declarations whose implementation has no richer cause chain.
 
 const std = @import("std");
 

@@ -128,7 +128,7 @@ fn fakeSocksServe(
     var conn = glowcap.net.Connection.init(io, &peer, r, w, borrowedHandle(&reader));
     defer conn.deinit();
 
-    try peer.sendCopying(handshake.startSession(onion.transport_name, service_id));
+    try peer.sendBorrowed(handshake.startSession(onion.transport_name, service_id));
     while (true) {
         const progress = conn.pump() catch |err| switch (err) {
             error.ConnectionLost, error.TruncatedFrame => break,

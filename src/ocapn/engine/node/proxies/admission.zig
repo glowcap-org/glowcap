@@ -237,7 +237,8 @@ fn prepareHome(
         .mode = .settling_only,
     } };
     try home.session_state.admits(model.view.Body.fromOwned(&message));
-    try session_mod.validate.validateSend(&home.session_state, message);
+    // A listen carries no argument tree, so its inventory is empty.
+    try session_mod.validate.validateSend(&home.session_state, message, .none);
     const reservation = try home.reservePending(.{ .message = message });
     errdefer home.cancelPendingReservation(reservation);
     var proxy: topology.Proxy = .{
@@ -394,6 +395,9 @@ pub fn foreignPromiseFulfill(
     var projections = [_]passable.PromiseProjection{.{
         .route_id = route_id,
         .home = home,
+        // No tree holds this projection: the caller takes `projected` as its
+        // own by-value result, which is the root slot's meaning.
+        .slot = .root,
         .original = .{ .routed = .{ .id = route_id, .kind = .promise } },
         .source = wire_far,
     }};

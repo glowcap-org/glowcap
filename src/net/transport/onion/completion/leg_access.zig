@@ -3,8 +3,7 @@
 //! A retained receive is returned as the row enters `closing`, a refused send
 //! carries no borrowed failure, and every retry membership lives in the
 //! submission-debt state. `Self.Leg` owns the lifecycle machinery this
-//! access feeds; the reference is lazy, exactly as when the two lived in one
-//! file.
+//! access feeds, and the reference is lazy.
 
 const adapter = @import("../../../completion/adapter.zig");
 const contract = @import("../../../completion/contract.zig");

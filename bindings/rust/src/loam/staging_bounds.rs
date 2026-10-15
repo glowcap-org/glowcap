@@ -25,7 +25,6 @@ impl StagingBounds {
 			// SAFETY: this query takes no handle; `raw` is a local `GlowcapLoamStagingBounds` out-parameter the callee
 			// writes, and the other arguments are integers passed by value.
 			unsafe { ffi::glowcap_loam_content_staging_size_bound(resource_path, u32::from(receipt), &mut raw) },
-			false,
 		)?;
 		Ok(Self::from_raw(raw))
 	}
@@ -41,7 +40,6 @@ impl StagingBounds {
 			// SAFETY: this query takes no handle; `raw` is a local `GlowcapLoamStagingBounds` out-parameter the callee
 			// writes, and `saves` is an integer passed by value.
 			unsafe { ffi::glowcap_loam_reference_staging_size_bound(saves, &mut raw) },
-			false,
 		)?;
 		Ok(Self::from_raw(raw))
 	}

@@ -1,5 +1,5 @@
 #lang racket/base
-;; TCP package composition for the native driver loop. The generic loop knows
+;; TCP package composition for the FFI driver loop. The generic loop knows
 ;; only provider registration and transport occupancy; this module owns loading
 ;; the TCP archive and installing its complete profile package.
 

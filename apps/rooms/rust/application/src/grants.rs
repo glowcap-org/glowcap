@@ -1,5 +1,5 @@
 //! Durable session grant policy and commit ordering. Storage execution is an
-//! adapter effect. The native durable owner and shared contract proofs consume
+//! adapter effect. The host durable owner and shared contract proofs consume
 //! this ledger. No browser or transport adapter owns grant policy.
 mod model;
 pub(crate) use model::{validate_id, validate_label};

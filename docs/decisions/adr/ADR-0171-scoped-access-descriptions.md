@@ -63,7 +63,7 @@ frame limits. Insufficient capacity fails without changing state.
 
 This implements access snapshots, not subscriptions, replay cursors, control
 inspection, or resource inventory. Those contracts remain in the
-[readiness checkpoint](../../loam/architecture.md#readiness-before-the-c-abi).
+[readiness checkpoint](../../loam/architecture.md#order-of-work).
 Future observation can use this snapshot for resynchronization, but must add
 scope-bound cursors and retained committed events rather than publish owner
 revision counters.

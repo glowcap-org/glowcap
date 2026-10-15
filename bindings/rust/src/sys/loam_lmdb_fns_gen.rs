@@ -34,6 +34,7 @@ unsafe extern "C" {
 		out_ref: *mut GlowcapReference,
 	) -> c_int;
 	pub fn glowcap_loam_lmdb_commit(raw: *mut GlowcapLoamLmdb) -> c_int;
+	pub fn glowcap_loam_lmdb_collect(raw: *mut GlowcapLoamLmdb, work_limit: usize) -> c_int;
 	pub fn glowcap_loam_lmdb_last_error(buf: *mut c_uchar, len: usize) -> usize;
 	pub fn glowcap_loam_lmdb_clear_last_error();
 	pub fn glowcap_loam_lmdb_archive_fingerprint() -> u64;

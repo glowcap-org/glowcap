@@ -12,14 +12,16 @@ const syntax = @import("syntax.zig");
 const appendViolation = util.appendViolation;
 const gates_path = "tools/build/gates.zig";
 
-const Kind = enum { unit_test, search };
+const Kind = enum { unit_test, search, memcheck };
 const Exemption = struct { name: []const u8, kind: Kind };
 
-/// The only assigned Zig test in this owner that does not terminate as a
-/// unit test. This list is tiny and exact. Ordinary
-/// tests derive their inventory from the declarations and classifications.
+/// The assigned Zig tests in this owner that do not run as ordinary unit
+/// tests: the fuzz search, and the protocol core and actors suite under valgrind. This
+/// list is tiny and exact. Ordinary tests derive their inventory from the
+/// declarations and classifications.
 const exemptions = [_]Exemption{
     .{ .name = "fuzz_tests", .kind = .search },
+    .{ .name = "memcheck_tests", .kind = .memcheck },
 };
 
 const Classification = struct {
@@ -147,6 +149,16 @@ fn parsePosture(
     if (std.mem.eql(u8, value, ".unit_test")) {
         return .{ .name = "", .kind = .unit_test };
     }
+    const memcheck_prefix = ".{.memcheck=";
+    if (std.mem.startsWith(u8, value, memcheck_prefix) and std.mem.endsWith(u8, value, "}")) {
+        const number = value[memcheck_prefix.len .. value.len - 1];
+        const seconds = std.fmt.parseInt(u16, number, 10) catch 0;
+        if (seconds <= 30 or seconds > 1800) {
+            try appendViolation(gpa, violations, "{s}: memcheck deadline `{s}` must be a literal integer from 31 through 1800; the checker multiplies the suite's own time", .{ gates_path, number });
+            return null;
+        }
+        return .{ .name = "", .kind = .memcheck };
+    }
     try appendViolation(gpa, violations, "{s}: Zig test posture `{s}` is missing or unsupported in the standard-suite inventory", .{ gates_path, std.mem.trim(u8, text, " \t\r\n") });
     return null;
 }
@@ -220,6 +232,8 @@ const good_source =
     \\const run_oracle = execution.addZigTest(b, oracle_tests, .unit_test);
     \\const source_check_tests = b.addTest(.{});
     \\const run_source = execution.addZigTest(b, source_check_tests, .unit_test);
+    \\const memcheck_tests = b.addTest(.{});
+    \\const run_memcheck = execution.addZigTest(b, memcheck_tests, .{ .memcheck = 900 });
 ;
 
 fn expectClean(source: []const u8) !void {
@@ -313,4 +327,19 @@ test "removed unit test leaves no deadline tombstone" {
     const removed = try std.mem.replaceOwned(u8, std.testing.allocator, removed_declaration, "const run_completion = execution.addZigTest(b, completion_deadlines_tests, .unit_test);\n", "");
     defer std.testing.allocator.free(removed);
     try expectClean(removed);
+}
+
+test "ordinary unit test cannot claim the memcheck posture" {
+    const bad = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, "execution.addZigTest(b, tests, .unit_test)", "execution.addZigTest(b, tests, .{ .memcheck = 900 })");
+    defer std.testing.allocator.free(bad);
+    try expectViolation(bad, "only the explicit unbounded exemption inventory");
+}
+
+test "memcheck deadline must be minutes, never a unit-test deadline or unbounded" {
+    const short = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, ".{ .memcheck = 900 }", ".{ .memcheck = 30 }");
+    defer std.testing.allocator.free(short);
+    try expectViolation(short, "31 through 1800");
+    const long = try std.mem.replaceOwned(u8, std.testing.allocator, good_source, ".{ .memcheck = 900 }", ".{ .memcheck = 1801 }");
+    defer std.testing.allocator.free(long);
+    try expectViolation(long, "31 through 1800");
 }

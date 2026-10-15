@@ -9,7 +9,7 @@ self-certifying identifier, and records accepted calls in a signed,
 Merkle-rooted log. A forged signature or retired key is refused and leaves no
 accepted-call record.
 
-Run the native Zig scenario:
+Run the Zig scenario:
 
 ```sh
 zig build accountability
@@ -31,10 +31,10 @@ roots under `.data/`, which is generated and gitignored.
 5. The run audits the records, then confirms that a tampered signature and a
    retired key are both refused.
 
-The identity scheme follows a small KERI-shaped model. Its
-self-certifying identifier is called an AID. The service being invoked is
-called an Affordance. Both concepts belong to this application. glowcap only
-carries the capability call and its result.
+The identity scheme follows a small KERI-shaped model. Its self-certifying
+identifier is an AID, and the service being invoked is an Affordance. Both
+belong to this application. glowcap only carries the capability call and its
+result.
 
 ## Cross-language callers
 
@@ -58,13 +58,14 @@ supported: each host serves one caller and exits.
 zig build accountability-three-party
 ```
 
-This scenario runs three glowcap Hosts over loopback TCP. A fetches C's
-Affordance and introduces B to it. B's ordinary call redeems the handoff by
-opening a direct session to C. When B invokes the introduced capability, C's
-record attributes B, the caller, rather than A, the introducer. The proof uses
-the same owning Host and application-shaped capability surface as the bindings,
-with no test-side handoff routing. Bare TCP is appropriate for an isolated
-loopback test. Deployments should choose an authenticated transport.
+Three glowcap Hosts run over loopback TCP. A fetches C's Affordance and
+introduces B to it. B's ordinary call redeems the handoff by opening a direct
+session to C. When B invokes the introduced capability, C's record attributes B,
+the caller, rather than A, the introducer.
+
+The scenario uses the same Host and capability calls as the language bindings,
+and the test does no handoff routing of its own. Bare TCP suits an isolated loopback test.
+Deployments should choose an authenticated transport.
 
 ## Limits
 
@@ -79,11 +80,10 @@ This is an application example, not a complete KERI implementation:
 - The generated log and root live together under `.data/`. Detecting a rewritten
   log requires an auditor to retain or publish a trusted root elsewhere.
 
-Those limits matter to deployment. They do not change what the example checks:
-the host will not record an accepted call unless the presented history binds
+The host still records an accepted call only when the presented history binds
 the request's signing key to the claimed identity.
 
-See [Design and verification](design.md) for the exact validation walk, refusal
-cases, and source map. [HTTP and capability
+See [Design and verification](design.md) for the exact validation steps, refusal
+cases, and a map of the source files. [HTTP and capability
 accountability](http-comparison.md) separates what OCapN supplies from the
 identity checks this application adds.

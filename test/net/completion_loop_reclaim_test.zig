@@ -136,6 +136,11 @@ const DeadPeerBackend = struct {
         _ = fd;
         self.push(.{ .user_data = user_data, .result = 0 });
     }
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *DeadPeerBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
+    }
+
     pub fn poll(self: *DeadPeerBackend, out: []completion.Completion, timeout_ms: i32) !usize {
         _ = timeout_ms;
         if (self.ready_len == 0) return error.FakeBackendStalled;

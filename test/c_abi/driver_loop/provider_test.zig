@@ -75,7 +75,7 @@ test "provider dial admission pressure retains would-block classification throug
     const loop = owned_loop.raw;
     var table = resident.table();
     table.start_connect = struct {
-        fn refuse(_: ?*anyopaque, _: u64, _: ?*const cdrv.GlowcapLocatorView, _: ?*const cdrv.GlowcapTransportOperationOptions, failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
+        fn refuse(_: ?*anyopaque, _: u64, _: ?*const cdrv.GlowcapLocatorView, _: ?*const cdrv.GlowcapTransportOperationOptions, _: ?*const cdrv.GlowcapDialOrigin, failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
             return providerFailure(failure, c.GLOWCAP_ERR_WOULD_BLOCK, "DialAdmissionFull");
         }
     }.refuse;

@@ -121,6 +121,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
             @memcpy(setup.published.key[0..cfg.service_key.len], cfg.service_key);
             setup.published.key_len = cfg.service_key.len;
             backend.control_fd = try backend.inner.startDial(Types.setup_connect_ud, control_target);
+            backend.control_ops += 1;
             backend.listener = .{ .fd = fd, .setup = setup };
             return fd;
         }
@@ -206,10 +207,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
                 if (setup.held) |held| backend.inner.recycleBorrowed(held);
                 backend.listener.setup = null;
                 backend.listener.failed = error.ListenerClosed;
-                if (backend.control_fd) |fd| {
-                    backend.control_fd = null;
-                    backend.inner.submitClose(Types.setup_close_ud, fd) catch backend.inner.closeFd(fd);
-                }
+                if (backend.control_fd) |fd| closeControl(backend, fd);
                 backend.listener.fd = null;
                 return deliver(backend);
             }
@@ -222,6 +220,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
         /// no live setup are late records of a withdrawn one, or the control
         /// connection's own close, and carry no consequence.
         pub fn advance(backend: *Backend, comp: completion.Completion) void {
+            backend.control_ops -= 1;
             const op = Identity.op(comp.user_data);
             if (backend.listener.fd == null) return drop(backend, comp);
             const row = &backend.listener;
@@ -306,19 +305,19 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
         }
 
         fn armSend(backend: *Backend, setup: *Setup) void {
-            backend.inner.submitSend(
+            if (backend.inner.submitSend(
                 Types.setup_send_ud,
                 controlFd(backend),
                 setup.request[setup.request_offset..setup.request_len],
-            ) catch {
-                setup.submit_owed = true;
-            };
+            )) |_| {
+                backend.control_ops += 1;
+            } else |_| setup.submit_owed = true;
         }
 
         fn armRecv(backend: *Backend, setup: *Setup) void {
-            backend.inner.submitRecv(Types.setup_recv_ud, controlFd(backend)) catch {
-                setup.submit_owed = true;
-            };
+            if (backend.inner.submitRecv(Types.setup_recv_ud, controlFd(backend))) |_| {
+                backend.control_ops += 1;
+            } else |_| setup.submit_owed = true;
         }
 
         /// Fold one received chunk into the reply, line by line. A line ends
@@ -452,16 +451,24 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
                 row.setup = null;
             }
             row.failed = cause;
-            if (backend.control_fd) |fd| {
-                backend.control_fd = null;
-                backend.inner.submitClose(Types.setup_close_ud, fd) catch backend.inner.closeFd(fd);
-            }
+            if (backend.control_fd) |fd| closeControl(backend, fd);
             deliver(backend);
+        }
+
+        /// Close the control connection asynchronously so its in-flight
+        /// operations complete and drain. A refused close submission closes
+        /// it in place and owes no record.
+        fn closeControl(backend: *Backend, fd: Inner.Fd) void {
+            backend.control_fd = null;
+            if (backend.inner.submitClose(Types.setup_close_ud, fd)) |_| {
+                backend.control_ops += 1;
+            } else |_| backend.inner.closeFd(fd);
         }
 
         /// Deliver any owed seat: a published service's success or a failed
         /// setup's cause. A withdrawn listener's row, fully settled, clears
-        /// here.
+        /// here. This runs on every poll, so an empty row is left alone: the
+        /// row holds two line buffers, and resetting it zeroes them.
         fn deliver(backend: *Backend) void {
             const row = &backend.listener;
             // A seat waits while the conversation runs; only a settled row
@@ -477,7 +484,7 @@ pub fn Machine(comptime Backend: type, comptime Inner: type, comptime Types: typ
                 backend.ready.append(backend.allocator, completion_record) catch return;
                 row.ready_ud = null;
             }
-            if (row.fd == null and row.setup == null and row.ready_ud == null) backend.listener = .{};
+            if (row.failed != null and row.fd == null and row.setup == null and row.ready_ud == null) backend.listener = .{};
         }
 
         fn drop(backend: *Backend, comp: completion.Completion) void {

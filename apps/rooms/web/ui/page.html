@@ -51,6 +51,9 @@
 		} catch (_) { /* private mode: the stylesheet's default face answers */ }
 		</script>
 		<link rel="stylesheet" href="/page.css" />
+		<!-- The mycelium under the page. Its own small entry, so it runs while
+		     page.js is still arriving. -->
+		<script type="module" src="/ground.js"></script>
 	</head>
 	<body>
 		<!-- The interface is drawn by page.js and lives entirely under this

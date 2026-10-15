@@ -22,6 +22,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), workload: anytype
         var indices: [window]usize = undefined;
         defer {
             pool.drain(workload);
+            // best-effort: this drain is teardown, so the measured result is already taken or the run is already returning its own error.
             workload.drain() catch {};
         }
         pool.peak = 0;
@@ -70,7 +71,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), workload: anytype
 }
 
 const Foreground = struct {
-    pub fn handle(_: *@This(), _: *@import("glowcap").actors.Turn, _: @import("glowcap").actors.Message) !@import("glowcap").ocapn.model.Argument {
+    pub fn handle(_: *@This(), _: *@import("glowcap").actors.Turn, _: @import("glowcap").actors.Delivery) !@import("glowcap").ocapn.model.Argument {
         return .{ .integer = 77 };
     }
 };
@@ -80,6 +81,7 @@ pub fn calibrateManaged(workload: *m.Managed, pool: *workers.Pool) !void {
     defer {
         gate.store(true, .release);
         pool.drain(workload);
+        // best-effort: this drain is teardown, so the measured result is already taken or the run is already returning its own error.
         workload.drain() catch {};
     }
     const actor = try workload.host.vat.spawn(Foreground, .{});

@@ -53,7 +53,7 @@ export async function run(): Promise<void> {
 		);
 		assert(context.nextFailure() === null, "Context claims a diagnostic only once");
 	}
-	ok("Context preserves the cross-language native failure vector exactly once");
+	ok("Context preserves the cross-language FFI failure vector exactly once");
 
 	{
 		takeRuntimeFailures();

@@ -78,7 +78,7 @@ pub export fn glowcap_iroh_conn_remote_node_id(
     if (cap < iroh.node_id_len) return GLOWCAP_ERR_BUFFER_TOO_SMALL;
 
     const key = payload.netlayer.resident.loopConnRemoteKey(payload.conn) orelse {
-        setLastError("conn_remote_node_id: sidecar reported no verified remote", .{});
+        setLastError("conn_remote_node_id: the iroh library reported no verified remote", .{});
         return GLOWCAP_ERR_IO;
     };
     const designator = key.toDesignator();

@@ -34,7 +34,7 @@ the end of a frame, so the boundary is a byproduct of decoding.
 The codec decoder is the framer. Each codec exposes
 `decodePrefix(bytes, max_frame_bytes) -> framing.Prefix` over the buffered
 stream prefix
-([`src/ocapn/codec/framing.zig`](../../../src/ocapn/codec/framing.zig)):
+(`src/ocapn/codec/framing.zig`, deleted by ADR-0229):
 
 - `decoded{ body, consumed }`: a whole frame is present. `consumed` is its
   exact byte length (the boundary), `body` the borrowed view.
@@ -111,7 +111,7 @@ overflow the stack. It is the parse-stage analog of the session-level cap in
   peer-backed adapters drive. A reader with no peer drives
   `codec.dispatch.framePrefix` directly and carries its own scan.
 - Evidence: the differential prefix-decode property test
-  [`test/codec/prefix_decode_test.zig`](../../../test/codec/prefix_decode_test.zig)
+  [`test/codec/whole_frame_test.zig`](../../../test/codec/whole_frame_test.zig), since renamed and narrowed to whole frames by ADR-0229,
   (incompleteness on every prefix, exact consumption, concatenation,
   malformation, oversize, and deep-nesting rejection) across both codecs.
   [`test/net/frame_stream_test.zig`](../../../test/net/frame_stream_test.zig)

@@ -3,7 +3,7 @@ id: ADR-0073
 status: accepted
 date: 2026-07-11
 tags: [performance, gates, bench]
-decision: "Wall-clock cost is gated as a ReleaseFast order-of-magnitude tripwire (perf-check, a member of check): absolute min-of-batch ceilings on the two hot-path turns plus a dimensionless linearity ratio on the gc-answers storm, with the ceilings owned by docs/ladder.md step 2."
+decision: "Wall-clock cost is gated as a ReleaseFast order-of-magnitude tripwire (perf-check, a member of check): absolute min-of-batch ceilings on the two hot-path turns plus a dimensionless linearity ratio on the gc-answers storm, with the ceilings owned by constants in the bench files."
 supersedes: []
 superseded_by: []
 ---
@@ -42,9 +42,8 @@ ReleaseFast and holds three ceilings:
   answer-to-resolver inverse map (`session.OutboundResolverAnswers`), which a
   reintroduced per-position scan would show as roughly Q-proportional growth.
 
-The ceilings are `pub const`s at the top of the two bench files.
-`docs/ladder.md` step 2 owns the numbers, and a ceiling moves there and in the
-constant together. Each gate arm refuses to run outside ReleaseFast, so a
+The ceilings are `pub const`s at the top of the two bench files, and those
+constants are the only place the numbers live. Each gate arm refuses to run outside ReleaseFast, so a
 mis-wired Debug run fails loudly instead of gating noise.
 
 Because optimize mode is per-module, the gate executables import a dedicated

@@ -36,8 +36,8 @@ pub fn write(sink: anytype, value: core.Terms) !void {
     try fields.writeWide(sink, @backingInt(value.policy.schema));
     try syntax.writePositiveInt(sink, value.policy.permissions);
     try syntax.beginList(sink);
-    for (value.policy.bounds) |bound| {
-        if (bound) |n| try syntax.writePositiveInt(sink, n) else try syntax.writeBool(sink, false);
+    for (0..core.Policy.max_constraints) |i| {
+        if (value.policy.bound(i)) |n| try syntax.writePositiveInt(sink, n) else try syntax.writeBool(sink, false);
     }
     try syntax.endList(sink);
     try syntax.endList(sink);
@@ -64,14 +64,12 @@ pub fn readOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize
     var policy: core.Policy.Value = .{
         .schema = @fromBackingInt(try fields.readWide(bytes, cursor)),
         .permissions = try syntax.readPositiveInt(bytes, cursor),
-        .bounds = undefined,
     };
     try syntax.readByte(bytes, cursor, '[');
-    for (&policy.bounds) |*bound| {
+    for (0..core.Policy.max_constraints) |i| {
         if (cursor.* < bytes.len and bytes[cursor.*] == 'f') {
             cursor.* += 1;
-            bound.* = null;
-        } else bound.* = try syntax.readPositiveInt(bytes, cursor);
+        } else policy.setBound(i, try syntax.readPositiveInt(bytes, cursor));
     }
     try syntax.readByte(bytes, cursor, ']');
     try syntax.readByte(bytes, cursor, ']');

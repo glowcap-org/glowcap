@@ -71,11 +71,12 @@ const Held = struct {
 const Holder = struct {
     held: *Held,
 
-    pub fn handle(self: *Holder, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Holder, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
         _ = ht;
         if (!std.mem.eql(u8, verb, "hold")) return error.NoSuchMethod;
-        if (args.len != 1 or args[0] != .capability) return error.NotACapability;
-        self.held.promise = args[0].capability;
+        if (arg_values.len != 1 or arg_values[0] != .capability) return error.NotACapability;
+        self.held.promise = arg_values[0].capability;
         self.held.flag.store(true, .release);
         std.debug.print("goblins-relayed-give: goblins-bob handed over an unsettled promise\n", .{});
         return .{ .string = "held" };
@@ -87,7 +88,7 @@ const Holder = struct {
 const Introducer = struct {
     held: *Held,
 
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = ht;
         _ = args;
         if (!std.mem.eql(u8, verb, "get-greeter")) return error.NoSuchMethod;
@@ -116,6 +117,7 @@ fn serveIntroducer(
     // back to it as a delivered argument.
     const holder = try bob.spawn(Holder, .{ .held = held });
     const held_with = try bob.send(rendezvous, "hold-with", &.{.{ .capability = holder }});
+    // best-effort: the release runs as the serve loop ends, and a failed release leaves one handle to the session's own teardown.
     defer held_with.release() catch {};
 
     var carol: ?*driver.Session = null;
@@ -246,6 +248,7 @@ fn introducerStep(
     var serving_joined = false;
     defer if (!serving_joined) {
         done.store(true, .release);
+        // best-effort: this unwind already returns the run's own error, and the serving thread's failure would only repeat it.
         serving.await(io) catch {};
     };
 

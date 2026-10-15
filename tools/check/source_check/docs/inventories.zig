@@ -1,5 +1,5 @@
 //! Documented inventories held to the code: the resident roster, the
-//! stability page's gate list and evidence parity, the community-review CI
+//! stability page's workflow claims and evidence parity, the community-review CI
 //! matrix, first-read provenance (once, on the landing), and the fuzz corpus seeds.
 
 const std = @import("std");
@@ -37,7 +37,6 @@ pub fn checkResidentRoster(
         .{ .name = "webrtc", .alts = &.{"webrtc"} },
     };
     const roster_docs = [_][]const u8{
-        "docs/ladder.md",
         "docs/shipped.md",
         // The page whose stated job is "the edges of what ships today". A
         // transport that ships without its edge written down fails here.
@@ -72,18 +71,16 @@ pub fn checkResidentRoster(
     }
 }
 
-/// The stability page says which evidence runs on every push. That claim is
-/// only true while its build-step list matches `ci/gates.sh`, so compare the
-/// two in both directions. A removed CI step must not remain documented as
-/// recurring evidence.
-pub fn checkStabilityGateList(
+/// The stability page points at `ci/gates.sh` for which checks recur, and
+/// names the macOS job's command. Hold the workflow to the cancel policy and
+/// the macOS job the page describes.
+pub fn checkStabilityWorkflow(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
     const doc_path = "docs/stability.md";
-    const ci_path = "ci/gates.sh";
     const workflow_path = ".github/workflows/check.yml";
 
     var arena_state = std.heap.ArenaAllocator.init(gpa);
@@ -92,10 +89,6 @@ pub fn checkStabilityGateList(
 
     const doc = root.readFileAlloc(io, doc_path, arena, .limited(1 << 20)) catch {
         try appendViolation(gpa, violations, "{s}: missing, but recurring evidence is documented there", .{doc_path});
-        return;
-    };
-    const ci = root.readFileAlloc(io, ci_path, arena, .limited(1 << 20)) catch {
-        try appendViolation(gpa, violations, "{s}: missing, so the stability gate list cannot be checked", .{ci_path});
         return;
     };
     const workflow = root.readFileAlloc(io, workflow_path, arena, .limited(1 << 20)) catch {
@@ -108,38 +101,7 @@ pub fn checkStabilityGateList(
         try appendViolation(gpa, violations, "{s}: recurring full gates must cancel superseded runs", .{workflow_path});
     }
 
-    const begin = "<!-- ci-gate-list:begin -->";
-    const end = "<!-- ci-gate-list:end -->";
-    const from = std.mem.indexOf(u8, doc, begin) orelse {
-        try appendViolation(gpa, violations, "{s}: no `{s}` marker; the gate list cannot be checked", .{ doc_path, begin });
-        return;
-    };
-    const to = std.mem.indexOf(u8, doc, end) orelse {
-        try appendViolation(gpa, violations, "{s}: no `{s}` marker; the gate list cannot be checked", .{ doc_path, end });
-        return;
-    };
-    if (to < from) {
-        try appendViolation(gpa, violations, "{s}: gate-list markers are out of order", .{doc_path});
-        return;
-    }
-
-    var listed: std.ArrayList([]const u8) = .empty;
-    try collectBuildSteps(arena, doc[from + begin.len .. to], "- `zig build ", &listed);
-    var running: std.ArrayList([]const u8) = .empty;
-    try collectBuildSteps(arena, ci, "\ngate zig build ", &running);
-
-    for (running.items) |step| {
-        if (!containsStep(listed.items, step)) {
-            try appendViolation(gpa, violations, "{s}: `{s}` runs in {s} but is not listed as recurring evidence", .{ doc_path, step, ci_path });
-        }
-    }
-    for (listed.items) |step| {
-        if (!containsStep(running.items, step)) {
-            try appendViolation(gpa, violations, "{s}: lists `{s}`, which {s} no longer runs; the evidence claim is stale", .{ doc_path, step, ci_path });
-        }
-    }
-
-    const macos_command = "zig build test loam-lmdb-test";
+    const macos_command = "zig build test loam-lmdb-test loam-sqlite-test";
     const macos_markers = [_][]const u8{
         "\n  macos-runtime:",
         "runs-on: macos-",
@@ -183,7 +145,7 @@ pub fn checkCommunityReviewCiMatrix(
         return;
     };
 
-    // One parser of `ci/gates.sh`, shared with `checkStabilityGateList`: two
+    // One parser of `ci/gates.sh`, shared with the stability area check: two
     // would be two definitions of "runs in CI".
     var running: std.ArrayList([]const u8) = .empty;
     try collectBuildSteps(arena, ci, "\ngate zig build ", &running);

@@ -213,7 +213,7 @@ pub fn rollbackCapabilityLift(self: *Host, lifted: CapabilityLift) void {
             const session = self.sessions.get(remote.peer_handle) orelse unreachable;
             const positions = [_]u64{remote.far.import_position.int()};
             const deltas = [_]u64{1};
-            if (session.served.port.peer.sendCopying(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } })) |_| {
+            if (session.served.port.peer.sendBorrowed(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } })) |_| {
                 session.served.port.peer.session_state.releaseHostCapabilityRetains(remote.far.import_position, lifted.ref.raw(), 1);
                 host_pump.dirtyThenPump(self, remote.peer_handle) catch {
                     cleanup_failed = true;
@@ -246,8 +246,24 @@ pub fn rollbackCapabilityLift(self: *Host, lifted: CapabilityLift) void {
 /// GC. If even the lift cannot allocate enough bookkeeping to name what must
 /// be released, condemn the source session so it cannot accumulate more
 /// invisible imports before teardown.
-pub fn discardCapabilityObservation(self: *Host, session: *HostSession, reference: model.Reference) void {
-    const lifted = liftCapabilityTracked(self, session, reference) catch {
+/// The owned form of a borrowed reference the lift can act on. A sturdyref or
+/// a broken reference names no wire position and is never a callable target,
+/// so neither needs the allocation its owned form would.
+pub fn callableReference(reference: model.view.Reference) error{UncallableTarget}!model.Reference {
+    return switch (reference) {
+        .near => |near| .{ .near = near },
+        .far => |far| .{ .far = far },
+        .routed => |routed| .{ .routed = routed },
+        .promise => |promise| .{ .promise = .{ .answer_position = promise.answer_position } },
+        .sturdy, .broken => error.UncallableTarget,
+    };
+}
+
+pub fn discardCapabilityObservation(self: *Host, session: *HostSession, reference: model.view.Reference) void {
+    const lifted = lift: {
+        const owned = callableReference(reference) catch break :lift null;
+        break :lift liftCapabilityTracked(self, session, owned) catch null;
+    } orelse {
         host_pump.condemnAndClose(self, session, .resource_exhausted, "failed capability projection cleanup");
         return;
     };
@@ -376,7 +392,7 @@ pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
                     const enrolled_route = session.served.port.peer.session_state.foreignRouteIdFor(position);
                     const positions = [_]u64{position.int()};
                     const deltas = [_]u64{wire_delta};
-                    try session.served.port.peer.sendCopying(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
+                    try session.served.port.peer.sendBorrowed(.{ .gc_export = .{ .positions = &positions, .deltas = &deltas } });
                     if (enrolled_route) |route_id| self.node.retireReleasedRoute(route_id);
                     session.served.port.peer.session_state.releaseHostCapabilityRetains(position, ref.raw(), wire_delta);
                     flush_peer = remote.peer_handle;

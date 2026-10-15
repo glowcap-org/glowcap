@@ -1,4 +1,4 @@
-// Where a rooms test finds the repository and the installed native executables.
+// Where a rooms test finds the repository and the installed executables.
 //
 // The build names every executable through one shape, `GLOWCAP_ROOMS_<NAME>_BIN`,
 // set for each Deno batch by `tools/build/rooms/tests.zig` and for each browser
@@ -9,7 +9,7 @@
 /** The repository root, with a trailing slash. */
 export const ROOT = new URL("../../../../", import.meta.url).pathname;
 
-/** Where the shared libraries the native executables open are installed. */
+/** Where the shared libraries the installed executables open are installed. */
 export const LIB_DIR = `${ROOT}zig-out/lib`;
 
 function installed(name: string, variable: string): string {
@@ -26,5 +26,5 @@ export const ARCHIVE = installed("rooms-archive", "GLOWCAP_ROOMS_ARCHIVE_BIN");
 export const SESSION = installed("rooms-session", "GLOWCAP_ROOMS_SESSION_BIN");
 /** The standalone IRC bridge. */
 export const IRC_BRIDGE = installed("rooms-irc-bridge", "GLOWCAP_ROOMS_IRC_BRIDGE_BIN");
-/** The IRC client front. */
-export const IRC_FRONT = installed("rooms-irc-front", "GLOWCAP_ROOMS_IRC_FRONT_BIN");
+/** The Rooms IRC server. */
+export const IRC_SERVER = installed("rooms-irc-server", "GLOWCAP_ROOMS_IRC_SERVER_BIN");

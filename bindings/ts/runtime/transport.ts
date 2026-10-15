@@ -3,7 +3,7 @@ import type { Host } from "./host.ts";
 import type { Locator } from "./locator.ts";
 import type { Session } from "./session.ts";
 
-/** A configured native provider package installed into the generic driver. */
+/** A configured FFI provider package installed into the generic driver. */
 export interface DriverProvider {
 	install(loop: DriverLoop): Promise<void>;
 }
@@ -95,7 +95,7 @@ export { recordProcessBindingFailure } from "./context.ts";
 export * from "./internal/constants.ts";
 export { ensureRuntimeReady, ffi, type Ptr } from "./internal/ffi/runtime.ts";
 // Read-only layout authority for companion packages that marshal structs from
-// their own native archive. Selection remains runtime-owned; companions can
+// their own FFI archive. Selection remains runtime-owned; companions can
 // inspect and use the active target layout but cannot replace it.
 export { L as abiLayout } from "./internal/layout.ts";
 export { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "./internal/seam.ts";
@@ -108,6 +108,7 @@ export {
 	designatorHostPort,
 	formatPeerUri,
 	HINT_DIRECT_ADDRESSES,
+	isKeyDesignator,
 	type Locator,
 	stringHint,
 	TRANSPORT_KEYED_TCP,
@@ -119,10 +120,10 @@ export { type Codec, codecId } from "./value.ts";
 export { openWebSocketChannel } from "./websocket.ts";
 export {
 	consumedReleaseFailure,
-	NativeHandle,
-	NativeParent,
+	FfiHandle,
+	FfiParent,
 	requireOffThreadFfi,
 	SingleFlight,
-} from "./transport/native_handle.ts";
-export { AsyncFfiWriteQueue, checkedMaxFrameBytes } from "./transport/native_frame.ts";
-export { checkDiagnosedCall, NativeDiagnostic } from "./transport/diagnostic.ts";
+} from "./transport/ffi_handle.ts";
+export { AsyncFfiWriteQueue, checkedMaxFrameBytes } from "./transport/ffi_frame.ts";
+export { checkDiagnosedCall, FfiDiagnostic } from "./transport/diagnostic.ts";

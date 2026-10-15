@@ -65,8 +65,9 @@ const Forward = struct {
 };
 const Target = struct {
     invocations: *usize,
-    pub fn handle(self: *Target, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Target, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.invocations.* += 1;
         return .{ .list = &.{ .{ .bytes = &@as([4096]u8, @splat('r')) }, .{ .boolean = true } } };
     }

@@ -22,26 +22,22 @@ const max_stream_input = 512;
 
 /// The two caps a plan may admit frames under, and the fuzzer picks which. The
 /// small one is where the ordinary traffic lives: frames cross the read buffer
-/// and nothing else. The large one is above
-/// `codec.framing.scan_threshold_bytes`, so a frame or an open record can grow
-/// past the point where the codec stops decoding on every read and walks a
-/// resumable scan instead.
+/// and nothing else. The large one admits the synthesized frame, which grows
+/// the spill over dozens of reads before it is lifted whole.
 ///
 /// Both, rather than only the large one, because the large cap is what a run
-/// costs. Below the threshold the decoder re-walks the pending prefix on every
-/// read, which is quadratic in the frame size over the read size, and that is
-/// the very cost the scan exists to end. Every input paying it would buy the
-/// scan-side arms at roughly twenty times the price per input, which the search
-/// pays for in inputs it never gets to try.
+/// costs: a spill that absorbs a few kilobytes one short read at a time is
+/// roughly twenty times the price per input, which the search pays for in
+/// inputs it never gets to try.
 const small_frame_cap: usize = 1024;
 const large_frame_cap: usize = 8192;
 
 /// How often a plan takes the large cap: one input in this many.
 const large_cap_in: u8 = 8;
 
-/// Smallest the synthesized frame is built, in bytes. Above the scan threshold
-/// with room to spare, so every argument count the plan can choose still crosses
-/// it. `ratifyStreamShapes` holds that at both ends.
+/// Smallest the synthesized frame is built, in bytes: far larger than any
+/// read buffer at every argument count the plan can choose, and under the
+/// large cap at the largest. `ratifyStreamShapes` holds both ends.
 const big_frame_floor: usize = 4224;
 
 /// Largest read buffer the plan hands the reader, and the most one read may
@@ -128,16 +124,13 @@ pub fn appendOuterFrame(dest: []u8, frame: []const u8) ?usize {
 }
 
 /// An `op:deliver` whose argument list fills about `want` bytes: one whole
-/// admissible frame, far larger than any read buffer and larger than the scan
-/// threshold, so it is decoded from the spill after a resumable scan has walked
-/// it.
+/// admissible frame, far larger than any read buffer, so it is lifted from
+/// the spill after many reads have fed it.
 ///
-/// Every fourth argument is a byte string whose payload spells `<`, and that is
-/// the point rather than decoration. The scan steps over a length-prefixed leaf
-/// by its declared length precisely so a payload byte cannot move its depth. A
-/// walk that loses that property counts opens it can never close, withholds the
-/// decoder for good, and the frame is refused at the cap instead of returned.
-/// Without such a payload the frame cannot tell a correct walk from that one.
+/// Every fourth argument is a byte string whose payload spells `<`. The
+/// envelope carries its body opaque, so a payload byte that looks like a
+/// record opener must come back exactly as sent, and the byte-identical check
+/// below is what would notice a framer that read meaning into it.
 pub fn synthesizeDeliver(out: []u8, want: usize) []const u8 {
     const opener = "<10'op:deliver<11'desc:export7+>[";
     const closer = "]42+f>";
@@ -177,10 +170,9 @@ pub fn planStream(input: []const u8) ?StreamPlan {
     };
     // One byte carries both halves of the large-cap choice, because they only
     // mean anything together: the synthesized frame is admissible under the
-    // large cap alone, and the large cap has nothing above the scan threshold to
-    // show without it. The argument count keeps the frame over the threshold at
-    // the low end and under the cap at the high end; `ratifyStreamShapes` holds
-    // both.
+    // large cap alone, and the large cap has nothing larger than a corpus
+    // frame to show without it. The argument count keeps the frame under the
+    // cap at the high end; `ratifyStreamShapes` holds both ends.
     const large = input[3] % large_cap_in == 0;
     const cap = if (large) large_frame_cap else small_frame_cap;
     const big = synthesizeDeliver(&big_frame_buf, big_frame_floor + @as(usize, input[3] / large_cap_in) * 128);
@@ -280,10 +272,9 @@ pub fn driveStream(_: void, smith: *std.testing.Smith) anyerror!void {
 
     var spill: net.Spill = .{};
     defer spill.deinit(gpa);
-    var scan: net.StreamScan = .{};
 
     for (plan.frames, 1..) |expected, nth| {
-        var frame = net.readFrameFrom(reader, gpa, .syrup, plan.frame_cap, &spill, &scan) catch |err| {
+        var frame = net.readFrameFrom(reader, gpa, .syrup, plan.frame_cap, &spill) catch |err| {
             // Every frame in the plan is whole and admissible, so a refusal here
             // means bytes went missing between the stream and the parser.
             std.debug.print(
@@ -300,7 +291,7 @@ pub fn driveStream(_: void, smith: *std.testing.Smith) anyerror!void {
     // The read past the last frame. A frame here is a byte the reader invented
     // or read twice, which is why the tail's verdict is asserted rather than
     // merely the absence of a crash.
-    if (net.readFrameFrom(reader, gpa, .syrup, plan.frame_cap, &spill, &scan)) |extra| {
+    if (net.readFrameFrom(reader, gpa, .syrup, plan.frame_cap, &spill)) |extra| {
         var frame = extra;
         frame.deinit();
         std.debug.print(
@@ -330,22 +321,16 @@ pub fn ratifyStreamShapes() !void {
         // admissible under either.
         try std.testing.expect(frame.len >= 2);
         try std.testing.expect(frame.len <= small_frame_cap);
-        var scan: net.StreamScan = .{};
-        const prefix = codec.dispatch.framePrefix(.syrup, frame, &scan, small_frame_cap);
-        try std.testing.expect(prefix == .complete);
-        try std.testing.expectEqual(frame.len, prefix.complete);
+        _ = try codec.dispatch.decodeBody(.syrup, .{ .bytes = frame, .shape = .byte });
     }
 
     // The synthesized frame, at both ends of the argument count the plan can
-    // choose: one whole frame, over the scan threshold, under the large cap.
+    // choose: one whole frame, larger than any read buffer, under the large cap.
     for ([_]u8{ 0, 31 }) |step| {
         const big = synthesizeDeliver(&big_frame_buf, big_frame_floor + @as(usize, step) * 128);
-        try std.testing.expect(big.len > codec.framing.scan_threshold_bytes);
+        try std.testing.expect(big.len > max_read_len);
         try std.testing.expect(big.len <= large_frame_cap);
-        var scan: net.StreamScan = .{};
-        const prefix = codec.dispatch.framePrefix(.syrup, big, &scan, large_frame_cap);
-        try std.testing.expect(prefix == .complete);
-        try std.testing.expectEqual(big.len, prefix.complete);
+        _ = try codec.dispatch.decodeBody(.syrup, .{ .bytes = big, .shape = .byte });
     }
 
     // The outer length is the byte-stream allocation bound: a declaration over

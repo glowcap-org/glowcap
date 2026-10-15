@@ -60,7 +60,7 @@ pub fn validateRecvView(self: *Session, body: model.view.Body, introduced: *Intr
 /// must already hold it, and the answer position must be fresh. Without this
 /// an inbound projection op with an unheld position would surface to the
 /// application unvalidated, an authority gap versus deliver and listen.
-fn validateProjectionOp(self: *Session, receiver: anytype, answer: model.AnswerPosition) Error!void {
+fn validateProjectionOp(self: *Session, receiver: anytype, answer: model.AnswerPosition) passable.ReferenceError(@TypeOf(receiver))!void {
     try passable.validateReference(self, receiver, .received, .held_import);
     try checkInboundAnswerPosition(self, answer);
 }
@@ -188,22 +188,23 @@ pub fn validateInboundResolve(self: *Session, resolve: anytype, introduced: *Int
     // status and re-introducing the fulfill's imports.
     if (entry.status() != .pending) return Error.UnexpectedMessage;
     switch (resolve.resolution) {
-        .fulfill => |arg| try passable.validateInboundArgument(self, arg, 0, introduced),
+        .fulfill => |arg| try passable.validateInboundArgument(self, &arg, 0, introduced),
         .@"break" => {},
     }
 }
 
-pub fn validateSend(self: *Session, message: model.Message) !void {
+pub fn validateSend(self: *Session, message: model.Message, inventory: session.Inventory) !void {
     // State admission is gated at the dispatch head (`admitInState`). The
     // handshake keeps its negotiating-only / no-duplicate rule here; every
     // other kind carries only its own send-side validation.
     switch (message) {
         .start_session => |ss| try validateStartSession(self, ss, .local_sent),
-        .deliver => |deliver| try validateOutboundDeliver(self, deliver),
+        .deliver => |deliver| try validateOutboundDeliver(self, deliver, inventory),
         .resolve => |resolve| try validateSentResolutionNamed(
             self,
             .fromWire(resolve.answer),
             resolve.resolution,
+            inventory,
         ),
         .gc_export => |gc_export| {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
@@ -220,7 +221,7 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
             // Outbound `op:gc-exports` releases our refs to the partner's
             // exports, decrements the import table, never below the retains
             // the session keeps for releases of its own.
-            try session.checkGcExportDecrement(self.allocator, &self.imports, gc_export);
+            try session.checkGcExportDecrement(self.allocator, &self.imports, gc_export, self.wire_hash_multiplier);
         },
         .gc_answer => |gc_answer| {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
@@ -229,7 +230,7 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
             // gc-answers releases a question we asked and decrements
             // our outbound answers (CapTP spec § op:gc-answers; Goblins sends
             // `cmd-send-gc-answer` from its question will-handler).
-            try session.checkGcAnswerDecrement(self.allocator, &self.outbound_answers, gc_answer.positions);
+            try session.checkGcAnswerDecrement(self.allocator, &self.outbound_answers, gc_answer.positions, self.wire_hash_multiplier);
         },
         .listen => |listen| {
             if (!self.features.pipelining) return Error.FeatureNotNegotiated;
@@ -264,17 +265,25 @@ pub fn validateSentResolutionNamed(
     self: *Session,
     answer: model.AnswerName,
     resolution: model.Resolution,
+    inventory: session.Inventory,
 ) !void {
     // Send-side answers also resolve once; a second settlement cannot publish.
     const entry = self.inbound_answers.getPtr(answer) orelse
         return Error.InvalidReference;
     if (entry.status() != .pending) return Error.UnexpectedMessage;
-    try validateSentResolutionValue(self, resolution);
+    try validateSentResolutionValue(self, resolution, inventory);
 }
 
-pub fn validateSentResolutionValue(self: *Session, resolution: model.Resolution) !void {
-    if (resolution == .fulfill)
-        try passable.validateArgument(self, resolution.fulfill, 0, .near_may_be_first_export);
+/// Certify a resolution this session is about to send or store, from the
+/// inventory its owner took of it. The fulfillment's own export may be a
+/// first mention (`SendRefCheck.near_may_be_first_export`).
+pub fn validateSentResolutionValue(
+    self: *Session,
+    resolution: model.Resolution,
+    inventory: session.Inventory,
+) passable.SendArgError!void {
+    const root: ?*const model.Argument = if (resolution == .fulfill) &resolution.fulfill else null;
+    try passable.certifySent(self, inventory, root, .near_may_be_first_export);
 }
 
 pub fn validateRecv(self: *Session, message: model.Message, introduced: *IntroducedImports) !void {
@@ -295,7 +304,7 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
             // exports, decrements the export table. The duplicate-position
             // scratch map is turn-scratch, so it bumps the recv arena and dies
             // with `recordRecvView`'s reset.
-            try session.checkGcExportDecrement(self.recv_scratch.allocator(), &self.exports, gc_export);
+            try session.checkGcExportDecrement(self.recv_scratch.allocator(), &self.exports, gc_export, self.wire_hash_multiplier);
         },
         .gc_answer => |gc_answer| {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
@@ -303,7 +312,7 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
             // asked us to answer, so it releases the inbound answers we
             // created for it (Goblins removes from its `answers` table on
             // `op:gc-answers`). Scratch lives in the recv arena, as above.
-            try session.checkGcAnswerDecrement(self.recv_scratch.allocator(), &self.inbound_answers, gc_answer.positions);
+            try session.checkGcAnswerDecrement(self.recv_scratch.allocator(), &self.inbound_answers, gc_answer.positions, self.wire_hash_multiplier);
         },
         .listen => |listen| try validateInboundListen(self, listen),
         .get => |get| try validateProjectionOp(self, get.receiver, get.answer),
@@ -314,7 +323,7 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
     }
 }
 
-fn validateOutboundDeliver(self: *Session, deliver: model.Deliver) !void {
+fn validateOutboundDeliver(self: *Session, deliver: model.Deliver, inventory: session.Inventory) !void {
     if (deliver.answer) |answer| try checkOutboundAnswerPosition(self, answer);
     try passable.validateDeliverOrListenTarget(self, deliver.target, .sent);
     if (deliver.resolve_me_desc) |reference| {
@@ -325,7 +334,7 @@ fn validateOutboundDeliver(self: *Session, deliver: model.Deliver) !void {
         if (self.captp_version == .next) return Error.UnexpectedMessage;
         try passable.validateReference(self, reference, .sent, .held_import);
     }
-    try passable.validateArguments(self, deliver.args, 0, .held);
+    try passable.certifySent(self, inventory, null, .held);
 }
 
 /// One locally chosen answer position names one outstanding question until a
@@ -386,27 +395,9 @@ pub fn validateHandoffGiftId(self: *const Session, gift_id: []const u8) Error!vo
     try passable.validateHandoffGiftId(self.captp_version, gift_id);
 }
 
-/// The pre-commit rule for a locally supplied resolution bound for a store
-/// (the relayed-resolution seam, `Peer.applyRelayedResolution`): the same
-/// depth bound and set / struct-key uniqueness `validateSend` holds for a
-/// resolve's fulfill payload, applied to the one entry point that stores an
-/// application value without a send. It carries the resolve arm's reference
-/// rule too (`.near_may_be_first_export`), because the stored value reaches
-/// this same partner verbatim when the fire carriers encode it: a `far` the
-/// store holds is a position this session must hold, as if the
-/// application had sent the resolve itself.
-///
-/// The Host/Node relay keeps to that rule by construction: home-session
-/// references lift to Host identity, lower for the recipient, and cross the
-/// Node's inline-Passable batch transaction before this store sees them. This
-/// makes the same convention explicit for a lower-level embedder that stores
-/// directly.
-pub fn validateStoredResolution(self: *Session, resolution: model.Resolution) passable.SendArgError!void {
-    switch (resolution) {
-        .fulfill => |arg| try passable.validateArgument(self, arg, 0, .near_may_be_first_export),
-        .@"break" => {},
-    }
-}
+/// A stored resolution answers to send's rules, so no refusable value commits
+/// and later aborts from a queued fire's accounting.
+pub const validateStoredResolution = validateSentResolutionValue;
 
 /// Validate the destination of a prepared listener fire. Its payload has
 /// already passed `validateStoredResolution`. This checks the one remaining

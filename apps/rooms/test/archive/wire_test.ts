@@ -1,5 +1,5 @@
 // The member-owned archive is ordinary baseline OCapN application protocol,
-// not a native-codec-only browser shortcut. A floor-only client fetches the
+// not a Rust-codec-only browser shortcut. A floor-only client fetches the
 // live object, writes through it, and reads the same source/generation back.
 
 import {

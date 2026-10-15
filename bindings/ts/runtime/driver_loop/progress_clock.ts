@@ -1,5 +1,5 @@
-/** Allocation-neutral JavaScript projection of the native driver's complete
- * pending-work deadline. Native code owns policy; the loop owns the timer slot
+/** Allocation-neutral JavaScript projection of the driver's complete
+ * pending-work deadline. FFI code owns policy; the loop owns the timer slot
  * and these mechanics turn its nearest duration into one scheduler wake. */
 
 import { loopS } from "../internal/ffi/driver.ts";
@@ -31,7 +31,7 @@ export function armProgressClock(
 	return waitMs < 0 ? null : setTimeout(wake, waitMs);
 }
 
-/** Park until loop activity or the nearest native deadline. The expiry
+/** Park until loop activity or the nearest FFI deadline. The expiry
  * becomes authoritative only when the caller performs its next step. */
 export async function waitForProgressClock(
 	activity: Promise<void>,

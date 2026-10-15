@@ -10,24 +10,33 @@ const locators = @import("../locator.zig");
 
 const Error = shared.Error;
 
-fn readBorrowedSignedHandoff(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.Handoff {
+fn readBorrowedSignedHandoff(bytes: []const u8, cursor: *usize) Error!model.view.Handoff {
     const envelope_start = cursor.*;
     try syntax.readByte(bytes, cursor, '<');
-    const envelope_tag = try syntax.readSymbolLimited(bytes, cursor, limit);
+    const envelope_tag = try syntax.readLabel(bytes, cursor);
     if (!std.mem.eql(u8, envelope_tag, "desc:sig-envelope")) return Error.MalformedFrame;
-    return finishSignedHandoff(bytes, cursor, limit, envelope_start);
+    return finishSignedHandoff(bytes, cursor, envelope_start);
+}
+
+/// Project a `<desc:sig-envelope …>` the decoder framed structurally.
+/// `Ctx.bytes` is the whole envelope, so a give's signed span is the region.
+pub fn projectSignedHandoff(ctx: model.view.LazyHandoff.Ctx) model.view.ProjectError!model.view.Handoff {
+    var cursor: usize = 0;
+    const projected = readBorrowedSignedHandoff(ctx.bytes, &cursor) catch return error.MalformedView;
+    if (cursor != ctx.bytes.len) return error.MalformedView;
+    return projected;
 }
 
 /// Finish a `<desc:sig-envelope …>` whose opening `<` and label are already
 /// consumed. `envelope_start` lets a give borrow its whole signed byte span.
-pub fn finishSignedHandoff(bytes: []const u8, cursor: *usize, limit: usize, envelope_start: usize) Error!model.view.Handoff {
+fn finishSignedHandoff(bytes: []const u8, cursor: *usize, envelope_start: usize) Error!model.view.Handoff {
     try syntax.readByte(bytes, cursor, '<');
-    const payload_tag = try syntax.readSymbolLimited(bytes, cursor, limit);
+    const payload_tag = try syntax.readLabel(bytes, cursor);
 
     if (std.mem.eql(u8, payload_tag, "desc:handoff-give")) {
-        var give = try readBorrowedGivePayload(bytes, cursor, limit);
+        var give = try readBorrowedGivePayload(bytes, cursor);
         try syntax.readByte(bytes, cursor, '>');
-        const sig = try syntax.readSignatureViewLimited(bytes, cursor, limit);
+        const sig = try syntax.readSignatureView(bytes, cursor);
         give.signature = .{ .halves = .{ .r = sig.r, .s = sig.s } };
         try syntax.readByte(bytes, cursor, '>');
         give.raw_signed = bytes[envelope_start..cursor.*];
@@ -35,9 +44,9 @@ pub fn finishSignedHandoff(bytes: []const u8, cursor: *usize, limit: usize, enve
     }
 
     if (std.mem.eql(u8, payload_tag, "desc:handoff-receive")) {
-        var receive = try readBorrowedReceivePayload(bytes, cursor, limit);
+        var receive = try readBorrowedReceivePayload(bytes, cursor);
         try syntax.readByte(bytes, cursor, '>');
-        const sig = try syntax.readSignatureViewLimited(bytes, cursor, limit);
+        const sig = try syntax.readSignatureView(bytes, cursor);
         receive.signature = .{ .halves = .{ .r = sig.r, .s = sig.s } };
         try syntax.readByte(bytes, cursor, '>');
         return .{ .receive = receive };
@@ -46,12 +55,12 @@ pub fn finishSignedHandoff(bytes: []const u8, cursor: *usize, limit: usize, enve
     return Error.UnsupportedMessage;
 }
 
-fn readBorrowedGivePayload(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.HandoffGive {
-    const recipient_key = try syntax.readPeerKeyQ(bytes, cursor, limit);
-    const locator = try locators.readPeerLocatorView(bytes, cursor, limit);
-    const gifter_exporter_session = try syntax.readBytesLimited(bytes, cursor, limit);
-    const gifter_side = try syntax.readBytesLimited(bytes, cursor, limit);
-    const gift_id = try syntax.readBytesLimited(bytes, cursor, limit);
+fn readBorrowedGivePayload(bytes: []const u8, cursor: *usize) Error!model.view.HandoffGive {
+    const recipient_key = try syntax.readPeerKeyQ(bytes, cursor);
+    const locator = try locators.readPeerLocatorView(bytes, cursor);
+    const gifter_exporter_session = try syntax.readBytes(bytes, cursor);
+    const gifter_side = try syntax.readBytes(bytes, cursor);
+    const gift_id = try syntax.readBytes(bytes, cursor);
     return .{
         .recipient_key = recipient_key,
         .exporter = locator,
@@ -62,11 +71,11 @@ fn readBorrowedGivePayload(bytes: []const u8, cursor: *usize, limit: usize) Erro
     };
 }
 
-fn readBorrowedReceivePayload(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.HandoffReceive {
-    const receiving_session = try syntax.readBytesLimited(bytes, cursor, limit);
-    const receiving_side = try syntax.readBytesLimited(bytes, cursor, limit);
+fn readBorrowedReceivePayload(bytes: []const u8, cursor: *usize) Error!model.view.HandoffReceive {
+    const receiving_session = try syntax.readBytes(bytes, cursor);
+    const receiving_side = try syntax.readBytes(bytes, cursor);
     const handoff_count = try syntax.readPositiveInt(bytes, cursor);
-    const signed = try readBorrowedSignedHandoff(bytes, cursor, limit);
+    const signed = try readBorrowedSignedHandoff(bytes, cursor);
     const signed_give = switch (signed) {
         .give => |give| give,
         .receive => return Error.MalformedFrame,
@@ -85,7 +94,7 @@ fn readBorrowedReceivePayload(bytes: []const u8, cursor: *usize, limit: usize) E
 /// render the result. Free it with `model.freeHandoffGive`.
 pub fn decodeSignedHandoffGiveOwned(allocator: std.mem.Allocator, bytes: []const u8) shared.WalkError!model.HandoffGive {
     var cursor: usize = 0;
-    const handoff = try readBorrowedSignedHandoff(bytes, &cursor, bytes.len);
+    const handoff = try readBorrowedSignedHandoff(bytes, &cursor);
     const give = switch (handoff) {
         .give => |g| g,
         .receive => return Error.MalformedFrame,

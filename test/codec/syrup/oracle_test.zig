@@ -329,7 +329,7 @@ test "Syrup encoder matches nested handoff fixture" {
         try std.testing.expectEqual(@as(usize, 2), try body.deliver.args.len());
         const borrowed_arg = try body.deliver.args.at(1);
         try std.testing.expect(borrowed_arg == .handoff);
-        try std.testing.expectEqual(@as(u64, 1), borrowed_arg.handoff.receive.handoff_count);
+        try std.testing.expectEqual(@as(u64, 1), (try borrowed_arg.handoff.project()).receive.handoff_count);
 
         const decoded = try syrup.decodeOwned(allocator, frame.view());
         defer model.freeMessage(allocator, decoded);

@@ -26,12 +26,12 @@ pub const HELP: &str = "rooms-web [http-port] [room-port] [options]
   --http-bind=<host> --http-port=<port>  HTTP listener (default: 0.0.0.0:8080)
   --assets=<directory>  Rooms web source, or an artifact directory with --prepared (default: apps/rooms/web)
   --prepared  serve a prepared bundle without invoking browser build tools
-  --no-browser-assets  serve native Rooms endpoints without a browser bundle (development tooling)
+  --no-browser-assets  serve Rooms endpoints without a browser bundle (development tooling)
   --server=<executable>  rooms-server binary (default: beside rooms-web)
   --transport=iroh|tcp|onion  supervised directory (default: iroh)
   --state=<directory>  keep the directory identity and state across restarts
   --session-state=<directory>  also serve a durable shared workspace and print its use and management links
-  --history --storage=<destination> --bind=<host> --announce-host=<host>
+  --history --bind=<host> --announce-host=<host>
   --admin-listeners --diagnostics --operator --peering --irc --trace
   --http-admission-scale=<1..100> --http-admission-rows=<1..65536>
   --http-admission-rates=<class=burst/per-minute,...> --http-admission-aggregate-scale=<1..100>

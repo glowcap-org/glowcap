@@ -254,7 +254,6 @@ export async function readAnnounce(proc: Deno.ChildProcess, withinMs = 10_000): 
 export {
 	assertRoster,
 	enterOrOpen,
-	listRooms,
 	nextMessage,
 	recordDirectoryEvent,
 	refusalCode,

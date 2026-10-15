@@ -9,6 +9,7 @@
 //! `docs/architecture.md` and the memory rule carry the wider derivation.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 const answers = @import("answers/store.zig");
 const answer_notifications = @import("answers/notifications.zig");
@@ -33,9 +34,11 @@ const lifecycle = @import("lifecycle.zig");
 
 /// Re-exported so a caller that must keep the recv-turn's introduced-import
 /// record alive across validate and apply (`validateInboundDeliverView`'s caller,
-/// `engine.inbound.dispatchDecodedOwnedFrame`) can name `validate.IntroducedImports`
+/// `engine.inbound.dispatchOwnedFrame`) can name `validate.IntroducedImports`
 /// without reaching past this module into `session/validate.zig` directly.
 pub const validate = @import("validate.zig");
+pub const inventory = @import("inventory.zig");
+pub const Inventory = inventory.Inventory;
 pub const id_route = @import("id_route.zig");
 pub const parsePreferenceHints = validate.parsePreferenceHints;
 
@@ -245,7 +248,12 @@ pub const Session = struct {
     /// Promises imported from a third party via handoff (ADR-0009), keyed by
     /// import position for O(1) lookup. Host designators are interned in
     /// `key_arena`. Each row owns its listen cell and stored relayed resolution.
-    imported_promises: std.AutoHashMapUnmanaged(model.ImportPosition, ImportedPromise),
+    imported_promises: foundation.identity_hash.MapOf(.wire, model.ImportPosition, ImportedPromise),
+    /// The secret every table keyed by positions the peer chooses hashes
+    /// under (ADR-0218). A Node hands one to each session at registration,
+    /// through `keyWireTables`, and each such table carries a copy because
+    /// its verbs run without the session in hand.
+    wire_hash_multiplier: u64,
     /// Session-wide monotonic source for every store-row identity stamp a
     /// queued fire carrier checks at encode: `AnswerCell.row_id` and
     /// `PromiseListenCell.row_id`. One counter for all (not per-row seeds) so no
@@ -317,10 +325,11 @@ pub const Session = struct {
     /// Reverse index for `pending_enlivens`: answer to the same owned swissnum
     /// slice (borrowed, not a second owner). Kept in lockstep on insert and
     /// removal (`sturdyref_cache.zig`).
-    pending_enliven_by_answer: std.AutoHashMapUnmanaged(model.AnswerPosition, []const u8),
+    pending_enliven_by_answer: foundation.identity_hash.Map(model.AnswerPosition, []const u8),
     /// The swissnum-to-export registry the inbound-`'fetch` responder consults
-    /// (ADR-0006). Keys live in `key_arena`, O(1) lookup. Never removed.
-    bootstrap: std.StringHashMapUnmanaged(model.ExportPosition),
+    /// (ADR-0006). Keys live in `key_arena`, O(1) lookup, compared in constant
+    /// time because the name looked up is the partner's guess. Never removed.
+    bootstrap: foundation.bearer_table.Table(model.ExportPosition),
 
     /// Maximum receive scratch retained after a turn. The footprint and
     /// big-set scratch tests pin this bound.
@@ -332,6 +341,7 @@ pub const Session = struct {
     pub const initNegotiating = lifecycle.initNegotiating;
     pub const preferenceOf = lifecycle.preferenceOf;
     pub const initWith = lifecycle.initWith;
+    pub const keyWireTables = lifecycle.keyWireTables;
     pub const deinit = lifecycle.deinit;
 
     /// The version-neutral resolver-export link lives in `resolver_export.zig`.
@@ -366,6 +376,7 @@ pub const Session = struct {
     pub const expandShorteningGcExportReleases = shortening.expandGcExportReleases;
     pub const rewriteShortenedMessage = shortening.rewriteMessage;
     pub const rewriteShortenedResolution = shortening.rewriteResolution;
+    pub const certifyFreight = @import("validate/freight.zig").certifyFreight;
 
     /// V1.0 resolver-callback translation lives in `v1_0.zig`. These aliases keep
     /// the call sites reading as ordinary `Session` methods while the bodies sit
@@ -440,7 +451,14 @@ pub const Session = struct {
     pub const admits = protocol.admits;
 
     pub const recordSend = protocol.recordSend;
+    pub const recordSendInventoried = protocol.recordSendInventoried;
+    pub const inventoryMessage = inventory.ofMessage;
+    pub const inventoryResolution = inventory.ofResolution;
+    pub const inventoryArguments = inventory.ofArguments;
     pub const retractSend = protocol.retractSend;
+    pub const validateSendInventoried = protocol.validateSendInventoried;
+    pub const applyValidatedSend = protocol.applyValidatedSend;
+    pub const listSentExports = apply.listSentExports;
     pub const retractPreparedListen = protocol.retractPreparedListen;
     pub const recordPreparedSend = protocol.recordPreparedSend;
     pub const recordSessionImportRelease = protocol.recordSessionImportRelease;
@@ -473,7 +491,7 @@ pub const Session = struct {
     pub const validateStoredResolution = validate.validateStoredResolution;
     pub const validateListenerFireTarget = validate.validateListenerFireTarget;
     /// Retain the wire mention of a sent export reference that bypasses
-    /// `recordSend`. Engine caller: `engine.v1_0.prepareOutboundDeliver`.
+    /// `recordSend`. Engine caller: `engine.outbound.encoded.admit`.
     pub const retainSentExportRef = apply.retainSentExportRef;
     pub const ensureSentResolutionExportCapacity = apply.ensureSentResolutionExportCapacity;
 

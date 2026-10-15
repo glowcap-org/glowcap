@@ -10,7 +10,7 @@
 ;;
 ;; Callback discipline: the behavior callback fires synchronously on the
 ;; Racket thread executing the enclosing `glowcap_host_*` call, so a plain
-;; `_fun` callback type is correct — no `#:async-apply`. A trampoline stays
+;; `_fun` callback type is correct, with no `#:async-apply`. A trampoline stays
 ;; alive only while its Racket closure does, so every behavior closure
 ;; registered with the host is retained in the host's strong `keep` table
 ;; (`private/host/state.rkt`) until the host dies. Settlements carry no callback at

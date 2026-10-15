@@ -14,15 +14,15 @@ const std = @import("std");
 const cd = @import("c_abi_host");
 
 const Output = @import("output").Output;
-const native = @import("host_action_native.zig");
+const emitters = @import("host_action_py_rs_rkt.zig");
 
 pub const step_name = "gen-binding-host-action";
 
 pub const outputs = [_]Output{
     .{ .path = "bindings/ts/runtime/internal/host_action.ts", .generate = generateTs },
-    .{ .path = "bindings/python/glowcap/_host_action_gen.py", .generate = native.generatePython },
-    .{ .path = "bindings/rust/src/host_action_gen.rs", .generate = native.generateRust },
-    .{ .path = "bindings/racket/private/host-action-gen.rkt", .generate = native.generateRacket },
+    .{ .path = "bindings/python/glowcap/_host_action_gen.py", .generate = emitters.generatePython },
+    .{ .path = "bindings/rust/src/host_action_gen.rs", .generate = emitters.generateRust },
+    .{ .path = "bindings/racket/private/host-action-gen.rkt", .generate = emitters.generateRacket },
 };
 
 /// Decode shape shared across languages.

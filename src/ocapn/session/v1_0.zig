@@ -63,7 +63,7 @@ pub fn needsV1_0Translation(self: *const Session) bool {
 /// place, the whole wire-delta accounting its on-wire mention requires:
 /// allocate the export, install the answer-to-resolver link, and take the
 /// export's wire-delta retain. The V1.0 encode hooks
-/// (`engine.v1_0.prepareOutboundDeliver` for an answered deliver,
+/// (`engine.outbound.encoded.admit` for an answered deliver,
 /// `prepareProjectionListener` for a projection listener) put the
 /// resolver mention on the wire *outside* `recordSend`'s export accounting,
 /// so this is the single owner of that accounting, both hooks route through

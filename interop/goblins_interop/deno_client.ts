@@ -60,7 +60,7 @@ try {
 	console.log(
 		"deno-goblins-interop: session open, keyed start-session accepted by goblins",
 	);
-	session.serve().catch(() => {}); // the partner hanging up ends the serve loop
+	session.serve().catch(() => {}); // tolerant: the partner hanging up ends the serve loop
 
 	// Peer URI host is ignored once the session is open; enliven keys on swiss.
 	// A sturdyref names a peer, and the enliven checks that peer against the
@@ -72,7 +72,7 @@ try {
 
 	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
 	// The echo actor is `(lambda args args)`: it returns its argument list, so
-	// assert the content survived the round-trip (the native driver's bar),
+	// assert the content survived the round-trip (the Zig driver's bar),
 	// not merely that something resolved.
 	const assertEchoed = (reply: unknown, expected: string): void => {
 		if (!Array.isArray(reply) || reply.length !== 1 || !(reply[0] instanceof Uint8Array)) {

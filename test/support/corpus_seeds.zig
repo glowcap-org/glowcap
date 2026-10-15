@@ -2,9 +2,8 @@
 //!
 //! One list, in one place. A target seeded from a couple of shapes spends its
 //! budget rediscovering what a frame looks like instead of exploring what
-//! happens past one, and the codec targets started from the whole checked-in
-//! corpus while the stream-level ones started from two frames. The coverage
-//! each reached showed the difference plainly, so they share this now.
+//! happens past one, so every target shares this list of the whole checked-in
+//! corpus.
 //!
 //! `zig build source-check` holds the list against `test/oracle/corpus/`, so a new
 //! corpus file cannot land without becoming a seed. The other direction needs no

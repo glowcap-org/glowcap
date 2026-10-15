@@ -100,11 +100,11 @@ export async function buildRust(
 	return true;
 }
 
-async function readAnnouncePort(
+async function readAnnouncement(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
 	pattern: RegExp,
 	miss: string,
-): Promise<number> {
+): Promise<RegExpMatchArray> {
 	const decoder = new TextDecoder();
 	let buf = "";
 	const deadline = Date.now() + 10_000;
@@ -115,19 +115,11 @@ async function readAnnouncePort(
 		const m = buf.match(pattern);
 		if (m) {
 			reader.releaseLock();
-			return Number(m[1]);
+			return m;
 		}
 	}
 	reader.releaseLock();
 	throw new Error(miss);
-}
-
-export async function readListeningPort(
-	server: Deno.ChildProcess,
-	pattern: RegExp,
-	miss: string,
-): Promise<number> {
-	return await readAnnouncePort(server.stdout.getReader(), pattern, miss);
 }
 
 /** Read a listening port (or similar token) announced on stderr. */
@@ -136,7 +128,7 @@ export async function readPort(
 	pattern: RegExp,
 	miss: string,
 ): Promise<number> {
-	return await readAnnouncePort(proc.stderr.getReader(), pattern, miss);
+	return Number((await readAnnouncement(proc.stderr.getReader(), pattern, miss))[1]);
 }
 
 export function rejectAttach(
@@ -193,11 +185,12 @@ export async function stopSpawnedServer(
 }
 
 /** One cross-language client: a name for the divider, the command to run, and
- * the argv to build once the server's port is known. */
+ * the argv to build once the server's announcement is read. `announced` holds
+ * the announcement's captures after the port. */
 export interface Participant {
 	name: string;
 	cmd: string;
-	argv: (port: number) => string[];
+	argv: (port: number, announced: string[]) => string[];
 }
 
 /** Everything a "one server, many-language clients over one OCapN session"
@@ -211,10 +204,13 @@ export interface CrossLangDemo {
 	serverNoun: string;
 	/** What a client is called in prose (e.g. "client", "agent"). */
 	clientNoun: string;
-	/** Absolute path to the Deno server script; run under `DENO_FLAGS`. */
-	serverScript: string;
-	/** Matches the server's port-announcement line on stdout (one capture). */
+	/** The server's command and its arguments for a pinned port (0 for any). */
+	server: { cmd: string; args: (pinPort: number) => string[] };
+	/** Matches the server's announcement on stdout. The first capture is the
+	 * port, and any later captures reach each client's argv. */
 	listenPattern: RegExp;
+	/** Runs after the server stops, to remove what it left behind. */
+	cleanup?: () => Promise<void>;
 	/** Reported if the server never announces its port. */
 	listenMiss: string;
 	/** The available clients plus a note on any that were skipped. */
@@ -238,8 +234,8 @@ export async function runCrossLangDemo(
 	const { participants, skipped } = await demo.roster();
 	for (const s of skipped) console.log(`${demo.label} demo: skipping ${s}`);
 
-	const server = attach ? null : new Deno.Command("deno", {
-		args: [...DENO_FLAGS, demo.serverScript, String(pinPort)],
+	const server = attach ? null : new Deno.Command(demo.server.cmd, {
+		args: demo.server.args(pinPort),
 		stdout: "piped",
 		stderr: "inherit",
 		cwd: root,
@@ -247,7 +243,10 @@ export async function runCrossLangDemo(
 
 	let failed = false;
 	try {
-		const port = server ? await readListeningPort(server, demo.listenPattern, demo.listenMiss) : pinPort;
+		const announced = server
+			? await readAnnouncement(server.stdout.getReader(), demo.listenPattern, demo.listenMiss)
+			: null;
+		const port = announced ? Number(announced[1]) : pinPort;
 		console.log(
 			`${demo.label} demo: ${demo.serverNoun} on 127.0.0.1:${port}; running ${participants.length} ${demo.clientNoun}(s) (${
 				participants.map((p) => p.name).join(", ")
@@ -255,7 +254,7 @@ export async function runCrossLangDemo(
 		);
 
 		for (const p of participants) {
-			const r = await runChild(p.cmd, p.argv(port), root);
+			const r = await runChild(p.cmd, p.argv(port, announced ? announced.slice(2) : []), root);
 			console.log(`──────── ${p.name} (exit ${r.code}) ────────`);
 			console.log(r.out.trimEnd());
 			console.log("");
@@ -271,6 +270,7 @@ export async function runCrossLangDemo(
 		}
 	} finally {
 		await stopSpawnedServer(server);
+		await demo.cleanup?.();
 	}
 
 	Deno.exit(failed ? 1 : 0);

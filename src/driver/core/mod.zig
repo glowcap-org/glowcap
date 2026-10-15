@@ -88,7 +88,7 @@ pub const EnlivenStart = host.EnlivenStart;
 /// application holds instead of an actor id or a wire position. The same
 /// identity the C ABI and every binding carry as their `Ref`.
 pub const Capability = capability.Ref;
-/// Injection seam for adapters that erase a native capability's Registry
+/// Injection seam for adapters that erase a Zig capability's Registry
 /// pointer. The adapter owns any synchronization and process-wide state.
 pub const CapabilityIdIssuer = capability.IdIssuer;
 /// The Host's passable value and reply (see `value.zig`): data arms
@@ -96,12 +96,14 @@ pub const CapabilityIdIssuer = capability.IdIssuer;
 pub const copyValue = @import("value_copy.zig").copy;
 pub const valueCopyBytes = @import("value_copy.zig").measureSlice;
 pub const Value = value.Value;
+pub const value_views = @import("value_views.zig");
 pub const Reply = value.Reply;
 /// The Value-shaped hosted-behavior adapter and its per-delivery window
 /// (see `host.zig`): how an owning-tier behavior answers with opaque
 /// capabilities instead of wire references.
 pub const Hosting = host.Hosting;
 pub const HostTurn = host.HostTurn;
+pub const Args = host.Args;
 
 pub const Error = vocab.Error;
 pub const default_handshake_timeout_ms = vocab.default_handshake_timeout_ms;

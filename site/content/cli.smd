@@ -17,25 +17,24 @@ export PATH="$PWD/zig-out/bin:$PATH"
 glowcap help
 ```
 
-# Encrypted conversation
+# Join a room over iroh
 
-Native rooms traffic rides [iroh]($link.page('transports/iroh')):
+Rooms traffic between glowcap peers rides [iroh]($link.page('transports/iroh')):
 
 ```sh
 glowcap apps rooms session
 ```
 
-# Lab round-trip
+# A local round-trip
 
 `ocapn listen` binds loopback `tcp`, the testing transport: a cleartext
 `host:port` with no identity proof.
 
-The CLI's demo greeter accepts the verb `greet` and one argument, then returns
-`Hello, <arg>`.
+The CLI's demo greeter answers the verb `greet` with `Hello, <arg>`.
 `--publish` serves one partner and then exits, and `Ctrl+C` or `SIGTERM` stops
 a waiting or serving `listen` cleanly with exit 0. Run terminal A first, then
 paste its printed locator (the peer's dialable `ocapn://` address) into `LOC`
-in terminal B. `init` mints the identity keys a peer signs its sessions with,
+in terminal B. `init` creates the identity keys a peer signs its sessions with,
 stored under `GLOWCAP_STATE`. Each terminal gets its own directory so it acts
 as its own peer.
 

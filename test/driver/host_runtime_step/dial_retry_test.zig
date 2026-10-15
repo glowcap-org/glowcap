@@ -3,7 +3,8 @@
 //! re-issues the same session, a re-issue that faults at start is one more
 //! attempt on the same policy, a permanent fault fails at once, the attempt
 //! budget exhausts, and a handshake deadline shorter than one interval
-//! refuses the retry without waiting.
+//! refuses the retry without waiting. A busy-poll window ends at the
+//! retry's due like a park would (ADR-0215).
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -66,6 +67,73 @@ fn stepServer(
         } else |_| {}
     }
     while (try server.runtime.stepAny(0) != null) {}
+}
+
+test "a busy-poll window ends at a retrying dial's due, as the park it replaces would" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var server = try driver.listen(
+        allocator,
+        io,
+        .{ .symbols = &.{.tcp} },
+        model.transport.tcp,
+        .{ .designator = "127.0.0.1:0" },
+        .ephemeral,
+        harness.opts,
+    );
+    defer server.deinit();
+    var addr_buf: [64]u8 = undefined;
+    const designator = try allocator.dupe(u8, try server.localDesignator(&addr_buf));
+    defer allocator.free(designator);
+
+    var fake = try FakeResident.init(allocator);
+    defer fake.deinit();
+    fake.fail_dial_transient = 1;
+    var log: OutcomeLog = .{};
+    const short_interval_ms = 10;
+    var options = retryOptions(&log, .{ .max_attempts = 5, .retry_interval_ms = short_interval_ms });
+    options.busy_poll_ns = driver.HostRuntime.max_busy_poll_ns;
+    var client = try retryClient(allocator, io, &fake, options);
+    defer client.deinit();
+    var recorder = DialRecorder{};
+
+    try client.startDial(.{
+        .transport = model.transport.tcp,
+        .designator = designator,
+        .hints = model.Hints.emptyFalse(),
+    }, .inherit, 7, .{
+        .ctx = &recorder,
+        .opened = DialRecorder.opened,
+        .failed = DialRecorder.failed,
+    });
+
+    // Step until the transient fault parks the row for its interval.
+    var rounds: usize = 0;
+    while (log.len == 0 and rounds < 100) : (rounds += 1) _ = try client.stepAny(1_000);
+    try std.testing.expectEqual(@as(u32, 1), log.len);
+    try std.testing.expectEqual(driver.DialOutcome.transient_retry, log.kinds[0]);
+
+    // The row's due is inside the window. A spin bounded by the nearest
+    // deadline returns at the due, and one bounded only by the caller's
+    // budget waits out the whole window first.
+    const started = net.clock.nowMonotonicMs();
+    _ = try client.stepAny(5_000);
+    const elapsed = net.clock.nowMonotonicMs() - started;
+    try std.testing.expect(elapsed < @divTrunc(driver.HostRuntime.max_busy_poll_ns, std.time.ns_per_ms) - 20);
+
+    var served: ?*driver.Session = null;
+    defer if (served) |s| s.deinit();
+    rounds = 0;
+    while (recorder.opened_session == null and recorder.failed_err == null and rounds < 2_000) : (rounds += 1) {
+        _ = try client.stepAny(short_interval_ms * 3);
+        try stepServer(server, &served);
+    }
+    try std.testing.expectEqual(@as(?anyerror, null), recorder.failed_err);
+    const opened = recorder.opened_session orelse return error.DialNeverOpened;
+    try client.releaseWire(opened);
 }
 
 fn retryOptions(log: *OutcomeLog, policy: driver.DialPolicy) driver.SessionOptions {

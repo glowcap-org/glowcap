@@ -2,6 +2,7 @@ import { ffi } from "../internal/ffi/runtime.ts";
 import { L } from "../internal/layout.ts";
 import { GlowcapError } from "../errors.ts";
 import {
+	DRIVER_DEFAULT_BUSY_POLL_NS,
 	DRIVER_DEFAULT_HANDSHAKE_MS,
 	DRIVER_DEFAULT_LISTENER_SETUP_MS,
 	DRIVER_DEFAULT_MAX_PENDING_OPENS,
@@ -17,6 +18,8 @@ export interface DriverLoopOptions {
 	handshakeMs?: number;
 	listenerSetupMs?: number;
 	settleMs?: number;
+	/** Nanoseconds the runtime spins reaping its transports before it parks. Zero parks at once. */
+	busyPollNs?: number;
 }
 
 export function encodeDriverOptions(opts: DriverLoopOptions): Uint8Array {
@@ -25,6 +28,7 @@ export function encodeDriverOptions(opts: DriverLoopOptions): Uint8Array {
 	const handshakeMs = opts.handshakeMs ?? DRIVER_DEFAULT_HANDSHAKE_MS;
 	const listenerSetupMs = opts.listenerSetupMs ?? DRIVER_DEFAULT_LISTENER_SETUP_MS;
 	const settleMs = opts.settleMs ?? DRIVER_DEFAULT_SETTLE_MS;
+	const busyPollNs = opts.busyPollNs ?? DRIVER_DEFAULT_BUSY_POLL_NS;
 	const maxUsize = L.ptrSize === 4 ? 0xffff_ffff : Number.MAX_SAFE_INTEGER;
 	const maxU32 = 0xffff_ffff;
 	for (
@@ -34,6 +38,7 @@ export function encodeDriverOptions(opts: DriverLoopOptions): Uint8Array {
 			["handshakeMs", handshakeMs, maxU32],
 			["listenerSetupMs", listenerSetupMs, maxU32],
 			["settleMs", settleMs, maxU32],
+			["busyPollNs", busyPollNs, Number.MAX_SAFE_INTEGER],
 		] as const
 	) {
 		if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
@@ -52,6 +57,7 @@ export function encodeDriverOptions(opts: DriverLoopOptions): Uint8Array {
 	view.setUint32(L.DRIVER_OPTIONS_HANDSHAKE_MS_OFF, handshakeMs, true);
 	view.setUint32(L.DRIVER_OPTIONS_LISTENER_SETUP_MS_OFF, listenerSetupMs, true);
 	view.setUint32(L.DRIVER_OPTIONS_SETTLE_MS_OFF, settleMs, true);
+	view.setBigUint64(L.DRIVER_OPTIONS_BUSY_POLL_NS_OFF, BigInt(busyPollNs), true);
 	return bytes;
 }
 

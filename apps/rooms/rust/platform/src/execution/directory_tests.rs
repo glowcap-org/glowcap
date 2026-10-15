@@ -88,7 +88,7 @@ async fn scenario() {
 			}
 		})
 		.unwrap();
-	let list_reply = Rc::new(RefCell::new(argument(&fixture["lists"][3]["input"])));
+	let list_reply = Rc::new(RefCell::new(argument(&fixture["pages"][0]["input"])));
 	let watch_reply = Rc::new(RefCell::new(argument(&fixture["snapshots"][0]["input"])));
 	let watch_event = Rc::new(RefCell::new(Some(argument(&fixture["events"][0]["input"]))));
 	let watcher = Rc::new(RefCell::new(None::<glowcap::Ref>));
@@ -191,12 +191,12 @@ async fn scenario() {
 	assert_eq!(directory.link("garden").await.unwrap(), managed.room_link);
 	assert_eq!(directory.advertised_location().await.unwrap(), "directory.id");
 	assert_eq!(
-		serde_json::to_value(directory.list().await.unwrap()).unwrap(),
-		fixture["lists"][3]["result"]
+		serde_json::to_value(directory.list(None).await.unwrap()).unwrap(),
+		fixture["pages"][0]["result"]
 	);
-	*list_reply.borrow_mut() = Argument::List(vec![room.clone().into()]);
+	*list_reply.borrow_mut() = Argument::List(vec![Argument::List(vec![room.clone().into()]), Argument::Void]);
 	assert!(matches!(
-		directory.list().await,
+		directory.list(None).await,
 		Err(Error::Directory(directory::Error::Row))
 	));
 	malformed.set(true);

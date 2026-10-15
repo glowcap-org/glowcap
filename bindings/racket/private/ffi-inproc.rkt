@@ -5,10 +5,10 @@
 ;; it. This loader opens ONLY the in-process transport archive (ADR-0059): it
 ;; carries the `glowcap_inproc_*` family plus its own thread-local last-error,
 ;; symbol-disjoint from libglowcap_ocapn and from the TCP archive. Requiring it
-;; loads no other archive. The in-process netlayer is socket-free — two peers in
-;; one process wired by pipes — so accept and the frame reads block the calling
+;; loads no other archive. The in-process netlayer is socket-free: two peers in
+;; one process wired by pipes, so accept and the frame reads block the calling
 ;; thread; the generated `#:blocking?` marks keep the runtime GC-cooperative
-;; during the park (they do not free the place's green threads — this one-call
+;; during the park (they do not free the place's green threads: this one-call
 ;; surface is driven single-threaded).
 ;;
 ;; The bound functions and their out-cell wrappers are generated from the

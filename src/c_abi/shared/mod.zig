@@ -76,6 +76,7 @@ pub const contract_layouts = [_]archive_contract.Layout{
     archive_contract.layout("GLOWCAP_LOCATOR_VIEW", GlowcapLocatorView),
     archive_contract.cOnlyLayout("GLOWCAP_TRANSPORT_PROFILE", GlowcapTransportProfile),
     archive_contract.layout("GLOWCAP_TRANSPORT_OPERATION_OPTIONS", GlowcapTransportOperationOptions),
+    archive_contract.cOnlyLayout("GLOWCAP_DIAL_ORIGIN", GlowcapDialOrigin),
     archive_contract.cOnlyLayout("GLOWCAP_PROVIDER_FAILURE", GlowcapProviderFailure),
     archive_contract.cOnlyLayout("GLOWCAP_LISTEN_RESULT", GlowcapListenResult),
     archive_contract.cOnlyLayout("GLOWCAP_STREAM_TRANSPORT", GlowcapStreamTransport),
@@ -102,6 +103,7 @@ pub const GlowcapLocatorHintView = locator.GlowcapLocatorHintView;
 pub const GlowcapLocatorView = locator.GlowcapLocatorView;
 pub const GlowcapTransportProfile = transport_provider.GlowcapTransportProfile;
 pub const GlowcapTransportOperationOptions = transport_provider.GlowcapTransportOperationOptions;
+pub const GlowcapDialOrigin = transport_provider.GlowcapDialOrigin;
 pub const GlowcapProviderFailure = transport_provider.GlowcapProviderFailure;
 pub const GlowcapTransportProviderEntry = transport_provider.GlowcapTransportProviderEntry;
 pub const GlowcapTransportProvider = transport_provider.GlowcapTransportProvider;
@@ -218,8 +220,8 @@ pub const GLOWCAP_DEFAULT_CAPTP_VERSION = profile.GLOWCAP_DEFAULT_CAPTP_VERSION;
 pub const GLOWCAP_DEFAULT_FEATURES = profile.GLOWCAP_DEFAULT_FEATURES;
 pub const GLOWCAP_INTEROP_CODEC = profile.GLOWCAP_INTEROP_CODEC;
 pub const GLOWCAP_INTEROP_CAPTP_VERSION = profile.GLOWCAP_INTEROP_CAPTP_VERSION;
-pub const GLOWCAP_NATIVE_CODEC = profile.GLOWCAP_NATIVE_CODEC;
-pub const GLOWCAP_NATIVE_CAPTP_VERSION = profile.GLOWCAP_NATIVE_CAPTP_VERSION;
+pub const GLOWCAP_OWN_CODEC = profile.GLOWCAP_OWN_CODEC;
+pub const GLOWCAP_OWN_CAPTP_VERSION = profile.GLOWCAP_OWN_CAPTP_VERSION;
 pub const captpVersionToC = profile.captpVersionToC;
 pub const captpVersionFromC = profile.captpVersionFromC;
 pub const codecToC = profile.codecToC;
@@ -276,6 +278,7 @@ pub const GLOWCAP_ARG_KEYWORD = value.GLOWCAP_ARG_KEYWORD;
 pub const GLOWCAP_ARG_BIG_INTEGER = value.GLOWCAP_ARG_BIG_INTEGER;
 pub const GLOWCAP_ARG_STRUCT = value.GLOWCAP_ARG_STRUCT;
 pub const GLOWCAP_ARG_ERROR = value.GLOWCAP_ARG_ERROR;
+pub const GLOWCAP_ARG_INTEGERS = value.GLOWCAP_ARG_INTEGERS;
 pub const GLOWCAP_RESOLUTION_FULFILL = value.GLOWCAP_RESOLUTION_FULFILL;
 pub const GLOWCAP_RESOLUTION_BREAK = value.GLOWCAP_RESOLUTION_BREAK;
 pub const GLOWCAP_RESOLUTION_HANDOFF = value.GLOWCAP_RESOLUTION_HANDOFF;

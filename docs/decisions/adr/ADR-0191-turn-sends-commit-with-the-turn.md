@@ -49,8 +49,8 @@ lowers routed capabilities inside a transaction that lends leases only for the
 duration of `Peer.send`. The workable shape is to record far sends as today and
 retract them when the turn fails: a plain deliver's session effects have exact
 inverses and nothing is encoded during a turn. A send the Node adopted to
-project a capability needs a Node-level rollback first. The
-[open obligations](../../roadmap.md#open-obligations-from-retired-plans) owns that work.
+project a capability needs a Node-level rollback first.
+[ADR-0194](ADR-0194-far-sends-retract-with-a-failed-turn.md) decides it.
 
 ## Scope
 

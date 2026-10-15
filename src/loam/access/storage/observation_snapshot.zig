@@ -29,6 +29,9 @@ pub const Prepared = struct {
     grant_count: usize = 0,
     resources: [records.ChangeBatchRecord.max_path]core.ResourceId = undefined,
     resource_count: usize = 0,
+    /// The observed grant's own configured scope is a subtree containing the
+    /// target, so its holder may learn that something below the target changed.
+    subtree: bool = false,
 
     pub fn active(self: *const Prepared) bool {
         return switch (self.snapshot) {
@@ -85,21 +88,23 @@ pub fn prepare(operation: *op.Operation, target: ?core.ResourceId) !Prepared {
     }
     var grants = try state.read.?.grantView();
     var ancestry = grants.ancestry(state.descriptor.grant);
+    defer ancestry.close();
     while (try ancestry.next()) |grant| {
         if (prepared.grant_count == prepared.grants.len) return error.DepthLimit;
         prepared.grants[prepared.grant_count] = grant.id;
         prepared.grant_count += 1;
-        const row = try history.row(&state.read.?, .{ .grant = grant.id });
-        // The fixed scratch owns terms only until the next grant lookup. Decode
-        // the stamp fields before asking the resource view for another row.
-        var stored = try records.GrantRecord.decodeOwned(state.binding.owner.allocator, row.view.payload);
-        defer stored.deinit(state.binding.owner.allocator);
-        stamp(&prepared, &hash, if (state.binding.role == .control or prepared.snapshot.use.access == .paused) stored.value.lifecycle else stored.value.authority);
-        if (state.binding.role == .control and grant.id.eql(state.descriptor.grant)) stamp(&prepared, &hash, stored.value.inventory);
+        // The lent row stays intact through the resource lookups below.
+        const stored = state.read.?.heldRow();
+        stamp(&prepared, &hash, if (state.binding.role == .control or prepared.snapshot.use.access == .paused) stored.lifecycle else stored.authority);
+        if (state.binding.role == .control and grant.id.eql(state.descriptor.grant)) stamp(&prepared, &hash, stored.inventory);
         if (prepared.snapshot == .use and prepared.active()) {
-            for ([_]core.Terms{ stored.value.grant.ceiling, stored.value.grant.configured }) |terms| {
+            for ([_]*const core.Terms{ &grant.ceiling, &grant.configured }) |terms| {
                 if (terms.scope == .owned_subtree) try containment(&state.read.?, &prepared, &hash, target.?, terms.scope.owned_subtree);
             }
+            // Every ancestor's scope contains its child's, so the observed
+            // grant's own scope decides whether the target's descendants are
+            // visible.
+            if (grant.id.eql(state.descriptor.grant) and grant.configured.scope == .owned_subtree) prepared.subtree = true;
         }
     }
     if (prepared.snapshot == .use and prepared.active()) {
@@ -107,6 +112,7 @@ pub fn prepare(operation: *op.Operation, target: ?core.ResourceId) !Prepared {
         const row = try history.row(&state.read.?, .{ .resource = target.? });
         const stored = try records.ResourceRecord.decode(row.view);
         stamp(&prepared, &hash, stored.content);
+        if (prepared.subtree) stamp(&prepared, &hash, stored.subtree);
     }
     hash.final(&prepared.digest);
     return prepared;

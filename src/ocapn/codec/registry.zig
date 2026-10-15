@@ -7,25 +7,17 @@
 //! no runtime indirection, a third codec costs nothing the two built-ins
 //! didn't (ADR-0026).
 //!
-//! `framePrefix` is the profile-less structural parser: it returns only a frame
-//! boundary. `decodePrefixForProfile` returns the projected body once a session
-//! knows which CapTP semantics apply.
+//! A codec decodes whole frames. The byte-stream envelope (ADR-0110) or the
+//! transport's own message boundary delimits a frame before any codec sees
+//! it, so no codec frames a stream.
 //!
 //! A codec is identified on the wire by its `model.CodecId` (a stable `u16`).
 //! A `Spec` binds that id to the codec's frame shape and its implementation
-//! module, any type exposing `decodeBody`, `decodePrefix`, `framePrefix`,
-//! `encodeMessageForProfile`, and an `Error` set, exactly the shape `syrup` and
-//! `capnp` already have.
-//!
-//! Each module also declares `pub const self_delimiting: bool`. A codec whose
-//! frame length is computable from a header declares `false` and omits
-//! `scanStream(bytes, *StreamScan, max_frame_bytes) Verdict`, as `capnp` does.
-//! A codec with a self-delimiting grammar declares `true` and provides it:
-//! without one, a frame that arrives over many reads is walked from its first
-//! byte on every read, which is work quadratic in the frame's size over a
-//! chunk size the sender chooses. The `comptime` block below `active` holds
-//! every registered module to this shape, so a misspelled member is a compile
-//! error naming the member rather than a silent fallback.
+//! module, any type exposing `decodeBody`, `decodeBodyForProfile`,
+//! `decodeBodyInto`, `encodeMessageForProfile`, `encodeBodyForProfile`, and
+//! an `Error` set, exactly the shape `syrup` and `capnp` already have. The `comptime` block below
+//! `active` holds every registered module to this shape, so a misspelled
+//! member is a compile error naming the member rather than a silent fallback.
 
 const std = @import("std");
 
@@ -41,9 +33,9 @@ pub const Spec = struct {
     id: model.CodecId,
     /// `.byte` for a self-delimiting byte stream, `.word` for 8-byte-aligned.
     frame_shape: foundation.FrameShape,
-    /// The implementation: a type with `decodeBody` / `decodePrefix` / `framePrefix` /
-    /// `encodeMessageForProfile` / `Error`, and optionally `scanStream` (see
-    /// the module header, omit it only if frame length is computable up front).
+    /// The implementation: a type with `decodeBody` / `decodeBodyForProfile` /
+    /// `decodeBodyInto` / `encodeMessageForProfile` / `encodeBodyForProfile` /
+    /// `Error` (see the module header).
     module: type,
 };
 
@@ -74,11 +66,7 @@ pub const active: []const Spec = blk: {
 comptime {
     // Hold every registered module to the interface the doc comments describe,
     // so a consumer codec with a misspelled member fails to compile by name
-    // instead of silently taking a fallback. The dangerous case is
-    // `scanStream`: `dispatch` infers "no incremental scan" from the *absence*
-    // of the name, so a typo would not be an error, it would be the quadratic
-    // from-start re-walk the member exists to avoid. `self_delimiting` turns
-    // that absence into a statement the build can check.
+    // instead of silently taking a fallback.
     for (active, 0..) |spec, i| {
         for (active[0..i]) |prior| {
             if (prior.id == spec.id)
@@ -87,15 +75,10 @@ comptime {
         }
         const M = spec.module;
         const name = @typeName(M);
-        for ([_][]const u8{ "decodeBody", "decodeBodyForProfile", "decodePrefix", "decodePrefixForProfile", "framePrefix", "encodeMessageForProfile", "Error", "self_delimiting" }) |member| {
+        for ([_][]const u8{ "decodeBody", "decodeBodyForProfile", "decodeBodyInto", "encodeMessageForProfile", "encodeBodyForProfile", "Error", "EncodeError" }) |member| {
             if (!@hasDecl(M, member))
                 @compileError("codec module " ++ name ++ " is missing `" ++ member ++ "` (see registry.Spec.module)");
         }
-        if (M.self_delimiting != @hasDecl(M, "scanStream"))
-            @compileError("codec module " ++ name ++ if (M.self_delimiting)
-                " declares self_delimiting = true but has no scanStream"
-            else
-                " has a scanStream but declares self_delimiting = false; a self-describing frame length makes the incremental scan dead weight");
     }
 }
 
@@ -111,6 +94,14 @@ pub fn contains(id: model.CodecId) bool {
 /// The union of every registered codec's error set, plus `UnknownCodec` for an
 /// id no registered codec claims.
 pub const Error = unionErrors(active);
+
+/// The union of every registered codec's `EncodeError`, plus `UnknownCodec`:
+/// what encoding a message for a wire profile can refuse.
+pub const EncodeError = blk: {
+    var E = error{UnknownCodec};
+    for (active) |spec| E = E || spec.module.EncodeError;
+    break :blk E;
+};
 
 /// Build the error-set union over a codec spec list at `comptime`.
 pub fn unionErrors(comptime specs: []const Spec) type {

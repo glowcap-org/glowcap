@@ -1,4 +1,4 @@
-//! The same Rooms behavior scenarios execute natively and in browser Wasm.
+//! The same Rooms behavior scenarios execute on the host and in browser Wasm.
 use rooms_application::room::{
 	line::{Line, LineError, MAX_LINE_BYTES, MAX_MESSAGE_FILES},
 	message::{ChangeKind, LineId, LineMarker},

@@ -20,7 +20,7 @@
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
          (only-in "../../private/finalizer-diagnostics.rkt"
-                  record-runtime-failure! run-native-finalizer!)
+                  record-runtime-failure! run-ffi-finalizer!)
          (only-in "../../private/ws-transport.rkt" ws-transport)
          (only-in "../../relay.rkt" relay-pump exn:fail:relay?
                   exn:fail:relay-primary exn:fail:relay-secondary)
@@ -42,7 +42,7 @@
                   driver-loop-has-transport?
                   loop-listen! loop-listener-ready! loop-listener-locator
                   loop-listener-close!)
-         "../../private/native-parent.rkt"
+         "../../private/ffi-parent.rkt"
          (only-in "../../private/value.rkt" make-ref/internal)
          "support.rkt"
          racket/tcp)
@@ -78,7 +78,7 @@
 (printf "racket zig-smoke OK: every reflected C ABI return code translates exactly once\n")
 
 ;; The literal structured failure vector exercised by Zig, C, Rust,
-;; TypeScript, and Python. This crosses the native Context seam; Racket owns
+;; TypeScript, and Python. This crosses the FFI Context seam; Racket owns
 ;; only the pins and the projection into its immutable failure-event value.
 (define matrix-host (make-host (make-bytes 32 9)))
 (define matrix-operation #"listener.close")
@@ -120,9 +120,9 @@
              (equal? (failure-event-secondary-message matrix-failure)
                      "descriptor remained live")
              (null? (host-take-failures! matrix-host)))
-        "Context preserves the cross-language native failure vector exactly once")
+        "Context preserves the cross-language FFI failure vector exactly once")
 (host-close! matrix-host)
-(printf "racket zig-smoke OK: Context preserves the cross-language native failure vector exactly once\n")
+(printf "racket zig-smoke OK: Context preserves the cross-language FFI failure vector exactly once\n")
 
 (expect (with-handlers ([exn:fail? (lambda (_) #t)])
           (make-byte-connector '() void)
@@ -197,7 +197,7 @@
 (expect (eq? observed-dial-cleanup-failure first-dial-cleanup-failure)
         "Host close returns the first exact failed-dial cleanup failure")
 
-;; The native driver loop owns both its resident park thread and its retirement
+;; The FFI driver loop owns both its resident park thread and its retirement
 ;; worker. A failure on either background stack settles onto the adopted Host
 ;; rather than ending as an unobserved Racket thread exception.
 (define loop-background-failure-host (make-fresh-host))
@@ -215,7 +215,7 @@
 
 ;; The sidecar iroh readiness thread has the raw endpoint as its owner. Its
 ;; exact first failure wakes parked work and is re-observed at endpoint close,
-;; including after native resources have already been released.
+;; including after FFI resources have already been released.
 (define iroh-background-failure-endpoint
   (open-iroh-endpoint (make-iroh-config IROH-REACH-LOCAL-DISCOVERY)))
 (define iroh-background-failure
@@ -237,7 +237,7 @@
         "repeated iroh endpoint close retains its readiness-loop failure")
 
 ;; A deferral sink is binding-owned storage, not an application callback.
-;; Refuse immutable or impersonated boxes before a native operation can commit
+;; Refuse immutable or impersonated boxes before an FFI operation can commit
 ;; work whose ownership must then transfer into that sink.
 (for ([sink (in-list
              (list (box-immutable no-drain-effects)
@@ -304,17 +304,17 @@
 ;; the failure into the same typed vocabulary without escaping the callback.
 (void (take-runtime-failures!))
 (define finalizer-release-failure
-  (exn:fail "native finalizer release failed" (current-continuation-marks)))
-(run-native-finalizer! "test.finalize" (lambda () (raise finalizer-release-failure)))
+  (exn:fail "FFI finalizer release failed" (current-continuation-marks)))
+(run-ffi-finalizer! "test.finalize" (lambda () (raise finalizer-release-failure)))
 (define recorded-finalizer-failures (take-runtime-failures!))
 (expect (and (= (length recorded-finalizer-failures) 1)
              (equal? (failure-event-operation (car recorded-finalizer-failures))
                      "test.finalize")
              (equal? (failure-event-primary-message (car recorded-finalizer-failures))
-                     "native finalizer release failed"))
-        "native finalizer journal retains the normalized release failure")
+                     "FFI finalizer release failed"))
+        "FFI finalizer journal retains the normalized release failure")
 (for ([index (in-range 65)])
-  (run-native-finalizer!
+  (run-ffi-finalizer!
    "test.saturation"
    (lambda () (raise (exn:fail (format "failure ~a" index)
                                (current-continuation-marks))))))
@@ -327,7 +327,7 @@
                       (car saturated-runtime-failures))
                      "failure 1"))
         "runtime failure saturation reports loss on the first survivor")
-(run-native-finalizer!
+(run-ffi-finalizer!
  (make-string 600 #\x)
  (lambda () (raise (exn:fail "unretained" (current-continuation-marks)))))
 (define bounded-runtime-failure (car (take-runtime-failures!)))
@@ -341,8 +341,8 @@
                                         (failure-event-secondary-message bounded-runtime-failure)))])
                    (bytes-length (string->bytes/utf-8 text)))
                  DEFAULT-FAILURE-PAYLOAD-CAP))
-        "runtime failure payloads share the native bounded schema")
-(run-native-finalizer!
+        "runtime failure payloads share the FFI bounded schema")
+(run-ffi-finalizer!
  (make-string 600 #\☃)
  (lambda () (raise (exn:fail "unretained" (current-continuation-marks)))))
 (define unicode-runtime-failure (car (take-runtime-failures!)))
@@ -512,7 +512,7 @@
 
 ;; A listener close races with a parked accept in real servers during
 ;; custodian shutdown. The close must wake the green thread and wait for its
-;; accept gate before freeing native authority.
+;; accept gate before freeing FFI authority.
 (define (expect-parked-accept-closes make-nl listen-one accept-one close-listener close-nl label)
   (define nl (make-nl))
   (define lst (listen-one nl))
@@ -544,7 +544,7 @@
 
 ;; The parent owns that same shutdown transaction. Two close callers join one
 ;; terminal transition while the parent interrupts and drains a child accept;
-;; neither may return through a second native release.
+;; neither may return through a second FFI release.
 (define (expect-parent-release-joins make-nl listen-one accept-one close-nl label)
   (define nl (make-nl))
   (define lst (listen-one nl))
@@ -578,7 +578,7 @@
  inproc-listener-accept inproc-netlayer-release! "inproc")
 
 ;; A child completed after close sealed admission still borrows the parent's
-;; native backend until its own release returns. Keep that cleanup parked and
+;; FFI backend until its own release returns. Keep that cleanup parked and
 ;; prove parent destruction cannot pass the outstanding operation lease.
 (define child-created (make-semaphore 0))
 (define allow-child-return (make-semaphore 0))
@@ -588,18 +588,18 @@
 (define parent-released? (box #f))
 (define child-released? (box #f))
 (define test-parent
-  (make-native-parent
+  (make-ffi-parent
    'parent
    (lambda (_)
      (expect (unbox child-released?)
-             "native parent waits through rejected-child cleanup")
+             "FFI parent waits through rejected-child cleanup")
      (set-box! parent-released? #t))
    (lambda (_) (semaphore-post parent-closing))))
 (define opener
   (thread
    (lambda ()
      (with-handlers ([exn:fail? void])
-       (native-parent-open-child
+       (ffi-parent-open-child
         test-parent
         'late-child
         (lambda (_)
@@ -612,38 +612,38 @@
           (set-box! child-released? #t)))))))
 (semaphore-wait child-created)
 (define parent-closer
-  (thread (lambda () (native-parent-release! test-parent void))))
+  (thread (lambda () (ffi-parent-release! test-parent void))))
 (semaphore-wait parent-closing)
 (semaphore-post allow-child-return)
 (semaphore-wait child-release-started)
 (sleep 0.01)
 (expect (not (unbox parent-released?))
-        "native parent keeps the lease until late-child release finishes")
+        "FFI parent keeps the lease until late-child release finishes")
 (semaphore-post allow-child-release)
 (thread-wait opener)
 (thread-wait parent-closer)
-(expect (unbox parent-released?) "native parent releases after late-child cleanup")
+(expect (unbox parent-released?) "FFI parent releases after late-child cleanup")
 
-;; The parent is the native lifetime authority, so its registry must keep an
+;; The parent is the FFI lifetime authority, so its registry must keep an
 ;; otherwise unreachable child alive until ordered teardown releases the child
 ;; before the parent backend. A weak registry makes finalizer order decide
-;; whether the child still borrows freed native state.
+;; whether the child still borrows freed FFI state.
 (define retained-child-release-count (box 0))
-(define retaining-parent (make-native-parent 'parent void))
+(define retaining-parent (make-ffi-parent 'parent void))
 (define retained-child-weak #f)
 (let ([child (box 'child)])
   (set! retained-child-weak (make-weak-box child))
-  (native-parent-open-child retaining-parent 'retained-child
+  (ffi-parent-open-child retaining-parent 'retained-child
                             (lambda (_) child) void)
   (void))
 (collect-garbage)
 (collect-garbage)
 (expect (weak-box-value retained-child-weak)
-        "native parent strongly retains children through teardown")
-(native-parent-release!
+        "FFI parent strongly retains children through teardown")
+(ffi-parent-release!
  retaining-parent
  (lambda (_)
    (set-box! retained-child-release-count
              (add1 (unbox retained-child-release-count)))))
 (expect (= 1 (unbox retained-child-release-count))
-        "native parent releases each retained child exactly once")
+        "FFI parent releases each retained child exactly once")

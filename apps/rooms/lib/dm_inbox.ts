@@ -11,7 +11,7 @@
 // reclaimed. The publisher retires aliases when their peer authority ends, so
 // churn does not spend its bounded live-publication ledger.
 //
-// Shared by the browser UI and the direct-message demos.
+// Used by the direct-message demos.
 
 import type { Behavior, Host, Ref } from "@glowcap/runtime";
 import { MAX_DM_INBOXES, nickRefusal } from "./limits.ts";

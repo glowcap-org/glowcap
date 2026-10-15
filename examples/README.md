@@ -1,13 +1,11 @@
 # Learn glowcap by example
 
-Start with chapter 01. In one short Zig program, one peer publishes an object
-and another fetches it and calls it over encrypted TCP that proves the
-listener's key to the dialer. Chapter 02 uses the same transport for a
-three-party introduction. Later chapters cover actor, protocol, and storage
-mechanics in process. The lower-level transport helpers use cleartext loopback
-TCP, the testing transport. Rooms, further down, is a complete chat
-application over encrypted iroh that runs in the browser with
-`zig build rooms-web`. Every chapter and helper is a runnable build target:
+Start with chapter 01. It is one short Zig program: one peer publishes an
+object, and another fetches it and calls it over encrypted TCP. Chapter 02
+adds a third peer and an introduction. The later chapters stay in one process
+to show actors, the protocol engine, and storage up close.
+
+Every chapter builds and runs with one command:
 
 ```sh
 zig build examples
@@ -15,23 +13,10 @@ zig build examples
 
 ## Complete applications
 
-These programs use the same small API from several languages:
-
-| Application | What it demonstrates | Run it |
-| --- | --- | --- |
-| [Rooms](../apps/rooms/) | A chat server hands clients room and inbox capabilities. Zig, Rust, TypeScript, Python, and Racket clients exchange broadcasts. The browser UI is `zig build rooms-web`. | `zig build demo-rooms` |
-| [Tasks](../apps/tasks/) | A shared task board combines request-response calls, structured values, and change notifications. | `zig build demo-tasks` |
-| [Tools](../apps/tools/) | A coordinator grants agents tool capabilities, narrows them to read-only use, and revokes them. | `zig build demo-tools` |
-| [Accountability](../apps/accountability-on-glowcap/) | Signed identity and an audit log sit above an ordinary capability call. | `zig build demo-accountability` |
-
-The demos start their own server on an available port. Pass `-Dport=9099` to
-choose one. Rooms, tasks, and tools also accept `-Dattach=true` when you want
-their clients to join a server you started separately.
-`zig build accountability` runs the Zig-only version of Accountability, which is
-part of `check`.
-
-Missing optional language runtimes are reported as skipped. Each application's
-README has its standalone commands.
+For whole programs rather than lessons, see [`apps/`](../apps/README.md). It
+lists each application, often written in several languages, with the command
+that runs it. The biggest is Rooms, a chat app over encrypted iroh that opens
+in your browser with `zig build rooms-web`.
 
 ## Zig chapters
 
@@ -39,15 +24,15 @@ README has its standalone commands.
 | --- | --- |
 | [01: connect and serve](zig/01_connect_and_serve.zig) | Listen, publish a greeter, connect, fetch it by name, and call it through `driver.Session`. |
 | [02: introduce and redeem](zig/02_introduce_and_redeem.zig) | Let one peer introduce two others, then make the direct call without keeping the introducer in the path. |
-| [03: actor far send](zig/03_actor_far_send.zig) | Export an actor, send to it from another peer, and settle the returned vow. |
+| [03: actor far send](zig/03_actor_far_send.zig) | Export an actor, send to it from another peer, and settle the promise it returns (Goblins calls it a vow). |
 | [04: look up by name](zig/04_look_up_by_name.zig) | See how `fetch("name")` uses the bootstrap object and a swiss number underneath. |
-| [05: call a remote method](zig/05_call_a_remote_method.zig) | Drive the raw engine one step at a time, including exports, imports, delivery, and settlement. |
+| [05: call a remote method](zig/05_call_a_remote_method.zig) | Drive the raw engine one step at a time: exports, imports, delivery, and how promises resolve. |
 | [06: pipeline and attenuate](zig/06_pipeline_and_attenuate.zig) | Send dependent calls before the first answer arrives, then restrict the returned capability to selected methods. |
-| [07: durable card](zig/07_durable_card.zig) | Keep a sleepy actor in Loam's LMDB store, restart everything, and find its state still there. |
+| [07: durable card](zig/07_durable_card.zig) | Keep a sleepy actor in Loam's SQLite store, restart everything, and find its state still there. |
 
 The source of each chapter begins with a longer explanation of the scenario.
-Chapter 01 is the smallest application template. Chapter 05 is for an
-embedder that intends to own the event loop and protocol peer directly.
+Chapter 01 is the smallest application template. Chapter 05 is for programs
+that run the event loop and the protocol peer themselves.
 
 For the command line instead of Zig, use the [CLI guide](../docs/cli.md).
 
@@ -57,16 +42,17 @@ For the command line instead of Zig, use the [CLI guide](../docs/cli.md).
   sealed `noise-tcp` client shown in the root README and supplies the greeter
   it calls.
 - [`many_sessions_one_loop.zig`](zig/many_sessions_one_loop.zig) repeats
-  chapter 02's introduction for sixteen clients at once, served by one
+  chapter 02's introduction for many clients at once, served by one
   directory `Server` thread.
 - [`frame_view.zig`](zig/frame_view.zig) shows an owned frame becoming a
   borrowed view.
 
 ## C examples
 
-- [`host_embedder_pump.c`](c/host_embedder_pump.c) drives the sole C CapTP
-  application surface, `GlowcapHost`, through a complete in-memory conversation:
-  feed, drain, refusal, and break-far-vows, as language bindings do.
+- [`host_embedder_pump.c`](c/host_embedder_pump.c) drives `GlowcapHost`, the
+  C API for CapTP applications, through a whole conversation in memory:
+  feeding bytes in, draining frames out, a refusal, and breaking far
+  promises. The language bindings do the same thing underneath.
 - [`frame_view.c`](c/frame_view.c) shows a borrowed `GlowcapFrame` over caller
   bytes. Owned frames come from `take_outbound` in the host example.
 

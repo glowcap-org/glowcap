@@ -137,7 +137,7 @@ const Input = struct {
     target: capability.Ref,
     verb: []const u8,
     args: []const value_mod.Value,
-    retained: []lower.StagedCapabilityRetain = &.{},
+    retained: []capability.Ref = &.{},
     owned_bytes: usize,
 
     const protocol = "glowcap.host.v01".*;
@@ -169,7 +169,7 @@ const Input = struct {
         };
         const host = self.producer.host;
         const retained = host.retainValueCapabilities(arena, args) catch |err| return retainError(err);
-        errdefer lower.releaseUntransferredCapabilityRetains(host, retained);
+        errdefer lower.releaseCapabilityRetains(host, retained);
         const target = host.capabilities.resolve(self.target) orelse return error.MalformedView;
         const target_ref = host.capabilities.retain(host.allocator, target) catch |err| return retainError(err);
         self.producer.retain();
@@ -188,7 +188,7 @@ const Input = struct {
     fn retire(ctx: *anyopaque, _: ?[]const u8) void {
         const self: *Input = @ptrCast(@alignCast(ctx));
         const host = self.producer.host;
-        for (self.retained) |item| host.releaseCapabilityTerminal(item.ref, null);
+        for (self.retained) |item| host.releaseCapabilityTerminal(item, null);
         host.releaseCapabilityTerminal(self.target, null);
         self.producer.release();
     }
@@ -261,10 +261,10 @@ pub fn inputCharge(host: *host_mod.Host, verb: []const u8, args: []const value_m
             self.count.* = try std.math.add(usize, self.count.*, 1);
         }
     };
-    for (args) |value| try value.forEachCapability(Counter{ .host = host, .count = &count }, Counter.visit);
+    for (args) |*value| try value.forEachCapability(Counter{ .host = host, .count = &count }, Counter.visit);
     var charge = try std.math.add(usize, @sizeOf(Input), verb.len);
     charge = try std.math.add(usize, charge, bytes);
-    charge = try std.math.add(usize, charge, try std.math.mul(usize, count, @sizeOf(lower.StagedCapabilityRetain)));
+    charge = try std.math.add(usize, charge, try std.math.mul(usize, count, @sizeOf(capability.Ref)));
     return charge;
 }
 

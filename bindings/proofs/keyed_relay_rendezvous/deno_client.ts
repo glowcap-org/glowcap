@@ -18,10 +18,10 @@ function fail(message: string): never {
 
 if (Deno.args.length < 1) fail("usage: deno_client.ts <locator>");
 const partner = parseLocator(Deno.args[Deno.args.length - 1]);
-const nativeRelayUrl = Deno.env.get("GLOWCAP_PROOF_NATIVE_RELAY_URL");
-const nativeCaFile = Deno.env.get("GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE");
+const wssRelayUrl = Deno.env.get("GLOWCAP_PROOF_WSS_RELAY_URL");
+const wssCaFile = Deno.env.get("GLOWCAP_PROOF_WSS_RELAY_CA_FILE");
 
-async function expectNativeRefusal(
+async function expectWssRefusal(
 	route: string,
 	trust: { readonly kind: "system" } | { readonly kind: "copied-pem"; readonly pem: Uint8Array },
 	expectedCause: string,
@@ -36,29 +36,29 @@ async function expectNativeRefusal(
 	}
 	if (session !== null) {
 		await session.close();
-		fail(`native WSS unexpectedly accepted ${expectedCause}`);
+		fail(`WSS unexpectedly accepted ${expectedCause}`);
 	}
-	if (!(refused instanceof GlowcapError)) fail(`native WSS returned ${String(refused)}`);
+	if (!(refused instanceof GlowcapError)) fail(`WSS returned ${String(refused)}`);
 	if (refused.carrierFailure?.phase !== "secureHandshake" || refused.carrierFailure.verificationFlags === 0) {
-		fail(`native WSS omitted secure-handshake verification detail: ${refused}`);
+		fail(`WSS omitted secure-handshake verification detail: ${refused}`);
 	}
 	if (!refused.message.includes(expectedCause)) {
-		fail(`native WSS reported ${JSON.stringify(refused.message)}, expected ${expectedCause}`);
+		fail(`WSS reported ${JSON.stringify(refused.message)}, expected ${expectedCause}`);
 	}
 }
 
 let runtime: Runtime;
-if (nativeRelayUrl == null) {
+if (wssRelayUrl == null) {
 	runtime = await Runtime.open({ connectors: [connector()] });
 } else {
-	if (nativeCaFile == null) fail("native WSS proof needs GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE");
-	const pem = await Deno.readFile(nativeCaFile);
-	const wrongHost = new URL(nativeRelayUrl);
+	if (wssCaFile == null) fail("WSS proof needs GLOWCAP_PROOF_WSS_RELAY_CA_FILE");
+	const pem = await Deno.readFile(wssCaFile);
+	const wrongHost = new URL(wssRelayUrl);
 	wrongHost.hostname = "127.0.0.1";
-	await expectNativeRefusal(wrongHost.href, { kind: "copied-pem", pem }, "CertificateNameMismatch");
-	await expectNativeRefusal(nativeRelayUrl, { kind: "system" }, "CertificateUntrusted");
+	await expectWssRefusal(wrongHost.href, { kind: "copied-pem", pem }, "CertificateNameMismatch");
+	await expectWssRefusal(wssRelayUrl, { kind: "system" }, "CertificateUntrusted");
 	runtime = await Runtime.open({
-		providers: [provider({ relayUrl: nativeRelayUrl, trust: { kind: "copied-pem", pem } })],
+		providers: [provider({ relayUrl: wssRelayUrl, trust: { kind: "copied-pem", pem } })],
 	});
 }
 await using ownedRuntime = runtime;

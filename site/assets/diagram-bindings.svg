@@ -4,7 +4,7 @@
   width="720"
   height="240"
   role="img"
-  aria-label="One C ABI surface sits at the center, and the Rust, TypeScript, Python, and Racket bindings each wrap it as a native consumer."
+  aria-label="One C ABI surface sits at the center, and the Rust, TypeScript, Python, and Racket bindings each wrap it in their own language's idioms."
 >
   <style>text { font-family: var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); }
     .name { font-size: 15px; font-weight: 700; }
@@ -81,7 +81,7 @@
     class="name"
     fill="var(--accent-deep, #a4560c)"
   >TypeScript</text>
-  <text x="595" y="69" text-anchor="middle" class="sub">native promises</text>
+  <text x="595" y="69" text-anchor="middle" class="sub">JS promises</text>
 
   <rect
     x="40"
@@ -101,7 +101,7 @@
     class="name"
     fill="var(--accent-deep, #a4560c)"
   >Python</text>
-  <text x="125" y="201" text-anchor="middle" class="sub">asyncio native</text>
+  <text x="125" y="201" text-anchor="middle" class="sub">asyncio-first</text>
 
   <rect
     x="510"

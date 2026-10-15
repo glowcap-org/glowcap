@@ -135,9 +135,46 @@ try {
 	await bounded(() => page.evaluate((saved) => binding.buffered_restore(saved), saved));
 	await bounded(() => page.evaluate((saved) => binding.retired_executor(saved), saved));
 	await bounded(() => page.evaluate((saved) => binding.partial_restore(saved), saved));
+	await initialize();
+	const operations = JSON.parse(await bounded(() => page.evaluate((saved) => binding.operations(saved), saved)));
+	const byName = Object.fromEntries(operations.map((operation) => [operation.operation, operation]));
+	for (const operation of operations) {
+		console.log(
+			`operation ${operation.operation}: transactions=${operation.transactions} js_calls=${operation.js_calls} callbacks=${operation.callbacks} planning_passes=${operation.planning_passes} rows_read=${operation.database_rows} writes_emitted=${operation.emitted_writes} copied_bytes=${operation.copied_bytes}`,
+		);
+	}
+	for (const operation of operations) {
+		// Structurally fixed: each transaction makes one js_execute call and each
+		// emitted write makes one js_put call. Nothing else crosses from Rust.
+		assert.equal(
+			operation.js_calls,
+			operation.transactions + operation.emitted_writes,
+			`${operation.operation}: JavaScript calls are transactions plus writes`,
+		);
+		// A lower bound only: a transaction that began before the measured window
+		// may settle inside it. Each planning pass enters Rust once.
+		assert.ok(
+			operation.callbacks >= operation.planning_passes,
+			`${operation.operation}: each planning pass enters Rust once`,
+		);
+	}
+	assert.ok(byName["cold read"].transactions >= 1, "a cold read reaches IndexedDB");
+	assert.ok(byName["cold read"].database_rows > 0, "a cold read loads rows");
+	// Warm reads and receipt replays answer from resident state and retained
+	// receipts, so no part of the adapter runs.
+	for (const resident of [byName["warm read"], byName["receipt replay"]]) {
+		for (const field of ["transactions", "js_calls", "callbacks", "database_rows", "emitted_writes", "copied_bytes"]) {
+			assert.equal(resident[field], 0, `${resident.operation} leaves ${field} at zero`);
+		}
+	}
+	for (const write of [byName.edit, byName.share]) {
+		assert.ok(write.transactions >= 1, `${write.operation} commits through IndexedDB`);
+		assert.ok(write.emitted_writes > 0, `${write.operation} emits writes`);
+	}
 	await bounded(() => page.evaluate(() => binding.cancelled_creation()));
 	await bounded(() => page.evaluate(() => binding.record_bound()));
 	await bounded(() => page.evaluate(() => binding.empty_store()));
+	console.log(await bounded(() => page.evaluate(() => binding.collection())));
 	const counts = await bounded(() =>
 		page.evaluate(async () => {
 			const count = () =>

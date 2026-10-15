@@ -1,5 +1,6 @@
 // An isolated replacement compiler: use the real application sources and
 // artifacts, but give the publisher no Vite configuration or dependency imports.
+import { parse as parseJsonc } from "@std/jsonc";
 import { ROOT } from "./paths.ts";
 
 export async function denoBrowserSource(directory: string): Promise<string> {
@@ -10,7 +11,11 @@ export async function denoBrowserSource(directory: string): Promise<string> {
 		await Deno.mkdir(target.slice(0, target.lastIndexOf("/")), { recursive: true });
 		await Deno.symlink(`${ROOT}${relative}`, target, { type: "dir" });
 	}
-	const config = JSON.parse(await Deno.readTextFile(`${ROOT}apps/rooms/web/deno.json`));
+	// The manifest carries a comment per dependency, so it is JSONC.
+	const config = parseJsonc(await Deno.readTextFile(`${ROOT}apps/rooms/web/deno.json`)) as {
+		imports: Record<string, string>;
+		tasks?: Record<string, string>;
+	};
 	// Only the browser graph stays: the publisher gets no build or test import.
 	for (const name of ["vite", "@vitejs/plugin-react", "@deno/vite-plugin", "@std/assert"]) {
 		delete config.imports[name];
@@ -43,6 +48,7 @@ export async function denoBrowserSource(directory: string): Promise<string> {
 				"--outdir",
 				"{outdir}",
 				"ui/page.js",
+				"ui/ground.js",
 			],
 			inputs: [],
 		}),

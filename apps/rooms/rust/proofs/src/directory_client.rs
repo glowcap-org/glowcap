@@ -12,6 +12,14 @@ pub fn run() {
 			assert_eq!(serde_json::to_value(result).unwrap(), row["result"]);
 		}
 	}
+	for row in fixture["pages"].as_array().unwrap() {
+		let raw = from_fixture(&row["input"]);
+		let result = directory::page(&&raw);
+		assert_eq!(result.is_err(), row["error"] == true, "{}", row["input"]);
+		if let Ok(result) = result {
+			assert_eq!(serde_json::to_value(result).unwrap(), row["result"]);
+		}
+	}
 	for row in fixture["snapshots"].as_array().unwrap() {
 		let raw = from_fixture(&row["input"]);
 		let result = directory::snapshot(&&raw);

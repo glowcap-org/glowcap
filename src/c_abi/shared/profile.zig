@@ -46,8 +46,8 @@ pub const GLOWCAP_DEFAULT_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.
 pub const GLOWCAP_DEFAULT_FEATURES: u32 = featureSetToC(model.Preference.default_offer.features);
 pub const GLOWCAP_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec);
 pub const GLOWCAP_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version);
-pub const GLOWCAP_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec);
-pub const GLOWCAP_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version);
+pub const GLOWCAP_OWN_CODEC: u32 = codecToC(model.Preference.glowcap.codec);
+pub const GLOWCAP_OWN_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.glowcap.captp_version);
 
 comptime {
     const fields = @typeInfo(model.FeatureSet).@"struct".field_names;

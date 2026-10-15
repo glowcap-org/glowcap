@@ -1,12 +1,16 @@
+---
+type: static
+description: How an HTTP bearer-token design compares with what OCapN already provides, before the application adds its own identity and audit log.
+sources: []
+---
+
 # HTTP and capability accountability
 
-This application could carry its signed request over HTTP. HTTP is a transport
-and request protocol, not an authority model. Mutual TLS, signed bodies,
-macaroons, OAuth, and other designs can all provide meaningful identity or
-delegation.
-
-The useful comparison is narrower: what does OCapN provide before the
-application adds its KERI-shaped identity and audit log?
+This application could carry its signed request over HTTP. HTTP is a transport,
+not an authority model, and mutual TLS, signed bodies, macaroons, and OAuth can
+all provide identity or delegation. The comparison here is narrower: what does
+OCapN provide before the application adds its KERI-shaped identity and audit
+log?
 
 ## The bearer-token version
 
@@ -16,11 +20,8 @@ A from B. Revoking the token cuts off both holders.
 
 An HTTP design can fix that. It can mint a separate credential for B, bind it
 to B's key, narrow its scope, record who issued it, and keep revocation state.
-Those are application and infrastructure choices that must be designed
-explicitly.
-
-HTTP can carry accountability. A copied bearer token does not carry
-delegation, recipient identity, or per-recipient revocation by itself.
+Each is an application and infrastructure choice. A copied bearer token carries
+no delegation, recipient identity, or per-recipient revocation by itself.
 
 ## What OCapN supplies
 
@@ -52,12 +53,9 @@ An HTTP application could recreate this design with signed requests,
 recipient-specific credentials, delegation records, scoped grants, and
 revocation machinery. OCapN makes reference passing and three-party
 introduction part of the network model, so the application can concentrate on
-identity evidence and accountability.
+identity and the audit record.
 
-This example shows that capability networking composes cleanly with signed
-caller identity. HTTP can also support secure delegation and attribution.
-
-Run `zig build accountability` for the native signed-call path and
+Run `zig build accountability` for the Zig signed-call path and
 `zig build accountability-three-party` for attribution after a live three-Host
 TCP handoff. The [application guide](README.md) describes the limits: no witness
 receipts and no cross-session duplicity detection.

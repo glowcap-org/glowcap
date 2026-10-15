@@ -95,6 +95,7 @@ pub const SESSION_DEADLINE_MS: u64 = 15000;
 pub const OPEN: &str = "open";
 pub const ENTER: &str = "enter";
 pub const LIST_PUBLICATIONS: &str = "listPublications";
+pub const NAMED_PUBLICATIONS: &str = "namedPublications";
 pub const WATCH_PUBLICATIONS: &str = "watchPublications";
 pub const UNWATCH_PUBLICATIONS: &str = "unwatchPublications";
 pub const REGISTER: &str = "register";
@@ -209,6 +210,22 @@ pub const TRUNCATED_FIELDS: &[Field] = &[Field {
 	nullable: false,
 	values: &[],
 }];
+
+/// What listPublications answers: one page of publication rows, and the cursor that asks for the page after it, null on the last page. The cursor is the directory's own word: pass it back exactly.
+pub const LIST_PAGE_FIELDS: &[Field] = &[
+	Field {
+		name: "rooms",
+		ty: Ty::List,
+		nullable: false,
+		values: &[],
+	},
+	Field {
+		name: "next",
+		ty: Ty::Text,
+		nullable: true,
+		values: &[],
+	},
+];
 
 /// What watchPublications answers: the baseline a watcher folds deltas into.
 pub const WATCH_SNAPSHOT_FIELDS: &[Field] = &[

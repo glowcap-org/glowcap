@@ -43,10 +43,8 @@ pub fn Harness(comptime Transport: type) type {
             defer c.glowcap_managed_frame_release(&mf);
 
             const bytes = (mf.bytes orelse return error.NullFrame)[0..mf.len];
-            switch (try peer.recvStreamPrefix(bytes)) {
-                .consumed => return .received,
-                .incomplete => return error.PartialFrameFromEndpoint,
-            }
+            try peer.recvPacket(bytes);
+            return .received;
         }
 
         pub const ServerArgs = struct {
@@ -72,7 +70,7 @@ pub fn Harness(comptime Transport: type) type {
             const conn_ptr = conn orelse return error.AcceptNull;
             defer Transport.releaseConn(conn_ptr);
 
-            try peer.sendCopying(args.start_session);
+            try peer.sendBorrowed(args.start_session);
             while ((try pumpStep(&peer, conn_ptr)) != .closed) {}
         }
 
@@ -85,7 +83,7 @@ pub fn Harness(comptime Transport: type) type {
             defer peer.deinit();
             peer.session_state.limits.max_frame_bytes = frame_cap;
 
-            try peer.sendCopying(start_session);
+            try peer.sendBorrowed(start_session);
             while (!fetch_pump.isOpen(&peer)) {
                 if ((try pumpStep(&peer, conn)) == .closed) return error.ClosedDuringHandshake;
             }

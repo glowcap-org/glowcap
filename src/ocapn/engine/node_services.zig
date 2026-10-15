@@ -7,6 +7,7 @@
 //! compatibility count issuance.
 
 const std = @import("std");
+const codec = @import("codec");
 const model = @import("model");
 const session = @import("session");
 const bootstrap = @import("bootstrap.zig");
@@ -14,7 +15,9 @@ const passable = @import("node/passable.zig");
 const PeerHandle = @import("peer_handle.zig").PeerHandle;
 
 pub const LoweringError = error{RouteNotLowerable};
-pub const OutboundStagingError = std.mem.Allocator.Error || session.Error || error{
+/// A staged batch encodes its carrier when it finishes (ADR-0236), so the
+/// encoder's refusals join the staging set.
+pub const OutboundStagingError = std.mem.Allocator.Error || session.Error || codec.dispatch.EncodeError || error{
     RouteNotLowerable,
     QueueCapExceeded,
     CapabilitySpaceExhausted,
@@ -57,7 +60,7 @@ pub const NodeServices = struct {
 
     pub const VTable = struct {
         lower: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, reference: model.Reference) LoweringError!model.Reference,
-        stage_outbound: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, outbound: *passable.Outbound) OutboundStagingError!bool,
+        stage_outbound: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, outbound: *passable.Outbound, inventory: session.Inventory) OutboundStagingError!bool,
         staged_withdrawn: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, batch: passable.BatchId) void,
         provisional_closed: *const fn (ctx: *anyopaque, peer_handle: PeerHandle, retract: bool) void,
         local_object_projection: *const fn (ctx: *anyopaque) ?bootstrap.gifts.LocalObjectProjection,
@@ -92,8 +95,8 @@ pub const NodeServices = struct {
                 return implementation.lower(context(erased), id, reference);
             }
 
-            fn stageOutboundThunk(erased: *anyopaque, id: PeerHandle, outbound: *passable.Outbound) OutboundStagingError!bool {
-                return implementation.stage_outbound(context(erased), id, outbound);
+            fn stageOutboundThunk(erased: *anyopaque, id: PeerHandle, outbound: *passable.Outbound, inventory: session.Inventory) OutboundStagingError!bool {
+                return implementation.stage_outbound(context(erased), id, outbound, inventory);
             }
 
             fn stagedWithdrawnThunk(erased: *anyopaque, id: PeerHandle, batch: passable.BatchId) void {
@@ -173,7 +176,7 @@ pub const NodeServices = struct {
     fn Implementation(comptime Context: type) type {
         return struct {
             lower: *const fn (Context, PeerHandle, model.Reference) LoweringError!model.Reference,
-            stage_outbound: *const fn (Context, PeerHandle, *passable.Outbound) OutboundStagingError!bool,
+            stage_outbound: *const fn (Context, PeerHandle, *passable.Outbound, session.Inventory) OutboundStagingError!bool,
             staged_withdrawn: *const fn (Context, PeerHandle, passable.BatchId) void,
             provisional_closed: *const fn (Context, PeerHandle, bool) void,
             local_object_projection: *const fn (Context) ?bootstrap.gifts.LocalObjectProjection,
@@ -196,8 +199,8 @@ pub const NodeServices = struct {
     /// Transfer an owned semantic payload into Node staging when one of its
     /// Passable values needs cross-session projection. `true` means the Node
     /// adopted the complete payload. `false` leaves it with the caller.
-    pub fn stageOutbound(self: NodeServices, outbound: *passable.Outbound) OutboundStagingError!bool {
-        return self.vtable.stage_outbound(self.ctx, self.peer_handle, outbound);
+    pub fn stageOutbound(self: NodeServices, outbound: *passable.Outbound, inventory: session.Inventory) OutboundStagingError!bool {
+        return self.vtable.stage_outbound(self.ctx, self.peer_handle, outbound, inventory);
     }
 
     /// A retracted provisional window removed the row of a carrier the Node

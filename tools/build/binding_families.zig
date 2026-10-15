@@ -1,7 +1,7 @@
 //! The per-binding client families: one emitter over every `bindings-*`
 //! aggregate: Goblins interop/listen/handoff/gift, iroh loop/handoff/redeem/
 //! reachability, and keyed-tcp restart, with rows ordered deno → python →
-//! rust → racket wherever a language is present. Native one-off drivers stay
+//! rust → racket wherever a language is present. Zig one-off drivers stay
 //! in the goblins family module.
 
 const std = @import("std");
@@ -9,9 +9,11 @@ const common = @import("common.zig");
 const execution = @import("execution.zig");
 
 const addInstalledSystemRun = common.addInstalledSystemRun;
+const iroh_rows = @import("binding_families/iroh.zig");
+const webrtc_rows = @import("binding_families/webrtc.zig");
 
 /// One per-binding client row under a `bindings-*` family aggregate.
-const BindingClientRow = struct {
+pub const BindingClientRow = struct {
     step_name: []const u8,
     description: []const u8,
     argv: []const []const u8,
@@ -26,10 +28,20 @@ const BindingFamily = struct {
     aggregate_name: []const u8,
     aggregate_desc: []const u8,
     needs_iroh_abi: bool,
+    /// The rows dial the Zig WebRTC answerer and accept the Zig WebRTC
+    /// offerer over the WebRTC C library, so all three are built first.
+    needs_webrtc_peers: bool = false,
     /// The family's harness delegates every child to the shared proof process
     /// owner, whose injected-timeout regression must gate the aggregate.
     uses_proof_process_owner: bool = false,
     rows: []const BindingClientRow,
+};
+
+/// The WebRTC steps a live dial-and-listen family depends on.
+pub const WebrtcSteps = struct {
+    abi_step: *std.Build.Step,
+    answerer_step: *std.Build.Step,
+    offerer_step: *std.Build.Step,
 };
 
 /// Register a `bindings-*` aggregate and every per-binding step under it.
@@ -38,12 +50,18 @@ fn addBindingFamily(
     family: BindingFamily,
     pin_port: ?u16,
     iroh_abi_step: *std.Build.Step,
+    webrtc: WebrtcSteps,
 ) *std.Build.Step {
     const aggregate = b.step(family.aggregate_name, family.aggregate_desc);
     for (family.rows) |client| {
         const run = addInstalledSystemRun(b, client.posture, client.argv);
         addClientCaches(b, client, run);
         if (family.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
+        if (family.needs_webrtc_peers) {
+            run.step.dependOn(webrtc.abi_step);
+            run.step.dependOn(webrtc.answerer_step);
+            run.step.dependOn(webrtc.offerer_step);
+        }
         if (pin_port) |p| {
             if (client.dashdash_before_args) run.addArg("--");
             run.addArg(b.fmt("--port={d}", .{p}));
@@ -87,7 +105,7 @@ fn addClientCaches(b: *std.Build, client: BindingClientRow, run: *std.Build.Step
 // ── Per-binding client families ──────────────────────────────────────────
 // One emitter over every `bindings-*` aggregate: Goblins interop/handoff/gift,
 // iroh loop/handoff/redeem/reachability, and keyed-tcp restart. Row order is
-// deno → python → rust → racket wherever a language is present. Native
+// deno → python → rust → racket wherever a language is present. Zig
 // one-offs (`goblins-interop`, `goblins-handoff`, `tcp-loop`) stay above,
 // they are Zig drivers, not binding clients.
 
@@ -216,108 +234,6 @@ const goblins_gift_clients = [_]BindingClientRow{
     },
 };
 
-// Binding sibling of `iroh-loop`: many concurrent connections from one
-// readiness loop through the iroh C ABI (ADR-0057).
-const iroh_loop_clients = [_]BindingClientRow{
-    .{
-        .step_name = "deno-iroh-loop",
-        .description = "Live iroh scale: the Deno binding serves many connections from one readiness loop (ADR-0057; needs cargo + deno)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_loop/deno_client.ts" },
-        .posture = .{ .deterministic = 30 },
-    },
-    .{
-        .step_name = "python-iroh-loop",
-        .description = "Live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0057; needs cargo + python3)",
-        .argv = &.{ "python3", "interop/iroh_loop/python_client.py" },
-        .posture = .{ .deterministic = 30 },
-    },
-    .{
-        .step_name = "rust-iroh-driver-provider",
-        .description = "Live ADR-0112 Rust parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the C multiplexed-transport table (needs cargo)",
-        .argv = &.{ "cargo", "test", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "iroh_provider_dials_live", "--", "--ignored", "--nocapture" },
-        .posture = .{ .deterministic = 30 },
-    },
-    .{
-        .step_name = "python-iroh-driver-provider",
-        .description = "Live ADR-0112 Python parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the C multiplexed-transport table (needs cargo + python3)",
-        .argv = &.{ "python3", "interop/iroh_driver_provider/python_client.py" },
-        .posture = .{ .deterministic = 30 },
-    },
-    .{
-        .step_name = "rust-iroh-loop",
-        .description = "Live iroh scale: the Rust binding serves many connections from one readiness loop (ADR-0057; needs cargo)",
-        .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_loop" },
-        .posture = .{ .deterministic = 30 },
-        .dashdash_before_args = true,
-    },
-    .{
-        .step_name = "racket-iroh-loop",
-        .description = "Live iroh scale: the Racket binding serves many connections from one readiness loop (ADR-0057; needs cargo + racket)",
-        .argv = &.{ "racket", "-y", "interop/iroh_loop/racket_client.rkt" },
-        .posture = .{ .deterministic = 30 },
-    },
-};
-
-// Binding sibling of demo-rooms-dm-iroh: mint + redeem an iroh handoff give
-// in one process (relay-less Direct posture). Deterministic, flake-free.
-const iroh_handoff_clients = [_]BindingClientRow{
-    .{
-        .step_name = "deno-iroh-handoff",
-        .description = "Three-party handoff over iroh: the Deno binding mints and redeems an iroh handoff give in one process (needs cargo + deno)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_handoff/deno_client.ts" },
-        .posture = .{ .deterministic = 30 },
-    },
-    .{
-        .step_name = "python-iroh-handoff",
-        .description = "Three-party handoff over iroh: the Python binding mints and redeems an iroh handoff give in one process (needs cargo + python3)",
-        .argv = &.{ "python3", "interop/iroh_handoff/python_client.py" },
-        .posture = .{ .deterministic = 30 },
-    },
-    .{
-        .step_name = "rust-iroh-handoff",
-        .description = "Three-party handoff over iroh: the Rust binding mints and redeems an iroh handoff give in one process (needs cargo)",
-        .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_handoff" },
-        .posture = .{ .deterministic = 30 },
-        .dashdash_before_args = true,
-    },
-    .{
-        .step_name = "racket-iroh-handoff",
-        .description = "Three-party handoff over iroh: the Racket binding mints and redeems an iroh handoff give in one process (needs cargo + racket)",
-        .argv = &.{ "racket", "-y", "interop/iroh_handoff/racket_client.rkt" },
-        .posture = .{ .deterministic = 30 },
-    },
-};
-
-// Hermetic proof that configured redeem posture governs a hint-less iroh
-// give (node id alone, in-process address book). Flake-free like handoff.
-const iroh_redeem_clients = [_]BindingClientRow{
-    .{
-        .step_name = "deno-iroh-redeem-posture",
-        .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Deno binding (needs cargo + deno)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/iroh_redeem_posture/deno_client.ts" },
-        .posture = .{ .deterministic = 30 },
-    },
-    .{
-        .step_name = "python-iroh-redeem-posture",
-        .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Python binding (needs cargo + python3)",
-        .argv = &.{ "python3", "bindings/proofs/iroh_redeem_posture/python_client.py" },
-        .posture = .{ .deterministic = 30 },
-    },
-    .{
-        .step_name = "rust-iroh-redeem-posture",
-        .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Rust binding (needs cargo)",
-        .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_redeem_posture" },
-        .posture = .{ .deterministic = 30 },
-        .dashdash_before_args = true,
-    },
-    .{
-        .step_name = "racket-iroh-redeem-posture",
-        .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Racket binding (needs cargo + racket)",
-        .argv = &.{ "racket", "-y", "bindings/proofs/iroh_redeem_posture/racket_client.rkt" },
-        .posture = .{ .deterministic = 30 },
-    },
-};
-
 // Keyed-tcp restart proof (ADR-0075): happy path, squatter refusal, same-
 // seed fresh-port restart. No iroh companion needed.
 const keyed_tcp_restart_clients = [_]BindingClientRow{
@@ -335,14 +251,14 @@ const keyed_tcp_restart_clients = [_]BindingClientRow{
     },
     .{
         .step_name = "rust-keyed-tcp-restart",
-        .description = "Keyed-tcp restart proof: the Rust binding (happy, squatter, restart; needs cargo)",
+        .description = "Keyed-tcp restart proof: the Rust binding (happy, squatter, and restart cases, needs cargo)",
         .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "keyed_tcp_restart" },
         .posture = .{ .deterministic = 30 },
         .dashdash_before_args = true,
     },
     .{
         .step_name = "racket-keyed-tcp-restart",
-        .description = "Keyed-tcp restart proof: the Racket binding (happy, squatter, restart; needs racket)",
+        .description = "Keyed-tcp restart proof: the Racket binding (happy, squatter, and restart cases, needs racket)",
         .argv = &.{ "racket", "-y", "bindings/proofs/keyed_tcp_restart/racket_client.rkt" },
         .posture = .{ .deterministic = 30 },
     },
@@ -380,13 +296,13 @@ const keyed_relay_rendezvous_clients = [_]BindingClientRow{
     },
     .{
         .step_name = "zig-keyed-relay-register",
-        .description = "Keyed-relay register proof: the native glowcap CLI registers at the reference relay (no listening socket) and answers a cold dial (needs deno)",
+        .description = "Keyed-relay register proof: the Zig glowcap CLI registers at the reference relay (no listening socket) and answers a cold dial (needs deno)",
         .argv = &.{ "bash", "bindings/proofs/keyed_relay_rendezvous/zig_register.sh" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "zig-keyed-relay-rendezvous",
-        .description = "Keyed-relay rendezvous cold-dial proof: the native glowcap CLI dials a registered peer through the reference relay via GLOWCAP_RENDEZVOUS (needs deno)",
+        .description = "Keyed-relay rendezvous cold-dial proof: the Zig glowcap CLI dials a registered peer through the reference relay via GLOWCAP_RENDEZVOUS (needs deno)",
         .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--", "bash", "bindings/proofs/keyed_relay_rendezvous/zig_client.sh" },
         .posture = .{ .deterministic = 30 },
     },
@@ -458,64 +374,34 @@ const noise_relay_listen_clients = [_]BindingClientRow{
     },
 };
 
-// The same rendezvous conversation over the native WSS provider in every
+// The same rendezvous conversation over the Mbed TLS WSS provider in every
 // binding. The shared harness supplies one copied test CA and makes each
 // client prove wrong-host and unknown-CA projection before the successful
 // call. Managed registration remains the peer/runtime-owned side of ADR-0117.
-const native_wss_relay_clients = [_]BindingClientRow{
+const wss_relay_clients = [_]BindingClientRow{
     .{
-        .step_name = "deno-native-wss-relay",
-        .description = "Native WSS relay success and exact TLS refusals through the Deno binding (needs deno)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--native-wss", "--", "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/deno_client.ts" },
+        .step_name = "deno-wss-relay",
+        .description = "WSS relay success and exact TLS refusals through the Deno binding (needs deno)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--wss", "--", "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/deno_client.ts" },
         .posture = .{ .deterministic = 30 },
     },
     .{
-        .step_name = "python-native-wss-relay",
-        .description = "Native WSS relay success and exact TLS refusals through the Python binding (needs deno + uv)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--native-wss", "--", "uv", "run", "--project", "bindings/python", "--locked", "python3", "bindings/proofs/keyed_relay_rendezvous/python_client.py" },
+        .step_name = "python-wss-relay",
+        .description = "WSS relay success and exact TLS refusals through the Python binding (needs deno + uv)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--wss", "--", "uv", "run", "--project", "bindings/python", "--locked", "python3", "bindings/proofs/keyed_relay_rendezvous/python_client.py" },
         .posture = .{ .deterministic = 30 },
     },
     .{
-        .step_name = "rust-native-wss-relay",
-        .description = "Native WSS relay success and exact TLS refusals through the Rust binding (needs deno + cargo)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--native-wss", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "relay", "--example", "keyed_relay_rendezvous", "--" },
+        .step_name = "rust-wss-relay",
+        .description = "WSS relay success and exact TLS refusals through the Rust binding (needs deno + cargo)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--wss", "--", "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "relay", "--example", "keyed_relay_rendezvous", "--" },
         .posture = .{ .deterministic = 30 },
     },
     .{
-        .step_name = "racket-native-wss-relay",
-        .description = "Native WSS relay success and exact TLS refusals through the Racket binding (needs deno + racket)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--native-wss", "--", "racket", "-y", "bindings/proofs/keyed_relay_rendezvous/racket_client.rkt" },
+        .step_name = "racket-wss-relay",
+        .description = "WSS relay success and exact TLS refusals through the Racket binding (needs deno + racket)",
+        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/keyed_relay_rendezvous/harness.ts", "--wss", "--", "racket", "-y", "bindings/proofs/keyed_relay_rendezvous/racket_client.rkt" },
         .posture = .{ .deterministic = 30 },
-    },
-};
-
-// Opt-in live dial-by-id over n0 relays + DNS/pkarr. Touches public infra;
-// never part of `check`. Offline dial-by-id is `local_discovery` in *-iroh-loop.
-const iroh_reach_clients = [_]BindingClientRow{
-    .{
-        .step_name = "deno-iroh-reachability",
-        .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Deno binding (opt-in; needs cargo + deno + internet)",
-        .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_reachability/deno_client.ts" },
-        .posture = .real_internet,
-    },
-    .{
-        .step_name = "python-iroh-reachability",
-        .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Python binding (opt-in; needs cargo + python3 + internet)",
-        .argv = &.{ "python3", "interop/iroh_reachability/python_client.py" },
-        .posture = .real_internet,
-    },
-    .{
-        .step_name = "rust-iroh-reachability",
-        .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Rust binding (opt-in; needs cargo + internet)",
-        .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_reachability" },
-        .posture = .real_internet,
-        .dashdash_before_args = true,
-    },
-    .{
-        .step_name = "racket-iroh-reachability",
-        .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Racket binding (opt-in; needs cargo + racket + internet)",
-        .argv = &.{ "racket", "-y", "interop/iroh_reachability/racket_client.rkt" },
-        .posture = .real_internet,
     },
 };
 
@@ -548,19 +434,26 @@ const binding_families = [_]BindingFamily{
         .aggregate_name = "bindings-iroh-loop",
         .aggregate_desc = "Per-binding iroh scale proof: many connections served from one loop, every binding (needs cargo + the runtimes)",
         .needs_iroh_abi = true,
-        .rows = &iroh_loop_clients,
+        .rows = &iroh_rows.iroh_loop_clients,
+    },
+    .{
+        .aggregate_name = "bindings-webrtc-driver-provider",
+        .aggregate_desc = "Live WebRTC through the C provider: every binding dials the Zig answerer (ADR-0226) and accepts the Zig offerer (ADR-0232) with its own signaling (needs cargo + deno + python3 + racket)",
+        .needs_iroh_abi = false,
+        .needs_webrtc_peers = true,
+        .rows = &webrtc_rows.webrtc_driver_provider_clients,
     },
     .{
         .aggregate_name = "bindings-iroh-handoff",
         .aggregate_desc = "Per-binding three-party handoff over iroh: every binding mints and redeems an iroh handoff give in one process (needs cargo + the runtimes)",
         .needs_iroh_abi = true,
-        .rows = &iroh_handoff_clients,
+        .rows = &iroh_rows.iroh_handoff_clients,
     },
     .{
         .aggregate_name = "bindings-iroh-redeem-posture",
         .aggregate_desc = "Per-binding hermetic proof that a configured redeem posture governs a hint-less iroh give, every binding (needs cargo + the runtimes)",
         .needs_iroh_abi = true,
-        .rows = &iroh_redeem_clients,
+        .rows = &iroh_rows.iroh_redeem_clients,
     },
     .{
         .aggregate_name = "bindings-keyed-tcp-restart",
@@ -570,7 +463,7 @@ const binding_families = [_]BindingFamily{
     },
     .{
         .aggregate_name = "bindings-keyed-relay-rendezvous",
-        .aggregate_desc = "Per-consumer keyed-relay rendezvous cold-dial proof: each language binding and the native CLI dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)",
+        .aggregate_desc = "Per-consumer keyed-relay rendezvous cold-dial proof: each language binding and the Zig CLI dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)",
         .needs_iroh_abi = false,
         .uses_proof_process_owner = true,
         .rows = &keyed_relay_rendezvous_clients,
@@ -590,21 +483,21 @@ const binding_families = [_]BindingFamily{
         .rows = &noise_relay_listen_clients,
     },
     .{
-        .aggregate_name = "bindings-native-wss-relay",
-        .aggregate_desc = "Per-binding native WSS relay success and exact TLS refusal projection through one local CA fixture",
+        .aggregate_name = "bindings-wss-relay",
+        .aggregate_desc = "Per-binding WSS relay success and exact TLS refusal projection through one local CA fixture",
         .needs_iroh_abi = false,
-        .rows = &native_wss_relay_clients,
+        .rows = &wss_relay_clients,
     },
     .{
         .aggregate_name = "bindings-iroh-reachability",
         .aggregate_desc = "Per-binding live dial-by-id over n0 relays + DNS/pkarr discovery, every binding (opt-in; needs cargo + the runtimes + internet)",
         .needs_iroh_abi = true,
-        .rows = &iroh_reach_clients,
+        .rows = &iroh_rows.iroh_reach_clients,
     },
 };
 /// Register every family: the aggregate steps, their per-binding rows, and
 /// the iroh ABI dependency where a family needs it.
-pub fn register(b: *std.Build, pin_port: ?u16, iroh_abi_step: *std.Build.Step) void {
+pub fn register(b: *std.Build, pin_port: ?u16, iroh_abi_step: *std.Build.Step, webrtc: WebrtcSteps) void {
     // The process-owned harnesses share this injected-timeout regression. A
     // family declares that dependency beside its rows, so the table remains
     // the authority when another harness adopts the owner.
@@ -612,7 +505,7 @@ pub fn register(b: *std.Build, pin_port: ?u16, iroh_abi_step: *std.Build.Step) v
         "deno", "test", "-A", "bindings/proofs/_support/harness_test.ts",
     });
     for (binding_families) |family| {
-        const aggregate = addBindingFamily(b, family, pin_port, iroh_abi_step);
+        const aggregate = addBindingFamily(b, family, pin_port, iroh_abi_step, webrtc);
         if (family.uses_proof_process_owner) {
             aggregate.dependOn(&harness_test.step);
         }

@@ -1,4 +1,4 @@
-//! The behavior trampoline: the ONE native callback in the whole binding
+//! The behavior trampoline: the ONE FFI callback in the whole binding
 //! (plus its ctx-free sibling). Every hosted object, a
 //! [`Session::spawn`](crate::Session::spawn) /
 //! [`publish`](crate::Session::publish) actor, a caretaker or attenuator
@@ -107,14 +107,14 @@ pub(crate) fn attenuate_proxy(shared: &Rc<SessionShared>, target: &Ref, verbs: &
 }
 
 /// One hosted object's behavior. Its identity and lifetime live
-/// on the registered Host. Native turn metadata identifies the delivering Port.
+/// on the registered Host. FFI turn metadata identifies the delivering Port.
 /// Owned by the Host row: `ctx = Box::into_raw`, freed exactly once by
 /// [`ctx_free`] when the Host tears the object down.
 pub(crate) struct ActorCell {
 	pub(crate) behavior: RefCell<InternalBehavior>,
-	// Native settlement and release can pump a callback outside the adapter's
+	// FFI settlement and release can pump a callback outside the adapter's
 	// usual progress bracket. Registration supplies its exact Host without a
-	// strong cycle from the Host's native actor back to the Rust Host owner.
+	// strong cycle from the Host's FFI actor back to the Rust Host owner.
 	pub(crate) host: Weak<crate::host::HostShared>,
 	pub(crate) context: Rc<crate::ContextInner>,
 	pub(crate) diagnostic_id: u64,
@@ -124,7 +124,7 @@ pub(crate) struct ActorCell {
 }
 
 // What a hosted callback reads as the arriving deliver context. The byte-fed
-// pump brackets each feed with the arriving Session; a native loop step
+// pump brackets each feed with the arriving Session; a driver loop step
 // (ADR-0112) delivers for any of its host's sessions at once, so it brackets
 // itself with the loop's adopted Host instead: the loop-tier sibling of the
 // Session bracket, and it latches a turn to its Host (turn-time spawn)
@@ -180,7 +180,7 @@ fn turn_session(turn: *mut ffi::GlowcapHostTurn) -> crate::Result<Option<Rc<Sess
 	let host = active_deliver_host().ok_or_else(|| {
 		Error::with_detail(
 			sys::ERR_INTERNAL,
-			"hosted callback ran outside native Host progress".to_string(),
+			"hosted callback ran outside FFI Host progress".to_string(),
 		)
 	})?;
 	let mut ptr = core::ptr::null_mut();
@@ -235,7 +235,7 @@ pub fn current_session() -> Result<Option<crate::Session>> {
 	Ok(turn_session(turn as *mut ffi::GlowcapHostTurn)?.map(crate::Session::view))
 }
 
-/// Whether a native Host callback is running. Local and remote calls share
+/// Whether an FFI Host callback is running. Local and remote calls share
 /// the same turn latch. Teardown and action pumping wait for its unwind.
 pub(crate) fn inside_turn() -> bool {
 	CURRENT_TURN.with(|t| t.get().is_some())
@@ -423,7 +423,7 @@ pub(crate) unsafe extern "C" fn trampoline(
 }
 
 /// The ctx-free sibling: re-box and drop the [`ActorCell`] the registration
-/// handed the host. Runs once when the native Vat reclaims the retired actor
+/// handed the host. Runs once when the FFI Vat reclaims the retired actor
 /// or the Host closes. It calls no `glowcap_host_*` function, and a
 /// panicking drop is swallowed rather than unwound across the C frame.
 pub(crate) unsafe extern "C" fn ctx_free(ctx: *mut core::ffi::c_void) {

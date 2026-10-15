@@ -24,12 +24,12 @@ _UNSET: Final = object()
 
 
 def _release_consumed(code: int) -> bool:
-    """Whether final native release crossed its ownership boundary."""
+    """Whether final FFI release crossed its ownership boundary."""
     return code != _abi.ERR_INVALID_ARGUMENT
 
 
 def _lifecycle_closed(raw: int) -> bool:
-    """Decode native progress without letting an unknown state become a hang."""
+    """Decode FFI progress without letting an unknown state become a hang."""
     if raw in (
         _abi.LIFECYCLE_ACTIVE,
         _abi.LIFECYCLE_FINISHING,

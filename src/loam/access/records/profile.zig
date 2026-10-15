@@ -16,10 +16,10 @@ pub const observation_endpoint: u64 = 0x616363657373000e;
 pub const terminal: u64 = 0x616363657373000f;
 pub const schemas = [_]records.Schema{
     .{ .id = terminal, .version = 1, .max_payload = @import("terminal_record.zig").TerminalRecord.max_encoded_bytes, .max_edges = 0 },
-    .{ .id = owner, .version = 1, .max_payload = 4096, .max_edges = @import("owner_record.zig").OwnerRecord.max_edges },
+    .{ .id = owner, .version = 1, .max_payload = @import("owner_record.zig").OwnerRecord.max_encoded_bytes, .max_edges = @import("owner_record.zig").OwnerRecord.max_edges },
     .{ .id = directory, .version = 1, .max_payload = 192, .max_edges = 256 },
     .{ .id = resource, .version = 1, .max_payload = @import("resource_record.zig").ResourceRecord.max_encoded_bytes, .max_edges = 2 },
-    .{ .id = grant, .version = @import("grant_record.zig").GrantRecord.format_version, .max_payload = @import("grant_record.zig").GrantRecord.max_encoded_bytes, .max_edges = 515 },
+    .{ .id = grant, .version = @import("grant_record.zig").GrantRecord.format_version, .max_payload = @import("grant_record.zig").GrantRecord.max_encoded_bytes, .max_edges = @import("grant_record.zig").GrantRecord.max_edges },
     .{ .id = capability, .version = @import("capability_record.zig").CapabilityRecord.version, .max_payload = @import("capability_record.zig").CapabilityRecord.max_encoded_bytes, .max_edges = 3 },
     .{ .id = endpoint, .version = @import("endpoint_record.zig").EndpointRecord.version, .max_payload = @import("endpoint_record.zig").EndpointRecord.max_encoded_bytes, .max_edges = @import("endpoint_record.zig").EndpointRecord.max_edges },
     .{ .id = derivation, .version = 1, .max_payload = @import("derivation_record.zig").DerivationRecord.max_encoded_bytes, .max_edges = 3 },

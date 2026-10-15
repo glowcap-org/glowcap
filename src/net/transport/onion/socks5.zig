@@ -106,7 +106,7 @@ pub fn checkGreetingReply(bytes: []const u8) Error!void {
 
 /// A connect reply's fixed head: version, reply code, reserved, address type.
 /// The bound address that follows is variable, so a reader takes this much
-/// first and then asks `boundAddressLen` how much more to take.
+/// first and then asks `boundAddress` how much more to take.
 pub const connect_reply_head_len = 4;
 
 /// How the bound address following a successful reply head is sized. IPv4 and

@@ -60,13 +60,16 @@ pub const GlowcapMultiplexedDrainReadyFn = *const fn (
 ) callconv(.c) i32;
 
 /// Begin a dial toward a complete borrowed locator without waiting for
-/// transport completion. Completion arrives as a connect record carrying
-/// `request_id`. Returns `GLOWCAP_OK` or a `GLOWCAP_ERR_*` refusal.
+/// transport completion. `origin` names the session that introduced a handoff
+/// dial, or is null (`GlowcapDialOrigin`). Completion arrives as a connect
+/// record carrying `request_id`. Returns `GLOWCAP_OK` or a `GLOWCAP_ERR_*`
+/// refusal.
 pub const GlowcapMultiplexedStartConnectFn = *const fn (
     ctx: ?*anyopaque,
     request_id: u64,
     locator_view: ?*const locator.GlowcapLocatorView,
     options: ?*const transport_provider.GlowcapTransportOperationOptions,
+    origin: ?*const transport_provider.GlowcapDialOrigin,
     out_failure: ?*transport_provider.GlowcapProviderFailure,
 ) callconv(.c) i32;
 

@@ -44,13 +44,14 @@ const Holder = struct {
         self: *Holder,
         turn: *driver.HostTurn,
         verb: []const u8,
-        args: []const driver.Value,
+        args: driver.Args,
     ) !driver.Value {
+        const arg_values = try args.values();
         _ = turn;
         if (!std.mem.eql(u8, verb, "hold")) return error.NoSuchMethod;
-        if (args.len != 1 or args[0] != .capability) return error.NotACapability;
+        if (arg_values.len != 1 or arg_values[0] != .capability) return error.NotACapability;
         if (self.state.promise != null) return error.PromiseDeliveredTwice;
-        self.state.promise = args[0].capability;
+        self.state.promise = arg_values[0].capability;
         self.state.deliveries += 1;
         return .{ .string = "held" };
     }

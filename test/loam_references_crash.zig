@@ -4,7 +4,7 @@ const std = @import("std");
 const f = @import("loam/access/reference_fixture.zig");
 const h = f.h;
 const sharing = @import("loam/access/sharing_fixture.zig");
-const Lmdb = @import("loam_lmdb").Lmdb;
+const fixture = @import("engine_fixture");
 const core = h.loam.core;
 const manifest_schema: core.Schema = .{ .id = 0x52454650524f4245, .version = 1, .max_payload = 16, .max_edges = 2, .name_offset = 0 };
 const schemas = f.schemas ++ [_]core.Schema{manifest_schema};
@@ -18,12 +18,12 @@ fn stop() noreturn {
 }
 
 const Manifest = struct { use: core.ObjectId, control: core.ObjectId };
-fn stageManifest(store: *core.Store, db: *Lmdb, data: h.Data) !void {
+fn stageManifest(store: *core.Store, db: *fixture.Engine, data: h.Data) !void {
     try store.begin();
     try store.putCopying(.{ .id = try store.allocateId(), .revision = 0, .schema = manifest_schema.id, .rooted = true, .payload = &@as([16]u8, @splat(0)), .edges = &.{ .{ .target = data.use }, .{ .target = data.control } } }, null);
     try h.f.commit(store, db);
 }
-fn manifest(store: *core.Store, db: *Lmdb) !Manifest {
+fn manifest(store: *core.Store, db: *fixture.Engine) !Manifest {
     const lookup = db.lookup(.{ .ticket = .{ .store = store.metadata.store, .incarnation = store.metadata.incarnation, .sequence = 0, .revision = store.metadata.revision }, .name = .{ .schema = manifest_schema.id, .bytes = @splat(0) } });
     const id = switch (lookup) {
         .found => |id| id,
@@ -63,9 +63,9 @@ pub fn main(init: std.process.Init) !void {
     const target_path = try std.fmt.allocPrintSentinel(init.gpa, "{s}/target", .{std.mem.span(args[2])}, 0);
     defer init.gpa.free(target_path);
     if (creating) try std.Io.Dir.cwd().createDirPath(init.io, target_path);
-    var source_db = try Lmdb.open(std.mem.span(args[2]), .{ .mode = if (creating) .{ .create = h.f.store_id } else .{ .open = h.f.store_id } });
+    var source_db = try fixture.open(std.mem.span(args[2]), if (creating) .create else .open, h.f.store_id);
     defer source_db.close() catch unreachable;
-    var target_db = try Lmdb.open(target_path, .{ .mode = if (creating) .{ .create = @fromBackingInt(95) } else .{ .open = @fromBackingInt(95) } });
+    var target_db = try fixture.open(target_path, if (creating) .create else .open, @fromBackingInt(95));
     defer target_db.close() catch unreachable;
     var source_store = try core.Store.init(init.gpa, source_db.metadata, &schemas, h.limits);
     defer source_store.deinit() catch unreachable;

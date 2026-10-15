@@ -1,5 +1,5 @@
 // The OCapN value vocabulary: the wrapper classes that make
-// a native value marshal as a symbol/keyword/set/tagged record, the `Argument`
+// a plain JS value marshal as a symbol/keyword/set/tagged record, the `Argument`
 // union those form, the wire-grammar `Codec` selector, and the application
 // layer (`Ref`/`Behavior`/`Forward`) over them. Pure data with no I/O
 // and no dependency on the rest of the binding beyond the generated ABI
@@ -32,8 +32,8 @@ import {
 	IROH_REACH_DISCOVERY,
 	IROH_REACH_DISCOVERY_NO_RELAY,
 	IROH_REACH_LOCAL_DISCOVERY,
-	NATIVE_CAPTP_VERSION as ABI_NATIVE_CAPTP_VERSION,
-	NATIVE_CODEC as ABI_NATIVE_CODEC,
+	OWN_CAPTP_VERSION as ABI_OWN_CAPTP_VERSION,
+	OWN_CODEC as ABI_OWN_CODEC,
 } from "@glowcap/abi";
 import { GlowcapError } from "./errors.ts";
 
@@ -63,8 +63,8 @@ export class PStruct<T = Argument> {
 	constructor(public readonly entries: Array<readonly [string, T]>) {}
 }
 
-// An argument is a native value or a wrapper:
-//   bigint (integer), number (float64), boolean, Uint8Array (bytes), string,
+// An argument is a plain JS value or a wrapper:
+//   bigint (integer), number (float64), boolean, Uint8Array (bytes), BigInt64Array (list of integers), string,
 //   Sym (symbol), Kw (keyword), Error (OCapN Error value), null (void), Ref, Argument[] (list),
 //   PSet (set), Tagged, or PStruct.
 export type Argument =
@@ -72,6 +72,7 @@ export type Argument =
 	| number
 	| boolean
 	| Uint8Array
+	| BigInt64Array
 	| string
 	| Sym
 	| Kw
@@ -90,7 +91,7 @@ export type Codec = "syrup" | "capnp";
 
 /** The CapTP profile a session speaks (ADR-0003): `v1_0` is the interop floor
  * a Goblins vat and the upstream suite speak, `next` the glowcap-to-glowcap
- * track that `Offer.native` prefers together with Cap'n Proto. A `Host`
+ * track that `Offer.glowcap` prefers together with Cap'n Proto. A `Host`
  * advertises its preference in signed locator hints and the session settles
  * the pair with its partner. */
 export type CaptpVersion = "v1_0" | "next";
@@ -147,8 +148,8 @@ function featureSetFromMask(features: number): FeatureSet {
 export const DEFAULT_CODEC: Codec = codecFromId(ABI_DEFAULT_CODEC);
 export const DEFAULT_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_DEFAULT_CAPTP_VERSION);
 export const DEFAULT_FEATURES: FeatureSet = featureSetFromMask(ABI_DEFAULT_FEATURES);
-export const NATIVE_CODEC: Codec = codecFromId(ABI_NATIVE_CODEC);
-export const NATIVE_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_NATIVE_CAPTP_VERSION);
+export const OWN_CODEC: Codec = codecFromId(ABI_OWN_CODEC);
+export const OWN_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_OWN_CAPTP_VERSION);
 export const INTEROP_CODEC: Codec = codecFromId(ABI_INTEROP_CODEC);
 export const INTEROP_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_INTEROP_CAPTP_VERSION);
 
@@ -292,7 +293,7 @@ export class Ref {
 	}
 
 	/** Whether `other` names the same Host capability. Each projected occurrence
-	 * remains a distinct wrapper because it owns a distinct native retain; use
+	 * remains a distinct wrapper because it owns a distinct FFI retain; use
 	 * this operation, not JavaScript wrapper identity (`===`), for OCapN Target
 	 * equality. The opaque ids are process-unique across Hosts. */
 	equals(other: Ref): boolean {
@@ -306,9 +307,9 @@ export class Ref {
 	}
 }
 
-/** Mint a Ref from the native Host's opaque id. Binding-internal: deliberately
+/** Mint a Ref from the FFI Host's opaque id. Binding-internal: deliberately
  * not re-exported from `mod.ts`, so application code cannot manufacture a
- * native capability handle. */
+ * FFI capability handle. */
 export function refFromId(id: bigint): Ref {
 	return mintRef(id);
 }

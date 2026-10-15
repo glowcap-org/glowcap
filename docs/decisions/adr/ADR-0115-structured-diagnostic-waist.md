@@ -62,7 +62,7 @@ each Host built in it. The Context also assigns monotonically increasing,
 nonzero lifecycle identities. Zero means that no durable owner exists. These
 identities are stable only within that Context, so two Hosts sharing one queue
 remain distinguishable without retaining or exposing reusable pointer values.
-Native Host construction assigns the Host identity, and bindings project it.
+Zig Host construction assigns the Host identity, and bindings project it.
 Shared C ABI code owns only the POD schema and reusable queue mechanics. An
 asynchronous driver event has a deterministic recipient, so it carries the same
 primary/first-consequence/count vocabulary inline and is not duplicated into the

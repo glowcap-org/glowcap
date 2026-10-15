@@ -93,7 +93,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .kind = .require,
         .needles = &.{"(when (release-consumed? release-code)"},
         .check = "nonfatal-release-paths",
-        .why = "Racket retires Host wrapper state for every consumed native teardown outcome",
+        .why = "Racket retires Host wrapper state for every consumed FFI teardown outcome",
     },
     .{
         .where = .{ .file = "bindings/racket/private/host.rkt" },
@@ -107,7 +107,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .kind = .require,
         .needles = &.{"(when (release-consumed? code)"},
         .check = "nonfatal-release-paths",
-        .why = "Racket retires driver-loop state for every consumed native teardown outcome",
+        .why = "Racket retires driver-loop state for every consumed FFI teardown outcome",
     },
     .{
         .where = .{ .file = "bindings/rust/src/host/lifecycle.rs" },
@@ -119,9 +119,9 @@ pub const nonfatal_release_paths: []const Ban = &.{
     .{
         .where = .{ .file = "bindings/rust/src/host/lifecycle.rs" },
         .kind = .require,
-        .needles = &.{"self.retire_native_host(raw);"},
+        .needles = &.{"self.retire_ffi_host(raw);"},
         .check = "nonfatal-release-paths",
-        .why = "Rust retires Host wrapper state for every consumed native teardown outcome",
+        .why = "Rust retires Host wrapper state for every consumed FFI teardown outcome",
     },
     .{
         .where = .{ .file = "bindings/rust/src/finalizer.rs" },
@@ -185,12 +185,12 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .kind = .require,
         .needles = &.{
             "self._release_owner.release(",
-            "def _retire_native_release(self, release_error: Optional[BaseException]) -> None:",
+            "def _retire_ffi_release(self, release_error: Optional[BaseException]) -> None:",
             "def _retire_wrapper(self) -> None:",
             "for error in wrapper.terminal_failures:",
         },
         .check = "nonfatal-release-paths",
-        .why = "Python's loop claims physical session cleanup only after native release consumption",
+        .why = "Python's loop claims physical session cleanup only after FFI release consumption",
     },
     .{
         .where = .{ .file = "bindings/python/glowcap/_driver/release.py" },
@@ -231,7 +231,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
         .where = .{ .file = "bindings/ts/runtime/host/lifecycle.ts" },
         .kind = .require,
         .needles = &.{
-            "this._sessionRetirements.add(session.nativeOwnerDidRelease());",
+            "this._sessionRetirements.add(session.ffiOwnerDidRelease());",
             "await sessionRetirements;",
         },
         .check = "nonfatal-release-paths",
@@ -277,7 +277,7 @@ pub const nonfatal_release_paths: []const Ban = &.{
             "format!(\"glowcap ABI returned unknown argument kind {other}\")",
         },
         .check = "nonfatal-release-paths",
-        .why = "Rust recursively returns unknown native argument discriminants instead of panicking or substituting Void",
+        .why = "Rust recursively returns unknown C argument discriminants instead of panicking or substituting Void",
     },
     .{
         .where = .{ .file = "src/c_abi/driver/loop.zig" },
@@ -493,8 +493,6 @@ pub const binding_failure_surface: []const Ban = &.{
         .needles = &.{
             "catch {};",
             "PeerKey.fromSlice(ss.session_pubkey) catch return",
-            "event.view() catch return false",
-            "event.wireView() catch return false",
         },
         .check = "binding-failure-surface",
         .why = "core protocol and cleanup failures must propagate or enter the session's retained terminal diagnosis",

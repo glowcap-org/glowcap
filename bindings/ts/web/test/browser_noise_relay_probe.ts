@@ -1,4 +1,4 @@
-// Runs inside Chromium for `browser_noise_relay_test.ts`. This is intentionally
+// Runs inside Chromium for `browser_noise_relay_proof.ts`. This is intentionally
 // product-shaped: the page loads the shipped Wasm Host, publishes an object,
 // and registers its Noise locator through the same public web/runtime surface
 // an application uses.

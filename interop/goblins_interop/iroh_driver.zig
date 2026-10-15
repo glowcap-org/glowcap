@@ -1,4 +1,4 @@
-//! Live Goblins over iroh: a native glowcap peer and a real Spritely Goblins vat
+//! Live Goblins over iroh: a glowcap peer and a real Spritely Goblins vat
 //! hold an OCapN CapTP session over encrypted QUIC, in both directions.
 //!
 //! A netlayer is a byte-stream provider plus a locator, and CapTP is transport

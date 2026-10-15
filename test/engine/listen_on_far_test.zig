@@ -14,7 +14,7 @@ const model = glowcap.ocapn.model;
 const peer_fixture = @import("../support/peer_fixture.zig");
 
 /// A paired session on `version` over Syrup, so a wire-shape assertion reads
-/// one codec's bytes rather than whichever the native offer preferred.
+/// one codec's bytes rather than whichever the glowcap offer preferred.
 // ── The recipient half: waiting on a promise the partner handed us ──────────
 //
 // Everything above is what a holder does with a relayed resolution once it has
@@ -75,7 +75,7 @@ fn listenOnImportFive(peer: *engine.Peer) !Listening {
 /// `op:deliver` carrying `['fulfill|'break, payload]`, with no answer of its own.
 fn notify(partner: *engine.Peer, peer: *engine.Peer, listener: u64, args: []const model.Argument) !void {
     try partner.session_state.registerImport(.from(listener));
-    try partner.sendCopying(.{ .deliver = .{
+    try partner.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(listener) },
         .args = args,
         .answer = null,
@@ -156,7 +156,7 @@ test "the partner's fulfill on the listener export surfaces as a resolve on the 
         var event = pair.p1.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-        const view = try event.view();
+        const view = event.view();
         try std.testing.expectEqual(listening.answer, view.resolve.answer);
         try std.testing.expectEqualStrings("settled elsewhere", view.resolve.resolution.fulfill.bytes);
     }
@@ -182,7 +182,7 @@ test "a V1.0 notification naming our own export surfaces for the local promise t
     var event = pair.p1.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-    const view = try event.view();
+    const view = event.view();
     try std.testing.expectEqual(listening.answer, view.resolve.answer);
     try std.testing.expectEqual(@as(u64, 7), view.resolve.resolution.fulfill.reference.near.export_position.int());
 }
@@ -205,7 +205,7 @@ test "the partner's break on the listener export surfaces as a broken resolve" {
         var event = pair.p1.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-        const view = try event.view();
+        const view = event.view();
         try std.testing.expectEqual(listening.answer, view.resolve.answer);
         try std.testing.expectEqualStrings("exporter vanished", view.resolve.resolution.@"break".message);
     }
@@ -298,7 +298,7 @@ test "a notification naming an answer the session does not hold is refused loudl
     try pair.p1.session_state.installOutboundResolver(.from(4242), .from(7));
 
     try pair.p2.session_state.registerImport(.from(7));
-    try pair.p2.sendCopying(.{ .deliver = .{
+    try pair.p2.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{ .{ .symbol = "fulfill" }, .{ .bytes = "settled elsewhere" } },
         .answer = null,

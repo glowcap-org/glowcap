@@ -8,6 +8,7 @@ const std = @import("std");
 
 const model = @import("model");
 const host_mod = @import("../host.zig");
+const capability = @import("../capability.zig");
 const value_mod = @import("../value.zig");
 
 const Host = host_mod.Host;
@@ -20,7 +21,7 @@ pub fn cloneValues(
     self: *Host,
     allocator: std.mem.Allocator,
     values: []const value_mod.Value,
-    retained: *std.ArrayListUnmanaged(Host.StagedCapabilityRetain),
+    retained: *std.ArrayListUnmanaged(capability.Ref),
 ) anyerror![]value_mod.Value {
     return cloneValuesAt(self, allocator, values, retained, 0);
 }
@@ -29,7 +30,7 @@ fn cloneValuesAt(
     self: *Host,
     allocator: std.mem.Allocator,
     values: []const value_mod.Value,
-    retained: *std.ArrayListUnmanaged(Host.StagedCapabilityRetain),
+    retained: *std.ArrayListUnmanaged(capability.Ref),
     depth: usize,
 ) anyerror![]value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
@@ -43,7 +44,7 @@ fn cloneValue(
     self: *Host,
     allocator: std.mem.Allocator,
     value: value_mod.Value,
-    retained: *std.ArrayListUnmanaged(Host.StagedCapabilityRetain),
+    retained: *std.ArrayListUnmanaged(capability.Ref),
     depth: usize,
 ) anyerror!value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
@@ -54,7 +55,7 @@ fn cloneValue(
             const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
             const owned = try self.capabilities.retain(self.allocator, target);
             errdefer _ = self.capabilities.release(owned, 1) catch unreachable;
-            try retained.append(allocator, .{ .ref = owned });
+            try retained.append(allocator, owned);
             break :blk .{ .capability = owned };
         },
         .@"error" => |reason| .{ .@"error" = .{
@@ -62,6 +63,10 @@ fn cloneValue(
         } },
         .string => |string| .{ .string = try allocator.dupe(u8, string) },
         .integer => |integer| .{ .integer = integer },
+        .integers => |words| blk: {
+            if (depth == model.max_value_depth) return error.NestingTooDeep;
+            break :blk .{ .integers = try allocator.dupe(i64, words) };
+        },
         .boolean => |boolean| .{ .boolean = boolean },
         .list => |items| .{ .list = try cloneValuesAt(self, allocator, items, retained, depth + 1) },
         .void => .{ .void = {} },
@@ -87,11 +92,11 @@ fn cloneValue(
     };
 }
 
-pub fn rollbackRetains(self: *Host, retained: []const Host.StagedCapabilityRetain) void {
+pub fn rollbackRetains(self: *Host, retained: []const capability.Ref) void {
     var index = retained.len;
     while (index != 0) {
         index -= 1;
-        const retired = self.capabilities.release(retained[index].ref, 1) catch unreachable;
+        const retired = self.capabilities.release(retained[index], 1) catch unreachable;
         std.debug.assert(retired == null);
     }
 }

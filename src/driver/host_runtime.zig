@@ -1,5 +1,5 @@
 //! The owning host face (ADR-0090): a blocking, poll-multiplexed embedding of
-//! the sans-io `driver_core.Host`, the native sibling of the byte-fed pump
+//! the sans-io `driver_core.Host`, the Zig sibling of the byte-fed pump
 //! every binding runs on its own event loop.
 //!
 //! `driver.HostRuntime` owns the composition: the core Host, one transport
@@ -19,6 +19,7 @@
 //! connection.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 const engine = @import("engine");
 const net = @import("net");
@@ -67,6 +68,11 @@ const Contract = runtime_contract.Vocabulary(
 pub const HostRuntime = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
+    /// The time of the turn in progress, read once when a step or a pump
+    /// iteration starts and again when its park returns, so every deadline
+    /// one turn arms or checks sees one time. Null outside a turn, where a
+    /// verb reads the clock itself.
+    turn_ms: ?i64 = null,
     /// The sans-io host, behind one stable pointer. `init` allocates it and
     /// `deinit` frees it, so this face stays the owner. The pointer shape is
     /// what lets an embedding owner hold the core elsewhere (ADR-0112).
@@ -87,9 +93,9 @@ pub const HostRuntime = struct {
     /// their accepted sessions report. Keeping the transport handles here
     /// makes Runtime close, readiness service, and accept admission driver
     /// facts instead of adapter choreography.
-    active_listeners: std.AutoHashMapUnmanaged(u64, ActiveListener) = .empty,
+    active_listeners: foundation.identity_hash.Map(u64, ActiveListener) = .empty,
     opts: Options,
-    wires: std.AutoHashMapUnmanaged(engine.PeerHandle, *Wire) = .{},
+    wires: foundation.handle_table.Mirror(engine.PeerHandle, *Wire) = .empty,
     /// Wires whose transport is not yet closed. Closed wire rows remain in
     /// `wires` until explicit session release, so close completion cannot use
     /// map cardinality without conflating shutdown with memory lifetime.
@@ -156,6 +162,9 @@ pub const HostRuntime = struct {
     /// wait itself allocates nothing.
     poll_scratch: std.ArrayListUnmanaged(std.posix.pollfd) = .empty,
     extra_fd_scratch: std.ArrayListUnmanaged(std.posix.fd_t) = .empty,
+    /// Wake descriptors already handed to the parking resident
+    /// (`watchWakeSources`).
+    watched_fds: std.ArrayListUnmanaged(i32) = .empty,
     /// Descriptors watched through `watchFd`. Kept on both faces, so
     /// descriptor-conflict detection and `unwatchFd` have one lifecycle path
     /// whether or not a ready set mirrors them.
@@ -177,12 +186,12 @@ pub const HostRuntime = struct {
     nearest_carrier_close_ms: ?i64 = null,
     carrier_close_waiters: usize = 0,
     /// Which face drives this runtime, chosen once at construction through
-    /// `Options.drive` and never changed. The blocking native face waits
+    /// `Options.drive` and never changed. The blocking Zig face waits
     /// through `net.waitAnyReadable` and observes vows in-process through
     /// captures. The stepped face (ADR-0112) carries the aggregate readiness
     /// set an embedder parks on and the two recipients it publishes through.
     /// Every site that services one face names the other's arm as empty, so
-    /// the code says which half is unreachable natively.
+    /// the code says which half is unreachable in Zig.
     drive: Drive,
     /// Session opens advancing across pump iterations instead of blocking one
     /// (ADR-0112): embedder dials, redeem dials, and accepts share the same
@@ -200,7 +209,7 @@ pub const HostRuntime = struct {
     /// Whether `deinit` tears the core down. False for a host adopted over an
     /// embedding owner's core (`initWithCore`), whose owner frees it.
     owns_core: bool = true,
-    /// Nesting of native-face calls on the current driver thread. The outer
+    /// Nesting of Zig-face calls on the current driver thread. The outer
     /// call owns the unsynchronized core for its whole operation. Returning
     /// from it is the explicit quiescent boundary where another joined thread
     /// may take over. Compiled out with the debug thread-affinity checks.
@@ -211,6 +220,7 @@ pub const HostRuntime = struct {
     pub const Options = Contract.Options;
     pub const FailureObserver = Contract.FailureObserver;
     pub const AdoptionOptions = Contract.AdoptionOptions;
+    pub const max_busy_poll_ns = Contract.max_busy_poll_ns;
     pub const ProviderRegistrationError = Contract.ProviderRegistrationError;
     pub const PendingWork = Contract.PendingWork;
     pub const CloseOutcome = Contract.CloseOutcome;
@@ -344,6 +354,17 @@ pub const HostRuntime = struct {
     pub const transportName = runtime_providers.transportName;
 
     pub const enterDriver = runtime_shutdown.enterDriver;
+
+    /// Monotonic milliseconds: the turn's one reading inside a turn, and a
+    /// fresh reading outside one.
+    pub fn nowMs(self: *const HostRuntime) i64 {
+        return self.turn_ms orelse net.clock.nowMs(self.io);
+    }
+
+    /// Open a turn, or move a turn past its park, on a fresh reading.
+    pub fn readTurnClock(self: *HostRuntime) void {
+        self.turn_ms = net.clock.nowMs(self.io);
+    }
     pub const leaveDriver = runtime_shutdown.leaveDriver;
     pub const detachThread = runtime_shutdown.detachThread;
     pub const deferSessionRelease = runtime_shutdown.deferSessionRelease;
@@ -457,6 +478,12 @@ pub const HostRuntime = struct {
     const waitForTerminalSignal = runtime_step.waitForTerminalSignal;
     const terminalCleanupPending = runtime_step.terminalCleanupPending;
     const nudgeIfWorkRemains = runtime_step.nudgeIfWorkRemains;
+    const publishResidentRecords = runtime_step.publishResidentRecords;
+    const flushResidents = runtime_step.flushResidents;
+    const parkingResident = runtime_pump.parkingResident;
+    const watchWakeSources = runtime_pump.watchWakeSources;
+    const spinForRecords = runtime_step.spinForRecords;
+    const readyResident = runtime_step.readyResident;
 };
 
 /// Package-private friend index for `host_runtime/*` owner modules.
@@ -508,6 +535,12 @@ pub const Internal = struct {
     pub const retainAndReportUnhandledFailure = HostRuntime.retainAndReportUnhandledFailure;
     pub const pendingOpenFor = HostRuntime.pendingOpenFor;
     pub const nudgeIfWorkRemains = HostRuntime.nudgeIfWorkRemains;
+    pub const publishResidentRecords = HostRuntime.publishResidentRecords;
+    pub const flushResidents = HostRuntime.flushResidents;
+    pub const parkingResident = HostRuntime.parkingResident;
+    pub const watchWakeSources = HostRuntime.watchWakeSources;
+    pub const spinForRecords = HostRuntime.spinForRecords;
+    pub const readyResident = HostRuntime.readyResident;
     pub const releaseWireOwned = HostRuntime.releaseWireOwned;
     pub const stepAnyToward = HostRuntime.stepAnyToward;
     pub const closeOwnedListeners = HostRuntime.closeOwnedListeners;

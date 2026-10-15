@@ -1,5 +1,5 @@
 #lang racket/base
-;; Internal facade for the native driver loop. Implementation ownership lives
+;; Internal facade for the FFI driver loop. Implementation ownership lives
 ;; under loop/: core drives state/events, dial constructs Sessions, listeners
 ;; own admission/server lifetime, and lifecycle installs the Host close hooks.
 
@@ -30,7 +30,7 @@
     #f 0 0)
    #f 0 #f 0))
 
-;; Native adoption is the one ownership transaction. Every Racket owner is
+;; FFI adoption is the one ownership transaction. Every Racket owner is
 ;; allocated first; Host attachment publishes only after the C call succeeds.
 (define (open-driver-loop #:seed [seed #f]
                           #:codec [codec DEFAULT-CODEC-SYMBOL]
@@ -41,6 +41,7 @@
                           #:handshake-ms [handshake-ms DRIVER-DEFAULT-HANDSHAKE-MS]
                           #:listener-setup-ms [listener-setup-ms DRIVER-DEFAULT-LISTENER-SETUP-MS]
                           #:settle-ms [settle-ms DRIVER-DEFAULT-SETTLE-MS]
+                          #:busy-poll-ns [busy-poll-ns DRIVER-DEFAULT-BUSY-POLL-NS]
                           #:host [supplied-host #f])
   (when (and supplied-host (host-loop-of supplied-host))
     (raise-glowcap 'open-driver-loop ERR-INVALID-ARGUMENT
@@ -62,7 +63,7 @@
   (define options
     (make-GlowcapDriverOptions DRIVER-OPTIONS-ABI-VERSION (ctype-sizeof _GlowcapDriverOptions)
                                wire-buffer-bytes max-pending-opens
-                               handshake-ms listener-setup-ms settle-ms))
+                               handshake-ms listener-setup-ms settle-ms busy-poll-ns))
   (define adopted? #f)
   (with-handlers ([(lambda (_) #t)
                    (lambda (e)
@@ -93,6 +94,7 @@
          loop-background-failed!
          driver-loop-add-provider!
          driver-loop-has-transport?
+         loop-ffi-live?
          loop-listen!
          loop-listener-ready!
          loop-listener-locator

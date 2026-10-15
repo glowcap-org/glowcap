@@ -1,7 +1,7 @@
 //! Runtime managed access permission and ordered-bound algebra. Fixtures pin the meaning
 //! of each bound. Finite laws exercise intersection independently of grant use.
-//! The law test is checked against permission-union and reversed-bound defects.
-//! Dependency closure is checked against intersection dropping a prerequisite.
+//! The law test fails under permission-union and reversed-bound defects.
+//! Dependency closure fails if intersection drops a prerequisite.
 //! It covers Boolean sets and unsigned bounds, not application fact mappings.
 
 const std = @import("std");
@@ -52,16 +52,19 @@ test "access policy dependency declarations reject malformed matrices and suppor
     try std.testing.expectError(error.InvalidDependency, Policy.init(dependent));
     dependent.dependencies = &.{.{ .permission = upload, .required = read }};
     try std.testing.expectError(error.UnknownPermission, Policy.init(dependent));
+    var mutual = policy;
     var masks = policy.prerequisite_masks;
     masks[2] = 1;
-    try std.testing.expectError(error.UnknownPermission, policy.withPrerequisiteMasks(masks));
+    try std.testing.expectError(error.UnknownPermission, mutual.setPrerequisiteMasks(&masks));
     masks = policy.prerequisite_masks;
     masks[0] = 4;
-    try std.testing.expectError(error.UnknownPermission, policy.withPrerequisiteMasks(masks));
+    try std.testing.expectError(error.UnknownPermission, mutual.setPrerequisiteMasks(&masks));
     masks[0] = 1;
-    try std.testing.expectError(error.InvalidDependency, policy.withPrerequisiteMasks(masks));
+    try std.testing.expectError(error.InvalidDependency, mutual.setPrerequisiteMasks(&masks));
+    // A refused matrix left the policy as it was.
+    try std.testing.expectEqual(policy.prerequisite_masks, mutual.prerequisite_masks);
     masks[0] = 2;
-    const mutual = try policy.withPrerequisiteMasks(masks);
+    try mutual.setPrerequisiteMasks(&masks);
     try std.testing.expectError(error.MissingPrerequisite, mutual.value(&.{read}, &.{}));
     _ = try mutual.value(&.{ read, post }, &.{});
     _ = try mutual.value(&.{}, &.{});
@@ -94,7 +97,11 @@ test "access policy validates runtime schemas values and requirements" {
     invalid.permissions = 4;
     try std.testing.expectError(error.UnknownPermission, policy.validate(invalid));
     invalid = terms;
-    invalid.bounds[2] = 0;
+    invalid.setBound(2, 0);
+    try std.testing.expectError(error.UnknownConstraint, policy.validate(invalid));
+    // A clear mask bit over a nonzero slot is not a canonical value.
+    invalid = terms;
+    invalid.bounds[3] = 7;
     try std.testing.expectError(error.UnknownConstraint, policy.validate(invalid));
     var bad = descriptor;
     bad.permissions = &.{ post, read };
@@ -132,16 +139,16 @@ test "access policy intersection laws over finite permission and bound values" {
         switch (i / 4) {
             0 => {},
             1 => {
-                value.bounds[0] = 0;
-                value.bounds[1] = std.math.maxInt(u64);
+                value.setBound(0, 0);
+                value.setBound(1, std.math.maxInt(u64));
             },
             2 => {
-                value.bounds[0] = 5;
-                value.bounds[1] = 10;
+                value.setBound(0, 5);
+                value.setBound(1, 10);
             },
             3 => {
-                value.bounds[0] = std.math.maxInt(u64);
-                value.bounds[1] = 0;
+                value.setBound(0, std.math.maxInt(u64));
+                value.setBound(1, 0);
             },
             else => unreachable,
         }

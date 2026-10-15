@@ -1,8 +1,8 @@
 # Python binding
 
-This package uses `ctypes`, `asyncio`, and the standard library. It needs
-CPython 3.11 or newer on an LP64 platform. Pin a checkout, run `zig build`,
-and import it from the tree.
+This package uses `ctypes`, `asyncio`, and the standard library. It needs the
+CPython version `pyproject.toml` declares, on an LP64 platform. Pin a
+checkout, run `zig build`, and import it from the tree.
 
 ```python
 import asyncio
@@ -27,8 +27,8 @@ asyncio.run(main())
 ```
 
 `fetch` and `send` start the inbound loop on demand, so a client that only
-makes calls does not need `session.serve()`. `await session.closed()` observes
-retirement without requesting close or starting that loop. Cancelling the
+makes calls does not need `session.serve()`. `await session.closed()` waits for
+the session to end without asking it to close or starting that loop. Cancelling the
 waiter leaves the session running. `Host.publish_durable(behavior, entropy=None)`
 mints a durable swiss name. Pass the same entropy to a Host reconstructed from
 the same seed to restore that name.
@@ -37,9 +37,9 @@ the same seed to restore that name.
 
 Python values map directly to glowcap values: integers, floats, booleans,
 bytes, strings, and lists, plus `Symbol`, `Keyword`, `Set`, `Tagged`, `Struct`,
-the fulfilled-data `ErrorValue`, and the capability type `Ref`. `ErrorValue`
-accepts a `RemotePromise`. Raising an exception or returning a broken vow
-rejects it.
+the fulfilled-data `ErrorValue`, and the capability type `Ref`. Returning an
+`ErrorValue` fulfills the caller's `RemotePromise` with that error as data.
+Raising an exception or returning a broken vow rejects it.
 
 `await tcp.listen(host, port)` returns a `tcp.Server` whose iterator yields a
 `Session` for each partner. `publish` and `spawn` host ordinary Python
@@ -48,9 +48,9 @@ callables. `send` returns a `RemotePromise`, implemented as an
 
 Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
 connection runs on glowcap's driver loop. Python loads the separate Host and
-driver archives. One loop, stepped from Python, owns the provider, framing,
-pumping, and session release, while asyncio waits on the loop's readiness
-descriptor.
+driver archives. Python steps one loop that runs the provider, frames and
+moves bytes, and releases finished sessions, while asyncio waits on a file
+descriptor that signals when the loop has work.
 
 The application passes `iroh.provider(config)`, `tcp.provider(config)`, or
 another transport package. The driver starts with no providers and receives
@@ -59,13 +59,12 @@ the chosen package through the common provider ABI. A routed `keyed-relay` or
 provider package. Either way you get the same `Session` API.
 
 `Runtime.open(adopt_host=host, ...)` transfers an existing Host into the
-Runtime. `await runtime.close()` is then that Host's terminal shutdown
-barrier.
+Runtime. `await runtime.close()` then shuts that Host down for good.
 
 `tcp.listen`, `tcp.keyed.listen`, and `tcp.noise.listen` return the same
 `tcp.Server` surface. Its canonical `locator` and `uri` are ready to hand to
 `Runtime.connect`. Pass a 32-byte `seed` to keep a durable designator across restarts.
-The driver loop owns admission. A wildcard `bind_host` requires
+The driver loop accepts incoming connections and limits concurrent handshakes. A wildcard `bind_host` requires
 `advertised_host`, the dialable name or address placed in the Host locator,
 because glowcap cannot infer reachability from the bind.
 
@@ -85,12 +84,13 @@ only in the session where it was exported.
 | `glowcap` | Async sessions, hosts, values, locators, and actors. |
 | `glowcap.tcp` | Typed TCP-profile locators, the complete provider package, and blocking frame handles. |
 | `glowcap.inproc` | Blocking in-process connections. |
-| `glowcap.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for an embedder-owned loop. |
+| `glowcap.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for a program that owns its own loop. |
 | `glowcap.iroh` | Optional encrypted QUIC and `listen`. |
+| `glowcap.webrtc` | Optional WebRTC dial and listen. `webrtc.provider(signaling)` installs the dial, `await webrtc.listen(signaling)` returns a `Server` you iterate for sessions, and your `SignalingAuthority` carries each exchange's offer, answer, and candidates. You hand each inbound offer to `server.provide_offer(designator, sdp)`. |
 | `glowcap.relay` | `keyed-relay`/`noise-relay` provider composition and managed listeners. |
 
 The application imports only the transport modules it composes. A TCP-only
-program never loads the iroh library.
+program never loads the iroh or WebRTC library.
 
 A `keyed-relay` locator names a peer that opens no socket of its own. Instead,
 a relay holds inbound connections for it under its key.

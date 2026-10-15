@@ -299,7 +299,7 @@ test "tcp listener readiness fd is level-readable until accept" {
     defer _ = ct.glowcap_tcp_conn_release(accepted.?, null, 0, null);
 }
 
-test "tcp release resolves a racing native accept" {
+test "tcp release resolves a racing Zig accept" {
     var netlayer: ?*ct.GlowcapTcpNetlayer = null;
     try std.testing.expectEqual(c.GLOWCAP_OK, ct.glowcap_tcp_netlayer_new(&tcp_config, &netlayer));
     const netlayer_ptr = netlayer.?;
@@ -331,7 +331,7 @@ test "tcp release resolves a racing native accept" {
     );
 
     // Use a fresh listener to establish a pair, then park one endpoint in a
-    // native frame read. Connection shutdown must wake it before storage frees.
+    // Zig frame read. Connection shutdown must wake it before storage frees.
     listener = null;
     try std.testing.expectEqual(
         c.GLOWCAP_OK,

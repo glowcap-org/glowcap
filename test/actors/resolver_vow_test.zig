@@ -12,6 +12,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const cross_peer = @import("../support/cross_peer.zig");
 
 const Capture = struct {
@@ -164,10 +165,10 @@ test "a served behavior defers its answer onto a resolver vow; the partner hears
     // test body, which settles it later from the top level.
     const Deferring = struct {
         resolver: u64 = 0,
-        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+        fn handle(ctx: *anyopaque, turn: *Turn, msg: Delivery) actors.HostedActor.Result {
             return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
         }
-        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Delivery) anyerror!model.Argument {
             const self: *@This() = @ptrCast(@alignCast(ctx));
             _ = msg;
             const minted = try turn.vat.spawnVow();
@@ -239,10 +240,10 @@ test "a settle from inside a turn refuses, and the refusal crosses the wire as t
     // turn: the settle must refuse (the listener could open a nested drive
     // mid-turn), and returning the error breaks the answer with its name.
     const Impatient = struct {
-        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+        fn handle(ctx: *anyopaque, turn: *Turn, msg: Delivery) actors.HostedActor.Result {
             return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
         }
-        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Delivery) anyerror!model.Argument {
             _ = ctx;
             _ = msg;
             const minted = try turn.vat.spawnVow();
@@ -291,10 +292,10 @@ test "forwardVow refuses a local frame, and an unsettled deferral leaks nothing 
         var vat = actors.Vat.init(allocator);
         defer vat.deinit();
         const Local = struct {
-            fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+            fn handle(ctx: *anyopaque, turn: *Turn, msg: Delivery) actors.HostedActor.Result {
                 return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
             }
-            fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+            fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Delivery) anyerror!model.Argument {
                 _ = ctx;
                 _ = msg;
                 const minted = try turn.vat.spawnVow();
@@ -319,10 +320,10 @@ test "forwardVow refuses a local frame, and an unsettled deferral leaks nothing 
         defer host_port.deinit(&host_vat);
 
         const Deferring = struct {
-            fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+            fn handle(ctx: *anyopaque, turn: *Turn, msg: Delivery) actors.HostedActor.Result {
                 return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
             }
-            fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+            fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Delivery) anyerror!model.Argument {
                 _ = ctx;
                 _ = msg;
                 const minted = try turn.vat.spawnVow();
@@ -401,7 +402,7 @@ test "forwardVow allocation refusal leaves the source unobserved" {
 
 const ForwardThenFail = struct {
     vow: actors.Vow,
-    pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+    pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
         try turn.forwardVow(self.vow);
         return error.Refused;
     }
@@ -450,7 +451,7 @@ test "a failed served turn retracts local and far forwarding without a second re
             var caller_port = actors.Port.init(allocator, &pair.p2);
             defer caller_port.deinit(&caller);
             const Echo = struct {
-                pub fn handle(_: *@This(), _: *Turn, _: Message) !model.Argument {
+                pub fn handle(_: *@This(), _: *Turn, _: Delivery) !model.Argument {
                     return .{ .bytes = "independent" };
                 }
             };
@@ -504,7 +505,7 @@ test "a queued local answer can defer and preserves a dynamic break across liste
     const pair = try vat.spawnVow();
     const Deferred = struct {
         vow: actors.Vow,
-        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
             try turn.forwardVow(self.vow);
             return .{ .boolean = false }; // deferral owns the answer
         }
@@ -520,7 +521,7 @@ test "a queued local answer can defer and preserves a dynamic break across liste
     try std.testing.expectEqualStrings("later", result.buf[0..result.len]);
 
     const Refuser = struct {
-        pub fn handle(_: *@This(), turn: *Turn, msg: Message) !model.Argument {
+        pub fn handle(_: *@This(), turn: *Turn, msg: Delivery) !model.Argument {
             if (std.mem.eql(u8, msg.verb, "reset")) {
                 @memset(try turn.arena.alloc(u8, 2048), 0xcc);
             } else {

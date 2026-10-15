@@ -1,4 +1,4 @@
-//! Pure validation and text projection for borrowed native trace fields.
+//! Pure validation and text projection for borrowed FFI trace fields.
 
 use crate::abi_constants_gen::{CAPTP_NEXT, CAPTP_V1_0, CODEC_CAPNP, CODEC_SYRUP};
 

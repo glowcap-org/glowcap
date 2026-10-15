@@ -20,9 +20,13 @@ const ExternalEffectMode = lifecycle.ExternalEffectMode;
 pub const SessionCloseStatus = struct {
     phase: driver_core.HostSession.LifecyclePhase,
     outcome: CloseOutcome,
+    /// Why the wire ended, when something other than this side's close ended
+    /// it: a refused frame, a lost connection, a peer abort. The wire row is
+    /// its one home, and the closed observer receives the same value.
+    cause: ?OperationFailure,
 };
 
-/// Enter one native driver operation. Public only for sibling owning faces.
+/// Enter one Zig driver operation. Public only for sibling owning faces.
 pub fn enterDriver(self: *HostRuntime) void {
     if (comptime std.debug.runtime_safety) self.core.assertOwner();
     self.driver_depth += 1;
@@ -37,6 +41,18 @@ pub fn leaveDriver(self: *HostRuntime) void {
     self.driver_depth -= 1;
     if (self.driver_depth != 0 or self.draining_session_releases) return;
     if (drainDeferredSessionReleases(self)) return;
+    // Deferred releases run resident verbs too, so the effects any of them
+    // leave are flushed and published once, after the whole outermost turn.
+    // A stepped embedder parks outside on the readiness descriptor, so its
+    // turn leaves every arm in the kernel. After a provider fail-stop no
+    // operational verb reaches a resident (`stepAfterTerminalFailure`).
+    if (self.terminal_failure == null) {
+        Internal.flushResidents(self, switch (self.drive) {
+            .blocking => .caller,
+            .stepped => .park,
+        });
+        Internal.publishResidentRecords(self);
+    }
     self.core.releaseDriverOwnership();
 }
 
@@ -53,13 +69,16 @@ pub fn deferSessionRelease(self: *HostRuntime, request: *HostRuntime.DeferredSes
     std.debug.assert(!request.queued);
     const wire = self.wires.get(request.session.peer_handle) orelse return Error.SessionNotOwned;
     if (wire.session != request.session or !wire.session_handle_claimed) return Error.SessionNotOwned;
-    self.core.beginSessionClose(request.session, .cancel, net.clock.nowMs(self.io)) catch |err|
+    self.core.beginSessionClose(request.session, .cancel, self.nowMs()) catch |err|
         self.noteTerminalFailure(err);
     request.next = self.deferred_session_releases;
     request.queued = true;
     self.deferred_session_releases = request;
 }
 
+/// Run the session releases deferred to the outermost turn. True means a
+/// release callback destroyed this runtime: the caller returns without
+/// touching `self` again.
 pub fn drainDeferredSessionReleases(self: *HostRuntime) bool {
     if (self.deferred_session_releases == null) return false;
     self.draining_session_releases = true;
@@ -121,7 +140,7 @@ fn beginCloseOwned(self: *HostRuntime, pending: PendingWork) void {
     self.retiring = false;
     self.retirement_effects_pending = false;
     self.close_effects_pending = true;
-    self.core.beginClose(pending, net.clock.nowMs(self.io));
+    self.core.beginClose(pending, self.nowMs());
     self.wakeReadiness() catch |err| self.noteTerminalFailure(err);
 }
 
@@ -130,11 +149,17 @@ pub fn beginSessionClose(self: *HostRuntime, session: *driver_core.HostSession, 
     defer leaveDriver(self);
     const wire = self.wires.get(session.peer_handle) orelse return Error.SessionNotOwned;
     if (wire.session != session) return Error.SessionNotOwned;
-    try self.core.beginSessionClose(session, pending, net.clock.nowMs(self.io));
+    try self.core.beginSessionClose(session, pending, self.nowMs());
     self.wakeReadiness() catch |err| self.noteTerminalFailure(err);
 }
 
-/// Hold the driver claim across the full session transport barrier.
+/// Hold the driver claim across the full session transport barrier. An
+/// error is a failure of the close itself: reentry, a session this runtime
+/// does not own, a step that failed, or the barrier timing out. A session the
+/// peer's bytes already ended closes without error, and its cause stays the
+/// session's own fact in `sessionCloseStatus`, so a caller that releases such
+/// a session never turns one partner's refused frame into runtime-wide
+/// terminal state.
 pub fn closeSession(self: *HostRuntime, session: *driver_core.HostSession, pending: PendingWork) !void {
     try refuseReentry(self);
     enterDriver(self);
@@ -143,8 +168,6 @@ pub fn closeSession(self: *HostRuntime, session: *driver_core.HostSession, pendi
     while (sessionCloseOutcome(self, session) == .pending)
         _ = try Internal.stepAnyToward(self, -1, .{ .session_close = session });
     if (sessionCloseOutcome(self, session) == .timed_out) return Error.CloseTimedOut;
-    if (self.wires.get(session.peer_handle)) |wire|
-        if (wire.close_failure) |failure| return failure.cause;
 }
 
 pub fn sessionCloseOutcome(self: *const HostRuntime, session: *const driver_core.HostSession) CloseOutcome {
@@ -158,6 +181,7 @@ pub fn sessionCloseStatus(self: *const HostRuntime, session: *const driver_core.
     return .{
         .phase = session.lifecyclePhase(),
         .outcome = self.core.sessionCloseOutcome(session, wire.carrierClosed()),
+        .cause = wire.close_failure,
     };
 }
 
@@ -166,7 +190,7 @@ pub fn freeAction(self: *HostRuntime, action: driver_core.HostAction) void {
 }
 
 pub fn progressSessionCloses(self: *HostRuntime) !void {
-    try self.core.progressSessionCloses(net.clock.nowMs(self.io));
+    try self.core.progressSessionCloses(self.nowMs());
 }
 
 pub fn close(self: *HostRuntime, pending: PendingWork) !void {
@@ -222,7 +246,7 @@ pub fn progressClose(self: *HostRuntime, effect_mode: ExternalEffectMode) !void 
     }
     if (self.core.lifecyclePhase() == .active) return;
     if (self.core.lifecyclePhase() != .closed)
-        try self.core.progressClose(net.clock.nowMs(self.io));
+        try self.core.progressClose(self.nowMs());
     if (self.core.lifecyclePhase() == .terminating or self.core.lifecyclePhase() == .closed)
         cancelPendingRuntimeWork(self);
     try Internal.drainActionsWith(self, effect_mode);
@@ -345,6 +369,7 @@ fn deinitImpl(self: *HostRuntime, cancel_core: bool) void {
     self.provider_packages.deinit(self.allocator);
     self.poll_scratch.deinit(self.allocator);
     self.extra_fd_scratch.deinit(self.allocator);
+    self.watched_fds.deinit(self.allocator);
     self.listener_fds.deinit(self.allocator);
     if (self.mailbox) |mailbox| mailbox.deinit();
     self.drive.deinit();

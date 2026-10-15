@@ -1,4 +1,4 @@
-//! Message recording decisions shared by native sessions and browser peers.
+//! Message recording decisions shared by host sessions and browser peers.
 //! Clocks, source capabilities and storage commitment belong to the caller.
 use super::{
 	Attachment, Body, ConversationKind, Coordinates, Error, Kind, LineState, Record,

@@ -24,7 +24,7 @@
 // disagree on shape even though offsets legitimately differ by target width.
 
 import * as abi from "../../bindings/ts/runtime/internal/abi.ts";
-import { NATIVE_ONLY_LAYOUT_PREFIXES, WASM_LAYOUT_STRUCTS } from "../../bindings/ts/abi/constants.ts";
+import { FFI_ONLY_LAYOUT_PREFIXES, WASM_LAYOUT_STRUCTS } from "../../bindings/ts/abi/constants.ts";
 import { fnv1a32 } from "../../bindings/ts/runtime/internal/layout.ts";
 
 // The manifest rows, in the descriptor's canonical order (`layout_specs` in
@@ -32,7 +32,7 @@ import { fnv1a32 } from "../../bindings/ts/runtime/internal/layout.ts";
 const SPECS = WASM_LAYOUT_STRUCTS.map((row) => ({
 	name: row.prefix,
 	fields: row.fields.length,
-	mirrorPrefix: row.nativeMirror ? row.prefix as string | null : null,
+	mirrorPrefix: row.ffiMirror ? row.prefix as string | null : null,
 }));
 
 // Count `<PREFIX>_*_OFF` exports in the generated host mirror: that is how many
@@ -152,25 +152,25 @@ if (i !== needed) fail(`decoded ${i} words but the descriptor claimed ${needed}`
 // its `L.<PREFIX>_*` names would silently fall back to 64-bit offsets under
 // the wasm adapter, which is wrong by construction on that target.
 const manifestPrefixes = new Set(WASM_LAYOUT_STRUCTS.map((row) => row.prefix as string));
-const nativeOnly = new Set<string>(NATIVE_ONLY_LAYOUT_PREFIXES);
-for (const prefix of nativeOnly) {
+const ffiOnly = new Set<string>(FFI_ONLY_LAYOUT_PREFIXES);
+for (const prefix of ffiOnly) {
 	if (manifestPrefixes.has(prefix)) {
 		fail(
-			`${prefix} is listed native-only but has a WASM_LAYOUT_STRUCTS row; ` +
-				"drop it from native_only_layouts (tools/gen/binding/ts_abi.zig)",
+			`${prefix} is listed FFI-only but has a WASM_LAYOUT_STRUCTS row; ` +
+				"drop it from ffi_only_layouts (tools/gen/binding/ts_abi.zig)",
 		);
 	}
 }
 for (const key of Object.keys(abi)) {
 	if (!key.endsWith("_SIZE")) continue;
 	const prefix = key.slice(0, -"_SIZE".length);
-	if (nativeOnly.has(prefix)) continue;
+	if (ffiOnly.has(prefix)) continue;
 	if (!manifestPrefixes.has(prefix)) {
 		fail(
 			`abi.ts declares ${key} but WASM_LAYOUT_STRUCTS has no ${prefix} row; ` +
 				"add the struct to the manifest (tools/gen/binding/ts_abi.zig) and " +
 				"layout_specs (src/c_abi/wasm/mod.zig), or list it in " +
-				"native_only_layouts if its archive never links into wasm32",
+				"ffi_only_layouts if its archive never links into wasm32",
 		);
 	}
 }

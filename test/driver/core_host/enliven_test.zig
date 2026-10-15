@@ -29,7 +29,7 @@ test "core host: pending forwarding from independently compiled archives retires
         const Forwarder = struct {
             source: glowcap.actors.Vow,
             forwarded: *bool,
-            pub fn handle(self: *@This(), turn: *glowcap.actors.Turn, _: glowcap.actors.Message) !glowcap.ocapn.model.Argument {
+            pub fn handle(self: *@This(), turn: *glowcap.actors.Turn, _: glowcap.actors.Delivery) !glowcap.ocapn.model.Argument {
                 if (!glowcap_test_archive_forward(turn, &self.source)) return error.ForeignAdmissionFailed;
                 self.forwarded.* = turn.forwarded;
                 return .{ .void = {} };
@@ -79,8 +79,9 @@ test "core host: owned observations cancel across independently compiled archive
 
     const Local = struct {
         calls: *usize,
-        pub fn handle(self: *@This(), turn: *glowcap.driver.core.HostTurn, _: []const u8, args: []const glowcap.driver.core.Value) !glowcap.driver.core.Value {
-            defer turn.releaseValues(args);
+        pub fn handle(self: *@This(), turn: *glowcap.driver.core.HostTurn, _: []const u8, args: glowcap.driver.core.Args) !glowcap.driver.core.Value {
+            const arg_values = try args.values();
+            defer turn.releaseValues(arg_values);
             self.calls.* += 1;
             return .void;
         }

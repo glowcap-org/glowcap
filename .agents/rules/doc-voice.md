@@ -1,5 +1,5 @@
 ---
-description: "Documentation voice for Zig glowcap: first-read docs, doc comments, and example narration read as speech, not notation."
+description: "Documentation voice: first-read docs, doc comments, and example narration read as speech, not notation."
 globs: **/*.md, site/content/**, apps/**/*.ts, apps/**/*.tsx, examples/**
 paths:
   - "**/*.md"
@@ -15,14 +15,20 @@ Human docs explain the system to a person; agent scaffolding instructs an
 executor. Keep the voices apart. [Doc-drift](doc-drift.md) keeps claims true;
 this rule keeps them readable aloud.
 
-**Human surfaces:** `README.md`, top-level `docs/*.md`,
-`docs/protocol-diagrams/**`, all of `site/content/**` and `examples/**`,
-binding, app, and UI READMEs, user-facing app copy and transport
-`ProfileInfo.summary` strings, interop and bench narration, test-module `//!`
-headers, public `//!`/`///` docs, and `cli/`. **Agent surfaces:** `.agents/**`,
-`AGENTS.md`, `CLAUDE.md`. ADRs stay precise memos; planning docs declare their
-own role. Inline comments in function bodies are exempt. A touched human
-surface meets this rule; unfinished voice is unfinished work.
+Every doc's audience is human, agent, or shared, and
+[doc-drift](doc-drift.md) says how to tell.
+
+- Human and shared docs follow this rule. Human pages also follow
+  [Insider words](#insider-words).
+- Agent docs are directives.
+- User-facing app copy, transport `ProfileInfo.summary` strings, test-module
+  `//!` headers, public `//!`/`///` docs, and `cli/` read as human prose.
+  Inline comments in function bodies are exempt.
+- ADRs stay precise memos.
+- A planning doc leads with what the work is for and the decision, and keeps
+  file paths and symbols in a closing reference section.
+
+A touched human surface meets this rule. Unfinished voice is unfinished work.
 
 ## A reader's path
 
@@ -46,10 +52,32 @@ surface meets this rule; unfinished voice is unfinished work.
 A page says what is true and what to do. Cut how something came to be,
 progress told as prose, an argument for a choice whose reason is already
 given, a fact said twice, and sentences about the page itself. Status belongs
-to `docs/shipped.md`, a plan, or an ADR, and history belongs to git. Keep a
+on a living page ([doc-drift](doc-drift.md)), and history belongs to git. Keep a
 story only when the reader needs it to understand, such as a worked example.
 If a sentence might be narrative, cut it and reread: keep it only if the page
 no longer makes sense without it.
+
+## Tight
+
+A tight doc gives the reader nothing to skip and leaves nothing out.
+
+- Each section answers the question its heading asks. Cut a sentence that
+  restates the heading, the sentence before it, or a name the code already
+  says.
+- A guide explains the model, the ordinary path, and the rules a caller must
+  keep. A function's contract lives in its doc comment, and the guide links
+  the source instead of walking every call.
+- Steps in order are a numbered list. Rules a caller must follow are a
+  bulleted list. Facts with the same fields are a table. A paragraph holds
+  one idea, and `source-check` stops one at <!-- value ../../tools/check/source_check/docs/paragraphs.zig max_paragraph_sentences -->6<!-- /value --> sentences.
+- Say each claim once, as strongly as the evidence allows. Deny only what a
+  reader would otherwise assume.
+- Show a short example where it says more than a description would.
+- Between two docs that keep every fact the reader needs, the shorter one is
+  better.
+
+The [doc-writing skill](../skills/doc-writing/SKILL.md) is the procedure for
+drafting a doc and tightening one.
 
 ## Sentences
 
@@ -76,7 +104,8 @@ no longer makes sense without it.
   what it means the first time.
 
 `source-check` enforces the mechanical tells (`checkHumanDocVoice`,
-`banHabitualEmDash`, `banHabitualJustification`, `checkProseSentenceLength`).
+`banHabitualEmDash`, `banHabitualJustification`, `checkProseSentenceLength`,
+`checkParagraphLength`).
 Fix the prose; never weaken the check. Retire a row in
 `tools/check/source_check/docs/voice_debt.zig` when you clear a listed file.
 
@@ -90,9 +119,12 @@ for internal state names (intent, journal, front, pane) and for UI copy a
 screen reader speaks. Refer to an on-screen label by its exact text in bold.
 Keep real identifiers (`zig build oracle-check`) in code spans and gloss them
 once. Describe inbound frames as untrusted, peer-supplied, or malformed.
-Contributor pages may use the working words. `insider_words` in
+
+Shared and agent docs may use the working words. `insider_words` in
 `source_check/docs/reader_voice.zig` holds the ones that are never the
-reader's, and `source-check` holds the reader pages and the Rooms text
+reader's, and `source-check` holds the human pages and the Rooms text
 catalog (`apps/rooms/lib/text/`) to that list and to the punctuation rule.
-The [reader-voice skill](../skills/reader-voice/SKILL.md) is the procedure
-for writing or sweeping those pages.
+`vague_labels` in the same file holds words that name no language, owner, or
+environment ("native"), refused on human and shared pages alike.
+The [doc-writing skill](../skills/doc-writing/SKILL.md#reader-voice) holds
+the judgment those pages need.

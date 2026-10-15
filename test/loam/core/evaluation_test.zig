@@ -84,7 +84,7 @@ fn object(sequence: u64) core.ObjectId {
 }
 fn batch(changes: []const core.Mutation) core.Batch {
     const ticket: core.Ticket = .{ .store = f.id, .incarnation = 1, .revision = 5, .sequence = 1 };
-    return .{ .ticket = ticket, .digest = core.Batch.fingerprint(ticket, changes, null), .changes = changes, .limits = f.limits.records, .schemas = &schemas };
+    return .{ .ticket = ticket, .changes = changes, .limits = f.limits.records, .schemas = &schemas };
 }
 fn advance(cursor: *core.Batch.Evaluation, kv: *Kv) !core.Metadata {
     for (0..128) |_| {
@@ -142,7 +142,6 @@ fn trace(refuse_after: ?usize) !void {
     try std.testing.expectEqual(old_bytes.len + root_bytes.len + child_bytes.len, installed.record_bytes);
     try std.testing.expectEqual(@as(u64, 3), installed.collection.tail);
     try std.testing.expectEqual(@as(usize, 10), kv.writes);
-    try std.testing.expectEqualSlices(u8, &submitted.digest, &installed.last_digest);
     try std.testing.expectError(error.StaleCompletion, cursor.advance(&kv));
     try std.testing.expectEqual(@as(usize, 10), kv.writes);
 }
@@ -163,6 +162,38 @@ test "loam batch write suspension is terminal after successful validation" {
     kv.refuse_after = null;
     try std.testing.expectError(error.InvalidBatch, cursor.advance(&kv));
     try std.testing.expectEqual(@as(usize, 1), kv.writes);
+}
+
+test "loam batch fetches only the strong targets a rewrite introduces" {
+    var kv: Kv = .{};
+    defer kv.deinit();
+    var record_bytes: usize = 0;
+    for (2..5) |sequence| {
+        const target: core.Record = .{ .id = object(sequence), .revision = 5, .schema = 7, .payload = "target", .rooted = true };
+        const bytes = try target.encodeAlloc(gpa, f.limits.records, &schemas);
+        defer gpa.free(bytes);
+        record_bytes += bytes.len;
+        try kv.put(&target.id.key(), bytes);
+    }
+    const previous: core.Record = .{ .id = object(1), .revision = 5, .schema = 7, .payload = "old", .rooted = true, .edges = &.{ .{ .target = object(2) }, .{ .target = object(3) } } };
+    const old_bytes = try previous.encodeAlloc(gpa, f.limits.records, &schemas);
+    defer gpa.free(old_bytes);
+    record_bytes += old_bytes.len;
+    try kv.put(&previous.id.key(), old_bytes);
+    const old: core.Metadata = .{ .store = f.id, .incarnation = 1, .revision = 5, .objects = 4, .roots = 4, .record_bytes = record_bytes };
+    try kv.put("m", &old.encode());
+    // Edge 2 is dropped, 3 is kept, and 4 is introduced: only 4 is fetched.
+    const record: core.Record = .{ .id = object(1), .revision = 6, .schema = 7, .payload = "rewritten", .rooted = true, .edges = &.{ .{ .target = object(3) }, .{ .target = object(4) } } };
+    const bytes = try record.encodeAlloc(gpa, f.limits.records, &schemas);
+    defer gpa.free(bytes);
+    const changes = [_]core.Mutation{.{ .id = object(1), .expected = 5, .bytes = bytes }};
+    const submitted = batch(&changes);
+    var cursor = core.Batch.Evaluation.init(&submitted);
+    kv.reads = 0;
+    const installed = try advance(&cursor, &kv);
+    try std.testing.expectEqual(@as(u64, 6), installed.revision);
+    try std.testing.expectEqual(@as(u64, 4), installed.objects);
+    try std.testing.expectEqual(@as(usize, 3), kv.reads);
 }
 
 test "loam batch retains replacement and deletion accounting across suspended edge reads" {

@@ -1,4 +1,4 @@
-//! Presence and room facts reduce into one bounded session view. Both native
+//! Presence and room facts reduce into one bounded session view. Both host
 //! and browser-hosted sessions project this state. Widgets never replay it.
 use super::snapshot::{
 	Nullable, Presence as FieldPresence, SafeInteger, Text,

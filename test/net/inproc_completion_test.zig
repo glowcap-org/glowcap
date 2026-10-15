@@ -1,7 +1,8 @@
 //! The `inproc` completion adapter over the real platform backend: a dial is
 //! accepted through the exchange, bytes cross both ways through bounded
 //! rings, a full ring holds its writer until the reader drains it, and a
-//! closed end reads as end of stream.
+//! closed end reads as end of stream. A sink outlives a nudge counted against
+//! it before its ends were released, and a writer nudges only a parked reader.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -9,6 +10,7 @@ const glowcap = @import("glowcap");
 const net = glowcap.net;
 const completion = net.completion;
 const Exchange = net.inproc_completion.Exchange;
+const Sink = net.inproc_completion.Sink;
 const Backend = net.inproc_completion.CompletionBackend(net.Backend);
 
 const ring_bytes = 8;
@@ -82,4 +84,91 @@ test "inproc completion: a dial to a designator nobody serves is refused" {
     var client = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
     defer client.deinit();
     try std.testing.expectError(error.ConnectionRefused, client.startDial(1, .{ .inproc = "nobody" }));
+}
+
+/// A nudge counted under a link lock and sent after a delay, as a writer
+/// preempted between releasing the lock and sending would do.
+const LateNudge = struct {
+    sink: *Sink,
+    landed: std.atomic.Value(bool) = .init(false),
+
+    fn send(self: *LateNudge) void {
+        std.Io.sleep(std.testing.io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+        self.landed.store(true, .release);
+        _ = self.sink.wake.nudge() catch |err| self.sink.wake_failure.record(err);
+        _ = self.sink.nudging.fetchSub(1, .release);
+    }
+};
+
+test "inproc exchange: a sink's destroy waits for a nudge counted before its ends were released" {
+    const allocator = std.testing.allocator;
+    const sink = try Sink.create(allocator);
+    _ = sink.nudging.fetchAdd(1, .monotonic);
+    var late = LateNudge{ .sink = sink };
+    const nudger = try std.Thread.spawn(.{}, LateNudge.send, .{&late});
+    sink.destroy(allocator);
+    try std.testing.expect(late.landed.load(.acquire));
+    nudger.join();
+}
+
+/// Whether `fd` reports readable without waiting.
+fn readableNow(fd: std.posix.fd_t) !bool {
+    var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
+    return try std.posix.poll(&fds, 0) > 0;
+}
+
+test "inproc completion: a writer nudges only a parked reader" {
+    const allocator = std.testing.allocator;
+    var exchange = Exchange.init(allocator);
+    defer exchange.deinit();
+    var server = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer server.deinit();
+    var client = try Backend.init(allocator, .{ .exchange = &exchange }, 32, 4, 64);
+    defer client.deinit();
+
+    const listen = try server.openListener(.{ .inproc = "beta" });
+    try server.submitAccept(1, listen);
+    const client_fd = try client.startDial(2, .{ .inproc = "beta" });
+    try std.testing.expectEqual(@as(i32, 0), (try pollOne(&client, 2)).result);
+    const server_fd = (try pollOne(&server, 1)).accepted_fd.?;
+
+    // A reader that reaps is looking: the writer sends no nudge, and the
+    // reader's next pass settles the news on its own.
+    var out: [4]completion.Completion = undefined;
+    try server.submitRecv(5, server_fd);
+    _ = try server.peek(&out);
+    try client.submitSend(3, client_fd, "ping");
+    try std.testing.expectEqual(@as(i32, 4), (try pollOne(&client, 3)).result);
+    try std.testing.expect(!try readableNow(server.sink.wake.read));
+    try std.testing.expectEqual(@as(usize, 1), try server.peek(&out));
+    try std.testing.expectEqual(@as(u64, 5), out[0].user_data);
+    try std.testing.expectEqualStrings("ping", out[0].borrowed.recvBytes() orelse "");
+    server.recycleBorrowed(out[0]);
+
+    // A reader that flushed is parked: the writer nudges, and the wait
+    // consumes that nudge (the wake stays armed when none came).
+    try server.submitRecv(6, server_fd);
+    try server.flush();
+    try client.submitSend(4, client_fd, "pong");
+    try std.testing.expectEqual(@as(i32, 4), (try pollOne(&client, 4)).result);
+    const second = try pollOne(&server, 6);
+    try std.testing.expectEqualStrings("pong", second.borrowed.recvBytes() orelse "");
+    server.recycleBorrowed(second);
+    try std.testing.expect(!server.wake_armed);
+
+    // A reader that parks over news it has not reaped nudges itself.
+    try server.submitRecv(7, server_fd);
+    _ = try server.peek(&out);
+    try client.submitSend(8, client_fd, "last");
+    try std.testing.expectEqual(@as(i32, 4), (try pollOne(&client, 8)).result);
+    try server.flush();
+    const third = try pollOne(&server, 7);
+    try std.testing.expectEqualStrings("last", third.borrowed.recvBytes() orelse "");
+    server.recycleBorrowed(third);
+    try std.testing.expect(!server.wake_armed);
+
+    try client.submitClose(9, client_fd);
+    _ = try pollOne(&client, 9);
+    try server.submitClose(10, server_fd);
+    _ = try pollOne(&server, 10);
 }

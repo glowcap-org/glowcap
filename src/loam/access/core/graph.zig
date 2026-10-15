@@ -1,6 +1,7 @@
 //! Bounded owned containment, independent of actor or capability identity.
 //! One allocation reserves the requested slots. Reads and mutations allocate
-//! nothing. A subtree move visits its descendants to validate and update depth.
+//! nothing. Depth is derived from parent edges, so a subtree move reads its
+//! descendants once to bound their new depth and rewrites only its own edges.
 
 const std = @import("std");
 const identity = @import("identity.zig");
@@ -17,7 +18,6 @@ const Node = struct {
     first_child: ?u32 = null,
     previous: ?u32 = null,
     next: ?u32 = null,
-    depth: u32 = 0,
 };
 
 const Slot = struct {
@@ -118,7 +118,7 @@ pub const Graph = struct {
             .id = id,
             .kind = node.kind,
             .parent = if (node.parent) |parent| self.idAt(parent) else null,
-            .depth = node.depth,
+            .depth = self.depthOf(index),
         };
     }
 
@@ -155,21 +155,22 @@ pub const Graph = struct {
         const next_revision = try self.nextRevision(base);
         const parent_index = if (parent) |id| try self.indexOf(id) else null;
         try policy.validatePlacement(kind, if (parent_index) |index| self.slots[index].node.?.kind else null);
-        const depth = try self.childDepth(parent_index);
+        _ = try self.childDepth(parent_index);
         const index = self.free_head orelse return error.CapacityExceeded;
         const slot = &self.slots[index];
         self.free_head = slot.next_free;
         slot.next_free = null;
-        slot.node = .{ .kind = kind, .depth = depth };
+        slot.node = .{ .kind = kind };
         self.attach(index, parent_index);
         self.live_count += 1;
         self.current_revision = next_revision;
         return self.idAt(index);
     }
 
-    /// Move a whole owned subtree. Validation covers every descendant's new
-    /// depth before modifying any edge. Reparenting to the same parent is a
-    /// validated no-op and does not advance the revision.
+    /// Move a whole owned subtree. Validation reads every descendant once to
+    /// bound the subtree's new depth before modifying any edge, and the move
+    /// itself rewrites only the moved resource's edges. Reparenting to the same
+    /// parent is a validated no-op and does not advance the revision.
     pub fn reparent(self: *Graph, base: Revision, policy: *const Policy, id: ResourceId, parent: ?ResourceId) Error!void {
         try self.checkWritable(base);
         const index = try self.indexOf(id);
@@ -178,21 +179,9 @@ pub const Graph = struct {
         if (self.slots[index].node.?.parent == parent_index) return;
         const next_revision = try self.nextRevision(base);
         var resources = self.readView();
-        _ = try resources.checkReparent(id, parent, 0);
-        const depth = try self.childDepth(parent_index);
-        const delta = @as(i64, depth) - @as(i64, self.slots[index].node.?.depth);
-        var cursor: ?u32 = index;
-        while (cursor) |child| : (cursor = self.nextInSubtree(child, index)) {
-            const new_depth = @as(i64, self.slots[child].node.?.depth) + delta;
-            if (new_depth > self.limits.max_depth) return error.DepthLimit;
-            std.debug.assert(new_depth >= 0);
-        }
+        _ = try resources.checkReparent(id, parent, self.subtreeHeight(index));
         self.detach(index);
         self.attach(index, parent_index);
-        cursor = index;
-        while (cursor) |child| : (cursor = self.nextInSubtree(child, index)) {
-            self.slots[child].node.?.depth = @intCast(@as(i64, self.slots[child].node.?.depth) + delta);
-        }
         self.current_revision = next_revision;
     }
 
@@ -239,9 +228,42 @@ pub const Graph = struct {
 
     fn childDepth(self: *const Graph, parent: ?u32) Error!u32 {
         const index = parent orelse return 0;
-        const depth = self.slots[index].node.?.depth;
+        const depth = self.depthOf(index);
         if (depth >= self.limits.max_depth) return error.DepthLimit;
         return depth + 1;
+    }
+
+    /// Parent edges above a live node. Every mutation keeps depth within
+    /// `max_depth`, so the walk is bounded.
+    fn depthOf(self: *const Graph, index: u32) u32 {
+        var depth: u32 = 0;
+        var cursor = self.slots[index].node.?.parent;
+        while (cursor) |parent| : (cursor = self.slots[parent].node.?.parent) depth += 1;
+        return depth;
+    }
+
+    /// The deepest descendant's distance below `root`, found in one walk.
+    fn subtreeHeight(self: *const Graph, root: u32) u32 {
+        var height: u32 = 0;
+        var level: u32 = 0;
+        var cursor = root;
+        while (true) {
+            if (self.slots[cursor].node.?.first_child) |child| {
+                cursor = child;
+                level += 1;
+                height = @max(height, level);
+                continue;
+            }
+            while (cursor != root) {
+                const node = self.slots[cursor].node.?;
+                if (node.next) |sibling| {
+                    cursor = sibling;
+                    break;
+                }
+                cursor = node.parent.?;
+                level -= 1;
+            } else return height;
+        }
     }
 
     fn attach(self: *Graph, index: u32, parent: ?u32) void {
@@ -266,16 +288,5 @@ pub const Graph = struct {
         node.parent = null;
         node.previous = null;
         node.next = null;
-    }
-
-    fn nextInSubtree(self: *const Graph, index: u32, root: u32) ?u32 {
-        if (self.slots[index].node.?.first_child) |child| return child;
-        var cursor = index;
-        while (cursor != root) {
-            const node = self.slots[cursor].node.?;
-            if (node.next) |sibling| return sibling;
-            cursor = node.parent.?;
-        }
-        return null;
     }
 };

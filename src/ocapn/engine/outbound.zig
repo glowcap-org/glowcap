@@ -15,7 +15,9 @@ const engine = @import("mod.zig");
 const Peer = engine.Peer;
 
 const abort_projection = @import("abort_projection.zig");
+const encoded = @import("outbound/encoded.zig");
 const listener_fire = @import("outbound/listener_fire.zig");
+const outbound_copying = @import("outbound/copying.zig");
 const lower = @import("lower.zig");
 const passable = @import("node/passable.zig");
 const outbound_budget = @import("peer/outbound/budget.zig");
@@ -27,11 +29,7 @@ const freeMessage = model.freeMessage;
 
 pub const StoreTarget = listener_fire.StoreTarget;
 pub const FireTarget = listener_fire.FireTarget;
-
-pub const NextAnswered = struct {
-    operation: model.Message,
-    listener: model.Message,
-};
+pub const Encoded = encoded.Encoded;
 
 const SettledAnswer = struct {
     target: session.AnswerTarget,
@@ -43,8 +41,10 @@ const SettledAnswer = struct {
     reservation_charge: usize,
 };
 
-/// One slot in the outbound queue. Most kinds queue a fully-built `message` the
-/// queue owns until `step` encodes it. A sent `op:resolve` is the exception: its
+/// One slot in the outbound queue. The kinds the drain must still inspect
+/// queue a fully-built `message` the queue owns until `step` encodes it. A
+/// deliver leaves as its frame at admission instead (`outbound/encoded.zig`,
+/// ADR-0236). A sent `op:resolve` is the other exception: its
 /// resolution lives in the answer store (recording moves it there), so the
 /// queue holds only `settled_answer`, the position of the inbound answer it
 /// settles, its incarnation stamp, and a retained pointer to that incarnation's
@@ -73,11 +73,12 @@ pub const Outbound = union(enum) {
     /// until the release frame is encoded, so deferred V1.0 answer setup runs
     /// first and allocator/backpressure refusal remains retryable.
     answer_release: model.AnswerPosition,
-    /// A next-profile answered operation and the mandatory listener that must
-    /// immediately follow it. `step` encodes both and reserves both outbound
-    /// slots before publishing either frame, so an internal allocation failure
-    /// cannot expose the operation without its listener.
-    next_answered: NextAnswered,
+    /// A deliver, or on next an answered operation, already encoded: the
+    /// frame, the listener frame next requires behind it, and what a
+    /// retracted turn gives back. `step` moves both frames to `outbound` in
+    /// one reservation, so an allocation failure cannot expose the operation
+    /// without its listener.
+    encoded: Encoded,
     /// A sent `op:resolve` whose resolution lives in the inbound answer store
     /// (recording moves it there). Carries the answer position *and* the
     /// stable payload owner. Answer positions are partner-named and reusable.
@@ -90,8 +91,8 @@ pub const Outbound = union(enum) {
     /// `fulfill(near)` (`FireTarget.near_object`). Store-backed targets carry
     /// exact store identity inside their arm, stamped at queue time.
     /// `near_object` encodes from the export position when the row is still
-    /// live. Queue-time accounting already ran (`pipeline.enqueueFire` /
-    /// `enqueueNearObjectFire`). Answer targets retain their payload through
+    /// live. Queue-time accounting already ran (`enqueueFire` in
+    /// `pipeline_listeners.zig`). Answer targets retain their payload through
     /// name reuse. Imported targets drop only when their stamped row is gone or
     /// replaced.
     listener_fire: listener_fire.Carrier,
@@ -119,10 +120,7 @@ pub const Outbound = union(enum) {
                 peer.session_state.releaseAnswerPayload(settled.payload);
             },
             .listener_fire => |fire| listener_fire.deinit(fire, peer),
-            .next_answered => |pair| {
-                freeMessage(peer.allocator, pair.operation);
-                freeMessage(peer.allocator, pair.listener);
-            },
+            .encoded => |sent| sent.deinit(peer),
             .message => |message| freeMessage(peer.allocator, message),
         }
     }
@@ -132,15 +130,7 @@ pub const Outbound = union(enum) {
 /// encode, taking ownership of its heap. The shared tail of `send` and the
 /// decomposed-chain links, kept separate so the chain links bypass the
 /// (already-checked) multi-hop guard, breaking the `send` recursion cycle.
-pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
-    // Lower any node-local foreign-import token this message carries to its
-    // wire reference, in place, before it is recorded or encoded (ADR-0069).
-    // This is the single chokepoint every flat outbound message funnels
-    // through, the direct send, each decomposed pipeline link, a prepared
-    // fetch, so a token cannot leak onto the wire in any position. A
-    // `RouteNotLowerable` aborts the send with the message still owned here.
-    var message = message_in;
-
+pub fn enqueueRecorded(self: *Peer, message: model.Message) !void {
     // A resolve's semantic answer identity must survive Node staging. Convert
     // the wire-only message shape before the Passable transaction so the same
     // path also serves resolver-only virtual answers without inventing a wire
@@ -152,24 +142,102 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
             message.resolve.resolution,
         );
     }
+    // One walk certifies the tree's shape and lists what every later pass
+    // returns to (ADR-0234). A refused shape frees the message here, before
+    // any authority or queue seat is touched.
+    const inventory = self.session_state.inventoryMessage(message) catch |err| {
+        freeMessage(self.allocator, message);
+        return err;
+    };
+    defer inventory.deinit(self.allocator);
+    return enqueueInventoried(self, message, inventory);
+}
+
+/// Record and enqueue `message`, borrowing it for the call. A deliver whose
+/// tree lists no reference is freight: the session rewrites nothing in it,
+/// the Node stages nothing from it (`passable/walk.zig` counts only what the
+/// inventory lists), and the encoder reads it once, so it leaves as its
+/// frame before this returns and the caller owns its storage again. A tree
+/// that lists a reference, handoff, or set is cloned and sent owned, because
+/// the session rewrites those slots in place and the Node may hold the tree
+/// while it stages a handoff. Every other kind is cloned, since the drain
+/// still inspects it at emission. These clones are the named outbound
+/// boundary copy (memory-ledger skill).
+pub fn enqueueBorrowed(self: *Peer, message: model.Message) !void {
+    switch (message) {
+        .deliver => |deliver| {
+            const inventory = try self.session_state.inventoryMessage(message);
+            defer inventory.deinit(self.allocator);
+            if (inventory.slots.len != 0)
+                return enqueueRecorded(self, try model.cloneMessage(self.allocator, message));
+            var envelope: model.Message = .{ .deliver = deliver };
+            if (self.node_services) |services| {
+                if (services.lowering_active.*) try lower.lowerMessage(services, &envelope, inventory);
+            }
+            self.session_state.rewriteShortenedMessage(&envelope, inventory);
+            return encoded.admit(self, envelope, inventory, null);
+        },
+        .resolve => |resolve| return enqueueAnswerResolutionOwned(
+            self,
+            .fromWire(resolve.answer),
+            try outbound_copying.cloneResolution(self, resolve.resolution),
+        ),
+        else => return enqueueRecorded(self, try model.cloneMessage(self.allocator, message)),
+    }
+}
+
+/// Record and enqueue a deliver whose arguments the caller lends as views
+/// (ADR-0246): the Host's values behind a sequence table, or a delivery
+/// forwarded from the frame it arrived in. The tree is freight, values
+/// only, and the session certifies it as such; a reference or handoff in it
+/// refuses the send. The envelope's own references are lowered and
+/// shortened as on the owned path, and the deliver leaves as its frame
+/// before this returns, so the views are the caller's again.
+pub fn enqueueFreight(self: *Peer, target: model.Reference, args: model.view.Args, answer: ?model.AnswerPosition) !void {
+    var envelope: model.Message = .{ .deliver = .{ .target = target, .args = &.{}, .answer = answer } };
+    if (self.node_services) |services| {
+        if (services.lowering_active.*) try lower.lowerMessage(services, &envelope, .none);
+    }
+    self.session_state.rewriteShortenedMessage(&envelope, .none);
+    return encoded.admit(self, envelope, .none, args);
+}
+
+/// `enqueueRecorded` for a message whose inventory the caller already took:
+/// the Node's finished staging batch, which inventoried the message to
+/// validate it before handing it over. Consumes `message` on every outcome
+/// and borrows `inventory`. Never a resolve, which `enqueueRecorded` routes
+/// to its settlement path first.
+pub fn enqueueInventoried(self: *Peer, message_in: model.Message, inventory: session.Inventory) !void {
+    // Lower any node-local foreign-import token this message carries to its
+    // wire reference, in place, before it is recorded or encoded (ADR-0069).
+    // This is the single chokepoint every flat outbound message funnels
+    // through, the direct send, each decomposed pipeline link, a prepared
+    // fetch, so a token cannot leak onto the wire in any position. A
+    // `RouteNotLowerable` aborts the send with the message still owned here.
+    var message = message_in;
+    std.debug.assert(message != .resolve);
 
     if (self.node_services) |services| {
         if (services.lowering_active.*) {
             var semantic: passable.Outbound = .{ .message = message };
-            const staged = services.stageOutbound(&semantic) catch |err| {
+            const staged = services.stageOutbound(&semantic, inventory) catch |err| {
                 semantic.deinit(&self.session_state);
                 return err;
             };
             if (staged) return;
             message = semantic.message;
-            lower.lowerMessage(services, &message) catch |err| {
+            lower.lowerMessage(services, &message, inventory) catch |err| {
                 freeMessage(self.allocator, message);
                 return err;
             };
         }
     }
 
-    self.session_state.rewriteShortenedMessage(&message);
+    self.session_state.rewriteShortenedMessage(&message, inventory);
+    if (encoded.admits(self, message)) {
+        defer freeMessage(self.allocator, message);
+        return encoded.admit(self, message, inventory, null);
+    }
     // A release may carry a shortening closure: trailing entries that are the
     // session's own retains, recorded apart from the caller's below.
     const closure_len: usize = if (message == .gc_export)
@@ -180,23 +248,24 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     else
         0;
 
-    if (self.session_state.captp_version == .next) {
-        if ((passable.Outbound{ .message = message }).answerProduced()) |answer| {
-            return enqueueNextAnsweredOperation(self, message, answer);
-        }
-    }
+    // The queue row's charge: the message's envelope plus the tree the
+    // inventory measured, after the release closure grew the envelope.
+    const charge = messageCharge(message, inventory) catch |err| {
+        freeMessage(self.allocator, message);
+        return err;
+    };
 
     var owned_needs_free = true;
     errdefer if (owned_needs_free) freeMessage(self.allocator, message);
 
-    const reservation = try self.reservePending(.{ .message = message });
+    const reservation = try self.reservePendingCharged(charge, message == .start_session);
     self.pushPendingAssume(reservation, .{ .message = message });
     owned_needs_free = false;
     var appended = true;
     errdefer if (appended) self.popPendingBack().?.item.deinit(self);
 
     if (closure_len == 0) {
-        try self.session_state.recordSend(message);
+        try self.session_state.recordSendInventoried(message, inventory);
     } else {
         // The caller's own entries are validated like any send; the closure
         // behind them spends what the session adopted for exactly this
@@ -214,6 +283,13 @@ pub fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
     }
     if (message == .start_session) self.settleNegotiatedProfile();
     appended = false;
+}
+
+/// A queued tree's admission charge: its envelope plus the bytes the
+/// inventory measured.
+pub fn messageCharge(message: model.Message, inventory: session.Inventory) !usize {
+    const envelope = try model.measureMessageEnvelopeBytes(message);
+    return std.math.add(usize, envelope, inventory.owned_bytes) catch error.MalformedView;
 }
 
 /// Record and queue one owned semantic answer settlement. `answer` may be a
@@ -257,9 +333,13 @@ pub fn enqueueAnswerTargetResolutionOwned(
 pub fn enqueueStagedAnswerSettlementOwned(
     self: *Peer,
     settlement: passable.AnswerSettlement,
+    inventory: session.Inventory,
     staged_owner: *?Peer.InlinePassableStagingReservation,
 ) !void {
-    return enqueueAnswerSettlementOwned(self, settlement, .{ .staged = staged_owner });
+    return enqueueAnswerSettlementOwned(self, settlement, .{ .staged = .{
+        .owner = staged_owner,
+        .inventory = inventory,
+    } });
 }
 
 fn enqueueAnswerSettlementOwned(
@@ -268,9 +348,20 @@ fn enqueueAnswerSettlementOwned(
     admission: AnswerSettlementAdmission,
 ) !void {
     var semantic: passable.Outbound = .{ .answer_settlement = settlement_in };
+    // A fresh settlement is inventoried here, once; a staged one arrives with
+    // the inventory its batch took to validate it.
+    const fresh_inventory: ?session.Inventory = switch (admission) {
+        .fresh => self.session_state.inventoryResolution(settlement_in.resolution) catch |err| {
+            semantic.deinit(&self.session_state);
+            return err;
+        },
+        .staged => null,
+    };
+    defer if (fresh_inventory) |inventory| inventory.deinit(self.allocator);
+    const inventory = fresh_inventory orelse admission.staged.inventory;
     if (admission == .fresh) {
         if (self.node_services) |services| if (services.lowering_active.*) {
-            const staged = services.stageOutbound(&semantic) catch |err| {
+            const staged = services.stageOutbound(&semantic, inventory) catch |err| {
                 semantic.deinit(&self.session_state);
                 return err;
             };
@@ -278,6 +369,7 @@ fn enqueueAnswerSettlementOwned(
             lower.lowerResolution(
                 services,
                 &semantic.answer_settlement.resolution,
+                inventory,
             ) catch |err| {
                 semantic.deinit(&self.session_state);
                 return err;
@@ -285,9 +377,9 @@ fn enqueueAnswerSettlementOwned(
         };
     }
     const settlement = semantic.answer_settlement;
-    const charge = outbound_budget.measureAnswerSettlementCharge(
+    const charge = outbound_budget.answerSettlementCharge(
         Outbound,
-        settlement.resolution,
+        inventory.owned_bytes,
     ) catch |err| {
         semantic.deinit(&self.session_state);
         return err;
@@ -299,7 +391,7 @@ fn enqueueAnswerSettlementOwned(
     } };
     var reservation = switch (admission) {
         .fresh => self.reservePending(item),
-        .staged => |staged_owner| transferAnswerStaging(self, staged_owner, item),
+        .staged => |staged| transferAnswerStaging(self, staged.owner, item),
     } catch |err| {
         semantic.deinit(&self.session_state);
         return err;
@@ -308,6 +400,7 @@ fn enqueueAnswerSettlementOwned(
         settlement.target,
         settlement.payload,
         settlement.resolution,
+        inventory,
     ) catch |err| {
         self.cancelPendingReservation(reservation);
         self.session_state.releaseAnswerPayload(settlement.payload);
@@ -324,7 +417,10 @@ fn enqueueAnswerSettlementOwned(
 
 const AnswerSettlementAdmission = union(enum) {
     fresh,
-    staged: *?Peer.InlinePassableStagingReservation,
+    staged: struct {
+        owner: *?Peer.InlinePassableStagingReservation,
+        inventory: session.Inventory,
+    },
 };
 
 fn transferAnswerStaging(
@@ -337,46 +433,4 @@ fn transferAnswerStaging(
     const transferred = try self.transferInlinePassableStaging(staged_owner.* orelse unreachable, item);
     staged_owner.* = null;
     return transferred;
-}
-
-/// Queue a next-profile operation and its mandatory shortening-capable listen
-/// as one preparation. Every fallible resource is acquired before `recordSend`
-/// commits the operation's answer. The two queue appends are then infallible and
-/// preserve wire order.
-fn enqueueNextAnsweredOperation(
-    self: *Peer,
-    message: model.Message,
-    answer: model.AnswerPosition,
-) !void {
-    const resolver_export = self.session_state.mintMentionedResolverExport(answer, .object) catch |err| {
-        freeMessage(self.allocator, message);
-        return err;
-    };
-    var resolver_owned = true;
-    errdefer if (resolver_owned)
-        self.session_state.abandonMentionedResolverExport(resolver_export);
-
-    const listener: model.Message = .{ .listen = .{
-        .target = .{ .promise = .{ .answer_position = answer } },
-        .listener = session.slot.toReference(self.session_state.exportSlot(resolver_export).?).?,
-        .mode = .shortening_or_settling,
-    } };
-    const reservation = self.reservePending(.{ .next_answered = .{
-        .operation = message,
-        .listener = listener,
-    } }) catch |err| {
-        freeMessage(self.allocator, message);
-        return err;
-    };
-
-    self.session_state.recordSend(message) catch |err| {
-        self.cancelPendingReservation(reservation);
-        freeMessage(self.allocator, message);
-        return err;
-    };
-    self.pushPendingAssume(reservation, .{ .next_answered = .{
-        .operation = message,
-        .listener = listener,
-    } });
-    resolver_owned = false;
 }

@@ -16,6 +16,7 @@ const capability_promise = @import("../capability_promise.zig");
 const vow_settlement = @import("../vows/settlement.zig");
 const vows = @import("../vows.zig");
 const value_mod = @import("../value.zig");
+const value_views = @import("../value_views.zig");
 const lower = @import("capabilities/lower.zig");
 const routing = @import("capabilities/routing.zig");
 const host_pump = @import("pump.zig");
@@ -235,20 +236,27 @@ fn sendValuesWithProgress(
     }
     const routed = try routing.routeCapability(self, session, target, true);
     try self.checkOutboundAdmission(routed.session);
-    const retained = try lower.retainValueCapabilities(self, arena, values);
-    var retained_live = true;
-    defer if (retained_live) lower.releaseUntransferredCapabilityRetains(self, retained);
+    if (freightOf(routed, verb, values)) |freight|
+        return commitRoutedSend(self, routed, freight, drive_now, null, observer);
     var prepared = try lower.prepareValues(self, routed.session, arena, values);
     defer prepared.deinit();
     try lower.holdForTurn(self, &prepared);
     const id = try commitRoutedSend(self, routed, .{
         .verb = verb,
-        .args = prepared.values,
-    }, drive_now, .{ .arena = arena, .retained = retained }, observer);
+        .args = .fromOwnedSlice(prepared.values),
+    }, drive_now, &prepared, observer);
     _ = prepared.commit();
-    lower.releaseUntransferredCapabilityRetains(self, retained);
-    retained_live = false;
     return id;
+}
+
+/// A far send of values that carry no capability leaves as freight: the
+/// values back a view sequence the engine certifies, then encodes without
+/// lowering an owned tree (ADR-0246). A local target
+/// and a tree with a capability take the owned path, which lowers each
+/// capability under the session.
+fn freightOf(routed: routing.RoutedSend, verb: []const u8, values: []const value_mod.Value) ?actors.Delivery {
+    if (routed.target != .far or value_views.carriesCapability(values)) return null;
+    return .{ .verb = verb, .args = value_views.args(values), .reference_slots = 0 };
 }
 
 fn sendWithProgress(
@@ -261,7 +269,7 @@ fn sendWithProgress(
     try self.admitApplicationOperation();
     const routed = try routing.routeSend(self, session, target, msg.args);
     try self.checkOutboundAdmission(routed.session);
-    return commitRoutedSend(self, routed, msg, drive_now, null, null);
+    return commitRoutedSend(self, routed, msg.delivery(), drive_now, null, null);
 }
 
 fn sendCapabilityWithProgress(
@@ -275,20 +283,17 @@ fn sendCapabilityWithProgress(
     const routed = try routing.routeCapability(self, session, target, true);
     try self.checkOutboundAdmission(routed.session);
     try routing.validateRoutedArguments(self, routed.session, msg.args);
-    return commitRoutedSend(self, routed, msg, drive_now, null, null);
+    return commitRoutedSend(self, routed, msg.delivery(), drive_now, null, null);
 }
 
-const OutboundStagingContext = struct {
-    arena: std.mem.Allocator,
-    retained: []lower.StagedCapabilityRetain,
-};
-
+/// Commit a routed send. `staging` is the lease window of lowered values,
+/// and the Port decides how any other delivery leaves.
 fn commitRoutedSend(
     self: *Host,
     routed: routing.RoutedSend,
-    msg: actors.Message,
+    delivery: actors.Delivery,
     drive_now: bool,
-    staging: ?OutboundStagingContext,
+    staging: ?*lower.PreparedValues,
     observer: ?Observation,
 ) !u64 {
     const location: actors.VowLocation = switch (routed.target) {
@@ -313,17 +318,10 @@ fn commitRoutedSend(
             reservation.row.inner = listener;
         },
     };
-    const vow = if (staging) |context|
-        try lower.servedSendWithStaging(
-            self,
-            routed.session,
-            routed.target,
-            msg,
-            context.arena,
-            context.retained,
-        )
+    const vow = if (staging) |prepared|
+        try lower.servedSendWithStaging(self, routed.session, routed.target, .{ .verb = delivery.verb, .args = prepared.values }, prepared)
     else
-        try routed.session.served.send(&self.vat, routed.target, msg);
+        try routed.session.served.sendDelivery(&self.vat, routed.target, delivery);
     const id = vows.commitVow(self, routed.session, reservation, vow);
     reservation_live = false;
     self.node.exporterApplicationOwned(routed.session.peer_handle);
@@ -338,7 +336,7 @@ pub fn tell(self: *Host, session: *HostSession, target: model.Reference, msg: ac
     try self.admitApplicationOperation();
     const routed = try routing.routeSend(self, session, target, msg.args);
     try self.checkOutboundAdmission(routed.session);
-    return commitRoutedTell(self, routed, msg);
+    return commitRoutedTell(self, routed, msg.delivery());
 }
 
 pub fn tellCapability(self: *Host, session: *HostSession, target: capability.Ref, msg: actors.Message) !void {
@@ -346,7 +344,7 @@ pub fn tellCapability(self: *Host, session: *HostSession, target: capability.Ref
     const routed = try routing.routeCapability(self, session, target, true);
     try self.checkOutboundAdmission(routed.session);
     try routing.validateRoutedArguments(self, routed.session, msg.args);
-    return commitRoutedTell(self, routed, msg);
+    return commitRoutedTell(self, routed, msg.delivery());
 }
 
 pub fn tellValues(
@@ -383,9 +381,7 @@ pub fn tellValuesAdmitted(self: *Host, session: *HostSession, target: capability
     }
     const routed = try routing.routeCapability(self, session, target, true);
     try self.checkOutboundAdmission(routed.session);
-    const retained = try lower.retainValueCapabilities(self, arena, values);
-    var retained_live = true;
-    defer if (retained_live) lower.releaseUntransferredCapabilityRetains(self, retained);
+    if (freightOf(routed, verb, values)) |freight| return commitRoutedTell(self, routed, freight);
     var prepared = try lower.prepareValues(self, routed.session, arena, values);
     defer prepared.deinit();
     try lower.holdForTurn(self, &prepared);
@@ -394,18 +390,15 @@ pub fn tellValuesAdmitted(self: *Host, session: *HostSession, target: capability
         routed.session,
         routed.target,
         .{ .verb = verb, .args = prepared.values },
-        arena,
-        retained,
+        &prepared,
     );
     _ = prepared.commit();
-    lower.releaseUntransferredCapabilityRetains(self, retained);
-    retained_live = false;
     self.node.exporterApplicationOwned(routed.session.peer_handle);
     try host_pump.dirtyThenPump(self, routed.session.peer_handle);
 }
 
-fn commitRoutedTell(self: *Host, routed: routing.RoutedSend, msg: actors.Message) !void {
-    try routed.session.served.tell(&self.vat, routed.target, msg);
+fn commitRoutedTell(self: *Host, routed: routing.RoutedSend, delivery: actors.Delivery) !void {
+    try routed.session.served.tellDelivery(&self.vat, routed.target, delivery);
     self.node.exporterApplicationOwned(routed.session.peer_handle);
     try host_pump.dirtyThenPump(self, routed.session.peer_handle);
 }

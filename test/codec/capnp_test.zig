@@ -4,6 +4,7 @@ const glowcap = @import("glowcap");
 const model = glowcap.ocapn.model;
 const capnp = glowcap.ocapn.codec.capnp;
 const wire = capnp.wire;
+const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 
 test "struct pointer round-trips offset and section sizes (both signs)" {
     for ([_]i32{ 0, 1, 7, -1, -3, 100, -100 }) |offset| {
@@ -81,6 +82,53 @@ test "decodeBody projects the neutral view with lazy capnp backings (nested args
     try std.testing.expectEqual(@as(usize, 2), try inner.len());
     try std.testing.expectEqualSlices(u8, "sym", (try inner.at(0)).symbol);
     try std.testing.expectEqual(@as(i64, 7), (try inner.at(1)).integer);
+}
+
+test "decodeBodyInto parses a deliver's argument tree once into lent views, nested lists included" {
+    const allocator = std.testing.allocator;
+    const nested = [_]model.Argument{ .{ .symbol = "sym" }, .{ .integer = 7 }, .{ .integer = 8 } };
+    const args = [_]model.Argument{ .{ .bytes = "ping" }, .{ .list = &nested }, .{ .boolean = true } };
+    const original = model.Message{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(9) } },
+        .args = &args,
+        .answer = .from(5),
+        .resolve_me_desc = null,
+    } };
+    var frame = try capnp.encodeMessage(allocator, original);
+    defer frame.deinit();
+
+    // Room for the whole tree: the outer list claims three, the inner three.
+    var views: [8]model.view.Argument = undefined;
+    var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(&views));
+    const body = try capnp.decodeBodyInto(.v1_0, frame.view(), &slab);
+    try std.testing.expectEqual(@as(usize, 6) * @sizeOf(model.view.Argument), slab.used);
+    try std.testing.expect(body.deliver.args.backingViews() != null);
+    const inner = (try body.deliver.args.at(1)).list;
+    try std.testing.expect(inner.backingViews() != null);
+    try std.testing.expectEqualSlices(u8, "sym", (try inner.at(0)).symbol);
+    try std.testing.expectEqual(@as(i64, 8), (try inner.at(2)).integer);
+    try std.testing.expect((try body.deliver.args.at(2)).boolean);
+
+    // Room for the outer list alone: the inner list stays segment-backed and
+    // reads the same.
+    var few: [4]model.view.Argument = undefined;
+    var short = model.view.ValueSlab.init(std.mem.sliceAsBytes(&few));
+    const partial = try capnp.decodeBodyInto(.v1_0, frame.view(), &short);
+    try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), short.used);
+    try std.testing.expect(partial.deliver.args.backingViews() != null);
+    const backed = (try partial.deliver.args.at(1)).list;
+    try std.testing.expect(backed.backingViews() == null);
+    try std.testing.expectEqual(@as(i64, 7), (try backed.at(1)).integer);
+
+    // The views and the segment backing materialize the same message.
+    const owned = try body.toOwned(allocator);
+    defer model.freeMessage(allocator, owned);
+    const again = try partial.toOwned(allocator);
+    defer model.freeMessage(allocator, again);
+    try std.testing.expect(messagesEqual(owned, again));
+    try std.testing.expectEqual(@as(usize, 3), owned.deliver.args.len);
+    try std.testing.expectEqualSlices(u8, "ping", owned.deliver.args[0].bytes);
+    try std.testing.expectEqual(@as(i64, 8), owned.deliver.args[1].list[2].integer);
 }
 
 test "a Struct argument round-trips through the Cap'n Proto codec" {
@@ -346,10 +394,9 @@ test "listen, get, and index round-trip" {
     try expectRoundTrip(.{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = .from(8) } });
 }
 
-test "profile-less Cap'n Proto framing accepts next listen modes without projecting semantics" {
-    // FrameStream has no CaptpVersion. It must accept modes 2/3 structurally
-    // and return only their boundary; semantic decode stays V1 by default and
-    // profile-aware when a session applies the frame.
+test "a next listen mode is refused under v1.0 and projected under next" {
+    // Semantic decode stays v1.0 by default and profile-aware when a session
+    // applies the frame.
     const allocator = std.testing.allocator;
     for ([_]model.ListenMode{ .settling_only, .shortening_or_settling }) |mode| {
         var frame = try capnp.encodeMessageForProfile(allocator, .next, .{ .listen = .{
@@ -359,11 +406,6 @@ test "profile-less Cap'n Proto framing accepts next listen modes without project
         } });
         defer frame.deinit();
 
-        const boundary = capnp.framePrefix(frame.bytes(), frame.bytes().len);
-        try std.testing.expect(boundary == .complete);
-        try std.testing.expectEqual(frame.bytes().len, boundary.complete);
-
-        try std.testing.expect(capnp.decodePrefix(frame.bytes(), frame.bytes().len) == .malformed);
         try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(frame.view()));
         const next_body = try capnp.decodeBodyForProfile(.next, frame.view());
         try std.testing.expectEqual(mode, next_body.listen.mode);
@@ -388,9 +430,6 @@ test "Cap'n Proto framing does not choose between the two meanings of listen mod
     defer next.deinit();
 
     try std.testing.expectEqualSlices(u8, v1.bytes(), next.bytes());
-    const boundary = capnp.framePrefix(v1.bytes(), v1.bytes().len);
-    try std.testing.expect(boundary == .complete);
-    try std.testing.expectEqual(v1.bytes().len, boundary.complete);
 
     const v1_body = try capnp.decodeBodyForProfile(.v1_0, v1.view());
     try std.testing.expectEqual(model.ListenMode.shortening_or_settling, v1_body.listen.mode);

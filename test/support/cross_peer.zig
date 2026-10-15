@@ -133,7 +133,7 @@ pub fn deliverGive(
         give.recipient_key,
     );
     var handoff = model.Handoff{ .give = give };
-    try gifter.sendCopying(.{ .deliver = .{
+    try gifter.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(0) },
         .args = &.{.{ .handoff = &handoff }},
     } });
@@ -199,7 +199,7 @@ pub fn withdrawGift(
     try exporter.session_state.registerExport(observation_export);
     try recipient.session_state.registerImport(model.ImportPosition.from(observation_export.int()));
     var handoff = model.Handoff{ .receive = receive };
-    try recipient.sendCopying(.{ .deliver = .{
+    try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(observation_export.int()) },
         .args = &.{.{ .handoff = &handoff }},
     } });

@@ -5,6 +5,11 @@ const n = @import("c_abi_loam_lmdb");
 const shared = @import("c_abi_shared");
 const h = @import("c_abi_host");
 
+test {
+    _ = @import("loam_sqlite.zig");
+    _ = @import("loam_volatile.zig");
+}
+
 test "Loam C forwarding sizing admits complete replies and zeroes refused outputs" {
     const shape: c.GlowcapLoamValueBounds = .{ .values = 2048, .struct_entries = 0, .bytes = 8 * 1024 * 1024, .capabilities = 0 };
     var reply_bytes: usize = 0;
@@ -353,6 +358,9 @@ fn checkOwnershipAndWorkers(backend: *n.GlowcapLoamLmdb, store: *c.GlowcapLoamSt
     try std.testing.expectEqual(shared.GLOWCAP_ERR_INVALID_ARGUMENT, h.glowcap_host_release(host));
     try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, n.glowcap_loam_lmdb_release(backend));
     var ref: shared.GlowcapReference = undefined;
+    // A malformed handle is the caller's argument, never damaged storage.
+    const malformed = std.mem.zeroes(c.GlowcapLoamObject);
+    try std.testing.expectEqual(shared.GLOWCAP_ERR_INVALID_ARGUMENT, n.glowcap_loam_lmdb_restore(backend, attachment, &malformed, &ref));
     try std.testing.expectEqual(shared.GLOWCAP_OK, n.glowcap_loam_lmdb_restore(backend, attachment, &resource.use, &ref));
     const owner = try c.embedding.attachment(attachment);
     try @import("loam_limits.zig").check(owner, ref, resource.use, backend);
@@ -536,7 +544,7 @@ fn checkCallbackBinding(store: *c.GlowcapLoamStore, content_id: @import("loam_co
     var input: access.hosting.ContentInvocation = .{ .bound_resource = .{ .id = managed.resource.id, .kind = managed.resource.kind, .object = object, .revision = managed.revision }, .delivery = .local, .content = view, .verb = "get", .args = &.{} };
     const driver = @import("driver_core");
     const Live = struct {
-        pub fn handle(_: *@This(), _: *driver.HostTurn, _: []const u8, _: []const driver.Value) !driver.Value {
+        pub fn handle(_: *@This(), _: *driver.HostTurn, _: []const u8, _: driver.Args) !driver.Value {
             return .{ .void = {} };
         }
     };

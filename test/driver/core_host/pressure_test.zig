@@ -167,7 +167,14 @@ test "core host: staged outbound pressure refuses before the shared high-water i
     try host.feed(pair.b, flood.view());
 
     try std.testing.expect(refused);
-    try std.testing.expect(pair.b.served.queuedOutboundBytes() <= 1024);
+    // The line refuses the producer that finds it reached, so the queue
+    // holds the line plus less than one frame.
+    const queued = pair.b.served.queuedOutboundBytes();
+    try std.testing.expect(queued >= 1024);
+    _ = try pair.b.served.port.peer.step();
+    var one = (try pair.b.takeOutbound()) orelse return error.MissingQueued;
+    defer one.deinit();
+    try std.testing.expect(queued < 1024 + one.bytes().len);
 }
 
 test "core host: committed relayed listeners resume after outbound pressure" {
@@ -373,7 +380,7 @@ const PendingPressure = struct {
     refused: *bool,
     hits: ?*usize = null,
 
-    pub fn handle(self: *PendingPressure, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *PendingPressure, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "flood")) return error.NoSuchMethod;
         if (self.hits) |hits| hits.* += 1;
@@ -399,12 +406,12 @@ const FeedPressure = struct {
     session: *HostSession,
     hits: *usize,
 
-    pub fn handle(self: *FeedPressure, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *FeedPressure, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "flood")) return error.NoSuchMethod;
         self.hits.* += 1;
         while (true) {
-            self.session.served.port.peer.sendCopying(.{ .deliver = .{
+            self.session.served.port.peer.sendBorrowed(.{ .deliver = .{
                 .target = .{ .far = model.FarRef.object(7) },
                 .args = &.{},
                 .answer = null,
@@ -425,7 +432,7 @@ const DeferringCapture = struct {
     out_resolver: *u64,
     out_answer: *?engine.AnswerTarget,
 
-    pub fn handle(self: *DeferringCapture, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *DeferringCapture, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "work")) return error.NoSuchMethod;
         self.out_answer.* = turn.origin.served;
         self.out_resolver.* = try self.host.deferTurn(self.session, turn);

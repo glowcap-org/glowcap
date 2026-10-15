@@ -1,4 +1,4 @@
-//! Four persistent worker threads, each running `hosting.Worker.run` on its
+//! `capacity` persistent worker threads, each running `hosting.Worker.run` on its
 //! slot. Posting lends one request, completion returns its buffer custody.
 //! Store/Host installation stays on the owner.
 const std = @import("std");
@@ -88,6 +88,8 @@ pub const Pool = struct {
     }
 
     pub fn turn(self: *Pool, workload: anytype) !void {
+        // Every slot may run a read at once, so the engine must admit them all.
+        if (capacity > workload.db.readerCapacity()) return error.ReaderCapacity;
         try self.poll(workload);
         _ = try workload.host.vat.driveIngressBudgeted(.local, 128);
         try workload.attachment.advance();
@@ -102,6 +104,7 @@ pub const Pool = struct {
     // errors. Calibration opens its gate before reaching this deferred drain.
     pub fn drain(self: *Pool, workload: anytype) void {
         for (&self.slots) |*slot| if (slot.busy) slot.completed.waitUncancelable(self.io);
+        // tolerant: poll retires a slot before its install can fail, so the loop always ends, and a failed install loses one worker result in a teardown that discards the workload.
         while (self.active != 0) self.poll(workload) catch {};
     }
 

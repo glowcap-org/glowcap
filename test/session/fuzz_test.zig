@@ -13,16 +13,15 @@
 //! real key, because a garbage designator is refused at the first line and
 //! never reaches the list parser this target exists to exercise.
 //!
-//! Validated against defects (per the tests rule): an owned parser made to
-//! refuse a carrier the borrowed check admits is caught from the two-route
-//! seed as `AdmissionParserSplit`, and the sibling unit test catches the
-//! reverse (borrowed check dropping the proves-key requirement). The one
-//! finding so far is `fuzz_regressions/empty-query-route.bin`: a route whose
-//! `?` carries nothing, which the borrowed view check split into one nameless
-//! segment and hit `unreachable` on while the owned parser read an empty hint
-//! map, and which the replayed seed keeps refused-or-agreed. Not measured:
-//! this drives the `via` list only, so an `alt-locators`-only defect is the
-//! next seed to add if that path grows its own rule.
+//! Defects it catches: an owned parser that refuses a carrier the borrowed
+//! check admits fails from the two-route seed as `error.AdmissionParserSplit`,
+//! and the sibling unit test catches the reverse (borrowed check dropping the
+//! proves-key requirement). `fuzz_regressions/empty-query-route.bin` replays a
+//! route whose `?` carries nothing, which a borrowed view check could split
+//! into one nameless segment and hit `unreachable` on while the owned parser
+//! read an empty hint map. The replayed seed keeps it refused or agreed. Not
+//! covered: this drives the `via` list only, so an `alt-locators`-only defect
+//! needs its own seed.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

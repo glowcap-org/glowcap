@@ -18,6 +18,8 @@ pub struct Config {
 	pub relay_alias_url: Option<String>,
 	/// Deployment transport composition, independent of persisted capabilities.
 	pub dial_transports: Vec<String>,
+	/// The ICE servers a WebRTC dial gathers candidates through.
+	pub ice_servers: Vec<glowcap::webrtc::IceServer>,
 }
 
 pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|onion]
@@ -27,7 +29,8 @@ pub const HELP: &str = "rooms-session --state=<directory> [--transport=iroh|tcp|
   --admission-rows=<1..65536>  retained grant row cap (default: 4096)
   --admission-aggregate-scale=<1..100>  root/session pool multiplier (default: 8)
   --checkpoint=<Rooms JSON>  import capability-free managed workspace intent
-  --dial-transports=tcp,iroh,onion  install outgoing transport families before restoration
+  --dial-transports=tcp,iroh,onion,webrtc  install outgoing transport families before restoration
+  --ice-servers=<url,...>  STUN servers for webrtc dials, or a JSON list of ICE server records (default: a public STUN server)
   --readiness-file=<path>  write the workspace use sturdyref (default: <state>/workspace.sturdyref)
   Management is published separately in <state>/control.sturdyref
   --reachability=discovery|direct  iroh reachability (default: discovery)
@@ -49,6 +52,7 @@ const KEYS: &[&str] = &[
 	"relay-url",
 	"relay-alias-url",
 	"dial-transports",
+	"ice-servers",
 ];
 
 impl Config {
@@ -96,10 +100,11 @@ impl Config {
 			.unwrap_or_default();
 		if dial_transports
 			.iter()
-			.any(|name| !matches!(name.as_str(), "tcp" | "iroh" | "onion"))
+			.any(|name| !matches!(name.as_str(), "tcp" | "iroh" | "onion" | "webrtc"))
 		{
-			return Err(Error::refused("dial transports must be tcp, iroh or onion"));
+			return Err(Error::refused("dial transports must be tcp, iroh, onion or webrtc"));
 		}
+		let ice_servers = super::webrtc::ice_servers(value("ice-servers").as_deref())?;
 		Ok(Some(Self {
 			admission: rooms_application::admission::Settings::parse_from(
 				|key| {
@@ -114,8 +119,8 @@ impl Config {
 						)
 					})
 				},
-				4096,
-				8,
+				rooms_application::admission::SESSION_ROWS,
+				rooms_application::admission::POOLED_AGGREGATE_SCALE,
 			)
 			.map_err(String::from)
 			.map_err(Error::refused)?,
@@ -126,6 +131,7 @@ impl Config {
 			relay_url: value("relay-url"),
 			relay_alias_url: value("relay-alias-url"),
 			dial_transports,
+			ice_servers,
 		}))
 	}
 	pub fn readiness_path(&self) -> PathBuf {

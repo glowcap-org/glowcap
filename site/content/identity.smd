@@ -1,0 +1,345 @@
+---
+.title = "What about identity?",
+.description = "AI agents act for people, often with their passwords. Why that goes wrong, how limited keys contain the damage, and what still needs identity.",
+.date = .date("2026-10-14T00:00:00"),
+.layout = "page.shtml",
+.draft = false,
+---
+
+In 1993 *The New Yorker* ran a cartoon of a dog at a computer telling another
+dog, ["On the Internet, nobody knows you're a dog."](https://www.newyorker.com/magazine/1993/07/05)
+Online, anyone can be anyone.
+
+# The short version
+
+- **An AI agent is a program that acts for you.** It reads your email, books
+  a trip, writes code, or buys something.
+- **Many agents use your own logins.** Whatever the agent does looks like you
+  did it.
+- **Agents can be fooled.** A stranger can hide an instruction in an email or
+  a web page, and the agent may follow it with everything you are allowed to
+  do. Agents also make plain mistakes.
+- **A limited key shrinks the damage.** A key is a permission, not a
+  password. Like a car's valet key, it opens only what it must, and unlike
+  one, it can be switched off.
+- **Keys cannot tell a person from a bot.** That takes a sign-in, a payment,
+  or someone who vouches for you, checked once at the front door.
+
+# Agents with borrowed power
+
+An agent gets your power when you type in your password, approve its request
+to connect to an account, or install it on your computer. Installed agents
+often run with all your permissions, held back only by approval pop-ups.
+
+- **February 2026.** Moltbook, a social network where AI agents post to each
+  other, left its database readable by anyone. Researchers
+  [found about 1.5 million agent logins](https://wiz.io/blog/exposed-moltbook-database-reveals-millions-of-api-keys)
+  and private messages holding keys for other services.
+- **February 2026.** One link could take over OpenClaw, a popular personal
+  agent. Opening it
+  [leaked the agent's login, switched off its "ask me first" setting, and ran commands](https://nvd.nist.gov/vuln/detail/CVE-2026-25253)
+  on the owner's computer. Version 2026.1.29 fixed it.
+- **October 2026.** One email to an inbox connected to the Manus agent
+  [became code running inside the agent](https://salt.security/blog/how-we-hijacked-an-ai-agent-with-a-single-email),
+  next to its logins for the owner's Google Drive and GitHub. The owner only
+  had to ask it to check the inbox. Manus fixed the flaw.
+- **October 2026.** Researchers asked an agent on Amazon's agent cloud, in
+  plain words, to
+  [hand over its own access keys](https://labs.zenity.io/post/agentcorruption-initial-imds-access),
+  and it did. The keys also reached other agents in the same region. Amazon
+  called this "documented and expected."
+
+The first two were ordinary bugs. In the last two, a stranger's words steered
+an agent that already held real power. Narrower keys would have limited the
+reach.
+
+# What you can do
+
+- **Never type a password into an AI tool.** Use the service's own "connect"
+  or "allow access" button, and read what it asks for.
+- **Choose the smallest permission offered.** "See your calendar" is very
+  different from "read, send, and delete your email." If the only choice is
+  everything, use a separate account, or a card with a low spending limit.
+- **Never let one agent do all three:** read your private data, read
+  strangers' messages, and send things out. With all three, it can be talked
+  into leaking your data or spending your money. A helper that answers
+  customer email should not also see your invoices or bank.
+- **Install few plugins and add-ons.** Each one often runs with the agent's
+  full power.
+- **Check connected apps a few times a year.** In your Google, Apple, or
+  Microsoft account settings, search for "connected apps" and remove what you
+  do not recognize.
+- **If something goes wrong,** remove the app's access, change the password,
+  and call the number on the back of your bank card if money moved.
+
+If you build agents or websites:
+
+- **Give each agent its own narrow key** for each task, one that expires and
+  can be switched off. Deciding how narrow is the hard part.
+- **Keep keys out of prompts and logs,** where the model, or anyone
+  reading the logs, can copy them.
+- **Make the agent ask before it spends, sends, or deletes,** and keep that
+  setting out of its reach.
+- **Record who holds which key,** and check identity where a stranger first
+  asks for one.
+
+# The confused deputy
+
+Tymshare rented out computer time. Its compiler, a program that turns code
+into software, could write into the company's own folder, where the bills
+were kept. One customer told the compiler to write its debugging notes under
+the billing file's name. The compiler did, and the bills were gone.
+
+The compiler broke no rule. It worked for two bosses, the customer and the
+company, and could not tell whose permission it was using. A 1988 paper,
+[*The Confused Deputy*](https://doi.org/10.1145/54289.871709), gave the fix:
+the customer hands the compiler a key to the one file it may write.
+
+Prompt injection, hiding instructions for an AI in text it reads, is a similar
+problem, and a harder one. An agent that holds your logins and reads
+strangers' email also works for two bosses. But the model itself cannot
+reliably tell an instruction from text it is only meant to read, and no key fixes that. A narrow key
+only limits the damage.
+
+# Valet keys
+
+A valet key starts the car but will not open the trunk. A capability is a
+valet key for software: a reference to one thing, such as one folder or one
+calendar, where holding it is the permission. Nobody checks your name. A
+well-built capability system adds two things a car key lacks:
+
+- **Keys can be switched off.** The owner can turn one off without touching
+  the others, like re-keying one lock after a key goes missing.
+- **Keys can be narrowed.** A holder can make a weaker key for a helper,
+  never a stronger one.
+
+The idea dates to [a 1966 paper](https://doi.org/10.1145/365230.365252). It
+works well inside systems built around it, but it never replaced the
+everyday permission list, which answers "who can get in here?" at a glance.
+Agents tip the balance back toward keys, because a program that can be
+talked into anything should hold as little as possible.
+
+This page is part of glowcap, a code library for programmers.
+[OCapN](https://github.com/ocapn/ocapn) is a network protocol that carries
+capabilities between computers, and glowcap implements it.
+[Why OCapN]($link.page('why')) walks through an example.
+[*The Heart of Spritely*](https://files.spritely.institute/papers/spritely-core.html#revocation-accountability)
+builds a key that keeps a log and can be switched off.
+
+# What limited keys fix
+
+Give every person and agent its own key, and a service can answer three of
+these four questions.
+
+| Question | With limited keys |
+| --- | --- |
+| Who is responsible for this request? | Whoever was given the key it came with. |
+| How do I stop it? | Switch off that one key. Nobody else is locked out. |
+| How much harm can it do? | Only what that key opens. |
+| Is this one person, or ten thousand bots? | Keys cannot tell. |
+
+Keys have limits of their own.
+
+- **A stolen key works for the thief.** Guard keys like cash. Short lives,
+  narrow reach, and an off switch limit the loss.
+- **A key names who is responsible, not who acted.** If Bob lends his key to
+  Mallory, the record still says Bob.
+  [*Horton's "Who Done It?"*](https://www.usenix.org/legacy/event/hotsec07/tech/full_papers/miller/miller.pdf)
+  (2007) shows one way to follow responsibility through many hands.
+- **A record of who is responsible is also a record of what they did.**
+  Someone holds it, and it can be read, leaked, or demanded.
+- **Switching off stops only what comes next.** It cannot undo what the key
+  already did, or take back what was read or copied.
+
+# Agents that act for you
+
+"Allow this app to see your calendar" is the familiar first step: the app
+gets a key to your calendar, not your password. ("Sign in with Google" only
+tells the app who you are.) Capabilities carry the same idea through every
+handoff. You give your agent a weaker key, and it gives a helper a weaker key
+still.
+
+[Alice gives her agent a key that reads and posts, and the agent gives a helper a key that only reads. The helper reads the chat room, and the request traces back to Alice's key. Alice switches off the agent's key. The helper's next read is refused, because its key came from the agent's, and Alice still posts as herself.]($image.siteAsset('diagram-identity-delegation.svg'))
+
+- **Every request traces back to whoever granted the key,** as long as each
+  helper gets a new key instead of borrowing one. That shows who handed out
+  the power, not who sent the request.
+- **Switching off one key can stop every key made from it,** when each
+  handoff goes through a link the owner can cut. A holder who shares the same
+  key, or relays requests, sits outside that chain.
+
+# Counting people
+
+A bot operator can make ten thousand accounts in a minute. Proving that each
+account is a different real person is called Sybil resistance, after a 1973
+book about a woman said to have many personalities. A
+[2002 paper](https://doi.org/10.1007/3-540-45748-8_24) showed that in an open
+network, one party can pretend to be many unless someone trusted vouches for
+who is real.
+
+Cheap filters slow bots without naming anyone. One makes each message cost a
+little computer work, an
+[idea from 1992](https://doi.org/10.1007/3-540-48071-4_10) that Bitcoin later
+borrowed. Another is the [CAPTCHA](https://doi.org/10.1007/3-540-39200-9_18)
+puzzle, which programs often solve better than people.
+Rate limits stop careless bots, but determined ones spread across thousands
+of internet addresses. Filters thin the crowd. They cannot count it.
+
+## A number for every person
+
+India's [Aadhaar](https://uidai.gov.in/) numbers more than a billion
+residents, and Estonians sign contracts and file taxes with a national ID
+card. Both work at national scale, and a registered identity makes it far
+easier to find who answers for what happened. Both also show the costs.
+
+1. **A number can be copied or leaked.** It needs a secret only its owner
+   holds. In 2017 a flaw in how the card chips made their secret keys led
+   Estonia to block and renew the certificates on about 760,000 ID cards.
+2. **The registry decides who can prove who they are.** When a fingerprint
+   scan fails, the person is turned away. A
+   [large study](https://doi.org/10.1162/rest_a_01296) found that adding
+   fingerprint checks to India's largest welfare program cut fraud, but 1.5 to
+   2 million legitimate people lost benefits for a time, largely because of
+   how the change was rolled out. In 2018 India's Supreme Court upheld Aadhaar
+   for welfare and taxes but barred private companies from requiring it.
+3. **One registered person can still run ten thousand bots.** An ID says who
+   answers for the traffic, not how much there is.
+4. **One number everywhere lets organizations join their records.** People
+   with good reason to stay hidden, such as someone escaping an abuser, lose
+   the most.
+
+## Proving one fact
+
+A middle path is to prove one fact at the door, and nothing more. A zero-knowledge proof
+shows that a statement is true and reveals nothing else, the way a go/no-go
+gauge confirms a part is within tolerance without showing the drawing.
+Combined with blind signatures, which let a checker sign something without
+seeing it, it lets you show "a trusted checker says I am over 18" without
+showing who you are. Both ideas come from the 1980s
+([1982](https://doi.org/10.1007/978-1-4757-0602-4_18),
+[1985](https://doi.org/10.1145/22145.22178)).
+
+The checker still decides who counts, and people it cannot check are left
+out. Those hardest to give a credential to, such as people without papers,
+are often the ones who most need to stay unnamed.
+
+The European Union's
+[digital identity wallet](https://ec.europa.eu/digital-building-blocks/sites/display/EUDIGITALIDENTITYWALLET/EU+Digital+Identity+Wallet+Home),
+which [EU law](https://eur-lex.europa.eu/eli/reg/2024/1183/oj) requires every
+member state to offer by the end of 2026, is built toward this model for
+facts like age and residence. As of October 2026, how well it hides you from
+checkers who compare notes depends on technical choices still open. Because
+each service can see a different name, the wallet alone cannot show that a
+visitor signed up only once.
+
+# The front door
+
+Put the identity check in one place: the moment a stranger first asks for a
+key.
+
+[Alice and a swarm of ten thousand bots both head for a service. A quick check runs before the service does any real work, and bots without a pass are turned away there. Alice gets through, shows the front door one proof, and leaves with her own key, which can post ten times a minute and can be switched off.]($image.siteAsset('diagram-identity-front-door.svg'))
+
+1. **A quick check comes first.** A cap on requests per minute, or an
+   anonymous pass showing the visitor proved itself elsewhere.
+   [Privacy Pass](https://doi.org/10.1515/popets-2018-0026) (2018) was built
+   to spare people using the Tor privacy network from endless CAPTCHAs, and its
+   architecture became [RFC 9576](https://www.rfc-editor.org/rfc/rfc9576.html)
+   in 2024.
+2. **Strangers can reach only the front door.**
+3. **The door asks for one proof.** A payment, a sign-in, a credential, or an
+   introduction from someone already trusted.
+4. **The door hands back a key** with its own limits and its own off switch.
+
+A proof slows fakes only if it costs something real, and accounts sold in
+bulk weaken even that. A real cost also turns away honest people: those
+without a bank account, without a document the door accepts, or unable to
+solve its puzzle. Whoever runs the door writes those terms.
+
+You still rely on whoever issues, stores, and switches off the keys. Past the
+door, every request is judged by the key it carries.
+
+# Who pays when an agent gets it wrong
+
+Records show what happened, not who pays. Terms of service often put the loss
+on the user. Card rules treat a charge you did not authorize differently from
+one you did, and whether a fooled agent's purchase counts as authorized is
+unsettled. Laws on agents differ by country. Good records help settle a
+dispute, but they help whoever holds them, and users rarely hold the
+service's logs.
+
+# Standards for agents
+
+As of October 2026, most of these are drafts or company programs.
+
+- **Bots that say which bot they are.** A
+  [September 2026 draft](https://datatracker.ietf.org/doc/draft-ietf-webbotauth-httpsig-protocol/)
+  from the IETF, the group that writes internet standards.
+- **Bots that prove someone checked them, without saying who they are.** A
+  [July 2026 draft](https://datatracker.ietf.org/doc/draft-rescorla-anonymous-webbotauth/)
+  that also caps each one's requests.
+- **Agents acting for you.** OAuth, the standard behind "allow access"
+  buttons, can record who acted for whom
+  ([2020](https://www.rfc-editor.org/rfc/rfc8693.html)).
+- **Agents that shop.**
+  [Visa](https://usa.visa.com/about-visa/newsroom/press-releases.releaseId.21716.html)
+  and
+  [Mastercard](https://newsroom.mastercard.com/news/press/2025/april/mastercard-unveils-agent-pay-pioneering-agentic-payments-technology-to-power-commerce-in-the-age-of-ai)
+  (2025) let shopping agents prove what they are and pay with stand-ins for
+  your card number.
+- **Agents that pay small amounts.** The web set aside the code
+  `402 Payment Required` [in 1997](https://www.rfc-editor.org/rfc/rfc2068.html)
+  "for future use." The
+  [x402 Foundation](https://www.linuxfoundation.org/press/linux-foundation-announces-operational-launch-of-x402-foundation-to-standardize-internet-native-payments-for-ai-agents-and-applications),
+  launched in July 2026, puts it to work.
+
+These efforts work on the web as it is, which is a real advantage. Naming bots also
+lets a site admit only the bots it recognizes, which favors large operators
+and can shut out small tools, including assistive agents some disabled people
+rely on.
+
+A capability system builds narrow passes, spending caps, and records of who
+acted for whom into the key itself, as
+[Macaroons](https://www.ndss-symposium.org/ndss2014/programme/macaroons-cookies-contextual-caveats-decentralized-authorization-cloud/)
+(2014) did for web passes. It helps only where both sides speak it.
+
+# glowcap and OCapN
+
+glowcap covers the keys on this page and none of the identity checks.
+
+- **Checked connections.** Each side of an encrypted connection confirms
+  which computer is on the other end.
+- **Limits before work.** A server caps how many connections can be opening at
+  once.
+  [Known limitations](https://github.com/jimisaacs/glowcap/blob/main/docs/boundaries.md)
+  lists the rest.
+- **Keys you can manage.** [Managed access]($link.page('loam')) hands out
+  keys that can be switched off and never grow stronger when passed on, and
+  records who holds each one.
+
+OCapN leaves the front door, the identity check, and tracing responsibility
+to each application.
+
+# Back to the dog
+
+The dog in the cartoon does not need a name to cause trouble. It needs a key.
+Narrow keys limit the trouble. The front door decides who gets one, and
+whoever runs the door writes the rules.
+
+# A short history
+
+| Year | Work | What it added |
+| --- | --- | --- |
+| 1966 | [*Programming Semantics for Multiprogrammed Computations*](https://doi.org/10.1145/365230.365252) | The capability: a protected reference that is the permission to use what it names. |
+| 1975 | [*The Protection of Information in Computer Systems*](https://doi.org/10.1109/PROC.1975.9939) | Least privilege, and permission lists compared with keys. |
+| 1982 | [*Blind Signatures for Untraceable Payments*](https://doi.org/10.1007/978-1-4757-0602-4_18) | Signing something without seeing it. |
+| 1985 | [*Security without identification*](https://doi.org/10.1145/4372.4373) | Credentials that cannot be traced back to you. |
+| 1985 | [*The Knowledge Complexity of Interactive Proof-Systems*](https://doi.org/10.1145/22145.22178) | Zero-knowledge proofs. |
+| 1988 | [*The Confused Deputy*](https://doi.org/10.1145/54289.871709) | Why a program should act with the permission it was handed, not its own. |
+| 1992 | [*Pricing via Processing or Combatting Junk Mail*](https://doi.org/10.1007/3-540-48071-4_10) | Making bulk messages cost the sender computing work. |
+| 1997 | [Hashcash](http://www.hashcash.org/papers/hashcash.pdf) | Computing-work stamps made practical, later borrowed by Bitcoin. |
+| 1999 | [*SPKI Certificate Theory*](https://www.rfc-editor.org/rfc/rfc2693.html) | Permissions granted to a key and passed on in signed certificates, with no name in between. |
+| 2002 | [The Sybil paper](https://doi.org/10.1007/3-540-45748-8_24) | Without someone vouching, one party can pose as many. |
+| 2003 | [*CAPTCHA: Using Hard AI Problems for Security*](https://doi.org/10.1007/3-540-39200-9_18) | Puzzles to tell people from programs. |
+| 2007 | [Horton](https://www.usenix.org/legacy/event/hotsec07/tech/full_papers/miller/miller.pdf) | Following responsibility as a key passes from hand to hand. |
+| 2014 | [Macaroons](https://www.ndss-symposium.org/ndss2014/programme/macaroons-cookies-contextual-caveats-decentralized-authorization-cloud/) | A web pass any holder can narrow and none can widen. |
+| 2018 | [*Privacy Pass*](https://doi.org/10.1515/popets-2018-0026) | Anonymous passes that replace repeated CAPTCHAs. |

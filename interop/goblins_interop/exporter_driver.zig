@@ -59,22 +59,23 @@ const Greeter = struct {
     mark: [64]u8 = undefined,
     mark_len: usize = 0,
 
-    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Greeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         // A Goblins `(<- greeter 'prime "…")` arrives with the method symbol
         // as the deliver's verb; the plain greet arrives with an empty verb
         // and the caller's name as the one argument.
         if (std.mem.eql(u8, verb, "prime")) {
-            if (args.len != 1 or args[0] != .string) return error.BadInvocation;
-            self.mark_len = @min(args[0].string.len, self.mark.len);
-            @memcpy(self.mark[0..self.mark_len], args[0].string[0..self.mark_len]);
+            if ((try args.len()) != 1) return error.BadInvocation;
+            const mark = try args.string(0);
+            self.mark_len = @min(mark.len, self.mark.len);
+            @memcpy(self.mark[0..self.mark_len], mark[0..self.mark_len]);
             self.primed.store(true, .release);
             return .{ .string = "primed" };
         }
-        if (args.len != 1 or args[0] != .string) return error.BadInvocation;
+        if ((try args.len()) != 1) return error.BadInvocation;
         return .{ .string = try std.fmt.allocPrint(
             ht.turn.arena,
             "Hello {s}, I'm the glowcap exporter, primed with {s}!",
-            .{ args[0].string, self.mark[0..self.mark_len] },
+            .{ try args.string(0), self.mark[0..self.mark_len] },
         ) };
     }
 };
@@ -83,7 +84,7 @@ const Greeter = struct {
 /// wrongly consulted the alias, Carol's greeting would come from here and the
 /// marker assert below would fail the run.
 const DecoyGreeter = struct {
-    pub fn handle(self: *DecoyGreeter, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *DecoyGreeter, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = self;
         _ = ht;
         _ = verb;
@@ -113,12 +114,14 @@ fn serveExporter(
 
     while (!done.load(.acquire)) {
         if (count < sessions.len and server.waitAcceptable(20) catch false) {
+            // tolerant: a failed accept costs one dial, which the peer's own timeout reports, and the next loop iteration accepts again.
             const session = server.accept() catch continue;
             sessions[count] = session;
             count += 1;
         }
         for (sessions[0..count]) |s| {
             if (s) |sess| {
+                // best-effort: a step error belongs to that one session, and the loop keeps serving the others.
                 _ = sess.stepReadable(10) catch {};
             }
         }
@@ -127,7 +130,7 @@ fn serveExporter(
             // Replace the alias with the decoy before Carol exists: the
             // withdrawal must project the deposited actor, not resolve the
             // name again.
-            server.publish(greeter_swiss, DecoyGreeter, .{}) catch {};
+            try server.publish(greeter_swiss, DecoyGreeter, .{});
             replaced.store(true, .release);
         }
     }
@@ -158,10 +161,12 @@ pub fn main(init: std.process.Init) !void {
     var replaced = std.atomic.Value(bool).init(false);
     var done = std.atomic.Value(bool).init(false);
     var serving = try io.concurrent(serveExporter, .{ server, &done, &primed, &replaced });
-    defer {
+    var serving_joined = false;
+    defer if (!serving_joined) {
         done.store(true, .release);
+        // best-effort: this unwind already returns the run's own error, and the serving thread's failure would only repeat it.
         serving.await(io) catch {};
-    }
+    };
 
     std.debug.print("goblins-exporter: glowcap exporting greeter swiss={s} on {s}\n", .{ greeter_swiss, glowcap_designator });
 
@@ -192,7 +197,7 @@ pub fn main(init: std.process.Init) !void {
                 goblins_child.dumpChildStderr(io, "goblins-exporter", &alice);
                 return error.PrimeNeverArrived;
             }
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+            try std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real);
         }
     }
 
@@ -223,6 +228,9 @@ pub fn main(init: std.process.Init) !void {
     carol_reaped = true;
     alice.kill(io);
     alice_reaped = true;
+    done.store(true, .release);
+    serving_joined = true;
+    try serving.await(io);
     std.debug.print(
         "goblins-exporter OK: a live Goblins pair deposited into and withdrew from glowcap's gift registry, reaching the exact primed actor across an alias replacement\n",
         .{},

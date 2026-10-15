@@ -152,7 +152,9 @@ async fn scenario() {
 		.send(&directory, rooms_application::directory::LIST, &[])
 		.await
 		.unwrap();
-	let rows = rooms_application::directory::rooms(&rooms_glowcap::Value(&listed)).unwrap();
+	let rows = rooms_application::directory::page(&rooms_glowcap::Value(&listed))
+		.unwrap()
+		.rooms;
 	let publication = rows
 		.iter()
 		.find(|row| row.name.text().as_str() == Some("net/#a"))

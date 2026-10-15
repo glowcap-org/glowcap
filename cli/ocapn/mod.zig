@@ -105,7 +105,12 @@ pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) 
     for (symbols) |symbol| {
         if (std.mem.eql(u8, symbol.metadata().symbol, locator.transport)) break;
     } else {
-        ctx.logErr("transport '{s}' is not registered in this CapTP front", .{locator.transport});
+        var named: [64]u8 = undefined;
+        var list: std.Io.Writer = .fixed(&named);
+        // tolerant: the longest list is under 32 bytes, so a full buffer only shortens the hint.
+        for (symbols, 0..) |symbol, i| list.print("{s}{s}", .{ if (i == 0) "" else ", ", symbol.metadata().symbol }) catch break;
+        const hint = if (ctx.rendezvous_provider == null) " Set GLOWCAP_RENDEZVOUS to add the relay transports." else "";
+        ctx.logErr("transport '{s}' is not available here. This CLI dials {s}.{s}", .{ locator.transport, list.buffered(), hint });
         return error.UnknownTransport;
     }
     const transports: driver.Transports = .{

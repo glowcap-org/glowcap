@@ -1,4 +1,4 @@
-//! Native Zig Session and Server over real iroh endpoints. A yielded session
+//! Zig Session and Server over real iroh endpoints. A yielded session
 //! serves a named capability after its Server has stopped and been destroyed.
 
 const std = @import("std");
@@ -10,9 +10,9 @@ const secret_type = glowcap.foundation.crypto.SecretKey;
 const opts: driver.SessionOptions = .{ .handshake = .{ .ms = 5000 }, .settle = .{ .ms = 5000 } };
 
 const Greeter = struct {
-    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        if (!std.mem.eql(u8, verb, "greet") or args.len != 1 or args[0] != .string) return error.BadInvocation;
-        if (!std.mem.eql(u8, args[0].string, "world")) return error.BadArgument;
+    pub fn handle(_: *Greeter, _: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        if (!std.mem.eql(u8, verb, "greet") or (try args.len()) != 1) return error.BadInvocation;
+        if (!std.mem.eql(u8, try args.string(0), "world")) return error.BadArgument;
         return .{ .string = "hello over managed iroh" };
     }
 };
@@ -58,7 +58,7 @@ pub fn main(init: std.process.Init) !void {
     const hosted = serving.await(io);
     try result;
     try hosted;
-    std.debug.print("iroh-managed: native dial, keyed hello, fetch and exact reply survive Server destruction\n", .{});
+    std.debug.print("iroh-managed: Zig dial, keyed hello, fetch and exact reply survive Server destruction\n", .{});
 }
 
 fn call(io: std.Io, allocator: std.mem.Allocator, client: *iroh.Resident, server: *iroh.Resident, ready: *std.atomic.Value(u8)) !void {

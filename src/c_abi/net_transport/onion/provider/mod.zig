@@ -1,7 +1,7 @@
 //! Generic stream-provider projection for the onion runtime.
 //
-// This layer translates the fixed C provider table into the native onion
-// resident. Tor control, SOCKS, and service policy remain in the native layer.
+// This layer translates the fixed C provider table into the Zig onion
+// resident. Tor control, SOCKS, and service policy remain in the Zig layer.
 
 const std = @import("std");
 const model = @import("model");

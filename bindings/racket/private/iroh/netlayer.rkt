@@ -1,5 +1,5 @@
 #lang racket/base
-;; The native iroh endpoint and its fallible C-ABI operations. This module owns
+;; The FFI iroh endpoint and its fallible C-ABI operations. This module owns
 ;; the archive-specific handle, configuration, dial admission, and package
 ;; lease. The parent `iroh.rkt` owns readiness scheduling and application-facing
 ;; composition; it never duplicates these lifecycle rules.

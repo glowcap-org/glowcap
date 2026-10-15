@@ -1,6 +1,6 @@
 ---
 .title = "Project & status",
-.description = "Current support, known limitations, verification, and the route to glowcap 1.0.",
+.description = "Support, known limitations, verification, and the route to glowcap 1.0.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -9,24 +9,24 @@
 glowcap is unreleased. Its public APIs can change, it has not received a
 security audit, and it should not carry data you cannot afford to lose.
 [SECURITY.md](https://github.com/jimisaacs/glowcap/blob/main/SECURITY.md)
-defines the current security posture and the private reporting process.
+defines the security posture and the private reporting process.
 
-# Explore the current build
+# Where to go next
 
 - **[Start building]($link.page('start'))** installs the Zig package and makes
   a complete call, with routes to the C ABI and every binding.
 - **[Choose a transport]($link.page('transports/choosing'))** compares
   identity, encryption, reachability, browser support, and interoperability.
 - **[What you can depend on]($link.page('stability'))** separates recurring
-  checks, on-demand evidence, and behavior that remains unverified.
+  checks, on-demand checks, and behavior nothing checks yet.
 - **[Performance]($link.page('performance'))** publishes throughput,
   allocation, footprint, transport, and binding measurements with their
   methods.
 
 # Project records
 
-The repository keeps the detailed project record: [what ships
-today](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md), [known
+The repository keeps the detailed project record: [what
+ships](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md), [known
 limitations](https://github.com/jimisaacs/glowcap/blob/main/docs/boundaries.md),
 the [steps toward 1.0](https://github.com/jimisaacs/glowcap/blob/main/docs/ladder.md),
 and the [remaining work](https://github.com/jimisaacs/glowcap/blob/main/docs/roadmap.md).

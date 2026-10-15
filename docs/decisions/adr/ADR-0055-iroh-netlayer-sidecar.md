@@ -144,7 +144,7 @@ binding parks on that fd natively (Python, Rust, and Racket gated by
 
 ## Alternatives Considered
 
-- **Native Zig QUIC + iroh protocols.** Rejected for now: reimplementing QUIC,
+- **Zig QUIC + iroh protocols.** Rejected for now: reimplementing QUIC,
   hole-punching, and the relay protocol is a multi-year project, and the
   netlayer contract makes the sidecar replaceable.
 - **iroh-ffi / UniFFI bindings.** Rejected: the generated surface is shaped for

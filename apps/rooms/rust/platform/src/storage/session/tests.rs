@@ -1,7 +1,10 @@
 //! Physical bootstrap boundaries: prepared absence, confirmed identity and
 //! exclusive metadata custody are exercised through the process storage owner.
 use super::*;
-use glowcap::{ErrorKind, PendingWork, loam::ValueBounds};
+use glowcap::{
+	ErrorKind, PendingWork,
+	loam::{OpenMode, Sqlite, ValueBounds},
+};
 use rooms_runtime::session::managed::{self, StartupAnchor};
 
 fn limits() -> Limits {
@@ -46,10 +49,13 @@ async fn session_bootstrap_preserves_private_identity_and_content_across_physica
 			// Crash after metadata and Store opening, before committing a root.
 			let store_path = path.join(STORE);
 			std::fs::create_dir(&store_path).unwrap();
-			let mut store = Store::open_bootstrap(
-				&store_path,
-				prepared.bootstrap.store_identity,
-				32 * 1024 * 1024,
+			let mut store = Store::open(
+				Sqlite {
+					path: store_path,
+					identity: prepared.bootstrap.store_identity,
+					mode: OpenMode::Bootstrap,
+					capacity_bytes: 32 * 1024 * 1024,
+				},
 				&schemas(),
 				limits(),
 			)
@@ -172,4 +178,28 @@ fn session_bootstrap_refuses_retired_documents_and_an_orphan_store() {
 	assert!(Prepared::open(&path).is_err());
 	assert!(!path.join(METADATA).exists());
 	std::fs::remove_dir_all(path).unwrap();
+}
+
+#[test]
+fn session_bootstrap_refuses_lmdb_without_changing_private_metadata_or_store() {
+	for name in ["data.mdb", "lock.mdb"] {
+		let path = path(name);
+		let prepared = Prepared::open(&path).unwrap();
+		let metadata = std::fs::read(path.join(METADATA)).unwrap();
+		drop(prepared);
+		std::fs::create_dir(path.join(STORE)).unwrap();
+		let database = path.join(STORE).join(name);
+		std::fs::write(&database, b"existing LMDB bytes").unwrap();
+		let error = match Prepared::open(&path) {
+			Ok(_) => panic!("retired LMDB storage must be refused before opening SQLite"),
+			Err(error) => error.to_string(),
+		};
+		assert!(error.contains("retired storage"), "{error}");
+		assert!(error.contains(&path.display().to_string()), "{error}");
+		assert!(error.contains("back up the entire session directory"), "{error}");
+		assert_eq!(std::fs::read(path.join(METADATA)).unwrap(), metadata);
+		assert_eq!(std::fs::read(database).unwrap(), b"existing LMDB bytes");
+		assert!(!path.join(STORE).join("loam.sqlite").exists());
+		std::fs::remove_dir_all(path).unwrap();
+	}
 }

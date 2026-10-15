@@ -143,7 +143,7 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 		} else {
 			let discovery = request(
 				&options.state,
-				json!({"verb":"directory-read","id":directory["id"],"peer":null}),
+				json!({"verb":"directory-read","id":directory["id"],"peer":null,"name":name}),
 			)
 			.await?;
 			let listed = rows(&discovery, "rooms")?

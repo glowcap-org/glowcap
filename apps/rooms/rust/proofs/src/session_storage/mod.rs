@@ -1,9 +1,11 @@
-//! One session codec graph trace, run through LMDB and browser IndexedDB.
+//! One session codec graph trace, run through each disk engine and browser IndexedDB.
 mod content;
 pub(crate) mod graph;
 mod profile;
 #[cfg(target_arch = "wasm32")]
 mod recovery;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+use glowcap::loam::OpenMode;
 use glowcap::{
 	Argument, Host, Locator, PendingWork, Ref, Session,
 	loam::{Policy, Resource, Schema, Store},
@@ -196,20 +198,34 @@ async fn exercise(store: &Store, resource: Resource, writing: bool) {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
+async fn session_graph_sqlite_commit_and_cold_reopen() {
+	commit_and_cold_reopen(crate::disk::Disk::Sqlite).await;
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[tokio::test]
 async fn session_graph_lmdb_commit_and_cold_reopen() {
+	commit_and_cold_reopen(crate::disk::Disk::Lmdb).await;
+}
+#[cfg(all(test, not(target_arch = "wasm32")))]
+async fn commit_and_cold_reopen(disk: crate::disk::Disk) {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			let nonce = std::time::SystemTime::now()
 				.duration_since(std::time::UNIX_EPOCH)
 				.unwrap()
 				.as_nanos();
-			let path = std::env::temp_dir().join(format!("rooms-session-graph-{}-{nonce:x}", std::process::id()));
+			let path =
+				std::env::temp_dir().join(format!("rooms-session-graph-{disk:?}-{}-{nonce:x}", std::process::id()));
 			std::fs::create_dir(&path).unwrap();
-			let mut store = Store::open(&path, [81; 16], true, 256 * 1024 * 1024, &schemas(), limits()).unwrap();
+			let mut store = disk
+				.open(path.clone(), [81; 16], OpenMode::Create, &schemas(), limits())
+				.unwrap();
 			let resource = create(&store).await;
 			store.close().unwrap();
 			drop(store);
-			let mut store = Store::open(&path, [81; 16], false, 256 * 1024 * 1024, &schemas(), limits()).unwrap();
+			let mut store = disk
+				.open(path.clone(), [81; 16], OpenMode::Open, &schemas(), limits())
+				.unwrap();
 			reopen(&store, resource).await;
 			store.close().unwrap();
 			drop(store);

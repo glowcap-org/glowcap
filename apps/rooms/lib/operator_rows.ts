@@ -4,8 +4,7 @@
 // the schema that bounds it, the parser that admits its passable tuple, and
 // the encoder that renders it back for a durable session facet. The two
 // directions sit together because they are one wire form. Holding them apart
-// is how the sessions row once grew a caller mark on the parsing side that the
-// encoding side did not send.
+// would let one side carry a field the other never sends.
 
 import type { Argument } from "@glowcap/runtime";
 import * as z from "zod/mini";

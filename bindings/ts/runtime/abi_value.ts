@@ -1,4 +1,4 @@
-// C-ABI value projection: encode a native `Argument` into the C ABI's flat
+// C-ABI value projection: encode a JS `Argument` into the C ABI's flat
 // `GlowcapArgument` structs and decode them back. The one place the ABI struct
 // layout is spelled: every size and field offset comes from the active layout
 // `L`, and pointer-width fields go through its width-aware accessors, so the
@@ -19,6 +19,7 @@ import {
 	ARG_ERROR,
 	ARG_FLOAT64,
 	ARG_INTEGER,
+	ARG_INTEGERS,
 	ARG_KEYWORD,
 	ARG_LIST,
 	ARG_REFERENCE,
@@ -91,6 +92,9 @@ function encodeArg(
 	} else if (typeof arg === "boolean") {
 		dv.setUint32(off + L.ARG_KIND_OFF, ARG_BOOLEAN, true);
 		dv.setUint32(off + L.ARG_BOOLEAN_OFF, arg ? 1 : 0, true);
+	} else if (arg instanceof BigInt64Array) {
+		// One run of int64 words lent in place. An empty run writes a null pointer.
+		setBytes(ARG_INTEGERS, new Uint8Array(arg.buffer, arg.byteOffset, arg.byteLength));
 	} else if (arg instanceof Uint8Array) {
 		setBytes(ARG_BYTES, arg);
 	} else if (arg instanceof Sym) {
@@ -176,6 +180,8 @@ export function readArg(view: DataView, off: number): Argument {
 			return view.getFloat64(off + L.ARG_FLOAT64_OFF, true);
 		case ARG_BOOLEAN:
 			return view.getUint32(off + L.ARG_BOOLEAN_OFF, true) !== 0;
+		case ARG_INTEGERS:
+			return new BigInt64Array(argBytes().slice().buffer);
 		case ARG_BYTES:
 			return argBytes();
 		case ARG_STRING:
@@ -197,7 +203,7 @@ export function readArg(view: DataView, off: number): Argument {
 		case ARG_VOID:
 			return null;
 		case ARG_BIG_INTEGER: {
-			// Canonical decimal digits + sign flag back to a native bigint (ADR-0049).
+			// Canonical decimal digits + sign flag back to a JS bigint (ADR-0049).
 			const magnitude = BigInt(argString());
 			return view.getUint32(off + L.ARG_BOOLEAN_OFF, true) !== 0 ? -magnitude : magnitude;
 		}

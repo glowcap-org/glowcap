@@ -46,9 +46,9 @@ pub const Operation = struct {
     pending_read: bool = false,
     verb: []const u8 = "",
     args: []const driver.Value = &.{},
-    argument_retains: []driver.Host.StagedCapabilityRetain = &.{},
+    argument_retains: []driver.Capability = &.{},
     dispatch: ?h.Call.Intent = null,
-    dispatch_retains: []driver.Host.StagedCapabilityRetain = &.{},
+    dispatch_retains: []driver.Capability = &.{},
     resolver: union(enum) { local: u64, host: u64, none } = .none,
     lifetime: driver.Host.PendingWorkLease = .{ .host = null },
     lease: ?core.Lease = null,
@@ -74,20 +74,20 @@ pub const Operation = struct {
 pub const Endpoint = struct {
     entry: *h.Entry,
 
-    pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         if (self.entry.owner.closing) return error.AttachmentClosed;
         if (turn.host != self.entry.owner.host) return error.ForeignTurn;
-        try admit(self.entry, turn.turn, turn.session, verb, args, null, null, .protected);
+        try admit(self.entry, turn.turn, turn.session, verb, arg_values, null, null, .protected);
         return .{ .void = {} };
     }
 
-    pub fn handleLocal(self: *Endpoint, turn: *actors.Turn, message: actors.Message) !model.Argument {
+    pub fn handleLocal(self: *Endpoint, turn: *actors.Turn, message: actors.Delivery) !model.Argument {
         const owner = self.entry.owner;
         if (owner.closing) return error.AttachmentClosed;
         if (turn.origin != .local) {
-            const args = try turn.arena.alloc(driver.Value, message.args.len);
-            for (args, message.args) |*out, item| out.* = try values.copy(driver.Value, turn.arena, item);
+            const args = try values.copyArgs(turn.arena, message.args);
             try admit(self.entry, turn, null, message.verb, args, null, null, .protected);
             return .{ .void = {} };
         }
@@ -102,8 +102,7 @@ pub const Endpoint = struct {
         var memory: h.Call.Memory = undefined;
         memory.init(turn.arena, owner.options.call_bytes);
         defer memory.deinit();
-        const args = try memory.input.allocator().alloc(driver.Value, message.args.len);
-        for (args, message.args) |*out, item| out.* = try values.copy(driver.Value, memory.input.allocator(), item);
+        const args = try values.copyArgs(memory.input.allocator(), message.args);
         var call: h.Call = .{ .memory = &memory, .attachment = owner, .view = view, .context = behavior.context };
         defer call.release();
         const reply = try behavior.invoke(&call, view, message.verb, args);
@@ -117,7 +116,7 @@ pub const Endpoint = struct {
             self.entry.owner.store.releaseRetention(token) catch unreachable;
             self.entry.retention = null;
         }
-        self.entry.actor = null;
+        self.entry.owner.releaseEntry(self.entry);
         h.releaseClosed(self.entry.owner);
     }
 };
@@ -131,12 +130,13 @@ pub const DependentEndpoint = struct {
     guard: driver.Capability,
     target: driver.Capability,
 
-    pub fn handle(self: *DependentEndpoint, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *DependentEndpoint, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         if (self.owner.closing) return error.AttachmentClosed;
         if (turn.host != self.owner.host) return error.ForeignTurn;
         const entry = try self.owner.entryFor(self.guard);
-        try admit(entry, turn.turn, turn.session, verb, args, self.target, null, .protected);
+        try admit(entry, turn.turn, turn.session, verb, arg_values, self.target, null, .protected);
         return .{ .void = {} };
     }
 
@@ -184,7 +184,7 @@ fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, ver
     }
     if (dependent_target) |target| {
         const retained = try owner.host.retainValueCapabilities(op.memory.input.allocator(), &.{.{ .capability = target }});
-        op.dependent_target = retained[0].ref;
+        op.dependent_target = retained[0];
     }
     errdefer if (op.dependent_target) |target| owner.host.releaseCapabilityTerminal(target, null);
     const arena = op.memory.input.allocator();
@@ -196,7 +196,7 @@ fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, ver
     // operation owns one retain per occurrence through every storage wait,
     // preparation restart, and commit outcome, including a closed session.
     op.argument_retains = try owner.host.retainValueCapabilities(arena, copied);
-    errdefer owner.host.releaseUntransferredCapabilityRetains(op.argument_retains);
+    errdefer owner.host.releaseCapabilityRetains(op.argument_retains);
     if (dispatch) |action| {
         const dispatch_verb = try arena.dupe(u8, action.verb);
         const dispatch_args = try arena.alloc(driver.Value, action.args.len);
@@ -204,7 +204,7 @@ fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, ver
         op.dispatch_retains = try owner.host.retainValueCapabilities(arena, dispatch_args);
         op.dispatch = .{ .verb = dispatch_verb, .args = dispatch_args };
     }
-    errdefer owner.host.releaseUntransferredCapabilityRetains(op.dispatch_retains);
+    errdefer owner.host.releaseCapabilityRetains(op.dispatch_retains);
     op.lifetime = if (turn.opaque_message != null) admitted: {
         var host_turn = try driver.HostTurn.fromActorTurn(turn);
         break :admitted try host_turn.retainPendingWork();

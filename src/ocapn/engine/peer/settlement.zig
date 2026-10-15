@@ -64,9 +64,14 @@ fn applyRelayedResolutionWithPolicy(
     commit_under_pressure: bool,
 ) !void {
     var resolution = resolution_in;
-    self.session_state.rewriteShortenedResolution(&resolution);
+    const inventory = self.session_state.inventoryResolution(resolution) catch |err| {
+        model.freeResolution(self.allocator, resolution);
+        return err;
+    };
+    defer inventory.deinit(self.allocator);
+    self.session_state.rewriteShortenedResolution(&resolution, inventory);
     if (self.node_services) |services| {
-        if (services.lowering_active.*) lower.lowerResolution(services, &resolution) catch |err| {
+        if (services.lowering_active.*) lower.lowerResolution(services, &resolution, inventory) catch |err| {
             model.freeResolution(self.allocator, resolution);
             return err;
         };
@@ -74,7 +79,7 @@ fn applyRelayedResolutionWithPolicy(
     // This is the only application-supplied store path outside send. Hold it
     // to send's same depth and uniqueness pre-commit rules, so no refusable
     // value commits and later aborts from a queued fire's accounting.
-    self.session_state.validateStoredResolution(resolution) catch |err| {
+    self.session_state.validateStoredResolution(resolution, inventory) catch |err| {
         model.freeResolution(self.allocator, resolution);
         return err;
     };

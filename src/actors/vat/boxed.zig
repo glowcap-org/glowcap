@@ -17,8 +17,9 @@ const model = @import("model");
 const vat_mod = @import("mod.zig");
 const Vat = vat_mod.Vat;
 const Turn = vat_mod.Turn;
-const Message = vat_mod.Message;
+const Delivery = vat_mod.Delivery;
 const HostedActor = vat_mod.HostedActor;
+const HandlerFailure = @import("behavior.zig").HandlerFailure;
 const Error = vat_mod.Error;
 
 /// Whether a behavior is a *persistent* actor: it never mutates `self` and
@@ -33,15 +34,21 @@ fn behaviorIsPersistent(comptime Behavior: type) bool {
 /// is non-atomic because a vat is single-threaded, and an immutable/shared state
 /// value never points back at a box, so the graph is acyclic and a plain count
 /// frees correctly with no collector. The behavior's identity travels in the box
-/// (`handle`/`drop`/`clone`) so a snapshot can rebuild a working cell from a
-/// shared box alone. The box is the header of a single `Boxed` heap block that
+/// (`kind`, `handle`/`drop`/`clone`) so a snapshot can rebuild a working cell
+/// from a shared box alone. The box is the header of a single `Boxed` heap block that
 /// also carries the state (`ptr` points at that trailing field), so an actor's
 /// lifetime is one allocation and one free, never a box/state pair.
 pub const StateBox = struct {
     ptr: *anyopaque,
     /// Live references: the vat's own cell plus one per snapshot that shares it.
     refs: usize,
-    handle: *const fn (state: *anyopaque, turn: *Turn, msg: Message) HostedActor.Result,
+    /// The behavior type behind `ptr`, as the hash of its name. Archives
+    /// share types by layout, not symbols (ADR-0055), so two archives in one
+    /// process each carry their own glue for one behavior, and a glue address
+    /// names the archive that spawned the box, not its type. The name is the
+    /// same in every archive one build emits.
+    kind: Kind,
+    handle: *const fn (state: *anyopaque, turn: *Turn, msg: Delivery) HostedActor.Result,
     handleOpaque: ?*const fn (state: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 = null,
     /// Free the whole `Boxed` block this box heads, running the state's
     /// `deinit` first. The box and its state are one allocation, so there is
@@ -54,6 +61,18 @@ pub const StateBox = struct {
     /// Set at spawn for a persistent actor: its state is never mutated in place,
     /// so copy-on-write is skipped and a snapshot shares it directly.
     persistent: bool,
+
+    pub const Kind = enum(u64) {
+        /// A box from C (`makeHostedBox`), holding no Zig behavior.
+        hosted = 0,
+        _,
+
+        pub fn of(comptime Behavior: type) Kind {
+            const hash = comptime std.hash.Wyhash.hash(0, @typeName(Behavior));
+            comptime std.debug.assert(hash != 0);
+            return @fromBackingInt(@intCast(hash));
+        }
+    };
 };
 
 /// The one heap block behind an actor: the refcounted `StateBox` header and the
@@ -77,7 +96,7 @@ const HostedBlock = struct {
     box: StateBox,
     actor: HostedActor,
 
-    fn handle(state: *anyopaque, turn: *Turn, msg: Message) HostedActor.Result {
+    fn handle(state: *anyopaque, turn: *Turn, msg: Delivery) HostedActor.Result {
         const self: *HostedBlock = @ptrCast(@alignCast(state));
         return self.actor.handle(self.actor.ctx, turn, msg);
     }
@@ -146,17 +165,20 @@ pub const Snapshot = struct {
     }
 };
 
-/// Allocate a fresh `Boxed` block (`refs = 1`) owning a heap copy of
-/// `initial`, wiring the behavior's `handle`/`drop`/`clone` and persistent
-/// flavor. The one place a box is born from a value, shared by `spawn` and
-/// `become`. The copy-on-write path births its box through the wired
-/// `clone`. One allocation total, the merged header + state block. On
-/// failure it owns nothing: `initial`'s resources are reclaimed before the
-/// error returns.
-pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*StateBox {
+/// The behavior's state in `box` when the box was born from `Behavior`, else
+/// null. The box's `kind` is the type's identity, the same in every archive
+/// one build emits. Read-only: a snapshot may share the state.
+pub fn stateAs(comptime Behavior: type, box: *const StateBox) ?*const Behavior {
+    if (box.kind != StateBox.Kind.of(Behavior)) return null;
+    return @ptrCast(@alignCast(box.ptr));
+}
+
+/// The box functions one behavior type wires, named at file scope so the
+/// type's `drop` address identifies its boxes.
+fn Glue(comptime Behavior: type) type {
     const Block = Boxed(Behavior);
-    const Glue = struct {
-        fn handle(erased: *anyopaque, turn: *Turn, msg: Message) HostedActor.Result {
+    return struct {
+        fn handle(erased: *anyopaque, turn: *Turn, msg: Delivery) HostedActor.Result {
             // A persistent actor never mutates `self` (that is why a snapshot
             // may share its state with no copy-on-write), so it is dispatched
             // through a `*const` receiver: the ordinary `self.field = x` then
@@ -164,12 +186,15 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
             // a live snapshot shares. This enforces shallow immutability only;
             // a persistent actor still must not mutate through an interior
             // pointer it owns, which `*const self` cannot reach.
-            if (comptime behaviorIsPersistent(Behavior)) {
-                const behavior: *const Behavior = @ptrCast(@alignCast(erased));
-                return HostedActor.Result.fromResult(behavior.handle(turn, msg));
+            const Receiver = if (comptime behaviorIsPersistent(Behavior)) *const Behavior else *Behavior;
+            const behavior: Receiver = @ptrCast(@alignCast(erased));
+            const result = behavior.handle(turn, msg);
+            if (comptime @TypeOf(result) == HostedActor.Result) return result;
+            if (comptime @typeInfo(@TypeOf(result)) == .error_union) {
+                if (comptime @typeInfo(@TypeOf(result)).error_union.payload == HostedActor.Result)
+                    return result catch |err| .{ .refused = HandlerFailure.fromError(err) };
             }
-            const behavior: *Behavior = @ptrCast(@alignCast(erased));
-            return HostedActor.Result.fromResult(behavior.handle(turn, msg));
+            return HostedActor.Result.fromResult(result);
         }
         fn handleOpaque(erased: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 {
             if (comptime behaviorIsPersistent(Behavior)) {
@@ -206,6 +231,7 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
                 fresh.box = .{
                     .ptr = @ptrCast(&fresh.state),
                     .refs = 1,
+                    .kind = box.kind,
                     .handle = box.handle,
                     .handleOpaque = box.handleOpaque,
                     .drop = box.drop,
@@ -217,7 +243,18 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
             unreachable;
         }
     };
+}
 
+/// Allocate a fresh `Boxed` block (`refs = 1`) owning a heap copy of
+/// `initial`, wiring the behavior's `handle`/`drop`/`clone` and persistent
+/// flavor. The one place a box is born from a value, shared by `spawn` and
+/// `become`. The copy-on-write path births its box through the wired
+/// `clone`. One allocation total, the merged header + state block. On
+/// failure it owns nothing: `initial`'s resources are reclaimed before the
+/// error returns.
+pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*StateBox {
+    const Block = Boxed(Behavior);
+    const Wired = Glue(Behavior);
     const block = self.allocator.create(Block) catch |e| {
         // `initial` was never moved into heap state, but the contract still
         // promises its resources are reclaimed. `initial` is a by-value
@@ -230,10 +267,11 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
     block.box = .{
         .ptr = @ptrCast(&block.state),
         .refs = 1,
-        .handle = Glue.handle,
-        .handleOpaque = if (@hasDecl(Behavior, "handleOpaque")) Glue.handleOpaque else null,
-        .drop = Glue.drop,
-        .clone = if (@hasDecl(Behavior, "clone")) Glue.clone else null,
+        .kind = StateBox.Kind.of(Behavior),
+        .handle = Wired.handle,
+        .handleOpaque = if (@hasDecl(Behavior, "handleOpaque")) Wired.handleOpaque else null,
+        .drop = Wired.drop,
+        .clone = if (@hasDecl(Behavior, "clone")) Wired.clone else null,
         .persistent = behaviorIsPersistent(Behavior),
     };
     return &block.box;
@@ -242,7 +280,7 @@ pub fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*St
 pub fn makeHostedBox(self: *Vat, hosted: HostedActor) Error!*StateBox {
     const block = self.allocator.create(HostedBlock) catch |e| {
         // The box was never built, but the contract promises `ctx` is
-        // reclaimed on failure, mirroring how `spawn` reclaims a native
+        // reclaimed on failure, mirroring how `spawn` reclaims a Zig
         // `initial` through its `deinit`.
         if (hosted.free) |f| f(hosted.ctx);
         return e;
@@ -251,6 +289,7 @@ pub fn makeHostedBox(self: *Vat, hosted: HostedActor) Error!*StateBox {
     block.box = .{
         .ptr = @ptrCast(block),
         .refs = 1,
+        .kind = .hosted,
         .handle = HostedBlock.handle,
         .handleOpaque = if (hosted.handleOpaque != null) HostedBlock.handleOpaque else null,
         .drop = HostedBlock.drop,

@@ -139,7 +139,7 @@ pub fn run() {
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
-fn commands_use_the_native_locator_and_generation_parser() {
+fn commands_use_the_host_locator_and_generation_parser() {
 	let fixture = fixture();
 	let routes = rooms_glowcap::routes::CheckpointRoutes;
 	for (raw, token) in fixture["tokens"].as_object().unwrap() {

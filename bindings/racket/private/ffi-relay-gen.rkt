@@ -7,7 +7,7 @@
 ;; The raw `ffi/unsafe` table of libglowcap_net_transport_relay. The
 ;; hand-written sibling (`ffi-relay.rkt`) owns the config mirror and
 ;; re-provides this module. One package owns both keyed-relay and
-;; noise-relay; profile policy remains in the native driver.
+;; noise-relay; profile policy remains in the FFI driver.
 (require ffi/unsafe
          ffi/unsafe/define
          "ffi-shared.rkt"

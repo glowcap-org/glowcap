@@ -40,7 +40,7 @@ pub fn run(comptime verb: []const u8) *const fn (*Ctx, *Parsed) anyerror!u8 {
     return struct {
         fn execute(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
             if (parsed.flagString("dir") == null) {
-                log.err(ctx.io, "--dir is required; reuse the same private workspace on every Rooms command", .{});
+                log.err(ctx.io, "--dir is required. Reuse the same private workspace on every Rooms command", .{});
                 return error.Usage;
             }
             const body = try envelope(ctx.gpa, verb, parsed);

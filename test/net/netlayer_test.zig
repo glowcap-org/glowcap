@@ -70,7 +70,7 @@ fn serveOnce(listener: *net.netlayer.Listener, allocator: std.mem.Allocator) any
     var conn = try listener.accept(&peer, .{ .read = read_buf, .write = write_buf });
     defer conn.deinit();
 
-    try peer.sendCopying(startSession("server"));
+    try peer.sendBorrowed(startSession("server"));
 
     while (true) {
         const progress = conn.pump() catch |err| switch (err) {

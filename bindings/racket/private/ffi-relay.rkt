@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Internal loader for libglowcap_net_transport_relay. The archive exposes one
 ;; provider package for both keyed-relay and noise-relay; multiplexed execution is
-;; owned by the native driver after registration.
+;; owned by the FFI driver after registration.
 (require "ffi-shared.rkt"
          "ffi-relay-gen.rkt")
 (provide (except-out (all-from-out "ffi-relay-gen.rkt")

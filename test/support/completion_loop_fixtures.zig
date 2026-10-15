@@ -28,7 +28,7 @@ pub fn makeServerPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!e
     errdefer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
-    try peer.sendCopying(startSession("server"));
+    try peer.sendBorrowed(startSession("server"));
     return peer;
 }
 
@@ -41,6 +41,19 @@ pub fn drainOutboundBytes(peer: *engine.Peer, allocator: std.mem.Allocator, sink
         defer frame.deinit();
         try sink.appendSlice(allocator, frame.bytes());
     }
+}
+
+/// Carry `from`'s queued sends to `to` the way a byte stream does: each
+/// frame inside its envelope, applied through the loop's own stream door.
+pub fn pumpStream(from: *engine.Peer, to: *engine.Peer, allocator: std.mem.Allocator) !usize {
+    var bytes: std.ArrayList(u8) = .empty;
+    defer bytes.deinit(allocator);
+    try drainOutboundStreamBytes(from, allocator, &bytes);
+    var spill: glowcap.net.Spill = .{};
+    defer spill.deinit(allocator);
+    if (glowcap.net.drainWholeFrames(to, &spill, bytes.items, allocator) != .ok) return error.StreamRefused;
+    if (spill.isActive()) return error.PartialFrameLeftInStream;
+    return bytes.items.len;
 }
 
 /// Encode `peer`'s queued sends at the byte-stream boundary, where every bare
@@ -259,6 +272,11 @@ pub const FakeBackend = struct {
         }
         self.shutdown_fd = null;
         self.push(.{ .user_data = user_data, .result = 0 });
+    }
+
+    /// No submission queue here, so a peek is a zero-timeout poll.
+    pub fn peek(self: *FakeBackend, out: []completion.Completion) !usize {
+        return self.poll(out, 0);
     }
 
     pub fn poll(self: *FakeBackend, out: []completion.Completion, timeout_ms: i32) !usize {

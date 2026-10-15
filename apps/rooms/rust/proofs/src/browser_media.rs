@@ -1,4 +1,4 @@
-//! Shared media custody while a native room is still receiving file bytes.
+//! Shared media custody while a host room is still receiving file bytes.
 use rooms_application::files::{CHUNK_BYTES, FileDescription};
 use rooms_browser::platform::Platform;
 use rooms_glowcap::client::room::{Messages, Room};

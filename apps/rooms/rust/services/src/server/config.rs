@@ -1,12 +1,10 @@
 //! Rooms server options. Everything is parsed before durable custody is
 //! acquired, so a refused option never leaves a lock or a half-written
-//! document behind. The names are the ones the deployment already sets:
-//! every option may come from `GLOWCAP_ROOMS_<NAME>`.
+//! document behind. Every option may come from the environment as
+//! `GLOWCAP_ROOMS_<NAME>`, and an argument wins.
 use super::{error::Error, operations::Asked};
 pub use rooms_platform::serving::Transport;
-mod storage;
 use std::{collections::BTreeMap, path::PathBuf};
-pub use storage::{PostgresConfig, Storage};
 
 pub struct Config {
 	pub admission: rooms_application::admission::Settings,
@@ -15,12 +13,9 @@ pub struct Config {
 	/// nothing kept past it.
 	pub state: Option<PathBuf>,
 	pub transport: Transport,
-	/// Whether listed rooms keep their last lines.
+	/// Whether listed rooms keep their last lines. They persist under the
+	/// state directory, or stay in memory when there is none.
 	pub history: bool,
-	/// Where kept lines persist: a file directory or PostgreSQL database.
-	/// Naming one turns history on. With history on and no destination, the
-	/// state directory keeps them, or memory when there is none.
-	pub storage: Option<Storage>,
 	/// The boot capabilities to mint and publish.
 	pub asked: Asked,
 	/// The loopback port the live timeline endpoint binds while `trace` is
@@ -33,16 +28,13 @@ pub struct Config {
 /// The timeline endpoint's port when nothing overrides it.
 pub const TRACE_PORT: u16 = 9300;
 
-pub const HELP: &str =
-	"rooms-server [--state=<directory>] [--transport=iroh|tcp|onion] [--history] [--storage=<directory|postgres-url>]
+pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=iroh|tcp|onion] [--history]
   --state=<directory>  keep the server document, history, and operator choices here across restarts
   --history  keep the last lines of listed rooms
   --admission-scale=<1..100>  scale default work allowances (default: 1)
   --admission-rates=<class=burst/per-minute,...>  absolute per-class overrides
   --admission-rows=<1..65536>  retained subject row cap (default: 8192)
   --admission-aggregate-scale=<1..100>  deployment pool multiplier (default: 1)
-  --storage=<directory|postgres-url>  keep lines in files or a PostgreSQL database
-  --storage-password-file=<path>  read the database password from a file instead of the URL
   --reachability=discovery|direct  iroh reachability (default: discovery)
   --bind=<host> --port=<port> --announce-host=<host>  TCP listener options
   --onion-socks=<endpoint> --onion-control=<endpoint>  running Tor endpoints (or GLOWCAP_ONION_SOCKS/CONTROL)
@@ -60,14 +52,7 @@ For a minted timeline, also set GLOWCAP_ROOMS_TRACE_LOCATOR to its advertised lo
 ";
 
 /// The options beyond the transport's own that take a value.
-const KEYS: &[&str] = &[
-	"state",
-	"storage",
-	"storage-password-file",
-	"trace-port",
-	"trace-publish",
-	"trace-connect",
-];
+const KEYS: &[&str] = &["state", "trace-port", "trace-publish", "trace-connect"];
 /// The options that are flags: present, or `1`/`true`/`yes` in the environment.
 const FLAGS: &[&str] = &[
 	"history",
@@ -124,17 +109,7 @@ impl Config {
 			}
 		};
 		let transport = Transport::parse(value, &env, "server").map_err(Error::refused)?;
-		let storage = value("storage").map(|value| Storage::parse(&value)).transpose()?;
-		let storage = match (storage, value("storage-password-file")) {
-			(Some(storage), Some(file)) => Some(storage.with_password_file(std::path::Path::new(&file))?),
-			(None, Some(_)) => {
-				return Err(Error::refused(
-					"--storage-password-file needs --storage to name the database",
-				));
-			}
-			(storage, None) => storage,
-		};
-		let history = flag("history")?.unwrap_or(storage.is_some());
+		let history = flag("history")?.unwrap_or(false);
 		let asked = Asked {
 			admin_listeners: flag("admin-listeners")?.unwrap_or(false),
 			diagnostics: flag("diagnostics")?.unwrap_or(false),
@@ -163,7 +138,7 @@ impl Config {
 						)
 					})
 				},
-				8192,
+				rooms_application::admission::DIRECTORY_ROWS,
 				1,
 			)
 			.map_err(String::from)
@@ -171,7 +146,6 @@ impl Config {
 			state: value("state").map(PathBuf::from),
 			transport,
 			history,
-			storage,
 			asked,
 			trace_port,
 			trace_connect: value("trace-connect")
@@ -188,16 +162,12 @@ impl Config {
 				.transpose()?,
 		}))
 	}
-	/// Explicit storage wins over the state directory. With neither, history
-	/// lives in memory. The file destination includes the `history/` child.
-	pub fn history_storage(&self) -> Option<Storage> {
+	/// The history directory under the state directory. With history on and
+	/// no state directory, lines live in memory.
+	pub fn history_directory(&self) -> Option<PathBuf> {
 		if !self.history {
 			return None;
 		}
-		match &self.storage {
-			Some(Storage::Postgres(config)) => Some(Storage::Postgres(config.clone())),
-			Some(Storage::Files(root)) => Some(Storage::Files(root.join("history"))),
-			None => self.state.as_ref().map(|root| Storage::Files(root.join("history"))),
-		}
+		self.state.as_ref().map(|root| root.join("history"))
 	}
 }

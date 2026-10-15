@@ -14,7 +14,7 @@
 ;; connection-scoped mint-cap that exports + publishes any capability a handler
 ;; returns), and serve it on its own thread. build-root : mint-cap -> root-ctor.
 ;; Do not swallow serve faults, `session-serve` closes the transport on error;
-;; a swallowed exception left partners hung on a half-open TCP.
+;; a swallowed exception would leave partners hung on a half-open TCP.
 (define (server-run name host port build-root)
   (define srv (listen host port))
   (printf "{\"v\":1,\"event\":\"ready\",\"listen\":\"~a:~a\"}\n" host (server-port srv))

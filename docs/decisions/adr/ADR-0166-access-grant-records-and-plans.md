@@ -7,7 +7,7 @@ decision: "Resident and loaded grants share one revision-checked evaluator and m
 supersedes: []
 superseded_by: []
 amends: [ADR-0155, ADR-0158]
-amended_by: [ADR-0167]
+amended_by: [ADR-0167, ADR-0230]
 ---
 
 # ADR-0166 Managed grant records and plans
@@ -86,8 +86,7 @@ publication-capacity reservations, and event retention/disclosure. Managed IDs
 are distinct from Loam object IDs. Decoding either is not capability restoration.
 No control, owner snapshot, or CapTP publication is reconstructed by these codecs.
 
-The [managed access coverage page](../../loam/coverage.md) owns those
-remaining parts. They must use Loam's leases, batches, and recovery and the
+Those remaining parts must use Loam's leases, batches, and recovery and the
 existing Host/Vat. The native record test is not a process-kill, power-loss,
 remote event, or complete Rooms integration proof.
 

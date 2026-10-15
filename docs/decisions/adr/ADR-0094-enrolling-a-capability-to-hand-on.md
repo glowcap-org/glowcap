@@ -139,7 +139,7 @@ and a live session.
   of that shape. `zig build goblins-relayed-give` runs the gifter half against a
   live Goblins pair, with a Goblins recipient doing the waiting.
   `zig build goblins-listen-recipient` runs the reciprocal live half, with the
-  owning native Session waiting on Goblins' promise and calling a capability
+  owning Zig Session waiting on Goblins' promise and calling a capability
   nested in its later settlement.
 
 ## Notes

@@ -1,8 +1,8 @@
-//! Shared latency samples and report rendering for the native Loam workloads.
+//! Shared latency samples and report rendering for the Loam workloads.
 const std = @import("std");
 
 pub const Samples = struct {
-    values: [2048]u64 = undefined,
+    values: [4096]u64 = undefined,
     count: usize = 0,
     pub fn add(self: *Samples, ns: u64) void {
         self.values[self.count] = ns;
@@ -10,10 +10,10 @@ pub const Samples = struct {
     }
     pub fn summarize(self: *Samples) Distribution {
         std.mem.sort(u64, self.values[0..self.count], {}, std.sort.asc(u64));
-        return .{ .p50_ns = self.values[self.count / 2], .p99_ns = self.values[@min(self.count - 1, self.count * 99 / 100)] };
+        return .{ .p50_ns = self.values[self.count / 2], .p95_ns = self.values[@min(self.count - 1, self.count * 95 / 100)], .p99_ns = self.values[@min(self.count - 1, self.count * 99 / 100)] };
     }
 };
-pub const Distribution = struct { p50_ns: u64, p99_ns: u64 };
+pub const Distribution = struct { p50_ns: u64, p95_ns: u64, p99_ns: u64 };
 pub const Row = struct {
     phase: []const u8,
     conversations: usize,

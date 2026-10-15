@@ -15,8 +15,15 @@ const std = @import("std");
 pub const SpinLock = struct {
     inner: std.atomic.Mutex = .unlocked,
 
+    /// Spins before a waiter yields its slice. A holder preempted on the
+    /// waiter's CPU would otherwise cost the waiter the rest of a tick.
+    const yield_after = 64;
+
     pub fn lock(self: *SpinLock) void {
-        while (!self.inner.tryLock()) std.atomic.spinLoopHint();
+        var spins: u8 = 0;
+        while (!self.inner.tryLock()) : (spins +|= 1) {
+            if (spins < yield_after) std.atomic.spinLoopHint() else std.Thread.yield() catch std.atomic.spinLoopHint();
+        }
     }
 
     pub fn unlock(self: *SpinLock) void {

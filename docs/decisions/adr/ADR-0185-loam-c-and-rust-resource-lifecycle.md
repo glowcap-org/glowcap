@@ -7,7 +7,7 @@ decision: "Optional Loam C archives project fixed-resource hosting and LMDB effe
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0186, ADR-0187, ADR-0188]
+amended_by: [ADR-0186, ADR-0187, ADR-0188, ADR-0233]
 ---
 
 # ADR-0185 Loam C and Rust resource lifecycle

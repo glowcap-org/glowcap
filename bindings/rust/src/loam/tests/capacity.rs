@@ -1,15 +1,11 @@
 //! Deployment working-set limits govern admission without changing durable grants.
 use super::*;
 
-#[test]
-fn invalid_forwarding_allowance_refuses_before_claiming_storage() {
+fn invalid_forwarding_allowance_refuses_before_claiming_storage<E: Engine>(engine: EngineFn<E>) {
 	let directory = Directory::new();
 	for forward_reply_bytes in [0, usize::MAX] {
 		let refused = Store::open(
-			&directory.0,
-			[3; 16],
-			true,
-			8 * 1024 * 1024,
+			engine(&directory.0, OpenMode::Create, 8 * 1024 * 1024),
 			&[SCHEMA],
 			Limits {
 				forward_reply_bytes,
@@ -20,10 +16,7 @@ fn invalid_forwarding_allowance_refuses_before_claiming_storage() {
 	}
 	// A refusal did not claim metadata: the same storage still accepts creation.
 	let mut store = Store::open(
-		&directory.0,
-		[3; 16],
-		true,
-		8 * 1024 * 1024,
+		engine(&directory.0, OpenMode::Create, 8 * 1024 * 1024),
 		&[SCHEMA],
 		Limits {
 			max_continuations: 0,
@@ -35,8 +28,7 @@ fn invalid_forwarding_allowance_refuses_before_claiming_storage() {
 	store.close().unwrap();
 }
 
-#[tokio::test]
-async fn configured_managed_capacity_admits_deep_grants_after_cold_reopen() {
+async fn configured_managed_capacity_admits_deep_grants_after_cold_reopen<E: Engine>(engine: EngineFn<E>) {
 	tokio::task::LocalSet::new()
 		.run_until(async {
 			tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -46,10 +38,11 @@ async fn configured_managed_capacity_admits_deep_grants_after_cold_reopen() {
 				let mut name = String::new();
 				for (pass, record_capacity) in [24, 8, 24].into_iter().enumerate() {
 					let mut store = Store::open(
-						&directory.0,
-						[3; 16],
-						pass == 0,
-						256 * 1024 * 1024,
+						engine(
+							&directory.0,
+							if pass == 0 { OpenMode::Create } else { OpenMode::Open },
+							256 * 1024 * 1024,
+						),
 						&[SCHEMA],
 						Limits {
 							record_capacity,
@@ -82,7 +75,7 @@ async fn configured_managed_capacity_admits_deep_grants_after_cold_reopen() {
 						for depth in (0..12).rev() {
 							next = Ref::try_from(
 								&client
-									.send(&next, "derive", &terms.derive_arguments(1, depth))
+									.send(&next, "derive", &terms.derive_arguments(1, Scope::Object, depth))
 									.await
 									.unwrap(),
 							)
@@ -120,4 +113,24 @@ async fn configured_managed_capacity_admits_deep_grants_after_cold_reopen() {
 			.expect("deep grant lifecycle has a finite CapTP budget");
 		})
 		.await;
+}
+#[test]
+fn lmdb_invalid_forwarding_allowance_refuses_before_claiming_storage() {
+	invalid_forwarding_allowance_refuses_before_claiming_storage(lmdb_engine);
+}
+#[test]
+fn sqlite_invalid_forwarding_allowance_refuses_before_claiming_storage() {
+	invalid_forwarding_allowance_refuses_before_claiming_storage(sqlite_engine);
+}
+#[tokio::test]
+async fn lmdb_configured_managed_capacity_admits_deep_grants_after_cold_reopen() {
+	configured_managed_capacity_admits_deep_grants_after_cold_reopen(lmdb_engine).await;
+}
+#[tokio::test]
+async fn sqlite_configured_managed_capacity_admits_deep_grants_after_cold_reopen() {
+	configured_managed_capacity_admits_deep_grants_after_cold_reopen(sqlite_engine).await;
+}
+#[test]
+fn volatile_invalid_forwarding_allowance_refuses_before_claiming_storage() {
+	invalid_forwarding_allowance_refuses_before_claiming_storage(volatile_engine);
 }

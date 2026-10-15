@@ -1,4 +1,4 @@
-//! Relay channel profiles shared by every native execution model.
+//! Relay channel profiles shared by every Zig execution model.
 
 const model = @import("model");
 

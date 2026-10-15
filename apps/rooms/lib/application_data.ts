@@ -30,6 +30,7 @@ export const MAX_ROOM_MEMBERS = 256;
 export const MAX_ROOM_OFFLINE = 256;
 export const MAX_SESSION_DIRECTORY_ROWS = 128;
 export const MAX_DIRECTORY_DISCOVERY_ROWS = 256;
+export const MAX_DIRECTORY_CURSOR = 256;
 export const MAX_ROOM_LINKS = 4096;
 export const MAX_TROUBLE_SOURCE_BYTES = 128;
 export const MAX_TROUBLE_REASON_BYTES = 1024;

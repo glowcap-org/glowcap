@@ -226,7 +226,7 @@ keyed session, and continues withdrawal there. The rooms app carries the
 production form: members file signaling inboxes with the directory
 (`offerSignaling`), and the directory routes `signalOffer` / `signalAnswer` /
 `signalCandidate` between designators without parsing a payload
-(`apps/rooms/rust/services/src/server/signaling.rs`, `apps/rooms/lib/signaling.ts`).
+(`apps/rooms/rust/services/src/server/signaling.rs`, `bindings/ts/runtime/signaling.ts`).
 
 **Where the redeeming host's signaling authority comes from.** The seam is the
 one ADR-0088 uses for `keyed-relay`. A recipient holding only a give whose

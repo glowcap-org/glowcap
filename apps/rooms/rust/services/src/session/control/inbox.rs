@@ -10,6 +10,8 @@ use std::{collections::BTreeSet, path::PathBuf};
 
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ROWS: usize = 4096;
+/// Rows one `pending` read returns.
+const PAGE_ROWS: usize = 64;
 // Leave enough room to dismiss every retained identifier even when full.
 const ACK_RESERVE: usize = MAX_ROWS * 22 + 64;
 const NAME: &str = "events.jsonl";
@@ -230,7 +232,7 @@ impl Inbox {
 	/// The journal's byte budget also bounds a page containing a single large row.
 	pub fn pending(&self, after_id: u64) -> Value {
 		let start = self.rows.partition_point(|row| row.id <= after_id);
-		let end = (start + 64).min(self.rows.len());
+		let end = (start + PAGE_ROWS).min(self.rows.len());
 		json!({"ok": true, "pending": &self.rows[start..end], "more": end < self.rows.len(),
                "remaining": self.rows.len(), "gap": self.gap})
 	}

@@ -9,7 +9,7 @@ use core::future::Future;
 /// read or write. Reloading application state cannot retire an I/O worker.
 pub trait GrantStorage {
 	type Error;
-	/// Take the encoded document so a native adapter can transfer it to an I/O
+	/// Take the encoded document so a host adapter can transfer it to an I/O
 	/// worker without copying a borrow into a second allocation.
 	fn replace(&mut self, bytes: Vec<u8>) -> impl Future<Output = Result<(), WriteFailure<Self::Error>>>;
 }

@@ -1,11 +1,12 @@
 #lang racket/base
-;; Internal: native-value C-ABI projection. Marshals Racket values to and from
+;; Internal: plain-value C-ABI projection. Marshals Racket values to and from
 ;; the C `GlowcapArgument`/`GlowcapReference` cstructs, keeping pinned backing
 ;; buffers alive through a `keep` box for the extent of a synchronous C call.
 ;; `codec-id` (the codec symbol's ABI spelling) rides the transport seam; the
 ;; rest is binding-internal. Zig alone owns wire codecs and protocol semantics.
 
 (require ffi/unsafe
+         ffi/vector
          "constants.rkt"
          "ffi-ocapn.rkt"
          "value.rkt"
@@ -21,7 +22,7 @@
 ;; GLOWCAP_CODEC_* selector.
 ;; The `GLOWCAP-CAPTP-*` id for a CapTP profile (ADR-0003): `v1_0` is the
 ;; interop floor a Goblins vat speaks, `next` the glowcap-to-glowcap track
-;; `Offer.native` prefers with Cap'n Proto.
+;; `Offer.glowcap` prefers with Cap'n Proto.
 (define (captp-version<-id version [source #f])
   (cond
     [(= version CAPTP-V1-0) 'v1_0]
@@ -52,17 +53,17 @@
 (define DEFAULT-FEATURES-SYMBOL (features<-mask DEFAULT-FEATURES))
 (define INTEROP-CODEC-SYMBOL (codec<-id INTEROP-CODEC))
 (define INTEROP-CAPTP-VERSION-SYMBOL (captp-version<-id INTEROP-CAPTP-VERSION))
-(define NATIVE-CODEC-SYMBOL (codec<-id NATIVE-CODEC))
-(define NATIVE-CAPTP-VERSION-SYMBOL (captp-version<-id NATIVE-CAPTP-VERSION))
+(define OWN-CODEC-SYMBOL (codec<-id OWN-CODEC))
+(define OWN-CAPTP-VERSION-SYMBOL (captp-version<-id OWN-CAPTP-VERSION))
 
 (define (host-profile-values who profile codec captp-version)
-  (unless (memq profile '(#f interop native))
+  (unless (memq profile '(#f interop glowcap))
     (raise-glowcap who ERR-INVALID-ARGUMENT "unknown Host profile ~a" profile))
   (when (and profile (or codec captp-version))
     (raise-glowcap who ERR-INVALID-ARGUMENT
                    "#:profile cannot be combined with #:codec or #:captp-version"))
   (case profile
-    [(native) (values NATIVE-CODEC-SYMBOL NATIVE-CAPTP-VERSION-SYMBOL)]
+    [(glowcap) (values OWN-CODEC-SYMBOL OWN-CAPTP-VERSION-SYMBOL)]
     [(interop) (values INTEROP-CODEC-SYMBOL INTEROP-CAPTP-VERSION-SYMBOL)]
     [else (values (or codec DEFAULT-CODEC-SYMBOL)
                   (or captp-version DEFAULT-CAPTP-VERSION-SYMBOL))]))
@@ -144,6 +145,9 @@
     [(kw? a) (set-bytes-field! c ARG-KEYWORD (string->bytes/utf-8 (kw-value a)) keep)]
     ;; Returning an error-arg fulfills with an OCapN Error value. Raising a
     ;; Racket exception remains the separate operation that breaks a reply.
+    ;; An s64vector rides ARG-INTEGERS as one run. Racket CS may move the
+    ;; vector, so its words are copied into an 8-aligned immobile block.
+    [(s64vector? a) (set-integers-field! c a keep)]
     [(error-arg? a) (set-bytes-field! c ARG-ERROR (string->bytes/utf-8 (error-arg-message a)) keep)]
     [(tagged-arg? a) (set-bytes-field! c ARG-TAGGED (string->bytes/utf-8 (tagged-arg-tag a)) keep)
                      (define-values (ptr cnt) (args->c (tagged-arg-value a) keep))
@@ -183,6 +187,18 @@
   (set-GlowcapArgument-bytes! c buf)
   (set-GlowcapArgument-bytes-len! c (bytes-length bs)))
 
+;; Copies an s64vector's words into an immobile block kept alive in `keep`.
+;; An empty vector is NULL and 0.
+(define (set-integers-field! c v keep)
+  (define n (s64vector-length v))
+  (set-GlowcapArgument-kind! c ARG-INTEGERS)
+  (unless (zero? n)
+    (define buf (malloc (* 8 n) 'atomic-interior))
+    (memcpy buf (s64vector->cpointer v) (* 8 n))
+    (set-box! keep (cons buf (unbox keep)))
+    (set-GlowcapArgument-bytes! c buf)
+    (set-GlowcapArgument-bytes-len! c (* 8 n))))
+
 ;; ── Marshalling (decode) ─────────────────────────────────────────────────────
 (define (ref<-c r)
   (make-ref/internal (GlowcapReference-id r)))
@@ -204,10 +220,15 @@
     [(= k ARG-KEYWORD) (kw (bytes->string/utf-8 (bytes<-c (GlowcapArgument-bytes c) (GlowcapArgument-bytes-len c)) UFFFD))]
     [(= k ARG-ERROR) (error-arg (bytes->string/utf-8 (bytes<-c (GlowcapArgument-bytes c) (GlowcapArgument-bytes-len c)) UFFFD))]
     [(= k ARG-VOID) (void)]
-    ;; Canonical decimal digits + sign flag back to a native bignum (ADR-0049).
+    ;; Canonical decimal digits + sign flag back to a Racket bignum (ADR-0049).
     [(= k ARG-BIG-INTEGER)
      (let ([magnitude (string->number (bytes->string/utf-8 (bytes<-c (GlowcapArgument-bytes c) (GlowcapArgument-bytes-len c))))])
        (if (not (zero? (GlowcapArgument-boolean c))) (- magnitude) magnitude))]
+    [(= k ARG-INTEGERS)
+     (define n (quotient (GlowcapArgument-bytes-len c) 8))
+     (define v (make-s64vector n))
+     (unless (zero? n) (memcpy (s64vector->cpointer v) (GlowcapArgument-bytes c) (* 8 n)))
+     v]
     [(= k ARG-STRUCT)
      (define len (GlowcapArgument-items-len c))
      (unless (even? len)

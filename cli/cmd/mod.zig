@@ -108,7 +108,7 @@ fn refuseRepeatedFlag(
         .string_flag => |s| s,
         .bool_flag => return,
     };
-    log.err(ctx.io, "--{s} was given twice, as \"{s}\" and then \"{s}\"; keep the one you meant", .{ flag.long, first, value });
+    log.err(ctx.io, "--{s} was given twice, as \"{s}\" and then \"{s}\". Keep the one you meant", .{ flag.long, first, value });
     try help_mod.writeNodeHelpErr(ctx.io, path);
     return error.Usage;
 }
@@ -150,7 +150,7 @@ fn consumeFlag(
                         return error.Usage;
                     }
                     if (looksLikeFlag(argv_in[i])) {
-                        log.err(ctx.io, "--{s} needs a value, but the next argument is {s}; write --{s}=<value> if you meant it literally", .{ flag.long, argv_in[i], flag.long });
+                        log.err(ctx.io, "--{s} needs a value, but the next argument is {s}. Write --{s}=<value> if you meant it literally", .{ flag.long, argv_in[i], flag.long });
                         try help_mod.writeNodeHelpErr(ctx.io, path);
                         return error.Usage;
                     }
@@ -167,7 +167,7 @@ fn consumeFlag(
                     // The advice names the long form because only `--flag=value`
                     // parses. A short flag is matched as two characters,
                     // so `-i=value` would land the user on "unknown flag".
-                    log.err(ctx.io, "-{c} needs a value, but the next argument is {s}; write --{s}=<value> if you meant it literally", .{ flag.short.?, argv_in[i], flag.long });
+                    log.err(ctx.io, "-{c} needs a value, but the next argument is {s}. Write --{s}=<value> if you meant it literally", .{ flag.short.?, argv_in[i], flag.long });
                     try help_mod.writeNodeHelpErr(ctx.io, path);
                     return error.Usage;
                 }
@@ -228,7 +228,7 @@ pub fn dispatch(root: *const Command, ctx: *Ctx, argv_in: []const []const u8) !u
                 path_buf[path_len] = child;
                 path_len += 1;
                 if (!child.inherit_flags and parsed.flags.count() != 0) {
-                    log.err(ctx.io, "flags before '{s}' do not apply to it; place supported flags after this command", .{child.name});
+                    log.err(ctx.io, "flags before '{s}' do not apply to it. Place supported flags after this command", .{child.name});
                     try help_mod.writeNodeHelpErr(ctx.io, path_buf[0..path_len]);
                     return exit_codes.usage;
                 }

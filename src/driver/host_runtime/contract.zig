@@ -1,4 +1,4 @@
-//! Public construction and ownership vocabulary for the native HostRuntime.
+//! Public construction and ownership vocabulary for the Zig HostRuntime.
 //! Runtime mechanics consume these values. This leaf owns no I/O or state.
 
 const std = @import("std");
@@ -90,7 +90,22 @@ pub fn Vocabulary(
             /// default. A step-driven embedder chooses `.stepped` here, with
             /// its recipients, and the readiness set exists from `init` on.
             drive: lifecycle.DriveOptions = .blocking,
+            /// How long the runtime spins before it parks on its residents'
+            /// descriptors, reaping each resident on every pass. Zero parks
+            /// at once. A spinning runtime holds its CPU for the window and
+            /// sees a cross-thread wake or settle only when the window ends
+            /// or a resident has a record, so set it on a runtime that owns
+            /// a core and wants the round trip's park gone, and bound it by
+            /// the reply latency it expects. A caller's wait budget bounds
+            /// the window too, and a window past `max_busy_poll_ns` is
+            /// refused at adoption.
+            busy_poll_ns: u64 = 0,
         };
+
+        /// The longest busy-poll window a runtime accepts: a cross-thread
+        /// settle or wake waits out the whole window, so a longer one is a
+        /// stall and not a latency trade.
+        pub const max_busy_poll_ns: u64 = 100 * std.time.ns_per_ms;
 
         /// Runtime-only controls for adopting an existing byte-fed Host. Core
         /// protocol/frame settings remain owned by that Host.
@@ -100,6 +115,8 @@ pub fn Vocabulary(
             handshake: Budget,
             listener_setup: Budget = .{ .ms = default_listener_setup_ms },
             settle: Budget,
+            /// As `Options.busy_poll_ns`.
+            busy_poll_ns: u64 = 0,
             /// As `Options.drive`. The loop archive adopts a Host stepped.
             drive: lifecycle.DriveOptions = .blocking,
         };

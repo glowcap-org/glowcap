@@ -1,7 +1,10 @@
 //! Generic multiplexed-provider projection of the WebRTC ownership graph.
 //!
-//! Signaling remains in the public WebRTC ABI. This leaf only lets the driver
-//! claim an already-authorized open peer and perform nonblocking packet I/O.
+//! The driver claims an already-authorized open peer through `claim_external`
+//! and performs nonblocking packet I/O here. A netlayer whose signaling
+//! carries `send_offer` also fills the connect verbs (`dial.zig`), and one
+//! whose signaling carries `send_answer` fills the listen verbs
+//! (`accept.zig`).
 
 const std = @import("std");
 
@@ -9,6 +12,9 @@ const crypto = @import("foundation").crypto;
 const c = @import("c_abi_shared");
 const webrtc = @import("webrtc");
 const ownership = @import("ownership.zig");
+const dial = @import("dial.zig");
+const accept = @import("accept.zig");
+const exchange = @import("exchange.zig");
 
 const NetlayerPayload = ownership.NetlayerPayload;
 const GLOWCAP_OK = c.GLOWCAP_OK;
@@ -36,6 +42,13 @@ fn drainReady(ctx: ?*anyopaque, out: ?[*]c.GlowcapMultiplexedReadyEvent, cap: us
         if (n == 0) break;
         const event = raw[0];
         const peer = payload.peers.get(event.subject) orelse continue;
+        if (peer.exchange != null) {
+            if (exchange.routeEvent(payload, peer, event.events)) |record| {
+                dest.?[total] = record;
+                total += 1;
+            }
+            continue;
+        }
         if (!peer.provider_claimed) continue;
         var mapped: u32 = 0;
         if (event.events & webrtc.ev_readable != 0) mapped |= c.multiplexed_transport.GLOWCAP_MULTIPLEXED_EV_READABLE;
@@ -153,6 +166,11 @@ fn sameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(.c) u8 {
 
 fn ensureInitialized(payload: *NetlayerPayload) void {
     if (payload.provider_initialized) return;
+    // The connect verbs come together or not at all, and so do the listen
+    // verbs: the driver reads a complete group as "this transport dials" or
+    // "this transport accepts".
+    const dials = exchange.dials(payload.signaling);
+    const accepts = exchange.accepts(payload.signaling);
     payload.provider_profile = .{
         .abi_version = c.transport_provider.GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION,
         .struct_size = @sizeOf(c.GlowcapTransportProfile),
@@ -169,17 +187,17 @@ fn ensureInitialized(payload: *NetlayerPayload) void {
         .ctx = payload,
         .readiness_fd = readinessFd,
         .drain_ready = drainReady,
-        .start_connect = null,
-        .finish_connect = null,
+        .start_connect = if (dials) dial.startConnect else null,
+        .finish_connect = if (dials) dial.finishConnect else null,
         .claim_external = claimExternal,
-        .cancel_connect = null,
-        .listen = null,
+        .cancel_connect = if (dials) dial.cancelConnect else null,
+        .listen = if (accepts) accept.listen else null,
         .finish_listen = null,
         .cancel_listen = null,
-        .listener_locator = null,
-        .listener_advertise = null,
-        .finish_accept = null,
-        .stop_listen = null,
+        .listener_locator = if (accepts) accept.listenerLocator else null,
+        .listener_advertise = if (accepts) accept.listenerAdvertise else null,
+        .finish_accept = if (accepts) accept.finishAccept else null,
+        .stop_listen = if (accepts) accept.stopListen else null,
         .try_read = tryRead,
         .try_write = tryWrite,
         .conn_close = connClose,

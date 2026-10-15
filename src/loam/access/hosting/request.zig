@@ -87,12 +87,17 @@ pub const Request = union(enum) {
                 value.request = .{ .control = .revoke };
             } else value.request = .{ .control = .{ .edit = null } };
         }
+        if (value.endpoint.content != null and value.mutation == null and value.request == .content and (std.mem.eql(u8, verb, "derive") or std.mem.eql(u8, verb, "derive-managed"))) {
+            // Through a dependent facet the share names the facet's target,
+            // issued under the invoking grant. Receipts stay on the invoking
+            // endpoint, which owns the derivation sequence.
+            const bound = if (value.dependent_endpoint) |target| target.content.? else value.endpoint.content.?;
+            const share = try call.arena().create(sharing.Sharing);
+            share.* = try (if (std.mem.eql(u8, verb, "derive-managed")) sharing.Sharing.initManaged(call, config, &value.endpoint, bound, args) else sharing.Sharing.init(call, config, &value.endpoint, bound, args));
+            value.request = .{ .derive = share };
+        }
         if (value.endpoint.content != null and value.dependent_object == null and value.mutation == null and value.request == .content) {
-            if (std.mem.eql(u8, verb, "derive") or std.mem.eql(u8, verb, "derive-managed")) {
-                const share = try call.arena().create(sharing.Sharing);
-                share.* = try (if (std.mem.eql(u8, verb, "derive-managed")) sharing.Sharing.initManaged(call, config, &value.endpoint, args) else sharing.Sharing.init(call, config, &value.endpoint, args));
-                value.request = .{ .derive = share };
-            } else if (std.mem.eql(u8, verb, "describe-access")) {
+            if (std.mem.eql(u8, verb, "describe-access")) {
                 if (args.len != 0) return error.InvalidArguments;
                 value.request = .{ .describe = try call.arena().create(storage.Operation.Description) };
             } else if (std.mem.eql(u8, verb, "derivation-sequence") or std.mem.eql(u8, verb, "durable-name")) {

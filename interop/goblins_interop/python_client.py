@@ -65,7 +65,7 @@ async def converse() -> None:
             print("python-goblins-interop: enlivened goblins echo cap, calling it")
 
         # The echo actor is `(lambda args args)`: it returns its argument
-        # list, so assert the content survived the round-trip (the native
+        # list, so assert the content survived the round-trip (the Zig
         # driver's bar), not merely that something resolved.
             def assert_echoed(reply, expected):
                 if reply != [expected]:

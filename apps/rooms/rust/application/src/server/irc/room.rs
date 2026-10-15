@@ -14,7 +14,7 @@ use super::{
 	wire::Notice,
 };
 use crate::{
-	directory::{OriginProof, PublicationKind, RoomInfo},
+	directory::{MAX_ORIGIN, MAX_PUBLICATION_ID, OriginProof, PublicationKind, RoomInfo},
 	failure::FailureCode,
 	fields::{Nullable, Text},
 	room::{
@@ -33,7 +33,7 @@ use alloc::{
 pub use invalid::Invalid;
 pub use outcome::{Effects, Refusal};
 
-/// The longest away reason, the native room's bound.
+/// The longest away reason, the Rooms room's bound.
 pub use crate::room::membership::MAX_AWAY;
 
 #[derive(Debug)]
@@ -104,10 +104,10 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 		if !valid_channel(channel) {
 			return Err(Invalid::Channel);
 		}
-		if publication_id.is_empty() || publication_id.len() > 128 {
+		if publication_id.is_empty() || publication_id.len() > MAX_PUBLICATION_ID {
 			return Err(Invalid::PublicationIdentity);
 		}
-		if origin.is_empty() || origin.len() > 256 {
+		if origin.is_empty() || origin.len() > MAX_ORIGIN {
 			return Err(Invalid::Origin);
 		}
 		let name = format!("{network}/{channel}");

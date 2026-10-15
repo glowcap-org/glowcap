@@ -1,4 +1,4 @@
-//! Live Goblins interop: a native glowcap peer holds a real OCapN conversation
+//! Live Goblins interop: a glowcap peer holds a real OCapN conversation
 //! with a Spritely Goblins vat over TCP, in *both* directions. The vat build
 //! pin is `.devcontainer/pins.sh` `GOBLINS_VERSION` (not runtime-enforced).
 //!
@@ -92,7 +92,7 @@ const Greeter = harness.PositionalReplyActor("Hello {s}, from a glowcap actor!")
 /// Returns an OCapN Struct or List so inbound `op:get` / `op:index` can project
 /// (ADR-0050).
 const ProjectionResponder = struct {
-    pub fn handle(self: *ProjectionResponder, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *ProjectionResponder, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         const tag: []const u8 = if (msg.verb.len > 0)
             msg.verb

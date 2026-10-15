@@ -1,4 +1,4 @@
-"""Owned Python shape of one borrowed native driver event."""
+"""Owned Python shape of one borrowed FFI driver event."""
 
 from __future__ import annotations
 

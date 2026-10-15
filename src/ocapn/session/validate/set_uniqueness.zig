@@ -23,12 +23,15 @@ fn HashRow(comptime Position: type) type {
 }
 
 /// Store one hash/checkpoint row per member, not a full Argument view. Small
-/// sets stay on the stack. Larger rows borrow the recv turn's arena. A unique
+/// sets stay on the stack. Larger rows use the caller's scratch allocator and
+/// are freed before return, including refusal, so an outbound fold may use
+/// the session allocator without a recv arena lifetime. A unique
 /// hash needs no further projection. Collisions reuse one view buffer sized
 /// to the largest run, projecting each member once before comparison. Syrup
 /// projection can scan nested bytes: caching avoids an unbudgeted scan per
 /// pair, and the extra projection pass visits at most the set's wire region.
-/// No member becomes an owned value. The caller resets scratch after the turn.
+/// No member becomes an owned value. Handoff comparisons may materialize lazy
+/// hints in turn scratch; freight refuses handoffs before reaching this fold.
 pub fn checkBorrowed(
     scratch: std.mem.Allocator,
     items: model.view.Args,
@@ -41,6 +44,7 @@ pub fn checkBorrowed(
         stack_rows[0..count]
     else
         try scratch.alloc(BorrowedRow, count);
+    defer if (count > inline_capacity) scratch.free(rows);
     var it = items.iterator();
     var initialized: usize = 0;
     while (true) {
@@ -71,6 +75,7 @@ pub fn checkBorrowed(
         stack_elements[0..largest_run]
     else
         try scratch.alloc(model.view.Argument, largest_run);
+    defer if (largest_run > inline_capacity) scratch.free(elements);
     start = 0;
     while (start < count) {
         const end = runEnd(rows, start);
@@ -98,7 +103,7 @@ fn runEnd(rows: []const BorrowedRow, start: usize) usize {
 }
 
 /// The owned-slice arm of the set-uniqueness fold, shared by the inbound
-/// owned fallback above and the send-side walk (`validateArgument`). The
+/// owned fallback above and the send-side pass (`certifySent`). The
 /// inbound path hands the recv arena (rows die in the turn reset). The send
 /// path hands the session gpa (no recv turn brackets a send), so small sets
 /// stay on the stack and a spilled row slice is freed here.

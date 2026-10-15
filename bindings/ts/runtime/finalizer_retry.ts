@@ -1,4 +1,4 @@
-/** Failure-cold retry authority for native releases refused from implicit
+/** Failure-cold retry authority for FFI releases refused from implicit
  * finalizers. A runtime boundary claims one finite batch; a callback that is
  * refused again re-enqueues itself for a later boundary rather than spinning. */
 

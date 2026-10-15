@@ -34,7 +34,7 @@ pub fn report(ctx: *Ctx, rows: []const Row, skipped: []const Skip) !void {
     }
     try out(ctx.io, "{s}", .{term.items});
 
-    std.Io.Dir.cwd().createDirPath(ctx.io, reports_dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(ctx.io, reports_dir);
     const stamp: i64 = @intCast(@divFloor(std.Io.Clock.now(.real, ctx.io).nanoseconds, 1_000_000_000));
 
     try writeArtifact(ctx, stamp, "txt", term.items);

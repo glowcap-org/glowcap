@@ -23,7 +23,7 @@ glowcap has three ways to run I/O around the byte-fed `driver_core.Host`:
 - `driver.HostRuntime` runs every product front: `driver.Session` and `Server`,
   the C driver (`c_abi/driver/loop.zig`), and through it every binding. Each
   stream wire owns a read and a write buffer of `default_wire_buffer_bytes`
-  (16 KiB each, `host_runtime/stream_wire.zig`), whether or not the wire is
+  (16 KiB each, `src/driver/host_runtime/wire.zig`), whether or not the wire is
   idle. Multiplexed transports (iroh, WebRTC) already join it through the
   resident contract in `net/multiplexed_resident.zig`.
 - `driver.BlockingSession` folds one connection over a `Served` on the

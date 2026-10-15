@@ -154,6 +154,13 @@ unsafe extern "C" {
 		context: *mut c_void,
 	) -> c_int;
 	pub fn glowcap_loam_store_finish(raw: *mut GlowcapLoamStore, recovery: c_uint, outcome: c_uint) -> c_int;
+	pub fn glowcap_loam_store_collect_plan(
+		raw: *mut GlowcapLoamStore,
+		work_limit: usize,
+		callback: Option<GlowcapLoamKvFn>,
+		context: *mut c_void,
+	) -> c_int;
+	pub fn glowcap_loam_store_collecting(raw: *mut GlowcapLoamStore, out_collecting: *mut u32) -> c_int;
 	pub fn glowcap_loam_work_kind(raw: *mut GlowcapLoamWork, out_kind: *mut u32) -> c_int;
 	pub fn glowcap_loam_work_plan(
 		raw: *mut GlowcapLoamWork,

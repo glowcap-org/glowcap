@@ -28,6 +28,8 @@ struct Verified {
 	digest: String,
 	blob: Blob,
 }
+/// Verified blobs held for reuse, within `MAX_STAGED_BYTES` in all.
+const CACHED_BLOBS: usize = 32;
 #[derive(Clone, Default)]
 pub(super) struct Cache(Rc<RefCell<VecDeque<Verified>>>);
 impl Cache {
@@ -47,7 +49,7 @@ impl Cache {
 	fn retain(&self, digest: String, blob: Blob) {
 		let mut cache = self.0.borrow_mut();
 		cache.retain(|held| held.digest != digest);
-		while cache.len() >= 32
+		while cache.len() >= CACHED_BLOBS
 			|| cache.iter().map(|v| v.blob.size() as usize).sum::<usize>() + blob.size() as usize > MAX_STAGED_BYTES
 		{
 			if cache.pop_front().is_none() {

@@ -1,4 +1,4 @@
-//! Actual native dispatch, isolation, cleanup and steady crowded-room cost.
+//! Real dispatch, isolation, cleanup and steady crowded-room cost.
 use super::*;
 use rooms_glowcap::client::room::Room;
 #[tokio::test]
@@ -92,7 +92,7 @@ async fn ordinary_crowded_room_cost_sample() {
 				}
 			}
 			println!(
-				"native cost: 64 posts, 8 recipients, average round-trip us={}",
+				"host cost: 64 posts, 8 recipients, average round-trip us={}",
 				start.elapsed().as_micros() / 64
 			);
 			for member in members {
@@ -108,7 +108,7 @@ async fn ordinary_crowded_room_cost_sample() {
 		.await;
 }
 
-/// The full timing case runs once outside the short default process gate.
+/// The full timing case runs once outside the default test run.
 #[tokio::test]
 #[ignore = "live thirty-second churn acceptance; run explicitly with a 45 second deadline"]
 async fn live_thirty_second_proved_reconnect_debt() {
@@ -144,7 +144,7 @@ async fn live_thirty_second_proved_reconnect_debt() {
 				let directory = Directory::fetch(Client::new(session.borrowed(), HostPlatform))
 					.await
 					.unwrap();
-				match directory.list().await {
+				match directory.list(None).await {
 					Ok(_) => {
 						admitted += 1;
 						let entrance = directory.enter("Churn").await.unwrap();
@@ -169,7 +169,7 @@ async fn live_thirty_second_proved_reconnect_debt() {
 						refused += 1;
 					}
 				}
-				healthy_directory.list().await.unwrap();
+				healthy_directory.list(None).await.unwrap();
 				healthy_member.say("healthy progress").await.unwrap();
 				assert_eq!(super::rooms::next_said(&mut healthy_messages).await.text, "healthy progress");
 				closing_tolerated(session.close(PendingWork::Cancel).await);

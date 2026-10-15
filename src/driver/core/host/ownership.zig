@@ -50,8 +50,6 @@ pub fn init(
     session_seed_root: [crypto.SEED_BYTES]u8,
     opts: Host.Options,
 ) Host.InitError!Host {
-    if (opts.bootstrap_durability != .ephemeral)
-        return Host.InitError.DurableBootstrapUnavailable;
     if (opts.host_work_quantum == 0)
         return Host.InitError.InvalidHostWorkQuantum;
     return .{
@@ -133,9 +131,12 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     self.resolver_index.deinit(self.allocator);
     enliven.deinitParkedEnlivens(self);
     self.pending_flush.deinit(self.allocator);
+    self.held_releases.deinit(self.allocator);
     self.session_close_timing.deinit(self.allocator);
     capability_promise.deinit(self);
     self.capabilities.deinit(self.allocator);
+    // Every session key, ephemeral, and wire salt derived from the root.
+    std.crypto.secureZero(u8, &self.session_seed_root);
     return first_failure;
 }
 

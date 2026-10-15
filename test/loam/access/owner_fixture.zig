@@ -180,7 +180,7 @@ pub const Fixture = struct {
     pub fn deinit(self: *Fixture) void {
         if (self.store.phase == .staging or self.store.phase == .prepared) self.store.abort() catch unreachable;
         self.store.deinit() catch unreachable;
-        self.backend.close();
+        self.backend.close() catch unreachable;
         self.backend.deinit();
     }
 };

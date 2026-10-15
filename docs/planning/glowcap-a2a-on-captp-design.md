@@ -1,17 +1,17 @@
 # A2A on CapTP (Spec D)
 
-Status: historical. This is a design sketch for Agent2Agent
+This is a design sketch for Agent2Agent
 ([A2A](https://github.com/a2aproject/A2A)) as an application vocabulary on
 CapTP. Nothing here is built.
 [ADR-0084](../decisions/adr/ADR-0084-glowcap-cli-product-boundary.md) deferred
-it and points here for the object shapes below. Treat it as a starting point,
-not a commitment.
+it. The roadmap item owns this sketch, and its plan starts from the object
+shapes below.
 
 ## Boundary
 
 | Layer | Job |
 |-------|-----|
-| CapTP / OCapN | Capability substrate (glowcap native mesh, Goblins) |
+| CapTP / OCapN | Capability substrate (glowcap mesh, Goblins) |
 | A2A-on-CapTP | Agent Card, Task, Skill, and artifact as CapTP objects |
 | A2A-HTTP facade (optional) | Wire Agent2Agent (Agent Cards, JSON-RPC over HTTP) for foreign agents |
 
@@ -38,7 +38,7 @@ Not a CapTP root noun. Not a synonym for `apps rooms session` (the CapTP presenc
 ## Secondary shape (optional facade)
 
 HTTP and JSON-RPC (gRPC only if it is needed) that speak wire A2A and map onto
-the CapTP-native objects. That gives ecosystem interop without making HTTP the
+the CapTP objects. That gives ecosystem interop without making HTTP the
 substrate. I/O stays in adapters. `arch-check` keeps it out of `core = true`.
 
 ## Present boundary

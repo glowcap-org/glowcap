@@ -6,8 +6,8 @@
 .draft = false,
 ---
 
-The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and `Argument` over the
-glowcap archives
+The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and
+`Argument` over the glowcap archives
 ([`lib.rs`](https://github.com/jimisaacs/glowcap/blob/main/bindings/rust/src/lib.rs)).
 The round-trip below leads with iroh. Enable the `iroh` Cargo feature for that
 tab. Start from the
@@ -37,6 +37,24 @@ starts the inbound loop itself, so `serve` is only for awaiting shutdown.
 >     Reachability::Discovery,
 > ))]))
 > .await?;
+> ```
+> **webrtc**
+> ```rust
+> use std::rc::Rc;
+>
+> use glowcap::webrtc::{self, SignalingAuthority};
+> use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig};
+>
+> // Your signaling carries the offer and each candidate to the peer the locator
+> // names, over a path you already hold, such as an OCapN capability both peers
+> // can reach, and brings the answer and the peer's candidates back. Drive the
+> // runtime from a tokio `LocalSet`: the callbacks run on the thread that steps it.
+> // Cargo.toml: glowcap = { …, features = ["webrtc"] }
+> let signaling: Rc<dyn SignalingAuthority> = todo!("your SignalingAuthority");
+> let partner = webrtc::locator("<64 lowercase hex characters from the peer>");
+>
+> let runtime =
+>     Runtime::open(RuntimeConfig::providers([webrtc::provider(signaling, webrtc::Config::default())])).await?;
 > ```
 > **noise-tcp**
 > ```rust
@@ -244,16 +262,14 @@ fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {
 # Async
 
 Async rides [tokio](https://tokio.rs/) behind an opt-in `async` feature. Handles
-are `!Send`, so each lives on one task inside a `LocalSet`. Only the socket
-reads and writes await. The protocol verbs never block.
-`session.serve().await` waits until that session shuts down. Dropping the
-`Session` closes the connection under the partner.
+are `!Send`, so each lives on one task inside a `LocalSet`. Only the socket reads and writes await. The protocol verbs never block.
+`session.serve().await` waits until that session shuts down, and dropping the
+`Session` closes the connection.
 
 # Actors
 
 `session.spawn` and `session.publish` take a `FnMut(&str, &[Argument])` closure
-returning `Result<Argument, String>`. An `Err` breaks the answer with its words,
-and a panic settles it broken without crossing the C boundary.
+returning `Result<Argument, String>`. An `Err` breaks the caller's promise with its message. A panic breaks it too and never unwinds into the C library.
 To let a third peer reach an actor directly through an introduction, call
 `publish` on the `Host` from `server.host()`.
 [Concepts]($link.page('concepts')) covers pipelining and attenuation.

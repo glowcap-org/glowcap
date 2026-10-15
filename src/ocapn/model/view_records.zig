@@ -185,7 +185,7 @@ pub const HandoffGive = struct {
     signature: Signature,
     raw_signed: ?[]const u8 = null,
 
-    fn fromOwned(owned: *const model.HandoffGive) HandoffGive {
+    pub fn fromOwned(owned: *const model.HandoffGive) HandoffGive {
         return .{
             .recipient_key = owned.recipient_key,
             .exporter = PeerLocator.fromOwned(&owned.exporter),
@@ -231,7 +231,7 @@ pub const HandoffReceive = struct {
     signed_give: HandoffGive,
     signature: Signature,
 
-    fn fromOwned(owned: *const model.HandoffReceive) HandoffReceive {
+    pub fn fromOwned(owned: *const model.HandoffReceive) HandoffReceive {
         return .{
             .receiving_session = owned.receiving_session,
             .receiving_side = owned.receiving_side,

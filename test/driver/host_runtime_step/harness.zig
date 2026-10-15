@@ -12,7 +12,7 @@ const driver_core = driver.core;
 const net = glowcap.net;
 const tcp = net.tcp;
 
-const frame_cap = 8192;
+pub const frame_cap = 8192;
 
 pub const opts: driver.SessionOptions = .{
     .frame_cap = frame_cap,

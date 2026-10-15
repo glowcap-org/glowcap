@@ -157,10 +157,12 @@ def siteConfig(repo_root: Path) -> tuple[str, str]:
 
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 HTML_FENCE = re.compile(r"^```=html\n(.*?)\n```$", re.DOTALL | re.MULTILINE)
-# The generated code tabs are a blockquote whose first line names the block
-# kind; without that line the quote is one labeled code fence per language,
-# which is what a markdown reader wants anyway.
+# A styled block is a blockquote whose first line names its class. Without
+# that line the code tabs are one labeled code fence per language, which is
+# what a markdown reader wants anyway. A link grid is a plain list, so its
+# quote markers go too.
 CODE_TABS = re.compile(r"^> \[\]\(\$block\.attrs\('code-tabs'\)\)\n", re.MULTILINE)
+LINK_GRID = re.compile(r"^> \[\]\(\$block\.attrs\('link-grid'\)\)\n((?:> .*\n)+)", re.MULTILINE)
 IMAGE_REF = re.compile(r"\[([^\]]*)\]\(\$image\.siteAsset\('([^']+)'\)\)")
 THEME_IMAGE_PAIR = re.compile(
     r"\[(?P<caption>[^\]]+)\]\(\$image\.siteAsset\('(?P<stem>rooms-[^']+)-dark\.webp'\)\)\n\n"
@@ -224,6 +226,7 @@ def toMarkdown(source: Path, base: str) -> tuple[str, str, str]:
     )
     body = HTML_FENCE.sub(lambda m: m.group(1), body)
     body = CODE_TABS.sub("", body)
+    body = LINK_GRID.sub(lambda m: re.sub(r"^> ", "", m.group(1), flags=re.MULTILINE), body)
     leftover = LEFTOVER.search(body)
     if leftover is not None:
         line = body.count("\n", 0, leftover.start()) + 1

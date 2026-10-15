@@ -74,7 +74,7 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 
 	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
 	// The echo actor is `(lambda args args)`: it returns its argument list, so
-	// assert the content survived the round-trip (the native driver's bar).
+	// assert the content survived the round-trip (the Zig driver's bar).
 	fn assert_echoed(reply: &Argument, expected: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
 		match reply {
 			Argument::List(items) if items.len() == 1 => match &items[0] {

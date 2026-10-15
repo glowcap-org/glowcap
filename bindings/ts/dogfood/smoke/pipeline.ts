@@ -181,7 +181,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("promise pipelining drives create->assign->complete->status as one batch");
 	}
 
-	// A RemotePromise is namespaced by its owning Host, not merely its native vow
+	// A RemotePromise is namespaced by its owning Host, not merely its FFI vow
 	// number. Two Hosts collide their ids; crossing the handles must
 	// be refused before FFI while the destination's own promise remains exact.
 	{

@@ -3,15 +3,18 @@ pub mod creation;
 mod discovery;
 pub mod introduction;
 mod publication;
-pub use discovery::{Event, MemberChange, RoomChange, Snapshot, event, event_fields, rooms, snapshot};
-pub use publication::{Member, OriginProof, PublicationKind, RoomInfo};
+pub use discovery::{
+	Cursor, Event, MemberChange, Page, RoomChange, Snapshot, event, event_fields, page, rooms, snapshot,
+};
+pub use publication::{MAX_ORIGIN, MAX_PUBLICATION_ID, Member, OriginProof, PublicationKind, RoomInfo};
 pub mod queue;
 pub mod registration;
 pub mod wire;
 pub use wire::Shape;
 
 pub use crate::protocol_data::{
-	DIRECTORY as NAME, LIST_PUBLICATIONS as LIST, UNWATCH_PUBLICATIONS as UNWATCH, WATCH_PUBLICATIONS as WATCH,
+	DIRECTORY as NAME, LIST_PUBLICATIONS as LIST, NAMED_PUBLICATIONS as NAMED, UNWATCH_PUBLICATIONS as UNWATCH,
+	WATCH_PUBLICATIONS as WATCH,
 };
 pub const MAX_ROWS: usize = 256;
 

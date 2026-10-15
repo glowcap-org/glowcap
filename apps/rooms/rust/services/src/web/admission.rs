@@ -53,8 +53,8 @@ impl Config {
 					)
 				})
 			},
-			2048,
-			8,
+			rooms_application::admission::HTTP_ROWS,
+			rooms_application::admission::POOLED_AGGREGATE_SCALE,
 		)?;
 		let per_address = match value("admission-per-address").as_deref() {
 			None | Some("" | "0" | "false" | "no") => false,

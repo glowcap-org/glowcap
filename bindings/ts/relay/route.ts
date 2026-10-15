@@ -1,6 +1,6 @@
 // Relay-owned locator and WebSocket-route policy for managed runtimes.
 //
-// The native provider enforces the same contract in Zig. This projection
+// The FFI provider enforces the same contract in Zig. This projection
 // validates before a runtime WebSocket can perform I/O and preserves admitted
 // route bytes when appending Glowcap's owned rendezvous query.
 
@@ -10,8 +10,7 @@ import {
 	TRANSPORT_KEYED_RELAY,
 	TRANSPORT_NOISE_RELAY,
 } from "@glowcap/abi";
-import { GlowcapError, type Locator } from "@glowcap/runtime/transport";
-import { isRendezvousDesignator } from "./rendezvous.ts";
+import { GlowcapError, isKeyDesignator, type Locator } from "@glowcap/runtime/transport";
 
 const RENDEZVOUS_RELAY_HINT = "rendezvous-relay";
 const RENDEZVOUS_QUERY = "rendezvous";
@@ -23,7 +22,7 @@ function invalid(message: string): never {
 }
 
 function validateDesignator(designator: string): void {
-	if (!isRendezvousDesignator(designator)) {
+	if (!isKeyDesignator(designator)) {
 		invalid("relay designator must be 64 lowercase hexadecimal characters");
 	}
 }

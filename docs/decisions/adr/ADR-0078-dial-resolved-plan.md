@@ -78,7 +78,7 @@ strip the hints a handoff recipient dials back with. The accept-derived locator
 becomes the selection only when there is none. A binding never composes or
 applies the signing locator itself.
 
-## Native Zig dial admission
+## Zig dial admission
 
 TCP host:port selection for the TCP profiles is one pure helper,
 `model.uri.tcpConnectHostPort`. Both `driver_core.planDial` (bindings / C ABI)
@@ -90,7 +90,7 @@ a doomed dial never touches the network on either spine.
 ## Scope (what this does not decide)
 
 - **Byte I/O is outside the core.** A byte-fed embedder interprets the plan
-  and opens its explicit channel. The native driver instead dispatches to its
+  and opens its explicit channel. The Zig driver instead dispatches to its
   registered provider and owns the I/O. Both keep ADR-0072's sans-io core.
 - **Consumer-injected transports.** `planDial` is closed over glowcap's typed
   locator vocabulary. An unknown scheme is a typed error. A consumer-supplied

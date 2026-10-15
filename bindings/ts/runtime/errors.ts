@@ -55,7 +55,7 @@ export class GlowcapError extends Error {
 	readonly detail: string | null;
 	/** The typed abort cause, attached when a peer refused an inbound frame. */
 	abort: AbortDetail | null = null;
-	/** Native carrier phase and engine detail when the failure originated there. */
+	/** FFI carrier phase and engine detail when the failure originated there. */
 	carrierFailure: CarrierFailure | null = null;
 	constructor(public readonly code: number, detail?: string) {
 		// For a code an FFI call returned, capture the thread-local message now.

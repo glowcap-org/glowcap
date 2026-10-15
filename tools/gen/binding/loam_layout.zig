@@ -1,7 +1,9 @@
 //! Reflect Loam C layouts and callback types into the optional Rust consumer.
 const std = @import("std");
 const c = @import("c_abi_loam");
-const storage = @import("c_abi_loam_lmdb");
+const lmdb = @import("c_abi_loam_lmdb");
+const sqlite = @import("c_abi_loam_sqlite");
+const volatile_abi = @import("c_abi_loam_volatile");
 const shared = @import("c_abi_shared");
 const Output = @import("output").Output;
 const baseName = @import("reflect").baseName;
@@ -40,8 +42,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\use core::ffi::c_void;
         \\
     );
-    inline for (.{ "GlowcapLoamStore", "GlowcapLoamAttachment", "GlowcapLoamCall", "GlowcapLoamReferences", "GlowcapLoamPageHandle", "GlowcapLoamWork", "GlowcapLoamLmdb", "GlowcapLoamContinuationReservation", "GlowcapLoamPendingContinuation", "GlowcapLoamContinuation", "GlowcapLoamEffectExecution" }) |name| {
-        if (comptime std.mem.eql(u8, name, "GlowcapLoamLmdb")) try out.appendSlice(gpa, "#[cfg(not(target_arch = \"wasm32\"))]\n");
+    inline for (.{ "GlowcapLoamStore", "GlowcapLoamAttachment", "GlowcapLoamCall", "GlowcapLoamReferences", "GlowcapLoamPageHandle", "GlowcapLoamWork", "GlowcapLoamLmdb", "GlowcapLoamSqlite", "GlowcapLoamVolatile", "GlowcapLoamContinuationReservation", "GlowcapLoamPendingContinuation", "GlowcapLoamContinuation", "GlowcapLoamEffectExecution" }) |name| {
+        if (comptime std.mem.eql(u8, name, "GlowcapLoamLmdb") or std.mem.eql(u8, name, "GlowcapLoamSqlite") or std.mem.eql(u8, name, "GlowcapLoamVolatile")) try out.appendSlice(gpa, "#[cfg(not(target_arch = \"wasm32\"))]\n");
         try out.print(gpa, "pub enum {s} {{}}\n", .{name});
     }
     inline for (.{ "GlowcapLoamRequirementFn", "GlowcapLoamInvokeFn", "GlowcapLoamForwardFn", "GlowcapLoamReferencesFn", "GlowcapLoamEntropyFn", "GlowcapLoamKvFn" }) |name| {
@@ -87,9 +89,10 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         }
     }
     try out.appendSlice(gpa, "#[cfg(target_arch = \"wasm32\")]\npub use crate::sys::layouts_gen::LOAM_ARCHIVE_FINGERPRINT;\n#[cfg(not(target_arch = \"wasm32\"))]\n");
-    try out.print(gpa, "pub const LOAM_ARCHIVE_FINGERPRINT: u64 = {d};\n#[cfg(not(target_arch = \"wasm32\"))]\npub const LOAM_LMDB_ARCHIVE_FINGERPRINT: u64 = {d};\n", .{ c.GLOWCAP_LOAM_ARCHIVE_FINGERPRINT, storage.GLOWCAP_LOAM_LMDB_ARCHIVE_FINGERPRINT });
-    inline for (.{ "GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED", "GLOWCAP_LOAM_ERR_STALE_COMPLETION", "GLOWCAP_LOAM_ERR_DENIED", "GLOWCAP_LOAM_ERR_UNCHANGED", "GLOWCAP_LOAM_ERR_APPLICATION" }) |name| try out.print(gpa, "pub const {s}: i32 = {d};\n", .{ name, @field(c, name) });
+    try out.print(gpa, "pub const LOAM_ARCHIVE_FINGERPRINT: u64 = {d};\n#[cfg(not(target_arch = \"wasm32\"))]\npub const LOAM_LMDB_ARCHIVE_FINGERPRINT: u64 = {d};\n#[cfg(not(target_arch = \"wasm32\"))]\npub const LOAM_SQLITE_ARCHIVE_FINGERPRINT: u64 = {d};\n#[cfg(not(target_arch = \"wasm32\"))]\npub const LOAM_VOLATILE_ARCHIVE_FINGERPRINT: u64 = {d};\n", .{ c.GLOWCAP_LOAM_ARCHIVE_FINGERPRINT, lmdb.GLOWCAP_LOAM_LMDB_ARCHIVE_FINGERPRINT, sqlite.GLOWCAP_LOAM_SQLITE_ARCHIVE_FINGERPRINT, volatile_abi.GLOWCAP_LOAM_VOLATILE_ARCHIVE_FINGERPRINT });
+    inline for (c.error_code_names) |name| try out.print(gpa, "pub const {s}: i32 = {d};\n", .{ name, @field(c, name) });
     try out.print(gpa, "pub const GLOWCAP_LOAM_MAX_URI_BYTES: usize = {d};\n", .{c.GLOWCAP_LOAM_MAX_URI_BYTES});
+    try out.print(gpa, "#[cfg(target_arch = \"wasm32\")]\npub const GLOWCAP_LOAM_MAX_KEY_BYTES: usize = {d};\n", .{c.GLOWCAP_LOAM_MAX_KEY_BYTES});
     try out.print(gpa, "#[cfg(target_arch = \"wasm32\")]\npub const GLOWCAP_LOAM_METADATA_SIZE: usize = {d};\n", .{c.GLOWCAP_LOAM_METADATA_SIZE});
     _ = shared;
     return out.toOwnedSlice(gpa);

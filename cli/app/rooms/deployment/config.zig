@@ -1,9 +1,8 @@
 //! Deployment configuration is separate from installations and runtime volumes.
 //! Only the base Compose file and selected image are managed. The operator's
-//! override and database password are never overwritten by an update.
+//! override is never overwritten by an update.
 const std = @import("std");
 const log = @import("../../../operability/log.zig");
-const Docker = @import("docker.zig").Client;
 const Io = std.Io;
 
 pub const Config = struct {
@@ -50,41 +49,10 @@ pub const Config = struct {
         try self.write("image", try std.fmt.allocPrint(self.gpa, "{s}\n", .{id}), true);
     }
 
-    pub fn databaseSecret(self: Config) !?[]const u8 {
-        const secret = try self.read("secrets/storage-db-password") orelse return null;
-        if (std.mem.trim(u8, secret, " \r\n").len == 0) {
-            log.err(self.io, "database password is empty at {s}/secrets/storage-db-password; restore the original password before starting or resetting the deployment", .{self.path});
-            return error.EmptyDatabaseSecret;
-        }
-        return secret;
-    }
-
-    pub fn prepare(self: Config, docker: Docker) !void {
-        const secret = try self.databaseSecret();
+    pub fn prepare(self: Config) !void {
         const override = "docker-compose.override.yml";
         if (try self.read(override) == null) try self.write(override, try self.template("docker-compose.override.yml.example"), false);
         try self.write("compose.yml", try self.template("docker-compose.yml"), true);
-        // Resolve the operator's actual database before minting credentials.
-        // A placeholder image lets Compose resolve environment-derived volume
-        // names before image selection, without starting any services.
-        const secret_name = "secrets/storage-db-password";
-        if (secret == null) {
-            var inspection_env = try docker.environ.clone(self.gpa);
-            if (inspection_env.get("GLOWCAP_ROOMS_IMAGE") == null) try inspection_env.put("GLOWCAP_ROOMS_IMAGE", "glowcap-volume-inspection");
-            var inspection = docker;
-            inspection.environ = &inspection_env;
-            const selected = try @import("volumes.zig").Selected.load(inspection);
-            defer selected.deinit();
-            const database = try selected.name(.storage, false);
-            if (containsLine(try docker.query(&.{ "volume", "ls", "--quiet" }), database)) {
-                log.err(self.io, "database volume already exists, but {s}/secrets/storage-db-password is missing; copy its original password and operator override into this directory, use --dir to select their current directory, or restore from backup", .{self.path});
-                return error.MissingDatabaseSecret;
-            }
-            _ = try self.dir.createDirPathStatus(self.io, "secrets", .fromMode(0o700));
-            var random: [32]u8 = undefined;
-            try self.io.randomSecure(&random);
-            try self.write(secret_name, try std.fmt.allocPrint(self.gpa, "{s}\n", .{std.fmt.bytesToHex(random, .lower)}), false);
-        }
     }
 };
 
@@ -118,7 +86,7 @@ pub fn productRelease(io: Io, gpa: std.mem.Allocator, product: []const u8) !Rele
     const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(64 * 1024));
     const metadata = try std.json.parseFromSlice(std.json.Value, gpa, bytes, .{ .allocate = .alloc_always });
     const fields = if (metadata.value == .object) metadata.value.object else {
-        log.err(io, "Docker needs a Linux product; run `zig build rooms-release` in the Linux devcontainer and pass its product directory with --build", .{});
+        log.err(io, "Docker needs a Linux product. Run `zig build rooms-release` in the Linux devcontainer and pass its product directory with --build", .{});
         return error.InvalidProductTarget;
     };
     const platform: []const u8 = platform: {
@@ -126,7 +94,7 @@ pub fn productRelease(io: Io, gpa: std.mem.Allocator, product: []const u8) !Rele
             if (std.mem.eql(u8, target.string, "aarch64-linux")) break :platform "linux/arm64";
             if (std.mem.eql(u8, target.string, "x86_64-linux")) break :platform "linux/amd64";
         };
-        log.err(io, "Docker needs a Linux product; run `zig build rooms-release` in the Linux devcontainer and pass its product directory with --build", .{});
+        log.err(io, "Docker needs a Linux product. Run `zig build rooms-release` in the Linux devcontainer and pass its product directory with --build", .{});
         return error.InvalidProductTarget;
     };
     const commit = if (fields.get("revision")) |value| if (value == .string and value.string.len != 0) value.string else null else null;

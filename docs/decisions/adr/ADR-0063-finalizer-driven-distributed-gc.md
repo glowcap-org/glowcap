@@ -98,7 +98,7 @@ finalizer idiom, and the contract is the same in all four.
   stateless policy and explicit `send_gc_answer`. A promise-handle finalizer is
   not wired.
 - This does not change `src/driver/core/gc.zig`'s stateless-host policy, nor make the
-  native Zig `driver.Session` register finalizers (Zig has none, so a Zig
+  Zig `driver.Session` register finalizers (Zig has none, so a Zig
   consumer calls `sendGcExport` explicitly).
 - It does not promise prompt collection. A binding inherits its language's
   finalization timing, and only Rust's `Drop` is deterministic.

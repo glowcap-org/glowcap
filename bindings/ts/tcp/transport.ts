@@ -6,7 +6,7 @@
 // construct locators and the runtime's `connect`/`listen`; this subpath exposes
 // provider installation and the C ABI's direct frame shuttle. Deno offloads
 // every potentially blocking call;
-// runtimes with synchronous FFI refuse those methods before entering native code.
+// runtimes with synchronous FFI refuse those methods before entering FFI code.
 //
 //   using net = new Netlayer();
 //   using listener = net.listen("127.0.0.1", 0);
@@ -25,13 +25,13 @@ import {
 	checkedMaxFrameBytes,
 	codecId,
 	consumedReleaseFailure,
+	FfiDiagnostic,
+	FfiHandle,
+	FfiParent,
 	GlowcapError,
 	MANAGED_FRAME_BYTES_OFF,
 	MANAGED_FRAME_LEN_OFF,
 	MANAGED_FRAME_SIZE,
-	NativeDiagnostic,
-	NativeHandle,
-	NativeParent,
 	outPointer,
 	readBytes,
 	readErrorSlot,
@@ -138,16 +138,16 @@ function checkTcp(code: number): void {
 
 /** A TCP connection whose potentially blocking operations run off-thread. */
 export class Connection {
-	readonly #native: NativeHandle;
-	readonly #parent: NativeParent<Connection | Listener>;
+	readonly #ffi: FfiHandle;
+	readonly #parent: FfiParent<Connection | Listener>;
 	readonly #reads = new SingleFlight("tcp read");
 	readonly #writes: AsyncFfiWriteQueue;
-	readonly #readDiagnostic = new NativeDiagnostic("tcp");
-	readonly #writeDiagnostic = new NativeDiagnostic("tcp");
-	constructor(raw: Ptr, parent: NativeParent<Connection | Listener>, maxFrameBytes: number) {
+	readonly #readDiagnostic = new FfiDiagnostic("tcp");
+	readonly #writeDiagnostic = new FfiDiagnostic("tcp");
+	constructor(raw: Ptr, parent: FfiParent<Connection | Listener>, maxFrameBytes: number) {
 		this.#parent = parent;
 		this.#writes = new AsyncFfiWriteQueue("tcp", maxFrameBytes);
-		this.#native = new NativeHandle(
+		this.#ffi = new FfiHandle(
 			"tcp connection",
 			raw,
 			(p) => checkTcp(tcpS.glowcap_tcp_conn_shutdown(p)),
@@ -167,7 +167,7 @@ export class Connection {
 		if (!parent.adopt(this)) throw new Error("tcp netlayer is released");
 	}
 	close(): void {
-		this.#native.close();
+		this.#ffi.close();
 	}
 	[Symbol.dispose](): void {
 		this.close();
@@ -176,7 +176,7 @@ export class Connection {
 	readFrame(): Promise<Uint8Array> {
 		requireOffThreadFfi("tcp", "readFrame");
 		return this.#reads.run(() =>
-			this.#native.use(async (raw) => {
+			this.#ffi.use(async (raw) => {
 				const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 				try {
 					await this.#readDiagnostic.check("read frame", (error, cap, errorLen) =>
@@ -201,7 +201,7 @@ export class Connection {
 	writeFrame(frame: Uint8Array): Promise<void> {
 		requireOffThreadFfi("tcp", "writeFrame");
 		return this.#writes.run(frame, (owned) =>
-			this.#native.use(async (raw) => {
+			this.#ffi.use(async (raw) => {
 				await this.#writeDiagnostic.check("write frame", (error, cap, errorLen) =>
 					tcpS.glowcap_tcp_conn_write_frame(
 						raw,
@@ -216,13 +216,13 @@ export class Connection {
 
 /** A bound TCP listener. Closed on `close` / `[Symbol.dispose]`. */
 export class Listener {
-	readonly #native: NativeHandle;
-	readonly #parent: NativeParent<Connection | Listener>;
+	readonly #ffi: FfiHandle;
+	readonly #parent: FfiParent<Connection | Listener>;
 	readonly #accepts = new SingleFlight("tcp accept");
-	readonly #acceptDiagnostic = new NativeDiagnostic("tcp");
-	constructor(raw: Ptr, parent: NativeParent<Connection | Listener>) {
+	readonly #acceptDiagnostic = new FfiDiagnostic("tcp");
+	constructor(raw: Ptr, parent: FfiParent<Connection | Listener>) {
 		this.#parent = parent;
-		this.#native = new NativeHandle(
+		this.#ffi = new FfiHandle(
 			"tcp listener",
 			raw,
 			(p) => tcpS.glowcap_tcp_listener_shutdown(p),
@@ -232,21 +232,21 @@ export class Listener {
 		if (!parent.adopt(this)) throw new Error("tcp netlayer is released");
 	}
 	close(): void {
-		this.#native.close();
+		this.#ffi.close();
 	}
 	[Symbol.dispose](): void {
 		this.close();
 	}
 	port(): number {
 		const out = new Uint8Array(2);
-		checkTcp(tcpS.glowcap_tcp_listener_port(this.#native.borrow(), out));
+		checkTcp(tcpS.glowcap_tcp_listener_port(this.#ffi.borrow(), out));
 		return new DataView(out.buffer).getUint16(0, true);
 	}
 	/** Borrowed listening descriptor for integration with an external reactor.
 	 * The listener owns it; do not close it or retain it after `close`. */
 	readinessFd(): number {
 		const out = new Uint8Array(4);
-		checkTcp(tcpS.glowcap_tcp_listener_readiness_fd(this.#native.borrow(), out));
+		checkTcp(tcpS.glowcap_tcp_listener_readiness_fd(this.#ffi.borrow(), out));
 		return new DataView(out.buffer).getInt32(0, true);
 	}
 	accept(
@@ -257,7 +257,7 @@ export class Listener {
 		requireOffThreadFfi("tcp", "accept");
 		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		return this.#accepts.run(() =>
-			this.#native.use(async (raw) => {
+			this.#ffi.use(async (raw) => {
 				const out = new Uint8Array(8);
 				await this.#acceptDiagnostic.check("accept", (error, cap, errorLen) =>
 					tcpS.glowcap_tcp_accept(
@@ -278,37 +278,37 @@ export class Listener {
 
 /** Owns the blocking-TCP I/O backend; outlives the connections made from it. */
 export class Netlayer {
-	readonly #native: NativeParent<Connection | Listener>;
+	readonly #ffi: FfiParent<Connection | Listener>;
 	constructor(config: Config = {}) {
-		requireOffThreadFfi("tcp", "native transport lifecycle");
+		requireOffThreadFfi("tcp", "FFI transport lifecycle");
 		const out = new Uint8Array(8);
 		checkTcp(tcpS.glowcap_tcp_netlayer_new(encodeConfig(config), out));
-		const native = outPointer(out);
-		this.#native = new NativeParent(
+		const ptr = outPointer(out);
+		this.#ffi = new FfiParent(
 			"tcp netlayer",
-			native,
+			ptr,
 			(p) => tcpS.glowcap_tcp_netlayer_shutdown(p),
 			(p) => tcpS.glowcap_tcp_netlayer_release(p),
 		);
 	}
 
 	release(): void {
-		this.#native.close();
+		this.#ffi.close();
 	}
 	[Symbol.dispose](): void {
 		this.release();
 	}
 	async [Symbol.asyncDispose](): Promise<void> {
 		this.release();
-		await this.#native.waitClosed();
+		await this.#ffi.waitClosed();
 	}
 	listen(host: string, port = 0): Listener {
 		const h = new TextEncoder().encode(host);
 		const out = new Uint8Array(8);
 		checkTcp(
-			tcpS.glowcap_tcp_listen(this.#native.borrow(), h, BigInt(h.length), port, out),
+			tcpS.glowcap_tcp_listen(this.#ffi.borrow(), h, BigInt(h.length), port, out),
 		);
-		return new Listener(outPointer(out), this.#native);
+		return new Listener(outPointer(out), this.#ffi);
 	}
 	connect(
 		host: string,
@@ -320,7 +320,7 @@ export class Netlayer {
 		requireOffThreadFfi("tcp", "connect");
 		const frameLimit = checkedMaxFrameBytes(maxFrameBytes);
 		const h = new TextEncoder().encode(host);
-		return this.#native.use(async (raw) => {
+		return this.#ffi.use(async (raw) => {
 			const out = new Uint8Array(8);
 			await checkDiagnosedCall(
 				"tcp",
@@ -340,13 +340,13 @@ export class Netlayer {
 						errorLen,
 					),
 			);
-			return new Connection(outPointer(out), this.#native, frameLimit);
+			return new Connection(outPointer(out), this.#ffi, frameLimit);
 		});
 	}
 }
 
 /** Install this archive's tcp/keyed-tcp/noise-tcp package once per driver.
- * Registration acquires the native lease before this function drops the
+ * Registration acquires the FFI lease before this function drops the
  * construction reference; no binding-side owner is retained. */
 export function installProvider(loop: ProviderTarget, config: Config = {}): void {
 	const out = new Uint8Array(8);

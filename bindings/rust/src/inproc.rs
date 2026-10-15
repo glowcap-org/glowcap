@@ -193,7 +193,7 @@ impl Listener<'_> {
 		})
 	}
 
-	/// Close explicitly and return the native teardown failure, if any.
+	/// Close explicitly and return the FFI teardown failure, if any.
 	pub fn close(mut self) -> Result<()> {
 		self.release()
 	}

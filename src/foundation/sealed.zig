@@ -124,9 +124,15 @@ pub const SealedChannel = struct {
     /// pressure without replaying the Noise record or losing its plaintext.
     plain: []u8,
     /// Zero means no outstanding borrow. Otherwise plaintext length plus one.
-    /// The encoding represents a pending empty record without adding another
-    /// machine word to every sealed connection.
-    pending_plain_len: usize = 0,
+    /// The encoding represents a pending empty record without adding a field
+    /// to every sealed connection, and it shares one machine word with
+    /// `plain_used`.
+    pending_plain_len: u32 = 0,
+    /// Bytes at the front of `plain` a record has written since the last wipe.
+    /// The wipe before the next open and before the scratch moves covers
+    /// exactly these, so a small record never pays for the whole scratch and
+    /// freed scratch never holds plaintext.
+    plain_used: u32 = 0,
 
     const Phase = union(enum) {
         handshake: noise.HandshakeState,
@@ -420,20 +426,24 @@ pub const SealedChannel = struct {
                 // Reserve the plaintext scratch before touching cipher state,
                 // so an allocation failure leaves the record staged and
                 // retryable. No borrow is live here, the previous record's
-                // plaintext expired when this call began, so a burst-grown
-                // scratch may also shrink back to steady for a small record.
-                std.crypto.secureZero(u8, self.plain);
+                // plaintext expired when this call began, so it is wiped
+                // before the scratch moves, and a burst-grown scratch may
+                // also shrink back to steady for a small record.
+                self.wipePlain();
                 if (plain_len > self.plain.len) {
                     self.plain = try gpa.realloc(self.plain, plain_len);
                 } else if (self.plain.len > steady_plain_bytes and plain_len <= steady_plain_bytes) {
-                    // A failed shrink is not a failure: the larger scratch
-                    // stays valid and the next small record tries again.
                     if (gpa.realloc(self.plain, steady_plain_bytes)) |shrunk| {
                         self.plain = shrunk;
-                    } else |_| {}
+                    } else |_| {
+                        // tolerant: the larger scratch stays valid, so the failed shrink loses only memory the next small record returns.
+                    }
                 }
+                // A refused open may still have written part of the
+                // plaintext, so the whole span counts as written.
+                self.plain_used = @intCast(plain_len);
                 const opened = try noise.openRecord(&keys.recv, unit[header_len..][0..body_len], self.plain[0..plain_len]);
-                self.pending_plain_len = opened.len + 1;
+                self.pending_plain_len = @intCast(opened.len + 1);
                 return .{ .plaintext = opened };
             },
         }
@@ -443,7 +453,18 @@ pub const SealedChannel = struct {
         if (self.phase != .open) return;
         const body_len = unit_len - noise.RECORD_HEADER_BYTES;
         const plain_len = body_len -| noise.TAG_BYTES;
-        if (plain_len > self.plain.len) self.plain = try gpa.realloc(self.plain, plain_len);
+        if (plain_len > self.plain.len) {
+            self.wipePlain();
+            self.plain = try gpa.realloc(self.plain, plain_len);
+        }
+    }
+
+    /// Zero the plaintext a record wrote into the scratch and nothing past
+    /// it. It runs before the next record opens and before the scratch is
+    /// moved, since a move copies the scratch and frees the old block as is.
+    fn wipePlain(self: *SealedChannel) void {
+        std.crypto.secureZero(u8, self.plain[0..self.plain_used]);
+        self.plain_used = 0;
     }
 
     /// Retain an unread borrowed suffix across an upper-layer pause. This is a

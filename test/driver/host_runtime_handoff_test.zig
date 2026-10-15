@@ -1,7 +1,7 @@
 //! The front-door handoff proof (ADR-0090): a three-party give settles as a
 //! live, callable capability *inside* the recipient's blocking `call`, with no
 //! redeem verb in sight, the contract every binding's `Session` carries,
-//! proven here for the owning native tier.
+//! proven here for the owning Zig tier.
 //!
 //! Three hosts on TCP loopback. The exporter publishes `treasure`. The gifter
 //! holds one `driver.HostRuntime` with two sessions, a dialed session to the
@@ -17,11 +17,10 @@
 //! recipient's fetch and the exporter session's deposit traffic from one
 //! blocking wait spanning both wires.
 //!
-//! Validated against an injected defect: with the pump's redeem answer
-//! sabotaged (`answerDial` reporting `dialFailed` unconditionally), the
-//! introduce call settles broken and this test fails. Restored, it passes.
-//! A green run therefore proves the redeem path executed, not merely that
-//! nothing crashed.
+//! If the pump's redeem answer is sabotaged (`answerDial` reporting
+//! `dialFailed` unconditionally), the introduce call settles broken and this
+//! test fails. A green run therefore proves the redeem path executed, not
+//! merely that nothing crashed.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -81,7 +80,7 @@ test "HostRuntime refuses zero frame, wire, and pending-open bounds" {
 const Introducer = struct {
     treasure: driver.Capability,
 
-    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Introducer, ht: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
         _ = ht;
         _ = args;
         if (!std.mem.eql(u8, verb, "introduce")) return error.NoSuchMethod;

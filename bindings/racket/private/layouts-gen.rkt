@@ -73,6 +73,8 @@
   GLOWCAP-WEBRTC-STRING-VIEW-LAYOUT
   GLOWCAP-WEBRTC-ICE-SERVER-SIZE
   GLOWCAP-WEBRTC-ICE-SERVER-LAYOUT
+  GLOWCAP-WEBRTC-SIGNALING-SIZE
+  GLOWCAP-WEBRTC-SIGNALING-LAYOUT
   GLOWCAP-WEBRTC-CONFIG-SIZE
   GLOWCAP-WEBRTC-CONFIG-LAYOUT
   GLOWCAP-ONION-CONFIG-SIZE
@@ -115,8 +117,8 @@
 (define GLOWCAP-PARTNER-IDENTITY-LAYOUT '(pointer uint64 pointer uint64 pointer uint64 uint32))
 (define GLOWCAP-TRACE-EVENT-SIZE 144)
 (define GLOWCAP-TRACE-EVENT-LAYOUT '(uint32 uint64 uint8 uint32 uint32 uint32 pointer uint64 pointer uint64 pointer uint64 pointer uint64 pointer uint64 uint64 uint64 #(uint8 16)))
-(define GLOWCAP-DRIVER-OPTIONS-SIZE 48)
-(define GLOWCAP-DRIVER-OPTIONS-LAYOUT '(uint32 uint64 uint64 uint64 uint32 uint32 uint32))
+(define GLOWCAP-DRIVER-OPTIONS-SIZE 56)
+(define GLOWCAP-DRIVER-OPTIONS-LAYOUT '(uint32 uint64 uint64 uint64 uint32 uint32 uint32 uint64))
 (define GLOWCAP-DRIVER-FAILURE-SIZE 80)
 (define GLOWCAP-DRIVER-FAILURE-LAYOUT '(uint32 uint64 int32 int32 uint32 uint32 uint32 uint32 uint32 int32 pointer uint64 pointer uint64))
 (define GLOWCAP-DRIVER-EVENT-SIZE 216)
@@ -139,7 +141,9 @@
 (define GLOWCAP-WEBRTC-STRING-VIEW-LAYOUT '(pointer uint64))
 (define GLOWCAP-WEBRTC-ICE-SERVER-SIZE 48)
 (define GLOWCAP-WEBRTC-ICE-SERVER-LAYOUT '(pointer uint64 (pointer uint64) (pointer uint64)))
-(define GLOWCAP-WEBRTC-CONFIG-SIZE 24)
-(define GLOWCAP-WEBRTC-CONFIG-LAYOUT '(pointer uint64 uint32 uint32))
+(define GLOWCAP-WEBRTC-SIGNALING-SIZE 40)
+(define GLOWCAP-WEBRTC-SIGNALING-LAYOUT '(pointer pointer pointer pointer pointer))
+(define GLOWCAP-WEBRTC-CONFIG-SIZE 64)
+(define GLOWCAP-WEBRTC-CONFIG-LAYOUT '(pointer uint64 uint32 uint32 (pointer pointer pointer pointer pointer)))
 (define GLOWCAP-ONION-CONFIG-SIZE 88)
 (define GLOWCAP-ONION-CONFIG-LAYOUT '(pointer uint64 pointer uint64 uint32 pointer uint64 pointer uint64 pointer uint64))

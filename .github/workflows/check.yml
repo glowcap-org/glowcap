@@ -1,6 +1,7 @@
 # Pull requests get a short Zig-only check. Main and dev pushes run the full
 # gate sequence in the canonical devcontainer image via ci/gates.sh, plus the
-# host-side infrastructure and runtime checks on macOS. The sequence itself is
+# host-side infrastructure and runtime checks on macOS. A nightly schedule
+# runs the mutation fuzzer a hundred times longer than a push does. The sequence itself is
 # forge-neutral, so this file is the only thing that would change if glowcap
 # moved.
 # Topology: CONTRIBUTING.md "Continuous integration".
@@ -14,9 +15,12 @@ on:
   push:
     branches: [main, dev]
   pull_request:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -39,6 +43,9 @@ jobs:
 
       - name: Run the Zig test suite
         run: zig build test --test-timeout 30s --summary all
+
+      - name: Run the Zig test suite in the shipped optimize mode
+        run: zig build test -Doptimize=ReleaseSafe --test-timeout 30s --summary all
 
       - name: Check Zig formatting
         run: zig build fmt-check --summary all
@@ -67,6 +74,26 @@ jobs:
           push: never
           runCmd: bash ci/gates.sh
 
+  # The push gates search each fuzz target for 25K runs. This lane searches a
+  # hundred times longer, on main, and fails on a find; a find is replayed
+  # into the layer's regression corpus by hand.
+  scheduled-fuzz:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+
+      - name: Install the pinned Zig
+        run: |
+          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+
+      - name: Search every fuzz target a hundred times longer than a push
+        run: zig build fuzz -Dfuzz-runs=2500K --summary all
+
   macos-runtime:
     if: github.event_name == 'push'
     runs-on: macos-15
@@ -84,5 +111,5 @@ jobs:
       - name: Check host-side infrastructure on macOS
         run: zig build infrastructure-check --test-timeout 30s --summary all
 
-      - name: Run Zig and native Loam storage tests on macOS
-        run: zig build test loam-lmdb-test loam-lmdb-crash-test loam-actors-crash-test loam-managed-crash-test loam-references-crash-test loam-collection-crash-test loam-compaction-crash-test --test-timeout 30s -j4 --summary all
+      - name: Run Zig and Loam storage tests on macOS
+        run: zig build test loam-lmdb-test loam-sqlite-test loam-storage-crash-test loam-actors-crash-test loam-managed-crash-test loam-references-crash-test loam-collection-crash-test loam-lmdb-compaction-crash-test loam-sqlite-compaction-crash-test --test-timeout 30s -j4 --summary all

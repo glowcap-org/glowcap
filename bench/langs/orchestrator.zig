@@ -1,7 +1,7 @@
-//! Native orchestrator for the per-language consumer-cost bench
+//! Zig orchestrator for the per-language consumer-cost bench
 //! (`zig build bench-langs`).
 //!
-//! One fixed reference host, the native Zig taskboard server, is held constant
+//! One fixed reference host, the Zig taskboard server, is held constant
 //! while the *client* language varies. For each client language present on the
 //! machine this driver spawns a fresh host, runs the taskboard workload from
 //! that language's bench client, parses the NDJSON it prints, samples the client
@@ -13,7 +13,7 @@
 //! (runtime + binding + per-language app + GC/JIT) over one glowcap host. See
 //! `bench/langs/README.md` for the fairness model and caveats.
 //!
-//! Being native Zig, it needs no Racket. Racket joins only as two of the client
+//! As a Zig program it needs no Racket. Racket joins only as two of the client
 //! rows (the binding row and the Goblins reference), each skipped with a note
 //! when its runtime is absent. The substrate bench (`bench-goblins`) and the
 //! site report keep their Racket orchestration. This one stands on the Zig
@@ -43,7 +43,7 @@ const base_dt_ms = 100;
 const loaded_samples = 12;
 const loaded_dt_ms = 150;
 
-const Kind = enum { native, rust, deno, python, racket, goblins };
+const Kind = enum { zig, rust, deno, python, racket, goblins };
 
 const ClientDef = struct {
     name: []const u8,
@@ -60,7 +60,7 @@ pub const Skip = struct {
 // Roster order is report order; it also fixes the language-palette assignment
 // (see paletteColor), so the Goblins reference stays visually apart.
 const roster = [_]ClientDef{
-    .{ .name = "zig", .runtime = "native-zig", .kind = .native },
+    .{ .name = "zig", .runtime = "zig", .kind = .zig },
     .{ .name = "rust", .runtime = "rust", .kind = .rust },
     .{ .name = "deno", .runtime = "deno", .kind = .deno },
     .{ .name = "python", .runtime = "cpython", .kind = .python },
@@ -213,7 +213,7 @@ pub const Availability = union(enum) {
 
 fn available(ctx: *Ctx, kind: Kind) !Availability {
     switch (kind) {
-        .native => return if (exists(ctx.io, ctx.zig_client)) .ready else .client_absent,
+        .zig => return if (exists(ctx.io, ctx.zig_client)) .ready else .client_absent,
         .rust => {
             if ((try onPath(ctx.io, ctx.arena, ctx.environ, "cargo")) == null) return .runtime_absent;
             return if (try buildRust(ctx)) .ready else .build_failed;
@@ -308,13 +308,14 @@ fn precompileRacket(ctx: *Ctx, present: []const ClientDef) !void {
             else => continue,
         };
         try out(ctx.io, "bench-langs: precompiling {s} client (raco make) ...\n", .{def.name});
-        var child = std.process.spawn(ctx.io, .{
+        var child = try std.process.spawn(ctx.io, .{
             .argv = &.{ raco, "make", script },
             .environ_map = ctx.environ,
             .stdout = .ignore,
             .stderr = .inherit,
-        }) catch continue;
-        _ = child.wait(ctx.io) catch continue;
+        });
+        const term = try child.wait(ctx.io);
+        if (term != .exited or term.exited != 0) return error.RacoMakeFailed;
     }
 }
 
@@ -396,6 +397,7 @@ fn startHost(ctx: *Ctx) !Host {
             return error.HostExitedBeforeReady;
         const listen = jf(line, "\"listen\"") orelse continue;
         const colon = std.mem.lastIndexOfScalar(u8, listen, ':') orelse continue;
+        // tolerant: a listen field without a numeric port is skipped, and a host that never prints one exits and fails the read above.
         const port = std.fmt.parseInt(u16, listen[colon + 1 ..], 10) catch continue;
         return .{ .child = child, .port = port };
     }
@@ -406,7 +408,7 @@ fn buildArgv(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) !
     const port_str = try std.fmt.allocPrint(ctx.arena, "{d}", .{port});
     const n_str = try std.fmt.allocPrint(ctx.arena, "{d}", .{n});
     return switch (def.kind) {
-        .native => try dupArgv(ctx, &.{ ctx.zig_client, mode, host_addr, port_str, n_str }),
+        .zig => try dupArgv(ctx, &.{ ctx.zig_client, mode, host_addr, port_str, n_str }),
         .rust => try dupArgv(ctx, &.{ ctx.rust_bin, mode, host_addr, port_str, n_str }),
         // `--v8-flags=--expose-gc` lets the Deno client force a collection before
         // each measured window, the same GC-settled start the other rows get.
@@ -437,6 +439,7 @@ fn runMetric(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) !
     var reader = out_file.readerStreaming(ctx.io, &buf);
     var found: ?[]const u8 = null;
     while (true) {
+        // tolerant: the end of the client's output ends the read, and a missing metric line or a failing exit below fails the run.
         const line = reader.interface.takeDelimiterInclusive('\n') catch break;
         if (found == null and std.mem.indexOf(u8, line, "\"metric\"") != null)
             found = try ctx.arena.dupe(u8, line);
@@ -474,12 +477,13 @@ fn runConnections(ctx: *Ctx, def: ClientDef, port: u16, n: usize) !ConnResult {
     var loaded: u64 = 0;
     var line: ?[]const u8 = null;
     while (true) {
+        // tolerant: the end of the client's output ends the read, and a missing metric line or a failing exit below fails the run.
         const l = reader.interface.takeDelimiterInclusive('\n') catch break;
         if (std.mem.indexOf(u8, l, "\"event\"") != null and std.mem.indexOf(u8, l, "warmed") != null) {
-            base = sampleMinRss(ctx, pid, base_samples, base_dt_ms);
+            base = try sampleMinRss(ctx, pid, base_samples, base_dt_ms);
         } else if (std.mem.indexOf(u8, l, "\"metric\"") != null and std.mem.indexOf(u8, l, "connections") != null) {
             line = try ctx.arena.dupe(u8, l);
-            loaded = sampleMinRss(ctx, pid, loaded_samples, loaded_dt_ms);
+            loaded = try sampleMinRss(ctx, pid, loaded_samples, loaded_dt_ms);
         }
     }
     const term = try child.wait(ctx.io);
@@ -512,6 +516,7 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
         var reader = out_file.readerStreaming(ctx.io, &buf);
         var found = false;
         while (true) {
+            // tolerant: the end of the client's output ends the read, and the missing cold-done marker below fails the run.
             const l = reader.interface.takeDelimiterInclusive('\n') catch break;
             if (std.mem.indexOf(u8, l, "cold-done") != null) {
                 found = true;
@@ -547,14 +552,15 @@ fn nowNs(io: Io) u64 {
 }
 
 /// Sample a pid's VmRSS `samples` times `dt_ms` apart, keeping the minimum (the
-/// live-set floor, not a process caught mid-collection).
-fn sampleMinRss(ctx: *Ctx, pid: std.posix.pid_t, samples: usize, dt_ms: i64) u64 {
+/// live-set floor, not a process caught mid-collection). A sample that cannot
+/// be read is skipped, and a run with no readable sample fails.
+fn sampleMinRss(ctx: *Ctx, pid: std.posix.pid_t, samples: usize, dt_ms: i64) !u64 {
     var best: ?u64 = null;
     for (0..samples) |_| {
         if (readVmRssKb(ctx, pid)) |s| best = if (best) |b| @min(b, s) else s;
-        ctx.io.sleep(std.Io.Duration.fromMilliseconds(dt_ms), .awake) catch {};
+        try ctx.io.sleep(std.Io.Duration.fromMilliseconds(dt_ms), .awake);
     }
-    return best orelse 0;
+    return best orelse error.RssUnreadable;
 }
 
 /// Read VmRSS (kB) for a live pid from /proc, or null if unreadable.
@@ -568,7 +574,7 @@ fn readVmRssKb(ctx: *Ctx, pid: std.posix.pid_t) ?u64 {
     var scratch: [8192]u8 = undefined;
     var len: usize = 0;
     while (len < scratch.len) {
-        const nread = reader.interface.readSliceShort(scratch[len..]) catch break;
+        const nread = reader.interface.readSliceShort(scratch[len..]) catch return null;
         if (nread == 0) break;
         len += nread;
     }

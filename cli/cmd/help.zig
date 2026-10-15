@@ -164,7 +164,7 @@ fn writeNodeHelpTo(dest: Dest, path: []const *const Command) !void {
             \\  GLOWCAP_STATE       State dir (lock + default identity)
             \\  GLOWCAP_IDENTITY    Identity seed path (overrides state dir)
             \\  GLOWCAP_RENDEZVOUS  Relay URL (ws:// or wss://) for keyed-relay and noise-relay dials
-            \\  GLOWCAP_RELAY_CA_FILE  PEM roots copied once by the native relay (default: system roots)
+            \\  GLOWCAP_RELAY_CA_FILE  PEM root certificates for wss:// relays, read once at startup (default: system roots)
             \\  XDG_STATE_HOME      Default state parent (…/glowcap)
             \\  HOME                Fallback for XDG defaults
             \\

@@ -161,7 +161,7 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     // (ADR-0097): ours on this session against the partner's on it. The
     // durable keys are equal on both racing connection attempts by definition, so
     // they cannot order anything.
-    const our_pid = crypto.derivePublicIdentifier(session.sessionSecret().publicKey());
+    const our_pid = crypto.derivePublicIdentifier(session.sessionPublicKey());
     const partner_pid = crypto.derivePublicIdentifier(partner_key);
     // Same rule as crossed hellos: not-lower aborts inbound / keeps dialed.
     const we_are_lower = std.mem.order(u8, &our_pid.bytes, &partner_pid.bytes) == .lt;

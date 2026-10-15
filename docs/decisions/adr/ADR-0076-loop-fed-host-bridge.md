@@ -71,7 +71,7 @@ Three verbs and one carrier, each at the layer that owns it:
   The action carries no session, ticket, bytes, or I/O operation and is
   mirrored as `GLOWCAP_HOST_ACTION_RESUME`.
 
-`driver.Bridge` (`src/driver/bridge.zig`) composes them: the loop's
+`driver.Bridge` (now `driver.HostRuntime` in `src/driver/host_runtime.zig`) composes them: the loop's
 hooks adopt (`makeConnCtx`), serve (`serve`), and release (`freeConnCtx`),
 and every entry point ends by draining the host's action queue into the loop
 `flush` becomes `armOutbound`, `close` becomes `closeSlot`,
@@ -110,7 +110,7 @@ pair for owned `Session`/`Server` paths. A caller that means forever spells
 breaking the stack-bound far listener. The completion loop's run deadline
 returns `error.Timeout` when its flag is still clear at expiry, and backend
 polling accepts a timeout so the loop can wake to check it. Gated by the
-silent-partner settle scenario in `test/driver/blocking_session_test.zig`.
+silent-partner settle scenario in `test/driver/session_fault_test.zig`.
 
 ## Loop-side dial executor
 
@@ -124,7 +124,7 @@ view for `Host.openDialedOver`. Session open reports `exporterDialed`. Refused
 connect fires `on_close(slot, …, opened=false)` and `dialFailed`. Netlayers
 own networking (`tcp.DialResolver.resolve`, iroh's `DialResolver` resolves node-id
 designators). Bridge stays above that boundary. Gated by the redeem theorem in
-`test/driver/bridge_test.zig`.
+`test/driver/host_runtime_handoff_test.zig`.
 
 ## iroh Backend
 
@@ -184,9 +184,9 @@ and one Bridge action map. A transport the Loop cannot resolve fails at
 
 - `test/driver/core_host_budget_test.zig` pins the attribution contract.
   `test/driver/core_host_adopt_test.zig` pins adoption ownership and the
-  batch-consumption subtlety. `test/net/completion_cross_arm_test.zig` pins
-  the cross-arm at the net layer. `test/driver/bridge_test.zig` holds
-  the theorem and the budget runaway over real sockets. Multi-party teardown
+  batch-consumption subtlety. `test/net/completion/cross_arm_test.zig` pins
+  the cross-arm at the net layer. `test/driver/host_runtime_handoff_test.zig` holds
+  the theorem and `test/driver/served_budget_test.zig` the budget runaway. Multi-party teardown
   uses `Loop.runUntil` then `closeAndDrain` so armed recvs retire before `deinit`.
 - `zig build tcp-loop` is the live scale step (measured footprint printed,
   never gated. ADR-0073 owns the wall-clock rationale).

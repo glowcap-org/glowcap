@@ -25,14 +25,16 @@ pub const max_signal_bytes = signaling.signaling_frame_bytes;
 /// Construct with `initBound`, then pass this value to
 /// `completion.Loop(Backend, DialResolver).initWithBackend`. Outbound dials
 /// create an offerer and complete only on `ev_open`. Inbound answerers exist
-/// because a signaling owner created and transferred one through
+/// because `startAnswer` built one from an offer the signaling owner handed
+/// in, or because that owner built one by hand and transferred it through
 /// `adoptAnswerer`. They join the ordinary accept completion only after open.
 ///
-/// `adoptAnswerer`, `provideAnswer`, and `provideRemoteCandidate` are the three
-/// thread-safe entries. They queue under one spinlock and nudge the loop wake
-/// fd. All other state belongs to the loop thread. The resident must outlive
-/// this backend and have no other readiness consumer. Producers and wake callers
-/// must stop before `deinit` closes the wake fd.
+/// `startAnswer`, `adoptAnswerer`, `provideAnswer`, and
+/// `provideRemoteCandidate` are the four thread-safe entries. They queue under
+/// one spinlock and nudge the loop wake fd. All other state belongs to the
+/// loop thread. The resident must outlive this backend and have no other
+/// readiness consumer. Producers and wake callers must stop before `deinit`
+/// closes the wake fd.
 ///
 /// State stays inline: the behavioral owners below are compile-time method
 /// indexes, not runtime objects or mirrors.
@@ -87,15 +89,18 @@ pub const Backend = struct {
     /// Wake pair for foreign-thread signaling and owner stop requests.
     signal_wake: net.wake_channel.WakeChannel,
     signal_wake_failure: net.wake_channel.FailureLatch = .{},
-    /// One descriptor over the signaling wake, the resident's readiness, and
-    /// an armed foreign poll: this backend's own readiness descriptor.
+    /// One descriptor over the signaling wake and the sidecar's readiness:
+    /// this backend's own readiness descriptor.
     ready_set: net.readiness.ReadySet,
-    /// The one foreign descriptor a host asked this backend to watch.
-    foreign_poll: ?readiness.ForeignPoll = null,
     /// Loop-owned queue swapped with signal_in without per-wake allocation,
     /// preserving the inbox's pre-reserved capacity while work is applied.
     signal_work: std.ArrayList(signaling.SignalIn) = .empty,
     next_fd: Fd = 1,
+    /// Descriptors outside this backend that a `submitPoll` waits on.
+    watched: std.ArrayList(readiness.Watched) = .empty,
+    /// The park's poll set, this backend's readiness then each watch.
+    /// `submitPoll` sizes it and `initBound` seats the readiness row.
+    park_fds: std.ArrayList(std.posix.pollfd) = .empty,
     buffer_pool: BufferPool,
 
     /// Bind the resident and preallocate every bounded endpoint-level pool.
@@ -121,6 +126,9 @@ pub const Backend = struct {
         try accept_stash.ensureTotalCapacity(allocator, signaling.max_accept_stash);
         var signal_payloads = try signaling.SignalPayloadPool.init(allocator);
         errdefer signal_payloads.deinit(allocator);
+        var park_fds = std.ArrayList(std.posix.pollfd).empty;
+        errdefer park_fds.deinit(allocator);
+        try park_fds.ensureTotalCapacity(allocator, 1);
         const fd = resident.readinessFd();
         if (fd < 0) return error.ListenFailed;
         var ready_set = try net.readiness.ReadySet.init();
@@ -142,6 +150,7 @@ pub const Backend = struct {
             .ready_set = ready_set,
             .signal_work = signal_work,
             .accept_stash = accept_stash,
+            .park_fds = park_fds,
             .buffer_pool = buffer_pool,
         };
     }
@@ -179,10 +188,11 @@ pub const Backend = struct {
         self.signal_work.deinit(self.allocator);
         std.debug.assert(self.signal_reservations == 0);
         self.signal_payloads.deinit(self.allocator);
-        std.debug.assert(self.foreign_poll == null);
         self.ready_set.deinit();
         self.signal_wake.deinit();
         self.ready.deinit(self.allocator);
+        self.watched.deinit(self.allocator);
+        self.park_fds.deinit(self.allocator);
         self.buffer_pool.deinit();
     }
 
@@ -213,6 +223,7 @@ pub const Backend = struct {
     }
 
     pub const startDial = SignalingOps.startDial;
+    pub const startAnswer = SignalingOps.startAnswer;
     pub const adoptAnswerer = SignalingOps.adoptAnswerer;
     pub const provideAnswer = SignalingOps.provideAnswer;
     pub const provideRemoteCandidate = SignalingOps.provideRemoteCandidate;
@@ -223,18 +234,16 @@ pub const Backend = struct {
     pub const verifiedChannelKey = ConnectionOps.verifiedChannelKey;
     pub const submitRecv = ConnectionOps.submitRecv;
     pub const submitSend = ConnectionOps.submitSend;
-    pub fn submitCancel(self: *Self, cancel_user_data: u64, target_user_data: u64, fd: Fd) !void {
-        if (try ReadinessOps.cancelForeignPoll(self, cancel_user_data, target_user_data, fd)) return;
-        return ConnectionOps.submitCancel(self, cancel_user_data, target_user_data, fd);
-    }
 
     pub const closeFd = LifecycleOps.closeFd;
     pub const shutdownFd = LifecycleOps.shutdownFd;
     pub const submitClose = LifecycleOps.submitClose;
 
     pub const poll = ReadinessOps.poll;
+    pub const peek = ReadinessOps.peek;
     pub const readinessFd = ReadinessOps.readinessFd;
     pub const flush = ReadinessOps.flush;
-    pub const submitPoll = ReadinessOps.submitPoll;
     pub const waitBoundMs = ReadinessOps.waitBoundMs;
+    pub const submitPoll = ReadinessOps.submitPoll;
+    pub const submitCancel = ReadinessOps.submitCancel;
 };

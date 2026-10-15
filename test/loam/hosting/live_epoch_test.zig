@@ -18,7 +18,7 @@ const Fixture = struct {
     fn deinit(self: *Fixture) void {
         if (self.store.phase == .staging or self.store.phase == .prepared) self.store.abort() catch unreachable;
         self.store.deinit() catch unreachable;
-        self.backend.close();
+        self.backend.close() catch unreachable;
         self.backend.deinit();
     }
     fn fresh(self: *Fixture) !epoch {
@@ -118,7 +118,7 @@ test "loam live epoch survives backend reopen and refuses exhausted or malformed
     const original = try fixture.fresh();
     const incarnation = fixture.store.metadata.incarnation;
     try fixture.store.deinit();
-    fixture.backend.close();
+    try fixture.backend.close();
     fixture.store = try loam.core.Store.init(a, try fixture.backend.open(), &schemas, f.limits);
     const store = &fixture.store;
     try std.testing.expect(store.metadata.incarnation > incarnation);

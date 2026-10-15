@@ -1,6 +1,6 @@
 //! The fixed reference host for the per-language consumer-cost bench
 //! (`zig build bench-langs`). It serves the bench taskboard app on glowcap's
-//! native Zig runtime, so the only thing that varies between bench rows is the
+//! Zig runtime, so the only thing that varies between bench rows is the
 //! client language dialing in, the server adds no Chez, V8, or CPython noise.
 //!
 //! The board publishes one verb, `create`, which mints a fresh task capability
@@ -37,7 +37,7 @@ const opts: driver.SessionOptions = .{
 const Task = struct {
     done: bool = false,
 
-    pub fn handle(self: *Task, _: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+    pub fn handle(self: *Task, _: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
         if (std.mem.eql(u8, verb, "assign")) return .{ .bytes = "assigned" };
         if (std.mem.eql(u8, verb, "complete")) {
             self.done = true;
@@ -54,7 +54,7 @@ const Task = struct {
 /// client invokes the returned task several times over the wire, the
 /// capability-passing the bench measures.
 const Board = struct {
-    pub fn handle(_: *Board, ht: *driver.HostTurn, verb: []const u8, _: []const driver.Value) !driver.Value {
+    pub fn handle(_: *Board, ht: *driver.HostTurn, verb: []const u8, _: driver.Args) !driver.Value {
         if (!std.mem.eql(u8, verb, "create")) return error.NoSuchMethod;
         return .{ .capability = try ht.spawn(Task, .{}) };
     }

@@ -42,6 +42,7 @@ pub const driver_options_1s: cdrv.GlowcapDriverOptions = .{
     .handshake_ms = 1_000,
     .listener_setup_ms = 1_000,
     .settle_ms = 1_000,
+    .busy_poll_ns = 0,
 };
 
 pub const driver_options_10s: cdrv.GlowcapDriverOptions = .{
@@ -52,6 +53,7 @@ pub const driver_options_10s: cdrv.GlowcapDriverOptions = .{
     .handshake_ms = 10_000,
     .listener_setup_ms = 10_000,
     .settle_ms = 10_000,
+    .busy_poll_ns = 0,
 };
 
 pub const driver_options_cap1: cdrv.GlowcapDriverOptions = .{
@@ -62,6 +64,7 @@ pub const driver_options_cap1: cdrv.GlowcapDriverOptions = .{
     .handshake_ms = 1_000,
     .listener_setup_ms = 1_000,
     .settle_ms = 1_000,
+    .busy_poll_ns = 0,
 };
 
 pub const close_cancel: cdrv.GlowcapCloseOptions = .{

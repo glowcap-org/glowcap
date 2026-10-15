@@ -250,7 +250,7 @@ export function webSocketChannel(
 		async read(): Promise<Uint8Array | null> {
 			// A clean close arrives as `done` via `controller.close()` (onclose); a
 			// transport error arrives as a rejection via `controller.error()`
-			// (onerror). Let the rejection propagate (the native adapters do), and
+			// (onerror). Let the rejection propagate (the FFI adapters do), and
 			// `Session.serve` promises to reject on a transport error. Swallowing it
 			// into an EOF here would make a dropped socket look like a graceful close.
 			const { value, done } = await reader.read();

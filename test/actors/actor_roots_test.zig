@@ -17,7 +17,7 @@ const actors = glowcap.actors;
 const Probe = struct {
     freed: *bool,
 
-    pub fn handle(self: *Probe, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Probe, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "ping")) return error.NoSuchMethod;
@@ -40,7 +40,7 @@ const SiblingReleaser = struct {
     sibling: actors.Ref,
     freed: *bool,
 
-    pub fn handle(_: *SiblingReleaser, _: *actors.Turn, _: actors.Message) !model.Argument {
+    pub fn handle(_: *SiblingReleaser, _: *actors.Turn, _: actors.Delivery) !model.Argument {
         return .{ .void = {} };
     }
 
@@ -193,7 +193,7 @@ const SelfReleaser = struct {
     freed: *bool,
     note: [24]u8 = "still alive at turn end.".*,
 
-    pub fn handle(self: *SelfReleaser, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *SelfReleaser, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = msg;
         turn.vat.releaseActor(turn.self_ref.local);
         // The reply borrows this box; the retire must wait for the unwind and

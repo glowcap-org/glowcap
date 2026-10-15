@@ -97,14 +97,14 @@ pub(crate) struct SessionShared {
 	// FLUSH drains serialize on the write half's async lock, which keeps frames
 	// in submission order. Order is all the lock gives: a write dropped
 	// mid-frame still leaves a partial one on the wire, which `torn` records.
-	// Both stay `None` on a loop-backed session, whose wire the native loop
+	// Both stay `None` on a loop-backed session, whose wire the driver loop
 	// owns (`loop_wire`).
 	pub(crate) reader: RefCell<Option<crate::channel::Reader>>,
 	pub(crate) writer: Rc<tokio::sync::Mutex<Option<crate::channel::Writer>>>,
 	pub(super) channel_close: RefCell<Option<Box<dyn crate::ChannelClose>>>,
 	pub(super) channel_close_started: Cell<bool>,
 	pub(super) channel_retiring: Cell<bool>,
-	// The native loop that owns this session's wire and its release (ADR-0112),
+	// The driver loop that owns this session's wire and its release (ADR-0112),
 	// or `None` for a byte-fed session this binding pumps itself. A loop-backed
 	// session has no byte pump: the loop reads, feeds, and flushes inside its
 	// steps, and `glowcap_driver_session_release` is its one release verb.
@@ -116,11 +116,11 @@ pub(crate) struct SessionShared {
 	pub(crate) closing: Cell<bool>,
 	pub(crate) released: Cell<bool>,
 	// Whether the loop has been told to serve this session. Serving is
-	// idempotent natively, so the first success settles it here and later
+	// idempotent in the driver, so the first success settles it here and later
 	// verbs skip re-crossing the FFI.
 	pub(crate) served: Cell<bool>,
 	pub(crate) release_pending: Cell<bool>,
-	// Terminal result projected by the core-issued CLOSE action or native
+	// Terminal result projected by the core-issued CLOSE action or FFI
 	// SESSION_CLOSED event before the session handle is released.
 	pub(crate) close_result: Cell<Option<i32>>,
 	// Exact non-clean wire termination projected by SESSION_CLOSED. This stays
@@ -199,7 +199,7 @@ impl SessionShared {
 		shared
 	}
 
-	/// The loop-backed shell (ADR-0112): a real `GlowcapHostSession` the native
+	/// The loop-backed shell (ADR-0112): a real `GlowcapHostSession` the FFI
 	/// loop minted (dial, accept, or an internal redeem), with no byte halves:
 	/// the loop owns the wire, the pumping, and the release. Registered in the
 	/// host's session directory like any other shell, so the loop's
@@ -284,7 +284,7 @@ impl SessionShared {
 		!self.host.closing()
 			&& !self.released.get()
 			// SAFETY: `self.ptr` is this `SessionShared`'s `GlowcapHostSession` handle, owned by the Host and nulled
-			// only by `commit_native_release`; the short-circuit on `released` above means a released session never
+			// only by `commit_ffi_release`; the short-circuit on `released` above means a released session never
 			// reaches the call, and the callee only reads the handle and returns a status.
 			&& unsafe { ffi::glowcap_host_session_is_open(self.ptr.get()) } == 1
 	}
@@ -294,7 +294,7 @@ impl SessionShared {
 	// Spawn the inbound serve loop as its own task. Runs from establish, so a
 	// connection pumps from birth: an accepted partner's traffic and a dialed
 	// exporter's withdraw both arrive without an explicit `serve()` call.
-	// A loop-backed session has no byte pump of its own, the native loop
+	// A loop-backed session has no byte pump of its own, the driver loop
 	// reads, feeds, and drains, so its serve task only awaits the session's
 	// closure, keeping the completes-on-close contract.
 	pub(crate) fn spawn_serve(self: &Rc<SessionShared>) {
@@ -343,7 +343,7 @@ impl SessionShared {
 			}
 			return;
 		}
-		if self.finish_native_release().is_err() && !self.release_pending.replace(true) {
+		if self.finish_ffi_release().is_err() && !self.release_pending.replace(true) {
 			crate::finalizer::park_session(Rc::clone(self));
 			self.host.schedule_kick_or_record();
 		}
@@ -352,7 +352,7 @@ impl SessionShared {
 		self.host.schedule_kick_or_record();
 	}
 
-	pub(crate) fn finish_native_release(self: &Rc<SessionShared>) -> Result<()> {
+	pub(crate) fn finish_ffi_release(self: &Rc<SessionShared>) -> Result<()> {
 		if self.released.get() {
 			self.release_pending.set(false);
 			return Ok(());
@@ -362,15 +362,15 @@ impl SessionShared {
 		}
 		let ptr = self.ptr.get();
 		if !ptr.is_null() {
-			self.host.release_native_session(ptr)?;
+			self.host.release_ffi_session(ptr)?;
 		}
-		self.commit_native_release();
+		self.commit_ffi_release();
 		Ok(())
 	}
 
-	/// Commit wrapper retirement after its native owner has released either this
-	/// handle or the whole loop. No native call may follow this transition.
-	pub(crate) fn commit_native_release(&self) {
+	/// Commit wrapper retirement after its FFI owner has released either this
+	/// handle or the whole loop. No FFI call may follow this transition.
+	pub(crate) fn commit_ffi_release(&self) {
 		if self.released.replace(true) {
 			self.release_pending.set(false);
 			return;

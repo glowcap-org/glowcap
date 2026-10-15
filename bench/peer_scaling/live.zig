@@ -102,27 +102,27 @@ fn readLine(io: std.Io, child: *Child, allocator: std.mem.Allocator) ![]const u8
     return allocator.dupe(u8, std.mem.trimEnd(u8, raw, "\r\n"));
 }
 
-fn rssKb(io: std.Io, pid: std.process.Child.Id) u64 {
+fn rssKb(io: std.Io, pid: std.process.Child.Id) !u64 {
     var path_buf: [64]u8 = undefined;
-    const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/status", .{pid}) catch return 0;
-    var file = std.Io.Dir.cwd().openFile(io, path, .{}) catch return 0;
+    const path = try std.fmt.bufPrint(&path_buf, "/proc/{d}/status", .{pid});
+    var file = try std.Io.Dir.cwd().openFile(io, path, .{});
     defer file.close(io);
     var read_buf: [4096]u8 = undefined;
     var reader = file.readerStreaming(io, &read_buf);
     var text_buf: [8192]u8 = undefined;
     var len: usize = 0;
     while (len < text_buf.len) {
-        const n = reader.interface.readSliceShort(text_buf[len..]) catch break;
+        const n = try reader.interface.readSliceShort(text_buf[len..]);
         if (n == 0) break;
         len += n;
     }
     const text = text_buf[0..len];
-    const at = std.mem.indexOf(u8, text, "VmRSS:") orelse return 0;
+    const at = std.mem.indexOf(u8, text, "VmRSS:") orelse return error.RssUnavailable;
     var i = at + "VmRSS:".len;
     while (i < text.len and (text[i] == ' ' or text[i] == '\t')) i += 1;
     const start = i;
     while (i < text.len and std.ascii.isDigit(text[i])) i += 1;
-    return std.fmt.parseInt(u64, text[start..i], 10) catch 0;
+    return std.fmt.parseInt(u64, text[start..i], 10);
 }
 
 fn nowNs(io: std.Io) i128 {
@@ -150,7 +150,7 @@ fn runStep(
     const ports_line = try readLine(io, &server, arena);
     if (!std.mem.startsWith(u8, ports_line, "PORTS ")) return error.InvalidServerReady;
     const ports = ports_line["PORTS ".len..];
-    const server_rss_before = rssKb(io, server_pid);
+    const server_rss_before = try rssKb(io, server_pid);
 
     const client_total = try std.fmt.allocPrint(arena, "--live-client={d}", .{total});
     const client_ports = try std.fmt.allocPrint(arena, "--live-ports={s}", .{ports});
@@ -162,8 +162,8 @@ fn runStep(
     const expected = try std.fmt.allocPrint(arena, "CLIENT_READY {d}", .{total});
     if (!std.mem.eql(u8, ready, expected)) return error.InvalidClientReady;
     const elapsed_ns: u64 = @intCast(@max(nowNs(io) - t0, 0));
-    const server_rss_after = rssKb(io, server_pid);
-    const client_rss = rssKb(io, client_pid);
+    const server_rss_after = try rssKb(io, server_pid);
+    const client_rss = try rssKb(io, client_pid);
     const server_delta = server_rss_after -| server_rss_before;
 
     std.debug.print(

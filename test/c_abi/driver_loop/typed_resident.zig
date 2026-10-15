@@ -106,7 +106,7 @@ pub const TypedResident = struct {
         return drained(out_count, 1);
     }
 
-    pub fn startConnect(ctx: ?*anyopaque, _: u64, view: ?*const cdrv.GlowcapLocatorView, _: ?*const cshared.GlowcapTransportOperationOptions, out_failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
+    pub fn startConnect(ctx: ?*anyopaque, _: u64, view: ?*const cdrv.GlowcapLocatorView, _: ?*const cshared.GlowcapTransportOperationOptions, _: ?*const cshared.GlowcapDialOrigin, out_failure: ?*cdrv.GlowcapProviderFailure) callconv(.c) i32 {
         const resident = self(ctx);
         const locator_view = view orelse return c.GLOWCAP_ERR_NULL_POINTER;
         var hint_storage: [4]glowcap.ocapn.model.HintEntry = undefined;

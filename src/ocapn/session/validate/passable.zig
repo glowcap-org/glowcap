@@ -7,6 +7,7 @@
 //! it. Only the caller-owned `IntroducedImports` turn record changes.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 const session = @import("../mod.zig");
 const locator_vocabulary = @import("locator_vocabulary.zig");
@@ -15,7 +16,6 @@ const set_uniqueness = @import("set_uniqueness.zig");
 const Session = session.Session;
 const Error = session.Error;
 const RecvViewError = session.RecvViewError;
-const SessionLimits = session.SessionLimits;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 
 const inline_uniqueness_stack_cap = 8;
@@ -40,18 +40,20 @@ const inline_uniqueness_stack_cap = 8;
 /// are refcount refreshes, one new id counts once however often the message
 /// repeats it). `seen` records those distinct fresh rows. `mentions` records
 /// every non-bootstrap far mention, repeats included, each is one wire-delta
-/// retain apply must take, and supports the cold exact-overflow check. Lazy: a
-/// message that carries no far reference never allocates. The record spine
-/// backs it with the per-turn `recv_scratch` arena (no deinit, the turn reset
-/// reclaims it). A validation-only caller backs it with the gpa and pairs it
-/// with `deinit`.
+/// retain apply must take, and supports the cold exact-overflow check. A
+/// message with a few mentions allocates nothing: each record holds its first
+/// rows in place and spills to the record's allocator only past that. The
+/// record spine backs it with the per-turn `recv_scratch` arena (no deinit,
+/// the turn reset reclaims it). A validation-only caller backs it with the
+/// gpa and pairs it with `deinit`.
 pub const IntroducedImports = struct {
     allocator: std.mem.Allocator,
     /// Distinct fresh rows for import-cap and capacity preparation. Already
-    /// held rows stay off this map, preserving the steady-state allocation
-    /// budget. Exact overflow counting is a cold prepare branch.
-    seen: std.AutoHashMapUnmanaged(model.ImportPosition, void) = .empty,
-    mentions: std.ArrayListUnmanaged(model.ImportPosition) = .empty,
+    /// held rows stay off this table, preserving the steady-state allocation
+    /// budget. Exact overflow counting is a cold prepare branch. The
+    /// positions are the peer's words.
+    seen: foundation.inline_rows.Table(model.ImportPosition, void, 4, .wire),
+    mentions: foundation.inline_rows.List(model.ImportPosition, 4) = .empty,
     /// Index in `mentions` owned by the answer's inline V1.0 resolver link,
     /// not by the surfaced application arguments. Stateless event GC excludes
     /// this retain. Settlement releases it beside the resolver callback.
@@ -59,7 +61,7 @@ pub const IntroducedImports = struct {
     /// Promise-shaped far mentions that require the next profile's one private
     /// shortening subscription. Repeats are retained here. The session table
     /// deduplicates by live import identity when the engine schedules them.
-    promise_mentions: std.ArrayListUnmanaged(model.ImportPosition) = .empty,
+    promise_mentions: foundation.inline_rows.List(model.ImportPosition, 2) = .empty,
     /// What is left of this message's equality-comparison allowance, spent by
     /// the set-uniqueness fold. It rides the per-turn record rather than the
     /// session because it is turn state: one record is built per recv entry
@@ -67,11 +69,16 @@ pub const IntroducedImports = struct {
     /// bound is per message (a frame's many sets share one allowance) at no
     /// per-session footprint cost. Refilled by `init`, which every turn calls.
     compare_budget: model.equality.CompareBudget,
+    /// How many reference and handoff slots the walked arguments hold, at
+    /// every depth. A deliver event carries it out so a Host handler whose
+    /// delivery holds none reads the frame's views without a lift.
+    reference_slots: u32 = 0,
 
-    pub fn init(allocator: std.mem.Allocator, limits: SessionLimits) IntroducedImports {
+    pub fn init(allocator: std.mem.Allocator, s: *const Session) IntroducedImports {
         return .{
             .allocator = allocator,
-            .compare_budget = .init(limits.max_compare_visits),
+            .seen = .keyed(s.wire_hash_multiplier),
+            .compare_budget = .init(s.limits.max_compare_visits),
         };
     }
 
@@ -90,9 +97,9 @@ pub const IntroducedImports = struct {
     /// a promise-shaped resolver as a promise value that needs shortening.
     pub fn noteResolver(self: *IntroducedImports, s: *Session, far: model.FarRef) RecvViewError!void {
         std.debug.assert(self.resolver_mention_index == null);
-        const prior_len = self.mentions.items.len;
+        const prior_len = self.mentions.count();
         try self.noteIntroduction(s, far.import_position);
-        if (self.mentions.items.len != prior_len)
+        if (self.mentions.count() != prior_len)
             self.resolver_mention_index = prior_len;
     }
 
@@ -102,11 +109,11 @@ pub const IntroducedImports = struct {
         self: *const IntroducedImports,
         allocator: std.mem.Allocator,
     ) !?[]model.ImportPosition {
-        const count = self.mentions.items.len - @intFromBool(self.resolver_mention_index != null);
+        const count = self.mentions.count() - @intFromBool(self.resolver_mention_index != null);
         if (count == 0) return null;
         const result = try allocator.alloc(model.ImportPosition, count);
         var out: usize = 0;
-        for (self.mentions.items, 0..) |position, index| {
+        for (self.mentions.items(), 0..) |position, index| {
             if (index == self.resolver_mention_index) continue;
             result[out] = position;
             out += 1;
@@ -167,7 +174,7 @@ pub fn validateDeliverOrListenTarget(
     self: *Session,
     reference: anytype,
     comptime perspective: Perspective,
-) Error!void {
+) ReferenceError(@TypeOf(reference))!void {
     switch (perspective) {
         .sent => switch (reference) {
             .far => try validateReference(self, reference, .sent, .held_import),
@@ -199,7 +206,7 @@ pub fn validateListenListener(
     self: *Session,
     reference: anytype,
     comptime perspective: Perspective,
-) Error!void {
+) ReferenceError(@TypeOf(reference))!void {
     switch (perspective) {
         .sent => switch (reference) {
             .near => try validateReference(self, reference, .sent, .held_import),
@@ -222,7 +229,7 @@ pub fn validateReference(
     reference: anytype,
     comptime perspective: Perspective,
     comptime far_policy: FarPolicy,
-) Error!void {
+) ReferenceError(@TypeOf(reference))!void {
     return switch (reference) {
         .routed => Error.InvalidReference,
         .near => |near| validateNearReference(self, near, perspective),
@@ -248,13 +255,26 @@ fn validateFarReference(self: *Session, far: model.FarRef, comptime far_policy: 
     }
 }
 
-fn validateSturdyReference(self: *Session, sturdy: anytype) Error!void {
+fn validateSturdyReference(self: *Session, sturdy: anytype) ReferenceError(@TypeOf(sturdy))!void {
     if (!self.features.sturdyref) return Error.FeatureNotNegotiated;
-    const value = if (comptime @typeInfo(@TypeOf(sturdy)) == .pointer)
+    const value = if (comptime @TypeOf(sturdy) == model.view.LazySturdyRef)
+        try sturdy.project()
+    else if (comptime @typeInfo(@TypeOf(sturdy)) == .pointer)
         sturdy.*
     else
         sturdy;
     try locator_vocabulary.requireNegotiated(self, value.peer);
+}
+
+/// The error set a reference validator returns for one reference shape. A
+/// borrowed view may fail to project its lazy sturdyref, so it carries
+/// `ProjectError`; an owned reference is already parsed and never does, and
+/// its callers keep the plain session error set.
+pub fn ReferenceError(comptime T: type) type {
+    return if (T == model.view.Reference or T == model.view.LazySturdyRef)
+        Error || model.view.ProjectError
+    else
+        Error;
 }
 
 pub fn validateInboundArguments(
@@ -265,12 +285,15 @@ pub fn validateInboundArguments(
 ) RecvViewError!void {
     if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
     if (comptime @TypeOf(args) == model.view.Args) {
+        // A word run holds integers only, bounded by the codec that read
+        // it, so there is no element here to visit.
+        if (args.wordRun() != null) return;
         // Forward cursor: one linear pass over the borrowed list region, no
         // per-element `at(i)` re-scan from the start and no `len()` pre-walk.
         var it = args.iterator();
-        while (try it.next()) |arg| try validateInboundArgument(self, arg, depth, introduced);
+        while (try it.nextRef()) |arg| try validateInboundArgument(self, arg, depth, introduced);
     } else {
-        for (args) |arg| try validateInboundArgument(self, arg, depth, introduced);
+        for (args) |*arg| try validateInboundArgument(self, arg, depth, introduced);
     }
 }
 
@@ -280,10 +303,11 @@ pub fn validateInboundArgument(
     depth: usize,
     introduced: *IntroducedImports,
 ) RecvViewError!void {
-    switch (arg) {
+    switch (arg.*) {
         .reference => |reference| {
             try validateReference(self, reference, .received, .introduction);
             if (reference == .far) try introduced.noteFar(self, reference.far);
+            introduced.reference_slots += 1;
         },
         .list => |items| try validateInboundArguments(self, items, depth + 1, introduced),
         .set => |items| {
@@ -300,7 +324,13 @@ pub fn validateInboundArgument(
         // Exhaustive: a new Argument arm must decide here whether it
         // can carry a reference. The struct arm above was once missed behind an
         // `else`, which let a struct-wrapped reference dodge this walk entirely.
-        .handoff => |handoff| try validateInboundHandoffArgument(self, handoff),
+        .handoff => |handoff| {
+            try validateInboundHandoffArgument(
+                self,
+                if (comptime @TypeOf(handoff) == model.view.LazyHandoff) try handoff.project() else handoff,
+            );
+            introduced.reference_slots += 1;
+        },
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error" => {},
     }
 }
@@ -308,20 +338,34 @@ pub fn validateInboundArgument(
 /// Refuse a send-side struct carrying two entries with the same key, the
 /// validate-time twin of the codecs' canonical-order refusals (ADR-0003).
 /// Sorts a shallow copy of the borrowed key slices so a repeat is an adjacent
-/// pair. Small structs stay on the stack, a spill is freed here.
-fn checkSentStructKeyUniqueness(
+/// pair. Small structs stay on the stack, a spill is freed here. Dual-shape:
+/// `entries` is an owned slice or a borrowed `model.view.StructEntries`,
+/// whose walk and `len` must agree or the struct is `MalformedView`.
+pub fn checkSentStructKeyUniqueness(
     scratch: std.mem.Allocator,
-    entries: []const model.StructEntry,
-) error{ OutOfMemory, DuplicateStructKey }!void {
-    if (entries.len < 2) return;
+    entries: anytype,
+) (error{ OutOfMemory, DuplicateStructKey } || model.view.ProjectError)!void {
+    const borrowed = comptime @TypeOf(entries) == model.view.StructEntries;
+    const count = if (borrowed) try entries.len() else entries.len;
+    if (count < 2) return;
     var stack_keys: [inline_uniqueness_stack_cap][]const u8 = undefined;
-    const spilled = entries.len > inline_uniqueness_stack_cap;
+    const spilled = count > inline_uniqueness_stack_cap;
     const keys: [][]const u8 = if (spilled)
-        try scratch.alloc([]const u8, entries.len)
+        try scratch.alloc([]const u8, count)
     else
-        stack_keys[0..entries.len];
+        stack_keys[0..count];
     defer if (spilled) scratch.free(keys);
-    for (entries, 0..) |entry, i| keys[i] = entry.key;
+    if (borrowed) {
+        var it = entries.iterator();
+        var filled: usize = 0;
+        while (try it.nextRef()) |entry| : (filled += 1) {
+            if (filled == count) return error.MalformedView;
+            keys[filled] = entry.key;
+        }
+        if (filled != count) return error.MalformedView;
+    } else {
+        for (entries, 0..) |entry, i| keys[i] = entry.key;
+    }
     std.mem.sort([]const u8, keys, {}, struct {
         fn lessThan(_: void, a: []const u8, b: []const u8) bool {
             return std.mem.order(u8, a, b) == .lt;
@@ -345,9 +389,9 @@ fn validateInboundStructEntries(
     if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
     if (comptime @TypeOf(entries) == model.view.StructEntries) {
         var it = entries.iterator();
-        while (try it.next()) |entry| try validateInboundArgument(self, entry.value, depth, introduced);
+        while (try it.nextRef()) |entry| try validateInboundArgument(self, &entry.value, depth, introduced);
     } else {
-        for (entries) |entry| try validateInboundArgument(self, entry.value, depth, introduced);
+        for (entries) |*entry| try validateInboundArgument(self, &entry.value, depth, introduced);
     }
 }
 
@@ -433,28 +477,26 @@ fn validateOutboundHandoffArgument(self: *const Session, handoff: model.Handoff)
 /// admission `retainSentExportRef` already performs for the `near` arm above.
 pub const SendRefCheck = enum { held, near_may_be_first_export };
 
-/// Validate a send-side argument tree: bound the nesting past
-/// `max_nesting_depth`, and check each leaf reference per `ref_check`. The
-/// depth bound is the twin of the apply-side `retainSentExportArgs` cap: on
-/// both send paths a too-deep locally-built message would otherwise pass
-/// validation and then trip `NestingTooDeep` mid-walk in send-side export accounting,
-/// over-retaining every shallow export mention before the refusal and
-/// breaching apply's all-or-nothing contract. One walk, one depth threshold,
-/// so the cap cannot drift between the deliver and resolve paths. `ref_check`
-/// is comptime, so the reference branch folds away per call site.
-/// Send-side argument validation allocates bounded scratch for the set /
-/// struct-key uniqueness folds (gpa, stack-first), so the walk carries the
-/// allocator errors the pure reference checks do not.
+/// Certify every argument an outbound inventory returns to, after lowering
+/// and shortening rewrote the tree's references in place: each reference per
+/// `ref_check`, each handoff's certificate, and each set's element
+/// uniqueness. The walk that took the inventory certified depth, struct keys,
+/// and bytes, which no later pass changes. `ref_check` is comptime, so the
+/// reference branch folds away per call site. The uniqueness fold allocates
+/// bounded scratch (gpa, stack-first), so the pass carries the allocator
+/// errors the pure reference checks do not.
 pub const SendArgError = Error || std.mem.Allocator.Error;
 
-pub fn validateArguments(self: *Session, args: []const model.Argument, depth: usize, comptime ref_check: SendRefCheck) SendArgError!void {
-    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
-    for (args) |arg| {
-        try validateArgument(self, arg, depth, ref_check);
-    }
+pub fn certifySent(
+    self: *Session,
+    inventory: session.Inventory,
+    root: ?*const model.Argument,
+    comptime ref_check: SendRefCheck,
+) SendArgError!void {
+    for (inventory.slots) |slot| try certifySentArgument(self, slot.read(root).*, ref_check);
 }
 
-pub fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime ref_check: SendRefCheck) SendArgError!void {
+fn certifySentArgument(self: *Session, arg: model.Argument, comptime ref_check: SendRefCheck) SendArgError!void {
     switch (arg) {
         .reference => |reference| switch (ref_check) {
             .held => try validateReference(self, reference, .sent, .held_import),
@@ -464,34 +506,26 @@ pub fn validateArgument(self: *Session, arg: model.Argument, depth: usize, compt
                 else => try validateReference(self, reference, .sent, .held_import),
             },
         },
-        .list => |items| try validateArguments(self, items, depth + 1, ref_check),
         .set => |items| {
-            try validateArguments(self, items, depth + 1, ref_check);
             // A duplicate set element refuses here, pre-commit, symmetric with
             // the inbound fold. The encoders refuse byte-equal duplicates too
             // (ADR-0003), but only at encode time in `step`, after
             // send-side export accounting committed wire-delta retains for a frame
             // that never ships, the same all-or-nothing breach the depth
-            // bound above closes. This fold is at least as strict as encode:
-            // model-Equal-but-byte-distinct forms (two NaN bit patterns)
-            // refuse only here, as they would inbound. No message-wide
-            // budget brackets a send, so each fold mints its own allowance,
-            // per set rather than per message, which still bounds the one
-            // partner-influenced caller (`validateStoredResolution`, a relayed
-            // fulfillment) at the same rate the inbound fold charges.
+            // bound closes. This fold runs after shortening, which can fold
+            // two distinct promises onto one target, and is at least as strict
+            // as encode: model-Equal-but-byte-distinct forms (two NaN bit
+            // patterns) refuse only here, as they would inbound. No
+            // message-wide budget brackets a send, so each fold mints its own
+            // allowance, per set rather than per message, which still bounds
+            // the one partner-influenced caller (`validateStoredResolution`, a
+            // relayed fulfillment) at the same rate the inbound fold charges.
             var compare_budget = model.equality.CompareBudget.init(self.limits.max_compare_visits);
             try set_uniqueness.checkOwned(self.allocator, items, &compare_budget);
         },
-        .tagged => |tagged| try validateArguments(self, tagged.value, depth + 1, ref_check),
-        .@"struct" => |entries| {
-            if (depth + 1 > self.limits.max_nesting_depth) return Error.NestingTooDeep;
-            for (entries) |entry| try validateArgument(self, entry.value, depth + 1, ref_check);
-            // Duplicate struct keys share the set arm's contract: refuse
-            // pre-commit, not at encode.
-            try checkSentStructKeyUniqueness(self.allocator, entries);
-        },
-        // Exhaustive, see `validateInboundArgument`.
         .handoff => |handoff| try validateOutboundHandoffArgument(self, handoff.*),
-        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error" => {},
+        // The inventory lists exactly these three arms, and the Node's
+        // projection turns a reference into a handoff, never into another arm.
+        else => unreachable,
     }
 }

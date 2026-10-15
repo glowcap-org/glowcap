@@ -32,7 +32,7 @@ const compactEventsIfDrained = events.compactEventsIfDrained;
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 
-/// Move a byte-fed Host with no live sessions or borrowed action into a native
+/// Move a byte-fed Host with no live sessions or borrowed action into a Zig
 /// loop. Unpopped actions move with the Host and are first consumed by the driver.
 /// Failure leaves the caller as the Host's runtime owner. Success transfers
 /// transport execution, action draining, session release, and terminal Host
@@ -129,7 +129,7 @@ pub fn releaseRetiredListenerMetadata(inst: *Instance) bool {
     return complete;
 }
 
-/// Project the native runtime phase through the C delivery barrier. Core and
+/// Project the Zig runtime phase through the C delivery barrier. Core and
 /// transport teardown remain authoritative below. Queued C events keep only
 /// this ABI owner terminating until the caller has received them.
 fn projectDriverLifecycle(inst: *const Instance) u32 {

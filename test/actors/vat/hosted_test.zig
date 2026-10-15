@@ -10,6 +10,7 @@ const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const cross_peer = @import("../../support/cross_peer.zig");
 const peer_fixture = @import("../../support/peer_fixture.zig");
 const poison = @import("../../support/poison.zig");
@@ -27,16 +28,16 @@ const PersistentCounter = harness.PersistentCounter;
 /// A hosted actor's state (ADR-0071): owned by the caller, reached only through
 /// the C-ABI-shaped `HostedActor` callbacks. Stands in for a binding's hosted
 /// object with a Zig thunk, `handle` gets the full `Turn`, so it can eventual-
-/// send like a native actor. `free` reclaims the caller-owned state.
+/// send like a Zig actor. `free` reclaims the caller-owned state.
 const HostedState = struct {
     allocator: std.mem.Allocator,
     n: i64,
     sink: ?actors.Ref = null,
 
-    fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+    fn handle(ctx: *anyopaque, turn: *Turn, msg: Delivery) actors.HostedActor.Result {
         return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
     }
-    fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+    fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Delivery) anyerror!model.Argument {
         const self: *HostedState = @ptrCast(@alignCast(ctx));
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "add")) {
@@ -79,8 +80,8 @@ test "spawnHosted hosts a hosted actor: near-call, eventual-send, and a rich-Tur
     try std.testing.expectEqual(@as(i64, 115), (try vat.near(hosted, .{ .verb = "get" })).integer);
 
     // The hosted handle uses the full Turn: it eventual-sends to a co-hosted
-    // native actor. Drive runs that queued turn, so a hosted actor sends
-    // exactly like a native one.
+    // Zig actor. Drive runs that queued turn, so a hosted actor sends
+    // exactly like a Zig one.
     _ = try vat.near(hosted, .{ .verb = "bump-sink" });
     try vat.drive();
     try std.testing.expectEqual(@as(i64, 1), (try vat.near(sink, .{ .verb = "get" })).integer);
@@ -106,7 +107,7 @@ test "spawnHosted whose box allocation fails still runs the hosted free" {
 
     var freed = false;
     const F = struct {
-        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+        fn handle(ctx: *anyopaque, turn: *Turn, msg: Delivery) actors.HostedActor.Result {
             _ = ctx;
             _ = turn;
             _ = msg;
@@ -141,7 +142,7 @@ test "a failed export bind can discard the freshly spawned hosted actor" {
 
     var freed = false;
     const F = struct {
-        fn handle(_: *anyopaque, _: *Turn, _: Message) actors.HostedActor.Result {
+        fn handle(_: *anyopaque, _: *Turn, _: Delivery) actors.HostedActor.Result {
             return .{ .returned = .{ .void = {} } };
         }
         fn free(ctx: *anyopaque) void {
@@ -176,10 +177,10 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
     // A gate that refuses every call with its own diagnostic, then returns
     // normally: the staged break must win over the void return value.
     const Gate = struct {
-        fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) actors.HostedActor.Result {
+        fn handle(ctx: *anyopaque, turn: *Turn, msg: Delivery) actors.HostedActor.Result {
             return actors.HostedActor.Result.fromResult(handleOwned(ctx, turn, msg));
         }
-        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+        fn handleOwned(ctx: *anyopaque, turn: *Turn, msg: Delivery) anyerror!model.Argument {
             _ = ctx;
             _ = msg;
             try turn.breakWith("Attenuated");

@@ -173,7 +173,7 @@ try {
 			? "Maximum foreign fields restored after full source-page reload against a surviving exporter."
 			: graphOnly
 			? "Session graph commit, rollback, unknown outcomes and cold reload passed in Chromium."
-			: `Rust async Host passed in Deno and Chromium; shared archive execution and revocable shares, IndexedDB contract/retention/rollback/eviction, Chromium session commands, native TCP/iroh forwarding, keyed/Noise relay, RTCDataChannel, signaling and ICE fetch passed; ${wasm.length} linked Wasm bytes.`,
+			: `Rust async Host passed in Deno and Chromium; shared archive execution and revocable shares, IndexedDB contract/retention/rollback/eviction, Chromium session commands, host TCP/iroh forwarding, keyed/Noise relay, RTCDataChannel, signaling and ICE fetch passed; ${wasm.length} linked Wasm bytes.`,
 	);
 } finally {
 	await browser?.close();

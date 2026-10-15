@@ -19,7 +19,9 @@ pub const Capability = capability.Ref;
 /// `model.Argument`. A capability mention is opaque. There is no handoff arm
 /// because the host redeems a give before the application sees it. An Error is
 /// a first-class value and remains distinct from `Reply.broken`: returning one
-/// fulfills with an Error, while breaking rejects the reply.
+/// fulfills with an Error, while breaking rejects the reply. `integers` is
+/// the list of the integers in its slice, lent as one leaf (ADR-0247): a
+/// send reads the words where they lie instead of one value at a time.
 pub const Value = union(enum) {
     bytes: []const u8,
     symbol: []const u8,
@@ -27,6 +29,7 @@ pub const Value = union(enum) {
     @"error": model.BreakReason,
     string: []const u8,
     integer: i64,
+    integers: []const i64,
     boolean: bool,
     list: []const Value,
     void: void,
@@ -52,7 +55,7 @@ pub const Value = union(enum) {
     /// The visitor keeps an `anyerror` return set: implementors are unknown at
     /// this declaration.
     pub fn forEachCapability(
-        self: Value,
+        self: *const Value,
         ctx: anytype,
         comptime visit: *const fn (@TypeOf(ctx), Capability) anyerror!void,
     ) !void {
@@ -60,17 +63,18 @@ pub const Value = union(enum) {
     }
 
     fn forEachCapabilityAt(
-        self: Value,
+        self: *const Value,
         ctx: anytype,
         comptime visit: *const fn (@TypeOf(ctx), Capability) anyerror!void,
         depth: usize,
     ) !void {
         if (depth > 64) return error.ValueTooDeep;
-        switch (self) {
+        switch (self.*) {
             .capability => |ref| try visit(ctx, ref),
-            .list, .set => |items| for (items) |item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
-            .tagged => |tag| for (tag.value) |item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
-            .@"struct" => |items| for (items) |item| try item.value.forEachCapabilityAt(ctx, visit, depth + 1),
+            .integers => |words| if (words.len != 0 and depth == 64) return error.ValueTooDeep,
+            .list, .set => |items| for (items) |*item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
+            .tagged => |tag| for (tag.value) |*item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
+            .@"struct" => |items| for (items) |*item| try item.value.forEachCapabilityAt(ctx, visit, depth + 1),
             .bytes,
             .symbol,
             .@"error",

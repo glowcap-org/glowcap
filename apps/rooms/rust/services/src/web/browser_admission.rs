@@ -25,7 +25,11 @@ impl Config {
 				}
 			}
 		}
-		let settings = Settings::parse_from(|key| values.get(key).cloned(), 4096, 8)?;
+		let settings = Settings::parse_from(
+			|key| values.get(key).cloned(),
+			rooms_application::admission::SESSION_ROWS,
+			rooms_application::admission::POOLED_AGGREGATE_SCALE,
+		)?;
 		let overrides: BTreeMap<_, _> = values.into_iter().map(|(key, (value, _))| (key, value)).collect();
 		let encoded = serde_json::to_string(&overrides).map_err(|e| e.to_string())?;
 		Ok(Self { settings, encoded })

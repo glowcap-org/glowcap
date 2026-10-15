@@ -12,13 +12,14 @@ const engine = glowcap.ocapn.engine;
 const actors = glowcap.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const Delivery = actors.Delivery;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 const capture = @import("../support/capture.zig");
 const cross_peer = @import("../support/cross_peer.zig");
 
 const Counter = struct {
     n: i64,
-    pub fn handle(self: *Counter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *Counter, turn: *Turn, msg: Delivery) !model.Argument {
         _ = turn;
         if (std.mem.eql(u8, msg.verb, "add")) {
             self.n += try msg.argInt(0);
@@ -227,7 +228,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
     const answer = blk: {
         var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
         defer event.deinit();
-        const body = try event.view();
+        const body = event.view();
         break :blk body.deliver.answer orelse return error.ExpectedAnswer;
     };
 
@@ -283,7 +284,7 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
 const ClaimBigReplies = struct {
     claimed: usize = 0,
 
-    fn fire(ctx: ?*anyopaque, _: engine.AnswerTarget, fulfilled: model.Argument) anyerror!actors.InterceptOutcome {
+    fn fire(ctx: ?*anyopaque, _: engine.AnswerTarget, fulfilled: model.view.Argument) anyerror!actors.InterceptOutcome {
         const self: *ClaimBigReplies = @ptrCast(@alignCast(ctx.?));
         // `.claimed` claims the reply (the interceptor owns resolving it);
         // `.resolve` passes the value through for the vat to resolve as-is.
@@ -430,7 +431,7 @@ test "an answered deliver to an exported-but-unbound position breaks the answer 
 test "reply interceptor nested calls commit their local and far sends" {
     const Send = struct {
         local: actors.Ref,
-        pub fn handle(self: *@This(), turn: *Turn, _: Message) !model.Argument {
+        pub fn handle(self: *@This(), turn: *Turn, _: Delivery) !model.Argument {
             try turn.tell(self.local, .{ .verb = "add", .args = &.{.{ .integer = 1 }} });
             try turn.tell(.{ .far = model.FarRef.object(9) }, .{ .verb = "add", .args = &.{.{ .integer = 1 }} });
             return .{ .void = {} };
@@ -442,14 +443,14 @@ test "reply interceptor nested calls commit their local and far sends" {
         port: *actors.Port,
         sender: actors.Ref,
         mode: Mode,
-        fn fire(ctx: ?*anyopaque, answer: engine.AnswerTarget, value: model.Argument) anyerror!actors.InterceptOutcome {
+        fn fire(ctx: ?*anyopaque, answer: engine.AnswerTarget, value: model.view.Argument) anyerror!actors.InterceptOutcome {
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
             _ = try self.vat.nearFromPort(self.port, .local, self.sender, .{ .verb = "send" });
             return switch (self.mode) {
                 .pass => .{ .resolve = value },
                 .refuse => error.HookRefused,
                 .claim => blk: {
-                    try self.port.peer.sendAnswerTargetResolutionCopying(answer, .{ .fulfill = value });
+                    try self.port.peer.sendAnswerTargetResolutionViewCopying(answer, model.view.Resolution{ .fulfill = value });
                     break :blk .claimed;
                 },
             };

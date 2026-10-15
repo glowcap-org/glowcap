@@ -1,4 +1,4 @@
-//! Shared high-level lifecycle for generic native-driver listeners: the one
+//! Shared high-level lifecycle for generic FFI-driver listeners: the one
 //! bind spine every transport module hosts through, and the one binding owner
 //! of an open driver listener.
 
@@ -17,19 +17,20 @@ use crate::{ListenerIdentity, Result};
 /// Bind one generic driver listener for a transport module. The spine is the
 /// same for every transport: the identity becomes a Host (minted for
 /// [`ListenerIdentity::Fresh`] and [`ListenerIdentity::Seed`], shared for
-/// [`ListenerIdentity::Host`]), that Host establishes its native loop,
+/// [`ListenerIdentity::Host`]), that Host establishes its driver loop,
 /// `install` puts the transport's provider on the loop and returns the
-/// designator to bind, the driver opens the listener, `opened` reads the
-/// transport's own server fields off the open listener, and the listener is
-/// selected as the Host's advertised location. The caller wraps the returned
-/// [`LoopListener`] and fields in its public server type.
+/// designator to bind with whatever it made that the server keeps, the driver
+/// opens the listener, `opened` turns that and the open listener into the
+/// transport's own server fields, and the listener is selected as the Host's
+/// advertised location. The caller wraps the returned [`LoopListener`] and
+/// fields in its public server type.
 ///
 /// One failure ladder covers every step. A listener that opened is closed
 /// before the error returns, and that close's outcome rides the error as its
 /// consequence. The loop is never closed here: a Host this call minted drops
 /// with the error, and `HostShared::drop` closes the loop it adopted, while a
 /// caller-supplied Host keeps its loop and every other listener on it.
-pub(crate) async fn bind_loop_listener<Install, Installing, Opened, Fields>(
+pub(crate) async fn bind_loop_listener<Install, Installing, Installed, Opened, Fields>(
 	identity: ListenerIdentity,
 	transport: &str,
 	install: Install,
@@ -37,16 +38,16 @@ pub(crate) async fn bind_loop_listener<Install, Installing, Opened, Fields>(
 ) -> Result<(LoopListener, Fields)>
 where
 	Install: FnOnce(Rc<HostShared>, Rc<LoopShared>) -> Installing,
-	Installing: Future<Output = Result<String>>,
-	Opened: FnOnce(&LoopShared, u64, String) -> Result<Fields>,
+	Installing: Future<Output = Result<(String, Installed)>>,
+	Opened: FnOnce(&LoopShared, u64, String, Installed) -> Result<Fields>,
 {
 	let host = identity.into_host()?;
 	let shared = host.shared();
 	let lp = shared.ensure_driver_loop(DRIVER_DEFAULT_HANDSHAKE_MS, DRIVER_DEFAULT_SETTLE_MS)?;
-	let designator = install(shared, Rc::clone(&lp)).await?;
+	let (designator, installed) = install(shared, Rc::clone(&lp)).await?;
 	let listener = lp.listen(transport, &designator).await?;
 	let selected = (|| {
-		let fields = opened(&lp, listener, designator)?;
+		let fields = opened(&lp, listener, designator, installed)?;
 		lp.select_listener(listener)?;
 		Ok::<_, crate::Error>(fields)
 	})();
@@ -56,7 +57,7 @@ where
 	}
 }
 
-/// The binding's single owner for a native driver's generic listener handle.
+/// The binding's single owner for an FFI driver's generic listener handle.
 /// Closing it seals admission and releases accepted sessions not yet yielded.
 /// Sessions already returned to the application remain owned by their Host.
 pub(crate) struct LoopListener {

@@ -88,6 +88,7 @@
 					<span class="nav-heading">Understand</span>
 					<a class="$site.page('why').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('why').link()">Why OCapN</a>
 					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
+					<a class="$site.page('identity').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('identity').link()">What about identity?</a>
 					<a class="$site.page('loam').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('loam').link()">Durable objects</a>
 					<span class="nav-heading">Build</span>
 					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
@@ -119,6 +120,9 @@
 					<a class="$site.page('project').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('project').link()">Project &amp; status</a>
 					<a class="$site.page('stability').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('stability').link()">What you can depend on</a>
 					<a class="$site.page('performance').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('performance').link()">Performance</a>
+					<div class="nav-sub">
+						<a class="$site.page('performance/compared').isCurrent().then('is-current', '')" href="$site.page('performance/compared').link()">Beside other systems</a>
+					</div>
 					<a class="$site.page('protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('protocol').link()">Protocol cheatsheet</a>
 					<a class="$site.page('reference').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('reference').link()">API reference</a>
 					<div class="nav-sub">
@@ -158,6 +162,7 @@
 					<h2>Learn</h2>
 					<a href="$site.page('why').link()">Why OCapN</a>
 					<a href="$site.page('concepts').link()">Concepts</a>
+					<a href="$site.page('identity').link()">What about identity?</a>
 					<a href="$site.page('loam').link()">Durable objects</a>
 					<a href="$site.page('protocol').link()">Protocol cheatsheet</a>
 				</nav>

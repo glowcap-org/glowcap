@@ -26,7 +26,7 @@ pub const Error = error{
 
 /// The encode-side error set: the structural refusals plus the allocator
 /// failure the builder can hit while it grows the segment.
-pub const EncodeError = Error || std.mem.Allocator.Error;
+pub const EncodeError = Error || std.mem.Allocator.Error || model.view.ProjectError;
 
 /// Union discriminant for the `model.Message` body. The explicit values are the
 /// Cap'n Proto wire ids and must stay stable. The comptime mirror below binds
@@ -59,6 +59,9 @@ pub const ArgKind = enum(u16) {
     string = 5,
     integer = 6,
     boolean = 7,
+    /// Pointer 0 holds a composite list of arguments, or the run of
+    /// eight-byte words the encoder writes for a non-empty list whose
+    /// elements are all integers (ADR-0243).
     list = 8,
     void = 9,
     float64 = 10,
@@ -86,8 +89,7 @@ pub const data0_flag: u64 = 1 << 16;
 /// Deliver data word 0 flag bits.
 pub const deliver_has_answer: u64 = 1;
 pub const deliver_has_resolve_me: u64 = 2;
-/// `op:index` data word 2 flags. Old compact-index frames omit this word and
-/// therefore read as zero.
+/// `op:index` data word 2 flags. A frame that omits this word reads as zero.
 pub const index_big_integer: u64 = 1;
 pub const index_negative: u64 = 2;
 
@@ -149,8 +151,8 @@ pub fn expectExactFrameLength(bytes: []const u8) Error!void {
 /// per-frame traversal budget refuses it. A well-formed frame is a *tree*: the
 /// segment words partition into node data/pointer sections and list bodies, and
 /// the decode walk visits each node once, so it reads each segment word a small
-/// constant number of times (locate + discriminant + payload). 32× that count
-/// leaves generous headroom for a tree while an aliasing DAG, composite-list
+/// constant number of times (locate + discriminant + payload). This
+/// multiplier leaves generous headroom for a tree while an aliasing DAG, composite-list
 /// pointers that resolve to a shared child re-read the same words K^D times,
 /// exhausts it within a few thousand node visits for a 2 KB frame. This is the
 /// glowcap sibling of Cap'n Proto's `traversalLimitInWords`. The tighter,
@@ -159,7 +161,7 @@ pub fn expectExactFrameLength(bytes: []const u8) Error!void {
 pub const traversal_budget_words_per_segment_word: usize = 32;
 
 /// Floor for a tiny frame, so a handful-of-words message keeps ample headroom
-/// even though `32 × seg_words` would be small.
+/// even though the scaled count would be small.
 pub const traversal_budget_floor_words: usize = 512;
 
 /// Seed a per-frame word-traversal budget from a frame's segment word count.
@@ -329,7 +331,11 @@ pub const CompositeList = struct {
 /// Decode and bounds-validate composite list field `i`, or null for an
 /// absent/empty list. See `CompositeList` for the invariants proven here.
 pub fn compositeList(reader: Reader, loc: StructLoc, i: u16) Error!?CompositeList {
-    const list = try followList(reader, loc, i);
+    return compositeListAt(reader, try followList(reader, loc, i));
+}
+
+/// `compositeList` for a list pointer the caller already followed.
+pub fn compositeListAt(reader: Reader, list: ListLoc) Error!?CompositeList {
     if (list.count == 0) return null;
     if (list.elem != .composite) return Error.InvalidPointer;
     if (list.data_idx >= reader.seg_words) return Error.Truncated;

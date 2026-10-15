@@ -48,6 +48,12 @@ pub const GLOWCAP_ARG_STRUCT: u32 = 13;
 /// An OCapN Error value. `bytes`/`bytes_len` carry its message. This is a
 /// fulfilled value. `GLOWCAP_RESOLUTION_BREAK` remains the rejected outcome.
 pub const GLOWCAP_ARG_ERROR: u32 = 14;
+/// A list of integers lent as one leaf (ADR-0247): `bytes` points at the
+/// first `int64_t` in host byte order, 8-aligned, and `bytes_len` is the
+/// byte length, a multiple of 8. It means the same value as a `_LIST` of
+/// `_INTEGER` elements and encodes to the same bytes. A received list of
+/// integers arrives as a `_LIST`.
+pub const GLOWCAP_ARG_INTEGERS: u32 = 15;
 
 pub const GLOWCAP_RESOLUTION_FULFILL: u32 = 0;
 pub const GLOWCAP_RESOLUTION_BREAK: u32 = 1;
@@ -75,7 +81,8 @@ pub const GlowcapReference = extern struct {
 /// is refused here. An `_ERROR` is a fulfilled OCapN Error value whose bytes
 /// are its message. It is distinct from a rejected resolution. A `_STRUCT`
 /// carries alternating `_STRING` key/value
-/// children in `items`. Its count is therefore always even. On a projected
+/// children in `items`. Its count is therefore always even. An `_INTEGERS`
+/// carries `int64_t` words behind `bytes`/`bytes_len`. On a projected
 /// (received) value the pointers alias the
 /// owning arena and are valid until the matching `*_release`.
 pub const GlowcapArgument = extern struct {
@@ -203,7 +210,7 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
 
 /// Depth bound on a host-supplied argument tree. A foreign caller could nest
 /// `GlowcapArgument` lists/sets/tagged values arbitrarily deep and overflow the
-/// native stack inside `argumentFromC`, exactly as an untrusted wire frame could in
+/// Zig stack inside `argumentFromCWith`, exactly as an untrusted wire frame could in
 /// the codec. Derived from the session's default `max_nesting_depth`, so the
 /// marshal boundary and the codec refuse at the same depth by construction.
 pub const max_marshal_depth: usize = (engine.SessionLimits{}).max_nesting_depth;
@@ -272,6 +279,15 @@ fn valueFromCImpl(
             if (!big.isCanonical()) break :blk error.UnsupportedValue;
             break :blk .{ .big_integer = big };
         },
+        GLOWCAP_ARG_INTEGERS => blk: {
+            if (c_arg.bytes_len != 0 and depth == max_marshal_depth) return error.UnsupportedValue;
+            const words = try integersFromC(arena, c_arg, own_bytes);
+            if (comptime @hasField(Output, "integers")) break :blk .{ .integers = words };
+            // The model has no run arm: the words become the list they mean.
+            const items = try arena.alloc(Output, words.len);
+            for (words, items) |word, *item| item.* = .{ .integer = word };
+            break :blk .{ .list = items };
+        },
         GLOWCAP_ARG_STRUCT => .{ .@"struct" = try structFromCImpl(
             Output,
             reference_field,
@@ -286,6 +302,18 @@ fn valueFromCImpl(
         ) },
         else => error.UnsupportedValue,
     };
+}
+
+/// The `int64_t` words behind an `_INTEGERS` value, 8-aligned and a whole
+/// number of words, or the value is refused before anything is queued.
+fn integersFromC(arena: std.mem.Allocator, c_arg: GlowcapArgument, comptime own_bytes: bool) MarshalError![]const i64 {
+    const bytes = try sliceFromC(c_arg.bytes, c_arg.bytes_len);
+    if (bytes.len % @sizeOf(i64) != 0) return error.UnsupportedValue;
+    if (bytes.len == 0) return &.{};
+    if (!std.mem.isAligned(@intFromPtr(bytes.ptr), 8)) return error.UnsupportedValue;
+    const aligned: []align(@alignOf(i64)) const u8 = @alignCast(bytes);
+    const words = std.mem.bytesAsSlice(i64, aligned);
+    return if (own_bytes) try arena.dupe(i64, words) else words;
 }
 
 fn structFromCImpl(

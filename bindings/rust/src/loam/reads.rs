@@ -39,7 +39,6 @@ impl ReadScopeBounds {
 					&mut bytes,
 				)
 			},
-			false,
 		)?;
 		Ok(bytes)
 	}
@@ -76,7 +75,6 @@ impl Call<'_> {
 						&mut reference,
 					)
 				},
-				false,
 			)
 		})?;
 		Ok(Ref::from_sys(&reference))
@@ -107,7 +105,6 @@ impl Continuation {
 						&mut reference,
 					)
 				},
-				false,
 			)
 		})?;
 		Ok(super::continuation::owned_reference(&self.owner, reference))

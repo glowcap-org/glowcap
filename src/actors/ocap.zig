@@ -24,7 +24,7 @@ const vat_mod = @import("vat/mod.zig");
 const Vat = vat_mod.Vat;
 const Ref = vat_mod.Ref;
 const Turn = vat_mod.Turn;
-const Message = vat_mod.Message;
+const Delivery = vat_mod.Delivery;
 
 pub const Error = error{
     /// A call reached a caretaker whose authority was revoked.
@@ -58,7 +58,7 @@ const CaretakerActor = struct {
     target: Ref,
     cell: *RevokeCell,
 
-    pub fn handle(self: *CaretakerActor, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *CaretakerActor, turn: *Turn, msg: Delivery) !model.Argument {
         if (!self.cell.live) return Error.Revoked;
         return turn.forward(self.target, msg);
     }
@@ -73,7 +73,7 @@ const AttenuatorActor = struct {
     /// The forwarded verbs, owned: each is a copy, freed in `deinit`.
     allowed: []const []const u8,
 
-    pub fn handle(self: *AttenuatorActor, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *AttenuatorActor, turn: *Turn, msg: Delivery) !model.Argument {
         for (self.allowed) |verb| {
             if (std.mem.eql(u8, verb, msg.verb)) return turn.forward(self.target, msg);
         }

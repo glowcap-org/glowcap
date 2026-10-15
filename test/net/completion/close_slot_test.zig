@@ -2,14 +2,6 @@
 //! from the already-armed recv, is bounded out of the box, counts deadlines
 //! only for connections actually waiting, reclaims a drain the partner never
 //! reads, and escalates a second close to a hard close.
-//! The completion loop's cross-connection outbound arm (`Loop.armOutbound`):
-//! a hook serving connection A that enqueued sends on connection B's peer
-//! arms B's write without waiting for B's own traffic. Proven twice: end to
-//! end on the platform backend (a quiet partner receives a frame only
-//! cross-arming could have put on its wire), and on a scripted backend that
-//! pins the queue accounting. Cross-armed bytes count into the connection's
-//! pending outbound, so ADR-0042 parks that connection's next read at the
-//! high-water mark exactly as it parks reply traffic.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -30,7 +22,7 @@ const backend_support = @import("cross_arm_backend.zig");
 const CrossArmBackend = backend_support.CrossArmBackend;
 const startSession = backend_support.startSession;
 const makeServerPeer = backend_support.makeServerPeer;
-const drainOutboundBytes = backend_support.drainOutboundBytes;
+const pumpStream = backend_support.pumpStream;
 const drainOutboundStreamBytes = backend_support.drainOutboundStreamBytes;
 
 test "close-slot: terminal drain ignores a late completion from the already-armed recv" {
@@ -42,15 +34,12 @@ test "close-slot: terminal drain ignores a late completion from the already-arme
 
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     var server_twin = try makeServerPeer(null, allocator);
     defer server_twin.deinit();
-    var server_ss: std.ArrayList(u8) = .empty;
-    defer server_ss.deinit(allocator);
-    try drainOutboundBytes(&server_twin, allocator, &server_ss);
-    _ = try client.recvStreamPrefix(server_ss.items);
+    _ = try pumpStream(&server_twin, &client, allocator);
     fetch_pump.drainEvents(&client);
 
     var fetch_bytes: std.ArrayList(u8) = .empty;
@@ -85,7 +74,7 @@ test "close-slot: terminal drain ignores a late completion from the already-arme
     // armed. Hold the abort send, then let a valid deliver complete the old
     // recv. The terminal lifecycle must recycle/drop it, not apply it and
     // queue a reply behind the abort.
-    try conn.peer.sendCopying(.{ .abort = .{
+    try conn.peer.sendBorrowed(.{ .abort = .{
         .kind = .graceful_shutdown,
         .message = "done",
     } });
@@ -127,7 +116,7 @@ test "close-slot: the deadline count tracks only connections actually waiting" {
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     CrossArmBackend.chunks = &.{client_ss.items};
@@ -161,7 +150,7 @@ test "close-slot: the deadline count tracks only connections actually waiting" {
     // The count tracks the terminal wait, and gives it back at close. The
     // abort is what makes the close wait at all: with nothing to flush,
     // `closeSlot` closes outright and never enters `.draining`.
-    try loop.conns[0].peer.sendCopying(.{ .abort = .{
+    try loop.conns[0].peer.sendBorrowed(.{ .abort = .{
         .kind = .graceful_shutdown,
         .message = "done",
     } });
@@ -185,7 +174,7 @@ test "close-slot: a terminal drain the partner never reads is reclaimed, not pin
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     CrossArmBackend.chunks = &.{client_ss.items};
@@ -216,7 +205,7 @@ test "close-slot: a terminal drain the partner never reads is reclaimed, not pin
     // Condemn the connection with its abort held at the backend: the partner
     // is not reading, so the send completion never arrives. Without the
     // drain deadline the slot stays `.draining` for the loop's lifetime.
-    try conn.peer.sendCopying(.{ .abort = .{
+    try conn.peer.sendBorrowed(.{ .abort = .{
         .kind = .graceful_shutdown,
         .message = "done",
     } });
@@ -254,7 +243,7 @@ test "close-slot: a second close on a draining connection escalates to a hard cl
     client.session_state.limits.max_frame_bytes = frame_cap;
     var client_ss: std.ArrayList(u8) = .empty;
     defer client_ss.deinit(allocator);
-    try client.sendCopying(startSession("client"));
+    try client.sendBorrowed(startSession("client"));
     try drainOutboundStreamBytes(&client, allocator, &client_ss);
 
     CrossArmBackend.chunks = &.{client_ss.items};
@@ -275,7 +264,7 @@ test "close-slot: a second close on a draining connection escalates to a hard cl
     try std.testing.expectError(error.ScriptParked, loop.run(.{ .after_closed = 1 }));
     const conn = &loop.conns[0];
 
-    try conn.peer.sendCopying(.{ .abort = .{
+    try conn.peer.sendBorrowed(.{ .abort = .{
         .kind = .graceful_shutdown,
         .message = "done",
     } });

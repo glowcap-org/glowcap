@@ -5,29 +5,33 @@
 const std = @import("std");
 const selection = @import("test_layers");
 const Layer = enum { loam, root, foundation, codec, engine, driver, model, net, session, actors, c_abi };
-const requested_layers = blk: {
-    var layers: [selection.layers.len]Layer = undefined;
-    for (selection.layers, 0..) |selected, index| {
-        layers[index] = std.meta.stringToEnum(Layer, selected) orelse @compileError("unknown test layer: " ++ selected);
+/// Which layers compile, resolved once so each `wanted` call is one lookup
+/// and the selection's length never grows the comptime branch budget.
+const wanted_layers = blk: {
+    var mask = std.enums.EnumArray(Layer, bool).initFill(selection.layers.len == 0);
+    for (selection.layers) |selected| {
+        const layer = for (std.enums.values(Layer)) |layer| {
+            if (std.mem.eql(u8, @tagName(layer), selected)) break layer;
+        } else @compileError("unknown test layer: " ++ selected);
+        mask.set(layer, true);
     }
-    break :blk layers;
+    break :blk mask;
 };
 
 fn wanted(comptime layer: Layer) bool {
-    if (selection.layers.len == 0) return true;
-    inline for (requested_layers) |requested| {
-        if (requested == layer) return true;
-    }
-    return false;
+    return wanted_layers.get(layer);
 }
 
 comptime {
     if (wanted(.loam)) {
         _ = @import("loam/core/store_test.zig");
+        _ = @import("loam/core/backend_test.zig");
+        _ = @import("loam/core/engine_test.zig");
         _ = @import("loam/core/evaluation_test.zig");
         _ = @import("loam/core/names_test.zig");
         _ = @import("loam/core/cache_commit_test.zig");
         _ = @import("loam/core/collection_test.zig");
+        _ = @import("loam/core/collection_resume_test.zig");
         _ = @import("loam/core/collection_custody_test.zig");
         _ = @import("loam/hosting/actors_test.zig");
         _ = @import("loam/hosting/reference_test.zig");
@@ -54,6 +58,7 @@ comptime {
         _ = @import("loam/access/reference_test.zig");
         _ = @import("loam/access/hosting_wire_test.zig");
         _ = @import("loam/access/sharing_test.zig");
+        _ = @import("loam/access/tree_hosted_test.zig");
         _ = @import("loam/access/mutation_test.zig");
         _ = @import("loam/access/management_test.zig");
         _ = @import("loam/access/value_record_test.zig");
@@ -96,6 +101,7 @@ comptime {
         _ = @import("api_surface_test.zig");
     }
     if (wanted(.foundation)) {
+        _ = @import("foundation/utf8_test.zig");
         // Oracle protocol tests run under `zig build oracle-check` only.
         _ = @import("foundation/frame_test.zig");
         _ = @import("foundation/id_test.zig");
@@ -103,20 +109,36 @@ comptime {
         _ = @import("foundation/noise_test.zig");
         _ = @import("foundation/sealed_test.zig");
         _ = @import("foundation/thread_affinity_test.zig");
+        _ = @import("foundation/identity_hash_test.zig");
+        _ = @import("foundation/handle_table_test.zig");
+        _ = @import("foundation/bearer_table_test.zig");
+        _ = @import("foundation/fuzz_test.zig");
+        _ = @import("foundation/inline_rows_test.zig");
         _ = @import("foundation/spill_test.zig");
         _ = @import("foundation/failure_chain_test.zig");
+        _ = @import("foundation/stream_framing_test.zig");
     }
     if (wanted(.codec)) {
         _ = @import("codec/syrup/encode_test.zig");
+        _ = @import("codec/syrup/render_test.zig");
+        _ = @import("codec/syrup/struct_order_test.zig");
+        _ = @import("codec/syrup/encode_view_test.zig");
         _ = @import("codec/syrup/decode_test.zig");
+        _ = @import("codec/syrup/decode_records_test.zig");
+        _ = @import("codec/syrup/decode_slab_test.zig");
+        _ = @import("codec/syrup/decode_hints_test.zig");
         _ = @import("codec/syrup/decode/borrowed_test.zig");
         _ = @import("codec/syrup/argument_test.zig");
         _ = @import("codec/syrup/oracle_test.zig");
         _ = @import("codec/syrup/view_test.zig");
         _ = @import("codec/capnp_test.zig");
         _ = @import("codec/capnp_malformed_test.zig");
+        _ = @import("codec/capnp_word_run_test.zig");
+        _ = @import("codec/capnp_view_encode_test.zig");
+        _ = @import("codec/sequence_length_test.zig");
+        _ = @import("codec/struct_slab_test.zig");
         _ = @import("codec/capnp_golden_test.zig");
-        _ = @import("codec/prefix_decode_test.zig");
+        _ = @import("codec/whole_frame_test.zig");
         _ = @import("codec/registry_test.zig");
         _ = @import("codec/encode_budget_test.zig");
         _ = @import("codec/fuzz_test.zig");
@@ -124,8 +146,12 @@ comptime {
     }
     if (wanted(.engine)) {
         _ = @import("engine/fuzz_test.zig");
+        _ = @import("engine/parse_once_test.zig");
         _ = @import("engine/give_location_test.zig");
         _ = @import("engine/peer/ownership_test.zig");
+        _ = @import("engine/peer/encoded_send_test.zig");
+        _ = @import("engine/peer/freight_send_test.zig");
+        _ = @import("engine/peer/answer_release_test.zig");
         _ = @import("engine/peer/v1_translation/gc_test.zig");
         _ = @import("engine/peer/v1_translation/oom_test.zig");
         _ = @import("engine/peer/v1_translation/resolver_test.zig");
@@ -187,7 +213,8 @@ comptime {
         _ = @import("driver/off_turn_settle_test.zig");
         if (@import("builtin").os.tag == .linux) {
             _ = @import("driver/host_runtime_multiplexed/lifecycle_test.zig");
-            _ = @import("driver/host_runtime_multiplexed/native_server_test.zig");
+            _ = @import("driver/host_runtime_multiplexed/park_test.zig");
+            _ = @import("driver/host_runtime_multiplexed/zig_server_test.zig");
             _ = @import("driver/host_runtime_multiplexed/conversation_test.zig");
             _ = @import("driver/host_runtime_multiplexed/completion_resident_test.zig");
             _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
@@ -195,6 +222,8 @@ comptime {
         }
         if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/serve_test.zig");
+        _ = @import("driver/host_runtime_step/flood_test.zig");
+        _ = @import("driver/host_runtime_step/refused_partner_release_test.zig");
         _ = @import("driver/host_runtime_step/dial_retry_test.zig");
         _ = @import("driver/host_runtime_step/staged_dial_test.zig");
         _ = @import("driver/host_runtime_step/wake_test.zig");
@@ -226,6 +255,8 @@ comptime {
         _ = @import("driver/core_host/local_foreign_forward_test.zig");
         _ = @import("driver/core_host/local_effects_test.zig");
         _ = @import("driver/core_host/completion_test.zig");
+        _ = @import("driver/core_host/view_delivery_test.zig");
+        _ = @import("driver/value_views_test.zig");
         _ = @import("driver/core_host/redeem/id_routes_test.zig");
         _ = @import("driver/core_host/redeem/route_completion_test.zig");
         _ = @import("driver/core_host/redeem/withdraw_test.zig");
@@ -238,6 +269,7 @@ comptime {
         _ = @import("driver/core_host/gift_order_test.zig");
         _ = @import("driver/core_host/pairing_test.zig");
         _ = @import("driver/core_host/pairing/reentry_test.zig");
+        _ = @import("driver/core_host/answer_release_test.zig");
         _ = @import("driver/core_host/vow_test.zig");
         _ = @import("driver/core_host/vow/allocation_test.zig");
         _ = @import("driver/core_host/admission_test.zig");
@@ -343,6 +375,7 @@ comptime {
         _ = @import("session/answer_notification_test.zig");
         _ = @import("session/gc_test.zig");
         _ = @import("session/gc_prepared_test.zig");
+        _ = @import("session/bimap_test.zig");
         _ = @import("session/grant_test.zig");
         _ = @import("session/handoff_test.zig");
         _ = @import("session/resolver_test.zig");
@@ -351,6 +384,10 @@ comptime {
         _ = @import("session/answers_slot_test.zig");
         _ = @import("session/bootstrap_test.zig");
         _ = @import("session/inspect_test.zig");
+        _ = @import("session/inventory_test.zig");
+        _ = @import("session/freight_test.zig");
+        _ = @import("session/integer_run_test.zig");
+        _ = @import("session/freight_scratch_test.zig");
     }
     if (wanted(.actors)) {
         _ = @import("actors/fuzz_test.zig");
@@ -364,8 +401,10 @@ comptime {
         _ = @import("actors/vat/snapshot_test.zig");
         _ = @import("actors/vat/move_test.zig");
         _ = @import("actors/vat/become_test.zig");
+        _ = @import("actors/vat/borrowed_reply_test.zig");
         _ = @import("actors/actor_roots_test.zig");
         _ = @import("actors/vat_alloc_budget_test.zig");
+        _ = @import("actors/freight_send_test.zig");
         _ = @import("actors/vat_footprint_budget_test.zig");
         _ = @import("actors/ocap_test.zig");
         _ = @import("actors/host_test.zig");

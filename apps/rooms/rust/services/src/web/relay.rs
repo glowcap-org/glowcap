@@ -17,6 +17,8 @@ use tokio::{
 };
 
 pub(super) type Job = Pin<Box<dyn Future<Output = Result<(), String>>>>;
+/// iroh sessions a relay runs at once unless the operator sets a limit.
+const DEFAULT_IROH_SESSIONS: usize = 16;
 #[derive(Clone)]
 pub(super) struct Limits {
 	pub sessions: usize,
@@ -42,7 +44,7 @@ impl Limits {
 				.filter(|n| *n > 0 && *n <= Semaphore::MAX_PERMITS)
 				.ok_or_else(|| format!("{name} must be a positive capacity")),
 		};
-		let iroh = cap("GLOWCAP_RELAY_MAX_IROH_SESSIONS", 16)?;
+		let iroh = cap("GLOWCAP_RELAY_MAX_IROH_SESSIONS", DEFAULT_IROH_SESSIONS)?;
 		let tcp = env("GLOWCAP_RELAY_TCP_PEERS")
 			.unwrap_or_default()
 			.split(',')
@@ -85,7 +87,10 @@ impl Relay {
 			jobs,
 			stop,
 			super::admission::Admission::new(super::admission::Config {
-				settings: rooms_application::admission::Settings::defaults(2048, 8),
+				settings: rooms_application::admission::Settings::defaults(
+					rooms_application::admission::HTTP_ROWS,
+					rooms_application::admission::POOLED_AGGREGATE_SCALE,
+				),
 				per_address: false,
 			}),
 		)

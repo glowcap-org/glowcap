@@ -10,7 +10,7 @@ pub mod irc;
 #[cfg(feature = "processes")]
 pub mod irc_bridge;
 #[cfg(feature = "processes")]
-pub mod irc_front;
+pub mod irc_server;
 pub mod media_files;
 #[cfg(feature = "processes")]
 pub mod server;

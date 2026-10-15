@@ -60,7 +60,7 @@ try {
 	await using runtime = await Runtime.open({ providers: [tcp.provider()] });
 	const session = await runtime.connect(tcp.locator(HOST, PORT));
 	console.log("deno-goblins-handoff: session open (recipient -> alice)");
-	session.serve().catch(() => {}); // the partner hanging up ends the serve loop
+	session.serve().catch(() => {}); // tolerant: the partner hanging up ends the serve loop
 
 	const introducer = await session.fetch(swiss);
 	console.log(

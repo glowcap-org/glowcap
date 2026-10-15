@@ -16,7 +16,7 @@ amended_by: [ADR-0204]
 
 Rooms seats, line handles and upload state end with their hosting lifetime.
 Saving durable workspace intent cannot preserve those runtime capabilities.
-The [storage contract](../../planning/rooms.md) requires a marker
+The Rooms storage contract requires a marker
 advanced before admissions open after restart, with bounded later retirement.
 It also requires exact held authority, explicit ownership and atomic staging.
 

@@ -20,8 +20,10 @@ const status_text =
     \\
     \\  run   deterministic CapTP simulation, timeline as NDJSON on stdout
     \\
-    \\Pipe a run into apps/ocapnviz to watch it. CapTP verbs stay under
-    \\`glowcap ocapn` and `glowcap repl`.
+    \\To watch a run, convert it with apps/ocapnviz/scripts/griddle-import.ts and
+    \\open it in apps/ocapnviz.
+    \\
+    \\CapTP verbs stay under `glowcap ocapn` and `glowcap repl`.
     \\
     \\See docs/cli.md.
     \\
@@ -43,7 +45,7 @@ fn runHelp(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
         \\  glowcap griddle help
         \\
         \\Deterministic CapTP simulation. `run` prints a timeline as NDJSON,
-        \\one event per line; the same seed replays exactly.
+        \\one event per line. The same seed replays exactly.
         \\
         \\Scenarios:
     );
@@ -60,7 +62,7 @@ fn runHelp(ctx: *Ctx, parsed: *Parsed) anyerror!u8 {
 }
 
 const run_flags = [_]@import("../cmd/types.zig").Flag{
-    .{ .long = "seed", .help = "Schedule seed (default 0); the same seed replays exactly", .kind = .string_flag },
+    .{ .long = "seed", .help = "Schedule seed (default 0). The same seed replays exactly", .kind = .string_flag },
     .{ .long = "scenario", .help = "Which conversation to run (default bootstrap-fetch)", .kind = .string_flag },
     .{ .long = "latency", .help = "Give each link its own seeded latency" },
     .{ .long = "partition-at", .help = "Cut every link at this tick", .kind = .string_flag },
@@ -105,7 +107,7 @@ const griddle_children = [_]Command{
     },
     .{
         .name = "status",
-        .short_help = "Report griddle implementation status",
+        .short_help = "Describe the griddle commands",
         .run = runStatus,
     },
     .{

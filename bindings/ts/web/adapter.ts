@@ -22,8 +22,8 @@
 // reports.
 
 import type {
-	NativeCallback,
-	NativeType,
+	FfiCallback,
+	FfiType,
 	RuntimeAdapter,
 	RuntimeFfi,
 	RuntimeNet,
@@ -186,7 +186,7 @@ export function makeWebAdapter(
 		}
 	}
 
-	/** Native actor retirement must not let a JavaScript exception unwind
+	/** FFI actor retirement must not let a JavaScript exception unwind
 	 * through wasm teardown. The registered callback only releases JS-owned
 	 * bookkeeping, and a missing callback is harmless before any pointer to it
 	 * can have been handed to the Host. */
@@ -198,7 +198,7 @@ export function makeWebAdapter(
 		}
 	}
 
-	function lowerArg(type: NativeType, value: unknown): unknown {
+	function lowerArg(type: FfiType, value: unknown): unknown {
 		switch (type) {
 			case "buffer": {
 				if (value === null || value === undefined) return 0;
@@ -215,7 +215,7 @@ export function makeWebAdapter(
 		}
 	}
 
-	function liftResult(type: NativeType, value: unknown): unknown {
+	function liftResult(type: FfiType, value: unknown): unknown {
 		switch (type) {
 			case "void":
 				return undefined;
@@ -235,7 +235,7 @@ export function makeWebAdapter(
 		if (typeof fn !== "function") {
 			throw new Error(
 				`glowcap wasm module exports no "${name}": only the ocapn and driver ` +
-					"families live in glowcap_host.wasm (the transport archives are native-only)",
+					"families live in glowcap_host.wasm (the transport archives are FFI-only)",
 			);
 		}
 		return (...args: unknown[]) => {
@@ -280,7 +280,7 @@ export function makeWebAdapter(
 			return table;
 		},
 
-		makeCallback(def: SymbolDef, fn: (...args: unknown[]) => unknown): NativeCallback {
+		makeCallback(def: SymbolDef, fn: (...args: unknown[]) => unknown): FfiCallback {
 			const behaviorParameters = [
 				"pointer",
 				"pointer",

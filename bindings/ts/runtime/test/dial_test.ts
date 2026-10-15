@@ -1,4 +1,4 @@
-import { acceptRemoteCandidate } from "../../webrtc/connector.ts";
+import { acceptRemoteCandidate } from "../../webrtc/exchange.ts";
 import { SignalingSendOwner } from "../signaling.ts";
 import { assert, assertEquals } from "../../dogfood/assert.ts";
 

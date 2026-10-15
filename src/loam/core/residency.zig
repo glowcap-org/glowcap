@@ -64,7 +64,7 @@ pub const Cache = struct {
     budget: usize,
 
     pub fn validateLimits(slots: usize, leases: usize, budget: usize, limits: records.Limits) !void {
-        if (slots == 0 or leases == 0 or limits.max_record_bytes < 128 or budget < limits.max_record_bytes) return error.InvalidLimits;
+        if (slots == 0 or leases == 0 or limits.max_record_bytes < 128 or budget < limits.max_record_bytes or limits.max_edges > records.Limits.max_edges_bound) return error.InvalidLimits;
     }
 
     pub fn init(allocator: std.mem.Allocator, slots: usize, leases: usize, budget: usize, limits: records.Limits, schemas: []const records.Schema) !Cache {
@@ -221,9 +221,19 @@ pub const Cache = struct {
                 if (found.metadata.store != current.store or found.metadata.incarnation != current.incarnation or found.metadata.revision != ticket.revision) return error.StaleCompletion;
                 const pending = slot.contents.loading;
                 if (found.length > pending.bytes.len) return error.RecordTooLarge;
-                const decoded = try records.View.decode(pending.bytes[0..found.length], self.limits, self.schemas);
+                // The read reserved a maximum-size buffer before the length was
+                // known. A copy of only the record's bytes lets the cache charge
+                // what it holds, so the byte budget counts records at their
+                // real size. The copy briefly holds one record beyond the
+                // budget. Without memory for it the read fails like any other
+                // refused load and leaves nothing resident.
+                const exact = try self.allocator.dupe(u8, pending.bytes[0..found.length]);
+                errdefer self.allocator.free(exact);
+                const decoded = try records.View.decode(exact, self.limits, self.schemas);
                 if (!decoded.id.eql(pending.id) or decoded.revision > ticket.revision) return error.Corrupt;
-                slot.contents = .{ .resident = .{ .bytes = pending.bytes, .view = decoded, .snapshot = ticket.revision } };
+                self.allocated_bytes -= pending.bytes.len - exact.len;
+                self.allocator.free(pending.bytes);
+                slot.contents = .{ .resident = .{ .bytes = exact, .view = decoded, .snapshot = ticket.revision } };
             },
         }
     }

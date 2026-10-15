@@ -9,9 +9,10 @@
 //!
 //! Think of `free*` as the main line. Owned messages move into the outbound queue
 //! and the pipelining tables, and each one is freed exactly once on the way out.
-//! `clone*` is the single exception we call out by name: one boundary copy in
-//! `Peer.sendCopying`, for callers holding borrowed or static data they want to
-//! keep owning. Everything internal goes through `Peer.send` and never clones.
+//! `clone*` is the single exception we call out by name: the boundary copy in
+//! `Peer.sendBorrowed`, for the kinds the queue keeps when a caller lends
+//! borrowed or static data. Everything internal goes through `Peer.send` and
+//! never clones.
 //! You'll also meet these as `model.cloneMessage` and `model.freeMessage`.
 
 const std = @import("std");
@@ -132,15 +133,27 @@ pub fn measureReferenceOwnedBytes(reference: model.Reference) model.view.Project
 /// when a message enters its staged queue. The charge travels with that queue
 /// row until encoding, so later admission checks never rescan the payload.
 pub fn measureMessageOwnedBytes(message: model.Message) model.view.ProjectError!usize {
+    var total = try measureMessageEnvelopeBytes(message);
+    switch (message) {
+        .deliver => |deliver| try addBytes(&total, try measureArgumentSliceOwnedBytes(deliver.args)),
+        .resolve => |resolve| try measureResolution(&total, resolve.resolution),
+        else => {},
+    }
+    return total;
+}
+
+/// Bytes a `Message` retains outside the tree it carries: its own value, the
+/// references it names at the top, and every kind's scalar payload. A
+/// deliver's argument tree and a resolve's resolution are measured apart,
+/// by the session's inventory walk on the outbound path.
+pub fn measureMessageEnvelopeBytes(message: model.Message) model.view.ProjectError!usize {
     var total: usize = @sizeOf(model.Message);
     switch (message) {
         .deliver => |deliver| {
             try measureReference(&total, deliver.target);
-            try addProduct(&total, deliver.args.len, @sizeOf(model.Argument));
-            for (deliver.args) |arg| try measureArgument(&total, arg, 0);
             if (deliver.resolve_me_desc) |reference| try measureReference(&total, reference);
         },
-        .resolve => |resolve| try measureResolution(&total, resolve.resolution),
+        .resolve => {},
         .gc_export => |gc| {
             try addProduct(&total, gc.positions.len, @sizeOf(u64));
             try addProduct(&total, gc.deltas.len, @sizeOf(u64));
@@ -193,6 +206,20 @@ fn measureResolution(total: *usize, resolution: model.Resolution) model.view.Pro
 
 fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.view.ProjectError!void {
     if (depth > model.max_value_depth) return error.MalformedView;
+    try addShallowOwnedBytes(total, argument);
+    switch (argument) {
+        .list, .set => |items| try measureArgumentSlice(total, items, depth + 1),
+        .tagged => |tagged| try measureArgumentSlice(total, tagged.value, depth + 1),
+        .@"struct" => |entries| for (entries) |entry| try measureArgument(total, entry.value, depth + 1),
+        else => {},
+    }
+}
+
+/// Bytes `argument` retains outside its children: a leaf's payload, or a
+/// container's own slice and keys. The session's inventory walk
+/// (`session/inventory.zig`) adds these as it descends, so one arm table
+/// serves both measures.
+pub fn addShallowOwnedBytes(total: *usize, argument: model.Argument) model.view.ProjectError!void {
     switch (argument) {
         .bytes => |bytes| try addBytes(total, bytes.len),
         .symbol => |symbol| try addBytes(total, symbol.len),
@@ -203,28 +230,28 @@ fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.
             try measureHandoff(total, handoff.*);
         },
         .string => |string| try addBytes(total, string.len),
-        .list => |items| try measureArgumentSlice(total, items, depth + 1),
-        .set => |items| try measureArgumentSlice(total, items, depth + 1),
+        .list, .set => |items| try addArgumentSliceOwnedBytes(total, items.len),
         .tagged => |tagged| {
             try addBytes(total, tagged.tag.len);
-            try measureArgumentSlice(total, tagged.value, depth + 1);
+            try addArgumentSliceOwnedBytes(total, tagged.value.len);
         },
         .keyword => |keyword| try addBytes(total, keyword.len),
         .big_integer => |big| try addBytes(total, big.digits.len),
         .@"struct" => |entries| {
             try addProduct(total, entries.len, @sizeOf(model.StructEntry));
-            for (entries) |entry| {
-                try addBytes(total, entry.key.len);
-                try measureArgument(total, entry.value, depth + 1);
-            }
+            for (entries) |entry| try addBytes(total, entry.key.len);
         },
         .integer, .boolean, .void, .float64 => {},
     }
 }
 
+/// The slice an argument vector itself occupies.
+pub fn addArgumentSliceOwnedBytes(total: *usize, len: usize) model.view.ProjectError!void {
+    try addProduct(total, len, @sizeOf(model.Argument));
+}
+
 fn measureArgumentSlice(total: *usize, items: []const model.Argument, depth: usize) model.view.ProjectError!void {
     if (depth > model.max_value_depth) return error.MalformedView;
-    try addProduct(total, items.len, @sizeOf(model.Argument));
     for (items) |item| try measureArgument(total, item, depth);
 }
 

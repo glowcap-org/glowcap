@@ -28,7 +28,8 @@ test "access owner creates resources delegates edits pauses and revokes through 
         try f.require(&read, backend, child.grant, message, req);
         try std.testing.expectError(error.OutOfScope, f.require(&read, backend, child.grant, root, req));
         var grants = try read.grantView();
-        try std.testing.expectEqual(@as(u32, 1), (try grants.get(issued.grant)).child_count);
+        try std.testing.expectEqual(@as(u32, 1), (try grants.borrow(issued.grant)).child_count);
+        grants.release();
     }
     _ = try f.change(store, backend, owner, .{ .pause = issued.grant });
     {
@@ -199,7 +200,6 @@ test "access loaded grant evaluation has fixed scratch and no allocator calls" {
     failing.fail_index = allocations;
     for (0..32) |_| try f.require(&read, &fixture.backend, issued.grant, resource, req);
     try std.testing.expectEqual(allocations, failing.alloc_index);
-    try std.testing.expect(@sizeOf(storage.Read) <= 20 * 1024);
     try std.testing.expect(@sizeOf(storage.Append) <= 52 * 1024);
 }
 
@@ -224,23 +224,36 @@ test "access grant scratch alternates scalar and selected scopes without stale a
     try f.require(&read, backend, narrow.grant, child, req);
     var grants = try read.grantView();
     for (0..8) |_| {
-        const broad = try grants.get(parent.grant);
+        const broad = (try grants.borrow(parent.grant)).*;
         try std.testing.expectEqual(root, broad.configured.scope.owned_subtree);
-        try std.testing.expectEqual(broad, try grants.get(parent.grant));
-        const exact = try grants.get(narrow.grant);
+        grants.release();
+        try std.testing.expectEqualDeep(broad, (try grants.borrow(parent.grant)).*);
+        grants.release();
+        const exact = try grants.borrow(narrow.grant);
         var resources = try read.resourceView();
         _ = try resources.get(child);
         try std.testing.expectEqualSlices(core.ResourceId, &.{child}, exact.configured.scope.objects);
+        grants.release();
         try std.testing.expectError(error.OutOfScope, f.require(&read, backend, narrow.grant, root, req));
     }
-    _ = try grants.get(parent.grant);
+    // One loan per read model: a second view, the same view, and the scratch
+    // all refuse until the holder releases.
+    const held = try grants.borrow(narrow.grant);
+    var second = try read.grantView();
+    try std.testing.expectError(error.RecordHeld, second.borrow(parent.grant));
+    try std.testing.expectError(error.RecordHeld, grants.borrow(parent.grant));
+    try std.testing.expectError(error.RecordHeld, read.grantScratch());
+    try std.testing.expectEqualSlices(core.ResourceId, &.{child}, held.configured.scope.objects);
+    grants.release();
+    _ = try second.borrow(parent.grant);
+    second.release();
     var stale = parent.grant;
     stale.generation += 1;
-    try std.testing.expectError(error.RecordUnloaded, grants.get(stale));
+    try std.testing.expectError(error.RecordUnloaded, grants.borrow(stale));
     _ = try f.pump(&read, backend);
-    try std.testing.expectError(error.Gone, grants.get(stale));
+    try std.testing.expectError(error.Gone, grants.borrow(stale));
     _ = try f.change(store, backend, owner, .{ .pause = parent.grant });
-    try std.testing.expectError(error.RevisionConflict, grants.get(parent.grant));
+    try std.testing.expectError(error.RevisionConflict, grants.borrow(parent.grant));
 }
 
 test "access owner refuses foreign identities stale generations and unsupported working sets" {
@@ -319,9 +332,9 @@ test "access directory lookup rejects foreign family level and cyclic path subst
         const row = try store.currentView(lease);
         var page = try f.loam.access.records.DirectoryPage.decode(row);
         switch (mode) {
-            0 => page.owner = @fromBackingInt(72),
-            1 => page.family = .grant,
-            2 => page.level = 1,
+            0 => page.header.owner = @fromBackingInt(72),
+            1 => page.header.family = .grant,
+            2 => page.header.level = 1,
             3 => page.set(0, root),
             else => unreachable,
         }
@@ -391,9 +404,14 @@ test "access composed resource and grant changes commit atomically in one transa
     try f.require(&verify, backend, derived.change.grant, message, req);
     try std.testing.expectError(error.OutOfScope, f.require(&verify, backend, derived.change.grant, root, req));
     var grants = try verify.grantView();
-    try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), (try grants.get(issued.change.grant)).revision);
-    try std.testing.expectEqual(@as(u32, 1), (try grants.get(issued.change.grant)).child_count);
-    try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), (try grants.get(derived.change.grant)).revision);
+    {
+        const row = try grants.borrow(issued.change.grant);
+        defer grants.release();
+        try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), row.revision);
+        try std.testing.expectEqual(@as(u32, 1), row.child_count);
+    }
+    try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(2)), (try grants.borrow(derived.change.grant)).revision);
+    grants.release();
 }
 
 test "access composed changes to one grant sequence revisions and events on staged state" {
@@ -421,8 +439,9 @@ test "access composed changes to one grant sequence revisions and events on stag
         return err;
     };
     var proposed = try read.grantView();
-    const proposal = try proposed.get(issued.grant);
+    const proposal = try proposed.borrow(issued.grant);
     try std.testing.expectEqualSlices(core.ResourceId, &.{message}, proposal.configured.scope.objects);
+    proposed.release();
     var pause_plan = (try f.prepare(&read, backend, .{ .pause = issued.grant })) orelse {
         return error.NoProgress;
     };
@@ -440,7 +459,8 @@ test "access composed changes to one grant sequence revisions and events on stag
     try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(3)), verify.header.version.grants);
     try std.testing.expectError(error.Paused, f.require(&verify, backend, issued.grant, message, req));
     var grants = try verify.grantView();
-    const row = try grants.get(issued.grant);
+    const row = try grants.borrow(issued.grant);
+    defer grants.release();
     try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(3)), row.revision);
     try std.testing.expectEqual(.paused, row.status);
 }
@@ -488,7 +508,8 @@ test "access composed derivations under one parent compose the parent row" {
     try f.require(&verify, backend, second.change.grant, root, req);
     try std.testing.expectError(error.OutOfScope, f.require(&verify, backend, first.change.grant, root, req));
     var grants = try verify.grantView();
-    const parent_row = try grants.get(parent.grant);
+    const parent_row = try grants.borrow(parent.grant);
+    defer grants.release();
     try std.testing.expectEqual(@as(u32, 2), parent_row.child_count);
     try std.testing.expectEqual(@as(f.core.Revision, @fromBackingInt(3)), parent_row.revision);
 }

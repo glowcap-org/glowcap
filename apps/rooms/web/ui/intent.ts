@@ -7,12 +7,11 @@
 // question from pressing "add a room" in the rail, and both are different from
 // opening the page cold.
 //
-// Kept as four remembered fields the whole application wrote into, the card
-// could not tell those apart, so it answered all three the same way and got two
+// Four remembered fields that the whole application writes into could not
+// tell those apart, so the card would answer all three the same way and get two
 // of them wrong. A link to a room in this page's directory would arrive with
 // the locator of some other directory sitting in the field, because that was
-// the last one anybody had typed. The gate on a link named one place and
-// offered another.
+// the last one anybody had typed.
 //
 // So an act is recorded rather than its consequences. Each act says where it
 // came from and what it names, presentation resolves the fields from it, and

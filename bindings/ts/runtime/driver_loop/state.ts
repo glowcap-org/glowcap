@@ -53,7 +53,7 @@ export interface ListenerWaiter {
 	onAbort?: () => void;
 }
 
-/** One stepping native loop over one multi-session host (ADR-0112).
+/** One stepping driver loop over one multi-session host (ADR-0112).
  *
  * Construct with `open` on the thread that will drive it, `start()` to park on
  * the readiness descriptor, and `close()` before dropping it. One thread
@@ -63,7 +63,7 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	abstract stepNow(): void;
 	abstract scheduleStep(): void;
 	abstract settleStep(): Promise<void>;
-	abstract nativeSessionRelease(ptr: Ptr): void;
+	abstract ffiSessionRelease(ptr: Ptr): void;
 	abstract serveSession(ptr: Ptr): void;
 	abstract claimReferenceExporter(reference: Uint8Array): Ptr | null;
 	abstract closeSession(ptr: Ptr, options?: CloseOptions): Promise<void>;
@@ -89,6 +89,7 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	protected _finalizerState: DriverLoopFinalizerState | null = null;
 	protected readonly _wrapper: Host;
 	protected _released = false;
+	readonly #teardownReleases: Array<() => void> = [];
 	protected _terminalFailure: GlowcapError | null = null;
 	protected _terminalRelease: TerminalDriverRelease | null = null;
 	protected _stepping = false;
@@ -100,7 +101,7 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	protected _closeRequested = false;
 	// Set only by `_doClose` once the lifecycle is terminal: the park task keeps
 	// stepping on readiness through the whole close (it is the close driver's
-	// readiness pump) and exits at this flag, before the native release.
+	// readiness pump) and exits at this flag, before the FFI release.
 	protected _parkStop = false;
 	// OPENED/ACCEPTED handles cross one event-to-wrapper ownership window. A
 	// true value records SESSION_CLOSED arriving before adoption; the pointer
@@ -197,10 +198,32 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 				retireDriverLoopFinalizer(this, this._finalizerState);
 				this._h = NULL;
 				this._released = true;
+				this._runTeardownReleases();
 				return wrapper.finishLoopTeardown();
 			},
 			initialOutcome,
 		);
+	}
+
+	/** Keep a provider's FFI callbacks alive until the C driver is released,
+	 * after which no provider callback can run. Each `release` runs once at
+	 * that point, on the ordinary close and on a background failure. A
+	 * throwing release is recorded as a callerless binding failure on the
+	 * wrapper Host and never thrown. A loop collected without `close()` frees
+	 * its driver through the finalizer and never runs these releases, so the
+	 * callbacks of such a loop stay open. */
+	retainUntilTeardown(release: () => void): void {
+		this.#teardownReleases.push(release);
+	}
+
+	protected _runTeardownReleases(): void {
+		for (const release of this.#teardownReleases.splice(0)) {
+			try {
+				release();
+			} catch (error) {
+				this._wrapper.recordCallerlessBindingFailure("driver-loop.teardown.release", error);
+			}
+		}
 	}
 
 	/** The exact Host wrapper transferred into this loop. */
@@ -209,6 +232,6 @@ export abstract class DriverLoopState implements DriverLoopHandle {
 	}
 
 	/** Stop stepping and release the loop, its sessions, and its host.
-	 * Idempotent; safe to start from inside a behavior turn (the native
+	 * Idempotent; safe to start from inside a behavior turn (the FFI
 	 * release runs after the enclosing step unwinds). */
 }

@@ -9,6 +9,7 @@ pub const host = @import("c_abi_host");
 pub const c = @import("types.zig");
 pub const allocator = shared.library_allocator;
 pub const max_content_fields = 514;
+pub const max_schemas = 128;
 
 pub const Store = struct {
     allocator: std.mem.Allocator,
@@ -17,27 +18,29 @@ pub const Store = struct {
     limits: c.GlowcapLoamLimits,
     attachments: usize = 0,
     backend_owned: bool = false,
-    startup_batch: ?core.Batch = null,
-    startup_evaluation: ?core.Batch.Evaluation = null,
-    startup_result: ?core.Resolution = null,
+    /// The most storage works holding a read transaction at once. An engine
+    /// companion sets its engine's `readerCapacity`, and storage the
+    /// embedding supplies admits any number.
+    readers: usize = std.math.maxInt(usize),
+    /// A store-level batch is a startup commit, a recovery, or a collection step.
+    store_batch: ?core.Batch = null,
+    store_evaluation: ?core.Batch.Evaluation = null,
+    store_result: ?core.Resolution = null,
     /// Validate foreign configuration before a storage open has durable effects.
     /// The core checks schema and cache laws. This profile only bounds its ABI.
     pub fn validateConfiguration(schemas: []const c.GlowcapLoamSchema, limits: c.GlowcapLoamLimits) !void {
-        if (schemas.len == 0 or schemas.len > 128 or limits.max_retentions == 0) return error.InvalidLimits;
+        if (schemas.len == 0 or schemas.len > max_schemas or limits.max_retentions == 0) return error.InvalidLimits;
         try hostingOptions(limits).validate(0);
         if (limits.record_capacity == 0 or limits.record_capacity > limits.max_leases -| 2 or limits.max_reference_saves == 0) return error.InvalidLimits;
         _ = try std.math.add(usize, limits.cache_slots, 1);
-        var declarations: [128 + access.records.profile.schemas.len + 3]core.Schema = undefined;
-        const configured = declarations[0 .. schemas.len + access.records.profile.schemas.len + 3];
+        var declarations: [128 + access.hosting.system_schemas.len]core.Schema = undefined;
+        const configured = declarations[0 .. schemas.len + access.hosting.system_schemas.len];
         populateSchemas(schemas, configured);
         try core.Store.validateConfiguration(configured, coreLimits(limits));
     }
     fn populateSchemas(schemas: []const c.GlowcapLoamSchema, declarations: []core.Schema) void {
-        @memcpy(declarations[0..access.records.profile.schemas.len], &access.records.profile.schemas);
-        declarations[access.records.profile.schemas.len] = hosting.publication.schema;
-        declarations[access.records.profile.schemas.len + 1] = hosting.references.schema;
-        declarations[access.records.profile.schemas.len + 2] = hosting.LiveEpoch.schema;
-        for (schemas, declarations[access.records.profile.schemas.len + 3 ..]) |schema, *target| target.* = .{ .id = schema.id, .version = schema.version, .max_payload = schema.max_payload, .max_edges = schema.max_edges };
+        @memcpy(declarations[0..access.hosting.system_schemas.len], &access.hosting.system_schemas);
+        for (schemas, declarations[access.hosting.system_schemas.len..]) |schema, *target| target.* = .{ .id = schema.id, .version = schema.version, .max_payload = schema.max_payload, .max_edges = schema.max_edges };
     }
     fn coreLimits(limits: c.GlowcapLoamLimits) core.Store.Limits {
         return .{ .records = .{ .max_record_bytes = limits.record_bytes, .max_edges = max_content_fields }, .resident_bytes = limits.resident_bytes, .staging_bytes = limits.staging_bytes, .cache_slots = limits.cache_slots, .max_leases = limits.max_leases, .max_changes = limits.max_changes, .max_retentions = limits.max_retentions };
@@ -49,7 +52,7 @@ pub const Store = struct {
     }
     pub fn init(gpa: std.mem.Allocator, metadata: core.Metadata, schemas: []const c.GlowcapLoamSchema, limits: c.GlowcapLoamLimits) !*Store {
         try validateConfiguration(schemas, limits);
-        const declarations = try gpa.alloc(core.Schema, schemas.len + access.records.profile.schemas.len + 3);
+        const declarations = try gpa.alloc(core.Schema, schemas.len + access.hosting.system_schemas.len);
         errdefer gpa.free(declarations);
         populateSchemas(schemas, declarations);
         const owner = try gpa.create(Store);
@@ -99,8 +102,10 @@ pub const EvaluationGuard = struct {
         active_evaluation = self.prior;
     }
 };
+/// A caller's object handle. A malformed one is the caller's argument, not
+/// damaged storage, so it never reports `Corrupt`.
 pub fn object(raw: c.GlowcapLoamObject) !core.ObjectId {
-    return core.ObjectId.fromKey(&raw.key);
+    return core.ObjectId.fromKey(&raw.key) catch error.InvalidArgument;
 }
 pub fn objectToC(id: core.ObjectId) c.GlowcapLoamObject {
     return .{ .key = id.key() };
@@ -109,10 +114,12 @@ pub fn code(err: anyerror) i32 {
     shared.setLastError("loam: {s}", .{@errorName(err)});
     return switch (err) {
         error.NullPointer => shared.GLOWCAP_ERR_NULL_POINTER,
-        error.Busy, error.RecordUnloaded, error.PendingRead => shared.GLOWCAP_ERR_WOULD_BLOCK,
+        error.Busy, error.CustodyUnavailable, error.RecordUnloaded, error.PendingRead, error.ReaderCapacity => shared.GLOWCAP_ERR_WOULD_BLOCK,
         error.OutOfMemory => shared.GLOWCAP_ERR_INTERNAL,
-        error.StorageFailure => shared.GLOWCAP_ERR_IO,
-        error.Gone => shared.GLOWCAP_ERR_NOT_FOUND,
+        // The engine stopped admitting work, so close and reopen it.
+        error.StorageFailure, error.OpenOutcomeUnknown, error.ReopenRequired, error.Closed => shared.GLOWCAP_ERR_IO,
+        error.Corrupt => @import("mod.zig").GLOWCAP_LOAM_ERR_CORRUPT,
+        error.Gone, error.MissingStore, error.FileNotFound => shared.GLOWCAP_ERR_NOT_FOUND,
         error.RecoveryRequired, error.OutcomeUnknown => @import("mod.zig").GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED,
         error.StaleCompletion, error.WorkerNotRetired => @import("mod.zig").GLOWCAP_LOAM_ERR_STALE_COMPLETION,
         error.Denied, error.Paused, error.Revoked, error.OutOfScope, error.CeilingExceeded, error.DelegationDenied => @import("mod.zig").GLOWCAP_LOAM_ERR_DENIED,
@@ -134,8 +141,10 @@ pub fn policy(raw: c.GlowcapLoamPolicy) !access.core.Policy {
     } };
     var kinds: [P.max_kinds]P.KindRule = undefined;
     for (raw.kind_rules[0..raw.kind_count], kinds[0..raw.kind_count]) |source, *target| target.* = .{ .kind = @fromBackingInt(source.kind), .permissions = source.permissions, .subtree_permissions = source.subtree_permissions };
-    const vocabulary = try P.init(.{ .id = @fromBackingInt(std.mem.readInt(u128, &raw.identity, .big)), .permissions = permissions[0..raw.permission_count], .constraints = constraints[0..raw.constraint_count] });
-    return (try vocabulary.withPrerequisiteMasks(raw.prerequisite_masks)).withKinds(kinds[0..raw.kind_count]);
+    var result = try P.init(.{ .id = @fromBackingInt(std.mem.readInt(u128, &raw.identity, .big)), .permissions = permissions[0..raw.permission_count], .constraints = constraints[0..raw.constraint_count] });
+    try result.setPrerequisiteMasks(&raw.prerequisite_masks);
+    try result.setKinds(kinds[0..raw.kind_count]);
+    return result;
 }
 
 pub fn slice(comptime T: type, ptr: ?[*]const T, len: usize) ![]const T {

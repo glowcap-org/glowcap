@@ -54,6 +54,7 @@ from _protocol_gen import (  # noqa: E402
     DM,
     ENTER,
     INTRODUCE,
+    LIST_PAGE_FIELDS,
     LIST_PUBLICATIONS,
     MEMBER_REGISTRATION,
     MEMBERSHIP_ENDED,
@@ -160,6 +161,23 @@ def _rooms(raw) -> "list[RoomInfo]":
     return out
 
 
+@dataclass(frozen=True)
+class RoomPage:
+    """One page of the live room list, and the cursor that asks for the next
+    page when more remain."""
+
+    rooms: "list[RoomInfo]"
+    next: str | None
+
+
+def _room_page(raw) -> RoomPage:
+    """Decode one ``listPublications`` answer against the generated page record."""
+    if not _fits(LIST_PAGE_FIELDS, raw):
+        raise ValueError("the directory answered a malformed room page")
+    rows, cursor = raw
+    return RoomPage(_rooms(rows), cursor)
+
+
 def _watch_rooms(raw) -> "list[RoomInfo]":
     """Decode the atomic rooms, registrations, and omission-count baseline."""
     if not _fits(WATCH_SNAPSHOT_FIELDS, raw):
@@ -186,8 +204,8 @@ def _watch_room_event(args) -> "tuple[str, RoomInfo | None]":
 
 
 def rooms_host() -> Host:
-    """A Host wearing the core-authored native profile."""
-    return Host(profile="native")
+    """A Host wearing the core-authored glowcap profile."""
+    return Host(profile="glowcap")
 
 
 async def _dial(locator: str) -> "tuple[Runtime, Session]":
@@ -246,9 +264,11 @@ class Directory:
         """Return a reference to an existing room. Raises if there is none."""
         return await self.session.send(self._directory, ENTER, [name])
 
-    async def list(self) -> "list[RoomInfo]":
-        """The directory's exact live local and foreign room publications."""
-        return _rooms(await self.session.send(self._directory, LIST_PUBLICATIONS, []))
+    async def list(self, cursor: str | None = None) -> RoomPage:
+        """One page of the directory's live local and foreign room
+        publications. Pass the page's ``next`` to read the page after it."""
+        args = [] if cursor is None else [cursor]
+        return _room_page(await self.session.send(self._directory, LIST_PUBLICATIONS, args))
 
     async def watch(self, on_event) -> "list[RoomInfo]":
         """Follow the live room list: hand the directory an inbox it calls back

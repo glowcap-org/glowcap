@@ -305,7 +305,7 @@ fn graph(encoded: &records::Encoded<'_, References, i32>) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn register_family() {
-	use glowcap::loam::{Limits, Schema, Store};
+	use glowcap::loam::{Limits, OpenMode, Schema, Sqlite, Store};
 	let nonce = std::time::SystemTime::now()
 		.duration_since(std::time::UNIX_EPOCH)
 		.unwrap()
@@ -321,7 +321,17 @@ fn register_family() {
 			max_edges: schema.max_edges,
 		})
 		.collect();
-	let mut store = Store::open(&path, [45; 16], true, 256 * 1024 * 1024, &schemas, Limits::default()).unwrap();
+	let mut store = Store::open(
+		Sqlite {
+			path: path.clone(),
+			identity: [45; 16],
+			mode: OpenMode::Create,
+			capacity_bytes: 256 * 1024 * 1024,
+		},
+		&schemas,
+		Limits::default(),
+	)
+	.unwrap();
 	store.close().unwrap();
 	drop(store);
 	std::fs::remove_dir_all(path).unwrap();

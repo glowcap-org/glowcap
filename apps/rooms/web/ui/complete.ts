@@ -73,8 +73,8 @@ export function nickSource(
 	if (conv.type !== "room") return conv.type === "dm" ? [conv.id] : [];
 	// An attribution prefix is the room's bookkeeping, not part of a name anybody
 	// goes by and not valid mention syntax, so it comes off. One visible spelling
-	// also covers the rare collision where a native member and a bridged one share
-	// a name: `@alice` reaches the native reader and crosses the bridge anyway, so
+	// also covers the rare collision where a Rooms member and a bridged one share
+	// a name: `@alice` reaches the Rooms reader and crosses the bridge anyway, so
 	// two identical rows would offer no distinct act.
 	const names = new Set<string>();
 	for (const name of members.keys()) names.add(foreignName(name, conv.bridge) ?? name);

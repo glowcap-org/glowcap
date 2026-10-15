@@ -158,7 +158,7 @@ pub struct RetireBatch {
 	pub refused: Field,
 }
 
-/// Shared query admission for native and in-process session clients.
+/// Shared query admission for host and in-process session clients.
 pub fn validate_query(scope: &str, query: &str) -> Result<(), Refusal> {
 	if !rows::Name::accepts_utf16(scope.encode_utf16())
 		|| query.encode_utf16().take(super::MAX_QUERY + 1).count() > super::MAX_QUERY

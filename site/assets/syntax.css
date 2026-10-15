@@ -83,16 +83,7 @@ blockquote {
   color: var(--teal-ink);
 }
 
-/* A table wider than its column scrolls inside itself. Without this the page
-   body scrolls sideways on a narrow screen, which moves the prose out from
-   under the reader along with the table. The markdown emits a bare `<table>`
-   with nothing to wrap, so the table is its own scroll container: `display:
-   block` is what makes `overflow-x` apply, and the inner `display: table` below
-   puts the grid layout back inside it. */
 table {
-  display: block;
-  overflow-x: auto;
-  max-width: 100%;
   border-collapse: collapse;
   width: 100%;
   font-size: 0.94em;
@@ -101,17 +92,22 @@ table {
      digit instead of drifting. The benchmark tables are full of them. */
   font-variant-numeric: tabular-nums;
 }
-/* Restore the grid inside the scrolling block. Without these the rows stack and
-   the columns stop lining up, which is the usual cost of the wrapper-free
-   scroll above. */
-table > thead,
-table > tbody {
-  display: table;
-  width: 100%;
-}
-table > thead > tr,
-table > tbody > tr {
-  display: table-row;
+
+/* Below the widest layout, a table wider than its column scrolls inside
+   itself, so the page body never scrolls sideways and carries the prose off
+   with it. The markdown emits a bare `<table>` with nothing to wrap, so the
+   table is its own scroll container: `display: block` is what makes
+   `overflow-x` apply, and the browser wraps the row groups in one anonymous
+   table, so header and body share their columns. That inner table only takes
+   the width its cells need, which is why the widest layout keeps a real
+   full-width table. Giving the head and body each `display: table` would fill
+   the width, but lays them out as two tables whose columns drift apart. */
+@media (max-width: 84rem) {
+  table {
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+  }
 }
 
 th, td {
@@ -119,9 +115,10 @@ th, td {
   padding: 0.5rem 0.7rem;
   border-bottom: 1px solid var(--rule);
   vertical-align: top;
-  /* Balance a multi-line value cell so it never leaves one trailing word
-     alone on its own row. */
-  text-wrap: balance;
+  /* A value cell can hold a sentence, so only its last lines are tuned to
+     keep one word from sitting alone. Balancing every line would leave a
+     narrow column a word or two wide. */
+  text-wrap: pretty;
 }
 
 /* The first column of a doc table is the key — a codec, transport, surface, or
@@ -135,6 +132,8 @@ th, td {
 th {
   color: var(--teal-ink);
   font-weight: 700;
+  /* A header is a short label, so its lines split evenly. */
+  text-wrap: balance;
 }
 
 tbody tr:hover {

@@ -43,12 +43,50 @@ pub const Progress = struct {
 pub const Request = struct {
     roots: []const records.ObjectId,
     work_limit: usize,
-    /// Exclusive worker scratch. Never part of the immutable operation digest.
+    /// Exclusive worker scratch, outside the batch the evaluator validates.
     scratch: []u8,
 };
 
-/// A cursor result borrows only until the next transaction mutation.
+/// A cursor result borrows until the next write or the next walk.
 pub const Row = struct { key: []const u8, value: []const u8 };
+
+/// What a resumed evaluation must not redo. A suspended read leaves a batch
+/// in the middle of one step, and this holds the reads that step has already
+/// completed so the retry continues the step instead of restarting it. It lives
+/// as long as one batch, and the persisted `Progress` alone survives a commit.
+pub const Resume = struct {
+    /// Steps this batch has spent of its work limit.
+    steps: usize = 0,
+    /// Roots this batch has marked so far, zero when the batch starts.
+    seeded: usize = 0,
+    /// Bytes of the record under trace copied into the scratch buffer, or
+    /// null before that read.
+    record_len: ?usize = null,
+    /// The edge of the traced record to mark next.
+    edge_cursor: usize = 0,
+    /// The queued record under trace, read before its row.
+    traced: ?records.ObjectId = null,
+    /// A walked row whose mark lookup is the next step. A walk and a lookup
+    /// never share a step, because a store that holds one loaded row would
+    /// evict the walk's answer with the lookup.
+    held: ?Held = null,
+
+    pub const Held = struct { id: records.ObjectId, length: usize };
+
+    /// Whether a multi-step unit is open.
+    pub fn pending(self: Resume) bool {
+        return self.held != null or self.traced != null;
+    }
+};
+
+/// The longest physical key is a mark row: the two-byte mark prefix and a
+/// 33-byte object key. An engine sizes key buffers with it.
+pub const max_key_bytes: usize = 35;
+
+comptime {
+    const object_key = @typeInfo(@TypeOf(records.ObjectId.key)).@"fn".return_type.?;
+    std.debug.assert("gm".len + @sizeOf(object_key) == max_key_bytes);
+}
 
 pub fn mark(progress: *Progress, kv: anytype, id: records.ObjectId) !void {
     const key = "gm".* ++ id.key();
@@ -59,20 +97,21 @@ pub fn mark(progress: *Progress, kv: anytype, id: records.ObjectId) !void {
     progress.tail = next;
 }
 
-pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.Limits, schemas: []const records.Schema) !void {
+pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.Limits, schemas: []const records.Schema, carry: *Resume) !void {
     if (request.work_limit == 0 or request.scratch.len < limits.max_record_bytes) return error.InvalidLimits;
     const progress = &metadata.collection;
     // Idle is committed only after finishing removed every temporary row.
     // Reopening an interrupted cycle selects clearing through Metadata.claim.
     if (progress.phase == .idle) progress.* = .{ .phase = .roots };
-    var seeded = false;
-    for (0..request.work_limit) |_| {
-        if (progress.tracing() and !seeded) {
-            for (request.roots) |id| {
+    // A unit of several steps finishes inside its batch, because only the
+    // persisted Progress survives a commit and the unit's reads do not.
+    while (carry.steps < request.work_limit or carry.pending()) : (carry.steps += 1) {
+        if (progress.tracing()) {
+            for (request.roots[carry.seeded..]) |id| {
                 if (id.store != metadata.store) return error.ForeignObject;
                 try mark(progress, kv, id);
+                carry.seeded += 1;
             }
-            seeded = true;
         }
         switch (progress.phase) {
             .idle => break,
@@ -89,10 +128,13 @@ pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.L
                 } else progress.phase = .idle;
             },
             .roots => {
-                if (try nextObject(progress, kv)) |row| {
+                if (carry.held) |held| {
+                    try mark(progress, kv, held.id);
+                    progress.cursor = held.id.key();
+                    carry.held = null;
+                } else if (try nextObject(progress, kv)) |row| {
                     const view = try checked(row, metadata.*, limits, schemas);
-                    progress.cursor = view.id.key();
-                    if (view.rooted) try mark(progress, kv, view.id);
+                    if (view.rooted) carry.held = .{ .id = view.id, .length = row.value.len } else progress.cursor = view.id.key();
                 } else {
                     progress.cursor = @splat(0);
                     progress.phase = .trace;
@@ -103,18 +145,38 @@ pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.L
                     progress.phase = .sweep;
                     continue;
                 }
-                const key = queueKey(progress.head);
-                const id = try records.ObjectId.fromKey((try kv.get(&key)) orelse return error.Corrupt);
-                try kv.remove(&key);
-                progress.head += 1;
-                const bytes = (try kv.get(&id.key())) orelse continue; // Explicit deletion may leave gone edges.
-                if (bytes.len > request.scratch.len) return error.RecordTooLarge;
-                // LMDB value borrows end at the next write. Trace an owned
-                // bounded copy before marking children mutates mapped pages.
-                @memcpy(request.scratch[0..bytes.len], bytes);
-                const view = try checked(.{ .key = &id.key(), .value = request.scratch[0..bytes.len] }, metadata.*, limits, schemas);
+                const id = carry.traced orelse {
+                    carry.traced = try records.ObjectId.fromKey((try kv.get(&queueKey(progress.head))) orelse return error.Corrupt);
+                    continue;
+                };
+                const key = id.key();
+                const length = carry.record_len orelse {
+                    const bytes = (try kv.get(&key)) orelse {
+                        // Explicit deletion may leave gone edges.
+                        try kv.remove(&queueKey(progress.head));
+                        progress.head += 1;
+                        carry.traced = null;
+                        continue;
+                    };
+                    if (bytes.len > request.scratch.len) return error.RecordTooLarge;
+                    // A row borrow ends at the next write. Trace an owned bounded
+                    // copy before marking children mutates the store.
+                    @memcpy(request.scratch[0..bytes.len], bytes);
+                    carry.record_len = bytes.len;
+                    carry.edge_cursor = 0;
+                    continue;
+                };
+                const view = try checked(.{ .key = &key, .value = request.scratch[0..length] }, metadata.*, limits, schemas);
                 var edges = view.edges();
-                while (edges.next()) |edge| if (edge.strength == .strong) try mark(progress, kv, edge.target);
+                edges.cursor = carry.edge_cursor;
+                while (edges.next()) |edge| {
+                    if (edge.strength == .strong) try mark(progress, kv, edge.target);
+                    carry.edge_cursor = edges.cursor;
+                }
+                try kv.remove(&queueKey(progress.head));
+                progress.head += 1;
+                carry.traced = null;
+                carry.record_len = null;
             },
             .sweep => {
                 // Both live-retention seeds and concurrent writer barriers
@@ -123,17 +185,20 @@ pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.L
                     progress.phase = .trace;
                     continue;
                 }
-                if (try nextObject(progress, kv)) |row| {
-                    const view = try checked(row, metadata.*, limits, schemas);
-                    const length = row.value.len;
-                    const key = view.id.key();
+                if (carry.held) |held| {
+                    const key = held.id.key();
+                    const marked = (try kv.get(&("gm".* ++ key))) != null;
                     progress.cursor = key;
-                    if (view.rooted or try kv.get(&("gm".* ++ key)) != null) continue;
+                    carry.held = null;
+                    if (marked) continue;
                     metadata.objects = std.math.sub(u64, metadata.objects, 1) catch return error.Corrupt;
-                    metadata.record_bytes = std.math.sub(u64, metadata.record_bytes, length) catch return error.Corrupt;
+                    metadata.record_bytes = std.math.sub(u64, metadata.record_bytes, held.length) catch return error.Corrupt;
                     progress.reclaimed_objects = try std.math.add(u64, progress.reclaimed_objects, 1);
-                    progress.reclaimed_bytes = try std.math.add(u64, progress.reclaimed_bytes, length);
+                    progress.reclaimed_bytes = try std.math.add(u64, progress.reclaimed_bytes, held.length);
                     try kv.remove(&key);
+                } else if (try nextObject(progress, kv)) |row| {
+                    const view = try checked(row, metadata.*, limits, schemas);
+                    if (view.rooted) progress.cursor = view.id.key() else carry.held = .{ .id = view.id, .length = row.value.len };
                 } else progress.phase = .finishing;
             },
         }

@@ -39,10 +39,46 @@ pub const ResolverPurpose = union(enum) {
     retired: RetiredResolver,
     shortening_pending: PromiseIncarnation,
     shortening_complete: PromiseIncarnation,
+
+    /// The words an identity-keyed table hashes and compares. The first
+    /// names the arm and its flags, the rest carry its positions, so two
+    /// purposes with equal words are one purpose.
+    pub fn identityWords(self: ResolverPurpose) [4]u64 {
+        return switch (self) {
+            .application_answer => |answer| .{ 0, @backingInt(answer), 0, 0 },
+            .local_promise_answer => |name| .{ 1, name.identityKey(), 0, 0 },
+            .node_settling => |node| settlingWords(2, node.resolver_export, node.settling_source),
+            .retired => |retired| settlingWords(
+                3 | (@as(u64, @backingInt(retired.state)) << 4),
+                retired.resolver_export,
+                retired.settling_source,
+            ),
+            .shortening_pending => |incarnation| .{ 4, @backingInt(incarnation.position), incarnation.row_id, 0 },
+            .shortening_complete => |incarnation| .{ 5, @backingInt(incarnation.position), incarnation.row_id, 0 },
+        };
+    }
+
+    /// A node-settling or retired resolver serves no answer or promise, so
+    /// the export it holds is its only name and it takes no reverse row in
+    /// the outbound link.
+    pub fn namedKey(self: ResolverPurpose) ?model.ExportPosition {
+        return switch (self) {
+            .node_settling => |node| node.resolver_export,
+            .retired => |retired| retired.resolver_export,
+            .application_answer, .local_promise_answer, .shortening_pending, .shortening_complete => null,
+        };
+    }
+
+    fn settlingWords(arm: u64, resolver_export: model.ExportPosition, source: ?PromiseIncarnation) [4]u64 {
+        const incarnation = source orelse return .{ arm, @backingInt(resolver_export), 0, 0 };
+        return .{ arm | (1 << 3), @backingInt(resolver_export), @backingInt(incarnation.position), incarnation.row_id };
+    }
 };
 
-pub const OutboundResolverLink = bimap.BiMap(model.ExportPosition, ResolverPurpose);
-pub const InboundResolverLink = bimap.BiMap(model.AnswerName, model.ImportPosition);
+/// The resolver export is ours. The answer positions inside a purpose are the
+/// peer's words, so the purpose side hashes under the session secret.
+pub const OutboundResolverLink = bimap.BiMap(model.ExportPosition, ResolverPurpose, .local, .wire);
+pub const InboundResolverLink = bimap.BiMap(model.AnswerName, model.ImportPosition, .wire, .wire);
 
 /// Listen/settle cell embedded only by `ImportedPromise`.
 pub const PromiseListenCell = struct {

@@ -29,14 +29,11 @@ pub fn policy(arena: std.mem.Allocator, schema: *const core.Policy, value: core.
         permissions[n] = try unsigned(arena, @backingInt(key));
         n += 1;
     }
+    const selected = permissions[0..n];
+    const bounds = try arena.alloc(driver.Value, @popCount(value.bound_mask));
     n = 0;
-    for (value.bounds[0..schema.constraint_count]) |bound| if (bound != null) {
-        n += 1;
-    };
-    const bounds = try arena.alloc(driver.Value, n);
-    n = 0;
-    for (schema.constraint_fields[0..schema.constraint_count], value.bounds[0..schema.constraint_count]) |field, bound| {
-        const limit = bound orelse continue;
+    for (schema.constraint_fields[0..schema.constraint_count], 0..) |field, i| {
+        const limit = value.bound(i) orelse continue;
         const parts = try arena.alloc(driver.Value, 3);
         parts[0] = try unsigned(arena, @backingInt(field.key));
         parts[1] = .{ .symbol = @tagName(field.operator) };
@@ -45,8 +42,10 @@ pub fn policy(arena: std.mem.Allocator, schema: *const core.Policy, value: core.
         n += 1;
     }
     const parts = try arena.alloc(driver.Value, 2);
-    parts[0] = .{ .list = permissions };
-    parts[1] = .{ .list = bounds };
+    // Both lists are sized by the value's own bits and filled by the schema's
+    // declared slots, so an undeclared bit leaves a tail the lists exclude.
+    parts[0] = .{ .list = selected };
+    parts[1] = .{ .list = bounds[0..n] };
     return .{ .tagged = .{ .tag = "access:policy", .value = parts } };
 }
 

@@ -46,7 +46,7 @@ impl Default for Codec {
 
 /// The CapTP profile a session speaks (ADR-0003). `V1_0` is the interop floor a
 /// Goblins vat and the upstream suite speak. `Next` is the glowcap-to-glowcap
-/// track that `Offer::native` prefers together with Cap'n Proto. A Host states
+/// track that `Offer::glowcap` prefers together with Cap'n Proto. A Host states
 /// its preference in signed locator hints. Each session settles the pair with
 /// its partner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +59,7 @@ pub enum CaptpVersion {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostProfile {
 	Interop,
-	Native,
+	Glowcap,
 }
 
 #[cfg(feature = "async")]
@@ -67,7 +67,7 @@ impl HostProfile {
 	pub(crate) fn codec(self) -> Codec {
 		let raw = match self {
 			HostProfile::Interop => sys::INTEROP_CODEC,
-			HostProfile::Native => sys::NATIVE_CODEC,
+			HostProfile::Glowcap => sys::OWN_CODEC,
 		};
 		match raw {
 			sys::CODEC_SYRUP => Codec::Syrup,
@@ -79,7 +79,7 @@ impl HostProfile {
 	pub(crate) fn captp_version(self) -> CaptpVersion {
 		let raw = match self {
 			HostProfile::Interop => sys::INTEROP_CAPTP_VERSION,
-			HostProfile::Native => sys::NATIVE_CAPTP_VERSION,
+			HostProfile::Glowcap => sys::OWN_CAPTP_VERSION,
 		};
 		match raw {
 			sys::CAPTP_V1_0 => CaptpVersion::V1_0,

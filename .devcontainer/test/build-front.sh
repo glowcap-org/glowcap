@@ -9,7 +9,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 container_dir="${repo_root}/.devcontainer"
 front="${repo_root}/.agents/skills/work/bin/glowcap-dev"
 lease_runner="${repo_root}/.agents/skills/work/bin/glowcap-build-lease"
-unset CARGO_BUILD_BUILD_DIR CARGO_BUILD_JOBS RUSTC
+# The lease steps below expect a contender to exit at once, so an inherited
+# wait from the build that runs this test must not reach them.
+unset CARGO_BUILD_BUILD_DIR CARGO_BUILD_JOBS RUSTC GLOWCAP_BUILD_LEASE_TIMEOUT GLOWCAP_BUILD_LEASE_FILE
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "test/build-front: python3 is required to exercise the portable build lease" >&2

@@ -1,4 +1,4 @@
-//! Native allocation policy and structured-diagnostic ownership.
+//! FFI allocation policy and structured-diagnostic ownership.
 
 #[cfg(feature = "async")]
 use crate::abi_constants_gen;
@@ -92,7 +92,7 @@ pub(crate) unsafe extern "C" fn free_trampoline(
 	}
 }
 
-/// Shared native allocation policy retained by every high-level handle family
+/// Shared FFI allocation policy retained by every high-level handle family
 /// that cannot express the borrow in its public type.
 pub(crate) struct ContextInner {
 	pub(crate) raw: *mut sys::GlowcapContext,
@@ -102,14 +102,14 @@ pub(crate) struct ContextInner {
 }
 
 /// An allocation scope. A Host created in it with [`crate::Host::new_in`]
-/// routes every native allocation through it, and shared Host state retains
-/// the native policy directly.
+/// routes every FFI allocation through it, and shared Host state retains
+/// the FFI policy directly.
 pub struct Context {
 	pub(crate) inner: std::rc::Rc<ContextInner>,
 }
 
 impl Context {
-	/// A context backed by the native library allocator, or by Rust
+	/// A context backed by the FFI library allocator, or by Rust
 	/// allocation when linked into the same Wasm memory as the application.
 	pub fn new() -> Result<Context> {
 		Ok(Context {
@@ -378,7 +378,7 @@ impl Drop for ContextInner {
 	}
 }
 
-// One allocator owns the linked module's application and Host heap. Native
+// One allocator owns the linked module's application and Host heap. FFI
 // contexts keep the library allocator; Wasm contexts route through Rust so a
 // consumer's global allocator governs both sides of the direct C calls.
 #[cfg(target_arch = "wasm32")]

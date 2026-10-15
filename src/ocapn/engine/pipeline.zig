@@ -314,8 +314,8 @@ fn applyProjectionOutcome(
 /// Settle one projection (taking ownership): send the projected resolve for
 /// its answer through the full resolve seam, so chained projections,
 /// pipelined calls, and listeners on the projected answer all drain. The
-/// projected payload borrows its source resolution. `sendCopying` clones it
-/// (the named boundary copy). A projected answer the application already
+/// projected payload borrows its source resolution, which the settlement
+/// clones into the answer store (the named boundary copy). A projected answer the application already
 /// settled is left as it is.
 fn resolveProjection(peer: *Peer, projection: session.Projection, projected: model.Resolution) !void {
     try settleProjection(peer, projection, projected);
@@ -467,8 +467,19 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
         rewritten,
     );
     errdefer frame.deinit();
+    // This peer encoded the frame from `rewritten` a moment ago, so its parse
+    // cannot fail. A failure would be an engine invariant broken, not input.
+    const parse = try events.Parse.store(peer.allocator, &frame, codec.dispatch.decodeBodyForProfile(
+        peer.session_state.codec,
+        peer.session_state.captp_version,
+        frame.view(),
+    ) catch unreachable);
+    errdefer parse.deinit(peer.allocator);
+    // The push is the last fallible step, so the row's ownership of the parse
+    // begins exactly where this function's errdefer ends.
     try peer.events.push(peer.allocator, .{
         .frame = frame,
+        .parse = parse,
         .tag = .deliver,
         .codec = peer.session_state.codec,
         .captp_version = peer.session_state.captp_version,

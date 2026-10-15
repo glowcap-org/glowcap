@@ -12,7 +12,7 @@ use glowcap_rust_dogfood::{
 };
 use tokio::task::LocalSet;
 
-async fn expect_native_refusal(
+async fn expect_wss_refusal(
 	partner: &Locator,
 	route: &str,
 	trust: relay::Trust<'_>,
@@ -35,20 +35,18 @@ async fn expect_native_refusal(
 				.close(PendingWork::Cancel)
 				.await
 				.map_err(|error| error.to_string())?;
-			return Err(format!("native WSS unexpectedly accepted {cause}"));
+			return Err(format!("WSS unexpectedly accepted {cause}"));
 		}
 		Err(error) => error,
 	};
 	let carrier = refused
 		.carrier_failure()
-		.ok_or_else(|| format!("native WSS omitted carrier detail: {refused}"))?;
+		.ok_or_else(|| format!("WSS omitted carrier detail: {refused}"))?;
 	if carrier.phase != CarrierPhase::SecureHandshake || carrier.verification_flags == 0 {
-		return Err(format!(
-			"native WSS omitted secure-handshake verification detail: {refused}"
-		));
+		return Err(format!("WSS omitted secure-handshake verification detail: {refused}"));
 	}
 	if !refused.to_string().contains(cause) {
-		return Err(format!("native WSS reported {refused}, expected {cause}"));
+		return Err(format!("WSS reported {refused}, expected {cause}"));
 	}
 	runtime
 		.close(PendingWork::Cancel)
@@ -58,25 +56,25 @@ async fn expect_native_refusal(
 
 async fn scene(locator: String) -> Result<(), String> {
 	let partner = parse_locator(&locator).map_err(|error| error.to_string())?;
-	let native_route = std::env::var("GLOWCAP_PROOF_NATIVE_RELAY_URL").ok();
-	let ca_file = std::env::var("GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE").ok();
-	let copied_pem = match (&native_route, ca_file) {
+	let wss_route = std::env::var("GLOWCAP_PROOF_WSS_RELAY_URL").ok();
+	let ca_file = std::env::var("GLOWCAP_PROOF_WSS_RELAY_CA_FILE").ok();
+	let copied_pem = match (&wss_route, ca_file) {
 		(Some(_), Some(path)) => Some(std::fs::read(path).map_err(|error| error.to_string())?),
-		(Some(_), None) => return Err("native WSS proof needs GLOWCAP_PROOF_NATIVE_RELAY_CA_FILE".to_string()),
+		(Some(_), None) => return Err("WSS proof needs GLOWCAP_PROOF_WSS_RELAY_CA_FILE".to_string()),
 		(None, _) => None,
 	};
-	if let (Some(route), Some(pem)) = (&native_route, &copied_pem) {
+	if let (Some(route), Some(pem)) = (&wss_route, &copied_pem) {
 		let wrong_host = route.replacen("//localhost:", "//127.0.0.1:", 1);
-		expect_native_refusal(
+		expect_wss_refusal(
 			&partner,
 			&wrong_host,
 			relay::Trust::CopiedPem(pem),
 			"CertificateNameMismatch",
 		)
 		.await?;
-		expect_native_refusal(&partner, route, relay::Trust::System, "CertificateUntrusted").await?;
+		expect_wss_refusal(&partner, route, relay::Trust::System, "CertificateUntrusted").await?;
 	}
-	let provider = match (&native_route, &copied_pem) {
+	let provider = match (&wss_route, &copied_pem) {
 		(Some(route), Some(pem)) => {
 			relay::provider(relay::Config::dial_only(route).with_trust(relay::Trust::CopiedPem(pem)))
 		}

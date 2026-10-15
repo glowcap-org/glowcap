@@ -290,10 +290,15 @@ fn expectConnectionDeath(store: *const cli.repl_blocks.Store) !void {
         try std.testing.expect(std.mem.indexOf(u8, block.summary, "WaitTimedOut") == null);
         try std.testing.expect(std.mem.indexOf(u8, block.summary, "wait timed out") == null);
         // Clean close names `session closing` on the vow; a transport fault
-        // is `ConnectionLost` or the break string `connection failed`.
+        // is `ConnectionLost` or the break string `connection failed`; a
+        // peer that went away without a fault names `connection closed`.
+        // Whether the read side sees the close before a write meets the
+        // reset is the kernel's order, and the queued send leaves at the
+        // park, after the read.
         if (std.mem.indexOf(u8, block.summary, "session closing") != null or
             std.mem.indexOf(u8, block.summary, "ConnectionLost") != null or
-            std.mem.indexOf(u8, block.summary, "connection failed") != null)
+            std.mem.indexOf(u8, block.summary, "connection failed") != null or
+            std.mem.indexOf(u8, block.summary, "connection closed") != null)
         {
             saw_death = true;
         }

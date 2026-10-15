@@ -27,9 +27,9 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:resolve` | Settles an answer to its value or a break. glowcap never sends it to a live peer: CapTP 1.0 settles through the resolver below, and `glowcap-next` through `op:listen`. The codec reads and writes it for the reference fixtures. |
 | `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
 | `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
-| `op:get` | Projects a named field off an answer without waiting for the whole result to settle. |
-| `op:index` | Projects a positional element off an answer. |
-| `op:untag` | Unwraps a tagged value projected off an answer. glowcap accepts it on every 1.0 session and sends it only when the partner advertises the `untag` feature, so a silent Goblins peer never sees one. |
+| `op:get` | Reads a named field of an answer without waiting for the whole result. |
+| `op:index` | Reads one item of an answer by position. |
+| `op:untag` | Unwraps a tagged value read from an answer. glowcap accepts it on every 1.0 session and sends it only when the partner advertises the `untag` feature, so a silent Goblins peer never sees one. |
 | `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
 | `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
 
@@ -41,21 +41,21 @@ home as one more `op:deliver`, to that resolver, carrying
 `['fulfill <value>]` or `['break <error>]`. Goblins and glowcap both settle
 promises this way.
 
-`glowcap-next` is glowcap's own trial profile, which two glowcap peers can
-choose. It drops the resolver. A waiter sends `op:listen` instead.
+`glowcap-next` is an experimental CapTP version of glowcap's own, which two
+glowcap peers can choose. It drops the resolver. A waiter sends `op:listen` instead.
 
 # What a CapTP 1.0 peer sees from glowcap
 
 A Goblins peer, or any other CapTP 1.0 implementation, sees plain CapTP 1.0
 over Syrup. glowcap's preferences travel as three hints on the location its
 hello signs: `glowcap/captp-version`, `glowcap/codec`, and `glowcap/features`.
-A peer that doesn't know them ignores them, and the session settles the 1.0
+A peer that doesn't know them ignores them, and the session uses the 1.0
 baseline. Onion locators carry no hints, because Goblins refuses a hinted
 onion address, so an onion session runs the baseline even between two glowcap
 peers.
 
 glowcap sends `op:untag` only to a partner that lists the `untag` feature.
-Application code makes the same calls under either profile. The one
+Application code makes the same calls under either version. The one
 difference is `session.listen`, which accepts a live far object on 1.0 but
 only a far promise on `glowcap-next`.
 
@@ -90,9 +90,9 @@ another a long-lived reference to bring back to life later. The
 | `ocapn-peer` | A peer's location: its transport (`iroh`, `noise-tcp`, `tcp`, and the rest), the designator to reach it at, and any connection hints. An `ocapn://<designator>.<transport>` URI is this record. |
 | `ocapn-sturdyref` | A peer location plus a swiss number: a restorable, long-lived reference to one object, the thing an `ocapn://…/s/<swiss>` URI names. |
 
-Worked examples, as the URIs print. Reserved characters inside a
-designator are URI-encoded, which is why a `tcp` peer's `host:port` shows a
-`%3A` where the colon is. `noise-tcp` seals a direct route. Plain `tcp` is
+Examples, as the URIs print. Reserved characters inside a designator are
+URI-encoded, which is why a `tcp` peer's `host:port` shows a `%3A` where the
+colon is. `noise-tcp` seals a direct route. Plain `tcp` is
 testing-only:
 
 ```

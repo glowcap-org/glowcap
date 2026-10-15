@@ -34,7 +34,7 @@ pub trait ChannelClose: Unpin {
 	fn poll_close(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>>;
 }
 
-/// One transport's I/O and retirement authority. Native driver providers use
+/// One transport's I/O and retirement authority. FFI driver providers use
 /// their own driver lifecycle. This type is for embedder-owned channels.
 pub struct Channel {
 	pub(crate) reader: Reader,
@@ -53,7 +53,7 @@ impl Channel {
 		Ok(())
 	}
 
-	/// Wrap a native byte stream whose final Drop releases its I/O resource.
+	/// Wrap an FFI byte stream whose final Drop releases its I/O resource.
 	pub fn stream<S: AsyncRead + AsyncWrite + Unpin + 'static>(stream: S) -> Self {
 		let (reader, writer) = tokio::io::split(stream);
 		Self {

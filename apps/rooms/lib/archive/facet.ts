@@ -10,9 +10,7 @@ export interface ArchiveFacet {
 
 export const WHOLE_ARCHIVE: ArchiveFacet = { scope: ALL_ARCHIVE_RECORDS, access: "read-write" };
 
-/** One archive root's facet issuer. A hosted archive normally learns the
- * caller from an inbound turn. A session-local occurrence also names the
- * session on which local application calls must create their returned refs. */
+/** Issues, revokes, and lists the durable shares of one archive root. */
 export interface ArchiveDurableShareIssuer {
 	issue(id: string, label: string, filter: ArchiveFilter): Promise<string>;
 	revoke(id: string): Promise<boolean>;
@@ -26,6 +24,9 @@ export interface ArchiveDurableShareView {
 	readonly sturdyref: string;
 }
 
+/** One archive root's facet issuer. A hosted archive normally learns the
+ * caller from an inbound turn. A session-local occurrence also names the
+ * session on which local application calls must create their returned refs. */
 export interface ArchiveFacetIssuer {
 	readonly localSession: Session | null;
 	readonly mintedBySession: WeakMap<Session, number>;

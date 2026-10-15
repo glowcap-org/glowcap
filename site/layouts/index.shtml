@@ -29,7 +29,7 @@
 			<span class="card-lead-mark" aria-hidden="true"></span>
 			<div>
 				<h2>Rooms: glowcap as a chat</h2>
-				<p>Open a room, pick a member, and press Message. That introduction is the protocol this site is for.</p>
+				<p>Open a room and message any member directly, without the room in the middle.</p>
 			</div>
 		</a>
 		<a class="card" href="$site.page('cli').link()">
@@ -42,7 +42,7 @@
 		</a>
 		<a class="card" href="$site.page('modules').link()">
 			<h2>The modules</h2>
-			<p>From the socket-free protocol core up through the netlayers.</p>
+			<p>From the protocol core, which never opens a socket, up through the transports.</p>
 		</a>
 		<a class="card" href="$site.page('bindings').link()">
 			<h2>Bindings</h2>

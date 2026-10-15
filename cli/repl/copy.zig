@@ -9,7 +9,7 @@ pub const workbench_ready =
 
 /// Full coach body, shown only after `guide` (or `?` while guided).
 pub const coach_guide =
-    \\CapTP walkthrough — dial an ocapn:// locator (listen --publish greeter is argv-only).
+    \\CapTP walkthrough. Dial an ocapn:// locator, or run listen to accept one.
     \\Then: fetch greeter → call greeter greet world
     \\Or deliver to a held capability: call #<n> greet world  (n from a fetch's `cap` id).
     \\tour exports|imports|answers · guide exit returns to the workbench · ? reprints this.
@@ -21,10 +21,10 @@ pub const next_session = "next: wait for the session to open, then fetch a name"
 pub const next_fetch = "next: fetch greeter";
 pub const next_deliver = "next: call greeter greet world   or   call #<cap> greet world";
 pub const next_tables = "next: tour exports · tour imports · tour answers";
-pub const next_done = "walkthrough complete — guide exit, or keep calling";
+pub const next_done = "walkthrough complete. guide exit leaves it, or keep calling";
 
 /// Prompt footer when not in guide mode.
-pub const workbench_footer = "guide — optional CapTP walkthrough";
+pub const workbench_footer = "guide: optional CapTP walkthrough";
 
 pub const repl_title = "REPL";
 pub const captp_title = "CapTP";
@@ -42,27 +42,27 @@ pub const empty_answers = "No answers yet. call creates an answered deliver.";
 
 pub const tip_quoted_uri = "Inside the REPL, paste the locator without quotes.";
 pub const tip_missing_verb = "call needs name|#N, verb, then args: call greeter greet world  or  call #1 greet world";
-pub const tip_no_session = "No open session. dial an ocapn:// locator (or run listen on argv).";
+pub const tip_no_session = "No open session. dial an ocapn:// locator, or run listen to accept one.";
 
 pub const help_captp_map =
     \\CapTP noun map:
     \\  bootstrap  ask the peer for a published name (fetch)
     \\  export     a capability you offer on this session
-    \\  import     a wire position the peer offered (fetch prints the cap id #N takes)
+    \\  import     a capability the peer offered (fetch prints the cap id that #N takes)
     \\  answer     a promise for an answered deliver
     \\  deliver    call / tell by published name or #<cap>
-    \\  dial       open a session to a peer (listen is argv-only)
-    \\  close      end the session (no table-reset API — close + redial)
+    \\  dial       open a session to a peer (listen waits for one)
+    \\  close      end the session (to reset the tables, close and dial again)
 ;
 
 pub fn gloss(verb: []const u8) []const u8 {
     if (std.mem.eql(u8, verb, "call")) return "Answered deliver: name or #<cap>, then verb. Watch Answers.";
     if (std.mem.eql(u8, verb, "tell")) return "Fire-and-forget: name or #<cap>, then verb. No answer row.";
-    if (std.mem.eql(u8, verb, "fetch")) return "Bootstrap fetch → import N. Then: call greeter … or call #N …";
+    if (std.mem.eql(u8, verb, "fetch")) return "Bootstrap fetch gives import N. Then: call greeter … or call #N …";
     if (std.mem.eql(u8, verb, "publish")) return "Export a builtin on this session for the partner to fetch.";
     if (std.mem.eql(u8, verb, "dial")) return "Open a CapTP session to a peer locator.";
     if (std.mem.eql(u8, verb, "probe")) return "Handshake only, then close. Does not keep a session.";
-    if (std.mem.eql(u8, verb, "close")) return "Close the open session (there is no table-reset; close + redial).";
+    if (std.mem.eql(u8, verb, "close")) return "Close the open session. To reset the tables, close and dial again.";
     if (std.mem.eql(u8, verb, "info")) return "Show identity and session summary.";
     if (meta.glossOf(verb)) |g| return g;
     return "CapTP lab command.";
@@ -70,8 +70,8 @@ pub fn gloss(verb: []const u8) []const u8 {
 
 pub fn tipForErrorDetail(detail: []const u8) ?[]const u8 {
     if (std.mem.indexOf(u8, detail, "UriParseError") != null) return tip_quoted_uri;
-    if (std.mem.indexOf(u8, detail, "needs <name> <verb>") != null) return tip_missing_verb;
-    if (std.mem.indexOf(u8, detail, "needs a session") != null) return tip_no_session;
+    if (std.mem.indexOf(u8, detail, "needs <name|#N> <verb>") != null) return tip_missing_verb;
+    if (std.mem.indexOf(u8, detail, "No open session") != null) return tip_no_session;
     if (std.mem.indexOf(u8, detail, "NoSuchMethod") != null) return tip_missing_verb;
     return null;
 }

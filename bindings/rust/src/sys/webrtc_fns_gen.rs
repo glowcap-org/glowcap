@@ -30,6 +30,27 @@ unsafe extern "C" {
 		out_cap: usize,
 		out_count: *mut usize,
 	) -> c_int;
+	pub fn glowcap_webrtc_netlayer_provide_offer(
+		netlayer: *mut GlowcapWebrtcNetlayer,
+		designator: *const c_uchar,
+		designator_len: usize,
+		sdp: *const c_uchar,
+		sdp_len: usize,
+		out_exchange: *mut u64,
+	) -> c_int;
+	pub fn glowcap_webrtc_netlayer_provide_answer(
+		netlayer: *mut GlowcapWebrtcNetlayer,
+		exchange: u64,
+		sdp: *const c_uchar,
+		sdp_len: usize,
+	) -> c_int;
+	pub fn glowcap_webrtc_netlayer_provide_candidate(
+		netlayer: *mut GlowcapWebrtcNetlayer,
+		exchange: u64,
+		ice: *const c_uchar,
+		ice_len: usize,
+	) -> c_int;
+	pub fn glowcap_webrtc_netlayer_fail_exchange(netlayer: *mut GlowcapWebrtcNetlayer, exchange: u64) -> c_int;
 	pub fn glowcap_webrtc_netlayer_release(netlayer: *mut GlowcapWebrtcNetlayer) -> c_int;
 	pub fn glowcap_webrtc_peer_new(
 		netlayer: *mut GlowcapWebrtcNetlayer,

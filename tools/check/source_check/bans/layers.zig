@@ -79,11 +79,11 @@ pub const codec_decode_nesting_rows: []const Ban = &.{
         .why = "the Syrup decoder aliases the shared codec decode recursion ceiling instead of restating it",
     },
     .{
-        .where = .{ .file = "src/ocapn/codec/capnp/decode.zig" },
+        .where = .{ .file = "src/ocapn/codec/capnp/decode/values.zig" },
         .kind = .require,
         .needles = &.{ "@import(\"codec_limits\")", "pub const max_charge_depth: usize = limits.max_decode_nesting;" },
         .check = "codec-decode-nesting",
-        .why = "the Cap'n Proto charge pass aliases the shared codec decode recursion ceiling instead of restating it",
+        .why = "the Cap'n Proto metered walk aliases the shared codec decode recursion ceiling instead of restating it",
     },
     .{
         .where = .{ .files = &.{
@@ -242,9 +242,9 @@ pub const iroh_node_id_bytes_rows: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/glowcap/_iroh_native.py",
+            "bindings/python/glowcap/_iroh_ffi.py",
             "bindings/rust/src/iroh.rs",
-            "bindings/ts/iroh/native.ts",
+            "bindings/ts/iroh/ffi_archive.ts",
             "bindings/racket/private/iroh/netlayer.rkt",
             "bindings/racket/private/iroh/runtime.rkt",
         } },
@@ -255,9 +255,9 @@ pub const iroh_node_id_bytes_rows: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/glowcap/_iroh_native.py",
+            "bindings/python/glowcap/_iroh_ffi.py",
             "bindings/rust/src/iroh.rs",
-            "bindings/ts/iroh/native.ts",
+            "bindings/ts/iroh/ffi_archive.ts",
             "bindings/racket/private/iroh/netlayer.rkt",
             "bindings/racket/private/iroh/runtime.rkt",
         } },
@@ -306,7 +306,7 @@ pub const iroh_direct_address_rows: []const Ban = &.{
         .why = "the iroh C ABI reports required capacity on BUFFER_TOO_SMALL",
     },
     .{
-        .where = .{ .file = "bindings/python/glowcap/_iroh_native.py" },
+        .where = .{ .file = "bindings/python/glowcap/_iroh_ffi.py" },
         .kind = .require,
         .needles = &.{"raw,\n                None,\n                0,"},
         .check = "iroh-direct-address-sizing",
@@ -320,7 +320,7 @@ pub const iroh_direct_address_rows: []const Ban = &.{
         .why = "Rust queries direct-address size through the C ABI before allocating",
     },
     .{
-        .where = .{ .file = "bindings/ts/iroh/native.ts" },
+        .where = .{ .file = "bindings/ts/iroh/ffi_archive.ts" },
         .kind = .require,
         .needles = &.{"this.#raw,\n\t\t\tnull,\n\t\t\t0n,"},
         .check = "iroh-direct-address-sizing",
@@ -334,7 +334,7 @@ pub const iroh_direct_address_rows: []const Ban = &.{
         .why = "Racket queries direct-address size through the C ABI before allocating",
     },
     .{
-        .where = .{ .file = "bindings/python/glowcap/_iroh_native.py" },
+        .where = .{ .file = "bindings/python/glowcap/_iroh_ffi.py" },
         .kind = .require,
         .needles = &.{"n.value > cap"},
         .check = "iroh-direct-address-sizing",
@@ -348,7 +348,7 @@ pub const iroh_direct_address_rows: []const Ban = &.{
         .why = "Rust retries direct-address reads from the C-reported size",
     },
     .{
-        .where = .{ .file = "bindings/ts/iroh/native.ts" },
+        .where = .{ .file = "bindings/ts/iroh/ffi_archive.ts" },
         .kind = .require,
         .needles = &.{"required > cap"},
         .check = "iroh-direct-address-sizing",
@@ -363,9 +363,9 @@ pub const iroh_direct_address_rows: []const Ban = &.{
     },
     .{
         .where = .{ .files = &.{
-            "bindings/python/glowcap/_iroh_native.py",
+            "bindings/python/glowcap/_iroh_ffi.py",
             "bindings/rust/src/iroh.rs",
-            "bindings/ts/iroh/native.ts",
+            "bindings/ts/iroh/ffi_archive.ts",
             "bindings/racket/private/iroh/netlayer.rkt",
         } },
         .kind = .forbid,

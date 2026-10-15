@@ -1,6 +1,6 @@
 #lang racket/base
 ;; One projection of the driver's event and deterministic barrier failures.
-;; Native code owns lifecycle policy; this leaf copies borrowed names and
+;; FFI code owns lifecycle policy; this leaf copies borrowed names and
 ;; carries the first counted consequence in Racket's existing typed exception.
 
 (require ffi/unsafe

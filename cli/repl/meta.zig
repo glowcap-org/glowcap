@@ -16,7 +16,7 @@ pub const entries = [_]Entry{
     .{ .meta = .help, .name = "help", .gloss = "Everyday CapTP verbs and REPL help." },
     .{ .meta = .quit, .name = "quit", .gloss = "Leave the CapTP lab." },
     .{ .meta = .quit, .name = "exit", .gloss = "Leave the CapTP lab." },
-    .{ .meta = .focus, .name = "focus", .gloss = "Toggle the quiet focus view (rail collapses to counts)." },
+    .{ .meta = .focus, .name = "focus", .gloss = "Toggle the quiet focus view (the side panel collapses to counts)." },
     .{ .meta = .guide, .name = "guide", .gloss = "Enter or exit the optional CapTP walkthrough." },
     .{ .meta = .tour, .name = "tour", .gloss = "Point at a CapTP pane: exports, imports, or answers." },
     .{ .meta = .question, .name = "?", .gloss = "Help: workbench tips, or the guide coach while guided." },

@@ -6,6 +6,17 @@ use alloc::{
 	string::{String, ToString},
 };
 
+/// Default accounting rows each embedding retains.
+pub const DIRECTORY_ROWS: usize = 8192;
+pub const SESSION_ROWS: usize = 4096;
+pub const HTTP_ROWS: usize = 2048;
+/// The managed session and HTTP pools scale one subject's profile by this.
+pub const POOLED_AGGREGATE_SCALE: u32 = 8;
+/// The most rows `admission-rows` accepts.
+pub const MAX_ROWS: usize = 65_536;
+/// The most `admission-scale` and `admission-aggregate-scale` accept.
+pub const MAX_SCALE: u32 = 100;
+
 /// Why an admission setting is refused. `Display` is the exact line the
 /// operator reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,8 +48,13 @@ pub enum Invalid {
 impl core::fmt::Display for Invalid {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		match self {
-			Self::DefaultRows => f.write_str("default admission rows must be from 1 through 65536"),
-			Self::DefaultAggregateScale => f.write_str("default aggregate admission scale must be from 1 through 100"),
+			Self::DefaultRows => write!(f, "default admission rows must be from 1 through {MAX_ROWS}"),
+			Self::DefaultAggregateScale => {
+				write!(
+					f,
+					"default aggregate admission scale must be from 1 through {MAX_SCALE}"
+				)
+			}
 			Self::IntegerRange { key, maximum } => {
 				write!(f, "--{key} must be an integer from 1 through {maximum}")
 			}
@@ -98,8 +114,8 @@ impl Settings {
 		"admission-aggregate-scale",
 	];
 	pub fn defaults(rows: usize, aggregate_scale: u32) -> Self {
-		assert!((1..=65_536).contains(&rows));
-		assert!((1..=100).contains(&aggregate_scale));
+		assert!((1..=MAX_ROWS).contains(&rows));
+		assert!((1..=MAX_SCALE).contains(&aggregate_scale));
 		#[expect(
 			clippy::expect_used,
 			reason = "the default profile scaled by at most 100, which the assert above bounds, fits every u32 rate"
@@ -126,10 +142,10 @@ impl Settings {
 		rows: usize,
 		aggregate_scale: u32,
 	) -> Result<Self, Invalid> {
-		if !(1..=65_536).contains(&rows) {
+		if !(1..=MAX_ROWS).contains(&rows) {
 			return Err(Invalid::DefaultRows);
 		}
-		if !(1..=100).contains(&aggregate_scale) {
+		if !(1..=MAX_SCALE).contains(&aggregate_scale) {
 			return Err(Invalid::DefaultAggregateScale);
 		}
 		let values: [Option<(String, Source)>; 4] = core::array::from_fn(|i| value(Self::OPTIONS[i]));
@@ -152,9 +168,9 @@ impl Settings {
 					.ok_or(Invalid::IntegerRange { key, maximum }),
 			}
 		};
-		let scale = integer("admission-scale", 1, 100)?;
-		let rows = integer("admission-rows", rows as u32, 65_536)? as usize;
-		let aggregate_scale = integer("admission-aggregate-scale", aggregate_scale, 100)?;
+		let scale = integer("admission-scale", 1, MAX_SCALE)?;
+		let rows = integer("admission-rows", rows as u32, MAX_ROWS as u32)? as usize;
+		let aggregate_scale = integer("admission-aggregate-scale", aggregate_scale, MAX_SCALE)?;
 		let mut profile = Profile::scaled(scale).ok_or(Invalid::ScaleOverflow { scale })?;
 		if let Some(raw) = value("admission-rates") {
 			let mut seen = [false; super::CLASS_COUNT];

@@ -77,7 +77,7 @@ class _ProgressMixin(HostMixinBase):
         while releases:
             releases.popleft()()
         _drain_deferred_finalizer_states()
-        # A parked release retires a native session or Host handle, which is
+        # A parked release retires an FFI session or Host handle, which is
         # close-relevant state; wake any parked close driver to re-check.
         if ran_any:
             self.signal_close_activity()
@@ -90,7 +90,7 @@ class _ProgressMixin(HostMixinBase):
     def schedule_kick(self) -> None:
         """Kick the action drain from a synchronous verb: schedule it as its
         own task, retained until done. Binding-internal. On a loop-adopted
-        host the native loop is the one drain, so the kick becomes a
+        host the driver loop is the one drain, so the kick becomes a
         scheduled loop step."""
         if self._driver_loop is not None:
             self._driver_loop.schedule_step()
@@ -194,7 +194,7 @@ class _ProgressMixin(HostMixinBase):
             self._action_drains.add(admitted_task)
         try:
             if self._driver_loop is not None:
-                # The native loop is the drain; one step flushes what a verb
+                # The driver loop is the drain; one step flushes what a verb
                 # queued.
                 self._driver_loop.step_now()
                 return
@@ -209,7 +209,7 @@ class _ProgressMixin(HostMixinBase):
             while True:
                 if not self._raw:
                     return
-                # The native drain resumes queued Host work before its first
+                # The FFI drain resumes queued Host work before its first
                 # external action and may synchronously invoke a behavior.
                 prior = _enter_host_deliver(self)
                 try:
@@ -224,7 +224,7 @@ class _ProgressMixin(HostMixinBase):
                     # work behind it can belong to another live session.
                     try:
                         await _run_action(self, action)
-                    except Exception as error:  # noqa: BLE001 — drain every action
+                    except Exception as error:  # noqa: BLE001 - drain every action
                         if first_failure is None:
                             first_failure = error
                 # A drained batch may have advanced close-relevant state

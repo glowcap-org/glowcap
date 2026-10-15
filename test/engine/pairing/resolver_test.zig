@@ -59,7 +59,7 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
     defer pair.deinit();
 
     // p1 calls the partner bootstrap with an answer, minting a resolver export.
-    try pair.p1.sendCopying(.{ .deliver = .{
+    try pair.p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(42),
@@ -81,7 +81,7 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
     // `captp-unknown-record-rag` and the break is lost), while a Symbol passes
     // its unmarshaller untouched, the same payload shape the `op:listen`
     // listener fire uses.
-    try pair.p2.sendCopying(.{ .resolve = .{
+    try pair.p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
         .resolution = .{ .@"break" = .{ .message = "unknown swissnum" } },
     } });
@@ -108,7 +108,7 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
     var event = pair.p1.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
-    const view = try event.view();
+    const view = event.view();
     try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
     try std.testing.expect(view.resolve.resolution == .@"break");
     try std.testing.expectEqualSlices(u8, "unknown swissnum", view.resolve.resolution.@"break".message);

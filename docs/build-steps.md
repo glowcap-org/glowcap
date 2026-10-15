@@ -1,50 +1,60 @@
+---
+type: static
+description: Every zig build step in the repository, grouped by what it proves.
+sources:
+  - resource: /build.zig
+  - resource: /tools/build/
+---
+
 # glowcap: Build Steps
 
 Every `zig build` step this repository declares, grouped by what it proves. Run
 `zig build` from the repository root: a run started in a subdirectory leaves its
 cache and output directories there and resolves relative paths wrong.
 
-Four aggregate gates divide evidence by the resources they own. `zig build check` runs in-process Zig tests, static,
-generated, and compile-only evidence. `zig build runtime-check` runs deterministic process suites and language
-workspaces. Its side-effecting commands take the build runner's execution lock, so their ports and output directories
-cannot overlap. `zig build check-external` runs checks whose authority lives outside glowcap plus the browser proofs of
-the shipped Rooms page. `zig build infrastructure-check` exercises devcontainer, worktree integration, and agent
-edit-hook behavior. It runs in CI but stays apart from `source-check` because it creates temporary repositories and
-executes real Git histories.
+The aggregate checks divide evidence by the resources they own, as
+[everyday steps](#everyday-steps-and-checks) lists. The side-effecting
+commands in `runtime-check` take the build runner's execution lock, so their
+ports and output directories cannot overlap.
 
-`-Dport=N` pins the listening TCP port for the demo and live interop steps.
-Demos default to an ephemeral port, and each interop step to the fixed port it
-documents. `goblins-handoff` runs two listeners and takes N and N+1.
-`-Dattach=true` works on demo steps that also take `-Dport`. It joins an
-already-running server instead of spawning one. `demo-accountability` rejects
-it, because each caller needs a fresh host.
-`-Dtransport=iroh|tcp|onion` on `rooms-web` and `rooms-dev` picks the room
-transport, iroh by default. The operations capabilities are server flags, passed after `--`. `zig build rooms-web -- --diagnostics` mints an
-inspect capability and prints its swiss number. `--admin-listeners` mints the
-listener-admin capability, `--operator` the stewardship authority,
-`--peering` the directory-peering capability, and `--irc` the IRC gateway.
-`--trace` serves the live timeline endpoint (default port 9300,
-`GLOWCAP_ROOMS_TRACE_PORT` overrides) and mints its capability. `rooms-dev`
-passes all six.
-`-Dhot-reload=false` on `rooms-dev` serves compiled generations through the
-web front with the same state and grants. The default uses Vite Fast Refresh.
-Production compiler selection does not depend on this option.
+Build options:
+
+- `-Dport=N` pins the listening TCP port for the demo and live interop steps.
+  Demos default to an ephemeral port, and each interop step to the fixed port it
+  documents. `goblins-handoff` runs two listeners and takes N and N+1.
+- `-Dattach=true` joins an already-running server instead of spawning one. It
+  works on demo steps that also take `-Dport`. `demo-accountability` rejects
+  it, because each caller needs a fresh host.
+- `-Dtransport=iroh|tcp|onion` on `rooms-web` and `rooms-dev` picks the room
+  transport, iroh by default.
+- `-Dhot-reload=false` on `rooms-dev` serves compiled generations through the
+  web front with the same state and grants. The default uses Vite Fast Refresh.
+  Production compiler selection does not depend on this option.
+
+The Rooms operations capabilities are server flags, passed after `--`:
+
+- `--diagnostics` mints an inspect capability and prints its swiss number, as in
+  `zig build rooms-web -- --diagnostics`.
+- `--admin-listeners` mints the listener-admin capability.
+- `--operator` mints the stewardship authority.
+- `--peering` mints the directory-peering capability.
+- `--irc` mints the IRC gateway.
+- `--trace` serves the live timeline endpoint and mints its capability.
+  `--trace-port` sets its port.
+
+`rooms-dev` passes all six.
 
 ## Adding a step
 
-A new step belongs in the section that matches what it proves, beside its
-closest sibling. Copy the shape the blocks below already use: the invocation,
-the step name, then a `#` comment saying what the step proves, ending with the
-tools it needs in parentheses when it needs anything beyond Zig. The line
-`zig build web-peer-test   # Chromium accepts a native Noise-relay call (needs deno + Playwright)`
-is the pattern.
-
-Line the `#` up with the other lines in the same block. Describe what the step proves, not how the build wires it. Use
-`part of check`, `part of runtime-check`, and `part of check-external` only for steps the build wires to those gates.
+Put a new step in the section that matches what it proves, beside its closest
+sibling. Follow the blocks below: the invocation, then a `#` comment lined up
+with its block. The comment says what the step proves and ends with the tools
+it needs in parentheses when it needs more than Zig, as in
+`zig build web-peer-test   # Chromium accepts a Noise-relay call from a Zig peer (needs deno + Playwright)`.
+Say `part of check`, `part of runtime-check`, or `part of check-external` only
+for steps the build wires to those gates.
 
 ## Everyday steps and checks
-
-The steps most sessions use, and the gates everything else feeds.
 
 ```sh
 zig build check                # in-process Zig tests, static, generated, performance, and compile-only evidence
@@ -53,6 +63,7 @@ zig build check-external       # outside-authority protocol conformance plus eve
 zig build test                 # the correctness suite
 zig build test -Dtest-filter=substring # only tests whose names match
 zig build test -Dtest-layer=engine,driver # compile and run only these test layers (the top-level test/ directories)
+zig build test-memcheck        # the protocol core and actors tests once more under valgrind, built for the baseline CPU; -Dtest-filter narrows it
 zig build arch-check           # the layer boundaries: module edges, the no-I/O core, and file coverage
 zig build source-check         # static cross-file source, documentation, generated-mirror, and scaffolding contracts
 zig build infrastructure-check # devcontainer, worktree integration, and agent edit-hook behavior in temporary fixtures
@@ -61,14 +72,17 @@ zig build loam-core-wasm-check # compile portable Loam calls for 32-bit Wasm wit
 zig build loam-abi-test        # C resource creation, ownership, portable transaction evaluation and uncertain storage recovery; part of check
 zig build loam-browser-build   # compile and lint the Rust IndexedDB consumer against the Wasm C ABI (needs cargo + wasm-bindgen)
 zig build loam-browser-test    # Chromium lifecycle, page reload, cold restoration, custody, cancellation, quota rollback and adapter costs; part of check-external (needs deno + Playwright)
-zig build loam-rust-test       # Rust create/share/edit/restart/reopen, callback custody, cancellation and Clippy; part of runtime-check (needs cargo)
+zig build loam-rust-test       # Rust create/share/edit/restart/reopen, callback custody, cancellation, Clippy and the binding crate's formatting; part of runtime-check (needs cargo)
 zig build loam-lmdb-test       # Loam record atomicity, capacity, custody, and reopen tests; part of check
-zig build loam-actors-crash-test # CapTP actor recovery and cyclic references across SIGKILL; part of runtime-check
+zig build loam-sqlite-test     # the same Loam storage suite over SQLite, plus its refusal and foreign-file tests; part of check
+zig build loam-actors-crash-test # CapTP actor recovery and cyclic references across SIGKILL; each crash step runs every disk engine; part of runtime-check
 zig build loam-references-crash-test # Foreign recipe and content writes across SIGKILL, with fresh-vat role checks; part of runtime-check
 zig build loam-managed-crash-test # Managed issuance, revocation, content and reference edits across SIGKILL; part of runtime-check
 zig build loam-collection-crash-test # SIGKILL around a tracing sweep, then safe collection after reopen; part of runtime-check
-zig build loam-compaction-crash-test # SIGKILL through offline LMDB replacement, copy capacity refusal, and continuous writer custody; part of runtime-check
-zig build loam-lmdb-crash-test # SIGKILL before commit and after commit before installation; part of runtime-check (needs python3)
+zig build loam-lmdb-compaction-crash-test # SIGKILL through offline LMDB replacement, copy capacity refusal, and continuous writer custody; part of runtime-check
+zig build loam-sqlite-compaction-crash-test # SIGKILL during and after a SQLite vacuum, then every live row in a usable store; part of runtime-check
+zig build loam-storage-crash-test # SIGKILL before commit and after commit before installation; part of runtime-check (needs python3)
+zig build loam-io-fault-test    # Linux write/sync faults, read faults and file truncation on both engines; part of runtime-check (needs python3)
 zig build oracle-check         # the protocol reference corpus and the scenario traces
 zig build fmt                  # format Zig sources in place (zig fmt)
 zig build fmt-check            # check Zig formatting (zig fmt --check), part of check
@@ -77,9 +91,9 @@ zig build cli                  # alias of `zig build cli-test`
 zig build glowcap              # run the CapTP CLI; pass `-- <command> …`
 zig build examples             # the public examples
 zig build consumer-check       # build a downstream package against the glowcap module, the README's fetch-and-import path, as a check; part of check
-zig build cross-check          # compile-only: full library for macOS (kqueue) + I/O-free core for wasm32 + the browser-binding wasm Host; plus the native tree analyzed in ReleaseFast, where std's safety locks are absent, so the footprint gates hold in both modes; part of check
-zig build perf-check           # ReleaseFast wall-clock cost: warm dispatch + outbound send against the docs/ladder.md step 2 ceilings, plus the gc-storm linearity ratio; part of check
-zig build fuzz                 # mutation-fuzz every untrusted-input target, one fuzzer run each; -Dfuzz-runs sets how long each one searches (default 500K)
+zig build cross-check          # compile-only: full library for macOS (kqueue), I/O-free core for wasm32, the browser-binding wasm Host, and the Zig tree analyzed in ReleaseFast so the footprint gates also hold without std safety locks; part of check
+zig build perf-check           # ReleaseFast wall-clock cost: warm dispatch + outbound send against the ceiling constants in those two bench files, plus the gc-storm linearity ratio; part of check
+zig build fuzz                 # mutation-fuzz every untrusted-input target, one fuzzer run each; -Dfuzz-runs sets how long each one searches
 zig build fuzz-run             # the fuzz worker `zig build fuzz` drives; add --fuzz yourself for Zig's coverage UI
 zig build timeout-runner-test  # black-box the CI deadline wrapper and how the check sequence classifies its codes; runs before anything relies on that deadline; not in check (needs python3)
 zig build c-abi-extract-check  # in-tree C-ABI extract hygiene: each resolve port's own validator against the malformed fixture set in tools/c-abi/c-abi-extract-matrix.sh (ADR-0077; part of check)
@@ -92,7 +106,7 @@ zig build docs                 # generate the Zig API reference (autodoc) under 
 zig build site                 # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build site-render-check    # render every built site page at phone width in the pinned Chromium; fails on console errors or horizontal overflow (needs deno + the image-baked browser)
 zig build site-tabs-check      # press the code-tabs on every built site page in the pinned Chromium; fails when a tab does not open its own panel (needs deno + the image-baked browser)
-zig build docs-serve           # serve the documentation site at http://127.0.0.1:1990/glowcap/ (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes)
+zig build docs-serve           # serve the documentation site and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes)
 zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)
 zig build rooms-build # complete the installation under zig-out and stage zig-out/product for packaging/deployment (needs cargo + deno + wasm-bindgen)
 zig build rooms-release # prepare the same complete host product with fixed ReleaseSafe and baseline CPU settings (needs cargo + deno + wasm-bindgen)
@@ -101,7 +115,7 @@ zig build glowcap-host-test # prove verified host installation, atomic selection
 zig build glowcap-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the complete host product under zig-out/glowcap-release/; exercise extracted browser serving, HTTP bootstrap, iroh, rooms, DMs and restart (needs cargo + deno + wasm-bindgen + python3; Debug and cross-target builds are refused)
 zig build glowcap-package-test # release rollback and damaged-package fixtures cover checksums, extraction, skill links and Linux/macOS loader paths; part of check
 zig build product-manifest-test # generate and parse a complete staged product manifest, rejecting unsafe members; part of check
-zig build native-tls-build     # fetch Mbed TLS 4.2.0 by checksum, compile the private minimal client configuration with Zig, and run engine/ownership plus pollable and completion real local WSS success/refusal tests (needs network, python3, openssl)
+zig build relay-tls-build     # fetch the pinned Mbed TLS release by checksum, compile the private minimal client configuration with Zig, and run engine/ownership plus pollable and completion real local WSS success/refusal tests (needs network, python3, openssl)
 ```
 
 ## Formatting and lint outside the Zig tree
@@ -133,6 +147,10 @@ zig build gen-header-loam                # regenerate the portable Loam header
 zig build gen-header-loam-check          # verify the portable Loam header; part of check
 zig build gen-header-loam-lmdb           # regenerate the LMDB companion header
 zig build gen-header-loam-lmdb-check     # verify the LMDB companion header; part of check
+zig build gen-header-loam-sqlite           # regenerate the SQLite companion header
+zig build gen-header-loam-sqlite-check     # verify the SQLite companion header; part of check
+zig build gen-header-loam-volatile         # regenerate the in-memory companion header
+zig build gen-header-loam-volatile-check   # verify the in-memory companion header; part of check
 zig build gen-binding-loam-layout        # regenerate Rust Loam layouts and fingerprints
 zig build gen-binding-loam-layout-check  # verify Rust Loam layouts and fingerprints; part of check
 zig build gen-header-host        # regenerate include/glowcap_host.h from src/c_abi/host
@@ -202,15 +220,21 @@ application's readers.
 ```sh
 zig build gen-rooms-protocol            # regenerate the Rooms application and client protocol tables from tools/gen/rooms_protocol.zig
 zig build gen-rooms-protocol-check      # verify those tables match tools/gen/rooms_protocol.zig (fails if stale), part of check
+zig build gen-agent-index               # regenerate the agent index (the README beside the rules and skills) from each one's description
+zig build gen-agent-index-check         # verify that index is current and every rule, skill, persona and hook states its purpose, part of source-check
+zig build gen-dependencies              # regenerate docs/dependencies.md from the dep comments in every manifest
+zig build gen-dependencies-check        # verify docs/dependencies.md matches those comments and every dependency has one, part of source-check
+zig build gen-doc-values                # rewrite every number a doc quotes from a code constant between its value markers
+zig build gen-doc-values-check          # verify each quoted value is current and its constant readable, part of source-check
+zig build doc-impact                    # list the docs whose header sources name code changed since the fork from dev (`-- <base>` for another)
 ```
 
-The project's mark is generated too. The mushroom is defined once, as the
-WebGPU shader in `apps/rooms/web/ui/mark_gpu_field.ts`, and `tools/gen/mark/`
-traces every still picture of it from a render of that shader. These two steps
-run the pinned headless Chromium, so they sit beside `check` like every other
-browser step. `zig build source-check` covers the half that needs no browser:
-it holds the committed files to one geometry, so a hand edit to any of them
-fails in-tree.
+The project's mark is defined once, as the WebGPU shader in
+`apps/rooms/web/ui/mark_gpu_field.ts`, and `tools/gen/mark/` traces every still
+picture of it from a render of that shader. These two steps run the pinned
+headless Chromium. `zig build source-check` covers the half that needs no
+browser: it holds the committed files to one geometry, so a hand edit to any of
+them fails in-tree.
 
 ```sh
 zig build gen-mark        # re-trace the mark and rewrite the unlit and lit artwork under site/assets/ with their square rasters, and the mark's generated blocks in ui/tokens.css and ui/mark.css (needs deno + the image-baked browser)
@@ -220,7 +244,7 @@ zig build gen-mark-check  # verify those files still match a fresh trace of the 
 ## C ABI consumers
 
 Each binding exercises the C ABI as a consumer. These steps prove the ABI is
-consumable. They do not decide Zig semantics.
+consumable and decide no Zig semantics.
 
 ```sh
 zig build bindings       # every binding check plus the published-example checks
@@ -232,7 +256,7 @@ zig build python-dogfood # the Python binding against the glowcap archives (need
 zig build racket-dogfood # the Racket binding against the glowcap archives (needs racket)
 zig build iroh-abi       # build libglowcap_net_transport_iroh, the iroh transport's C ABI companion (needs cargo)
 zig build iroh-abi-test  # test the ABI, including optional off-thread constructor diagnostics (needs cargo + deno)
-zig build webrtc-abi     # build libglowcap_net_transport_webrtc, the WebRTC transport's C ABI companion (ADR-0089 phase 3; needs cargo)
+zig build webrtc-abi     # build libglowcap_net_transport_webrtc, the WebRTC transport's C ABI companion (ADR-0089, needs cargo)
 ```
 
 Each in-tree proof family runs one scenario once per binding, with glowcap on
@@ -263,24 +287,25 @@ The live wire authority. Each step talks to a real Spritely Goblins vat.
 
 ```sh
 zig build goblins-interop          # live OCapN conversation with a real Goblins vat, both directions (needs racket + goblins)
+zig build goblins-differential    # accept or refuse per mutated frame, glowcap against a live Goblins vat, for a person to triage (needs racket + goblins)
 zig build goblins-handoff          # three-party handoff with Goblins, glowcap as recipient (needs racket + goblins)
 zig build goblins-gift             # three-party handoff with Goblins, glowcap as gifter (needs racket + goblins)
 zig build goblins-exporter         # three-party handoff with Goblins, glowcap as exporter: a Goblins pair deposits into and withdraws from glowcap's gift registry (needs racket + goblins)
 zig build goblins-relayed-give     # glowcap introduces a Goblins recipient to a promise a second Goblins vat has not settled, and the recipient reads the give out of the listener fire (needs racket + goblins)
 zig build goblins-listen-recipient # a Goblins vat hands glowcap an unsettled promise; Session.listenTo observes its later nested-capability settlement and calls that capability (needs racket + goblins)
-zig build goblins-native-pair-gift # two glowcap vats and one Goblins vat: the glowcap pair settles on glowcap-next over Cap'n Proto while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)
-zig build goblins-gift-hints       # the gift topology with an opaque route hint: Goblins decodes and re-encodes the mapping-shaped exporter locator byte-exactly (needs racket + goblins)
+zig build goblins-glowcap-pair-gift # two glowcap vats and one Goblins vat: the glowcap pair settles on glowcap-next over Cap'n Proto while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)
+zig build goblins-gift-hints       # the gift topology with an opaque route hint: Goblins round-trips the mapping-shaped exporter locator byte-exactly (needs racket + goblins)
 zig build goblins-gc               # live GC both ways: Goblins reclaims released exports and answers before close (needs racket + goblins)
-zig build goblins-handoff-iroh     # Goblins gifter and exporter, native completion-loop recipient over encrypted QUIC (needs cargo + racket + goblins)
+zig build goblins-handoff-iroh     # Goblins gifter and exporter, glowcap completion-loop recipient over encrypted QUIC (needs cargo + racket + goblins)
 zig build goblins-rooms-peering    # a real Goblins vat enters a foreign room through a glowcap directory publication over v1.0/Syrup, keeps the handed room after revocation, and the source reuses the name (needs deno + racket + goblins)
 zig build goblins-iroh             # live Goblins over encrypted QUIC through the iroh netlayer this repository wrote for Goblins, both directions (needs cargo + racket + goblins)
 zig build goblins-rooms            # a real Goblins vat and a glowcap peer hold one room, the vat on the v1.0 Syrup baseline beside the glowcap member's glowcap-next over Cap'n Proto (needs deno + racket + goblins)
-zig build goblins-rooms-irc        # both IRC application edges against real Goblins: fixture IRC through the bridge both ways; ordinary IRC through the front with channel traffic and an IRC-initiated DM reply (needs deno + racket + goblins)
+zig build goblins-rooms-irc        # both IRC application edges against real Goblins: fixture IRC through the bridge both ways; ordinary IRC through the Rooms IRC server with channel traffic and an IRC-initiated DM reply (needs deno + racket + goblins)
 zig build goblins-rooms-irc-bridge # the bridge half of that proof
-zig build goblins-rooms-irc-front  # the front half of that proof
+zig build goblins-rooms-irc-server # the IRC server half of that proof
 zig build goblins-rooms-iroh       # the same room over encrypted QUIC, with the accepting side recording the endpoint key QUIC authenticated (needs cargo + deno + racket + goblins)
-zig build goblins-rooms-dm         # a browser redeems a room introduction and direct-messages a real Goblins vat off-room over cleartext TCP, the vat answers on that connection, and the vat starts a direct message of its own to a native glowcap member (needs deno + racket + goblins + a Playwright Chromium)
-zig build goblins-rooms-dm-iroh    # both Goblins-facing DM directions over encrypted iroh QUIC: the vat exports to the browser, then redeems a native member's introduction (needs cargo + deno + racket + goblins + a Playwright Chromium)
+zig build goblins-rooms-dm         # a browser redeems a room introduction and direct-messages a real Goblins vat off-room over cleartext TCP, the vat answers on that connection, and the vat starts a direct message of its own to a Zig glowcap member (needs deno + racket + goblins + a Playwright Chromium)
+zig build goblins-rooms-dm-iroh    # both Goblins-facing DM directions over encrypted iroh QUIC: the vat exports to the browser, then redeems a Zig member's introduction (needs cargo + deno + racket + goblins + a Playwright Chromium)
 zig build goblins-rooms-matrix-iroh # heavyweight four-peer end check: pin Goblins' cross-receiver count defect, then run room topology, every DM pair, close/reopen, and restart over iroh
 zig build goblins-relay            # a browser peer holds a keyed OCapN session with a real Goblins vat through the Deno reference relay (needs deno + racket + goblins)
 zig build bindings-goblins-interop # per-binding live keyed conversation with a real Goblins vat, every binding (needs racket + goblins + the runtimes)
@@ -288,7 +313,7 @@ zig build deno-goblins-interop     # that conversation, the Deno binding over th
 zig build python-goblins-interop   # that conversation, the Python binding (needs python3 + racket + goblins)
 zig build rust-goblins-interop     # that conversation, the Rust binding (needs cargo + racket + goblins)
 zig build racket-goblins-interop   # that conversation, the Racket binding (needs racket + goblins)
-zig build bindings-goblins-listen  # reciprocal live conversation: Goblins dials and calls every native binding listener (needs deno + racket + goblins + the runtimes)
+zig build bindings-goblins-listen  # reciprocal live conversation: Goblins dials and calls every binding listener (needs deno + racket + goblins + the runtimes)
 zig build deno-goblins-listen      # that listener conversation, the Deno binding
 zig build python-goblins-listen    # that listener conversation, the Python binding
 zig build rust-goblins-listen      # that listener conversation, the Rust binding
@@ -307,20 +332,16 @@ zig build racket-goblins-gift      # that gift, the Racket binding (needs racket
 
 ## The shared sidecar runtime
 
-The iroh and WebRTC sidecars are Rust crates behind a C ABI. The shared plumbing
-lives in `transports/sidecar-common`: the private Tokio runtime a C call runs
-on, the release barrier for tasks that outlive their handle, and the self-pipe
-readiness channel. Each sidecar's cargo steps build it by path, and this step
-runs its tests.
+The iroh and WebRTC sidecars are Rust crates behind a C ABI. They share
+`transports/sidecar-common`: the private Tokio runtime a C call runs on, the
+release barrier for tasks that outlive their handle, and the self-pipe
+readiness channel. Each sidecar's cargo steps build it by path.
 
 ```sh
 zig build sidecar-common-test        # the shared crate's Rust unit tests: private-runtime calls from inside an ambient runtime, and the task barrier (needs cargo)
 ```
 
 ## The iroh transport
-
-iroh is the netlayer whose handshake proves who the far peer is, so most of
-these steps run over real endpoints.
 
 ```sh
 zig build iroh-lib                   # build the iroh netlayer sidecar staticlib into the build cache; every artifact that links it depends on this step by path (needs cargo)
@@ -335,6 +356,11 @@ zig build deno-iroh-loop             # that scale proof, the Deno binding (ADR-0
 zig build python-iroh-loop           # that scale proof, the Python binding (needs cargo + python3)
 zig build python-iroh-driver-provider  # live ADR-0112 Python parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the common provider ABI (needs cargo + python3)
 zig build rust-iroh-driver-provider    # that same parity, the Rust binding (needs cargo)
+zig build bindings-webrtc-driver-provider  # per-binding live WebRTC through the C provider: each binding dials the Zig answerer and accepts the Zig offerer (ADR-0244) with its own signaling (needs cargo + the runtimes)
+zig build deno-webrtc-driver-provider      # that dial plus the listen, the Deno binding (needs cargo + deno)
+zig build python-webrtc-driver-provider    # that dial plus the listen, the Python binding (needs cargo + python3)
+zig build rust-webrtc-driver-provider      # that dial plus the listen, the Rust binding (needs cargo)
+zig build racket-webrtc-driver-provider    # that dial plus the listen, the Racket binding (needs cargo + racket)
 zig build rust-iroh-loop             # that scale proof, the Rust binding (needs cargo)
 zig build racket-iroh-loop           # that scale proof, the Racket binding (needs cargo + racket)
 zig build bindings-iroh-handoff      # per-binding three-party handoff over iroh, minted and redeemed in one process (needs cargo + the runtimes)
@@ -351,37 +377,37 @@ zig build racket-iroh-reachability   # that dial, the Racket binding (opt-in; ne
 
 ## The WebRTC transport
 
-The steps follow the phases of ADR-0089.
+The WebRTC transport ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
 
 ```sh
-zig build webrtc-lib                # build the DataChannel netlayer sidecar staticlib and phase-1 probe binary in transports/webrtc (needs cargo)
+zig build webrtc-lib                # build the DataChannel netlayer sidecar staticlib and probe binary in transports/webrtc (needs cargo)
 zig build webrtc-sidecar-test       # the sidecar's Rust unit tests, including the inbound backpressure proof: a far peer that outruns the reader waits for room instead of growing the buffer (needs cargo)
-zig build webrtc-datachannel-test   # a headless Chromium RTCDataChannel carries bytes both directions to a native webrtc-crate peer on loopback (phase 1, signaling out-of-band over stdio; needs cargo + deno + a Playwright Chromium)
-zig build webrtc-resident-check     # type-check the netlayer resident src/net/transport/webrtc.zig (phase 2), compile-only, no cargo; rides check
-zig build webrtc-internal-test      # prove WebRTC resident identity and signaling-queue failure ownership; rides check
-zig build webrtc-interop            # two native glowcap peers hold a keyed OCapN session over a real DataChannel, signaling ferried in-process (phase 2; needs cargo)
-zig build webrtc-loop               # many concurrent DataChannels served from one HostRuntime thread through the WebRTC completion resident (needs cargo)
-zig build webrtc-redeem             # a recipient redeems a give naming a bare webrtc designator, dialing through its configured signaling authority (needs cargo)
-zig build webrtc-driver-provider    # install the WebRTC multiplexed provider into the generic C driver and open a session through it (needs cargo)
-zig build webrtc-mesh               # two native peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (phase 5; needs cargo)
-zig build webrtc-signaling-captp    # the exporter hosts a signaling inbox behind a keyed session, and the recipient drives offer/answer/candidate over it (phase 5; needs cargo)
-zig build webrtc-answerer           # build the native answerer for the webrtc-browser-peer proof (phase 6; needs cargo)
-zig build webrtc-browser-peer       # a real headless Chromium runs @glowcap/web and @glowcap/webrtc, and the DataChannel to the native answerer carries a keyed OCapN session (phase 6; needs cargo + deno + a Playwright Chromium)
-zig build webrtc-browser-to-browser # two headless Chromium peers bring up a direct DataChannel and hold a keyed session, the offerer dialing a bare webrtc locator through its composed webrtc connector's signaling authority with the signaling host out of the byte path (needs deno + a Playwright Chromium)
+zig build webrtc-datachannel-test   # a headless Chromium RTCDataChannel carries bytes both directions to a Rust webrtc-crate peer on loopback (signaling out-of-band over stdio; needs cargo + deno + a Playwright Chromium)
+zig build webrtc-resident-check     # type-check the netlayer resident src/net/transport/webrtc.zig, compile-only, no cargo; rides check
+zig build webrtc-internal-test      # prove WebRTC resident identity, signaling-queue failure ownership, and the managed dial's and accept's exchange table against a scripted sidecar; rides check
+zig build webrtc-interop            # two Zig glowcap peers hold a keyed OCapN session over a real DataChannel, signaling ferried in-process (needs cargo)
+zig build webrtc-loop               # many concurrent DataChannels, each answered by the completion backend, served from one HostRuntime thread with the client identity proved (needs cargo)
+zig build webrtc-redeem             # a recipient redeems a give naming a bare webrtc designator, dialing through its signaling authority while the exporter backend answers the offer (needs cargo)
+zig build webrtc-driver-provider    # the generic C driver dials and listens over WebRTC through the provider's signaling callbacks, the offer is handed in with provide_offer, and releasing the loop cancels a dial still in flight (needs cargo)
+zig build webrtc-mesh               # two Zig peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (needs cargo)
+zig build webrtc-signaling-captp    # the exporter hosts a signaling inbox behind a keyed session, and the recipient drives offer/answer/candidate over it (needs cargo)
+zig build webrtc-answerer           # build the Zig answerer the webrtc-browser-peer proof and the binding dial proofs reach (needs cargo)
+zig build webrtc-offerer            # build the Zig offerer the binding listen proofs accept (needs cargo)
+zig build webrtc-browser-peer       # a real headless Chromium runs @glowcap/web and @glowcap/webrtc, and the DataChannel to the Zig answerer carries a keyed OCapN session (needs cargo + deno + a Playwright Chromium)
+zig build webrtc-browser-to-browser # two headless Chromium peers hold a keyed session over a direct DataChannel, one dialing through the WebRTC connector and the other accepting through the WebRTC listener, with the signaling host out of the byte path (needs deno + a Playwright Chromium)
 ```
 
 ## The onion transport
 
 `onion` is the netlayer the OCapN draft standardizes and upstream Spritely
-Goblins ships. Everything that exercises it inside `zig build check` drives a
-fake daemon on loopback, so it needs neither Tor nor the network. The focused
-loop and binding checks use the same local setup. The live steps need `tor` on
-`PATH` and outbound network access. In the conformance step, glowcap uses
-operator-supplied control and SOCKS endpoints and the pinned upstream netlayer
-starts a separate Tor.
+Goblins ships. Everything that exercises it inside `zig build check`, plus the
+focused loop and binding checks, drives a fake daemon on loopback and needs
+neither Tor nor the network. The live steps need `tor` on `PATH` and outbound
+network access. In the conformance step, glowcap uses operator-supplied control
+and SOCKS endpoints and the pinned upstream netlayer starts a separate Tor.
 
 ```sh
-zig build onion-loop # focused native OnionLoop completion tests against fake SOCKS and control daemons
+zig build onion-loop # focused OnionLoop completion tests against fake SOCKS and control daemons
 zig build onion-pending-listen # the onion listener's pending publish through the completion residents, over the fake daemon
 zig build bindings-onion # install and exercise the onion provider from Rust, TypeScript, Python, and Racket (needs cargo + deno + python3 + racket)
 zig build onion-interop # live Tor: two glowcap peers hold an OCapN conversation over a real onion service (needs tor + network)
@@ -392,16 +418,13 @@ zig build demo-rooms-onion # run one hosted Rooms service and two independent cl
 
 ## The browser peer and the relays
 
-A browser drives the wasm Host with bytes, and a relay carries those bytes to
-a peer the tab cannot dial.
-
 ```sh
 zig build wasm-driver           # build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/ (also folded into cross-check)
 zig build wasm-archives         # build Host, OCapN, and Loam static Wasm archives into zig-out/wasm/lib for direct Rust linking
 zig build wasm-driver-test      # the wasm32 Host holds a real keyed CapTP handshake from JS over an in-memory pipe (needs deno)
 zig build wasm-abi-layout-check # the wasm32 Host's layout descriptor decodes cleanly and agrees with the abi.ts field counts (needs deno)
 zig build wasm-import-check     # the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno)
-zig build web-peer-test         # @glowcap/web holds keyed WebSocket sessions and Chromium accepts a native Noise-relay call (needs deno + Playwright; ADR-0070/0107)
+zig build web-peer-test         # @glowcap/web holds keyed WebSocket sessions and Chromium accepts a Noise-relay call from a Zig peer (needs deno + Playwright; ADR-0070/0107)
 ```
 
 ADR-0086 holds every runtime's relay to one shared harness: TCP forwarding,
@@ -409,7 +432,7 @@ the backpressure clause, and the idle-timeout bounded-resources clause.
 
 ```sh
 zig build bindings-relay                  # the cross-runtime relay matrix (needs deno + uv + cargo + racket)
-zig build bindings-native-wss-relay       # each native binding projects exact WSS trust refusals, then calls and closes through one local CA fixture (needs deno + uv + cargo + racket)
+zig build bindings-wss-relay       # each binding projects exact WSS trust refusals, then calls and closes through one local CA fixture (needs deno + uv + cargo + racket)
 zig build bindings-relay-iroh             # the matrix's iroh leg: a browser peer holds a live iroh session through each runtime's relay, dialing a real iroh endpoint over QUIC (needs deno + uv + cargo + racket)
 zig build deno-relay-test                 # one row: a browser peer holds a keyed session through the Deno reference relay bindings/ts/relay/serve.ts (needs deno)
 zig build python-relay-test               # one row: the same through the Python relay (needs deno + uv)
@@ -427,40 +450,41 @@ zig build deno-relay-iroh-test            # a browser peer holds a live iroh ses
 zig build python-relay-iroh-test          # the same through the Python relay, dialing iroh via dial_locator_for_relay (needs deno + uv + cargo)
 zig build rust-relay-iroh-test            # the same through the Rust relay, dialing iroh via Netlayer::connect_owned behind an opt-in iroh feature (needs deno + cargo)
 zig build racket-relay-iroh-test          # the same through the Racket relay, dialing iroh via dial-locator-for-relay (needs deno + cargo + racket)
-zig build bindings-keyed-relay-rendezvous # each language binding and the native CLI cold-dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)
+zig build bindings-keyed-relay-rendezvous # each language binding and the glowcap CLI cold-dial a registered non-listening peer through the reference relay's rendezvous bridge (needs deno + the runtimes)
 zig build deno-keyed-relay-rendezvous     # that cold dial, the Deno binding (needs deno)
 zig build python-keyed-relay-rendezvous   # that cold dial, the Python binding (needs deno + uv)
 zig build rust-keyed-relay-rendezvous     # that cold dial, the Rust binding (needs deno + cargo)
 zig build racket-keyed-relay-rendezvous   # that cold dial, the Racket binding (needs deno + racket)
-zig build bindings-noise-relay-listen     # each native event-loop binding registers and serves one Noise-sealed relay session (needs deno + uv + cargo + racket)
+zig build bindings-noise-relay-listen     # each event-loop binding registers and serves one Noise-sealed relay session (needs deno + uv + cargo + racket)
 zig build deno-noise-relay-listen         # that managed listener through Deno (needs deno)
 zig build python-noise-relay-listen       # that managed listener through Python (needs deno + uv)
 zig build rust-noise-relay-listen         # that managed listener through Rust (needs deno + cargo)
 zig build racket-noise-relay-listen       # that managed listener through Racket (needs deno + racket)
-zig build deno-native-wss-relay           # native WSS success plus exact hostname and unknown-CA refusal through Deno (needs deno)
-zig build python-native-wss-relay         # the same native archive through Python (needs deno + uv)
-zig build rust-native-wss-relay           # the same native archive through Rust's static consumer (needs deno + cargo)
-zig build racket-native-wss-relay         # the same native archive through Racket (needs deno + racket)
-zig build zig-keyed-relay-rendezvous      # that cold dial, the native glowcap CLI via GLOWCAP_RENDEZVOUS (needs deno)
-zig build zig-keyed-relay-register        # the native CLI registers at the reference relay with no listening socket and answers a cold dial (needs deno)
+zig build deno-wss-relay           # WSS success plus exact hostname and unknown-CA refusal through Deno (needs deno)
+zig build python-wss-relay         # the same C archive through Python (needs deno + uv)
+zig build rust-wss-relay           # the same C archive through Rust's static consumer (needs deno + cargo)
+zig build racket-wss-relay         # the same C archive through Racket (needs deno + racket)
+zig build zig-keyed-relay-rendezvous      # that cold dial, the glowcap CLI via GLOWCAP_RENDEZVOUS (needs deno)
+zig build zig-keyed-relay-register        # the glowcap CLI registers at the reference relay with no listening socket and answers a cold dial (needs deno)
 ```
 
 ## Applications and demos
 
-The applications glowcap ships, and cross-language demos that put several
-runtimes in one conversation.
+The applications glowcap ships, and cross-language demos with several runtimes
+in one conversation.
 
 ```sh
 zig build demo-rooms                   # cross-language rooms chat: Zig/Rust/Python/Racket/Deno in one room (needs deno; joins python3/racket/cargo clients when present)
 zig build demo-rooms-iroh              # the rooms chat over iroh's encrypted QUIC, with cross-language clients through the iroh C ABI (needs cargo + deno)
 zig build demo-rooms-dm                # rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)
 zig build demo-rooms-dm-reply          # a Host publication replies to its caller over the arriving session via currentSession(), so a non-listening peer receives the reply on the session it opened (needs deno)
-zig build demo-rooms-dm-back           # a member replies to a non-listening sender across a redeemed introduction, hosting a reply inbox on the redeemed direct session (sendRedeeming); the native, Chromium-free sibling of rooms-web-dm (needs deno)
+zig build demo-rooms-dm-back           # a member replies to a non-listening sender across a redeemed introduction, hosting a reply inbox on the redeemed direct session (sendRedeeming); the Chromium-free sibling of rooms-web-dm (needs deno)
 zig build rooms-dm-reredeem            # sendRedeeming resolves the direct exporter from the reply's route, so a re-redeem reaches the same live session with no second dial (needs deno, part of runtime-check)
-zig build demo-rooms-dm-iroh           # the same DM-by-introduction over encrypted QUIC, where the gift names the exporter's direct addresses (needs cargo + deno)
+zig build demo-rooms-dm-iroh           # the same DM-by-introduction over encrypted QUIC, the gift naming the exporter's direct addresses (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery # opt-in: the gift names the exporter by node id alone and the recipient resolves it through n0 discovery, no direct-address hints (needs cargo + deno + internet)
-zig build demo-tasks                   # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno)
-zig build tasks-app-test               # bounded task-board state, watcher, stream, and failed-join lifecycle tests (needs deno, part of runtime-check)
+zig build demo-tasks                   # cross-language tasks board: Zig/Rust/Python/Racket/Deno clients on one Zig server saved in Loam (needs deno)
+zig build tasks-server                 # serve a Tasks board over TCP from the repository root; pass `-- --data=DIR [--port=N]`
+zig build tasks-app-test               # the Zig tasks server over TCP: add, move, an oversized task refused without a change, shares and watchers across a reopened store (part of check)
 zig build tools-app-test               # the tools showcase's attenuation and revocation, held in-tree (needs deno, part of runtime-check)
 zig build demo-tools                   # cross-language capability showcase: delegation, attenuation, and revocation for AI agent harnesses (needs deno)
 zig build accountability               # accountability application on glowcap's own runtime over a real loopback TCP socket
@@ -477,10 +501,10 @@ zig build rooms-terminal-client-test   # run the Zig, Rust, Python, and Racket c
 zig build rooms-browser-build          # production Rooms application Wasm and generated JavaScript glue
 zig build rooms-browser-metadata-check # verify browser limits and capability metadata against their Rust owners
 zig build rooms-browser-test           # production workspace startup in Deno and Chromium
-zig build rooms-rust-test              # shared Rust grant policy, persistence failures, and static Host linking, part of runtime-check
+zig build rooms-rust-test              # shared Rust grant policy, persistence failures, static Host linking, and the workspace's formatting, part of runtime-check
 zig build bench-rooms-admission        # admission check cost, retained policy bytes and zero steady policy allocations (part of rooms-rust-test)
 zig build rooms-session-foreign-test   # maximum foreign session admission, capacity refusal and cold replacement, each under its own process deadline
-zig build rooms-rust-lint              # clippy over the Rooms Rust workspace, without native archive builds (needs cargo, part of runtime-check)
+zig build rooms-rust-lint              # clippy over the Rooms Rust workspace, without C archive builds (needs cargo, part of runtime-check)
 zig build rooms-rust-browser-test      # shared Rust contracts and Rooms policy projection in Deno and Chromium; part of check-external; setup in apps/rooms/rust/README.md
 zig build rooms-rust-contract-browser-test # focused portable declarations and linked Host contracts in Deno and Chromium
 zig build rooms-rust-browser-host-test # async Rust Host, capability calls, Rooms client and browser deadlines; part of rooms-rust-browser-test
@@ -495,12 +519,11 @@ zig build rooms-archive-test           # prove the member archive contract, boun
 zig build rooms-archive-build          # build and install the archive peer (needs cargo)
 zig build rooms-peers-test             # prove the archive peer, session peer, and room server's identity, transport, restart and signal shutdown (needs cargo, part of runtime-check)
 zig build rooms-agent-test             # exercise the agent skill across multiple rooms, DMs, acknowledgement and restart (needs cargo + python3, part of runtime-check)
-zig build rooms-postgres-test          # opt-in installed-server history and restart proof; GLOWCAP_ROOMS_STORAGE_LIVE_URL names a disposable local PostgreSQL database
 zig build rooms-archive                # run the durable archive peer; pass `-- --state=<directory>` (iroh by default, needs cargo)
 zig build rooms-session-build          # build and install the durable Rooms session runtime (needs cargo)
 zig build rooms-session                # run `glowcap apps rooms session`; pass `-- <verb> [flags]`, such as `-- serve --dir=<directory>`
-zig build rooms-irc-front-build        # build and install the IRC client front (needs cargo)
-zig build rooms-irc-front              # ordinary IRC clients enter Rooms; loopback by default, TLS required for public bind
+zig build rooms-irc-server-build       # build and install the Rooms IRC server (needs cargo)
+zig build rooms-irc-server             # ordinary IRC clients enter Rooms; loopback by default, TLS required for public bind
 zig build rooms-irc-bridge-build       # build and install the standalone IRC bridge (needs cargo)
 zig build rooms-irc-bridge -- --irc-realname="bridge bot; admin: YOUR_IRC_NICK" # serve an IRC channel as a Rooms directory; policy prerequisites in apps/rooms/irc/README.md
 zig build rooms-server-build           # build and install the room server (needs cargo)
@@ -508,16 +531,16 @@ zig build rooms-server                 # run the Rooms room server, the director
 zig build rooms-web-build              # build and install the HTTP front (needs cargo)
 zig build rooms-web-test               # the installed web front's HTTP, relay admission and startup/shutdown custody (needs cargo + deno + python3, part of runtime-check)
 zig build rooms-web-tor-test           # opt-in: private Tor ownership and durable directory service key, networking disabled (needs cargo + deno + python3 + tor)
-zig build rooms-web                    # serve the rooms browser UI; open the printed URL (needs cargo + deno). `-Dtransport=iroh|tcp|onion` picks the room transport: iroh (default, encrypted QUIC), tcp (cleartext, for a peer that speaks nothing else; `-- --bind= --announce-host=` expose it on a LAN), or onion (a Tor onion service; starts a private Tor unless GLOWCAP_ONION_SOCKS/GLOWCAP_ONION_CONTROL name one; needs tor). `-Dport` pins the HTTP port (default 8080); server flags such as `--diagnostics` follow `--`
+zig build rooms-web                    # serve the rooms browser UI; open the printed URL (needs cargo + deno). `-Dtransport` picks iroh (encrypted QUIC), tcp (cleartext, for a peer that speaks nothing else; `-- --bind= --announce-host=` expose it on a LAN), or onion (a Tor onion service that starts a private Tor unless GLOWCAP_ONION_SOCKS/GLOWCAP_ONION_CONTROL name one; needs tor). `-Dport` pins the HTTP port (default 8080)
 zig build rooms-dev                    # React Fast Refresh by default; -Dhot-reload=false serves compiled generations through the web front, with the same operator grants, durable state, and -Dtransport (needs cargo + deno)
 ```
 
 Each rooms browser proof drives a headless Chromium. The rows that need cargo
-run their page's rooms on the installed native room server, including its
+run their page's rooms on the installed Rooms server, including its
 operations and timeline capabilities.
 
 ```sh
-zig build rooms-web-relay-peer    # a wasm browser peer drives the room directory through native rooms-web's /relay byte pipe (needs deno)
+zig build rooms-web-relay-peer    # a wasm browser peer drives the room directory through the Rooms web server's /relay byte pipe (needs deno)
 zig build rooms-web-page          # the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line (needs deno + a Playwright Chromium)
 zig build rooms-web-admission     # configured refusal preserves drafts, attachment custody, cleanup and unrelated progress in the shipped page
 zig build rooms-web-responsiveness # stable presentation and bounded input latency under delayed traffic and event bursts
@@ -525,12 +548,13 @@ zig build rooms-web-proofs        # every shipped Rooms page browser proof, run 
 zig build rooms-web-link-preview  # link previews reconcile ready, retry, remove, image-failure, and delivered-link fallback states with the real Rooms controls (needs deno + a Playwright Chromium)
 zig build rooms-web-shared-session # two browser profiles attach to the session peer and mirror one durable Rooms member, workspace, and capability vault (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-hosted-session # one browser hosts its local session and another Rooms origin attaches through the capability's iroh signaling directory (needs cargo + deno + a Playwright Chromium)
-zig build rooms-web-reconnect     # the page survives losing its room server: it notices, reconnects, re-enters its room untouched, keeps the conversation the dead session delivered, and reaches the room again over the new one (needs cargo + deno + a Playwright Chromium)
+zig build rooms-web-reconnect     # the page survives losing its room server: it reconnects, re-enters its room, keeps the conversation already delivered, and reaches the room over the new session (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm            # the page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-tabs       # two tabs DM over the default WebRTC path, including closing and reopening the introduced line (needs cargo + deno + a Playwright Chromium)
-zig build rooms-web-dm-native     # a native peer cold-dials a browser member over sealed noise-relay rendezvous through its composed relay provider (needs cargo + deno + a Playwright Chromium)
+zig build rooms-web-dm-deno     # a Deno peer on the C library cold-dials a browser member over sealed noise-relay rendezvous through its composed relay provider (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-noise      # two browser members DM through the room relay over an end-to-end Noise-sealed rendezvous session, with the room off the message path (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-webrtc     # two browser members direct-message over a DataChannel by redeeming a webrtc handoff give, the room directory carrying only offer/answer/candidate (ADR-0089; needs cargo + deno + a Playwright Chromium)
+zig build rooms-web-dm-session-webrtc # the session process direct-messages a browser member over a DataChannel with no relay, signaling through the room directory that introduced the member (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-routes        # a cold /room/<name> link arrives in that room, opening a room writes its address, back and forward follow the view, following an address never moves the sidebar, and a private room's key stays out of the address (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-manager       # a reloaded workspace re-enters the rooms it manages by name and its saved manager capability still works (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-boot-theme    # the first paint uses the theme the reader left, read from the stored workspace before any application code runs, and a browser with no workspace gets the stylesheet default (needs cargo + deno + a Playwright Chromium)
@@ -545,10 +569,10 @@ zig build rooms-web-archive       # a reader selects a durable message-archive p
 
 ## Benchmarks
 
-Benchmarks keep performance budgets visible and do not decide behavior. They
-print measurements or write reports under `zig-out/bench-reports/`.
+Benchmarks print measurements or write reports under `zig-out/bench-reports/`.
 
 ```sh
+zig build bench-floors -Doptimize=ReleaseFast # each primitive alone (Ed25519, Noise XK handshake and records, frame copy, loopback round trip); bench/README.md pairs product paths with these; -- --smoke under check
 zig build bench-frame-view       # the borrowed frame-view path
 zig build bench-host-locator     # warmed Host route replacement and accept fallback allocation traffic
 zig build bench-uri -Doptimize=ReleaseFast # locator and sturdyref rendering time and allocation traffic
@@ -557,12 +581,25 @@ zig build bench-rooms-projection # production Rooms projection conversation and 
 zig build bench-codec            # the encode and decode path
 zig build bench-dispatch-scaling # inbound dispatch ns/turn across N warmed peers (cold-cache regime) with p50/p99
 zig build bench-outbound         # the outbound engine path (send/step/takeOutbound per answered deliver) and the op:gc-answers release-storm shape
-zig build bench-peer-scaling     # per-session memory report; add `-- --live` for authenticated socket scale (500k setup and result: docs/ladder.md)
+zig build bench-peer-scaling     # per-session memory report; add `-- --live` for authenticated socket scale (500k setup and result: bench/README.md)
 zig build bench-snapshot         # vat snapshot/restore (S5): O(objects), flat in object size, off by default
-zig build bench-loam -Doptimize=ReleaseFast # LMDB-backed conversation graph, sleepy actors, edits, and collection; -- --smoke under check
+zig build bench-loam -Doptimize=ReleaseFast # LMDB-backed conversation graph, sleepy actors, edits, collection, and cold reads at scale, and the Tasks app on each disk engine (`-- --tasks-only --engine=lmdb|sqlite` picks one); -- --smoke under check
 zig build relay-scaling          # the reference relay's per-connection footprint and its descriptor and RAM ceiling; the relay-tier sibling of bench-peer-scaling (needs deno)
-zig build bench-iroh             # OCapN round-trip latency and throughput over encrypted iroh QUIC against a same-machine cleartext TCP baseline (needs cargo); `-- --smoke` forwarded
+zig build bench-iroh             # OCapN round-trip latency and throughput over encrypted iroh QUIC against a same-machine cleartext TCP baseline (needs cargo); `-- --smoke`, `-- --row=greet|report|session-open`, `-- --codec=syrup|capnp`, `-- --readings=N --frame-cap=N`, and `-- --transport=tcp|noise-tcp|inproc|iroh|iroh-loop` forwarded
 zig build bench-goblins          # cross-implementation benchmark: glowcap's Racket binding and Spritely Goblins on one shared app (needs racket + goblins); `-- --smoke`/`--suite=<name>` forwarded
-zig build bench-langs            # per-language consumer cost: one fixed native Zig host, the client language swapped per row, driven by a native Zig orchestrator; `-- --smoke`/`--client=<name>` forwarded
-zig build bench-site-report      # regenerate the performance page's charts and tables from live ReleaseFast runs (needs racket + goblins + cargo)
+zig build bench-capnp            # Cap'n Proto RPC echo round trip in Rust (capnp-rpc) and C++ (reference library) on one loopback socket, for the benchmarks page comparison (needs capnp, cargo, g++); `-- --smoke`/`--pin=A,B` forwarded
+zig build bench-langs            # per-language consumer cost: one fixed Zig host, the client language swapped per row, driven by a Zig orchestrator; `-- --smoke`/`--client=<name>` forwarded
+zig build bench-site-report      # regenerate the performance pages' charts and tables from live ReleaseFast runs (needs racket + goblins + cargo, plus capnp and g++ for `bench-capnp`)
+```
+
+A `profile-*` step runs a bench under callgrind, built ReleaseFast for the
+baseline CPU, and ranks the self cost per file and per function for each phase
+the bench marks. The report lands at `zig-out/bench-reports/<bench>-profile.md`
+beside the callgrind parts, and `bench/README.md` says how to read it.
+
+```sh
+zig build profile-loam           # bench-loam's marked phases: the Tasks app's add, read, move, share and watch, the hot and cold reads, and the cold reads at scale; bench-loam's filters after -- (needs valgrind)
+zig build profile-outbound       # bench-outbound's answered send and clone-only phases (needs valgrind)
+zig build profile-dispatch-scaling # bench-dispatch-scaling's sequential and shuffled batches at each peer count (needs valgrind)
+zig build profile-report-test    # the callgrind part reader behind the profile-* reports (part of check)
 ```

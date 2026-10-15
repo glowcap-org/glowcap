@@ -90,7 +90,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
                     pair.close();
                     connected = false;
                     // Discovery is cold as well as the record caches. The
-                    // rooted publication remains in the backend's name index.
+                    // rooted publication remains in the engine's name index.
                     target.host.removeDurable(names[which].slice()) catch |err| if (err != error.UnknownPublication) return err;
                     pair = try Pair.open(&source.host, &target.host, designator);
                     connected = true;

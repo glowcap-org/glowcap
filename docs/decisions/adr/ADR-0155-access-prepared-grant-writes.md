@@ -114,8 +114,7 @@ ledger with an old identity as a substitute for restoration.
 CapTP actors, scoped subscriptions, and language bindings will consume these
 shared state transitions through the existing Host. They must not add another
 transaction engine or repeat grant decisions. The [managed access plan](../../loam/access-architecture.md)
-and [Rooms implementation plan](../../planning/rooms.md) own
-those remaining surfaces.
+and the [roadmap](../../roadmap.md) own those remaining surfaces.
 
 ## Evidence
 

@@ -10,8 +10,8 @@ impl Server {
 		let (listener, node_id) = crate::server::bind_loop_listener(
 			options.identity,
 			crate::abi_constants::TRANSPORT_IROH,
-			|host, lp| async move { ensure_loop_provider(&host, &lp, config).await },
-			|_lp, _listener, node_id| Ok(node_id),
+			|host, lp| async move { Ok((ensure_loop_provider(&host, &lp, config).await?, ())) },
+			|_lp, _listener, node_id, ()| Ok(node_id),
 		)
 		.await?;
 		Ok(Server { listener, node_id })

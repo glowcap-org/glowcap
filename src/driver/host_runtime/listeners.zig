@@ -307,6 +307,8 @@ pub fn detachClosingListeners(self: *HostRuntime) void {
 }
 
 pub fn closeListener(self: *HostRuntime, listener: *TransportListener) ?OperationFailure {
+    self.enterDriver();
+    defer self.leaveDriver();
     const transport = listener.transportName();
     if (self.resident_listeners.fetchRemove(residentKey(listener))) |removed| {
         std.debug.assert(std.mem.eql(u8, removed.value.transport, listener.transport));

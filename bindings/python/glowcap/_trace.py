@@ -1,4 +1,4 @@
-"""The live timeline producer: a veneer over the native tap. The core is the
+"""The live timeline producer: a veneer over the FFI tap. The core is the
 one owner of the facts -- ``glowcap_host_set_trace`` reports every session's
 open (with the partner's OCapN locator as designator plus transport, the
 Session ID both peers of the session derive, what proved that name, and the codec the
@@ -51,13 +51,13 @@ _self_label: Optional[str] = None
 # which states a different word and must keep stating it.
 _SELF_PROFILE = "glowcap"
 _t0 = 0.0
-# The one native callback object, kept referenced for the process's life so
+# The one FFI callback object, kept referenced for the process's life so
 # ctypes never collects a pointer the core still holds.
-_native_cb = None  # type: ignore[assignment]  # ctypes CFUNCTYPE product, not a type
+_ffi_cb = None  # type: ignore[assignment]  # ctypes CFUNCTYPE product, not a type
 # ctypes callback argtypes reject Python ``None`` on Python 3.13. This is the
 # correctly typed null function pointer the C API's nullable callback expects.
-_null_native_cb = _TraceCallback()
-# Every live Host is held weakly beside its cookie and designator. Native trace
+_null_ffi_cb = _TraceCallback()
+# Every live Host is held weakly beside its cookie and designator. FFI trace
 # installation always goes through the Host owner, never a raw pointer retained
 # in this process-global registry: that keeps installation on the Host's thread
 # and makes a stale registry row incapable of calling freed storage. The cookie
@@ -124,7 +124,7 @@ def _emit(sink: TraceSink, record: dict, owner) -> None:
     """Keep observer failure outside protocol control flow.
 
     This matters most for the ctypes callback: no Python
-    exception may cross a native callback frame. An annotation uses the same
+    exception may cross an FFI callback frame. An annotation uses the same
     observer-only contract even though it originates on the application side.
     """
     try:
@@ -135,7 +135,7 @@ def _emit(sink: TraceSink, record: dict, owner) -> None:
         owner._record_callerless_failure("trace.sink", error)
 
 
-def _on_native_event(ctx: int, event_ptr) -> None:
+def _on_ffi_event(ctx: int, event_ptr) -> None:
     sink = _sink
     if sink is None:
         return
@@ -145,14 +145,14 @@ def _on_native_event(ctx: int, event_ptr) -> None:
     if owner is None:
         return
     try:
-        _decode_native_event(sink, owner, cookie, ev)
+        _decode_ffi_event(sink, owner, cookie, ev)
     except BaseException as error:
         # This is a callerless binding/ABI projection failure, distinct from a
         # sink that rejected a valid event. Nothing may unwind through ctypes.
         owner._record_callerless_failure("trace.decode", error)
 
 
-def _decode_native_event(sink: TraceSink, owner, cookie: int, ev) -> None:
+def _decode_ffi_event(sink: TraceSink, owner, cookie: int, ev) -> None:
     session = f"live-h{cookie}-s{ev.session}"
     if ev.kind == _abi.TRACE_SESSION_OPEN:
         designator = (
@@ -236,18 +236,18 @@ def _decode_native_event(sink: TraceSink, owner, cookie: int, ev) -> None:
 
 
 def _callback():
-    global _native_cb
-    if _native_cb is None:
-        _native_cb = _TraceCallback(_on_native_event)
-    return _native_cb
+    global _ffi_cb
+    if _ffi_cb is None:
+        _ffi_cb = _TraceCallback(_on_ffi_event)
+    return _ffi_cb
 
 
 def enable_trace(
     sink: TraceSink, *, self_label: Optional[str] = None,
 ) -> Callable[[], None]:
     """Install the sink (replacing any prior one), start the clock, and
-    register the native tap on every live Host (a Host minted later registers
-    itself). Returns an uninstall that also clears the native tap.
+    register the FFI tap on every live Host (a Host minted later registers
+    itself). Returns an uninstall that also clears the FFI tap.
 
     ``self_label``, when given, is what the producing application would like
     its own endpoint CALLED -- a display name beside the identity, never
@@ -333,7 +333,7 @@ def _current_install(owner):
         row = _hosts.get(id(owner))
         if row is None or row.owner() is not owner:
             return None
-        callback = _callback() if _sink is not None else _null_native_cb
+        callback = _callback() if _sink is not None else _null_ffi_cb
         return callback, row.cookie if _sink is not None else None
 
 
@@ -351,7 +351,7 @@ def _refresh_host(owner) -> None:
 
 
 def _attach_host(owner, designator: str = "") -> None:
-    """Binding-internal: weakly register a Host and reconcile its native tap."""
+    """Binding-internal: weakly register a Host and reconcile its FFI tap."""
     global _next_cookie
     with _hosts_lock:
         cookie = _next_cookie

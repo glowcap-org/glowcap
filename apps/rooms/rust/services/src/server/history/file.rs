@@ -3,7 +3,7 @@
 //! the file has grown past the compaction point. Retention lives in the
 //! policy's index. This worker only persists what the index admitted, one
 //! change at a time, in order. The directory is leased to one server, so two
-//! servers pointed at one `--storage` refuse rather than interleave, and a
+//! servers pointed at one state directory refuse rather than interleave, and a
 //! staging file a crashed compaction left behind is swept before restore.
 use super::super::error::Error;
 use rooms_application::server::history::{
@@ -22,7 +22,7 @@ const LOCK: &str = "history.lock";
 
 /// The file backend's own state: the leased directory and, per room, how
 /// many rows its file holds, for compaction.
-pub(super) struct Backend {
+pub(in super::super) struct Backend {
 	directory: Directory,
 	grown: BTreeMap<String, usize>,
 }
@@ -30,7 +30,7 @@ pub(super) struct Backend {
 /// Restore every persisted room into `index`, then answer the backend that
 /// persists what the index admits next. Rooms the index evicted at the
 /// global edge lose their files here.
-pub(super) async fn restore(directory: PathBuf) -> Result<(Backend, Index), Error> {
+pub(in super::super) async fn restore(directory: PathBuf) -> Result<(Backend, Index), Error> {
 	tokio::task::spawn_blocking(move || restore_blocking(directory))
 		.await
 		.map_err(|e| Error::Worker(e.to_string()))?
@@ -41,9 +41,9 @@ fn refuse(what: impl Into<String>) -> Error {
 }
 
 fn restore_blocking(directory: PathBuf) -> Result<(Backend, Index), Error> {
-	// The lease is the writability probe, the exclusion PostgreSQL's advisory
-	// lock gives the other backend, and the sweep of any staging file a
-	// crashed compaction left: `Directory::open` does all three.
+	// The lease is the writability probe, the exclusion that keeps a second
+	// server off this directory, and the sweep of any staging file a crashed
+	// compaction left: `Directory::open` does all three.
 	let directory = Directory::open(directory, LOCK).map_err(|error| match error {
 		StorageError::InUse(path) => refuse(format!(
 			"room history in {} is already held by another server",

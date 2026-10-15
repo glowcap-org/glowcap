@@ -5,7 +5,7 @@ const web = await init({
 	relayUrl: (locator) => `wss://relay.example/?locator=${encodeURIComponent(locator)}`,
 });
 await using runtime = web.runtime;
-// `@glowcap/iroh` loads native FFI, so a page parses the locator on the web runtime.
+// `@glowcap/iroh` loads a compiled library through FFI, so a page parses the locator on the web runtime.
 const partner = web.parseLocator("ocapn://<64 lowercase hex characters>.iroh");
 // From here, the CapTP workflow is transport-independent.
 await using session = await runtime.connect(partner);

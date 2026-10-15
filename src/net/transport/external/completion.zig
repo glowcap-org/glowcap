@@ -321,18 +321,43 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
-            var platform_completions: [256]completion.Completion = undefined;
-            // Each internal completion publishes at most one record per seat
-            // its row reserved; pass-through records need their own room.
-            const room = std.math.add(usize, self.ready_reserved, platform_completions.len) catch
-                return error.OutOfMemory;
-            try self.ready.ensureUnusedCapacity(self.allocator, room);
-            const wait_ms: i32 = if (self.ready.len() > 0) 0 else timeout_ms;
-            const count = try self.platform.poll(&platform_completions, wait_ms);
-            for (platform_completions[0..count]) |comp| {
-                if (Identity.owns(comp.user_data)) self.dispatch(comp) else self.ready.appendAssumeCapacity(comp);
-            }
-            return self.ready.drain(out);
+            return collect(self, out, timeout_ms);
+        }
+
+        pub fn peek(self: *Self, out: []completion.Completion) !usize {
+            return collect(self, out, null);
+        }
+
+        /// `wait_ms` null reaps what the platform already completed and
+        /// submits nothing. Each internal completion publishes at most one
+        /// record per seat its row reserved, so the pass needs no room of
+        /// its own.
+        fn collect(self: *Self, out: []completion.Completion, wait_ms: ?i32) !usize {
+            if (self.idle()) return completion.passThrough(&self.platform, out, wait_ms);
+            const owed = self.ready.drain(out);
+            const room = out[owed..];
+            const count = if (wait_ms) |timeout_ms|
+                try self.platform.poll(room, if (owed > 0) 0 else timeout_ms)
+            else
+                try self.platform.peek(room);
+            const kept = try completion.keepForeign(room, count, Self, self);
+            return owed + kept + self.ready.drain(room[kept..]);
+        }
+
+        /// Nothing open, armed, or owed. Every completion this adapter owns
+        /// belongs to a connection or the listener, and a row leaves its
+        /// table only once nothing of its own is in flight, so with both
+        /// empty the pass is the platform's alone.
+        fn idle(self: *const Self) bool {
+            return self.conns.count() == 0 and self.listener == null and self.ready.len() == 0;
+        }
+
+        pub fn ownsCompletion(user_data: u64) bool {
+            return Identity.owns(user_data);
+        }
+
+        pub fn dispatchOwned(self: *Self, comp: completion.Completion) error{}!void {
+            self.dispatch(comp);
         }
 
         fn dispatch(self: *Self, comp: completion.Completion) void {

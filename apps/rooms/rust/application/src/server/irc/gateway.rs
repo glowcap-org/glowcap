@@ -152,10 +152,19 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 		self.named_bridge(name).is_some()
 	}
 	pub fn listed(&self) -> impl Iterator<Item = crate::directory::RoomInfo> + '_ {
+		self.listed_after(None).map(|(_, room)| room)
+	}
+	/// The running bridges in key order, each with the key it is held under,
+	/// starting after `after` when a page cursor names one.
+	pub fn listed_after(&self, after: Option<&str>) -> impl Iterator<Item = (&str, crate::directory::RoomInfo)> + '_ {
+		let from = match after {
+			Some(key) => core::ops::Bound::Excluded(key),
+			None => core::ops::Bound::Unbounded,
+		};
 		self.bridges
-			.values()
-			.filter(|bridge| !bridge.stopped)
-			.map(|bridge| bridge.room.info())
+			.range::<str, _>((from, core::ops::Bound::Unbounded))
+			.filter(|(_, bridge)| !bridge.stopped)
+			.map(|(key, bridge)| (key.as_str(), bridge.room.info()))
 	}
 	/// Retain one network. A second claim on the same name must agree with
 	/// the first exactly.
@@ -195,7 +204,7 @@ impl<C: Copy + Ord, R: Clone> Gateway<C, R> {
 			.map(|(key, _)| key.clone())
 			.collect())
 	}
-	/// Stand one channel beside the native rooms. `taken` says whether the
+	/// Stand one channel beside the existing rooms. `taken` says whether the
 	/// room name or publication id is already a room this directory lists.
 	pub fn join_bridge(
 		&mut self,

@@ -85,7 +85,7 @@ pub const Fixture = struct {
 
     pub fn drain(self: *Fixture) !void {
         var slot: [1]hosting.Worker.Slot = undefined;
-        var worker: hosting.Worker = .init(&slot);
+        var worker: hosting.Worker = .init(&slot, self.data.backend.readerCapacity());
         for (0..64) |_| {
             _ = try self.host.vat.driveIngressBudgeted(.local, 64);
             try self.attached.advance();

@@ -45,8 +45,8 @@ const ocapn_children = blk: {
 
 const mcp_flags = [_]Flag{
     .{ .long = "tools", .help = "MCP catalog: default|full|readonly", .kind = .string_flag },
-    .{ .long = "idle-ms", .help = "Idle timeout milliseconds (0 disables)", .kind = .string_flag },
-    .{ .long = "max-session-ms", .help = "Max session milliseconds (0 disables)", .kind = .string_flag },
+    .{ .long = "idle-ms", .help = std.fmt.comptimePrint("Close after this many idle milliseconds (default {d}, 0 disables, or GLOWCAP_MCP_IDLE_MS)", .{mcp.default_idle_ms}), .kind = .string_flag },
+    .{ .long = "max-session-ms", .help = std.fmt.comptimePrint("Close after this many milliseconds in total (default {d}, 0 disables, or GLOWCAP_MCP_MAX_SESSION_MS)", .{mcp.default_max_session_ms}), .kind = .string_flag },
 };
 
 const app_children = [_]Command{

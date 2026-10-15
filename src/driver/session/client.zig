@@ -1,4 +1,4 @@
-//! Owning native Session handle and one-call dial constructors.
+//! Owning Zig Session handle and one-call dial constructors.
 //!
 //! This is the application-facing client half of the blocking HostRuntime
 //! facade. Session owns one claimed Host wire and, for one-call construction,
@@ -64,7 +64,7 @@ pub const Promise = struct {
 pub const SessionOptions = host_runtime.HostRuntime.Options;
 const SharedRuntime = @import("shared_runtime.zig").SharedRuntime;
 
-/// An application-facing session, the object a native Zig application holds:
+/// An application-facing session, the object a Zig application holds:
 /// an owning handle for one session of a `driver.HostRuntime`. `connect` and
 /// `Server.accept` retain their heap-stable runtime. `adopt` transfers one
 /// caller-owned runtime wire into the same Session contract while borrowing
@@ -83,7 +83,7 @@ pub const Session = struct {
     allocator: std.mem.Allocator,
     deferred_release: host_runtime.HostRuntime.DeferredSessionRelease,
     active_calls: usize = 0,
-    native_release_complete: bool = false,
+    zig_release_complete: bool = false,
     /// Turn scratch for lowering one verb's argument spine into the core, which
     /// dupes anything session-lived onto its own allocator before the verb
     /// returns. Reset at each verb's entry rather than freed at its exit, so a
@@ -156,7 +156,7 @@ pub const Session = struct {
     }
 
     fn enterCall(self: *Session) void {
-        std.debug.assert(!self.native_release_complete);
+        std.debug.assert(!self.zig_release_complete);
         self.active_calls += 1;
         self.runtime.enterDriver();
     }
@@ -165,7 +165,7 @@ pub const Session = struct {
         self.runtime.leaveDriver();
         std.debug.assert(self.active_calls != 0);
         self.active_calls -= 1;
-        if (self.active_calls == 0 and self.native_release_complete) _ = self.completeRelease();
+        if (self.active_calls == 0 and self.zig_release_complete) _ = self.completeRelease();
     }
 
     /// Implicit cleanup always cancels, then releases the wire and its runtime
@@ -177,7 +177,7 @@ pub const Session = struct {
                 // The wrapper cannot be consumed while its callback owns the
                 // Host latch. Retain the refusal at the surviving Runtime and
                 // leave this allocation pinned rather than terminating the
-                // embedding process or freeing live native authority.
+                // embedding process or freeing live Zig authority.
                 self.runtime.noteTerminalFailure(err);
             };
             return;
@@ -194,19 +194,19 @@ pub const Session = struct {
         if (self.deferred_release.queued) return;
         self.runtime.releaseWire(self.hs) catch |err| {
             // Implicit destruction has no return recipient. A pre-commit
-            // release refusal leaves the native wire live, so retain the
+            // release refusal leaves the Zig wire live, so retain the
             // failure and pin this wrapper rather than pretending teardown
             // committed or turning a library error into process death.
             self.runtime.noteTerminalFailure(err);
             return;
         };
-        self.native_release_complete = true;
+        self.zig_release_complete = true;
     }
 
     fn completeDeferredRelease(ctx: *anyopaque) bool {
         const self: *Session = @ptrCast(@alignCast(ctx));
         if (self.active_calls != 0) {
-            self.native_release_complete = true;
+            self.zig_release_complete = true;
             return false;
         }
         return self.completeRelease();
@@ -245,6 +245,14 @@ pub const Session = struct {
         self.runtime.enterDriver();
         defer self.runtime.leaveDriver();
         return self.runtime.sessionCloseOutcome(self.hs);
+    }
+
+    /// The close outcome with the session's phase and, once the wire has
+    /// ended, why it ended (see `HostRuntime.SessionCloseStatus`).
+    pub fn closeStatus(self: *const Session) !driver.HostRuntime.SessionCloseStatus {
+        self.runtime.enterDriver();
+        defer self.runtime.leaveDriver();
+        return self.runtime.sessionCloseStatus(self.hs);
     }
 
     /// Begin the bootstrap fetch for `name`, returning its Promise without

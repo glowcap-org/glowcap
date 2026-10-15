@@ -10,7 +10,7 @@
 //! kqueue on macOS/BSD.
 //! Adding a backend does not change this loop.
 //!
-//! The native TCP backends default their listener to `127.0.0.1`. Embedders that
+//! The Zig TCP backends default their listener to `127.0.0.1`. Embedders that
 //! accept from other hosts construct the platform backend with
 //! `Backend.initWithListenerIp4` and move it into `initWithBackend`. Listener
 //! exposure is transport state, not portable loop policy. The high-fan-out
@@ -22,10 +22,11 @@
 //! admit outbound connections into the same lifecycle.
 //!
 //! It owns no protocol the engine lacks. Every completion drives the same peer
-//! APIs as the blocking pump. `Peer.recvStreamPrefix` applies complete frames and
-//! keeps the partial tail. `Peer.step` encodes queued sends. `Peer.takeOutbound`
-//! pulls frames to write. `test/engine/completion_seam_test.zig` pins the
-//! contract that arbitrary read boundaries still apply each frame exactly once.
+//! APIs as the blocking pump. `frame_stream.drainWholeFrames` applies complete
+//! envelopes and keeps the partial tail. `Peer.step` encodes queued sends.
+//! `Peer.takeOutbound` pulls frames to write.
+//! `test/engine/completion_seam_test.zig` pins the contract that arbitrary read
+//! boundaries still apply each frame exactly once.
 //!
 //! ## Read memory: the shared buffer pool (ADR-0054)
 //!
@@ -81,6 +82,8 @@ pub const Completion = contract.Completion;
 pub const listener_setup_poll_ms: i32 = 100;
 pub const Interest = contract.Interest;
 pub const ReadyQueue = contract.ReadyQueue;
+pub const keepForeign = contract.keepForeign;
+pub const passThrough = contract.passThrough;
 pub const failureFromErrno = contract.failureFromErrno;
 const loop_configuration = @import("loop/configuration.zig");
 const loop_state = @import("loop/state.zig");
@@ -271,7 +274,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
 
         /// Build a loop over a backend the caller already constructed. Use this
         /// for backend state that portable loop options do not own, such as a
-        /// native listener interface or an iroh resident's endpoint. `init`
+        /// Zig listener interface or an iroh resident's endpoint. `init`
         /// builds the platform backend with its ordinary defaults.
         pub fn initWithBackend(
             allocator: std.mem.Allocator,

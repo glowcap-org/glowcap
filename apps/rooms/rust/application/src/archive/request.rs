@@ -51,7 +51,7 @@ impl Facet {
 	}
 }
 impl Request {
-	/// Owned input charge. The native owner separately charges queue and reply
+	/// Owned input charge. The host owner separately charges queue and reply
 	/// slots. Reply pages are produced serially, bounded by MAX_READ and records.
 	pub fn heap_bytes(&self) -> usize {
 		match self {

@@ -185,7 +185,7 @@ fn runMixedSettlingConvergence(
     const target_incarnation = home_peer.session_state.shorteningIncarnationForImport(.from(target)).?;
     const target_listener = home_peer.session_state.promiseSettlingListenerExport(target_incarnation).?.int();
     if (release_application_before_settlement) {
-        try home_peer.sendCopying(.{ .gc_answer = .{ .positions = &.{application_answer.int()} } });
+        try home_peer.sendBorrowed(.{ .gc_answer = .{ .positions = &.{application_answer.int()} } });
         while ((try home_peer.step()) != .idle) {}
         while (home_peer.takeOutbound()) |frame_in| {
             var frame = frame_in;
@@ -210,9 +210,9 @@ fn runMixedSettlingConvergence(
     const wire = event.wireView();
     const resolution = try engine.events.resolutionFromResolverCallback(wire.deliver.args);
     try std.testing.expect(try node.claimProjectedProxyListenerFire(allocator, home, target_listener, resolution));
-    const semantic = try event.view();
+    const semantic = event.view();
     if (release_application_before_settlement) {
-        try std.testing.expect(semantic == .deliver);
+        try std.testing.expect(semantic.* == .deliver);
         try std.testing.expectEqual(
             glowcap.ocapn.session.RetiredResolverState.complete,
             home_peer.session_state.retiredResolverState(.from(target_listener)).?,

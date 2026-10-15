@@ -3,7 +3,7 @@ id: ADR-0003
 status: accepted
 date: 2026-04-30
 tags: [codec, syrup, capnp, wire-profile, goblins-interop, captp-version]
-decision: Codecs encode one codec-neutral model. Codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is glowcap's current Goblins 0.18.0 and pinned-suite interop floor, not an upstream maturity claim. `next` / `"glowcap-next"` is glowcap's forward private track for glowcap-to-glowcap (including Cap'n Proto sessions). Named offers (`Offer.goblins`, since renamed `Offer.v1_0Syrup`, / `Offer.native`) and `negotiate` settle the pair. ADR-0103 moved the production handshake offer from out-of-band configuration into signed locator hints while keeping `op:start-session`'s own shape at the baseline.
+decision: Codecs encode one codec-neutral model. Codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is glowcap's current Goblins 0.18.0 and pinned-suite interop floor, not an upstream maturity claim. `next` / `"glowcap-next"` is glowcap's forward private track for glowcap-to-glowcap (including Cap'n Proto sessions). Named offers (`Offer.goblins`, since renamed `Offer.v1_0Syrup`, / `Offer.glowcap`) and `negotiate` settle the pair. ADR-0103 moved the production handshake offer from out-of-band configuration into signed locator hints while keeping `op:start-session`'s own shape at the baseline.
 supersedes: []
 superseded_by: []
 amends: []
@@ -61,7 +61,7 @@ session state machine staying codec-neutral.
 
 **Offers and negotiation.**
 [`engine.negotiation`](../../../src/ocapn/engine/negotiation.zig) exposes
-`Offer.goblins()` (since renamed `Offer.v1_0Syrup()`) / `Offer.native()` and a
+`Offer.goblins()` (since renamed `Offer.v1_0Syrup()`) / `Offer.glowcap()` and a
 pure `negotiate(Offer, Offer)`.
 `op:start-session` carries the baseline version string and no new operands.
 ADR-0103 amends the production path: a peer states its preferred version, codec,
@@ -97,8 +97,8 @@ entry `glowcap_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
 
 - The per-call `CaptpVersion` is the only version-bearing encode/decode
   surface.
-- A glowcap-to-Goblins session sends `"1.0"` over Syrup. A native glowcap-to-glowcap
-  session prefers `next` and Cap'n Proto via `Offer.native()`, falling back to
+- A glowcap-to-Goblins session sends `"1.0"` over Syrup. A glowcap-to-glowcap
+  session prefers `next` and Cap'n Proto via `Offer.glowcap()`, falling back to
   `"1.0"` / Syrup when the partner only offers those.
 - **Symmetric refusal:** if a codec cannot represent a value, it fails with
   `Error.UnsupportedArgument` or a sibling instead of dropping it, so the model

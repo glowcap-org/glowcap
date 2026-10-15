@@ -1,7 +1,7 @@
-//! Failure-cold ownership for native releases refused from Rust `Drop` paths.
+//! Failure-cold ownership for FFI releases refused from Rust `Drop` paths.
 //!
 //! One safe boundary claims a finite queue prefix. A refusal requeues its
-//! owner for the next boundary rather than spinning. Native allocation policy
+//! owner for the next boundary rather than spinning. FFI allocation policy
 //! stays retained until the consuming release call.
 
 use std::cell::RefCell;
@@ -31,7 +31,7 @@ enum PendingRelease {
 		raw: *mut crate::sys::loam::GlowcapLoamEffectExecution,
 	},
 	#[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
-	LoamStore(*mut crate::sys::loam::GlowcapLoamLmdb),
+	LoamStore(std::sync::Arc<dyn crate::loam::Executor>),
 	#[cfg(all(feature = "loam", target_arch = "wasm32"))]
 	BrowserLoamStore {
 		backend: crate::loam::browser::Storage,
@@ -65,7 +65,7 @@ struct FailedDriverCompletion {
 	failure: Error,
 }
 
-// A refused native release still borrows the Rust owner. Thread exit cannot
+// A refused FFI release still borrows the Rust owner. Thread exit cannot
 // revoke that borrow or run async recovery. Keep unfinished owners alive for
 // the process lifetime instead of dropping them with TLS. This key has no
 // destructor, so releases from other TLS destructors can still be parked.
@@ -169,7 +169,7 @@ pub(crate) fn drain_host_sessions(host: &Rc<HostShared>) -> Result<()> {
 			reclaim_empty_queue();
 			return Ok(());
 		};
-		if let Err(error) = shared.finish_native_release() {
+		if let Err(error) = shared.finish_ffi_release() {
 			park_session(shared);
 			return Err(error);
 		}
@@ -215,29 +215,22 @@ pub(crate) fn drain() {
 			#[cfg(all(feature = "loam", target_arch = "wasm32"))]
 			PendingRelease::BrowserLoamStore { backend, store } => backend.retire(store),
 			#[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
-			PendingRelease::LoamStore(raw) => {
-				// SAFETY: `raw` is the `GlowcapLoamLmdb` storage owner that `park_loam_store` queued, popped from
-				// `PENDING` just now, so this is its only holder; a non-OK result parks it again below, and a quiescent
-				// release consumes it.
-				let mut rc = unsafe { crate::sys::loam::glowcap_loam_lmdb_release(raw) };
+			PendingRelease::LoamStore(executor) => {
+				let mut rc = executor.release();
 				if rc == crate::sys::loam::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {
-					// SAFETY: `raw` is the same `GlowcapLoamLmdb` storage owner, still live because the release above
-					// reported recovery required without consuming it; the callee resolves the indeterminate creation
-					// after its commit worker terminated.
-					let recovered = unsafe { crate::sys::loam::glowcap_loam_lmdb_recover(raw) };
+					// The release reported recovery required without consuming the owner. Recovery resolves the
+					// indeterminate creation after its commit worker terminated.
+					let recovered = executor.recover();
 					if recovered == sys::OK || recovered == crate::sys::loam::GLOWCAP_LOAM_ERR_UNCHANGED {
-						// SAFETY: `raw` is the same `GlowcapLoamLmdb` storage owner, still live after a recovery that
-						// returned OK or UNCHANGED; this second release is the last, and a refusal parks the handle
-						// again.
-						rc = unsafe { crate::sys::loam::glowcap_loam_lmdb_release(raw) };
+						rc = executor.release();
 					}
 				}
 				if rc != sys::OK {
-					park_loam_store(raw);
+					park_loam_store(executor);
 				}
 			}
 			PendingRelease::Session(shared) => {
-				if shared.finish_native_release().is_err() {
+				if shared.finish_ffi_release().is_err() {
 					park_session(shared);
 				}
 			}
@@ -381,8 +374,8 @@ pub(crate) fn park_loam_effect_execution(
 }
 
 #[cfg(all(feature = "loam", not(target_arch = "wasm32")))]
-pub(crate) fn park_loam_store(raw: *mut crate::sys::loam::GlowcapLoamLmdb) {
-	PENDING.with(|pending| pending.borrow_mut().push_back(PendingRelease::LoamStore(raw)));
+pub(crate) fn park_loam_store(executor: std::sync::Arc<dyn crate::loam::Executor>) {
+	PENDING.with(|pending| pending.borrow_mut().push_back(PendingRelease::LoamStore(executor)));
 }
 
 #[cfg(test)]

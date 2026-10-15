@@ -55,7 +55,7 @@ test "an unavailable CapTP transport is named before identity creation" {
     ));
     try std.testing.expect(ctx.secret == null);
     try std.testing.expect(ctx.state_guard == null);
-    try std.testing.expect(std.mem.indexOf(u8, cli.log.test_capture.captured(), "transport 'iroh' is not registered") != null);
+    try std.testing.expect(std.mem.indexOf(u8, cli.log.test_capture.captured(), "transport 'iroh' is not available here. This CLI dials tcp. Set GLOWCAP_RENDEZVOUS") != null);
 }
 
 test "listen backgrounds on the MCP front: bind now, one listener, close stops it" {

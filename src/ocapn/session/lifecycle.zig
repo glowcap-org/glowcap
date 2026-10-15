@@ -6,6 +6,7 @@
 //! policy elsewhere.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 
 const answer_notifications = @import("answers/notifications.zig");
@@ -42,6 +43,11 @@ pub const Options = struct {
     export_base: u64 = BOOTSTRAP_POSITION + 1,
     /// Positions available past `export_base`. Unbounded without a host range.
     export_span: u64 = std.math.maxInt(u64),
+    /// The secret the tables keyed by peer-chosen positions hash under. A
+    /// Node replaces it at registration (`keyWireTables`). A session that
+    /// keeps this public constant lets a peer precompute colliding positions,
+    /// which is fine for a scenario and for nothing a peer reaches.
+    wire_hash_multiplier: u64 = foundation.identity_hash.default_multiplier,
 };
 
 /// Move the export allocator to its host-assigned range before it has handed
@@ -97,10 +103,11 @@ pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
         .key_arena = std.heap.ArenaAllocator.init(allocator),
         .recv_scratch = std.heap.ArenaAllocator.init(allocator),
         .exports = .empty,
-        .imports = .empty,
-        .inbound_answers = .empty,
+        .imports = .keyed(options.wire_hash_multiplier),
+        .inbound_answers = .keyed(options.wire_hash_multiplier),
         .outbound_answers = .empty,
-        .imported_promises = .empty,
+        .imported_promises = .keyed(options.wire_hash_multiplier),
+        .wire_hash_multiplier = options.wire_hash_multiplier,
         .handshake_local_sent = false,
         .handshake_remote_received = false,
         .partner_session_key = &.{},
@@ -108,13 +115,31 @@ pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
         .partner_designator = &.{},
         .partner_acceptable_location_raw = &.{},
         .outbound_resolver_link = .empty,
-        .v1_0_inbound_resolver_link = .empty,
+        .v1_0_inbound_resolver_link = .keyed(options.wire_hash_multiplier),
         .sturdyref_cache = .empty,
         .sturdyref_cache_index = .empty,
         .pending_enlivens = .empty,
         .pending_enliven_by_answer = .empty,
         .bootstrap = .empty,
     };
+}
+
+/// Give the session the secret its peer-keyed tables hash under, before a
+/// peer-chosen position is held. Asserted rather than tolerated: a table
+/// re-keyed with rows in it could no longer find them.
+pub fn keyWireTables(self: *Session, multiplier: u64) void {
+    std.debug.assert(self.imports.len() == 0 and self.imports.identities == null);
+    std.debug.assert(self.inbound_answers.rows.count() == 0 and self.detached_inbound_answers == null);
+    std.debug.assert(self.imported_promises.count() == 0);
+    std.debug.assert(self.v1_0_inbound_resolver_link.forward.count() == 0);
+    std.debug.assert(self.outbound_resolver_link.forward.count() == 0);
+    self.wire_hash_multiplier = multiplier;
+    self.imports.slots.rows.multiplier = multiplier;
+    self.inbound_answers.rows.multiplier = multiplier;
+    self.imported_promises.multiplier = multiplier;
+    self.v1_0_inbound_resolver_link.forward.multiplier = multiplier;
+    self.v1_0_inbound_resolver_link.reverse.multiplier = multiplier;
+    self.outbound_resolver_link.reverse.multiplier = multiplier;
 }
 
 /// Retire every Session-owned allocation exactly once.

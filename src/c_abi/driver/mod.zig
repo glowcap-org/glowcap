@@ -3,7 +3,7 @@
 //! choreography every binding would otherwise re-implement: park on one readiness
 //! descriptor, step, drain one event queue.
 //!
-//! A native-loop consumer composes `libglowcap_host`, `libglowcap_driver`, and
+//! A consumer of the C driver loop composes `libglowcap_host`, `libglowcap_driver`, and
 //! the transport archives it selects. Symbol families stay disjoint.
 //!
 //! The private `loop.zig` state aggregate and `loop/` transition owners compose
@@ -39,7 +39,7 @@ pub const contract_layouts = [_]shared.archive_contract.Layout{
     shared.archive_contract.layout("GLOWCAP_DRIVER_EVENT", GlowcapDriverEvent),
 };
 
-/// Exact reflected callable/layout identity for the native driver archive.
+/// Exact reflected callable/layout identity for the Zig driver archive.
 pub const GLOWCAP_DRIVER_ARCHIVE_FINGERPRINT = shared.archive_contract.fingerprint(
     "driver",
     @This(),
@@ -61,6 +61,7 @@ pub const GlowcapStreamTransport = shared.GlowcapStreamTransport;
 pub const GlowcapProviderFailure = shared.GlowcapProviderFailure;
 pub const GlowcapTransportProfile = shared.GlowcapTransportProfile;
 pub const GlowcapTransportOperationOptions = shared.GlowcapTransportOperationOptions;
+pub const GlowcapDialOrigin = shared.GlowcapDialOrigin;
 pub const GlowcapTransportProviderEntry = shared.GlowcapTransportProviderEntry;
 pub const GlowcapTransportProvider = shared.GlowcapTransportProvider;
 pub const GlowcapStreamStartConnectFn = shared.transport_provider.GlowcapStreamStartConnectFn;
@@ -178,7 +179,12 @@ pub const GLOWCAP_DRIVER_DEFAULT_HANDSHAKE_MS: u32 = @intCast(driver.default_han
 pub const GLOWCAP_DRIVER_DEFAULT_LISTENER_SETUP_MS: u32 = @intCast(driver.default_listener_setup_ms);
 /// Default application-answer progress budget in milliseconds.
 pub const GLOWCAP_DRIVER_DEFAULT_SETTLE_MS: u32 = @intCast(driver.default_settle_ms);
-/// Construction policy for the native driver face. A zero wait budget is the
+/// Default busy-poll window in nanoseconds: zero parks at once.
+pub const GLOWCAP_DRIVER_DEFAULT_BUSY_POLL_NS: u64 = 0;
+/// The longest busy-poll window the loop adopts. A cross-thread settle or
+/// wake waits out the whole window, so a longer one is refused.
+pub const GLOWCAP_DRIVER_MAX_BUSY_POLL_NS: u64 = driver.HostRuntime.max_busy_poll_ns;
+/// Construction policy for the Zig driver face. A zero wait budget is the
 /// explicit unbounded form. Nonzero values bound progress in milliseconds.
 /// `wire_buffer_bytes` is retained
 /// once for each stream direction, or once for multiplexed read staging, per live
@@ -196,6 +202,8 @@ pub const GlowcapDriverOptions = extern struct {
     listener_setup_ms: u32,
     /// Application-answer budget in milliseconds. `GLOWCAP_DRIVER_WAIT_UNBOUNDED` waits unbounded.
     settle_ms: u32,
+    /// Nanoseconds the runtime spins reaping its transports before it parks. Zero parks at once. A spinning runtime holds its CPU for the window. A window past `GLOWCAP_DRIVER_MAX_BUSY_POLL_NS` is refused.
+    busy_poll_ns: u64,
 };
 
 // ── Event queue vocabulary ───────────────────────────────────────────────────

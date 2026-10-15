@@ -79,11 +79,20 @@ impl RoomsManagedDirectoryReader {
 			json(&serde_json::to_string(&rooms).map_err(|_| "Invalid directory projection")?)
 		})
 	}
-	pub fn list(&self) -> js_sys::Promise {
+	/// One page of live rooms as `{ rooms, next }`. Pass nothing for the
+	/// first page and `next` for the one after it.
+	pub fn list(&self, cursor: Option<String>) -> js_sys::Promise {
+		let after = match cursor {
+			None => None,
+			Some(text) => match rooms_application::directory::Cursor::parse(&text) {
+				Some(cursor) => Some(cursor),
+				None => return rejected("Invalid directory page cursor".into()),
+			},
+		};
 		let reader = self.reader.clone();
 		self.driver.submit(0, move |_| async move {
-			let rooms = reader.list().await.map_err(|error| error.to_string())?;
-			json(&serde_json::to_string(&rooms).map_err(|_| "Invalid directory projection")?)
+			let page = reader.list(after.as_ref()).await.map_err(|error| error.to_string())?;
+			json(&serde_json::to_string(&page).map_err(|_| "Invalid directory projection")?)
 		})
 	}
 	#[wasm_bindgen(js_name = advertisedLocation)]

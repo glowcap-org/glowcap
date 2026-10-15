@@ -42,21 +42,32 @@ pub const Terms = struct {
         try parent.validate(graph, policy);
         return try self.scope.isSubsetOf(graph, parent.scope) and try policy.isSubsetOf(self.policy, parent.policy);
     }
-};
-
-pub const StoredTerms = struct {
-    terms: Terms,
 
     /// Caller validates before copying. Only a selected scope allocates, with
     /// the scope module's fixed selection limit bounding the retained copy.
-    pub fn initCopying(allocator: std.mem.Allocator, terms: Terms) std.mem.Allocator.Error!StoredTerms {
-        var result: StoredTerms = .{ .terms = terms };
-        if (terms.scope == .objects) result.terms.scope = .{ .objects = try allocator.dupe(ResourceId, terms.scope.objects) };
+    pub fn initCopying(allocator: std.mem.Allocator, terms: Terms) std.mem.Allocator.Error!Terms {
+        var result = terms;
+        if (terms.scope == .objects) result.scope = .{ .objects = try allocator.dupe(ResourceId, terms.scope.objects) };
         return result;
     }
 
+    /// Frees the selection `initCopying` made.
+    pub fn deinitOwned(self: Terms, allocator: std.mem.Allocator) void {
+        if (self.scope == .objects) allocator.free(self.scope.objects);
+    }
+};
+
+/// Terms whose selection the holder owns, where a field would otherwise read
+/// as a borrow.
+pub const StoredTerms = struct {
+    terms: Terms,
+
+    pub fn initCopying(allocator: std.mem.Allocator, terms: Terms) std.mem.Allocator.Error!StoredTerms {
+        return .{ .terms = try Terms.initCopying(allocator, terms) };
+    }
+
     pub fn deinit(self: *StoredTerms, allocator: std.mem.Allocator) void {
-        if (self.terms.scope == .objects) allocator.free(self.terms.scope.objects);
+        self.terms.deinitOwned(allocator);
         self.* = undefined;
     }
 };

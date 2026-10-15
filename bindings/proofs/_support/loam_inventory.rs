@@ -1,5 +1,5 @@
 //! Shared wire management journey on native LMDB and browser IndexedDB.
-use super::{Argument, ControlPowers, Policy, Ref, Session};
+use super::{Argument, ControlPowers, Policy, Ref, Scope, Session};
 
 async fn revision(session: &Session, control: &Ref) -> u64 {
 	super::management::revision(session, control).await
@@ -23,16 +23,22 @@ pub async fn exercise(session: &Session, control: &Ref, policy: &Policy) -> Stri
 		resume: true,
 		revoke: true,
 	};
-	let request =
-		wide.with_ceiling(wide)
-			.issue_arguments(1, revision(session, control).await, 0, powers, "terminal", false);
+	let request = wide.with_ceiling(wide).issue_arguments(
+		1,
+		revision(session, control).await,
+		Scope::Object,
+		0,
+		powers,
+		"terminal",
+		false,
+	);
 	let issued = session.send(control, "issue-access", &request).await.unwrap();
 	let pair = issued.as_list().unwrap();
 	let source = Ref::try_from(&pair[0]).unwrap();
 	let administration = Ref::try_from(&pair[1]).unwrap();
 	assert!(
 		session
-			.send(&source, "derive", &wide.derive_arguments(1, 0))
+			.send(&source, "derive", &wide.derive_arguments(1, Scope::Object, 0))
 			.await
 			.is_err()
 	);
@@ -43,6 +49,7 @@ pub async fn exercise(session: &Session, control: &Ref, policy: &Policy) -> Stri
 	let child_request = wide.with_ceiling(wide).issue_arguments(
 		1,
 		revision(session, &administration).await,
+		Scope::Object,
 		0,
 		ControlPowers::default(),
 		"while paused",
@@ -142,6 +149,7 @@ pub async fn exercise(session: &Session, control: &Ref, policy: &Policy) -> Stri
 				&wide.with_ceiling(wide).issue_arguments(
 					1,
 					revision(session, &inspector).await,
+					Scope::Object,
 					0,
 					ControlPowers::default(),
 					"forbidden",
@@ -188,9 +196,15 @@ pub async fn reopen(session: &Session, control: &Ref, policy: &Policy, saved: &s
 		.send(
 			control,
 			"issue-access",
-			&wide
-				.with_ceiling(wide)
-				.issue_arguments(1, expected.parse().unwrap(), 0, powers, "terminal", false),
+			&wide.with_ceiling(wide).issue_arguments(
+				1,
+				expected.parse().unwrap(),
+				Scope::Object,
+				0,
+				powers,
+				"terminal",
+				false,
+			),
 		)
 		.await
 		.unwrap();

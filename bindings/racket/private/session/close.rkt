@@ -1,5 +1,5 @@
 #lang racket/base
-;; Internal: terminal Session close request/wait/barrier lifecycle. The native
+;; Internal: terminal Session close request/wait/barrier lifecycle. The FFI
 ;; Host selects protocol effects; this leaf owns only Racket scheduling,
 ;; callback-unwind deferral, retained worker state, and terminal projection.
 
@@ -115,7 +115,7 @@
      (thread (lambda () (run-session-close-worker! c barrier)))))
   barrier)
 
-;; Callback-time requests are already recorded in native state. This table is
+;; Callback-time requests are already recorded in FFI state. This table is
 ;; only a one-shot scheduling marker for the executor that waits after unwind.
 (define (drain-pending-session-close! c)
   (define m (session-host c))
@@ -173,7 +173,7 @@
      (raise-session-terminal-failure! c)]))
 
 ;; Close this session and nothing else. Explicit close drives the shared
-;; pending-work policy to its completion barrier. Inside a behavior turn native
+;; pending-work policy to its completion barrier. Inside a behavior turn FFI
 ;; intent is recorded immediately; only waiting and handle release are deferred
 ;; until the callback frame unwinds.
 (define (session-close! c

@@ -59,6 +59,25 @@
 }
 
 @media (max-width: 38rem) {
+  /* The links wrap under the brand on a phone, and the theme switch keeps
+     the brand row's right edge instead of trailing the last link. */
+  .site-header {
+    flex-wrap: wrap;
+    row-gap: 0.6rem;
+  }
+
+  .top-nav {
+    flex-basis: 100%;
+    gap: 0.9rem;
+    padding-right: 2.75rem;
+  }
+
+  .theme-toggle {
+    position: absolute;
+    right: clamp(1rem, 4vw, 2.5rem);
+    top: calc(0.7rem + var(--accent-line) - 5px);
+  }
+
   h1 {
     font-size: 2.2rem;
   }

@@ -7,7 +7,7 @@ const dispatch = glowcap.ocapn.codec.dispatch;
 const registry = glowcap.ocapn.codec.registry;
 
 // A throwaway third codec, the kind a consumer would bring. It only needs the
-// shape `dispatch` resolves against: an `Error` set and the three entry points.
+// shape `dispatch` resolves against: an `Error` set and the entry points `dispatch` calls.
 // This one reports every buffer as one over-large frame, so the test can prove
 // dispatch routed to *it* and not a built-in.
 const FixtureCodec = struct {
@@ -18,18 +18,6 @@ const FixtureCodec = struct {
         // Answer with the fixture's own typed error, so a test can prove the
         // body decode dispatched to *this* codec and not a built-in.
         return Error.Unused;
-    }
-
-    pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) dispatch.Prefix {
-        _ = bytes;
-        _ = max_frame_bytes;
-        return .too_large;
-    }
-
-    pub fn framePrefix(bytes: []const u8, max_frame_bytes: usize) dispatch.Boundary {
-        _ = bytes;
-        _ = max_frame_bytes;
-        return .too_large;
     }
 
     pub fn encodeMessageForProfile(
@@ -49,13 +37,6 @@ test "a consumer codec registered past the built-ins routes through dispatch" {
     const specs = [_]registry.Spec{
         .{ .id = custom_id, .frame_shape = .byte, .module = FixtureCodec },
     };
-
-    // The custom id resolves to the fixture's decodePrefix (always `.too_large`),
-    // proving a third codec dispatches with zero changes to the built-in set.
-    const verdict = dispatch.decodePrefixWith(&specs, custom_id, "anything at all", 4096);
-    try std.testing.expect(verdict == .too_large);
-    const boundary = dispatch.framePrefixWith(&specs, custom_id, "anything at all", 4096);
-    try std.testing.expect(boundary == .too_large);
 
     // The body decode routes through the same injected registry: the fixture
     // answers with its own typed error, not a built-in's.
@@ -92,6 +73,5 @@ test "an unregistered codec frames as malformed and has no shape, never an unrea
     // id is a representable input. The prefix framer and shape lookup must fail
     // closed exactly like `decodeBody` does, not reach an `unreachable`.
     const unclaimed: model.CodecId = @fromBackingInt(@intCast(0xBEEF));
-    try std.testing.expect(dispatch.decodePrefix(unclaimed, "anything at all", 4096) == .malformed);
     try std.testing.expect(dispatch.frameShape(unclaimed) == null);
 }

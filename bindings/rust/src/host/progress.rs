@@ -30,7 +30,7 @@ impl HostShared {
 	/// Kick the action drain from a synchronous verb: schedule it as its own
 	/// task on the `LocalSet`.
 	pub(crate) fn schedule_kick(self: &Rc<HostShared>) -> Result<()> {
-		// On a loop-adopted Host the native loop is the one drain, so the kick
+		// On a loop-adopted Host the driver loop is the one drain, so the kick
 		// becomes a scheduled loop step: deferred, so a kick from inside a
 		// turn steps only after the enclosing step unwinds.
 		#[cfg(not(target_arch = "wasm32"))]
@@ -129,7 +129,7 @@ impl HostShared {
 		}
 		crate::finalizer::drain();
 		crate::gc::drain(self)?;
-		// The native loop is the drain on a loop-adopted Host: one step flushes
+		// The driver loop is the drain on a loop-adopted Host: one step flushes
 		// what a verb queued and routes completions as loop events. No
 		// `glowcap_host_pump_drain` may run beside it: the loop owns the queue.
 		#[cfg(not(target_arch = "wasm32"))]
@@ -151,7 +151,7 @@ impl HostShared {
 			if self.raw.get().is_null() {
 				return Ok(());
 			}
-			// The native drain resumes queued Host work before its first
+			// The FFI drain resumes queued Host work before its first
 			// external action and may synchronously invoke a behavior.
 			let actions = {
 				let _deliver = crate::trampoline::DeliverGuard::enter_host(self);

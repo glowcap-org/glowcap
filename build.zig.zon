@@ -6,6 +6,7 @@
         // CLI and nothing in the `glowcap` library module. A consumer that
         // depends on glowcap as a package must not fetch a terminal UI it
         // never links, so the CLI steps resolve it and library builds do not.
+        // dep vaxis: The terminal UI behind the CLI's REPL. Only the CLI fetches it.
         .vaxis = .{
             .url = "git+https://github.com/rockorager/libvaxis#d4c3b3666e0c090e2b5092ca09893c6db15e0b79",
             .hash = "vaxis-0.6.0-BWNV_O8ODQBFLRjA4D0q75pHPh63iPu_v0yhpCwsAMaM",
@@ -13,9 +14,18 @@
         },
         // The LMDB 1.0.2 release from OpenLDAP's official GitHub mirror. The
         // Loam LMDB backend compiles its `libraries/liblmdb` sources.
+        // dep lmdb: The on-disk store behind Loam's LMDB backend, built from OpenLDAP's C sources.
         .lmdb = .{
             .url = "git+https://github.com/LMDB/lmdb#c279e0477c713076893e8c2b1a6337e421c15867",
             .hash = "N-V-__8AAJKDCgDQPnDfQRUzADR1nd4HE1fZUxK_aFADGNjk",
+        },
+        // The SQLite 3.54.0 amalgamation from sqlite.org. The Loam SQLite
+        // engine compiles `sqlite3.c` with the build options in
+        // `tools/build/loam/sqlite.zig`.
+        // dep sqlite: The on-disk store behind Loam's SQLite engine, built from the public domain amalgamation.
+        .sqlite = .{
+            .url = "https://sqlite.org/2026/sqlite-amalgamation-3540000.zip",
+            .hash = "N-V-__8AAIbIsACiE8KD1p1yFmEmwfDyxM6oeFpCwhUhBARB",
         },
     },
     .fingerprint = 0x27b3442e3f8ed58d,

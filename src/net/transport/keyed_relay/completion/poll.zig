@@ -8,6 +8,10 @@
 
 const completion = @import("../../../completion/loop.zig");
 
+/// The most records one pass of the wrapped platform hands up at once, the
+/// bound the ready reserve projects from. The resident asks for fewer.
+const pass_records = 256;
+
 pub fn Machine(
     comptime Backend: type,
     comptime Access: type,
@@ -16,6 +20,17 @@ pub fn Machine(
 ) type {
     return struct {
         pub fn poll(backend: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
+            return collect(backend, out, timeout_ms);
+        }
+
+        pub fn peek(backend: *Backend, out: []completion.Completion) !usize {
+            return collect(backend, out, null);
+        }
+
+        /// `wait_ms` null reaps what the platform already completed and
+        /// submits nothing.
+        fn collect(backend: *Backend, out: []completion.Completion, wait_ms: ?i32) !usize {
+            if (idle(backend)) return completion.passThrough(&backend.platform, out, wait_ms);
             serviceResolver(backend);
             Access.retryPendingDialCloses(backend);
             Access.retryPendingSecureSends(backend);
@@ -29,23 +44,53 @@ pub fn Machine(
             }
 
             const has_ready = backend.ready.len() > 0;
-            var tmp: [256]completion.Completion = undefined;
             // One consumed platform completion can fail a pending connect,
-            // recv, and send together. Reserve the complete projection before
-            // asking the platform to surrender any terminal record.
-            backend.ready.ensureUnusedCapacity(backend.allocator, tmp.len * 3) catch {
+            // recv, and send together. Reserve the complete projection of a
+            // full pass before asking the platform to surrender any terminal
+            // record.
+            backend.ready.ensureUnusedCapacity(backend.allocator, pass_records * 3) catch {
                 if (has_ready) return backend.ready.drain(out);
                 return error.OutOfMemory;
             };
 
-            const n = try backend.platform.poll(
-                &tmp,
-                effectiveTimeout(backend, has_ready, timeout_ms),
-            );
-            for (tmp[0..n]) |comp| try dispatch(backend, comp);
+            const owed = backend.ready.drain(out);
+            const room = out[owed..];
+            const n = if (wait_ms) |timeout_ms|
+                try backend.platform.poll(room, effectiveTimeout(backend, has_ready, timeout_ms))
+            else
+                try backend.platform.peek(room);
+            const kept = try completion.keepForeign(room, n, @This(), backend);
             // A completion may have promoted or retired a registration leg.
             Access.serviceRegistration(backend);
-            return backend.ready.drain(out);
+            return owed + kept + backend.ready.drain(room[kept..]);
+        }
+
+        /// Nothing open, armed, or owed. Every completion this adapter owns
+        /// belongs to a connection, a pending dial, the registration, or the
+        /// resolver wake, and every chore serves one of those or a retry
+        /// queue, so with all of them empty the pass is the platform's alone.
+        /// The resolver's live count is read last because it takes a lock.
+        fn idle(backend: *const Backend) bool {
+            return backend.conns.count() == 0 and backend.pending_dials.count() == 0 and
+                backend.registration.config == null and backend.ready.len() == 0 and
+                !backend.resolver_wake_armed and backend.close_retries.count == 0 and
+                backend.tls_send_retries.count == 0 and backend.recv_retries.count == 0 and
+                backend.dial_close_retry_count == 0 and
+                (backend.resolver == null or !backend.resolver.?.hasLiveJobs());
+        }
+
+        pub fn ownsCompletion(user_data: u64) bool {
+            return user_data == resolver_wake_ud or Access.isDialInternal(user_data) or Access.isInternal(user_data);
+        }
+
+        pub fn dispatchOwned(backend: *Backend, comp: completion.Completion) !void {
+            if (comp.user_data == resolver_wake_ud) {
+                try resolverWake(backend, comp);
+            } else if (Access.isDialInternal(comp.user_data)) {
+                Access.dispatchDial(backend, comp);
+            } else {
+                Access.dispatchInternal(backend, comp);
+            }
         }
 
         fn serviceResolver(backend: *Backend) void {
@@ -54,18 +99,6 @@ pub fn Machine(
                 Access.resolverCompleted(backend, job);
             if (resolver.hasLiveJobs() and !backend.resolver_wake_armed)
                 resolver.maintainWake(backend, resolver_wake_ud);
-        }
-
-        fn dispatch(backend: *Backend, comp: completion.Completion) !void {
-            if (comp.user_data == resolver_wake_ud) {
-                try resolverWake(backend, comp);
-            } else if (Access.isDialInternal(comp.user_data)) {
-                Access.dispatchDial(backend, comp);
-            } else if (Access.isInternal(comp.user_data)) {
-                Access.dispatchInternal(backend, comp);
-            } else {
-                backend.ready.appendAssumeCapacity(comp);
-            }
         }
 
         fn resolverWake(backend: *Backend, comp: completion.Completion) !void {

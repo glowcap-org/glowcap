@@ -7,7 +7,7 @@ use super::{
 };
 use glowcap::{Argument, Ref, current_session};
 use rooms_application::{
-	directory::{LIST, NAME as DIRECTORY, Shape, WATCH, creation, registration as member, wire},
+	directory::{self, LIST, NAME as DIRECTORY, NAMED, Shape, WATCH, creation, registration as member, wire},
 	failure::FailureCode,
 	room::ArgumentView,
 	server::directory::Introduction,
@@ -42,7 +42,10 @@ fn takes_capability(verb: &str) -> bool {
 pub(super) fn root(state: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
 	move |verb, args| {
 		let (connection, _) = super::rooms::caller(&mut state.borrow_mut())?;
-		if !matches!(verb, rooms_application::directory::UNWATCH | signal::DONE) {
+		if !matches!(
+			verb,
+			rooms_application::directory::UNWATCH | signal::DONE | signal::DECLINE
+		) {
 			state.borrow_mut().ingress(connection)?;
 		}
 		if !takes_capability(verb) && args.iter().any(|arg| Value(arg).contains_capability()) {
@@ -51,7 +54,9 @@ pub(super) fn root(state: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
 		// The root bounds cheap queries and registration independently from
 		// effects admitted at subscription, creation and introduction owners.
 		let class = match verb {
-			rooms_application::directory::UNWATCH | signal::DONE => Some(rooms_application::admission::Class::Cleanup),
+			rooms_application::directory::UNWATCH | signal::DONE | signal::DECLINE => {
+				Some(rooms_application::admission::Class::Cleanup)
+			}
 			creation::OPEN | creation::OPEN_MANAGED | member::OFFER_INBOX => {
 				Some(rooms_application::admission::Class::Create)
 			}
@@ -67,6 +72,7 @@ pub(super) fn root(state: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
 		}
 		match verb {
 			LIST_BASELINE | LIST => list(&state, args, shape_of(verb)),
+			NAMED => named(&state, args),
 			WATCH_BASELINE | WATCH => watch(&state, connection, args, shape_of(verb)),
 			rooms_application::directory::UNWATCH => unwatch(&state, connection, args),
 			creation::OPEN
@@ -83,9 +89,12 @@ pub(super) fn root(state: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
 			member::REQUEST_DIRECT => request_direct(&state, connection, args),
 			member::MEMBER => member_registration(&state, args),
 			creation::LOCATION => location(&state, args),
-			signal::OFFER_INBOX | signal::OFFER | signal::ANSWER | signal::CANDIDATE | signal::DONE => {
-				signaling::dispatch(&state, connection, verb, args)
-			}
+			signal::OFFER_INBOX
+			| signal::OFFER
+			| signal::ANSWER
+			| signal::CANDIDATE
+			| signal::DONE
+			| signal::DECLINE => signaling::dispatch(&state, connection, verb, args),
 			_ => Err(format!("unknown {DIRECTORY} method {verb}")),
 		}
 	}
@@ -111,53 +120,65 @@ pub(super) fn capability(args: &[Argument], at: usize) -> Option<&Ref> {
 }
 
 fn list(state: &Shared, args: &[Argument], shape: Shape) -> Reply {
-	if let [Argument::String(name)] = args
-		&& shape == Shape::Publication
-	{
-		if name.is_empty() || name.encode_utf16().count() > rooms_application::server::rooms::MAX_ROOM {
-			return Err("public room lookup needs one bounded name".into());
+	if shape == Shape::Baseline {
+		if !args.is_empty() {
+			return Err(format!("{LIST_BASELINE} takes no arguments"));
 		}
-		let state = state.borrow();
-		let rows;
-		if let Some(mut durable) = state.authority.named_publication(name) {
-			let id = durable
-				.id
-				.text()
-				.as_str()
-				.and_then(|id| state.authority.publication_room(id))
-				.ok_or("named publication has no room")?;
-			let key = if id.managed {
-				rooms_application::server::rooms::RoomKey::managed(id.id)
-			} else {
-				rooms_application::server::rooms::RoomKey::public(id.id)
-			};
-			let count = state.rooms.member_count(&key);
-			durable.count = rooms_application::fields::Nullable::Value(
-				rooms_application::fields::SafeInteger::new(count as u64)
-					.ok_or("room roster is outside the safe integer range")?,
-			);
-			rows = vec![durable];
-		} else {
-			let folded = name.to_lowercase();
-			rows = state
-				.listed()
-				.filter(|row| row.name.text().as_str().is_some_and(|n| n.to_lowercase() == folded))
-				.collect();
-		}
+		let rows: Vec<_> = state.borrow().listed().collect();
 		return Ok(wire::rooms::<Arguments>(&rows, shape));
 	}
-	if !args.is_empty() {
-		return Err(format!(
-			"{} takes no arguments",
-			if shape == Shape::Publication {
-				LIST
-			} else {
-				LIST_BASELINE
-			}
-		));
+	let after = match args {
+		[] => None,
+		[Argument::String(cursor)] => Some(
+			directory::Cursor::parse(cursor)
+				.ok_or_else(|| format!("{LIST} takes nothing or a page cursor it answered"))?,
+		),
+		_ => return Err(format!("{LIST} takes nothing or a page cursor it answered")),
+	};
+	Ok(wire::page::<Arguments>(&directory::Page::cut(
+		state.borrow().listed_after(after.as_ref()),
+	)))
+}
+
+/// The rooms listed under one public name, including a dormant managed room.
+fn named(state: &Shared, args: &[Argument]) -> Reply {
+	let [Argument::String(name)] = args else {
+		return Err(format!("{NAMED} takes one public room name"));
+	};
+	if name.is_empty() || name.encode_utf16().count() > rooms_application::server::rooms::MAX_ROOM {
+		return Err("public room lookup needs one bounded name".into());
 	}
-	let rows: Vec<_> = state.borrow().listed().collect();
-	Ok(wire::rooms::<Arguments>(&rows, shape))
+	let state = state.borrow();
+	let rooms;
+	if let Some(mut durable) = state.authority.named_publication(name) {
+		let id = durable
+			.id
+			.text()
+			.as_str()
+			.and_then(|id| state.authority.publication_room(id))
+			.ok_or("named publication has no room")?;
+		let key = if id.managed {
+			rooms_application::server::rooms::RoomKey::managed(id.id)
+		} else {
+			rooms_application::server::rooms::RoomKey::public(id.id)
+		};
+		let count = state.rooms.member_count(&key);
+		durable.count = rooms_application::fields::Nullable::Value(
+			rooms_application::fields::SafeInteger::new(count as u64)
+				.ok_or("room roster is outside the safe integer range")?,
+		);
+		rooms = vec![durable];
+	} else {
+		let folded = name.to_lowercase();
+		rooms = state
+			.listed()
+			.filter(|row| row.name.text().as_str().is_some_and(|n| n.to_lowercase() == folded))
+			.collect::<Vec<_>>();
+		if rooms.len() > directory::MAX_ROWS {
+			return Err("more rooms share that public name than one answer carries".into());
+		}
+	}
+	Ok(wire::rooms::<Arguments>(&rooms, Shape::Publication))
 }
 
 fn watch(state: &Shared, connection: u64, args: &[Argument], shape: Shape) -> Reply {

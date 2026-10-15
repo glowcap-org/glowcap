@@ -22,7 +22,7 @@ function assert(ok: boolean, what: string): asserts ok {
 	if (!ok) throw new Error(what);
 }
 
-// Unknown-seat admission and roster reset are exercised by the native/Wasm
+// Unknown-seat admission and roster reset are exercised by the host/Wasm
 // contract in rust/proofs/src/room_view.rs. This seam receives complete views.
 function view(state?: "rooms" | "connecting" | "linked" | "failed"): import("../../web/ui/store.ts").RoomViewUpdate {
 	return {
@@ -67,9 +67,9 @@ Deno.test("a bridged room withholds files and states what it carries, and the pa
 		carries: { previews: true, typing: true },
 		canPostFiles: true,
 	});
-	const native = store.getConv(projection, room.key);
-	assert(native?.type === "room" && native.grants.has("files"), "holding the facet is the files grant");
-	assert(native.carries?.previews === true, "the statement moved with the view");
+	const roomConv = store.getConv(projection, room.key);
+	assert(roomConv?.type === "room" && roomConv.grants.has("files"), "holding the facet is the files grant");
+	assert(roomConv.carries?.previews === true, "the statement moved with the view");
 	// A view that stops carrying the statement clears it rather than leaving
 	// the previous snapshot's word standing.
 	store.setRoomView(projection, room.key, { ...view(), carries: null });

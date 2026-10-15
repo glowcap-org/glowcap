@@ -21,7 +21,7 @@
          "../../private/async.rkt"
          "../../private/byte-channel.rkt"
          (only-in "../../private/finalizer-diagnostics.rkt"
-                  record-runtime-failure! run-native-finalizer!)
+                  record-runtime-failure! run-ffi-finalizer!)
          (only-in "../../private/ws-transport.rkt" ws-transport)
          (only-in "../../relay.rkt" relay-pump exn:fail:relay?
                   exn:fail:relay-primary exn:fail:relay-secondary)
@@ -43,7 +43,7 @@
                   driver-loop-has-transport?
                   loop-listen! loop-listener-ready! loop-listener-locator
                   loop-listener-close!)
-         "../../private/native-parent.rkt"
+         "../../private/ffi-parent.rkt"
          (only-in "../../private/value.rkt" make-ref/internal)
          "support.rkt"
          racket/tcp)
@@ -434,7 +434,7 @@
        (session-serve hsession)))))
 ;; Keep the recipient Host byte-fed so the handoff redeem must realize its
 ;; exporter TCP channel on the same active Host, never transfer that Host into
-;; the native driver after its broker session exists.
+;; the FFI driver after its broker session exists.
 (define sr-r-loc (tcp-locator "127.0.0.1" (server-port sr-g-server)))
 (define sr-r-host (make-fresh-host))
 (define sr-r

@@ -336,6 +336,7 @@ pub fn drainChildStdout(io: std.Io, child: *std.process.Child, scratch: []u8) us
     var reader = out.readerStreaming(io, &rbuf);
     var seen: usize = 0;
     while (seen < scratch.len) {
+        // best-effort: a read failure ends the drain, and the caller keeps the bytes seen so far.
         const n = reader.interface.readSliceShort(scratch[seen..]) catch break;
         if (n == 0) break;
         seen += n;
@@ -409,6 +410,7 @@ pub fn dumpChildStderr(io: std.Io, prefix: []const u8, child: *std.process.Child
     std.debug.print("{s}: --- goblins stderr ---\n", .{prefix});
     var scratch: [4096]u8 = undefined;
     while (true) {
+        // best-effort: a read failure ends this diagnostic dump, and the lines printed so far stand.
         const n = std.posix.read(fd, &scratch) catch break;
         if (n == 0) break;
         std.debug.print("{s}", .{scratch[0..n]});

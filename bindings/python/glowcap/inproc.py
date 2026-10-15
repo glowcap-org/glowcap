@@ -45,7 +45,7 @@ from ._ffi_ocapn import (
     _str_buf,
 )
 from ._ffi_inproc import _inproc_lib
-from ._native import NativeHandle, _NativeHandleOwner
+from ._ffi import FfiHandle, _FfiHandleOwner
 from ._locator import Locator
 
 __all__ = ["InprocNetlayer", "InprocListener", "InprocConnection", "locator"]
@@ -84,14 +84,14 @@ def _release_netlayer(raw) -> None:
     _inproc_lib.glowcap_inproc_netlayer_release(raw)
 
 
-class InprocConnection(_NativeHandleOwner):
+class InprocConnection(_FfiHandleOwner):
     """One in-process connection carrying one OCapN session, framed on the
     netlayer's codec, the socket-free sibling of :class:`glowcap.tcp.TcpConnection`.
     Closed on release / context exit."""
 
     def __init__(self, raw, netlayer: "InprocNetlayer"):
         self._netlayer = netlayer
-        self._native = NativeHandle(
+        self._ffi = FfiHandle(
             raw,
             _release_conn,
             _inproc_lib.glowcap_inproc_conn_shutdown,
@@ -101,7 +101,7 @@ class InprocConnection(_NativeHandleOwner):
         self._reads = threading.Lock()
         self._writes = threading.Lock()
         if not netlayer._adopt(self):
-            self._native.close()
+            self._ffi.close()
             raise RuntimeError("inproc netlayer is released")
 
     def __enter__(self) -> "InprocConnection":
@@ -111,12 +111,12 @@ class InprocConnection(_NativeHandleOwner):
         self.close()
 
     def close(self) -> None:
-        self._native.close()
+        self._ffi.close()
         self._netlayer._forget(self)
 
     def read_frame(self) -> bytes:
         """Block for one whole frame. Raises GlowcapError(ERR_CLOSED) on clean EOF."""
-        with self._reads, self._native.lease() as raw:
+        with self._reads, self._ffi.lease() as raw:
             frame = _ManagedFrame()
             _check_inproc(
                 _inproc_lib.glowcap_inproc_conn_read_frame(
@@ -127,7 +127,7 @@ class InprocConnection(_NativeHandleOwner):
 
     def write_frame(self, frame: bytes) -> None:
         f, _borrowed = _borrowed_byte_frame(frame)
-        with self._writes, self._native.lease() as raw:
+        with self._writes, self._ffi.lease() as raw:
             _check_inproc(
                 _inproc_lib.glowcap_inproc_conn_write_frame(
                     raw, ctypes.byref(f), None, 0, None
@@ -135,13 +135,13 @@ class InprocConnection(_NativeHandleOwner):
             )
 
 
-class InprocListener(_NativeHandleOwner):
+class InprocListener(_FfiHandleOwner):
     """A bound in-process listener on a string designator. Closed on release /
     context exit."""
 
     def __init__(self, raw, netlayer: "InprocNetlayer"):
         self._netlayer = netlayer
-        self._native = NativeHandle(
+        self._ffi = FfiHandle(
             raw,
             _release_listener,
             _inproc_lib.glowcap_inproc_listener_shutdown,
@@ -150,7 +150,7 @@ class InprocListener(_NativeHandleOwner):
         )
         self._accepts = threading.Lock()
         if not netlayer._adopt(self):
-            self._native.close()
+            self._ffi.close()
             raise RuntimeError("inproc netlayer is released")
 
     def __enter__(self) -> "InprocListener":
@@ -160,7 +160,7 @@ class InprocListener(_NativeHandleOwner):
         self.close()
 
     def close(self) -> None:
-        self._native.close()
+        self._ffi.close()
         self._netlayer._forget(self)
 
     def accept(
@@ -170,7 +170,7 @@ class InprocListener(_NativeHandleOwner):
     ) -> InprocConnection:
         """Block until a dialer connects, returning an owned connection framing
         on ``codec``."""
-        with self._accepts, self._native.lease() as raw:
+        with self._accepts, self._ffi.lease() as raw:
             out = ctypes.c_void_p()
             _check_inproc(
                 _inproc_lib.glowcap_inproc_accept(
@@ -192,14 +192,14 @@ class InprocListener(_NativeHandleOwner):
         :meth:`close`.
         """
         out = ctypes.c_int32()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_inproc(
                 _inproc_lib.glowcap_inproc_listener_readiness_fd(raw, ctypes.byref(out))
             )
         return out.value
 
 
-class InprocNetlayer(_NativeHandleOwner):
+class InprocNetlayer(_FfiHandleOwner):
     """Owns the in-process switchboard and its one I/O backend. Outlives the
     connections and listeners made from it. Released on :meth:`release` / context
     exit."""
@@ -207,7 +207,7 @@ class InprocNetlayer(_NativeHandleOwner):
     def __init__(self):
         out = ctypes.c_void_p()
         _check_inproc(_inproc_lib.glowcap_inproc_netlayer_new(ctypes.byref(out)))
-        self._native = NativeHandle(out, _release_netlayer, label="inproc netlayer")
+        self._ffi = FfiHandle(out, _release_netlayer, label="inproc netlayer")
         self._children: "weakref.WeakSet[InprocConnection | InprocListener]" = weakref.WeakSet()
         self._children_lock = threading.Lock()
         self._release_lock = threading.Lock()
@@ -229,7 +229,7 @@ class InprocNetlayer(_NativeHandleOwner):
                     children = list(self._children)
             for child in children:
                 child.close()
-            self._native.close()
+            self._ffi.close()
 
     def _adopt(self, child: "InprocConnection | InprocListener") -> bool:
         with self._children_lock:
@@ -246,7 +246,7 @@ class InprocNetlayer(_NativeHandleOwner):
         """Bind a listener on ``designator``, any opaque token a dialer names."""
         buf, n = _str_buf(designator)
         out = ctypes.c_void_p()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_inproc(
                 _inproc_lib.glowcap_inproc_listen(
                     raw, ctypes.cast(buf, ctypes.c_void_p), n, ctypes.byref(out)
@@ -264,7 +264,7 @@ class InprocNetlayer(_NativeHandleOwner):
         connection."""
         buf, n = _str_buf(designator)
         out = ctypes.c_void_p()
-        with self._native.lease() as raw:
+        with self._ffi.lease() as raw:
             _check_inproc(
                 _inproc_lib.glowcap_inproc_connect(
                     raw,

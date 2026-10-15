@@ -22,7 +22,7 @@ pub const Scope = struct {
         try bound.includeTotal(declaration.verb_bytes, 1, declaration.methods);
         try bound.includeTotal(try std.math.mul(usize, declaration.result_roles, @sizeOf(usize)), @alignOf(usize), declaration.methods);
         try bound.include(try std.math.mul(usize, declaration.targets, @sizeOf(Cache)), @alignOf(Cache), 1);
-        try bound.include(@sizeOf(driver.Host.StagedCapabilityRetain), @alignOf(driver.Host.StagedCapabilityRetain), 1);
+        try bound.include(@sizeOf(driver.Capability), @alignOf(driver.Capability), 1);
         return std.math.add(usize, @sizeOf(Scope), try bound.physicalBytes());
     }
 
@@ -30,7 +30,7 @@ pub const Scope = struct {
     backing: memory.Memory = undefined,
     source: driver.Capability = undefined,
     intent: h.Call.Intent = undefined,
-    arguments: []driver.Host.StagedCapabilityRetain = &.{},
+    arguments: []driver.Capability = &.{},
     continuation: ?*Continuation = null,
     interfaces: []const []const HeldMethod = &.{},
     cache: []Cache = &.{},
@@ -54,9 +54,7 @@ pub const Scope = struct {
     /// and physical byte allowance. Host actor storage remains Host-owned.
     pub fn createCopying(call: *h.Call, intent: h.Call.Intent, interfaces: []const Interface) !*Scope {
         const owner = call.attachment;
-        const entry = for (owner.entries) |*candidate| {
-            if (candidate.actor != null and candidate.id.eql(call.view.id)) break candidate;
-        } else return error.NotDurable;
+        const entry = owner.liveEntry(call.view.id) orelse return error.NotDurable;
         return create(owner, .{ .actor = entry.actor.? }, intent, interfaces, null);
     }
 
@@ -85,8 +83,8 @@ pub const Scope = struct {
             for (args, intent.args) |*out, item| out.* = try values.copy(driver.Value, arena, item);
             break :copied args;
         };
-        const held: []driver.Host.StagedCapabilityRetain = if (continuation != null) &.{} else try owner.host.retainValueCapabilities(arena, args);
-        errdefer owner.host.releaseUntransferredCapabilityRetains(held);
+        const held: []driver.Capability = if (continuation != null) &.{} else try owner.host.retainValueCapabilities(arena, args);
+        errdefer owner.host.releaseCapabilityRetains(held);
         const declarations = try arena.alloc([]const HeldMethod, interfaces.len);
         for (declarations, interfaces) |*out, interface| {
             const methods = try arena.alloc(HeldMethod, interface.methods.len);
@@ -126,14 +124,14 @@ pub const Scope = struct {
         defer self.backing.working.deinit();
         for (self.cache) |entry| if (entry.occupied and entry.role == role and entry.target.eql(target)) {
             const retained = try self.owner.host.retainValueCapabilities(self.backing.working.allocator(), &.{.{ .capability = entry.front.? }});
-            return retained[0].ref;
+            return retained[0];
         };
         const index = for (self.cache, 0..) |entry, index| {
             if (!entry.occupied) break index;
         } else return error.ContinuationCapacity;
         const held = try self.owner.host.retainValueCapabilities(self.backing.working.allocator(), &.{.{ .capability = target }});
         self.retain();
-        self.cache[index] = .{ .occupied = true, .target = held[0].ref, .role = role };
+        self.cache[index] = .{ .occupied = true, .target = held[0], .role = role };
         // spawn consumes Endpoint even on refusal; its destructor clears the
         // reserved weak entry and releases the independent target/scope retains.
         const actor = try self.owner.host.vat.spawn(driver.Hosting(Endpoint), .{ .inner = .{ .scope = self, .index = index } });
@@ -153,7 +151,7 @@ pub const Scope = struct {
         if (self.references != 0) return;
         const owner = self.owner;
         if (self.continuation) |retained| retained.releaseForReadScope() else owner.host.releaseCapabilityTerminal(self.source, null);
-        for (self.arguments) |argument| owner.host.releaseCapabilityTerminal(argument.ref, null);
+        for (self.arguments) |argument| owner.host.releaseCapabilityTerminal(argument, null);
         self.backing.deinit();
         owner.allocator.destroy(self);
         std.debug.assert(owner.continuations != 0);
@@ -221,14 +219,15 @@ pub const Scope = struct {
     const Endpoint = struct {
         scope: *Scope,
         index: usize,
-        pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-            defer turn.releaseValues(args);
+        pub fn handle(self: *Endpoint, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+            const arg_values = try args.values();
+            defer turn.releaseValues(arg_values);
             const scope = self.scope;
             const entry = scope.cache[self.index];
             const method = for (scope.interfaces[entry.role]) |*candidate| {
                 if (std.mem.eql(u8, candidate.verb, verb)) break candidate;
             } else return error.NoSuchMethod;
-            try calls.admitContinuation(scope.owner, scope.source, turn, scope.intent, entry.target, .{ .verb = verb, .args = args }, .{ .mediated = @constCast(&method.projection) });
+            try calls.admitContinuation(scope.owner, scope.source, turn, scope.intent, entry.target, .{ .verb = verb, .args = arg_values }, .{ .mediated = @constCast(&method.projection) });
             return .{ .void = {} };
         }
         pub fn deinit(self: *Endpoint, _: std.mem.Allocator) void {

@@ -100,7 +100,7 @@ fn project(view: glowcap::loam::ObservationDescription<'_>) -> Result<JsValue> {
 		ObservedDescription::Control(control) => projection::control(control),
 		ObservedDescription::Use(access) => projection::use_access(access),
 	};
-	let output = json(&serde_json::json!({"source": source, "changed": view.changed, "resync": view.resync, "notices": {"access": view.notices.access, "target": view.notices.target, "inventory": view.notices.inventory, "management": view.notices.management}}).to_string())?;
+	let output = json(&serde_json::json!({"source": source, "changed": view.changed, "resync": view.resync, "notices": {"access": view.notices.access, "target": view.notices.target, "inventory": view.notices.inventory, "management": view.notices.management, "subtree": view.notices.subtree}}).to_string())?;
 	js_sys::Reflect::set(
 		&output,
 		&"cursor".into(),

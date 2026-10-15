@@ -282,9 +282,10 @@ typedef struct GlowcapLoamBytes {
     uint32_t present;
 } GlowcapLoamBytes;
 typedef int32_t (*GlowcapLoamKvFn)(void *, uint32_t, const uint8_t *, size_t, const GlowcapLoamBytes *, GlowcapLoamBytes *);
-#define GLOWCAP_LOAM_METADATA_SIZE 174
+#define GLOWCAP_LOAM_METADATA_SIZE 142
+#define GLOWCAP_LOAM_MAX_KEY_BYTES 35
 #define GLOWCAP_LOAM_MAX_URI_BYTES 4096
-#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 12669128613106933256
+#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 13698614309606046450
 /* Construct a portable Store from exclusively claimed encoded metadata. Schema descriptors are copied. Inputs borrow for this call; out_store owns one release. No backend is opened. */
 int32_t glowcap_loam_store_new(const uint8_t *metadata, size_t metadata_len, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamStore **out_store);
 /* Construct a portable Store using the Context allocator for every Store and attachment allocation. The Context and its allocator callbacks outlive the Store and all its borrows. Metadata and schema rules match store_new. */
@@ -297,7 +298,7 @@ int32_t glowcap_loam_attach(GlowcapLoamStore *raw, GlowcapHost *host_handle, con
 int32_t glowcap_loam_attachment_release(GlowcapLoamAttachment *raw);
 /* Advance shared preparation and installation on the Host thread, outside callbacks. This performs no storage I/O. */
 int32_t glowcap_loam_advance(GlowcapLoamAttachment *raw, uint32_t *out_progress);
-/* Take one submitted storage effect. The returned work owns immutable borrowed batch/read storage until its worker retires. An uncertain batch automatically selects recovery after the original worker has completed and been released; recovery=1 explicitly requires that state. Complete and release each work exactly once. */
+/* Take one submitted storage effect. The returned work owns immutable borrowed batch/read storage until its worker retires. An uncertain batch automatically selects recovery after the original worker has completed and been released; recovery=1 explicitly requires that state. WOULD_BLOCK means every slot is taken, or the engine has no reader free and no write waits, so complete a work first. Complete and release each work exactly once. */
 int32_t glowcap_loam_next_work(GlowcapLoamAttachment *raw, uint32_t recovery, GlowcapLoamWork **out_work);
 /* After joining the storage worker, install its result on the Host thread. out_completed reports whether the handle is completed, including refusal after consumption. A reentrant call or unfinished worker leaves it uncompleted and owned. Repeated completion is stale. Unknown writes retain their recovery barrier. */
 int32_t glowcap_loam_work_complete(GlowcapLoamWork *raw, uint32_t *out_completed);
@@ -376,6 +377,7 @@ int32_t glowcap_loam_work_report_unknown(GlowcapLoamWork *raw);
 #define GLOWCAP_LOAM_ERR_DENIED (-42)
 #define GLOWCAP_LOAM_ERR_UNCHANGED (-43)
 #define GLOWCAP_LOAM_ERR_APPLICATION (-44)
+#define GLOWCAP_LOAM_ERR_CORRUPT (-45)
 /* Observe pending shared work on the Host thread. A parked effect is pending without necessarily being runnable; advance reports actual transitions. */
 int32_t glowcap_loam_has_pending_work(GlowcapLoamAttachment *raw, uint32_t *out_pending);
 /* Validate a bounded descriptor and construct policy terms from declared keys and bounds. Inputs borrow for this call; the shared Zig policy algebra produces the allocation-free output. */
@@ -388,13 +390,17 @@ int32_t glowcap_loam_work_report_unstarted(GlowcapLoamWork *raw);
 void glowcap_loam_clear_last_error(void);
 /* Compute a fresh exclusive claim. create=0 requires existing metadata, create=1 requires absence, and create=2 atomically initializes absence or opens the exact persisted identity. Only previous=NULL with previous_len=0 represents absence; a present empty row is corrupt. The adapter atomically persists the GLOWCAP_LOAM_METADATA_SIZE output under its exclusive lock before exposing a constructed Store. Existing data never resets or changes identity. */
 int32_t glowcap_loam_metadata_claim(const uint8_t *identity, uint32_t create, const uint8_t *previous, size_t previous_len, uint8_t *out_metadata, size_t out_len);
-/* Evaluate startup commit or recovery in the adapter atomic transaction. KV operations 0=get, 1=put, 2=remove consume borrows synchronously; returned rows remain valid until the next callback. Only get may return WOULD_BLOCK for an unloaded row; OK with present=0 means absence. Preserve emitted writes in the same transaction across resumption. Other failures require abort and terminal finish. Callbacks cannot reenter or retire this Loam owner. No installation is implied. */
+/* Evaluate startup commit or recovery in the adapter atomic transaction. KV operations 0=get, 1=put, 2=remove, 3=next consume borrows synchronously; returned rows remain valid until the next callback. Only get and next may return WOULD_BLOCK for an unloaded row; OK with present=0 means absence. Preserve emitted writes in the same transaction across resumption. Other failures require abort and terminal finish. Callbacks cannot reenter or retire this Loam owner. No installation is implied. WOULD_BLOCK with a collection batch open means finish that batch first. */
 int32_t glowcap_loam_store_plan(GlowcapLoamStore *raw, uint32_t recovery, GlowcapLoamKvFn callback, void *context);
+/* Evaluate one bounded collection batch of at most work_limit steps, plus the steps that finish its open unit, in the adapter atomic transaction. KV rules match store_plan, and operation 3=next returns the first key under the prefix key that is strictly after the floor input, with present=0 for none, in output memory that lasts until the next callback. A get of that key must return that row until the next write. Finish with glowcap_loam_store_finish(raw, 0, outcome). Refused while an attachment exists or a creation is staged, and WOULD_BLOCK with a startup batch open means finish that batch first. */
+int32_t glowcap_loam_store_collect_plan(GlowcapLoamStore *raw, size_t work_limit, GlowcapLoamKvFn callback, void *context);
+/* Report 1 when a collection cycle is in progress and 0 when none is. */
+int32_t glowcap_loam_store_collecting(GlowcapLoamStore *raw, uint32_t *out_collecting);
 /* After the startup transaction retires, report 0=completed plan, 1=known abort, 2=indeterminate write. Recovery refuses indeterminate or aborted outcomes and preserves its barrier. Only successful installation permits exposing provisional resource names. */
 int32_t glowcap_loam_store_finish(GlowcapLoamStore *raw, uint32_t recovery, uint32_t outcome);
 /* Report 0=read, 1=write, 2=name lookup, 3=recovery. Only writes need a readwrite transaction; recovery observes committed metadata. */
 int32_t glowcap_loam_work_kind(GlowcapLoamWork *raw, uint32_t *out_kind);
-/* Evaluate a submitted effect through transaction-local KV callbacks. Returned rows remain valid until the next callback; put/remove synchronously consume key/value bytes. Only get may return WOULD_BLOCK, preserving emitted writes in the same transaction. Other failures require abort and terminal finish. Callbacks cannot reenter or retire this Loam owner. Successful evaluation retains a plan until the terminal event; it does not install or retire work. */
+/* Evaluate a submitted effect through transaction-local KV callbacks. Returned rows remain valid until the next callback; put/remove synchronously consume key/value bytes. Only get and next may return WOULD_BLOCK, preserving emitted writes in the same transaction. Other failures require abort and terminal finish. Callbacks cannot reenter or retire this Loam owner. Successful evaluation retains a plan until the terminal event; it does not install or retire work. */
 int32_t glowcap_loam_work_plan(GlowcapLoamWork *raw, GlowcapLoamKvFn callback, void *context);
 /* After physical database retirement, report 0=completed plan, 1=known abort, 2=indeterminate write. Then complete and release work on the Host thread. Only writes admit an indeterminate outcome. Duplicate retirement refuses. */
 int32_t glowcap_loam_work_finish(GlowcapLoamWork *raw, uint32_t outcome);
@@ -414,7 +420,7 @@ int32_t glowcap_loam_pending_continuation_take(GlowcapLoamPendingContinuation *p
 int32_t glowcap_loam_pending_continuation_release(GlowcapLoamPendingContinuation *pending);
 /* Consuming release, null-safe and valid during content callbacks. Independent endpoints and admitted executions retain their own custody. */
 int32_t glowcap_loam_continuation_release(GlowcapLoamContinuation *continuation);
-/* Create one independently owned public dispatch front for the exact target. Each invocation rechecks original source intent and current target admission; public completion rechecks source after waits. Release its occurrence through Host ref_release. Refusal zeroes output. */
+/* Create one independently owned public dispatch handle for the exact target. Each invocation rechecks original source intent and current target admission; public completion rechecks source after waits. Release its occurrence through Host ref_release. Refusal zeroes output. */
 int32_t glowcap_loam_continuation_project(GlowcapLoamContinuation *continuation, size_t index, GlowcapReference *out_reference);
 /* Copy declared read interfaces over an exact activated target. The read scope retains immutable continuation custody without copying source intent or arguments. Every invocation and recursive result rechecks original admission. The independently owned facade survives release of the executor observer; release through Host ref_release. Undeclared methods and capability results refuse. Output zeroes on refusal. */
 int32_t glowcap_loam_continuation_project_reads_copying(GlowcapLoamContinuation *continuation, size_t index, const GlowcapLoamReadInterface *interfaces, size_t interface_count, size_t role, GlowcapReference *out_reference);

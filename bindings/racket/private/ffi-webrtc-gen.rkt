@@ -28,6 +28,15 @@
    'netlayer-drain-ready
    (wrap-out1 (get-ffi-obj 'glowcap_webrtc_netlayer_drain_ready L (_fun _pointer _pointer _size _pointer -> _int32))
               _size 0)
+   'netlayer-provide-offer
+   (wrap-out1 (get-ffi-obj 'glowcap_webrtc_netlayer_provide_offer L (_fun _pointer _pointer _size _pointer _size _pointer -> _int32))
+              _uint64 0)
+   'netlayer-provide-answer
+   (get-ffi-obj 'glowcap_webrtc_netlayer_provide_answer L (_fun #:blocking? #t _pointer _uint64 _pointer _size -> _int32))
+   'netlayer-provide-candidate
+   (get-ffi-obj 'glowcap_webrtc_netlayer_provide_candidate L (_fun #:blocking? #t _pointer _uint64 _pointer _size -> _int32))
+   'netlayer-fail-exchange
+   (get-ffi-obj 'glowcap_webrtc_netlayer_fail_exchange L (_fun #:blocking? #t _pointer _uint64 -> _int32))
    'netlayer-release
    (get-ffi-obj 'glowcap_webrtc_netlayer_release L (_fun _pointer -> _int32))
    'peer-new

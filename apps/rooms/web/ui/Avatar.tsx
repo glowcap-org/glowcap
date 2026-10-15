@@ -1,4 +1,4 @@
-// The person chip. Initials on a stable tint today. A custom picture will fill
+// The person chip. Initials on a stable tint. A custom picture would fill
 // the same box, so every place that names a person already has one owner for it.
 
 import { hueOf, initials } from "./member_identity.ts";

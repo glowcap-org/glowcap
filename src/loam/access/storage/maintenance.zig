@@ -255,7 +255,7 @@ const State = struct {
                     else => return err,
                 };
                 self.remove = status == .revoked;
-                if (self.remove) self.grant_path = try grant_retirement.prepare(&self.read, value.value.grant);
+                if (self.remove) self.grant_path = try grant_retirement.prepare(&self.read, value.value.grant.id, value.value.grant.parent);
             }
             self.terminal = .{ .kind = .grant };
         }

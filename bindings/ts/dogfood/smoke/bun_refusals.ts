@@ -20,7 +20,7 @@ export async function run(): Promise<void> {
 	assert(
 		listenerRefusal?.code === INVALID_ARGUMENT &&
 			listenerRefusal.message.includes("runtime that can park the loop"),
-		"Bun refuses native driver listeners before allocating a loop",
+		"Bun refuses driver listeners before allocating a loop",
 	);
 
 	for (
@@ -37,9 +37,9 @@ export async function run(): Promise<void> {
 		}
 		assert(
 			transportRefusal?.message.includes(
-				"requires native calls to run off the JavaScript event loop",
+				"requires FFI calls to run off the JavaScript event loop",
 			) ?? false,
-			`Bun refuses the native ${name} lifecycle before allocating a handle`,
+			`Bun refuses the FFI ${name} lifecycle before allocating a handle`,
 		);
 	}
 }

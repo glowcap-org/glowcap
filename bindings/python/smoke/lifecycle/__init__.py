@@ -1,5 +1,5 @@
 """Listeners and lifetimes: bound ports surface, rude probes bounce,
-supplied Hosts transfer transactionally, iroh cancellation joins native
+supplied Hosts transfer transactionally, iroh cancellation joins FFI
 teardown, and every session-close path retains its exact failures."""
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from .close import (
     _loop_finish_close_reports_finite_grace_timeout as _loop_finish_close_reports_finite_grace_timeout,
     _repeated_host_close_observes_recorded_timeout as _repeated_host_close_observes_recorded_timeout,
     _session_wire_failure_is_exact_and_retired as _session_wire_failure_is_exact_and_retired,
-    _silent_loop_dial_reaches_native_handshake_deadline as _silent_loop_dial_reaches_native_handshake_deadline,
+    _silent_loop_dial_reaches_ffi_handshake_deadline as _silent_loop_dial_reaches_ffi_handshake_deadline,
     _observe_session_retirement_without_serve_or_close as _observe_session_retirement_without_serve_or_close,
 )
 from .session_coordinator import (
@@ -296,7 +296,7 @@ async def _host_release_joins_dial_task() -> None:
         assert finished.is_set(), "CANCEL_DIAL returned before DIAL cleanup finished"
         await host.close()
         assert host._raw is None, (
-            "Host close retained native authority after CANCEL_DIAL cleanup"
+            "Host close retained FFI authority after CANCEL_DIAL cleanup"
         )
         assert not host._dial_tasks, (
             "the Host-owned DIAL registry retained a finished task"
@@ -308,7 +308,7 @@ async def _host_release_joins_dial_task() -> None:
 
 
 async def _proof_refusal_releases_minted_session() -> None:
-    """Failure between native mint and handshake has one teardown owner."""
+    """Failure between FFI mint and handshake has one teardown owner."""
     import glowcap._session as session_module
 
     class Transport:
@@ -353,7 +353,7 @@ async def _proof_refusal_releases_minted_session() -> None:
             assert exc.code == ERR_INVALID_ARGUMENT, exc.code
         else:
             raise AssertionError("a refused channel proof unexpectedly established")
-        assert releases == 1, "proof refusal did not release exactly one native session"
+        assert releases == 1, "proof refusal did not release exactly one FFI session"
         assert transport.close_count == 1, "proof refusal did not close its transport"
         assert not host._sessions, "proof refusal left a session registered on its Host"
 
@@ -433,7 +433,7 @@ async def _cancelled_iroh_open_releases_constructed_endpoint() -> None:
 
 
 async def _iroh_close_joins_after_cancellation() -> None:
-    """A canceled close waiter cannot detach the native release task."""
+    """A canceled close waiter cannot detach the FFI release task."""
     from glowcap.iroh import IrohNetlayer
 
     started = threading.Event()
@@ -454,7 +454,7 @@ async def _iroh_close_joins_after_cancellation() -> None:
     close = asyncio.create_task(netlayer.close())
     assert await asyncio.to_thread(started.wait, 1), "close did not start"
     close.cancel()
-    assert not close.done(), "close waiter detached before native teardown"
+    assert not close.done(), "close waiter detached before FFI teardown"
     finish.set()
     try:
         await close
@@ -464,7 +464,7 @@ async def _iroh_close_joins_after_cancellation() -> None:
         raise AssertionError("close cancellation was not preserved")
 
     await netlayer.close()
-    assert calls == 1, "repeated close started a second native release"
+    assert calls == 1, "repeated close started a second FFI release"
 
 
 async def _session_close_joins_owned_transport_release() -> None:
@@ -561,7 +561,7 @@ async def _session_close_retains_every_terminal_failure() -> None:
     from glowcap._session import Session
 
     primary = OSError("primary wire failure")
-    close_result = RuntimeError("native close result failed")
+    close_result = RuntimeError("FFI close result failed")
     wait_closed = LookupError("transport wait_closed failed")
     serve_failure = ValueError("serve task failed")
 

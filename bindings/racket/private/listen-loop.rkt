@@ -45,17 +45,17 @@
               DEFAULT-FEATURES-SYMBOL)))
 
 ;; The durable seed the loop opens with. A profile whose designator is a key
-;; keeps one: the caller's, else the supplied Host's, else fresh entropy drawn
-;; here at the binding boundary. A profile whose designator is an address has
-;; no identity to keep and hands the loop no seed. A caller's seed must be 32
-;; bytes and, beside a supplied Host, must be that Host's own; the loop cannot
-;; carry two identities, so a differing seed is refused rather than replaced.
+;; keeps one: the caller's seed or the supplied Host's, else fresh entropy
+;; drawn here at the binding boundary. A profile whose designator is an
+;; address has no identity to keep and hands the loop no seed. A caller's seed
+;; must be 32 bytes. A seed and a Host are two answers to one question, so
+;; passing both is refused even when they agree.
 (define (listen-loop-identity who identity? seed shared-host)
   (unless (or (not seed) (and (bytes? seed) (= (bytes-length seed) 32)))
     (raise-glowcap who ERR-INVALID-ARGUMENT "seed must be 32 bytes"))
-  (when (and seed shared-host (not (bytes=? seed (host-seed shared-host))))
+  (when (and seed shared-host)
     (raise-glowcap who ERR-INVALID-ARGUMENT
-                   "the seed conflicts with the supplied Host"))
+                   "seed and host are alternative identity sources"))
   (and identity?
        (or seed (and shared-host (host-seed shared-host)) (crypto-random-bytes 32))))
 
@@ -73,8 +73,9 @@
 ;; handed to the driver for this one listen; the provider decides what it
 ;; accepts. `time-travel?` is the server's local time-travel policy. A
 ;; transport whose designator derives from the seed calls
-;; `listen-loop-identity` first and passes that seed back in; the derivation
-;; is idempotent, so the loop still opens with exactly one identity.
+;; `listen-loop-identity` first and passes that seed back in only when no Host
+;; was supplied. A supplied Host resolves to its own seed here again, so the
+;; loop still opens with exactly one identity.
 ;;
 ;; A supplied Host that already belongs to a loop lends that loop; otherwise the
 ;; loop is opened here, and a supplied Host is transferred into it. Setup

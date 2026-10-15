@@ -300,7 +300,7 @@ test "pumpOver flushes the peer's queued outbound frames" {
     defer peer.deinit();
 
     // A negotiating peer may send its own op:start-session.
-    try peer.sendCopying(.{
+    try peer.sendBorrowed(.{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = &zero_pubkey },
@@ -343,7 +343,7 @@ test "encodeAndFlush drains the projected abort to the wire when stepToIdle fail
     // the second is a duplicate session authority refuses, so the engine
     // projects an `op:abort` onto outbound. Both ride the dispatch path, so it
     // is `stepToIdle` that fails, exercising encodeAndFlush's abort-flush catch,
-    // not the read-half `recvStreamPrefix` path.
+    // not the read-half `recvOuterPrefix` path.
     try peer.feedOwned(try startSessionFrame(allocator, "remote"));
     try peer.feedOwned(try startSessionFrame(allocator, "remote"));
 

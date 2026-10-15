@@ -1,20 +1,31 @@
+---
+type: static
+description: Diagrams of the CapTP session lifecycle, covering states, handshake, ending a session, and crossed hellos.
+sources:
+  - resource: /src/ocapn/session/
+  - resource: /src/ocapn/engine/hello.zig
+  - resource: /src/ocapn/engine/negotiation.zig
+  - resource: /src/ocapn/engine/pairing.zig
+---
+
 # Session lifecycle
 
-These diagrams follow the CapTP Specification sections CapTP Overview,
-op:start-session, Ending a session, and Crossed Hellos Resolution.
+Diagrams of how a session starts, runs, and ends, following the CapTP
+Specification sections CapTP Overview, op:start-session, Ending a session,
+and Crossed Hellos Resolution.
 
 ## SL-1: Session state machine
 
 The lifecycle is one-way: a session moves from `Negotiating` to `Open` to
-`Closed`. A refused handshake is terminal like every other abort. No
-transition reverses. A closed session never reopens.
+`Closed`. A refused handshake is terminal like every other abort
+([ADR-0083](../decisions/adr/ADR-0083-outbound-abort-closes-session.md)). A
+closed session never reopens.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Negotiating
     Negotiating --> Open: both start-session halves observed, versions equal
-    Negotiating --> Negotiating: handshake refusal (typed op:abort queued, ADR-0083)
-    Negotiating --> Closed: op:abort received, fatal non-handshake refusal, or transport closed by the adapter
+    Negotiating --> Closed: handshake refusal (abort queued), abort received, or transport closed by the adapter
     Open --> Closed: abort (sent or received)
     Closed --> [*]
 ```
@@ -58,7 +69,7 @@ sequenceDiagram
 Anchor: CapTP Specification § Crossed hellos. Two peers dialing each other
 simultaneously produce two half-open sessions for one peer pair. A deterministic
 tie-break over the two sessions' key material selects the survivor. The losing
-session is aborted. One open session per peer pair survives.
+session is aborted.
 
 ```mermaid
 sequenceDiagram
@@ -98,9 +109,9 @@ Anchor: CapTP Specification § Ending a session. `op:abort` (in either direction
 severs an open session: all imports and exports release, unresolved promises
 break, and per-session key material is discarded. An unrecognized wire record
 reaches the same teardown: a record the receiver does not recognize is a
-protocol error, and a protocol error aborts the session. Handshake refusals
-while still `negotiating` (version mismatch, bad signature, partner-key pin)
-queue an outbound `op:abort` without moving to Closed
+protocol error, and a protocol error aborts the session. A handshake
+refusal while still `negotiating` (version mismatch, bad signature, partner-key
+pin) queues an outbound `op:abort` and then closes the session
 ([ADR-0083](../decisions/adr/ADR-0083-outbound-abort-closes-session.md)).
 
 ```mermaid
@@ -111,7 +122,7 @@ flowchart TD
     CL --> T3["release answer tables"]
     CL --> T4["discard per-session key material"]
     UR["unrecognized wire record"] --> PE["protocol error"] --> AB
-    HR["handshake refusal while negotiating"] --> AO["queue op:abort, stay Negotiating"]
+    HR["handshake refusal while negotiating"] --> AO["queue op:abort, then state becomes Closed"]
 ```
 
 Handoff replay authority follows the same lifecycle. Each live

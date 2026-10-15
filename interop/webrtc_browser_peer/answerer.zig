@@ -1,11 +1,11 @@
-//! The native answerer for the WebRTC browser-peer proof (ADR-0089).
+//! The Zig answerer for the WebRTC browser-peer proof (ADR-0089).
 //!
 //! A real headless Chromium is the offerer (`@glowcap/webrtc`'s `RtcPeer` over
 //! `RTCPeerConnection`, driving a keyed session inside the wasm Host). This
-//! process is the answerer over the native sidecar (`glowcap_webrtc_sidecar_*`),
+//! process is the answerer over the Zig sidecar (`glowcap_webrtc_sidecar_*`),
 //! serving a Greeter behind the keyed handshake. The harness ferries the
 //! signaling between the two out of band over this process's stdio, one JSON
-//! object per line, the phase-1 datachannel probe's wire:
+//! object per line (`webrtc_common/stdio.zig`):
 //!
 //!   out  {"type":"identity","designator":"…"} this peer's key designator (first)
 //!   in   {"type":"offer","sdp":"…"}            the browser's SDP offer
@@ -18,11 +18,8 @@
 //!
 //! Once the DataChannel opens, the keyed handshake, bootstrap fetch, and
 //! deliver/resolve run exactly as `webrtc-interop` proves them between two
-//! native peers. Here the far peer is a browser. A concurrent reader applies the
-//! browser's offer and candidates while this thread produces the answer, drains
-//! its own candidates, and then serves. Only this thread writes stdout. The
-//! answerer signs a fixed key so the harness hands the browser its designator to
-//! pin.
+//! Zig peers. Here the far peer is a browser. The answerer signs a fixed key so
+//! the harness hands the browser its designator to pin.
 //!
 //! Links the Rust sidecar (`zig build webrtc-lib`, needs cargo), so it is built
 //! and run only by the `webrtc-browser-peer` harness, never a hermetic gate.
@@ -32,6 +29,7 @@ const glowcap = @import("glowcap");
 const webrtc = @import("webrtc");
 const webrtc_common = @import("webrtc_common");
 
+const stdio = webrtc_common.stdio;
 const crypto = glowcap.foundation.crypto;
 const model = glowcap.ocapn.model;
 const actors = glowcap.actors;
@@ -47,113 +45,13 @@ const answerer_seed = @as([crypto.SEED_BYTES]u8, @splat(0x71));
 const Greeter = struct {
     done: *std.atomic.Value(bool),
 
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
         self.done.store(true, .release);
         return .{ .string = greeting };
     }
 };
-
-/// Whether the browser's offer has been set as the remote description. The
-/// reader flips it after `setRemoteOffer`. The main thread then produces and
-/// writes the answer, so the two never call the sidecar's description setters at
-/// once and only the main thread writes stdout.
-var offer_seen = std.atomic.Value(bool).init(false);
-
-/// Append `s` as a JSON string literal (escaped) to `list`.
-fn appendJsonString(list: *std.ArrayList(u8), gpa: std.mem.Allocator, s: []const u8) !void {
-    try list.append(gpa, '"');
-    for (s) |c| switch (c) {
-        '"' => try list.appendSlice(gpa, "\\\""),
-        '\\' => try list.appendSlice(gpa, "\\\\"),
-        '\n' => try list.appendSlice(gpa, "\\n"),
-        '\r' => try list.appendSlice(gpa, "\\r"),
-        '\t' => try list.appendSlice(gpa, "\\t"),
-        else => if (c < 0x20) {
-            var buf: [8]u8 = undefined;
-            try list.appendSlice(gpa, std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch "");
-        } else try list.append(gpa, c),
-    };
-    try list.append(gpa, '"');
-}
-
-fn writeLine(io: std.Io, bytes: []const u8) void {
-    const stdout = std.Io.File.stdout();
-    stdout.writeStreamingAll(io, bytes) catch return;
-    stdout.writeStreamingAll(io, "\n") catch return;
-}
-
-/// Emit `{"type":"answer","sdp":<sdp>}` with `sdp` JSON-escaped.
-fn writeAnswer(io: std.Io, gpa: std.mem.Allocator, sdp: []const u8) void {
-    var buf: std.ArrayList(u8) = .empty;
-    defer buf.deinit(gpa);
-    buf.appendSlice(gpa, "{\"type\":\"answer\",\"sdp\":") catch return;
-    appendJsonString(&buf, gpa, sdp) catch return;
-    buf.appendSlice(gpa, "}") catch return;
-    writeLine(io, buf.items);
-}
-
-/// Emit `{"type":"candidate","candidate":<json>}`; `candidate_json` is the
-/// sidecar's already-serialized `RTCIceCandidateInit`, embedded verbatim.
-fn writeCandidate(io: std.Io, gpa: std.mem.Allocator, candidate_json: []const u8) void {
-    const line = std.fmt.allocPrint(gpa, "{{\"type\":\"candidate\",\"candidate\":{s}}}", .{candidate_json}) catch return;
-    defer gpa.free(line);
-    writeLine(io, line);
-}
-
-/// Read signaling from stdin until end of input: set the browser's offer as the
-/// remote description (flipping `offer_seen`) and add each trickled candidate.
-/// Never writes stdout.
-fn readSignaling(peer: *webrtc.Peer, io: std.Io, gpa: std.mem.Allocator) void {
-    var buf: [1 << 16]u8 = undefined;
-    var reader = std.Io.File.stdin().reader(io, &buf);
-    while (true) {
-        const raw = reader.interface.takeDelimiterInclusive('\n') catch return;
-        const line = std.mem.trimEnd(u8, raw, "\r\n");
-        if (line.len == 0) continue;
-        applyLine(peer, gpa, line);
-    }
-}
-
-fn applyLine(peer: *webrtc.Peer, gpa: std.mem.Allocator, line: []const u8) void {
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, line, .{}) catch return;
-    defer parsed.deinit();
-    const obj = switch (parsed.value) {
-        .object => |o| o,
-        else => return,
-    };
-    const kind = switch (obj.get("type") orelse return) {
-        .string => |s| s,
-        else => return,
-    };
-    if (std.mem.eql(u8, kind, "offer")) {
-        const sdp = switch (obj.get("sdp") orelse return) {
-            .string => |s| s,
-            else => return,
-        };
-        peer.setRemoteOffer(sdp) catch return;
-        offer_seen.store(true, .release);
-    } else if (std.mem.eql(u8, kind, "candidate")) {
-        // The candidate value is the last key: take the `{...}` substring after
-        // `"candidate":`, dropping the outer object's closing brace, so it goes
-        // to the sidecar verbatim without a JSON round-trip.
-        const marker = "\"candidate\":";
-        const at = std.mem.indexOf(u8, line, marker) orelse return;
-        var cand = std.mem.trim(u8, line[at + marker.len ..], " \t");
-        if (cand.len == 0 or cand[cand.len - 1] != '}') return;
-        cand = cand[0 .. cand.len - 1];
-        peer.addRemoteCandidate(cand) catch return;
-    }
-}
-
-/// Emit `{"type":"identity","designator":<hex>}` so the harness hands the
-/// browser the key to pin for the keyed dial.
-fn writeIdentity(io: std.Io, gpa: std.mem.Allocator, designator: []const u8) void {
-    const line = std.fmt.allocPrint(gpa, "{{\"type\":\"identity\",\"designator\":\"{s}\"}}", .{designator}) catch return;
-    defer gpa.free(line);
-    writeLine(io, line);
-}
 
 /// Serve a Greeter behind the keyed handshake over the open channel, signing
 /// with `secret` so the browser's pinned designator verifies.
@@ -171,10 +69,12 @@ fn serveKeyed(resident: *webrtc.Resident, peer: *webrtc.Peer, allocator: std.mem
     var pump = webrtc_common.PacketPump{ .read_buf = read_buf };
     defer pump.deinit();
 
-    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    // Publish before the handshake settles: the dialer's fetch can arrive in
+    // the same pump round that opens the session.
     var served = std.atomic.Value(bool).init(false);
-    _ = try host.sessionPublish(session, "greeter", Greeter, .{ .done = &served });
-    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 30_000);
+    _ = try host.publish("greeter", Greeter, .{ .done = &served });
+    try webrtc_common.waitFor(resident, peer, &pump, &host, session, session, webrtc_common.sessionOpenDone, 10_000);
+    try webrtc_common.serveUntil(resident, peer, &pump, &host, session, &served, webrtc_common.atomicFlagDone, 10_000);
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -191,46 +91,16 @@ pub fn main(init: std.process.Init) !void {
 
     // Announce the key the browser pins before any SDP flows.
     const designator = crypto.SecretKey.fromSeed(answerer_seed).publicKey().toDesignator();
-    writeIdentity(io, allocator, designator[0..]);
+    var out_buf: [4096]u8 = undefined;
+    var signaling = stdio.Signaling.init(io, .answerer, &peer, &out_buf);
+    try signaling.writeIdentity(designator[0..]);
 
-    // The signaling reader runs concurrently: it applies the browser's offer and
-    // candidates while this thread produces the answer, drains local candidates,
-    // and waits for the channel to open.
-    var reader_future = try io.concurrent(readSignaling, .{ &peer, io, allocator });
-
-    var answered = false;
-    var signal_buf: [webrtc.max_signal_bytes]u8 = undefined;
-    var len: usize = 0;
-    var rounds: usize = 0;
-    var opened = false;
-    while (rounds < 600) : (rounds += 1) {
-        var events: [16]webrtc.ReadyEvent = undefined;
-        const count = try resident.pollReady(&events, 50);
-        for (events[0..count]) |event| {
-            if (event.subject != @backingInt(peer.id())) return error.UnexpectedReadySubject;
-        }
-        if (!answered and offer_seen.load(.acquire)) {
-            var alen: usize = 0;
-            if (peer.createAnswer(&signal_buf, &alen)) |answer| {
-                writeAnswer(io, allocator, answer);
-                answered = true;
-            } else |_| {}
-        }
-        while (try peer.nextLocalCandidate(&signal_buf, &len)) |candidate| {
-            writeCandidate(io, allocator, candidate);
-        }
-        peer.checkOpen() catch |err| switch (err) {
-            error.WouldBlock => continue,
-            error.Closed => return error.ChannelClosed,
-            error.Failed => return error.ChannelFailed,
-        };
-        opened = true;
-        break;
-    }
-    if (!opened) return error.ChannelBringUpTimeout;
-
+    // The reader applies the browser's offer and candidates while this thread
+    // answers, trickles, and serves. Every exit stops the reader before the
+    // peer it touches is freed, since cancelling interrupts its stdin read.
+    var reader = try io.concurrent(stdio.Signaling.readInbound, .{ &signaling, io, allocator });
+    defer reader.cancel(io);
+    try signaling.openChannel(&resident, 600);
     try serveKeyed(&resident, &peer, allocator, answerer_seed);
-    // The browser has left; unblock the reader's stdin wait and collect it.
-    std.Io.File.stdin().close(io);
-    reader_future.await(io);
+    try signaling.check();
 }

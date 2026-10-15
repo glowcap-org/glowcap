@@ -143,11 +143,11 @@ pub const GiftRegistry = struct {
     /// last withdrawal, so a session that never carries gifts pays one pointer
     /// instead of an inline hash-map header.
     store: ?*GiftStore = null,
-    /// Highest accepted `handoff_count` on this Exporter–Receiver session.
+    /// Highest accepted `handoff_count` on this Exporter-Receiver session.
     /// Optional state retains the full `u64` count domain, including zero and
     /// `maxInt(u64)` as distinct accepted values.
     accepted_handoff_count: ?u64 = null,
-    /// Next `handoff_count` emitted on this Recipient–Exporter session.
+    /// Next `handoff_count` emitted on this Recipient-Exporter session.
     next_emitted_handoff_count: u64 = 0,
 
     fn freeGiftEntry(allocator: std.mem.Allocator, projection: ?LocalObjectProjection, entry: *GiftEntry) void {

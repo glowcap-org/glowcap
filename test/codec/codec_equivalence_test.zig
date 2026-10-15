@@ -9,7 +9,7 @@
 //!
 //! Two message arms are proven elsewhere because their cross-codec contract is
 //! not a flat `messagesEqual`. `start_session` carries the codec negotiation
-//! itself and is round-tripped per codec in `syrup_test.zig` and
+//! itself and is round-tripped per codec in `test/codec/syrup/` and
 //! `capnp_test.zig`. The `handoff` give and receive arms carry a signature whose
 //! signing domain is the decoded record's Syrup canonicalization, so their
 //! cross-codec contract is the re-encode-and-reverify test in

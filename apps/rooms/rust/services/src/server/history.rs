@@ -1,15 +1,15 @@
-//! Retention belongs to the portable index. This host owner restores a
-//! destination and serializes the admitted effects, with one bounded queue.
+//! Retention belongs to the portable index. This host owner restores the
+//! history directory and serializes the admitted effects, with one bounded queue.
 //! A failed persistence effect ends the server: later effects cannot safely
 //! continue from storage whose outcome no longer matches the live index.
-use super::{config::Storage, error::Error};
-use rooms_application::server::history::{Index, Persist};
+use super::error::Error;
+use rooms_application::server::history::Persist;
 use tokio::sync::mpsc;
 mod file;
-mod postgres;
+pub(super) use file::{Backend, restore};
 
 /// Queued tails share immutable rows with the live index. At most one new
-/// retained row is introduced per admitted mutation, plus at most 500 shared
+/// retained row is introduced per admitted mutation, plus at most `LINES_KEPT` shared
 /// row references per queued replacement. The in-flight write adds one slot.
 pub(super) const QUEUE: usize = 1024;
 
@@ -41,53 +41,16 @@ pub(super) fn mutate<T>(
 	state.apply_rooms(mutation.effects);
 	Ok(result)
 }
-pub(super) struct Backend(Kind);
-enum Kind {
-	Files(file::Backend),
-	Postgres(postgres::Backend),
-}
-
-pub(super) async fn restore(storage: Storage) -> Result<(Backend, Index), Error> {
-	match storage {
-		Storage::Files(directory) => {
-			let (backend, index) = file::restore(directory).await?;
-			Ok((Backend(Kind::Files(backend)), index))
-		}
-		Storage::Postgres(config) => {
-			let (backend, index) = postgres::Backend::open(config).await?;
-			Ok((Backend(Kind::Postgres(backend)), index))
-		}
-	}
-}
-impl Backend {
-	pub(super) async fn close(self) -> Result<(), Error> {
-		match self.0 {
-			Kind::Files(_) => Ok(()),
-			Kind::Postgres(backend) => backend.close().await,
-		}
-	}
-}
-
 pub(super) async fn worker(mut backend: Backend, mut changes: mpsc::Receiver<Persist>) -> Result<(), Error> {
 	while let Some(change) = changes.recv().await {
-		backend = Backend(match backend.0 {
-			Kind::Files(mut held) => {
-				let (held, outcome) = tokio::task::spawn_blocking(move || {
-					let outcome = held.persist(change);
-					(held, outcome)
-				})
-				.await
-				.map_err(|e| Error::Worker(e.to_string()))?;
-				outcome.map_err(|(what, cause)| Error::History(format!("could not {what}: {cause}")))?;
-				Kind::Files(held)
-			}
-			Kind::Postgres(mut held) => {
-				// Never reconnect and replay a transaction: COMMIT may have
-				// reached the database even when its answer did not reach us.
-				held.persist(change).await?;
-				Kind::Postgres(held)
-			}
-		});
+		let (held, outcome) = tokio::task::spawn_blocking(move || {
+			let outcome = backend.persist(change);
+			(backend, outcome)
+		})
+		.await
+		.map_err(|e| Error::Worker(e.to_string()))?;
+		outcome.map_err(|(what, cause)| Error::History(format!("could not {what}: {cause}")))?;
+		backend = held;
 	}
-	backend.close().await
+	Ok(())
 }

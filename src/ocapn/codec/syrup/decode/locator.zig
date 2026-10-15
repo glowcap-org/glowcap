@@ -16,15 +16,15 @@ const Error = shared.Error;
 /// Borrowed peer locator: empty hint spellings and lazy non-empty dicts land in
 /// `BorrowedHints` (one arm). `acceptable_location_raw` remains the signing
 /// domain for start-session.
-pub fn readPeerLocatorView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.PeerLocator {
+pub fn readPeerLocatorView(bytes: []const u8, cursor: *usize) Error!model.view.PeerLocator {
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readSymbolLimited(bytes, cursor, limit);
+    const tag = try syntax.readLabel(bytes, cursor);
     if (!std.mem.eql(u8, tag, "ocapn-peer")) {
         return Error.MalformedFrame;
     }
-    const transport = try syntax.readSymbolLimited(bytes, cursor, limit);
-    const designator = try syntax.readStringLimited(bytes, cursor, limit);
-    const hints = try readHintsView(bytes, cursor, limit);
+    const transport = try syntax.readSymbol(bytes, cursor);
+    const designator = try syntax.readString(bytes, cursor);
+    const hints = try readHintsView(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
     return .{
         .transport = transport,
@@ -36,23 +36,18 @@ pub fn readPeerLocatorView(bytes: []const u8, cursor: *usize, limit: usize) Erro
 /// Borrow one complete signed locator record. The caller keeps `bytes` alive
 /// for the returned view and owns no cleanup.
 pub fn readLocatorView(bytes: []const u8, cursor: *usize) Error!model.view.PeerLocator {
-    return readPeerLocatorView(bytes, cursor, syntax.no_limit);
+    return readPeerLocatorView(bytes, cursor);
 }
 
 /// Borrowed find over the lazy dict span: walk `{name value …}` in place and
 /// return the named entry's value borrowing the frame without allocating. An
 /// exotic value under another name is skipped exactly as materialize skips it.
-/// An exotic value under the *searched* name is malformed, because reserved
-/// profile hints carry signed handshake authority.
+/// An exotic value under the *searched* name is malformed, because a caller
+/// that asks for a hint by name reads meaning into it.
 fn syrupFindHint(hl: model.view.HintList, name: []const u8) model.view.Error!?model.HintValue {
-    const bytes = hl.bytes;
-    var cursor: usize = 1; // past the '{' of the balanced span readHintsView kept
-    while (cursor < bytes.len and bytes[cursor] != '}') {
-        const step = nextSyrupHintStep(bytes, &cursor, syntax.no_limit) catch return error.MalformedView;
-        switch (step) {
-            .known => |entry| if (std.mem.eql(u8, entry.name, name)) return entry.value,
-            .skipped => |skipped| if (std.mem.eql(u8, skipped.name, name)) return error.MalformedView,
-        }
+    var walk = HintWalk.init(hl.bytes, 1);
+    while (walk.next() catch return error.MalformedView) |entry| {
+        if (std.mem.eql(u8, entry.name, name)) return entry.value orelse error.MalformedView;
     }
     return null;
 }
@@ -62,19 +57,8 @@ fn syrupValidateHintShape(
     wire_form: model.Hints.WireForm,
 ) model.view.ProjectError!void {
     if (wire_form == .boolean_false) return error.MalformedView;
-    const bytes = hl.bytes;
-    var cursor: usize = 1; // past the '{' of the balanced span readHintsView kept
-    var previous_key: ?[]const u8 = null;
-    var names: HintNameSet = .{};
-    while (cursor < bytes.len and bytes[cursor] != '}') {
-        const key = readSyrupHintKeyLimited(bytes, &cursor, syntax.no_limit) catch return error.MalformedView;
-        if (!names.insert(key.name)) return error.MalformedView;
-        if (previous_key) |previous| {
-            if (!codec_order.byteSliceBefore(previous, key.encoded)) return error.MalformedView;
-        }
-        previous_key = key.encoded;
-        syntax.skipSyrupValueLimited(bytes, &cursor, syntax.no_limit) catch return error.MalformedView;
-    }
+    var walk = HintWalk.init(hl.bytes, 1);
+    while (walk.next() catch return error.MalformedView) |_| {}
 }
 
 fn syrupMaterializeHintList(
@@ -97,29 +81,41 @@ const syrup_hint_list_vtable = model.view.HintList.VTable{
     .find = syrupFindHint,
 };
 
-/// One hints-dict entry: a Cap'n Proto–expressible value, or an exotic Syrup
-/// shape that was skipped (hints are advisory).
-const SyrupHintStep = union(enum) {
-    known: model.HintEntry,
-    skipped: struct { name: []const u8 },
-};
+/// One pass over the entries of a `{name value …}` hint map, the rules every
+/// reader of one shares: a String key whose name is valid and unseen, in
+/// canonical key order, then a value the hint grammar knows read whole, or a
+/// value of any other shape skipped. A reserved profile name carries signed
+/// handshake authority, so under it a skipped value is refused here rather
+/// than left for materialization to reject. The walk starts past the opening
+/// brace and stops on the closing one, which the caller reads.
+const HintWalk = struct {
+    bytes: []const u8,
+    cursor: usize,
+    previous_key: ?[]const u8 = null,
+    names: HintNameSet = .{},
 
-/// Shared lazy walk: read a name, then keep a known HintValueKind or skip an
-/// exotic Syrup value. Classification happens before parsing so malformed
-/// known values remain malformed instead of being reinterpreted as advisory.
-fn nextSyrupHintStep(bytes: []const u8, cursor: *usize, limit: usize) Error!SyrupHintStep {
-    const key = try readSyrupHintKeyLimited(bytes, cursor, limit);
-    if (try isKnownHintValue(bytes, cursor.*)) {
-        const value = try readHintValueBorrowedLimited(bytes, cursor, limit);
-        return .{ .known = .{ .name = key.name, .value = value } };
+    /// One entry: its name, and its value when the hint grammar knows it.
+    const Entry = struct { name: []const u8, value: ?model.HintValue };
+
+    fn init(bytes: []const u8, cursor: usize) HintWalk {
+        return .{ .bytes = bytes, .cursor = cursor };
     }
-    try syntax.skipSyrupValueLimited(bytes, cursor, limit);
-    return .{ .skipped = .{ .name = key.name } };
-}
 
-const SyrupHintKey = struct {
-    name: []const u8,
-    encoded: []const u8,
+    fn next(self: *HintWalk) Error!?Entry {
+        if (self.cursor >= self.bytes.len) return Error.Incomplete;
+        if (self.bytes[self.cursor] == '}') return null;
+        const key_start = self.cursor;
+        const name = try syntax.readString(self.bytes, &self.cursor);
+        const key_encoded = self.bytes[key_start..self.cursor];
+        if (!self.names.insert(name)) return Error.MalformedFrame;
+        if (self.previous_key) |previous| {
+            if (!codec_order.byteSliceBefore(previous, key_encoded)) return Error.MalformedFrame;
+        }
+        self.previous_key = key_encoded;
+        const value = try readHintValue(self.bytes, &self.cursor);
+        if (value == null and model.transport.isProfileHintName(name)) return Error.MalformedFrame;
+        return .{ .name = name, .value = value };
+    }
 };
 
 const HintNameSet = struct {
@@ -138,13 +134,32 @@ const HintNameSet = struct {
     }
 };
 
-fn readSyrupHintKeyLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!SyrupHintKey {
-    const start = cursor.*;
-    const name = try syntax.readStringLimited(bytes, cursor, limit);
-    return .{ .name = name, .encoded = bytes[start..cursor.*] };
+/// Read a value the hint grammar knows (a String, Bytes, a bounded Integer,
+/// or a Boolean), or skip a value of any other Syrup shape and return null.
+/// The digits of a length prefix or magnitude are scanned once to choose the
+/// reader.
+fn readHintValue(bytes: []const u8, cursor: *usize) Error!?model.HintValue {
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    switch (bytes[cursor.*]) {
+        't', 'f' => return .{ .boolean = try syntax.readBool(bytes, cursor) },
+        '0'...'9' => {
+            const run = syntax.scanDecimal(bytes[cursor.*..]);
+            const marker_index = cursor.* + run.len;
+            if (marker_index >= bytes.len) return Error.Incomplete;
+            switch (bytes[marker_index]) {
+                '"' => return .{ .string = try syntax.readLeafScanned(bytes, cursor, run, '"') },
+                ':' => return .{ .bytes = try syntax.readLeafScanned(bytes, cursor, run, ':') },
+                '+', '-' => return .{ .integer = try syntax.readIntegerScanned(bytes, cursor, run) },
+                else => {},
+            }
+        },
+        else => {},
+    }
+    try syntax.skipSyrupValue(bytes, cursor);
+    return null;
 }
 
-fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.BorrowedHints {
+fn readHintsView(bytes: []const u8, cursor: *usize) Error!model.view.BorrowedHints {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     if (bytes[cursor.*] == 'f') {
         cursor.* += 1;
@@ -156,26 +171,13 @@ fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vi
             cursor.* += 2;
             return .{ .empty = .map };
         }
-        // Validate width and canonical key order now, while the frame limit is
-        // available. Strict order makes duplicate detection linear and gives a
-        // signed locator one stable spelling across codec forwarding.
+        // Validate width and canonical key order now, so a lazy span is one the walk already
+        // admitted. Strict order makes duplicate detection linear and gives a signed locator
+        // one stable form across codec forwarding.
         const start = cursor.*;
-        try syntax.readByte(bytes, cursor, '{');
-        var previous_key: ?[]const u8 = null;
-        var names: HintNameSet = .{};
-        while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
-            const key = try readSyrupHintKeyLimited(bytes, cursor, limit);
-            if (!names.insert(key.name)) return Error.MalformedFrame;
-            if (previous_key) |previous| {
-                if (!codec_order.byteSliceBefore(previous, key.encoded)) return Error.MalformedFrame;
-            }
-            previous_key = key.encoded;
-            if (try isKnownHintValue(bytes, cursor.*)) {
-                _ = try readHintValueBorrowedLimited(bytes, cursor, limit);
-            } else {
-                try syntax.skipSyrupValueLimited(bytes, cursor, limit);
-            }
-        }
+        var walk = HintWalk.init(bytes, start + 1);
+        while (try walk.next()) |_| {}
+        cursor.* = walk.cursor;
         try syntax.readByte(bytes, cursor, '}');
         const span = bytes[start..cursor.*];
         return .{
@@ -207,33 +209,21 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
             cursor.* += 2;
             return model.Hints.emptyMap();
         }
-        cursor.* += 1;
         var entries: std.ArrayList(model.HintEntry) = .empty;
-        var previous_key: ?[]const u8 = null;
-        var names: HintNameSet = .{};
         errdefer {
             for (entries.items) |entry| model.freeHintEntry(allocator, entry);
             entries.deinit(allocator);
         }
-        while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
-            const key = try readSyrupHintKeyLimited(bytes, cursor, syntax.no_limit);
-            if (!names.insert(key.name)) return Error.MalformedFrame;
-            if (previous_key) |previous| {
-                if (!codec_order.byteSliceBefore(previous, key.encoded)) return Error.MalformedFrame;
-            }
-            previous_key = key.encoded;
-            if (try isKnownHintValue(bytes, cursor.*)) {
-                const value = try readHintValueBorrowedLimited(bytes, cursor, syntax.no_limit);
-                const name = try allocator.dupe(u8, key.name);
-                errdefer allocator.free(name);
-                const cloned = try model.cloneHintValue(allocator, value);
-                errdefer model.freeHintValue(allocator, cloned);
-                try entries.append(allocator, .{ .name = name, .value = cloned });
-            } else {
-                try syntax.skipSyrupValueLimited(bytes, cursor, syntax.no_limit);
-                if (model.transport.isProfileHintName(key.name)) return Error.MalformedFrame;
-            }
+        var walk = HintWalk.init(bytes, cursor.* + 1);
+        while (try walk.next()) |entry| {
+            const value = entry.value orelse continue;
+            const name = try allocator.dupe(u8, entry.name);
+            errdefer allocator.free(name);
+            const cloned = try model.cloneHintValue(allocator, value);
+            errdefer model.freeHintValue(allocator, cloned);
+            try entries.append(allocator, .{ .name = name, .value = cloned });
         }
+        cursor.* = walk.cursor;
         try syntax.readByte(bytes, cursor, '}');
         return .{
             .entries = try entries.toOwnedSlice(allocator),
@@ -248,7 +238,7 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
 /// enlivener extracting host/port).
 pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.PeerLocator {
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readSymbol(bytes, cursor);
+    const tag = try syntax.readLabel(bytes, cursor);
     if (!std.mem.eql(u8, tag, "ocapn-peer")) return Error.MalformedFrame;
     const transport = try syntax.readSymbol(bytes, cursor);
     const designator = try syntax.readString(bytes, cursor);
@@ -264,38 +254,4 @@ pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor:
     errdefer allocator.free(t);
     const d = try allocator.dupe(u8, designator);
     return .{ .transport = t, .designator = d, .hints = hints };
-}
-
-fn isKnownHintValue(bytes: []const u8, cursor: usize) Error!bool {
-    if (cursor >= bytes.len) return Error.Incomplete;
-    return switch (bytes[cursor]) {
-        't', 'f' => true,
-        '0'...'9' => blk: {
-            const marker_index = cursor + syntax.countDigits(bytes[cursor..]);
-            if (marker_index >= bytes.len) return Error.Incomplete;
-            break :blk switch (bytes[marker_index]) {
-                '"', ':', '+', '-' => true,
-                else => false,
-            };
-        },
-        else => false,
-    };
-}
-
-fn readHintValueBorrowedLimited(bytes: []const u8, cursor: *usize, limit: usize) Error!model.HintValue {
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    return switch (bytes[cursor.*]) {
-        '0'...'9' => blk: {
-            const marker_index = cursor.* + syntax.countDigits(bytes[cursor.*..]);
-            if (marker_index >= bytes.len) return Error.Incomplete;
-            break :blk switch (bytes[marker_index]) {
-                '"' => .{ .string = try syntax.readStringLimited(bytes, cursor, limit) },
-                ':' => .{ .bytes = try syntax.readBytesLimited(bytes, cursor, limit) },
-                '+', '-' => .{ .integer = try syntax.readInteger(bytes, cursor) },
-                else => Error.MalformedFrame,
-            };
-        },
-        't', 'f' => .{ .boolean = try syntax.readBool(bytes, cursor) },
-        else => Error.MalformedFrame,
-    };
 }

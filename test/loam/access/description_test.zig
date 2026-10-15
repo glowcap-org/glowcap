@@ -1,5 +1,5 @@
 //! Held access snapshots reveal current restrictions without owner activity.
-//! Replacing effective policy with configured policy was injected and detected.
+//! Replacing effective policy with configured policy fails this suite.
 const std = @import("std");
 const d = @import("description_fixture.zig");
 const h = d.h;

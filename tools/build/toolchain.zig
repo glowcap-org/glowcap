@@ -44,11 +44,11 @@ const in_tree_runtimes = [_]toolchain_check.Runtime{
     },
     .{
         .program = "cargo",
-        .why = "Rust binding/application proofs and the native Rooms archive executable are checked against the current ABI",
+        .why = "Rust binding/application proofs and the Rooms archive executable are checked against the current ABI",
     },
     .{
         .program = "wasm-bindgen",
-        .why = "native Rooms web preparation packages the production Rust browser application; its generated glue must match the pinned Wasm ABI",
+        .why = "Rooms web preparation packages the production Rust browser application; its generated glue must match the pinned Wasm ABI",
     },
     .{
         .program = "raco",

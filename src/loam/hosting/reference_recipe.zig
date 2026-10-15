@@ -5,8 +5,10 @@ const core = @import("loam_core");
 const Epoch = @import("live_epoch.zig").Epoch;
 
 pub const max_attachment_name_bytes = 128;
+pub const max_uri_bytes = 4096;
 
-pub const schema: core.Schema = .{ .id = 0x4c4f414d52454601, .version = 1, .max_payload = 4097, .max_edges = 1 };
+/// A payload is one tag byte and its body, the longest of which is a foreign URI.
+pub const schema: core.Schema = .{ .id = 0x4c4f414d52454601, .version = 1, .max_payload = max_uri_bytes + 1, .max_edges = 1 };
 
 pub const Recipe = union(enum) {
     local: struct { attachment: []const u8, target: core.ObjectId },

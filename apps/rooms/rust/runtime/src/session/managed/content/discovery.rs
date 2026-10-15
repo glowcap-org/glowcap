@@ -138,6 +138,7 @@ pub(super) fn invoke(call: &mut Call<'_>, input: Invocation<'_>) -> Result<Argum
 	// workers separately authenticate their initiating source in check-discovery.
 	let methods = [
 		directory::LIST,
+		directory::NAMED,
 		directory::creation::LOCATION,
 		directory::registration::MEMBER,
 	]

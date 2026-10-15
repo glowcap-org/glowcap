@@ -11,12 +11,13 @@ const CapturedRef = @import("../../support/capture.zig").CapturedRef;
 
 const Echo = struct {
     calls: *usize,
-    pub fn handle(self: *Echo, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Echo, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         try std.testing.expect(turn.session == null);
         try std.testing.expect(turn.turn.origin == .eventual);
         self.calls.* += 1;
-        return args[0];
+        return arg_values[0];
     }
 };
 
@@ -129,7 +130,7 @@ test "core host owning local delivery preserves imported identities and refuses 
 }
 
 const Plain = struct {
-    pub fn handle(_: *Plain, _: *actors.Turn, _: actors.Message) !glowcap.ocapn.model.Argument {
+    pub fn handle(_: *Plain, _: *actors.Turn, _: actors.Delivery) !glowcap.ocapn.model.Argument {
         return error.MustNotRun;
     }
 };
@@ -160,8 +161,9 @@ test "core host owning local refusal keeps effect and capability custody atomic"
 const Deferred = struct {
     resolver: *u64,
     fail: bool = false,
-    pub fn handle(self: *Deferred, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Deferred, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         self.resolver.* = try turn.deferAnswer();
         if (self.fail) return error.Refused;
         return .{ .void = {} };
@@ -172,10 +174,11 @@ const Forwarder = struct {
     target: driver.Capability,
     fail: bool = false,
 
-    pub fn handle(self: *Forwarder, turn: *driver.HostTurn, verb: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Forwarder, turn: *driver.HostTurn, verb: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         try std.testing.expectEqual(@as(usize, 1), turn.host.vows.count());
-        const reply = try turn.forward(self.target, verb, args);
+        const reply = try turn.forward(self.target, verb, arg_values);
         try std.testing.expectEqual(@as(usize, 1), turn.host.vows.count());
         if (self.fail) return error.Refused;
         return reply;
@@ -302,7 +305,7 @@ test "core host owning local failed deferred turn retracts its resolver and prep
 
 const Outer = struct {
     call: *driver.Host.Call,
-    pub fn handle(self: *Outer, turn: *actors.Turn, _: actors.Message) !glowcap.ocapn.model.Argument {
+    pub fn handle(self: *Outer, turn: *actors.Turn, _: actors.Delivery) !glowcap.ocapn.model.Argument {
         try turn.vat.drive();
         try std.testing.expect(self.call.result() == .pending);
         return error.Refused;
@@ -327,8 +330,9 @@ test "core host owning local nested execution cannot publish before the outer tu
 
 const Becoming = struct {
     text: []u8,
-    pub fn handle(self: *Becoming, turn: *driver.HostTurn, _: []const u8, args: []const driver.Value) !driver.Value {
-        defer turn.releaseValues(args);
+    pub fn handle(self: *Becoming, turn: *driver.HostTurn, _: []const u8, args: driver.Args) !driver.Value {
+        const arg_values = try args.values();
+        defer turn.releaseValues(arg_values);
         const next = try turn.turn.vat.allocator.dupe(u8, "after");
         try turn.turn.become(driver.Hosting(Becoming), .{ .inner = .{ .text = next } });
         return .{ .string = self.text };

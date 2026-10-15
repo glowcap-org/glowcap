@@ -63,12 +63,11 @@ pub const Append = struct {
         if (step != .ready) return step;
         if (self.directory.family == .grant) if (self.grant_parent) |parent| {
             if (self.child == null) {
-                const binding = (try self.view.binding(.{ .grant = parent })) orelse return error.RecordUnloaded;
-                const row = (try read.Read.rowFor(self.view.store, binding)).?.view;
-                var record = try records.GrantRecord.decodeOwned(self.view.allocator, row.payload);
-                defer record.deinit(self.view.allocator);
+                var grants = try self.view.grantView();
+                _ = try grants.borrow(parent);
+                defer grants.release();
                 const child = try self.view.allocator.create(DirectoryEdit);
-                child.* = DirectoryEdit.init(self.view, .grant, record.value.children, self.directory.slot);
+                child.* = DirectoryEdit.init(self.view, .grant, self.view.heldRow().children, self.directory.slot);
                 self.child = child;
             }
             return self.child.?.advance();

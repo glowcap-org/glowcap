@@ -82,7 +82,7 @@ fn main() {
 	let lib_dir = resolve_lib_dir(&manifest_dir);
 	println!("cargo:rustc-link-search=native={}", lib_dir.display());
 
-	// Relink when the native archives change, not only when Rust sources do.
+	// Relink when the FFI archives change, not only when Rust sources do.
 	for archive in [
 		"libglowcap_ocapn.a",
 		"libglowcap_host.a",
@@ -103,8 +103,15 @@ fn main() {
 
 	if cfg!(feature = "loam") {
 		println!("cargo:rustc-link-lib=static=glowcap_loam_lmdb");
+		println!("cargo:rustc-link-lib=static=glowcap_loam_sqlite");
+		println!("cargo:rustc-link-lib=static=glowcap_loam_volatile");
 		println!("cargo:rustc-link-lib=static=glowcap_loam");
-		for name in ["glowcap_loam", "glowcap_loam_lmdb"] {
+		for name in [
+			"glowcap_loam",
+			"glowcap_loam_lmdb",
+			"glowcap_loam_sqlite",
+			"glowcap_loam_volatile",
+		] {
 			println!(
 				"cargo:rerun-if-changed={}",
 				lib_dir.join(format!("lib{name}.a")).display()

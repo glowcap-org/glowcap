@@ -17,11 +17,11 @@ from .._trampoline import (
     _unregister_behavior as _unregister_global_behavior,
 )
 
-# A finalizer cannot report a native release refusal. Same-thread callback
+# A finalizer cannot report an FFI release refusal. Same-thread callback
 # finalization uses the post-turn queue below; any other refusal transfers into
 # this process-level retry owner. Safe Host boundaries claim one finite batch,
 # and interpreter shutdown gets the final attempt. The queue keeps
-# the allocator context alive until native release really succeeds.
+# the allocator context alive until FFI release really succeeds.
 _deferred_finalizer_states: "deque[_HostFinalizerState]" = deque()
 _deferred_finalizer_ids: "set[int]" = set()
 _deferred_finalizer_lock = threading.Lock()
@@ -32,7 +32,7 @@ class _HostFinalizerState:
 
     The finalizer owns no Host, Session, loop, or behavior closure. The integer
     trampoline ids are enough to retire the process-global registry after the
-    native Host has stopped calling it. Retaining ``context`` keeps a custom
+    FFI Host has stopped calling it. Retaining ``context`` keeps a custom
     allocator alive until that release completes.
     """
 
@@ -114,7 +114,7 @@ def _report_finalizer_release_failure(
 
 
 def _retire_finalizer_state(state: _HostFinalizerState) -> None:
-    """Retire wrapper state after its driver already released the native Host."""
+    """Retire wrapper state after its driver already released the FFI Host."""
     state.raw = None
     behavior_ids = (
         set(state.publications.values())
@@ -156,7 +156,7 @@ def _release_unpublished_host(raw, context) -> Optional[BaseException]:
 
 
 def _drain_deferred_finalizer_states() -> None:
-    """Retry one claimed Host and driver batch outside every native callback."""
+    """Retry one claimed Host and driver batch outside every FFI callback."""
     if _inside_turn():
         return
     with _deferred_finalizer_lock:

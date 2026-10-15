@@ -1,3 +1,13 @@
+---
+type: static
+description: Diagrams of three-party handoffs, covering depositing a gift, certificates, and withdrawing it.
+sources:
+  - resource: /src/ocapn/engine/handoff_gifter.zig
+  - resource: /src/ocapn/engine/handoff_recipient.zig
+  - resource: /src/ocapn/engine/handoff_names.zig
+  - resource: /src/ocapn/model/handoff.zig
+---
+
 # Three-party handoffs
 
 These diagrams follow the CapTP Specification sections Third Party Handoffs
@@ -126,14 +136,18 @@ flowchart TD
     TK --> RES["resolve the withdraw answer with the gifted reference"]
 ```
 
-The count guard is one monotonic scalar on the live R-X session. The gift table
-belongs to the live G-X session. Closing either `Peer` destroys the authority it
-owns. No Host- or Vat-wide replay map survives. Every Host session derives a
-distinct signing seed from a process-fresh, domain-separated session root and a
-monotonic counter (ADR-0097), so a reconnect cannot recreate the old side or
-session names. An old signed receive therefore cannot name a replacement
-session. The V1 Node uses a separate lifetime cursor for receive-certificate
-issuance to accommodate the pinned Goblins counter behavior across reconnects.
+Replay authority lives with the live sessions:
+
+- The count guard is one monotonic scalar on the live R-X session.
+- The gift table belongs to the live G-X session.
+- Closing either `Peer` destroys the authority it owns. No Host- or Vat-wide
+  replay map survives.
+- Every Host session derives a distinct signing seed from a process-fresh,
+  domain-separated session root and a monotonic counter (ADR-0097). A
+  reconnect cannot recreate the old side or session names, so an old signed
+  receive cannot name a replacement session.
+- The V1 Node uses a separate lifetime cursor for receive-certificate issuance
+  to accommodate the pinned Goblins counter behavior across reconnects.
 
 ## HO-8: Withdraw before deposit
 

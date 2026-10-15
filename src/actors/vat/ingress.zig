@@ -11,7 +11,7 @@ const Port = vat_mod.Port;
 const Ref = vat_mod.Ref;
 const Vow = vat_mod.Vow;
 const Message = vat_mod.Message;
-const Delivery = @import("behavior.zig").Delivery;
+const Queued = @import("behavior.zig").Queued;
 const Resolution = vat_mod.Resolution;
 const Error = vat_mod.Error;
 const IngressCancellationError = vat_mod.IngressCancellationError;
@@ -21,7 +21,9 @@ const steady_spare_arena_bytes = vat_mod.steady_spare_arena_bytes;
 /// One causal source of queued turns. `.local` is the pure-local/application
 /// source. A composed Host mints one additional id per session Port. The Vat
 /// owns ids so two adapters cannot accidentally share accounting.
-pub const IngressId = enum(u32) {
+/// Names the Vat's row for one ingress and that row's generation
+/// (`foundation.handle_table`), so a closed ingress's id fails closed.
+pub const IngressId = enum(u64) {
     local = 0,
     _,
 };
@@ -37,9 +39,9 @@ pub const QueueLimits = struct {
     max_chunk_bytes: u32 = 64 * 1024,
 };
 
-const Queued = struct {
+const QueuedTurn = struct {
     target: u64,
-    msg: Delivery,
+    msg: Queued,
     vow: u64,
     charged_bytes: u32,
     answered: bool,
@@ -50,12 +52,12 @@ const Queued = struct {
 /// Queue metadata is bounded independently of message payload. A chunk owns
 /// one arena for at most this many turns and is released as soon as its last
 /// turn finishes, even while other ingress work remains.
-const queue_chunk_turns = @max(1, steady_list_bytes / @sizeOf(Queued));
+const queue_chunk_turns = @max(1, steady_list_bytes / @sizeOf(QueuedTurn));
 
 pub const QueueChunk = struct {
     next: ?*QueueChunk = null,
     arena: std.heap.ArenaAllocator,
-    items: [queue_chunk_turns]Queued = undefined,
+    items: [queue_chunk_turns]QueuedTurn = undefined,
     head: usize = 0,
     len: usize = 0,
     owned_bytes: u32 = 0,
@@ -227,14 +229,12 @@ fn finishQueueTurn(self: *Vat, chunk: *QueueChunk) void {
 /// caller may use several to isolate admission and scheduling.
 pub fn openIngress(self: *Vat) Error!IngressId {
     try self.admitMutation();
-    if (self.next_ingress == std.math.maxInt(u32)) return Error.ResourceExhausted;
-    const id: IngressId = @fromBackingInt(@intCast(self.next_ingress));
+    if (self.ingresses.full()) return Error.ResourceExhausted;
     const state = try self.allocator.create(IngressState);
     errdefer self.allocator.destroy(state);
-    state.* = .{ .id = id };
-    try self.ingresses.put(self.allocator, id, state);
-    self.next_ingress += 1;
-    return id;
+    state.* = .{ .id = .local };
+    state.id = try self.ingresses.mint(self.allocator, state);
+    return state.id;
 }
 
 /// Release an empty, inactive non-local ingress. Pending or running work is
@@ -257,8 +257,7 @@ pub fn closeIngress(self: *Vat, ingress: IngressId) Error!void {
 pub fn discardFreshIngress(self: *Vat, ingress: IngressId) void {
     std.debug.assert(!self.queue_copy_active);
     std.debug.assert(ingress != .local);
-    const removed = self.ingresses.fetchRemove(ingress) orelse unreachable;
-    const state = removed.value;
+    const state = self.ingresses.fetchRemove(ingress) orelse unreachable;
     std.debug.assert(state.pending_turns == 0);
     std.debug.assert(state.active_turns == 0);
     std.debug.assert(!state.runnable);
@@ -398,7 +397,7 @@ pub fn enqueueOpaque(self: *Vat, ingress: IngressId, id: u64, msg: vat_mod.Opaqu
     return enqueue(self, ingress, null, id, .{ .owned = msg }, answered);
 }
 
-fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Delivery, answered: bool) Error!u64 {
+fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, answered: bool) Error!u64 {
     try self.admitMutation();
     const state = try ingressState(self, ingress);
     try vat_mod.ensureFreshId(self.next_vow);
@@ -409,7 +408,7 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Delivery,
         },
         .owned => |body| body.owned_bytes,
     };
-    const charge = std.math.add(usize, @sizeOf(Queued), payload_bytes) catch return Error.ResourceExhausted;
+    const charge = std.math.add(usize, @sizeOf(QueuedTurn), payload_bytes) catch return Error.ResourceExhausted;
     const limits = self.queue_limits;
     if (charge > limits.max_chunk_bytes or charge > std.math.maxInt(u32)) return Error.ResourceExhausted;
     const charge32: u32 = @intCast(charge);
@@ -470,13 +469,14 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Delivery,
 }
 
 /// Clone `msg` into its vat-owned queue chunk: the one named boundary copy
-/// of the local eventual-send path, symmetric with the far path's clone
-/// inside `peer.sendCopying`. A queued message must outlive the sender's
-/// turn, the drive that runs it begins by resetting the very turn arena
-/// the documented handler pattern builds outgoing args in, so the queue
-/// owns its bytes. Its chunk is reclaimed immediately after that chunk's
-/// last turn, independent of every other ingress.
-fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Delivery) Error!Delivery {
+/// of the local eventual-send path. The far path has none, since the engine
+/// encodes a deliver before `peer.sendBorrowed` returns. A queued message
+/// must outlive the sender's turn, the drive that runs it begins by
+/// resetting the very turn arena the documented handler pattern builds
+/// outgoing args in, so the queue owns its bytes. Its chunk is reclaimed
+/// immediately after that chunk's last turn, independent of every other
+/// ingress.
+fn cloneForQueue(self: *Vat, chunk: *QueueChunk, msg: Queued) Error!Queued {
     std.debug.assert(!self.queue_copy_active);
     self.queue_copy_active = true;
     defer self.queue_copy_active = false;

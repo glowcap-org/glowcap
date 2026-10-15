@@ -11,10 +11,18 @@
 //! into its owner's sink and nudges the wake channel, so it never allocates
 //! and works across threads. A link's rings and ends are guarded by the link's
 //! lock and a sink's queue by the sink's lock. Locks are taken in the order
-//! exchange, link, sink. The wake channel's send never blocks, so a nudge may
-//! run under either lock. That is what keeps a sink alive while it is
-//! signaled, because its owner detaches every end under the link lock before
-//! freeing it.
+//! exchange, link, sink. A nudge wakes the sink's owner, whose first act is to
+//! take the link lock, so a nudge sent under that lock on one CPU hands the
+//! holder's slice to a waiter spinning on it. Signaling therefore queues the
+//! end under the locks and nudges after the link lock is released.
+//! `Sink.nudging` counts the nudges in flight and `Sink.destroy` waits for
+//! them, because the owner detaches every end under the link lock before
+//! freeing the sink and a nudger past that lock still holds the pointer.
+//! A nudge is owed only to a parked owner: the owner marks the sink parked
+//! before it waits (`Sink.park`) and looking when it reaps (`Sink.look`),
+//! and a writer that queues news for a looking owner sends nothing, since
+//! that owner's next pass settles the queue. An owner that parks over news
+//! it has not reaped nudges itself.
 
 const std = @import("std");
 
@@ -84,25 +92,33 @@ pub const Exchange = struct {
         const link = try Link.create(self.allocator, self.ring_bytes);
         link.ends[0].sink = sink;
         link.ends[0].row = row;
+        const wake = self.stash(designator, link) catch |err| {
+            link.destroy(self.allocator);
+            return err;
+        };
+        if (wake) |target| target.nudgeQueued();
+        return &link.ends[0];
+    }
+
+    /// Queue `link` for the listener at `designator` under the exchange and
+    /// sink locks. Returns the listener's sink when its owner is parked and
+    /// owed a nudge, counted here and sent once both locks are released.
+    fn stash(self: *Exchange, designator: []const u8, link: *Link) error{ConnectionRefused}!?*Sink {
         self.lock.lock();
         defer self.lock.unlock();
-        const listener = self.listeners.get(designator) orelse {
-            link.destroy(self.allocator);
-            return error.ConnectionRefused;
-        };
+        const listener = self.listeners.get(designator) orelse return error.ConnectionRefused;
         const target = listener.sink;
         target.lock.lock();
         defer target.lock.unlock();
-        if (listener.stash_len >= self.max_pending_accepts) {
-            link.destroy(self.allocator);
-            return error.ConnectionRefused;
-        }
+        if (listener.stash_len >= self.max_pending_accepts) return error.ConnectionRefused;
         if (listener.stash_tail) |tail| tail.accept_next = link else listener.stash_head = link;
         listener.stash_tail = link;
         listener.stash_len += 1;
         listener.accept_queued = true;
-        target.nudge();
-        return &link.ends[0];
+        if (!target.parked) return null;
+        target.parked = false;
+        _ = target.nudging.fetchAdd(1, .monotonic);
+        return target;
     }
 };
 
@@ -184,28 +200,45 @@ pub const End = struct {
     pub fn read(self: *End, buf: []u8) completion.TryRead {
         const link = self.link;
         link.lock.lock();
-        defer link.lock.unlock();
         const other = self.peer();
         const ring = &link.rings[other.index()];
         const was_full = ring.len == ring.buf.len;
         const n = ring.read(buf);
-        if (n == 0) return if (other.closed) .closed else .would_block;
-        if (was_full) if (other.sink) |sink| sink.signal(other);
-        return .{ .transferred = n };
+        const result: completion.TryRead = if (n != 0)
+            .{ .transferred = n }
+        else if (other.closed)
+            .closed
+        else
+            .would_block;
+        const wake = if (n != 0 and was_full) other.queueNews() else null;
+        link.lock.unlock();
+        if (wake) |sink| sink.nudgeQueued();
+        return result;
     }
 
     pub fn write(self: *End, bytes: []const u8) completion.TryWrite {
         const link = self.link;
         link.lock.lock();
-        defer link.lock.unlock();
         const other = self.peer();
-        if (other.closed) return .{ .failed = error.BrokenPipe };
+        if (other.closed) {
+            link.lock.unlock();
+            return .{ .failed = error.BrokenPipe };
+        }
         const ring = &link.rings[self.index()];
         const was_empty = ring.len == 0;
         const n = ring.write(bytes);
-        if (n == 0) return .would_block;
-        if (was_empty) if (other.sink) |sink| sink.signal(other);
-        return .{ .transferred = n };
+        const wake = if (n != 0 and was_empty) other.queueNews() else null;
+        link.lock.unlock();
+        if (wake) |sink| sink.nudgeQueued();
+        return if (n != 0) .{ .transferred = n } else .would_block;
+    }
+
+    /// Queue this end in its owner's sink, under the link lock. Returns the
+    /// sink when its owner is parked and owed a nudge, which the caller sends
+    /// after releasing the link lock.
+    fn queueNews(self: *End) ?*Sink {
+        const sink = self.sink orelse return null;
+        return if (sink.enqueue(self)) sink else null;
     }
 
     /// Close this end, leave its owner's queue, and tell its peer. The link is
@@ -216,11 +249,11 @@ pub const End = struct {
         if (self.sink) |sink| sink.forget(self);
         self.closed = true;
         self.sink = null;
-        const other = self.peer();
-        if (other.sink) |sink| sink.signal(other);
+        const wake = self.peer().queueNews();
         link.refs -= 1;
         const last = link.refs == 0;
         link.lock.unlock();
+        if (wake) |sink| sink.nudgeQueued();
         if (last) link.destroy(allocator);
     }
 };
@@ -261,6 +294,11 @@ pub const Sink = struct {
     listener: ?*Listener = null,
     wake: wake_channel.WakeChannel,
     wake_failure: wake_channel.FailureLatch = .{},
+    /// Nudges counted under a link or exchange lock and not yet sent.
+    nudging: std.atomic.Value(u32) = .init(0),
+    /// The owner is waiting on the wake channel, or about to, so the next
+    /// writer that queues news owes it a nudge. Guarded by `lock`.
+    parked: bool = false,
 
     pub fn create(allocator: std.mem.Allocator) !*Sink {
         const sink = try allocator.create(Sink);
@@ -269,9 +307,11 @@ pub const Sink = struct {
         return sink;
     }
 
-    /// Every end this sink owned has been released.
+    /// Every end this sink owned has been released. A nudge counted before
+    /// that release still holds this sink, so wait for it to land.
     pub fn destroy(self: *Sink, allocator: std.mem.Allocator) void {
         std.debug.assert(self.head == null and self.listener == null);
+        while (self.nudging.load(.acquire) != 0) std.Thread.yield() catch std.atomic.spinLoopHint();
         self.wake.deinit();
         allocator.destroy(self);
     }
@@ -298,7 +338,31 @@ pub const Sink = struct {
         return end;
     }
 
-    fn signal(self: *Sink, end: *End) void {
+    /// The owner is about to wait on the wake channel. News queued since
+    /// its last pass would otherwise wait for the next writer, so the owner
+    /// nudges itself and the wait returns at once.
+    pub fn park(self: *Sink) void {
+        self.lock.lock();
+        self.parked = true;
+        const pending = self.len > 0 or if (self.listener) |listener| listener.accept_queued else false;
+        self.lock.unlock();
+        // The latch reaches the owner's next poll, which reports it.
+        if (pending) _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
+    }
+
+    /// The owner is reaping, so a writer that queues news owes no nudge.
+    pub fn look(self: *Sink) void {
+        self.lock.lock();
+        self.parked = false;
+        self.lock.unlock();
+    }
+
+    /// Queue `end` as having news. Returns whether the owner is parked and
+    /// so owed a nudge, counted here and sent by the caller once the link
+    /// lock is released. Called under that lock, which keeps this sink alive
+    /// until the count lands. One nudge wakes the owner for every end queued
+    /// before it reaps, so the first writer to find it parked sends it.
+    fn enqueue(self: *Sink, end: *End) bool {
         self.lock.lock();
         if (!end.queued) {
             end.queued = true;
@@ -308,13 +372,19 @@ pub const Sink = struct {
             self.tail = end;
             self.len += 1;
         }
+        const owed = self.parked;
+        self.parked = false;
         self.lock.unlock();
-        self.nudge();
+        if (owed) _ = self.nudging.fetchAdd(1, .monotonic);
+        return owed;
     }
 
-    fn nudge(self: *Sink) void {
+    /// Send one counted nudge, with no lock held: the owner it wakes takes
+    /// the link lock first.
+    fn nudgeQueued(self: *Sink) void {
         // The latch reaches the owner's next poll, which reports it.
         _ = self.wake.nudge() catch |err| self.wake_failure.record(err);
+        _ = self.nudging.fetchSub(1, .release);
     }
 
     fn forget(self: *Sink, end: *End) void {

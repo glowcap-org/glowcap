@@ -9,16 +9,17 @@ description: >-
 
 # glowcap MCP — CapTP tools in the agent host
 
-**Use glowcap to write glowcap.** When this session needs a live CapTP act while you edit the library, use these
-MCP tools, not a throwaway Zig dialer or a shell-out. They run the same product
-binary as argv/REPL
+**Use glowcap to write glowcap.** When this session needs a live CapTP act
+while you edit the library, use these MCP tools, not a throwaway Zig dialer or
+a shell-out. They run the same product binary as argv and REPL
 ([ADR-0084](../../../docs/decisions/adr/ADR-0084-glowcap-cli-product-boundary.md)).
 
 ## When not to use
 
-- Shell listen / REPL / `--json` scripting → [glowcap-cli](../glowcap-cli/SKILL.md)
-- Room message wake loop → [rooms-peer](../rooms-peer/SKILL.md)
-- Conformance / oracle evidence → Zig gates (MCP success ≠ suite proof)
+- Shell listen, REPL, and `--json` scripting: [glowcap-cli](../glowcap-cli/SKILL.md).
+- Room message wake loop: [rooms-peer](../rooms-peer/SKILL.md).
+- Conformance and oracle evidence: Zig gates, because MCP success is not suite
+  proof.
 
 | Surface | Path |
 | --- | --- |
@@ -42,22 +43,24 @@ binary as argv/REPL
 | Deterministic simulation / timeline | Shell [glowcap-cli](../glowcap-cli/SKILL.md): `glowcap griddle run` is not an MCP tool |
 | ocapnviz / A2A | Their own product surfaces, not CapTP MCP tools |
 
-Typical edit-loop: terminal `listen --publish greeter` (one partner then exit),
-MCP `call` with the printed locator (do not `probe` first — that consumes the
-accept), iterate code, re-listen, MCP again.
+Typical edit loop: run `listen --publish greeter` in a terminal (it accepts
+one partner, then exits), MCP `call` with the printed locator (do not `probe`
+first, because that consumes the accept), iterate on code, re-listen, and call
+again.
 
 ## Before the first tool call
 
 1. **Prepare:** `./glowcap version` bootstraps a missing product. After source
-   edits, explicitly run `zig build rooms-build` through the work skill's build front.
+   edits, run `zig build rooms-build` through the work skill's build front.
 2. **Reload MCP** in the host if configs or the binary just changed.
-3. **Discover tools:** `tools/list`; never invent verb names. Catalog is
-   `--tools default|full|readonly` (project configs use `default`).
+3. **Discover tools** with `tools/list` and never invent verb names. The
+   catalog is `--tools default|full|readonly`, and project configs use
+   `default`.
 4. **Identity:** MCP defaults to `GLOWCAP_STATE=.local/glowcap-mcp-state`
    (cwd-relative, under gitignored `.local/`) so it does not share a human
-   argv/REPL identity. Override with `GLOWCAP_STATE` / `GLOWCAP_IDENTITY`.
-   PATH-only installs (no repo shim) must set `GLOWCAP_STATE` explicitly; see
-   the portable stub.
+   argv or REPL identity. Override with `GLOWCAP_STATE` or `GLOWCAP_IDENTITY`.
+   PATH-only installs (no repo shim) must set `GLOWCAP_STATE` explicitly, as
+   the portable stub shows.
 
 ## Session model (MCP-only)
 
@@ -71,11 +74,10 @@ accept), iterate code, re-listen, MCP again.
 | Locator | Pass `ocapn://…` when no session is open yet (retains). A locator while a session is already held is a one-shot sidecar |
 | Stdio | Newline-delimited JSON-RPC (MCP transport); not LSP length headers |
 
-Demo actors on an open session: **greeter** (`greet`, `cowsay`, `glowcapsay`,
-`goblinsay`) and **echo** (`echo`). `call` / `tell` / `fetch` prefer named fields
-(`locator?`, `name`, `verb`, `args[]`; fetch omits `verb`/`args`). Legacy
-`args: [locator?] name|#N verb [arg…]` still works. `dial` / `publish` use `locator` /
-`name`.
+An open session hosts the CLI's demo actors, and `cli/ocapn/builtins.zig`
+lists their names and verbs. `call`, `tell`, and `fetch` take named fields
+(`locator?`, `name`, `verb`, `args[]`, with fetch omitting `verb` and `args`),
+and an unknown field is refused. `dial` and `publish` use `locator` and `name`.
 
 ## Typical flow
 
@@ -87,8 +89,8 @@ Demo actors on an open session: **greeter** (`greet`, `cowsay`, `glowcapsay`,
 
 ## Footguns (MCP-only)
 
-Shared CapTP footguns (`listen` never MCP, `--publish` one-partner,
-probe-then-call): [glowcap-cli](../glowcap-cli/SKILL.md) § Session model.
+Shared CapTP footguns (`--publish` accepts one partner, probe then call):
+[glowcap-cli](../glowcap-cli/SKILL.md) § Session model.
 
 | Mistake | Reality |
 | --- | --- |
@@ -98,11 +100,3 @@ probe-then-call): [glowcap-cli](../glowcap-cli/SKILL.md) § Session model.
 | Share state with a human REPL | Default `.local/glowcap-mcp-state` is separate; do not point both at one dir |
 | PATH `glowcap mcp` without state | Set `GLOWCAP_STATE` explicitly (no repo shim); see portable stub |
 | Invent a Zig harness for an in-host CapTP act | Use these tools (or glowcap-cli in a shell) |
-
-## Hand off
-
-| Need | Go to |
-| --- | --- |
-| Shell argv / CapTP lab REPL / listen | [glowcap-cli](../glowcap-cli/SKILL.md) |
-| Room presence wake loop | [rooms-peer](../rooms-peer/SKILL.md) |
-| Product boundary | [ADR-0084](../../../docs/decisions/adr/ADR-0084-glowcap-cli-product-boundary.md) |

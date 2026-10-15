@@ -1,4 +1,4 @@
-//! TCP profile locators and optional native transport.
+//! TCP profile locators and optional FFI transport.
 //!
 //! Locator construction requires no socket provider. The `tcp` feature adds
 //! the blocking frame transport. `tcp` plus `async` adds runtime integration.
@@ -21,7 +21,7 @@ pub use crate::ListenerIdentity;
 #[cfg(all(feature = "tcp", feature = "async"))]
 pub use crate::tcp_listen::{ListenOptions, Server};
 
-/// Bind the plain TCP profile through this package's native provider.
+/// Bind the plain TCP profile through this package's FFI provider.
 #[cfg(all(feature = "tcp", feature = "async"))]
 pub async fn listen(bind_host: &str, port: u16, options: ListenOptions) -> Result<Server> {
 	crate::tcp_listen::listen(bind_host, port, crate::TRANSPORT_TCP, options).await
@@ -72,7 +72,7 @@ pub mod keyed {
 		super::key_addressed_locator(crate::TRANSPORT_KEYED_TCP, designator, host, port)
 	}
 
-	/// Bind identity-addressed cleartext through this package's native provider.
+	/// Bind identity-addressed cleartext through this package's FFI provider.
 	#[cfg(all(feature = "tcp", feature = "async"))]
 	pub async fn listen(bind_host: &str, port: u16, options: ListenOptions) -> Result<Server> {
 		crate::tcp_listen::listen(bind_host, port, crate::TRANSPORT_KEYED_TCP, options).await
@@ -91,7 +91,7 @@ pub mod noise {
 		super::key_addressed_locator(crate::TRANSPORT_NOISE_TCP, designator, host, port)
 	}
 
-	/// Bind Noise_XK-sealed streams through this package's native provider.
+	/// Bind Noise_XK-sealed streams through this package's FFI provider.
 	#[cfg(all(feature = "tcp", feature = "async"))]
 	pub async fn listen(bind_host: &str, port: u16, options: ListenOptions) -> Result<Server> {
 		crate::tcp_listen::listen(bind_host, port, crate::TRANSPORT_NOISE_TCP, options).await

@@ -35,6 +35,7 @@ class _DriverOptions(ctypes.Structure):
         ("handshake_ms", ctypes.c_uint32),
         ("listener_setup_ms", ctypes.c_uint32),
         ("settle_ms", ctypes.c_uint32),
+        ("busy_poll_ns", ctypes.c_uint64),
     ]
 
 

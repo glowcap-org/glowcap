@@ -370,3 +370,9 @@ export function memberCanMessage(name: string): string {
 	return `You can message ${name} here`;
 }
 export const memberNotReachable = "Not reachable on this directory";
+export function memberMessageDirectly(name: string): string {
+	return `Message ${name} directly`;
+}
+export function memberManageBridgeIdentity(bridge: string): string {
+	return `Manage your ${bridge} identity…`;
+}

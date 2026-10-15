@@ -123,7 +123,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   src/c_abi/shared/multiplexed_transport.zig.
         \\   Do not edit by hand: run `zig build gen-header-transport-provider`.
         \\   This standalone layout-only contract is shared by the driver and
-        \\   every transport archive. Provider retain/release is the native
+        \\   every transport archive. Provider retain/release is the
         \\   transport lifetime authority.
         \\   Handle-producing callbacks transfer outputs only on GLOWCAP_OK.
         \\   On every other status the provider cleans partial work and leaves
@@ -169,6 +169,21 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Borrowed provider-owned payload; null with size zero inherits provider defaults.",
         "Exact payload size; the selected provider validates its type.",
     });
+    try b.appendSlice(gpa,
+        \\
+        \\/* Where one dial came from, borrowed for the start callback. A handoff dial
+        \\   follows a reference an open session handed over, and introducer is the
+        \\   designator that session's partner signed in its hello. A provider whose
+        \\   connect needs an outside party, as WebRTC signaling does, routes by it.
+        \\   The driver passes a null origin for a dial the application started
+        \\   itself, for a handoff whose introducing session has closed, and for a
+        \\   partner that signed no designator. */
+        \\
+    );
+    try E.emitStruct(&b, gpa, cp.GlowcapDialOrigin, "GlowcapDialOrigin", &.{
+        "Borrowed UTF-8 designator of the introducing session's partner, or null.",
+        "Introducer byte length; zero when null.",
+    });
     try E.emitStruct(&b, gpa, cp.GlowcapProviderFailure, "GlowcapProviderFailure", &.{
         "Returned GLOWCAP_ERR_* status; zero on success.",
         "GLOWCAP_CARRIER_PHASE_* or NONE when the provider cannot name a phase.",
@@ -193,7 +208,8 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   failure. On error, leaves out_count untouched and returns the exact
         \\   provider cause and cleanup chain through out_failure. */
         \\typedef int32_t (*GlowcapMultiplexedDrainReadyFn)(void *ctx, GlowcapMultiplexedReadyEvent *out, size_t cap, size_t *out_count, GlowcapProviderFailure *out_failure);
-        \\typedef int32_t (*GlowcapMultiplexedStartConnectFn)(void *ctx, uint64_t request_id, const GlowcapLocatorView *locator, const GlowcapTransportOperationOptions *options, GlowcapProviderFailure *out_failure);
+        \\/* origin names the session that introduced a handoff dial, or is null. */
+        \\typedef int32_t (*GlowcapMultiplexedStartConnectFn)(void *ctx, uint64_t request_id, const GlowcapLocatorView *locator, const GlowcapTransportOperationOptions *options, const GlowcapDialOrigin *origin, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapMultiplexedFinishConnectFn)(void *ctx, uint64_t request_id, uint64_t *out_conn, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapMultiplexedClaimExternalFn)(void *ctx, uint64_t subject, uint64_t *out_conn, GlowcapProviderFailure *out_failure);
         \\typedef int32_t (*GlowcapMultiplexedListenFn)(void *ctx, uint64_t route_id, const uint8_t *transport, size_t transport_len, const uint8_t *requested_designator, size_t requested_designator_len, const uint8_t *identity_designator, size_t identity_designator_len, const GlowcapTransportOperationOptions *options, GlowcapListenResult *out_result, GlowcapProviderFailure *out_failure);
@@ -220,7 +236,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Consume pending listener construction on every return; present exactly with cancel_listen.",  "Cancel pending setup or claim an asynchronously stopped listener after LISTEN.",
         "Query canonical listener locator.",                                                           "Validate and canonicalize advertised locator.",
         "Query or copy opaque listener restoration state.",                                            "Finish accept.",
-        "Stop listener; asynchronous retirement emits LISTEN, then cancel_listen claims cleanup.",     "Read: 0..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.",
+        "Stop listener; asynchronous retirement emits LISTEN, then cancel_listen claims cleanup.",     "Read: 1..cap bytes, 0 at EOF, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.",
         "Write: 0..len bytes consumed, -1 when dead, or GLOWCAP_TRANSPORT_WOULD_BLOCK.",               "Close connection; asynchronous retirement emits CLOSED, then a repeated call claims cleanup.",
         "Atomically claim the connection's retained read/write failure.",                              "Copy proved remote key and return 1, or return 0; other statuses violate the contract.",
     });

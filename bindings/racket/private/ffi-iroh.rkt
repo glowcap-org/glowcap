@@ -1,8 +1,8 @@
 #lang racket/base
 ;; Internal: the raw `ffi/unsafe` loader for libglowcap_net_transport_iroh.
 ;;
-;; The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0055) is optional — absent
-;; unless built with cargo — so it loads lazily on first `iroh-fn` use, caching
+;; The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0055) is optional: absent
+;; unless built with cargo, so it loads lazily on first `iroh-fn` use, caching
 ;; the bound table and naming the build step when the library is absent. Nothing
 ;; here is public; `../glowcap-iroh.rkt` is the ergonomic surface over it. The
 ;; readiness-event cstruct below is the layout gate for iroh's drain_ready
@@ -29,7 +29,7 @@
 ;; The IROH-EV-* values come from the generated constants module
 ;; (`constants-gen.rkt`), so they cannot drift from the C ABI.
 
-;; One readiness record drained by `glowcap_iroh_netlayer_drain_ready` — the
+;; One readiness record drained by `glowcap_iroh_netlayer_drain_ready`, the
 ;; cstruct counterpart of the header's `GlowcapIrohReadyEvent`. `conn` is #f
 ;; (NULL) for an accept record (claimed with `netlayer-try-accept`) and
 ;; otherwise the ready connection's handle; `events` is the IROH-EV-* bitset.

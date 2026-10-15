@@ -20,9 +20,6 @@ comptime {
     std.debug.assert(capnp.decode.max_charge_depth == limits.max_decode_nesting);
     std.debug.assert(limits.max_decode_nesting > model.max_value_depth);
 }
-/// The verdicts a codec gives a byte-stream framer, and the resumable scan
-/// that keeps a frame arriving in pieces from being re-walked per piece.
-pub const framing = @import("framing");
 /// Codec-neutral set/struct sort + adjacent-dupe refusal (ADR-0003).
 pub const order = @import("codec_order");
 pub const dispatch = @import("dispatch.zig");

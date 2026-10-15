@@ -1,4 +1,4 @@
-//! Stable C facade for the native relay provider archive.
+//! Stable C facade for the relay provider archive.
 //!
 //! The facade validates opaque handles, projects construction and teardown,
 //! and exposes the generic transport-provider table. Readiness, cancellation,

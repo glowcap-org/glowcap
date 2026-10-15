@@ -4,14 +4,22 @@ use super::{
 	error::Error,
 	notice::{Notice, Report},
 	readiness::Readiness,
-	transports::{Needs, Transports},
+	transports::{Family, Needs, Transports},
+	webrtc::{Answering, Directories},
 };
-use glowcap::{Host, PendingWork};
+use glowcap::{Host, PendingWork, webrtc::SignalingAuthority};
+use rooms_platform::HostPlatform;
 use rooms_platform::serving::{CONNECTION_LIMIT, PartnerNotice, Retry, accept_ended, serve_partner_until};
+use rooms_platform::signaling::DirectorySignaling;
 use rooms_platform::storage::session::{Custody, Session as Storage};
-use rooms_runtime::session::managed::{MembershipKinds, production_limits};
+use rooms_runtime::session::managed::{Membership, MembershipKinds, production_limits};
 use std::future::Future;
+use std::rc::Rc;
 use tokio::task::JoinSet;
+
+/// The physical bytes a member session's SQLite store may hold before writes
+/// are refused for capacity.
+const SESSION_CAPACITY_BYTES: usize = 512 * 1024 * 1024;
 
 #[derive(Default)]
 struct Owners {
@@ -19,6 +27,8 @@ struct Owners {
 	management_readiness: Option<Readiness>,
 	transports: Option<Transports>,
 	session: Option<Storage>,
+	/// The job that keeps the WebRTC signaling routes current.
+	signaling_routes: Option<Membership<HostPlatform>>,
 	local: Option<super::Local>,
 	archive: Option<std::rc::Rc<crate::session_archive::SessionArchive>>,
 	archive_worker: Option<tokio::task::JoinHandle<crate::session_archive::Report>>,
@@ -27,6 +37,10 @@ struct Owners {
 impl Owners {
 	async fn stop_consumers(&mut self) -> Result<(), Error> {
 		self.local.take();
+		if let Some(routes) = self.signaling_routes.as_mut() {
+			routes.close().await?;
+		}
+		self.signaling_routes.take();
 		if let Some(trace) = self.trace.as_ref() {
 			trace.close().await?;
 		}
@@ -227,9 +241,27 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		&config.dial_transports,
 		config.relay_url.clone(),
 		config.relay_alias_url.clone(),
+		config.ice_servers.clone(),
 	)?;
+	// WebRTC signals through the peer's directories: a dial through the one
+	// that introduced the member, an offer through any it is a named member
+	// of. The routes fill once the session is open and its directories are
+	// joined.
+	let directories = Directories::default();
+	let authority = needs.dials(Family::Webrtc).then(|| {
+		let report = report.clone();
+		DirectorySignaling::new(HostPlatform, directories.clone(), move |failure| {
+			report(Notice::Activity {
+				operation: "WebRTC signaling".into(),
+				cause: glowcap::loam::refusal(failure.to_string()),
+			})
+		})
+	});
+	let signaling = authority
+		.clone()
+		.map(|authority| authority as Rc<dyn SignalingAuthority>);
 	// Until the dial runtime adopts it, the Host has no owner but this frame.
-	let transports = match Transports::open(&host, &config.transport, &needs, &mut listener_keys).await {
+	let transports = match Transports::open(&host, &config.transport, &needs, &mut listener_keys, signaling).await {
 		Ok(transports) => transports,
 		Err(error) => {
 			let closed = host.close(PendingWork::Cancel).await.map_err(Error::from);
@@ -237,6 +269,11 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		}
 	};
 	let locator = transports.locator().clone();
+	let registered = transports.registered().clone();
+	let answering = match (authority, transports.webrtc()) {
+		(Some(authority), Some(server)) => Some(Answering::new(authority, server, report.clone())),
+		_ => None,
+	};
 	let runtime = transports.runtime();
 	owners.transports = Some(transports);
 	let limits = production_limits()?;
@@ -245,7 +282,7 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		.start(
 			host.clone(),
 			limits,
-			512 * 1024 * 1024,
+			SESSION_CAPACITY_BYTES,
 			rooms_application::content::session::custody::MAX_CUSTODY_FIELDS as u32,
 		)
 		.await?;
@@ -260,6 +297,12 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		})
 	})?;
 	opened.session().configure_credentials(credentials).await?;
+	if let Some(answering) = answering {
+		owners.signaling_routes = Some(opened.session().follow_signaling_routes(move |routes| {
+			answering.follow(&routes);
+			directories.replace(routes);
+		})?);
+	}
 	let mut backend = crate::archive::file::FileArchive::open(config.state.join("archive"), Default::default()).await?;
 	let source = backend.recording_source().await?;
 	let (archive, worker) = crate::session_archive::SessionArchive::new(rooms_platform::HostPlatform, runtime, backend);
@@ -307,7 +350,8 @@ async fn assemble(config: &Config, report: &Report, owners: &mut Owners) -> Resu
 		activity: opened.session().activity(),
 		archive,
 	});
-	let route = glowcap::format_locator_uri(&locator)?;
+	// A member reaches this peer over WebRTC when both sides can.
+	let route = glowcap::format_locator_uri(&registered)?;
 	let receive = opened.session().activity_receivers();
 	let activity_report = report.clone();
 	opened.supervise_workspace(

@@ -125,9 +125,13 @@ test "keyed-relay partial application send gives way to one close frame" {
     backend.platform.pending_send.?.result = 1;
     try backend.submitClose(10, fd);
 
+    // The send is owed as soon as it is staged, and takes the one slot. The
+    // partial platform send lands next pass, when the rest is submitted.
     var completions: [1]net.completion.Completion = undefined;
     try std.testing.expectEqual(@as(usize, 1), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(u64, 9), completions[0].user_data);
+    try std.testing.expectEqual(@as(usize, 1), backend.platform.send_submits);
+    try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));
     try std.testing.expectEqual(@as(usize, 2), backend.platform.send_submits);
     try std.testing.expect(backend.platform.pending_send != null);
     try std.testing.expectEqual(@as(usize, 0), try backend.poll(&completions, 0));

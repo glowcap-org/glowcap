@@ -70,7 +70,7 @@ export const writingShortcuts: readonly WritingShortcut[] = [
 	{ what: "Struck out", keys: ["mod", "Shift", "X"] },
 	{ what: "An emoji, by name", keys: [":"] },
 	{ what: "A command", keys: ["/"] },
-	{ what: "The last thing you sent, to edit it", keys: ["Up"] },
+	{ what: "The last thing you sent, to edit it (empty field)", keys: ["Up"] },
 ];
 
 /** The line under an empty, focused field: the keys a first keystroke needs,

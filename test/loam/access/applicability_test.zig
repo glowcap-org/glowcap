@@ -16,26 +16,32 @@ const rules = [_]core.Policy.KindRule{
 const descriptor: core.Policy.Descriptor = .{ .id = f.descriptor.id, .permissions = &.{ f.read, f.post }, .kinds = &rules };
 
 fn terms(scope: core.Scope, mask: u64) core.Terms {
-    return .{ .scope = scope, .policy = .{ .schema = descriptor.id, .permissions = mask, .bounds = @splat(null) } };
+    return .{ .scope = scope, .policy = .{ .schema = descriptor.id, .permissions = mask } };
 }
 
 test "access applicability validates strict declarations and dependency closure" {
-    const policy = try core.Policy.init(descriptor);
+    var policy = try core.Policy.init(descriptor);
     try std.testing.expectError(error.UnknownKind, policy.supported(unknown, false));
     try std.testing.expectEqual(@as(u64, 0), try f.structural_policy.supported(unknown, false));
-    try std.testing.expectError(error.UnknownPermission, policy.withKinds(&.{.{ .kind = room, .permissions = 4, .subtree_permissions = 4 }}));
-    try std.testing.expectError(error.InvalidKindRule, policy.withKinds(&.{.{ .kind = room, .permissions = 3, .subtree_permissions = 1 }}));
-    try std.testing.expectError(error.NonCanonicalSchema, policy.withKinds(&.{ rules[1], rules[0] }));
-    try std.testing.expectError(error.NonCanonicalSchema, policy.withKinds(&.{ rules[0], rules[0] }));
+    try std.testing.expectError(error.UnknownPermission, policy.setKinds(&.{.{ .kind = room, .permissions = 4, .subtree_permissions = 4 }}));
+    try std.testing.expectError(error.InvalidKindRule, policy.setKinds(&.{.{ .kind = room, .permissions = 3, .subtree_permissions = 1 }}));
+    try std.testing.expectError(error.NonCanonicalSchema, policy.setKinds(&.{ rules[1], rules[0] }));
+    try std.testing.expectError(error.NonCanonicalSchema, policy.setKinds(&.{ rules[0], rules[0] }));
+    // Every refusal left the declared rules in place.
+    try std.testing.expectEqualSlices(core.Policy.KindRule, &rules, policy.kind_rules[0..policy.kind_count]);
     var dependent = descriptor;
     dependent.dependencies = &.{.{ .permission = f.post, .required = f.read }};
     try std.testing.expectError(error.MissingPrerequisite, core.Policy.init(dependent));
     var masks: [64]u64 = @splat(0);
     masks[1] = 1;
-    try std.testing.expectError(error.MissingPrerequisite, policy.withPrerequisiteMasks(masks));
+    // The kind rules already set select `post` without `read`.
+    try std.testing.expectError(error.MissingPrerequisite, policy.setPrerequisiteMasks(&masks));
     var too_many: [core.Policy.max_kinds + 1]core.Policy.KindRule = undefined;
     @memset(&too_many, rules[0]);
-    try std.testing.expectError(error.PolicyLimit, policy.withKinds(&too_many));
+    try std.testing.expectError(error.PolicyLimit, policy.setKinds(&too_many));
+    try policy.check();
+    policy.permission_count = core.Policy.max_permissions + 1;
+    try std.testing.expectError(error.PolicyLimit, policy.check());
 }
 
 test "access applicability admits future descendants and projects each exact target" {
@@ -134,7 +140,7 @@ test "access applicability preserves persisted placement rules after cold reload
     const target = try append(store, backend, owner, file, null);
     const child = try append(store, backend, owner, message, root);
     try store.deinit();
-    backend.close();
+    try backend.close();
     store.* = try stored.loam.core.Store.init(a, try backend.open(), &stored.schemas, stored.limits);
     const before = store.metadata.revision;
     const count = store.count;

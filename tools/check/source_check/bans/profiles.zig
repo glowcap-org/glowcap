@@ -3,14 +3,14 @@
 const bans = @import("../bans.zig");
 const Ban = bans.Ban;
 
-/// Glowcap's default and native profiles have one semantic owner in the model
+/// Glowcap's default and glowcap profiles have one semantic owner in the model
 /// and one C ABI projection. Bindings translate the generated ids into
 /// host-language option values. They do not choose either tuple themselves.
 pub const rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/ocapn/model/negotiated.zig" },
         .kind = .require,
-        .needles = &.{ "pub const default_offer: Preference = .{};", "pub const native: Preference" },
+        .needles = &.{ "pub const default_offer: Preference = .{};", "pub const glowcap: Preference" },
         .check = "default-profile",
         .why = "the default offered CapTP profile lives in model.Preference.default_offer",
     },
@@ -23,8 +23,8 @@ pub const rows: []const Ban = &.{
             "GLOWCAP_DEFAULT_FEATURES: u32 = featureSetToC(model.Preference.default_offer.features)",
             "GLOWCAP_INTEROP_CODEC: u32 = codecToC(model.Preference.baseline.codec)",
             "GLOWCAP_INTEROP_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.baseline.captp_version)",
-            "GLOWCAP_NATIVE_CODEC: u32 = codecToC(model.Preference.native.codec)",
-            "GLOWCAP_NATIVE_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.native.captp_version)",
+            "GLOWCAP_OWN_CODEC: u32 = codecToC(model.Preference.glowcap.codec)",
+            "GLOWCAP_OWN_CAPTP_VERSION: u32 = captpVersionToC(model.Preference.glowcap.captp_version)",
         },
         .check = "default-profile",
         .why = "the C ABI default profile constants must project model.Preference.default_offer instead of carrying a parallel tuple",
@@ -38,8 +38,8 @@ pub const rows: []const Ban = &.{
             "con(\"DEFAULT_FEATURES\", c.GLOWCAP_DEFAULT_FEATURES",
             "con(\"INTEROP_CODEC\", c.GLOWCAP_INTEROP_CODEC",
             "con(\"INTEROP_CAPTP_VERSION\", c.GLOWCAP_INTEROP_CAPTP_VERSION",
-            "con(\"NATIVE_CODEC\", c.GLOWCAP_NATIVE_CODEC",
-            "con(\"NATIVE_CAPTP_VERSION\", c.GLOWCAP_NATIVE_CAPTP_VERSION",
+            "con(\"OWN_CODEC\", c.GLOWCAP_OWN_CODEC",
+            "con(\"OWN_CAPTP_VERSION\", c.GLOWCAP_OWN_CAPTP_VERSION",
         },
         .check = "default-profile",
         .why = "generated binding constants must include the C-owned default profile tuple",
@@ -53,8 +53,8 @@ pub const rows: []const Ban = &.{
             "k(\"DEFAULT_FEATURES\", \"GLOWCAP_DEFAULT_FEATURES\")",
             "k(\"INTEROP_CODEC\", \"GLOWCAP_INTEROP_CODEC\")",
             "k(\"INTEROP_CAPTP_VERSION\", \"GLOWCAP_INTEROP_CAPTP_VERSION\")",
-            "k(\"NATIVE_CODEC\", \"GLOWCAP_NATIVE_CODEC\")",
-            "k(\"NATIVE_CAPTP_VERSION\", \"GLOWCAP_NATIVE_CAPTP_VERSION\")",
+            "k(\"OWN_CODEC\", \"GLOWCAP_OWN_CODEC\")",
+            "k(\"OWN_CAPTP_VERSION\", \"GLOWCAP_OWN_CAPTP_VERSION\")",
         },
         .check = "default-profile",
         .why = "the TypeScript ABI generator must mirror the C-owned default profile tuple",
@@ -105,8 +105,8 @@ pub const rows: []const Ban = &.{
             "_DEFAULT_FEATURES = _feature_name(_abi.DEFAULT_FEATURES)",
             "_INTEROP_CODEC = _codec_name(_abi.INTEROP_CODEC)",
             "_INTEROP_CAPTP_VERSION = _captp_version_name(_abi.INTEROP_CAPTP_VERSION)",
-            "_NATIVE_CODEC = _codec_name(_abi.NATIVE_CODEC)",
-            "_NATIVE_CAPTP_VERSION = _captp_version_name(_abi.NATIVE_CAPTP_VERSION)",
+            "_OWN_CODEC = _codec_name(_abi.OWN_CODEC)",
+            "_OWN_CAPTP_VERSION = _captp_version_name(_abi.OWN_CAPTP_VERSION)",
         },
         .check = "default-profile",
         .why = "Python must translate the generated default profile ids instead of selecting them locally",
@@ -137,8 +137,8 @@ pub const rows: []const Ban = &.{
         .kind = .require,
         .needles = &.{
             "profile: Optional[str] = None",
-            "_NATIVE_CODEC if profile == \"native\"",
-            "_NATIVE_CAPTP_VERSION",
+            "_OWN_CODEC if profile == \"glowcap\"",
+            "_OWN_CAPTP_VERSION",
         },
         .check = "named Host profile",
         .why = "Python Host profiles project the generated core-owned pair",
@@ -147,8 +147,8 @@ pub const rows: []const Ban = &.{
         .where = .{ .file = "bindings/racket/private/abi-value.rkt" },
         .kind = .require,
         .needles = &.{
-            "NATIVE-CODEC-SYMBOL (codec<-id NATIVE-CODEC)",
-            "NATIVE-CAPTP-VERSION-SYMBOL (captp-version<-id NATIVE-CAPTP-VERSION)",
+            "OWN-CODEC-SYMBOL (codec<-id OWN-CODEC)",
+            "OWN-CAPTP-VERSION-SYMBOL (captp-version<-id OWN-CAPTP-VERSION)",
             "INTEROP-CODEC-SYMBOL (codec<-id INTEROP-CODEC)",
             "INTEROP-CAPTP-VERSION-SYMBOL (captp-version<-id INTEROP-CAPTP-VERSION)",
             "(define (host-profile-values",
@@ -163,8 +163,8 @@ pub const rows: []const Ban = &.{
             "match sys::DEFAULT_CODEC",
             "match sys::DEFAULT_CAPTP_VERSION",
             "FeatureSet(sys::DEFAULT_FEATURES)",
-            "HostProfile::Native => sys::NATIVE_CODEC",
-            "HostProfile::Native => sys::NATIVE_CAPTP_VERSION",
+            "HostProfile::Glowcap => sys::OWN_CODEC",
+            "HostProfile::Glowcap => sys::OWN_CAPTP_VERSION",
             "HostProfile::Interop => sys::INTEROP_CODEC",
             "HostProfile::Interop => sys::INTEROP_CAPTP_VERSION",
         },
@@ -185,7 +185,7 @@ pub const rows: []const Ban = &.{
         .why = "Rust Host defaults must consume generated profile defaults through the profile types",
     },
     .{
-        .where = .{ .file = "bindings/rust/src/driver_loop/native.rs" },
+        .where = .{ .file = "bindings/rust/src/driver_loop/ffi.rs" },
         .kind = .require,
         .needles = &.{
             "sys::DEFAULT_CODEC",
@@ -193,12 +193,12 @@ pub const rows: []const Ban = &.{
             "sys::DEFAULT_FEATURES",
         },
         .check = "default-profile",
-        .why = "Rust native driver-loop host construction must pass generated C ABI defaults",
+        .why = "Rust driver-loop host construction must pass generated C ABI defaults",
     },
     .{
         .where = .{ .files = &.{
             "bindings/rust/src/host/public.rs",
-            "bindings/rust/src/driver_loop/native.rs",
+            "bindings/rust/src/driver_loop/ffi.rs",
         } },
         .kind = .forbid,
         .needles = &.{
@@ -218,15 +218,15 @@ pub const rows: []const Ban = &.{
             "DEFAULT_CODEC as ABI_DEFAULT_CODEC",
             "DEFAULT_CAPTP_VERSION as ABI_DEFAULT_CAPTP_VERSION",
             "DEFAULT_FEATURES as ABI_DEFAULT_FEATURES",
-            "NATIVE_CODEC as ABI_NATIVE_CODEC",
-            "NATIVE_CAPTP_VERSION as ABI_NATIVE_CAPTP_VERSION",
+            "OWN_CODEC as ABI_OWN_CODEC",
+            "OWN_CAPTP_VERSION as ABI_OWN_CAPTP_VERSION",
             "INTEROP_CODEC as ABI_INTEROP_CODEC",
             "INTEROP_CAPTP_VERSION as ABI_INTEROP_CAPTP_VERSION",
             "export const DEFAULT_CODEC: Codec = codecFromId(ABI_DEFAULT_CODEC)",
             "export const DEFAULT_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_DEFAULT_CAPTP_VERSION)",
             "export const DEFAULT_FEATURES: FeatureSet = featureSetFromMask(ABI_DEFAULT_FEATURES)",
-            "export const NATIVE_CODEC: Codec = codecFromId(ABI_NATIVE_CODEC)",
-            "export const NATIVE_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_NATIVE_CAPTP_VERSION)",
+            "export const OWN_CODEC: Codec = codecFromId(ABI_OWN_CODEC)",
+            "export const OWN_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_OWN_CAPTP_VERSION)",
             "export const INTEROP_CODEC: Codec = codecFromId(ABI_INTEROP_CODEC)",
             "export const INTEROP_CAPTP_VERSION: CaptpVersion = captpVersionFromId(ABI_INTEROP_CAPTP_VERSION)",
         },
@@ -237,8 +237,8 @@ pub const rows: []const Ban = &.{
         .where = .{ .file = "bindings/ts/runtime/host/state.ts" },
         .kind = .require,
         .needles = &.{
-            "opts.profile === \"native\" ? NATIVE_CODEC : opts.codec ?? DEFAULT_CODEC",
-            "? NATIVE_CAPTP_VERSION",
+            "opts.profile === \"glowcap\" ? OWN_CODEC : opts.codec ?? DEFAULT_CODEC",
+            "? OWN_CAPTP_VERSION",
             "this.features = opts.features ?? DEFAULT_FEATURES",
         },
         .check = "default-profile",

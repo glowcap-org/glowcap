@@ -1,4 +1,6 @@
 //! Physical storage and deadlines for the same receipt scenario on both hosts.
+#[cfg(not(target_arch = "wasm32"))]
+use glowcap::loam::OpenMode;
 use glowcap::{
 	Ref,
 	loam::{Attachment, Limits, Policy, Resource, Schema, Store},
@@ -175,7 +177,12 @@ impl Database {
 	pub async fn open(&self, create: bool, schemas: &[Schema], limits: Limits) -> Store {
 		#[cfg(not(target_arch = "wasm32"))]
 		{
-			Store::open(&self.path, [111; 16], create, 256 * 1024 * 1024, schemas, limits).unwrap()
+			// Executor scenarios run on the engine Rooms stores in. The storage
+			// proofs that reopen a store run on every disk engine.
+			let mode = if create { OpenMode::Create } else { OpenMode::Open };
+			crate::disk::Disk::Sqlite
+				.open(self.path.clone(), [111; 16], mode, schemas, limits)
+				.unwrap()
 		}
 		#[cfg(target_arch = "wasm32")]
 		{

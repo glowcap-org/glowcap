@@ -40,7 +40,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         for error in wrapper.terminal_failures:
             self._record_terminal_failure(error)
 
-    def _retire_native_release(self, release_error: Optional[BaseException]) -> None:
+    def _retire_ffi_release(self, release_error: Optional[BaseException]) -> None:
         """Commit wrapper ownership after a consuming driver release."""
         self._released = True
         if release_error is not None:
@@ -60,7 +60,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         """Total distinct terminal occurrences, including bounded overflow."""
         return self._terminal_failure_count
 
-    def _native_session_release(self, ptr: ctypes.c_void_p) -> None:
+    def _ffi_session_release(self, ptr: ctypes.c_void_p) -> None:
         value = ptr.value
         if self._released:
             return
@@ -75,7 +75,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         """Retire this loop after its application-owned sessions close.
 
         The driver seals admission and owns the final-session transition.
-        This binding only starts the task that drives the native barrier.
+        This binding only starts the task that drives the FFI barrier.
         """
         if self._released or self._closing:
             return
@@ -87,7 +87,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         self._start_close_driver()
 
     def close(self, options: "Optional[_CloseOptions]" = None) -> None:
-        """Begin or escalate the core-owned native close barrier."""
+        """Begin or escalate the core-owned FFI close barrier."""
         if self._released:
             return
         if options is None:
@@ -148,7 +148,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         wait_ms = self._step_wait_ms()
         if self._aio is None:
             # No readiness reader is armed, so this driver is the loop's only
-            # pump: park inside the native step, which itself wakes on
+            # pump: park inside the FFI step, which itself wakes on
             # readiness and honors the deadline bound.
             self.step(wait_ms)
             return
@@ -198,7 +198,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
         try:
             self._release_attempted = True
             release_attempt = self._release_owner.release(
-                "driver-loop.close.release", self._retire_native_release
+                "driver-loop.close.release", self._retire_ffi_release
             )
             for accepts in self._accepts.values():
                 accepts.put_nowait(_ACCEPTS_CLOSED)
@@ -225,9 +225,9 @@ class _LifecycleMixin(DriverLoopMixinBase):
                     close_future.set_exception(closed)
             self._session_closes.clear()
             self._unclaimed_sessions.clear()
-            # Native release is the transfer's terminal boundary. Retire
+            # FFI release is the transfer's terminal boundary. Retire
             # wrapper-owned callbacks and its Context borrow only after every
-            # native allocation has reached that allocator's free, then claim
+            # FFI allocation has reached that allocator's free, then claim
             # physical session cleanup at this loop's close barrier.
             if release_attempt.error is not None:
                 error = release_attempt.error
@@ -242,7 +242,7 @@ class _LifecycleMixin(DriverLoopMixinBase):
             self._closed_event.set()
 
     async def wait_closed(self) -> None:
-        """Wait until native loop and resident ownership have been released."""
+        """Wait until driver loop and resident ownership have been released."""
         await self._closed_event.wait()
         if self._close_error is not None:
             raise self._close_error

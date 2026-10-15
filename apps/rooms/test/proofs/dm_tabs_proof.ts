@@ -1,3 +1,5 @@
+import { proveFiniteAnimationWait } from "../page/animation_wait.ts";
+import { waitForFiniteAnimations } from "../support/animations.ts";
 import { spawnWeb } from "../support/web_front.ts";
 // Two browser tabs direct-message each other end to end on the page's default
 // DM transport: each advertises a `webrtc` locator, and the room carries only
@@ -11,8 +13,8 @@ import { spawnWeb } from "../support/web_front.ts";
 //
 // This is the default two-tab conversation as a reader meets it, with no
 // query flag on the page URL. Reaching a tab through the relay's rendezvous
-// instead has its own proofs: `dm_native_dial_proof.ts` cold-dials a
-// `?dm=relay` tab from a native Deno peer, and `dm_reopen_proof.ts`
+// instead has its own proofs: `dm_deno_dial_proof.ts` cold-dials a
+// `?dm=relay` tab from a Deno peer, and `dm_reopen_proof.ts`
 // drives both DM transports against the live timeline.
 //
 // Then Alice closes the conversation and starts a second one with the same
@@ -25,11 +27,11 @@ import { spawnWeb } from "../support/web_front.ts";
 //
 // The room and both tabs run over plain TCP-through-relay (no iroh):
 // the tabs reach the room over `/relay?target=…` and reach each other over a
-// DataChannel the room only signals. Rust supplies the native room/web services
+// DataChannel the room only signals. Rust supplies the room/web services
 // and browser session runtime; Deno drives the page through Playwright.
 //
-// Needs deno, the wasm module (`zig build wasm-driver`), the native archives
-// (the room server is native), and a Playwright Chromium
+// Needs deno, the wasm module (`zig build wasm-driver`), the installed archives
+// (the room server is the Rust process), and a Playwright Chromium
 // (the devcontainer image ships one).
 // Run: `.agents/skills/work/bin/glowcap-dev zig build rooms-web-dm-tabs`.
 
@@ -141,7 +143,7 @@ const deadline = setTimeout(() => fail("web-dm-tabs scenario timed out after 180
 const httpPort = freePort();
 const roomPort = freePort();
 
-// The native web service serves the page and runs the room + relay over plain TCP.
+// The Rooms web service serves the page and runs the room + relay over plain TCP.
 spawnWeb({
 	args: ["--transport=tcp", String(httpPort), String(roomPort)],
 	cwd: ROOT,
@@ -154,6 +156,7 @@ try {
 	await waitForHttp(httpPort);
 
 	browser = await chromium.launch({ args: ["--no-sandbox"] });
+	await proveFiniteAnimationWait(browser);
 
 	// Alice joins first and opens the room; Bob joins it. Both advertise a
 	// `webrtc` locator and file signaling inboxes with the directory, so each
@@ -330,7 +333,7 @@ try {
 		// runs a fade that starts at nothing. Read too early it lands near one to
 		// one however the colours are set, which looks like a colour bug and does
 		// not move when you fix colours.
-		await alice.tab.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => {}))));
+		await waitForFiniteAnimations(alice.tab);
 		for (const [what, selector] of DM_INK) {
 			const measured = await inkContrast(alice.tab, selector);
 			// Absent is not the same as fine. A row that is not on screen cannot be
