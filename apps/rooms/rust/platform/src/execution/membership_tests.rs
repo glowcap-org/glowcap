@@ -2,13 +2,16 @@ use super::HostPlatform;
 use glowcap::{
 	Argument, ConnectOptions, Host, ListenerIdentity, PendingWork, Ref, Resolver, Runtime, RuntimeConfig, Session, tcp,
 };
-use rooms_application::room::{inbox, membership, policy::MembershipKind};
+use rooms_application::room::{inbox, membership, policy::MembershipKind, subject::Subject};
 use rooms_glowcap::client::{
 	Client, Error,
 	room::{Messages, Room, SubscribeOptions},
 };
 use std::{cell::RefCell, rc::Rc};
 use tokio::sync::{Notify, mpsc};
+
+const BOARD: &str = "ocapn://peer.tcp/s/Ym9hcmQ";
+
 struct Request {
 	inbox: Ref,
 }
@@ -94,12 +97,13 @@ async fn membership_scenario() {
 				}
 			})
 			.unwrap();
-		let topic = if name == "alpha" {
+		let subject = if name == "alpha" {
 			Some(
 				accepted
 					.spawn_owned(|verb, args| {
-						assert_eq!(verb, membership::SET_TOPIC);
-						assert_eq!(args[0].as_str(), Some("new topic"));
+						assert_eq!(verb, membership::SET_SUBJECT);
+						let args: Vec<_> = args.iter().map(Argument::as_str).collect();
+						assert_eq!(args, [Some("the board"), Some(BOARD)]);
 						Ok(Argument::Void)
 					})
 					.unwrap(),
@@ -144,7 +148,7 @@ async fn membership_scenario() {
 						} else {
 							kind.into()
 						},
-						topic.clone().map(Argument::Reference).unwrap_or(Argument::Void),
+						subject.clone().map(Argument::Reference).unwrap_or(Argument::Void),
 						Argument::Void,
 					]))
 				})
@@ -158,10 +162,14 @@ async fn membership_scenario() {
 	assert_eq!(alpha.listed(), Some(true));
 	alpha.away("back soon").await.unwrap();
 	alpha.typing(true).unwrap();
-	alpha.set_topic("new topic").await.unwrap();
+	alpha
+		.set_subject(&Subject::new("the board".into(), Some(BOARD.into())).unwrap())
+		.await
+		.unwrap();
 	assert!(matches!(
-		beta.set_topic("no authority").await,
-		Err(Error::Membership(membership::Error::NoTopic))
+		beta.set_subject(&Subject::new("no authority".into(), None).unwrap())
+			.await,
+		Err(Error::Membership(membership::Error::NoSubject))
 	));
 	accepted
 		.send(

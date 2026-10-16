@@ -56,7 +56,11 @@ pub const Entry = struct {
     retention: ?core.Retention = null,
 };
 pub const Operation = calls.Operation;
-pub const Loading = struct { request: core.Read, submitted: bool = false, operation: ?usize = null };
+pub const Loading = struct { request: core.Read, submitted: bool = false, reader: Reader };
+/// Who completes a read: the Store for a shared load, an operation's
+/// preparation for its own, or nobody for a read-ahead, whose loss is only a
+/// later demand read.
+pub const Reader = union(enum) { store, ahead, operation: usize };
 pub const Writing = struct { batch: core.Batch, operation: ?usize, submitted: bool = false, uncertain: bool = false };
 /// One staged publication tombstone this attachment owns the registry
 /// transition for. Reserved when the tombstone stages. Fenced (discovery
@@ -239,6 +243,7 @@ pub const Attachment = struct {
     pub const advance = drive.advance;
     pub const advanceProgress = drive.advanceProgress;
     pub const prefetch = storage.prefetch;
+    pub const readAhead = storage.readAhead;
     pub const nextWork = storage.nextWork;
     pub const nextWrite = storage.nextWrite;
     pub const completeRead = storage.completeRead;

@@ -55,7 +55,7 @@ export interface RoomIntent {
 	/** Exact public generation. Descriptive even after acquiring a linked entrance. */
 	publication?: string;
 	seat?: FieldKey;
-	topic?: FieldKey;
+	subject?: FieldKey;
 	files?: FieldKey;
 	moderator?: FieldKey;
 	control: FieldKey | null;

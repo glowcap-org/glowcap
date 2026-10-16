@@ -18,7 +18,7 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
         .deliver => |x| blk: {
             const y = b.deliver;
             if (!model.referencesStructurallyEqual(x.target, y.target)) break :blk false;
-            if (x.answer != y.answer) break :blk false;
+            if (x.answer != y.answer or x.listen_mode != y.listen_mode) break :blk false;
             if ((x.resolve_me_desc == null) != (y.resolve_me_desc == null)) break :blk false;
             if (x.resolve_me_desc) |xr| {
                 if (!model.referencesStructurallyEqual(xr, y.resolve_me_desc.?)) break :blk false;

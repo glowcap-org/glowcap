@@ -22,19 +22,18 @@ The command prints the commit each source is pinned at. It fails if an
 observation stops matching its source or a submodule drifts off its pinned
 commit, so a pin bump forces a fresh look at each discrepancy.
 
-## `op:listen` operand count
+## `op:listen` mode type
 
-Three pinned sources disagree on how many operands `op:listen` carries:
+The draft and deployed sources disagree on the third `op:listen` operand:
 
 | Source | Says |
 | ------ | ---- |
-| draft CapTP specification | `<op:listen to-desc` … `listen-desc>      ; desc:import-object \| desc:import-promise`, two operands |
+| draft CapTP specification | `listen-mode` is an integer: 1, 2, or 3 |
 | OCapN test suite (`utils/captp_types.py`) | `assert len(record.args) == 3`, then `wants_partial = record.args[2]` |
 | Spritely Goblins (`goblins/ocapn/captp.rkt`) | `(to-desc listener-desc wants-partial?)` |
 
-glowcap implements the three-operand form, following the suite and Goblins
-instead of the draft, to interoperate with deployed peers. It makes no claim
-about which shape is correct.
+glowcap retains the deployed boolean on `1.0`. Adoption of integer modes on
+`glowcap-next` is pending in the [manifest](../../docs/ocapn-conformance.md).
 
 ## Locator hints type
 

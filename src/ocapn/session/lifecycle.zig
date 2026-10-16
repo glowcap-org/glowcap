@@ -12,6 +12,7 @@ const model = @import("model");
 const answer_notifications = @import("answers/notifications.zig");
 const imported_promises = @import("promises/imported.zig");
 const limits = @import("limits.zig");
+const local_promise = @import("local_promise.zig");
 const session = @import("mod.zig");
 
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
@@ -149,6 +150,8 @@ pub fn deinit(self: *Session) void {
     self.inbound_answers.deinit(self.allocator);
     self.outbound_answers.deinit(self.allocator);
     answer_notifications.deinitDetached(self);
+    local_promise.destroyRegistry(self);
+    if (self.import_release_outbox) |outbox| outbox.deinit(self);
     // Bootstrap key bytes live in `key_arena`, freed wholesale below.
     self.bootstrap.deinit(self.allocator);
     var imported_it = self.imported_promises.valueIterator();

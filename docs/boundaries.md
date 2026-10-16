@@ -10,6 +10,14 @@ sources: []
 says how each part is tested, and the [roadmap](roadmap.md) lists future
 work.
 
+## Protocol draft coverage
+
+`glowcap-next` adopts the current draft's operations while retaining the shared
+four-field hello and its crypto representations. It does not claim complete
+current-draft conformance. The [conformance manifest](ocapn-conformance.md)
+names the deferred crypto sections and test replacements. Next conformance
+runs over testing TCP. Onion conformance remains a separate baseline check.
+
 ## Transports and peer identity
 
 - **Plain `tcp` is a testing transport.** Its designator is an address, so the

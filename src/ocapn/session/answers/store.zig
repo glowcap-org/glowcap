@@ -163,9 +163,26 @@ pub fn deinitProjection(allocator: std.mem.Allocator, projection: Projection) vo
     }
 }
 
-/// Cold pipelining payload for an answer (ADR-0007), allocated lazily only when
-/// an answer accrues a queued call, a listener, a projection, or a
-/// stored resolution.
+/// A queued call retains its exact reply incarnation alongside the owned message.
+/// Resolver-only calls have no wire answer position. This metadata prevents
+/// reusing their callback capability or wire position from aliasing replies. It
+/// shares the existing bounded queue allocation and dies with the queued call.
+pub const QueuedCall = struct {
+    message: model.Message,
+    answer: ?AnswerTarget = null,
+    /// Original wire mentions survive shortening and transfer to a local event
+    /// or the forwarding drain's GC, independently of rewritten arguments.
+    introduced_far_imports: ?[]model.ImportPosition = null,
+    reference_slots: ?u32 = null,
+
+    pub fn deinit(self: QueuedCall, allocator: std.mem.Allocator) void {
+        model.freeMessage(allocator, self.message);
+        if (self.introduced_far_imports) |imports| allocator.free(imports);
+    }
+};
+
+/// Cold pipelining payload for an answer (ADR-0007), allocated lazily when
+/// an answer acquires a queued call, listener, projection or stored resolution.
 pub const AnswerPayload = struct {
     /// One reference belongs to the live answer row. A staged settlement and
     /// each queued notification carrier retain another reference so
@@ -175,7 +192,7 @@ pub const AnswerPayload = struct {
     /// Pipelined `op:deliver`s that arrived for this answer while it was still
     /// `pending`. FIFO. Each is an owned `model.Message` freed on drain or
     /// removal.
-    queue: std.ArrayList(model.Message) = .empty,
+    queue: std.ArrayList(QueuedCall) = .empty,
     /// Parties listening for this answer's resolution (POD entries).
     listeners: ListenerList = .empty,
     /// `op:get` / `op:index` projections waiting on this answer's resolution
@@ -189,6 +206,8 @@ pub const AnswerPayload = struct {
     /// it so a succession of published answers cannot hide variable retained
     /// trees behind the fixed answer-row cap.
     resolution_charge: usize = 0,
+    /// Exact callback import retains; final payload release queues their GC.
+    imported_result: ?*@import("../import_release_outbox.zig").Batch = null,
     /// V1.0's independently accepted resolver callback. The BiMap remains the
     /// live answer-name index. This captured import is the detached obligation
     /// that survives removal and legal reuse of that name.
@@ -204,9 +223,9 @@ pub const AnswerTarget = struct {
     row_id: u64,
 };
 
-/// One owned resolution plus the exact answer incarnation named by a top-level
-/// promise fulfillment. The wire value carries only a reusable position. This
-/// sidecar keeps later local consequence walks from following a replacement row.
+/// One owned resolution plus the exact answer behind a same-peer promise.
+/// Wire answers and paired local exports share this captured identity, so later
+/// consequence walks neither notify early nor follow a replacement row.
 pub const StoredResolution = struct {
     value: model.Resolution,
     promise_target: ?AnswerTarget,
@@ -236,6 +255,9 @@ pub const AnswerCell = struct {
     /// answer, so a stateless serve policy must not release it at settlement.
     /// Meaningless on inbound rows.
     application_release_claimed: bool = false,
+    /// Next permits one shortening and one settling wire subscription per
+    /// question incarnation, including the inline deliver subscription.
+    sent_listen_modes: u2 = 0,
     /// The application consumed or discarded the one-shot notification. Wire
     /// settlement can precede notification, so answer_status cannot own this
     /// guard. Meaningless on inbound rows. Retired rows need no marker.
@@ -427,7 +449,8 @@ pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayloa
     payload.refs -= 1;
     if (payload.refs != 0) return 0;
     const resolution_charge = payload.resolution_charge;
-    for (payload.queue.items) |message| model.freeMessage(allocator, message);
+    if (payload.imported_result) |batch| batch.ready();
+    for (payload.queue.items) |call| call.deinit(allocator);
     payload.queue.deinit(allocator);
     payload.listeners.deinit(allocator);
     for (payload.projections.items) |projection| deinitProjection(allocator, projection);
@@ -457,17 +480,6 @@ pub const PreparedResolutionStore = struct {
     promise_target: ?AnswerTarget,
 };
 
-pub fn promiseTargetForResolution(self: anytype, resolution: model.Resolution) !?AnswerTarget {
-    if (resolution != .fulfill or resolution.fulfill != .reference or
-        resolution.fulfill.reference != .promise)
-        return null;
-    const name = model.AnswerName.fromWire(
-        resolution.fulfill.reference.promise.answer_position,
-    );
-    const row = self.inbound_answers.getPtr(name) orelse return error.InvalidReference;
-    return .{ .name = name, .row_id = row.row_id };
-}
-
 pub fn planResolutionStoreNamed(
     self: anytype,
     answer: model.AnswerName,
@@ -488,7 +500,7 @@ pub fn planResolutionStoreNamed(
         .payload = entry.payload,
         .charge = charge,
         .next_retained = next_retained,
-        .promise_target = try promiseTargetForResolution(self, resolution),
+        .promise_target = try self.promiseTargetForResolution(resolution),
     };
 }
 
@@ -537,7 +549,7 @@ pub fn planResolutionStoreTarget(
         return error.RetainedAnswerCapExceeded;
     if (next_retained > @as(usize, self.limits.max_retained_sent_answer_bytes))
         return error.RetainedAnswerCapExceeded;
-    const promise_target = try promiseTargetForResolution(self, resolution);
+    const promise_target = try self.promiseTargetForResolution(resolution);
     const live_entry = if (self.inbound_answers.getPtr(target.name)) |entry|
         if (entry.row_id == target.row_id) entry else null
     else

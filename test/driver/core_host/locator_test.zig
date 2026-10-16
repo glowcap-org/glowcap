@@ -358,7 +358,7 @@ test "core host advertised locator retains complete multi-hint snapshots" {
     });
 
     const stored = host.acceptableLocator().?;
-    try std.testing.expectEqual(@as(usize, hints.len + 3), stored.hints.entries.len);
+    try std.testing.expectEqual(@as(usize, hints.len + 2), stored.hints.entries.len);
     for (hints) |expected| {
         const actual = for (stored.hints.entries) |candidate| {
             if (std.mem.eql(u8, expected.name, candidate.name)) break candidate;

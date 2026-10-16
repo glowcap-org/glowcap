@@ -42,7 +42,7 @@ pub(super) async fn membership(
 	));
 	let result = command.result().await.unwrap();
 	let fields = result.as_list().unwrap()[1].as_list().unwrap();
-	for role in [custody::Role::RoomTopic, custody::Role::RoomFiles] {
+	for role in [custody::Role::RoomSubject, custody::Role::RoomFiles] {
 		let exists = fields.iter().any(|entry| {
 			custody::Coordinate::decode(entry.as_list().unwrap()[0].as_str().unwrap())
 				.unwrap()
@@ -50,8 +50,8 @@ pub(super) async fn membership(
 		});
 		let selected = exists.then(|| field(role, 9).key);
 		match role {
-			custody::Role::RoomTopic => {
-				room.topic = selected.map(|key| custody::FieldKey::new(key.slot(), key.generation()))
+			custody::Role::RoomSubject => {
+				room.subject = selected.map(|key| custody::FieldKey::new(key.slot(), key.generation()))
 			}
 			custody::Role::RoomFiles => {
 				room.files = selected.map(|key| custody::FieldKey::new(key.slot(), key.generation()))

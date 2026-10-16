@@ -12,7 +12,7 @@ pub fn run() {
 		r#"{
 		"conversationId": "room", "membershipKind": "participant",
 		"policy": ["listed", "open", "open"], "members": [],
-		"topic": null, "lineBytes": null
+		"subject": null, "lineBytes": null
 	}"#,
 	)
 	.unwrap();

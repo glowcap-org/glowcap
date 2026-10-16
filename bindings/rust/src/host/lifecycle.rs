@@ -84,8 +84,14 @@ impl HostShared {
 	/// FFI verb that can advance close-relevant state. Waiters re-check
 	/// progress on every wake, so a spare signal costs one check and a missed
 	/// one is a hang.
+	/// Wake whichever close driver owns the drain: this Host's, or its
+	/// driver loop's.
 	pub(crate) fn note_close_activity(&self) {
 		self.activity.notify_waiters();
+		#[cfg(not(target_arch = "wasm32"))]
+		if let Some(lp) = self.driver_loop() {
+			lp.note_step_activity();
+		}
 	}
 
 	/// The registration half of a close driver's wait. The returned future
@@ -340,7 +346,18 @@ impl HostShared {
 		loop {
 			let notified = self.release_notify.notified();
 			if self.owned_tasks.get() == 0 {
-				break;
+				// A storage work that retired after the last drain owes an
+				// advance nobody else will run. Settling may start owned work,
+				// so the count is read again.
+				#[cfg(feature = "loam")]
+				if let Err(error) = self.loam.settle().await {
+					self.fail_close(error);
+					return;
+				}
+				if self.owned_tasks.get() == 0 {
+					break;
+				}
+				continue;
 			}
 			notified.await;
 		}

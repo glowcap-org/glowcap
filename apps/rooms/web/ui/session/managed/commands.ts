@@ -133,10 +133,13 @@ export function managedCommandPowers(
 		ignored: () => [...projection.get().ignored].sort(),
 		editLast: (text) => edit("editLine", text),
 		withdrawLast: () => edit("withdrawLine"),
-		setTopic: async (text) => {
+		setSubject: async (description, link) => {
 			const row = selected();
-			if (row?.kind !== "room" || row.topic == null) return false;
-			await session.actions.run("setRoomTopic", [row.id, text]);
+			if (row?.kind !== "room" || row.subject == null) return false;
+			await session.actions.run(
+				"setRoomSubject",
+				link === undefined ? [row.id, description] : [row.id, description, link],
+			);
 			return true;
 		},
 		setAway: async (text) => {

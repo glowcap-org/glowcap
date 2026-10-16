@@ -57,7 +57,7 @@ impl custody::References for References {
 	type CreationReceipt = ();
 	type PublicationLease = ();
 	type RoomSeat = ();
-	type RoomTopic = ();
+	type RoomSubject = ();
 	type RoomInbox = ();
 	type RoomFiles = ();
 	type Line = ();

@@ -102,7 +102,7 @@ fn exerciseServed(backing: std.mem.Allocator) !void {
     try peer.exportObject(7);
     var hook = Reenter{ .vat = &vat, .actor = try vat.spawn(Replacement, .{}) };
     port.setResolveInterceptor(.{ .ctx = &hook, .func = Reenter.intercept });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[5'reply]1+>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[5'reply]1+<18'desc:import-object0+>1+>", .shape = .byte });
     {
         var event = peer.pollEvent().?;
         defer event.deinit();
@@ -213,7 +213,7 @@ test "borrowed reply: frame-backed echo survives input retirement" {
     const actor = try vat.spawn(Echo, .{ .source = &source });
     try port.bindExport(&vat, actor, 7);
     try peer.exportObject(7);
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[4'echo[8\"borrowed]]1+>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[4'echo[8\"borrowed]]1+<18'desc:import-object0+>1+>", .shape = .byte });
     {
         var event = peer.pollEvent().?;
         defer event.deinit();

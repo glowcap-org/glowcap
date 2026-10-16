@@ -1,7 +1,7 @@
 //! Receipt confirmation transfers an already owned observer, without callbacks.
 use super::{AttachmentInner, Call, EffectExecution, ValueBounds, check, invalid};
 use crate::{Ref, Result, sys::loam as ffi};
-use std::rc::Rc;
+use std::{cell::Cell, rc::Rc};
 
 /// Independent owners: shared immutable custody, C observer metadata, and
 /// temporary source-call target decoding. Host actors and Rust buffers are separate.
@@ -81,7 +81,7 @@ impl<'call> Call<'call> {
 				owner: self.owner,
 			},
 			PendingContinuation {
-				raw: pending,
+				raw: Cell::new(pending),
 				owner: Rc::clone(self.owner),
 			},
 		))
@@ -89,36 +89,46 @@ impl<'call> Call<'call> {
 }
 
 /// One observer of kernel confirmation. Drop detaches observation. It does not
-/// classify an uncertain commit or cancel an admitted target effect.
+/// classify an uncertain commit or cancel an admitted target effect. Every
+/// method takes `&self`, so a shared owner can ask about absence while another
+/// waits on confirmation.
 pub struct PendingContinuation {
-	raw: *mut ffi::GlowcapLoamPendingContinuation,
+	raw: Cell<*mut ffi::GlowcapLoamPendingContinuation>,
 	owner: Rc<AttachmentInner>,
 }
 impl PendingContinuation {
 	/// Pending returns None. Confirmed absence returns UNCHANGED. Success
 	/// transfers the same observer once, without allocating or admitting work.
-	pub fn try_take(&mut self) -> Result<Option<Continuation>> {
-		if self.raw.is_null() {
-			return Err(invalid("continuation observation is consumed"));
-		}
+	pub fn try_take(&self) -> Result<Option<Continuation>> {
+		let pending = self.live()?;
 		let mut raw = core::ptr::null_mut();
-		// SAFETY: `self.raw` is this `PendingContinuation`'s handle from `reserve_continuation_copying`, non-null
-		// (checked above) and released only by its `Drop` or consumed by this call's success; `raw` is an out-parameter
-		// the callee fills.
-		let code = unsafe { ffi::glowcap_loam_pending_continuation_take(self.raw, &mut raw) };
+		// SAFETY: `pending` is this `PendingContinuation`'s live handle from `reserve_continuation_copying`, released
+		// only by its `Drop` or consumed by this call's success; `raw` is an out-parameter the callee fills.
+		let code = unsafe { ffi::glowcap_loam_pending_continuation_take(pending, &mut raw) };
 		if code == crate::sys::WOULD_BLOCK {
 			return Ok(None);
 		}
 		check(code)?;
-		self.raw = core::ptr::null_mut();
+		self.raw.set(core::ptr::null_mut());
 		Ok(Some(Continuation {
 			raw,
 			owner: Rc::clone(&self.owner),
 		}))
 	}
+	/// True once the commit is confirmed absent, which is final. Pending and
+	/// confirmed answer false and leave the observer for `try_take`. Unlike
+	/// `try_take`, it reads only the observer, so a content callback may ask.
+	pub fn absent(&self) -> Result<bool> {
+		let pending = self.live()?;
+		let mut absent = 0;
+		// SAFETY: `pending` is this `PendingContinuation`'s live handle from `reserve_continuation_copying`, released
+		// only by its `Drop`; the callee only reads it, and `absent` is an out-parameter the callee fills.
+		check(unsafe { ffi::glowcap_loam_pending_continuation_absent(pending, &mut absent) })?;
+		Ok(absent != 0)
+	}
 	/// Drive through the existing Host owner. Register activity before checking
 	/// progress so completion between the check and wait cannot lose its wake.
-	pub async fn confirmed(&mut self) -> Result<Continuation> {
+	pub async fn confirmed(&self) -> Result<Continuation> {
 		loop {
 			let host = Rc::clone(&self.owner.host);
 			let activity = host.close_activity();
@@ -135,13 +145,21 @@ impl PendingContinuation {
 			activity.await;
 		}
 	}
+	fn live(&self) -> Result<*mut ffi::GlowcapLoamPendingContinuation> {
+		let pending = self.raw.get();
+		if pending.is_null() {
+			return Err(invalid("continuation observation is consumed"));
+		}
+		Ok(pending)
+	}
 }
 impl Drop for PendingContinuation {
 	fn drop(&mut self) {
-		if !self.raw.is_null() {
-			// SAFETY: `self.raw` is this `PendingContinuation`'s non-null handle (checked above), not yet consumed by
+		let raw = self.raw.get();
+		if !raw.is_null() {
+			// SAFETY: `raw` is this `PendingContinuation`'s non-null handle (checked above), not yet consumed by
 			// `try_take`, and released exactly once here; its `owner` `Rc<AttachmentInner>` keeps the attachment alive.
-			let code = unsafe { ffi::glowcap_loam_pending_continuation_release(self.raw) };
+			let code = unsafe { ffi::glowcap_loam_pending_continuation_release(raw) };
 			if let Err(error) = check(code) {
 				self.owner.host.record_background_failure(error);
 			}

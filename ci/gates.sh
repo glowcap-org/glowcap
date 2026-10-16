@@ -215,7 +215,8 @@ gate zig build bindings-goblins-listen
 gate zig build goblins-relay
 gate zig build fixture-gen-check
 gate zig build ocapn-findings-check
-gate zig build ocapn-conformance
+gate zig build ocapn-conformance-next
+gate zig build goblins-glowcap-pair-gift
 gate zig build iroh-interop
 # The provider seam (ADR-0112) in every FFI runtime: the C driver, the
 # Python binding, and the Rust binding each install an iroh provider package

@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
+const codec = glowcap.ocapn.codec;
 
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
@@ -49,11 +50,8 @@ test "a far send's frame is queued at admission and step emits those bytes" {
         var frame = peer.takeOutbound() orelse return error.MissingDeliver;
         defer frame.deinit();
         try std.testing.expectEqualSlices(u8, queued, frame.bytes());
-        if (profile == .next) {
-            var listener = peer.takeOutbound() orelse return error.MissingListener;
-            defer listener.deinit();
-            try std.testing.expect(std.mem.indexOf(u8, listener.bytes(), "op:listen") != null);
-        }
+        const sent_body = try codec.syrup.decodeBodyForProfile(profile, frame.view());
+        try std.testing.expect(sent_body.deliver.resolve_me_desc != null);
         try std.testing.expect(peer.takeOutbound() == null);
         try std.testing.expect(peer.pending_send.isEmpty());
     }
@@ -136,10 +134,6 @@ test "a refused admission commits nothing and the same send retries" {
             try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
             var frame = peer.takeOutbound() orelse return error.MissingDeliver;
             frame.deinit();
-            if (profile == .next) {
-                var listener = peer.takeOutbound() orelse return error.MissingListener;
-                listener.deinit();
-            }
             try std.testing.expect(peer.takeOutbound() == null);
         }
         try std.testing.expect(offset > 1);

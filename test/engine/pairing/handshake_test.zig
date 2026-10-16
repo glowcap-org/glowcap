@@ -216,7 +216,7 @@ test "sendKeyedStartSession preserves arbitrary locator hint maps" {
     const received = event.view().start_session.acceptable_location;
     const received_hints = try received.hints.toOwned(allocator);
     defer model.freeHints(allocator, received_hints);
-    try std.testing.expectEqual(@as(usize, hints.len + 3), received_hints.entries.len);
+    try std.testing.expectEqual(@as(usize, hints.len + 2), received_hints.entries.len);
     for (hints) |expected| {
         const actual = for (received_hints.entries) |candidate| {
             if (std.mem.eql(u8, expected.name, candidate.name)) break candidate;

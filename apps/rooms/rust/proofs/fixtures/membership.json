@@ -285,7 +285,7 @@
       "args": [
         "room",
         "x",
-        "topic",
+        "subject",
         ""
       ],
       "accepted": true,
@@ -298,7 +298,9 @@
             "system": true,
             "attachments": [],
             "facts": {
-              "topic": ""
+              "subject": {
+                "description": ""
+              }
             }
           }
         ]
@@ -309,7 +311,7 @@
       "args": [
         "room",
         "x",
-        "topic",
+        "subject",
         "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       ],
       "accepted": true,
@@ -803,6 +805,101 @@
       ],
       "accepted": false,
       "events": []
+    },
+    {
+      "at": 39,
+      "args": [
+        "room",
+        "x",
+        "subject",
+        "the board",
+        "ocapn://host.tcp/s/Ym9hcmQ"
+      ],
+      "accepted": true,
+      "events": [
+        [
+          "line",
+          {
+            "from": "room",
+            "text": "x",
+            "system": true,
+            "attachments": [],
+            "facts": {
+              "subject": {
+                "description": "the board",
+                "link": "ocapn://host.tcp/s/Ym9hcmQ"
+              }
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "at": 40,
+      "args": [
+        "room",
+        "x",
+        "subject",
+        "",
+        "ocapn://host.tcp/s/Ym9hcmQ"
+      ],
+      "accepted": true,
+      "events": [
+        [
+          "line",
+          {
+            "from": "room",
+            "text": "x",
+            "system": true,
+            "attachments": []
+          }
+        ]
+      ]
+    },
+    {
+      "at": 41,
+      "args": [
+        "room",
+        "x",
+        "subject",
+        "the board",
+        "https://host/s/Ym9hcmQ"
+      ],
+      "accepted": true,
+      "events": [
+        [
+          "line",
+          {
+            "from": "room",
+            "text": "x",
+            "system": true,
+            "attachments": []
+          }
+        ]
+      ]
+    },
+    {
+      "at": 42,
+      "args": [
+        "room",
+        "x",
+        "subject",
+        "the board",
+        "ocapn://host.tcp/s/Ym9hcmQ",
+        "more"
+      ],
+      "accepted": true,
+      "events": [
+        [
+          "line",
+          {
+            "from": "room",
+            "text": "x",
+            "system": true,
+            "attachments": []
+          }
+        ]
+      ]
     }
   ],
   "memberships": [
@@ -827,7 +924,7 @@
       ],
       "result": {
         "kind": "participant",
-        "topic": false,
+        "subject": false,
         "files": true
       }
     },
@@ -844,7 +941,7 @@
       ],
       "result": {
         "kind": "observer",
-        "topic": true,
+        "subject": true,
         "files": false
       }
     },

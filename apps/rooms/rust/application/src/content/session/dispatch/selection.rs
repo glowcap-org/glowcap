@@ -157,9 +157,9 @@ impl Dispatch {
 						}
 						(custody::Role::RoomSeat, key.slot(), key.generation())
 					}
-					RoomTarget::Topic => {
-						let key = room.topic.ok_or(Refusal)?;
-						(custody::Role::RoomTopic, key.slot(), key.generation())
+					RoomTarget::Subject => {
+						let key = room.subject.ok_or(Refusal)?;
+						(custody::Role::RoomSubject, key.slot(), key.generation())
 					}
 					RoomTarget::Moderator => {
 						let key = room.moderator.ok_or(Refusal)?;

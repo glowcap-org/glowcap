@@ -46,7 +46,7 @@ impl Intent {
 			match row {
 				Conversation::Room(room) => {
 					room.seat = None;
-					room.topic = None;
+					room.subject = None;
 					room.files = None;
 					room.inbox = None;
 					room.lines = Default::default();

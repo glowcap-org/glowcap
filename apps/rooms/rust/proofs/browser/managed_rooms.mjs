@@ -198,7 +198,7 @@ export async function managedRooms({ location, moduleUrl = "/rooms_contract_proo
 			access,
 			accepted: null,
 			seat: null,
-			topic: null,
+			subject: null,
 			files: null,
 			moderator: null,
 			control: management,

@@ -18,7 +18,7 @@ async fn issue(shared: &Rc<RefCell<State>>) -> String {
 	let issued = authority::queue::request(
 		&shared.borrow(),
 		"roomAuthorities",
-		|state| Ok(state.authority.remembered("garden", false, false, None, None)?),
+		|state| Ok(state.authority.remembered("garden", false, false, None)?),
 		|state| state.publish_room("garden").map(Argument::from),
 	);
 	issued.await.unwrap().as_str().unwrap().into()
@@ -64,7 +64,7 @@ async fn queued_manager_revocation_cannot_borrow_a_replacement_manager_generatio
 					authority::queue::request(
 						&shared.borrow(),
 						"giveManager",
-						|state| Ok(state.authority.remembered("garden", false, true, None, None)?),
+						|state| Ok(state.authority.remembered("garden", false, true, None)?),
 						|state| state.publish_manager("garden").map(Argument::from),
 					)
 				};

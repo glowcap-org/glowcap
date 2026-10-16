@@ -37,6 +37,7 @@ pub fn rewriteDeliverTarget(
         .args = deliver.args,
         .answer = deliver.answer,
         .resolve_me_desc = deliver.resolve_me_desc,
+        .listen_mode = deliver.listen_mode,
     } };
 }
 

@@ -232,7 +232,7 @@ fn prepareCurrent(owner: *h.Attachment, op: *calls.Operation, index: usize) !boo
         };
         switch (acquired) {
             .read => |read| {
-                storage.retainRead(owner, read, null);
+                storage.retainRead(owner, read, .store);
                 return false;
             },
             .ready => |lease| {
@@ -246,7 +246,7 @@ fn prepareCurrent(owner: *h.Attachment, op: *calls.Operation, index: usize) !boo
         .waiting => return false,
         .read => |read| {
             op.pending_read = true;
-            storage.retainRead(owner, read, index);
+            storage.retainRead(owner, read, .{ .operation = index });
             return false;
         },
         .ready => {},

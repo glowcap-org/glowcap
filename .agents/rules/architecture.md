@@ -12,11 +12,12 @@ paths:
 
 ## Authority
 
-- The `1.0` profile answers to the pinned OCapN draft. Goblins compatibility is
-  a separate feature and evidence question, and a missing Goblins operation
-  never redefines the version. `glowcap-next` tracks current OCapN direction,
-  including meeting consensus and live proposals. Keep conflicting proposals as
-  explicit variants and never blend them into an unsourced wire format.
+- The `1.0` profile preserves pinned Goblins compatibility. `glowcap-next`
+  tracks current OCapN direction, including meeting consensus and live
+  proposals. The [conformance manifest](../../docs/ocapn-conformance.md)
+  owns adoption, deferral, pending work, and evidence independently of the spec
+  pin. Keep conflicting proposals explicit and never blend them into an
+  unsourced wire format.
 - **Read `conformance/ocapn-spec/upstream/draft-specifications/` before
   changing anything glowcap puts on the wire**, and before deleting `next`
   behavior (update the submodules and check the minutes and owning issue

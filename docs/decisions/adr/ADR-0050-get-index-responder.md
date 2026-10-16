@@ -6,9 +6,13 @@ tags: [engine, session, pipelining, get, index, goblins-interop]
 decision: glowcap answers `op:get` / `op:index` (CapTP § Receiving): the projected answer is exported the moment the op lands, a projection row anchors on the receiver's answer, and the resolve seam drains it: resolving the projected answer to the Struct field or List element, following promise-shaped resolutions, or breaking. The initiator half installs the outbound answer on send. The field name is a Syrup String on the wire, matching the spec and live Goblins.
   supersedes: []
   superseded_by: []
+amended_by: [ADR-0251]
 ---
 
 # ADR-0050 The op:get / op:index responder
+
+[ADR-0251](ADR-0251-next-operations-with-retained-crypto.md) limits these
+wire projections to the `1.0` profile. Next rejects them.
 
 ## Context
 

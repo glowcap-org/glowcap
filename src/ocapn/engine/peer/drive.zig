@@ -74,7 +74,8 @@ pub fn step(self: *Peer) !events.StepOutcome {
     // saves one kernel send per call. When the embedder is about to park, it
     // calls `flushAnswerReleases` and the releases go alone, so a quiet
     // session still sends them (ADR-0214).
-    if (outbound_drain.holdsAnswerReleases(self)) return .idle;
+    const has_import_release = if (self.session_state.import_release_outbox) |outbox| outbox.head != null else false;
+    if (outbound_drain.holdsAnswerReleases(self) and !has_import_release) return .idle;
     if (self.pending_send.peek() != null) {
         outbound_drain.stepPending(self) catch |err| {
             failures.projectDeferredStepFailure(self, err);
@@ -82,6 +83,7 @@ pub fn step(self: *Peer) !events.StepOutcome {
         };
         return .progress;
     }
+    if (try @import("../remote_forward.zig").drainImportRelease(self)) return .progress;
     return .idle;
 }
 

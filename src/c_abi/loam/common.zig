@@ -43,7 +43,7 @@ pub const Store = struct {
         for (schemas, declarations[access.hosting.system_schemas.len..]) |schema, *target| target.* = .{ .id = schema.id, .version = schema.version, .max_payload = schema.max_payload, .max_edges = schema.max_edges };
     }
     fn coreLimits(limits: c.GlowcapLoamLimits) core.Store.Limits {
-        return .{ .records = .{ .max_record_bytes = limits.record_bytes, .max_edges = max_content_fields }, .resident_bytes = limits.resident_bytes, .staging_bytes = limits.staging_bytes, .cache_slots = limits.cache_slots, .max_leases = limits.max_leases, .max_changes = limits.max_changes, .max_retentions = limits.max_retentions };
+        return .{ .records = .{ .max_record_bytes = limits.record_bytes, .max_edges = max_content_fields }, .resident_bytes = limits.resident_bytes, .staging_bytes = limits.staging_bytes, .cache_slots = limits.cache_slots, .read_ahead = limits.read_ahead, .max_leases = limits.max_leases, .max_changes = limits.max_changes, .max_retentions = limits.max_retentions };
     }
     /// One projection owns every portable attachment limit. The same options
     /// validate before storage opens and configure the eventual Host attachment.

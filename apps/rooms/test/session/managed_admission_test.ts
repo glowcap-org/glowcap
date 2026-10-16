@@ -573,7 +573,10 @@ for (const level of ["global", "directory", "room"] as const) {
 			? "setDirectoryStanding"
 			: "setRoomStanding";
 		const target = level === "global" ? null : level;
+		assertEquals(session.effects.roomStandingPending("room"), false);
 		session.effects.reserve("effective", "setEffectiveStanding", ["room", "away"]);
+		assertEquals(session.effects.roomStandingPending("room"), level === "room");
+		assertEquals(session.effects.roomStandingPending("other-room"), false);
 		assertEquals(session.effects.standing(name, target, "here"), "away");
 		let refusal = "";
 		try {

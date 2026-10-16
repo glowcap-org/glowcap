@@ -8,7 +8,7 @@
 // there is one answer to "where are we" rather than one per caller.
 
 import type React from "react";
-import { jumpToLatest, topicChange, topicClear } from "../../../lib/text/controls.ts";
+import { jumpToLatest, subjectChange, subjectClear, subjectCopyLink } from "../../../lib/text/controls.ts";
 import { dropToAttach, latestMessages } from "../../../lib/text/page.ts";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -30,6 +30,8 @@ import { RichText } from "./RichText.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
 import { IconButton } from "../IconButton.tsx";
+import { CopyButton } from "../Copy.tsx";
+import type { Subject } from "../../../lib/room/subject.ts";
 import { Icon } from "../icons.tsx";
 import { useRoomsState } from "../hooks.ts";
 import { NO_DRAFT } from "../store.ts";
@@ -199,6 +201,7 @@ export function Stream(
 	const dropInvited = dropEnabled && conversationTakesFiles(conv);
 	const carriesFiles = (e: React.DragEvent): boolean => [...e.dataTransfer.types].includes("Files");
 
+	const subjectDraft = conv?.type === "room" && conv.subject !== undefined ? subjectCommand(conv.subject) : null;
 	return (
 		<div
 			className={dragDepth > 0 ? "stream dropping" : "stream"}
@@ -231,39 +234,44 @@ export function Stream(
 			    when there is one, because a bar reserving space for nothing is a
 			    permanent reminder that a room has said nothing.
 
-			    Read as rich text like any other line, because a topic is where a
-			    room puts the link everyone needs, and a topic that showed its URL
-			    as text would be the one place in this page a link is not one.
+			    The description reads as rich text like any other line, so a URL in
+			    it is a link here as everywhere else. A subject's own link names an
+			    object hosted elsewhere, and the bar offers it to copy: the room
+			    shares it and never calls it.
 
 			    The way to change it appears for a reader the room handed that
 			    ability to, and for nobody else. Not a permission being checked:
 			    the button is drawn from what this membership was answered with,
-			    which is the same reason `/topic` is on their list of commands and
+			    which is the same reason `/subject` is on their list of commands and
 			    missing from somebody else's. Both buttons write the command rather than
-			    acting on their own, so a topic is amended, or taken down, where text is
+			    acting on their own, so a subject is amended, or taken down, where text is
 			    written, and there is one path rather than two. */
 			}
-			{conv?.type === "room" && conv.topic !== undefined && conv.topic !== "" && (
-				<div id="topic" className="topic">
-					<div className="topic-said" title={conv.topic}>
-						<RichText text={conv.topic} nick={nick} />
+			{conv?.type === "room" && conv.subject !== undefined && (
+				<div id="subject" className="subject">
+					<div className="subject-said" title={conv.subject.description}>
+						<RichText text={conv.subject.description} nick={nick} />
 					</div>
-					{canInteract && conv.grants.has("topic") && (
+					{conv.subject.link !== undefined && (
+						<CopyButton text={conv.subject.link} label={subjectCopyLink} size="small" variant="ghost" />
+					)}
+					{canInteract && conv.grants.has("subject") && (
 						<>
-							<IconButton
-								icon="pencil"
-								label={topicChange}
-								size="small"
-								variant="ghost"
-								onClick={() => session.setDraft(`/topic ${conv.topic}`)}
-							/>
+							{subjectDraft !== null && (
+								<IconButton
+									icon="pencil"
+									label={subjectChange}
+									size="small"
+									variant="ghost"
+									onClick={() => session.setDraft(subjectDraft)}
+								/>
+							)}
 							<IconButton
 								icon="close"
-								label={topicClear}
+								label={subjectClear}
 								size="small"
 								variant="ghost"
-								onClick={() =>
-									session.setDraft("/topic -")}
+								onClick={() => session.setDraft("/subject -")}
 							/>
 						</>
 					)}
@@ -327,4 +335,14 @@ export function Stream(
 			/>
 		</div>
 	);
+}
+
+/** The `/subject` command that sets `subject` again, or null when typing
+ * cannot reproduce it: the command trims what it reads, and a lone `-` takes
+ * the subject down. Offering a draft that changes the subject on Enter would
+ * be worse than offering none. */
+function subjectCommand(subject: Subject): string | null {
+	const { description, link } = subject;
+	if (description !== description.trim() || (link === undefined && description === "-")) return null;
+	return link === undefined ? `/subject ${description}` : `/subject ${link} ${description}`;
 }

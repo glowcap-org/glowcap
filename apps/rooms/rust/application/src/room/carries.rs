@@ -2,7 +2,7 @@
 //! capability stands for.
 //!
 //! What a member may *do* in a room is what they hold: a participant seat
-//! posts where an observer seat cannot, the topic authority is a facet the
+//! posts where an observer seat cannot, the subject authority is a facet the
 //! room hands over or withholds, and so is the files facet. Those are
 //! authority, and a client draws its controls from holding them. Two things
 //! are not authority but description: whether the room keeps the link

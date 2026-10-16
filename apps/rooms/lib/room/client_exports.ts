@@ -58,8 +58,10 @@ export {
 	readListed,
 	readPresence,
 	readRoomFacts,
-	readTopic,
+	readSubject,
 	type RoomCarries,
 	type RoomFacts,
 	roomRecordAt,
 } from "./message.ts";
+export { isSubjectEmpty, type Subject, subject, subjectRefusal, SubjectSchema } from "./subject.ts";
+export { linkRoomReference, roomCalledAs, roomIsPrivate, roomPolicy } from "./entrance.ts";

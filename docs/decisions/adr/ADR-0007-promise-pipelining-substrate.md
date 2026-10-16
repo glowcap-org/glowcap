@@ -26,8 +26,9 @@ projections keep that answer's incarnation across release and reuse?
 
 `op:listen` is the sibling operation: it installs a party to be told when an
 answer changes. Goblins V1.0 uses a Boolean `wants-partial?` operand. The next
-profile uses the integer modes from the pending OCapN promise-listening
-proposal: shortening only, settling only, or either.
+profile uses integer modes: shortening only, settling only, or either.
+[ADR-0251](ADR-0251-next-operations-with-retained-crypto.md) owns its current
+inline delivery subscription and removal of structural projections.
 
 ## Decision
 
@@ -44,16 +45,26 @@ decision at dispatch time.
 
 When a `Peer` settles that answer, `step` drains the queue
 ([`pipeline.drainAnswerConsequencesTarget`](../../../src/ocapn/engine/pipeline.zig)) and then fires
-the matching listeners. V1.0 sends a resolver callback. Next uses the mandatory
-listener that followed the answered operation and has no wire `op:resolve`.
+the matching listeners. V1.0 sends a resolver callback. Next uses the inline
+subscription carried by the answered operation and has no wire `op:resolve`.
 Calls drain first because a drained call may settle further answers.
 Each queued call dispatches against the resolution
 ([`pipeline`](../../../src/ocapn/engine/pipeline.zig)): a `far`
 resolution forwards the call on the wire (target rewritten via
 [`pipeline.rewriteDeliverTarget`](../../../src/ocapn/engine/pipeline.zig)). A
 `near` resolution delivers locally. Another promise follows the exact answer
-incarnation captured when the resolution was stored. A pending terminal queues
-there directly. A released or cyclic chain breaks only the dependent call.
+incarnation captured when the resolution was stored. This includes a local
+promise export through its explicit export-to-answer pairing. The live export
+slot decides its meaning, independently of its descriptor kind. A pending
+terminal queues there directly. A released or cyclic chain breaks only the
+dependent call.
+
+Local backing promises remain available while live answers or retained work
+reach them, including after settlement. Session derives that reachability from
+its existing stores and reclaims unreachable completed projections together,
+so a cycle cannot keep its own backing rows alive.
+Node-staged trees hold temporary local retains in the same pairing until
+publication or abandonment. Those retains grant no remote wire reference.
 
 ### Listener fire matrix
 
@@ -80,9 +91,10 @@ OCapN spec describes (Model.md § Promise).
 
 `PromiseRef` carries only the answer position encoded by `desc:answer`.
 Pipelining through a call is another `op:deliver` with a fresh answer.
-Projecting a value is `op:get`, `op:index`, or `op:untag`, also with a fresh
-answer. Each operation crosses the normal validate/apply and outbound-admission
-transaction independently. The model, codecs, stored resolutions, and
+On V1.0, projecting a value is `op:get`, `op:index`, or `op:untag`, also with a
+fresh answer. Next refuses these removed operations. Each operation crosses
+the normal validate/apply and outbound-admission transaction independently.
+The model, codecs, stored resolutions, and
 incarnation walker therefore share one reference meaning, and no unevaluated
 argument tree enters capability identity.
 
@@ -98,7 +110,7 @@ condemning the session.
 
 ### op:get and op:index
 
-The model also carries top-level `Get { receiver, field, answer }` and
+For V1.0, the model also carries top-level `Get { receiver, field, answer }` and
 `Index { receiver, index, answer }` arms for the OCapN `op:get` / `op:index`
 wire shapes, and both codecs encode and decode them. The engine answers these
 ops by projecting field/index once the receiver settles
@@ -115,15 +127,12 @@ substrate ([ADR-0052](ADR-0052-untag-responder.md)).
   synthesized `op:deliver` event
   ([`Peer.deliverDrainedCallLocally`](../../../src/ocapn/engine/mod.zig)) for
   the application to dispatch. The engine runs no method itself.
-- **Export-side listen: object exports fire, bare promise exports refuse.** A
+- **Export-side listen: paired local promises retain their backing answer.** A
   listen on a live object export (held `local_value`, no inbound answer) fires
-  fulfill of that export immediately. A listen on a bare unresolved promise
-  export is refused with `InvalidReference`. glowcap exports no free-standing
-  resolvable promise. The only promise exports it mints are resolver callbacks
-  the partner delivers to and never listens on, so a listener on one could never
-  fire, and accepting it would owe a subscription forever. A
-  partner that wants resolution notification listens on the inbound answer it
-  already holds.
+  fulfill of that export immediately. A promise export paired with a local
+  backing answer installs its listener on that exact answer. A bare unresolved
+  export without this pairing refuses with `InvalidReference`, because it has
+  no settlement authority that could discharge the subscription.
 - Listeners on third-party handoff-imported promises and their relayed
   resolutions, [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
 - Profile-specific answer notification is amended by

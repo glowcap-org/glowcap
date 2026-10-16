@@ -10,7 +10,7 @@
 // hold a reference that does it. So the commands a reader has are the ones they
 // hold in *this* conversation, and the list is not a second permission check.
 // It is what is there. A direct line does not offer `/invite`. A room
-// that never handed over `/topic` does not either. Two members of one room can
+// that never handed over `/subject` does not either. Two members of one room can
 // see two different command lists, and neither client contains a role, a rank,
 // or an `if (isOperator)`.
 //
@@ -25,10 +25,10 @@
 //              handle and does not explain itself.
 //   `line`     Travels inside the message text, so any rooms client can send
 //              and read one without a protocol extension. `/me`, `/shrug`.
-//   `granted`  Needs a reference the room hands you. `/edit`, `/topic`,
+//   `granted`  Needs a reference the room hands you. `/edit`, `/subject`,
 //              `/kick`. Holding one is the whole of the permission, which is
 //              why these can also be *given away*: a reference is a thing you
-//              can pass on, so lending somebody the ability to set the topic
+//              can pass on, so lending somebody the ability to set the subject
 //              costs the room no new concept of a role.
 //
 // Being a granted command says where the authority comes from, not that it has
@@ -41,10 +41,10 @@
 // change or withdraw it. No ownership is asked about, because none has to be. A
 // member who does not hold the handle cannot form the request at all.
 //
-// `/topic` is the same shape one level up. Subscribing answers with the
+// `/subject` is the same shape one level up. Subscribing answers with the
 // authority to say what the room is about, so every member holds it, the room
 // has no ranks to hand out, and a member can pass it to a bot that keeps the
-// topic without the room learning what a bot is.
+// subject without the room learning what a bot is.
 //
 // What that buys beyond tidiness is the thing roles are usually invented for. A
 // handle can be given away, so a member can pass one to somebody they want to be
@@ -144,7 +144,7 @@ const NO_POWERS: CommandPowers = {
 	ignored: () => reading(),
 	editLast: () => reading(),
 	withdrawLast: () => reading(),
-	setTopic: () => reading(),
+	setSubject: () => reading(),
 	setAway: () => reading(),
 	invite: () => reading(),
 	kick: () => reading(),

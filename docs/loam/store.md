@@ -149,6 +149,15 @@ which moves its prepared buffers into free cache slots at their actual encoded
 size. That installation allocates nothing
 and never evicts a version that a lease still holds.
 
+A walk that knows which records it needs next can read them early. Restoring a
+page of references and checking a receipt's edges both start up to
+`Limits.read_ahead` reads ahead of the record they wait on. An early read
+holds a cache slot until the walk pins its record or a commit makes it stale.
+It never takes the last free slot or the last record's worth of the byte
+budget, and a walk that needs room waits for an early read to land rather than
+being refused. Size `cache_slots` and `resident_bytes` for the walk's own
+leases plus this depth.
+
 These budgets are independent of each other and of the store's object count:
 
 - the cache byte limit and its occupancy

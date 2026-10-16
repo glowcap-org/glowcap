@@ -171,7 +171,7 @@ pub fn advanceRepublish(owner: *h.Attachment) !bool {
                 progressed = true;
             },
             .read => |read| {
-                @import("storage.zig").retainRead(owner, read, null);
+                @import("storage.zig").retainRead(owner, read, .store);
                 progressed = true;
             },
         }

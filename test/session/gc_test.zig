@@ -225,7 +225,7 @@ test "inbound gc-exports can never release an export's local baseline" {
 
 test "sending a projection op naming a near receiver retains its wire-delta" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
+    var s = session.Session.initWith(allocator, .{ .captp_version = .v1_0 });
     defer s.deinit();
     try s.registerExport(.from(7));
     const baseline = s.exportRefcount(.from(7));

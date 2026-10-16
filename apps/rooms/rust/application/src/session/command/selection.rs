@@ -57,7 +57,7 @@ fn same_conversation_identity(before: &Value, after: &Value, id: Option<&String>
 }
 /// Moderator issuance, unregistration and policy change select only the room's
 /// held manager (`RoomTarget::Control` in dispatch). Membership supervision
-/// rewrites the seat, topic and files whenever it realizes the room again, as
+/// rewrites the seat, subject and files whenever it realizes the room again, as
 /// it does after the entry link rotates. That work leaves the manager alone, so
 /// it re-prepares rather than refusing the gesture.
 fn same_room_manager(before: &Value, after: &Value, id: Option<&String>) -> bool {
@@ -135,7 +135,7 @@ pub fn unchanged(name: &str, args: &[String], before: &Value, after: &Value) -> 
 		)
 		| Route::Effect(
 			Effect::Say
-			| Effect::SetRoomTopic
+			| Effect::SetRoomSubject
 			| Effect::SetRoomAway
 			| Effect::RetireRoomMembership
 			| Effect::KickRoomMember
@@ -258,12 +258,12 @@ mod tests {
 	fn room_manager_gestures_survive_realization_but_not_a_new_manager() {
 		let room = json!({
 			"kind": "room", "id": "lobby", "directory": "home", "name": "lobby",
-			"access": "k1g1", "seat": "k2g1", "topic": "k3g1", "files": "k4g1",
+			"access": "k1g1", "seat": "k2g1", "subject": "k3g1", "files": "k4g1",
 			"control": "k5g1", "reconnect": "requested", "standing": null, "draft": ""
 		});
 		let before = workspace(room.clone());
 		let realized = with(
-			with(with(room.clone(), "seat", json!("k6g1")), "topic", json!("k7g1")),
+			with(with(room.clone(), "seat", json!("k6g1")), "subject", json!("k7g1")),
 			"files",
 			json!("k8g1"),
 		);

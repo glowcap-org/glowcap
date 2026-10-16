@@ -4,7 +4,7 @@ use super::*;
 use crate::{
 	directory::{Event, RoomChange, creation::RecoveryKey, registration::Id},
 	failure::FailureCode,
-	room::{carries::Carries, message::ChangeKind, policy::RoomPolicy},
+	room::{carries::Carries, message::ChangeKind, policy::RoomPolicy, subject::Subject},
 	server::{directory::Directory, document::Document, history, links::Authority},
 };
 use alloc::{format, vec};
@@ -456,7 +456,7 @@ fn invitations_admit_one_claimant_and_end_with_their_minter() {
 }
 
 #[test]
-fn presence_topic_away_typing_and_kick_say_the_rooms_word() {
+fn presence_subject_away_typing_and_kick_say_the_rooms_word() {
 	let mut world = World::new(false);
 	let entrance = world.open(1, "Garden", RoomPolicy::Open);
 	let alice = world.join(1, &entrance, "Alice").membership;
@@ -470,21 +470,22 @@ fn presence_topic_away_typing_and_kick_say_the_rooms_word() {
 			.tells
 			.is_empty()
 	);
-	// A public room's topic is remembered under its name, link or no link.
+	// A public room's subject is remembered under its name, link or no link.
+	let seeds = Subject::new("seeds".into(), Some("ocapn://host.tcp/s/c2VlZHM".into())).unwrap();
 	let remembered = world
 		.rooms
-		.prepare_topic(&entrance.room, "seeds", &world.authority)
+		.prepare_subject(&entrance.room, &seeds, &world.authority)
 		.unwrap()
 		.expect("a change")
 		.expect("persisted first");
-	assert_eq!(remembered.topic("Garden"), Some("seeds"));
+	assert_eq!(remembered.subject("Garden"), Some(&seeds));
 	world.authority = remembered;
-	let effects = world.rooms.commit_topic(&entrance.room, "seeds");
-	assert!(matches!(&effects.tells[0].notice, Notice::Topic { text, changed: true } if text == "seeds"));
+	let effects = world.rooms.commit_subject(&entrance.room, seeds.clone());
+	assert!(matches!(&effects.tells[0].notice, Notice::Subject { subject, changed: true } if *subject == seeds));
 	assert_eq!(
 		world
 			.rooms
-			.prepare_topic(&entrance.room, "seeds", &world.authority)
+			.prepare_subject(&entrance.room, &seeds, &world.authority)
 			.unwrap(),
 		None
 	);
@@ -500,7 +501,7 @@ fn presence_topic_away_typing_and_kick_say_the_rooms_word() {
 	assert!(
 		heard
 			.iter()
-			.any(|n| matches!(n, Notice::Topic { text, changed: false } if text == "seeds"))
+			.any(|n| matches!(n, Notice::Subject { subject, changed: false } if *subject == seeds))
 	);
 	let effects = world.rooms.typing(&entrance.room, bob.membership, true).unwrap();
 	assert_eq!(effects.tells.len(), 1, "the typer is not told");
@@ -523,9 +524,11 @@ fn durable_entrances_rebuild_a_room_and_follow_its_authority() {
 	let mut world = World::new(false);
 	world.authority = world
 		.authority
-		.remembered("Garden", false, false, Some("kept topic"), None)
+		.remembered("Garden", false, false, None)
 		.unwrap()
 		.unwrap();
+	let kept = Subject::new("kept subject".into(), None).unwrap();
+	world.authority = world.authority.with_subject("Garden", &kept).unwrap().unwrap();
 	let entrance = world
 		.rooms
 		.durable_entrance("Garden", MembershipKind::Participant, &world.authority);
@@ -542,7 +545,7 @@ fn durable_entrances_rebuild_a_room_and_follow_its_authority() {
 	assert!(
 		notices(&seated.effects, 1)
 			.iter()
-			.any(|n| matches!(n, Notice::Topic { text, changed: false } if text == "kept topic"))
+			.any(|n| matches!(n, Notice::Subject { subject, changed: false } if *subject == kept))
 	);
 	assert_eq!(world.rooms.listed().count(), 1);
 	// Entering by name reaches the same live room now.
@@ -579,7 +582,6 @@ fn durable_entrances_rebuild_a_room_and_follow_its_authority() {
 			id,
 			false,
 			true,
-			None,
 			Some(crate::server::links::Registration {
 				name: "Yard",
 				policy: RoomPolicy::Moderated,

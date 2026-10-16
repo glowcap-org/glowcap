@@ -15,7 +15,7 @@ export function isRoomMembershipKind(value: unknown): value is RoomMembershipKin
 /** What `subscribe` answers: the membership seat, which kind of seat it is,
  * and two facets the room hands over or withholds. Every later membership
  * verb (`post`, `leave`, `away`, `typing`) goes to the seat and not to the
- * room reference the seat was answered for. `topic` is the authority to set
+ * room reference the seat was answered for. `subject` is the authority to set
  * what the room is about. `files` is the authority to stage files against the
  * room's storage and publish them, which `attach` and `postFiles` go to. A
  * room that cannot hold bytes answers null there, and a client that holds
@@ -23,7 +23,7 @@ export function isRoomMembershipKind(value: unknown): value is RoomMembershipKin
 export interface RoomMembershipAnswer {
 	readonly seat: Ref;
 	readonly kind: RoomMembershipKind;
-	readonly topic: Ref | null;
+	readonly subject: Ref | null;
 	readonly files: Ref | null;
 }
 
@@ -44,5 +44,5 @@ export function readMembershipAnswer(session: Session, answer: unknown): RoomMem
 			new Error("the room answered subscribe without one membership capability"),
 		);
 	}
-	return { seat: answer[0], kind: answer[1], topic: answer[2], files: answer[3] };
+	return { seat: answer[0], kind: answer[1], subject: answer[2], files: answer[3] };
 }

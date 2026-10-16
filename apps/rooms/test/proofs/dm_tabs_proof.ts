@@ -334,14 +334,23 @@ try {
 		// one however the colours are set, which looks like a colour bug and does
 		// not move when you fix colours.
 		await waitForFiniteAnimations(alice.tab);
-		for (const [what, selector] of DM_INK) {
-			const measured = await inkContrast(alice.tab, selector);
-			// Absent is not the same as fine. A row that is not on screen cannot be
-			// measured, and a measurement that quietly stops answering reads exactly
-			// like one that passes.
-			if (measured === null) faint.push(`${what} could not be measured in ${appearance}`);
-			else if (measured.ratio < 4.5) {
-				faint.push(`${what} is ${measured.ratio.toFixed(2)}:1 in ${appearance} (${measured.saw})`);
+		for (const hovered of [false, true]) {
+			if (hovered) await alice.tab.locator("#dmList li.here").hover();
+			else await alice.tab.mouse.move(0, 0);
+			await waitForFiniteAnimations(alice.tab);
+			for (const [what, selector] of DM_INK) {
+				const measured = await inkContrast(alice.tab, selector);
+				// Absent is not the same as fine. A row that is not on screen cannot be
+				// measured, and a measurement that quietly stops answering reads exactly
+				// like one that passes.
+				if (measured === null) faint.push(`${what} could not be measured in ${appearance}`);
+				else if (measured.ratio < 4.5) {
+					faint.push(
+						`${what}${hovered ? " while hovered" : ""} is ${
+							measured.ratio.toFixed(2)
+						}:1 in ${appearance} (${measured.saw})`,
+					);
+				}
 			}
 		}
 	}

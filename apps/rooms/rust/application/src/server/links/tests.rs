@@ -8,16 +8,25 @@ use alloc::vec::Vec;
 /// A kept document for a server with one linked room, a steward, a
 /// manager, and a managed room under it. The derivation vectors below are
 /// fixed over this document.
-const KEPT: &str = r#"{"version":1,"identitySeed":"0101010101010101010101010101010101010101010101010101010101010101","roomLinkSecret":"0202020202020202020202020202020202020202020202020202020202020202","linkedRooms":["Garden","~00000000000000000000000000000001"],"revokedRooms":["old"],"roomLinkGenerations":[{"name":"garden","generation":3}],"stewards":[{"name":"garden","generation":1,"issued":true}],"managers":[{"name":"~00000000000000000000000000000001","generation":2,"issued":false},{"name":"old","generation":1,"issued":true}],"managedRooms":[{"id":"~00000000000000000000000000000001","name":"Garden","generation":2,"policy":{"visibility":"listed","entry":"open","speaking":"moderated"}}],"topics":[{"name":"garden","topic":"seedlings"},{"name":"~00000000000000000000000000000001","topic":"kept"}]}"#;
+const KEPT: &str = r#"{"version":1,"identitySeed":"0101010101010101010101010101010101010101010101010101010101010101","roomLinkSecret":"0202020202020202020202020202020202020202020202020202020202020202","linkedRooms":["Garden","~00000000000000000000000000000001"],"revokedRooms":["old"],"roomLinkGenerations":[{"name":"garden","generation":3}],"stewards":[{"name":"garden","generation":1,"issued":true}],"managers":[{"name":"~00000000000000000000000000000001","generation":2,"issued":false},{"name":"old","generation":1,"issued":true}],"managedRooms":[{"id":"~00000000000000000000000000000001","name":"Garden","generation":2,"policy":{"visibility":"listed","entry":"open","speaking":"moderated"}}],"subjects":[{"name":"garden","description":"seedlings","link":"ocapn://peer.tcp/s/c3dpc3M"},{"name":"~00000000000000000000000000000001","description":"kept"}]}"#;
 const MANAGED: &str = "~00000000000000000000000000000001";
 
 fn kept() -> Authority {
 	Authority::read(&Document::decode(KEPT).unwrap()).unwrap()
 }
 
+fn described(description: &str) -> Subject {
+	Subject::new(description.into(), None).unwrap()
+}
+
+/// The description `authority` remembers for `name`.
+fn description<'a>(authority: &'a Authority, name: &str) -> Option<&'a str> {
+	authority.subject(name).map(Subject::description)
+}
+
 #[test]
 fn named_publication_survives_reopen_and_retires_with_its_exact_policy_generation() {
-	let authority = kept().remembered(MANAGED, false, true, None, None).unwrap().unwrap();
+	let authority = kept().remembered(MANAGED, false, true, None).unwrap().unwrap();
 	let entry = authority.named_publication("GARDEN").unwrap();
 	let publication = entry.id.text().as_str().unwrap();
 	assert_eq!(
@@ -55,10 +64,7 @@ fn linked_publication_survives_dormancy_and_fences_revocation_reissue_and_reset(
 	let authority = kept();
 	let entry = authority.named_publication("Garden").unwrap();
 	// The independent ordinary durable name is not the managed display name.
-	let authority = authority
-		.remembered("Orchard", false, false, None, None)
-		.unwrap()
-		.unwrap();
+	let authority = authority.remembered("Orchard", false, false, None).unwrap().unwrap();
 	let ordinary = authority.named_publication("ORCHARD").unwrap();
 	let id = ordinary.id.text().as_str().unwrap();
 	let cold = Authority::read(&authority.document()).unwrap();
@@ -72,10 +78,7 @@ fn linked_publication_survives_dormancy_and_fences_revocation_reissue_and_reset(
 	assert!(revoked.named_publication("Orchard").is_none());
 	assert!(rooms.enter_publication(id, &revoked).is_err());
 	assert!(!rooms.gate_open(1, &entrance, &revoked));
-	let reissued = revoked
-		.remembered("Orchard", false, false, None, None)
-		.unwrap()
-		.unwrap();
+	let reissued = revoked.remembered("Orchard", false, false, None).unwrap().unwrap();
 	assert_ne!(reissued.named_publication("Orchard").unwrap().id, ordinary.id);
 	assert!(rooms.enter_publication(id, &reissued).is_err());
 	let reset = reissued.factory_reset([8; 32]);
@@ -87,11 +90,11 @@ fn linked_publication_survives_dormancy_and_fences_revocation_reissue_and_reset(
 #[test]
 fn private_bearer_links_have_no_public_witness_and_managed_public_policy_is_independent() {
 	let opaque = "~00000000000000000000000000000009";
-	let authority = kept().remembered(opaque, false, false, None, None).unwrap().unwrap();
+	let authority = kept().remembered(opaque, false, false, None).unwrap().unwrap();
 	assert!(authority.named_publication(opaque).is_none());
 	assert!(authority.publications.values().all(|id| id != opaque));
 	let entry = authority.named_publication("Garden").unwrap();
-	let cleared = authority.with_topic(MANAGED, "").unwrap().unwrap();
+	let cleared = authority.with_subject(MANAGED, &Subject::default()).unwrap().unwrap();
 	let revoked = cleared.with_room_link_revoked(MANAGED).unwrap();
 	let cold = Authority::read(&revoked.document()).unwrap();
 	assert!(!cold.room_link_active(MANAGED));
@@ -123,8 +126,13 @@ fn the_kept_document_reads_and_writes_back_the_same_relations() {
 	assert_eq!(authority.managed_room(MANAGED).unwrap().name, "Garden");
 	assert_eq!(authority.managed_room_id_for_name("garden"), Some(MANAGED));
 	assert!(authority.managed_room_generation_is_current(MANAGED, 2));
-	assert_eq!(authority.topic("Garden"), Some("seedlings"));
-	assert_eq!(authority.topic(MANAGED), Some("kept"));
+	assert_eq!(description(&authority, "Garden"), Some("seedlings"));
+	assert_eq!(
+		authority.subject("garden").and_then(Subject::link),
+		Some("ocapn://peer.tcp/s/c3dpc3M")
+	);
+	assert_eq!(description(&authority, MANAGED), Some("kept"));
+	assert_eq!(authority.subject(MANAGED).and_then(Subject::link), None);
 	// The document written back holds the same relations; row order and the
 	// casing a generation row remembers are the writer's, not the contract.
 	let written = authority.document();
@@ -181,20 +189,14 @@ fn derivations_match_the_typescript_owner() {
 #[test]
 fn remembering_links_a_name_once_and_revives_a_revoked_one_under_a_new_generation() {
 	let authority = kept();
-	assert_eq!(authority.remembered("garden", false, false, None, None).unwrap(), None);
-	let next = authority
-		.remembered("Orchard", false, false, Some("apples"), None)
-		.unwrap()
-		.unwrap();
+	assert_eq!(authority.remembered("garden", false, false, None).unwrap(), None);
+	let next = authority.remembered("Orchard", false, false, None).unwrap().unwrap();
 	assert!(next.room_link_active("orchard"));
 	assert_eq!(next.room_link_generation("Orchard"), 0);
-	assert_eq!(next.topic("orchard"), Some("apples"));
 	assert_eq!(next.document().linked_rooms.as_slice().len(), 3);
-	// A topic is remembered only when the room has none.
-	let same = next.remembered("Orchard", false, false, Some("pears"), None).unwrap();
-	assert_eq!(same, None);
+	assert_eq!(next.remembered("Orchard", false, false, None).unwrap(), None);
 	// A revoked name comes back under the next generation.
-	let revived = next.remembered("old", false, false, None, None).unwrap().unwrap();
+	let revived = next.remembered("old", false, false, None).unwrap().unwrap();
 	assert!(revived.room_link_active("old"));
 	assert_eq!(revived.room_link_generation("old"), 1);
 	assert!(revived.document().revoked_rooms.as_slice().is_empty());
@@ -216,7 +218,7 @@ fn stewards_and_managers_issue_by_generation_and_revoke_to_the_next() {
 		revoked.with_steward_revoked("Garden").unwrap_err().code,
 		Some(FailureCode::NotSteward)
 	);
-	let reissued = revoked.remembered("Garden", true, false, None, None).unwrap().unwrap();
+	let reissued = revoked.remembered("Garden", true, false, None).unwrap().unwrap();
 	assert!(reissued.steward_generation_is_current("Garden", 3));
 	assert_ne!(
 		reissued.steward_entropy("Garden", 3),
@@ -226,7 +228,7 @@ fn stewards_and_managers_issue_by_generation_and_revoke_to_the_next() {
 	assert_eq!(generation, 2);
 	assert!(!managers.has_manager("old"));
 	assert_eq!(managers.with_manager_revoked("old").unwrap_err().code, None);
-	let reissued = managers.remembered(MANAGED, false, true, None, None).unwrap().unwrap();
+	let reissued = managers.remembered(MANAGED, false, true, None).unwrap().unwrap();
 	assert!(reissued.manager_generation_is_current(MANAGED, 3));
 }
 
@@ -239,7 +241,6 @@ fn a_managed_room_is_filed_under_its_opaque_id_and_repolicied_by_generation() {
 			"Plain",
 			false,
 			true,
-			None,
 			Some(Registration {
 				name: "Plain",
 				policy: RoomPolicy::Open,
@@ -252,7 +253,6 @@ fn a_managed_room_is_filed_under_its_opaque_id_and_repolicied_by_generation() {
 			id,
 			false,
 			true,
-			Some("hi"),
 			Some(Registration {
 				name: "Yard",
 				policy: RoomPolicy::Private,
@@ -283,7 +283,6 @@ fn a_managed_room_is_filed_under_its_opaque_id_and_repolicied_by_generation() {
 			id,
 			false,
 			false,
-			None,
 			Some(Registration {
 				name: "Other",
 				policy: RoomPolicy::Open,
@@ -298,23 +297,37 @@ fn a_managed_room_is_filed_under_its_opaque_id_and_repolicied_by_generation() {
 }
 
 #[test]
-fn topics_follow_durable_names_and_a_link_revocation() {
+fn subjects_follow_durable_names_and_a_link_revocation() {
 	let authority = kept();
-	assert_eq!(authority.with_topic("Garden", "seedlings").unwrap(), None);
-	let changed = authority.with_topic("garden", "sprouts").unwrap().unwrap();
-	assert_eq!(changed.topic("Garden"), Some("sprouts"));
-	let cleared = changed.with_topic("Garden", "").unwrap().unwrap();
-	assert_eq!(cleared.topic("Garden"), None);
-	// An unlinked managed id keeps no topic; an unlinked public name does.
+	let held = authority.subject("Garden").unwrap().clone();
+	assert_eq!(authority.with_subject("Garden", &held).unwrap(), None);
+	// The same description without the link is a different subject.
+	let unlinked = authority
+		.with_subject("Garden", &described("seedlings"))
+		.unwrap()
+		.unwrap();
+	assert_eq!(unlinked.subject("garden"), Some(&described("seedlings")));
+	let changed = authority
+		.with_subject("garden", &described("sprouts"))
+		.unwrap()
+		.unwrap();
+	assert_eq!(description(&changed, "Garden"), Some("sprouts"));
+	let cleared = changed.with_subject("Garden", &Subject::default()).unwrap().unwrap();
+	assert_eq!(cleared.subject("Garden"), None);
+	assert_eq!(cleared.with_subject("Garden", &Subject::default()).unwrap(), None);
+	// An unlinked managed id keeps no subject; an unlinked public name does.
 	assert_eq!(
-		cleared.with_topic("~00000000000000000000000000000009", "x").unwrap(),
+		cleared
+			.with_subject("~00000000000000000000000000000009", &described("x"))
+			.unwrap(),
 		None
 	);
-	let public = cleared.with_topic("Meadow", "grass").unwrap().unwrap();
-	assert_eq!(public.topic("meadow"), Some("grass"));
-	Authority::read(&public.document()).unwrap();
-	let long = "x".repeat(document::MAX_TOPIC + 1);
-	assert!(public.with_topic("Garden", &long).is_err());
+	let board = Subject::new("the board".into(), Some("ocapn://host.tcp/s/Ym9hcmQ".into())).unwrap();
+	let public = cleared.with_subject("Meadow", &board).unwrap().unwrap();
+	assert_eq!(
+		Authority::read(&public.document()).unwrap().subject("meadow"),
+		Some(&board)
+	);
 	// A managed room still filed under its manager cannot lose its link: the
 	// document's relations refuse it before the change is written.
 	let refused = authority.with_room_link_revoked(MANAGED).unwrap_err();
@@ -322,11 +335,11 @@ fn topics_follow_durable_names_and_a_link_revocation() {
 		refused.reason().starts_with("rooms state change is invalid"),
 		"{refused}"
 	);
-	// A public room's link goes with its steward; its topic stays.
+	// A public room's link goes with its steward; its subject stays.
 	let revoked = authority.with_room_link_revoked("Garden").unwrap();
 	assert!(!revoked.room_link_active("garden"));
 	assert!(!revoked.has_steward("Garden"));
-	assert_eq!(revoked.topic("Garden"), Some("seedlings"));
+	assert_eq!(description(&revoked, "Garden"), Some("seedlings"));
 	assert_eq!(revoked.document().revoked_rooms.as_slice().len(), 2);
 	assert_eq!(
 		revoked.with_room_link_revoked("nowhere").unwrap_err().code,
@@ -336,14 +349,14 @@ fn topics_follow_durable_names_and_a_link_revocation() {
 }
 
 #[test]
-fn a_factory_reset_keeps_identity_and_public_topics_only() {
+fn a_factory_reset_keeps_identity_and_public_subjects_only() {
 	let authority = kept();
 	let reset = authority.factory_reset([9; KEY_BYTES]);
 	assert_eq!(reset.identity_seed(), authority.identity_seed());
 	assert_eq!(reset.linked_rooms().count(), 0);
 	assert!(!reset.has_steward("Garden"));
-	assert_eq!(reset.topic("Garden"), Some("seedlings"));
-	assert_eq!(reset.topic(MANAGED), None);
+	assert_eq!(description(&reset, "Garden"), Some("seedlings"));
+	assert_eq!(reset.subject(MANAGED), None);
 	assert_ne!(reset.room_entropy("Garden", 0), authority.room_entropy("Garden", 0));
 	Authority::read(&reset.document()).unwrap();
 }
@@ -358,14 +371,9 @@ fn the_link_registry_is_bounded() {
 	);
 	full.revoked_rooms = List(alloc::vec![durable("gone")]);
 	let authority = Authority::read(&full).unwrap();
-	let refused = authority.remembered("one-more", false, false, None, None).unwrap_err();
+	let refused = authority.remembered("one-more", false, false, None).unwrap_err();
 	assert_eq!(refused.code, Some(FailureCode::RoomLinksFull));
-	assert!(authority.remembered("r1", false, false, None, None).unwrap().is_none());
+	assert!(authority.remembered("r1", false, false, None).unwrap().is_none());
 	// A revoked name comes back without spending a row.
-	assert!(
-		authority
-			.remembered("gone", false, false, None, None)
-			.unwrap()
-			.is_some()
-	);
+	assert!(authority.remembered("gone", false, false, None).unwrap().is_some());
 }

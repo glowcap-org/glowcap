@@ -6,9 +6,13 @@ tags: [engine, session, pipelining, untag, tagged]
 decision: `op:untag` is an OCapN 1.0 operation and both profiles answer it through the ADR-0050 projection substrate. Glowcap sends it only when the partner explicitly advertised the `untag` feature. An absent feature hint excludes it because Goblins has no such operation. A matching tag unwraps the Tagged payload (the single value when the payload has one, the value List otherwise) and a mismatched tag or a non-Tagged fulfillment breaks the projected answer. The tag is a Syrup String on the wire, matching op:get's field-name choice.
 supersedes: []
 superseded_by: []
+amended_by: [ADR-0251]
 ---
 
 # ADR-0052 The op:untag responder
+
+[ADR-0251](ADR-0251-next-operations-with-retained-crypto.md) limits these
+wire projections to the `1.0` profile. Next rejects them.
 
 ## Context
 

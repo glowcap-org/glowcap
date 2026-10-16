@@ -124,6 +124,9 @@ pub fn check(owner: *c.embedding.Attachment, backend: *n.GlowcapLoamLmdb, probe:
     try std.testing.expectEqual(.uncertain, owner.store.value.phase);
     var continuation: ?*c.GlowcapLoamContinuation = null;
     try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, c.glowcap_loam_pending_continuation_take(probe.pending, &continuation));
+    var absent: u32 = 1;
+    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_pending_continuation_absent(probe.pending, &absent));
+    try std.testing.expectEqual(@as(u32, 0), absent);
     try std.testing.expect(continuation == null);
     try std.testing.expectEqual(@as(usize, 0), probe.target_count);
     // Submitted storage custody survives abandonment of the original observer.
@@ -172,6 +175,9 @@ pub fn check(owner: *c.embedding.Attachment, backend: *n.GlowcapLoamLmdb, probe:
         if (nested.result() != .pending) break;
     }
     try std.testing.expect(nested.result() == .ready);
+    // A confirmed observer is not absent, and the query leaves it for take.
+    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_pending_continuation_absent(probe.pending, &absent));
+    try std.testing.expectEqual(@as(u32, 0), absent);
     try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_pending_continuation_take(probe.pending, &continuation));
     probe.pending = null;
     try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_continuation_execute_copying(continuation, 0, "get", 3, null, 0, 4096, &execution));
@@ -194,6 +200,8 @@ pub fn check(owner: *c.embedding.Attachment, backend: *n.GlowcapLoamLmdb, probe:
     try std.testing.expect(refused.result() == .failed);
     try std.testing.expectEqual(c.GLOWCAP_LOAM_ERR_UNCHANGED, c.glowcap_loam_pending_continuation_take(probe.pending, &continuation));
     try std.testing.expect(continuation == null);
+    try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_pending_continuation_absent(probe.pending, &absent));
+    try std.testing.expectEqual(@as(u32, 1), absent);
     try std.testing.expectEqual(@as(usize, 0), owner.value.continuations);
     try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, c.glowcap_loam_attachment_release(@ptrCast(owner)));
     try std.testing.expectEqual(shared.GLOWCAP_OK, c.glowcap_loam_pending_continuation_release(probe.pending));

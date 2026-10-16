@@ -45,6 +45,48 @@ A bench marks a phase with `bench/support/profile.zig`: `begin()` before the
 timed loop and `end("<phase>")` after it. The marks compile to nothing in the
 ordinary bench build.
 
+## OCapN adoption comparison
+
+Measured 2026-10-15, comparing the previous performance-page revision
+`afea6a826` with the consolidated source at `272ba6337`. Both use Zig 0.17.0
+ReleaseFast on an NVIDIA DGX Spark with Cortex-X925 and Cortex-A725 CPUs,
+20 logical CPUs and 122 GiB RAM. The host runs Linux 7.0.0-1019-nvidia,
+with ext4 on a Samsung MZALC4T0HBL1-00B07 NVMe device.
+
+Five alternating pairs run the unchanged `bench-codec`, `bench-outbound`,
+`bench-dispatch-scaling` and `bench-peer-scaling` workloads on CPU 5.
+Each run starts with one-minute host load below 2. The TCP and Loam rows
+use two cached pairs after a build and warm-up pair, reversing order between
+pairs. TCP pins both threads to CPU 5 with `--pin=5,5`. Loam runs
+`bench-loam -- --ordinary-only` on that CPU. All timings below are medians
+of the run results, and the TCP and cold-read results are themselves p50s.
+
+| Cost | Previous | Current | Change |
+| --- | ---: | ---: | ---: |
+| Warm inbound dispatch | 193.6 ns | 196.9 ns | +1.7% |
+| Answered outbound send, including boundary clone | 374.6 ns | 368.3 ns | -1.7% |
+| GC release wave, 10,000 answers | 73.6 ns/answer | 73.0 ns/answer | -0.8% |
+| Sequential dispatch across 100,000 peers | 305.1 ns | 316.3 ns | +3.7% |
+| Shuffled dispatch across 100,000 peers | 486.1 ns | 487.4 ns | +0.3% |
+| TCP `greet` round trip | 9.080 µs | 9.048 µs | -0.4% |
+| Cold LMDB call among 2,048 actors, 4,096-byte messages | 2.544 µs | 2.536 µs | -0.3% |
+
+These workloads remain in the same timing range. The earlier page snapshot's
+4.5 µs cold call does not reproduce in this comparison. This checks the
+existing workloads, including the shared protocol paths, rather than every
+draft operation or application.
+
+Idle protocol state grows from 1,064 to 1,080 bytes per connection. The
+additional nullable pointers own the local-promise registry and the
+forwarded-result import-release outbox. Their heap state stays absent when
+unused. The larger footprint is a measured cost of the new ownership paths.
+
+The local comparison report and samples are
+`zig-out/bench-reports/ocapn-performance-comparison.md` and
+`zig-out/bench-reports/ocapn-performance-comparison.json`.
+The performance pages remain a separate complete run of
+`zig build bench-site-report`, including the matched Cap'n Proto RPC rows.
+
 ## Floors
 
 `zig build bench-floors` times each primitive alone, with nothing of glowcap

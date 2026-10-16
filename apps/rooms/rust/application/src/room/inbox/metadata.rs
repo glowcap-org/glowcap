@@ -3,6 +3,7 @@ use super::super::{
 	ArgumentView,
 	carries::{self, Carries},
 	message::LineId,
+	subject::Subject,
 };
 use alloc::{boxed::Box, vec::Vec};
 use serde::Serialize;
@@ -68,7 +69,7 @@ pub struct Bridge<T> {
 #[serde(rename_all = "camelCase")]
 pub struct Facts<T> {
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub topic: Option<T>,
+	pub subject: Option<Box<Subject<T>>>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub line_bytes: Option<u64>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -134,7 +135,7 @@ pub fn presence<A: ArgumentView>(args: &[A]) -> Option<Presence<&str>> {
 pub fn facts<A: ArgumentView>(args: &[A]) -> Option<Facts<&str>> {
 	let tag = args.get(2)?.text()?;
 	let mut facts = Facts {
-		topic: None,
+		subject: None,
 		line_bytes: None,
 		listed: None,
 		bridge: None,
@@ -142,7 +143,13 @@ pub fn facts<A: ArgumentView>(args: &[A]) -> Option<Facts<&str>> {
 	};
 	match tag {
 		carries::TAG => facts.carries = Some(Carries::read(args[3..].iter().map(ArgumentView::text))?),
-		crate::protocol_data::TOPIC => facts.topic = Some(text(args, 3, 300, false)?),
+		crate::protocol_data::SUBJECT if args.len() <= 5 => {
+			let link = args
+				.get(4)
+				.map(|link| link.text())
+				.map_or(Some(None), |link| link.map(Some))?;
+			facts.subject = Some(Box::new(Subject::new(args.get(3)?.text()?, link).ok()?));
+		}
 		crate::protocol_data::LINE_BYTES => facts.line_bytes = Some(LineId::read(args.get(3)?)?.get()),
 		crate::protocol_data::LISTED => facts.listed = Some(true),
 		crate::protocol_data::UNLISTED => facts.listed = Some(false),
@@ -212,7 +219,7 @@ impl<T> Presence<T> {
 impl<T> Facts<T> {
 	pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> Facts<U> {
 		Facts {
-			topic: self.topic.map(&mut f),
+			subject: self.subject.map(|subject| Box::new((*subject).map(&mut f))),
 			line_bytes: self.line_bytes,
 			listed: self.listed,
 			bridge: self.bridge.map(|b| {
@@ -227,8 +234,8 @@ impl<T> Facts<T> {
 		}
 	}
 	pub fn visit(&self, mut f: impl FnMut(&T)) {
-		if let Some(t) = &self.topic {
-			f(t);
+		if let Some(subject) = &self.subject {
+			subject.visit(&mut f);
 		}
 		if let Some(b) = &self.bridge {
 			for t in [&b.prefix, &b.badge, &b.said, &b.scope] {

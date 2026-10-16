@@ -7,6 +7,9 @@ pub const Lease = struct { store: records.StoreId, incarnation: u64, slot: usize
 pub const Read = struct { ticket: tx.Ticket, id: records.ObjectId, buffer: []u8 };
 pub const ReadResult = union(enum) { found: struct { length: usize, metadata: tx.Metadata }, missing, failed: anyerror };
 pub const Acquisition = union(enum) { ready: Lease, read: Read };
+/// A read-ahead either starts a read, finds the record already resident or
+/// loading, or finds the cache holding its remaining room for demand.
+pub const Ahead = union(enum) { read: Read, held, full };
 /// Byte custody has three exclusive states. A completed buffer and its checked
 /// envelope live together until eviction. Pending work cannot expose a view.
 /// The fixed slot inventory owns descriptors, so view access allocates and
@@ -15,7 +18,9 @@ pub const Acquisition = union(enum) { ready: Lease, read: Read };
 const Slot = struct {
     contents: union(enum) {
         empty,
-        loading: struct { bytes: []u8, id: records.ObjectId, ticket: tx.Ticket, canceled: bool = false },
+        /// `ahead` marks a read-ahead load: demand that finds no room waits
+        /// for it to land instead of refusing.
+        loading: struct { bytes: []u8, id: records.ObjectId, ticket: tx.Ticket, canceled: bool = false, ahead: bool = false },
         resident: struct {
             bytes: []u8,
             view: records.View,
@@ -23,6 +28,11 @@ const Slot = struct {
             // This exact immutable portrait, including historical edges, has
             // reported its collector obligations for the current local cycle.
             collection_reported: bool = false,
+            /// Landed by read-ahead and not yet pinned. While its snapshot is
+            /// current it counts against the read-ahead window, so read-ahead
+            /// cannot outrun its consumer and evict what it loaded before
+            /// demand arrives. A stale one is ordinary free room.
+            ahead: bool = false,
         },
     } = .empty,
     pins: usize = 0,
@@ -62,19 +72,20 @@ pub const Cache = struct {
     next: u64 = 0,
     allocated_bytes: usize = 0,
     budget: usize,
+    read_ahead: usize,
 
     pub fn validateLimits(slots: usize, leases: usize, budget: usize, limits: records.Limits) !void {
         if (slots == 0 or leases == 0 or limits.max_record_bytes < 128 or budget < limits.max_record_bytes or limits.max_edges > records.Limits.max_edges_bound) return error.InvalidLimits;
     }
 
-    pub fn init(allocator: std.mem.Allocator, slots: usize, leases: usize, budget: usize, limits: records.Limits, schemas: []const records.Schema) !Cache {
+    pub fn init(allocator: std.mem.Allocator, slots: usize, read_ahead: usize, leases: usize, budget: usize, limits: records.Limits, schemas: []const records.Schema) !Cache {
         try validateLimits(slots, leases, budget, limits);
         const entries = try allocator.alloc(Slot, slots);
         errdefer allocator.free(entries);
         const pins = try allocator.alloc(Pin, leases);
         @memset(entries, .{});
         @memset(pins, .{});
-        return .{ .allocator = allocator, .slots = entries, .pins = pins, .limits = limits, .schemas = schemas, .budget = budget };
+        return .{ .allocator = allocator, .slots = entries, .pins = pins, .limits = limits, .schemas = schemas, .budget = budget, .read_ahead = read_ahead };
     }
 
     pub fn deinit(self: *Cache) !void {
@@ -151,15 +162,7 @@ pub const Cache = struct {
         const used = self.sequence() catch return false;
         self.discard(slot);
         while (self.allocated_bytes > self.budget - bytes.len) {
-            var freed = false;
-            for (self.slots) |*other| {
-                if (other.contents == .resident and other.pins == 0) {
-                    self.discard(other);
-                    freed = true;
-                    break;
-                }
-            }
-            if (!freed) return false;
+            if (!self.reclaimOldest(meta.revision, false)) return false;
         }
         // The immutable proposal was validated before storage submission. Establish
         // its checked envelope once when the buffer enters resident custody.
@@ -177,34 +180,66 @@ pub const Cache = struct {
             if (slot.contents == .loading) return error.PendingRead;
             return .{ .ready = try self.pin(meta, i, collector) };
         }
+        return .{ .read = try self.load(meta, id, collector, false) };
+    }
+
+    /// Start a read for a record the caller expects to need soon. Read-ahead,
+    /// loading or landed but unpinned, holds at most `read_ahead` slots and
+    /// never the last slot or the last largest record of byte budget that
+    /// pins and demand loads leave. A demand acquire that finds no room waits for a read-ahead to
+    /// land, so read-ahead never makes demand refuse.
+    pub fn acquireAhead(self: *Cache, meta: tx.Metadata, id: records.ObjectId, collector: ?*custody.Custody) !Ahead {
+        if (id.store != meta.store) return error.ForeignObject;
+        var held: usize = 0;
+        var held_bytes: usize = 0;
+        var ahead: usize = 0;
+        for (self.slots) |*slot| {
+            if (slot.id() != null and slot.id().?.eql(id) and slot.revision() == meta.revision) return .held;
+            const read_ahead = aheadOf(slot, meta.revision);
+            if (read_ahead) ahead += 1;
+            if (read_ahead or slot.pins != 0 or slot.contents == .loading) {
+                held += 1;
+                held_bytes += slot.bytes().?.len;
+            }
+        }
+        if (ahead >= self.read_ahead or held + 2 > self.slots.len) return .full;
+        if (held_bytes + 2 * self.limits.max_record_bytes > self.budget) return .full;
+        return .{ .read = try self.load(meta, id, collector, true) };
+    }
+
+    /// Take a free slot for a new read of `id`: an empty one first, then the
+    /// least recently used record no one waits on. Demand takes a landed
+    /// read-ahead only when nothing else is free. Read-ahead never does.
+    fn load(self: *Cache, meta: tx.Metadata, id: records.ObjectId, collector: ?*custody.Custody, ahead: bool) !Read {
         var victim: ?usize = null;
         for (self.slots, 0..) |*slot, i| {
-            if (slot.pins != 0 or slot.contents == .loading) continue;
-            if (victim == null or slot.bytes() == null or slot.used < self.slots[victim.?].used) victim = i;
+            if (slot.pins != 0 or slot.contents == .loading or (ahead and aheadOf(slot, meta.revision))) continue;
+            if (victim == null or before(slot, &self.slots[victim.?], meta.revision)) victim = i;
             if (slot.bytes() == null) break;
         }
-        const index = victim orelse return error.ResidentCapacity;
+        const index = victim orelse return self.noRoom();
         if (collector) |work| try work.reserve(1);
         const read_sequence = try self.sequence();
         const slot = &self.slots[index];
         self.discard(slot);
         while (self.allocated_bytes > self.budget - self.limits.max_record_bytes) {
-            var reclaimed = false;
-            for (self.slots) |*other| {
-                if (other.contents == .resident and other.pins == 0) {
-                    self.discard(other);
-                    reclaimed = true;
-                    break;
-                }
-            }
-            if (!reclaimed) return error.ResidentCapacity;
+            if (!self.reclaimOldest(meta.revision, ahead)) return self.noRoom();
         }
         const bytes = try self.allocator.alloc(u8, self.limits.max_record_bytes);
         self.allocated_bytes += bytes.len;
         const ticket: tx.Ticket = .{ .store = meta.store, .incarnation = meta.incarnation, .sequence = read_sequence, .revision = meta.revision };
-        slot.* = .{ .contents = .{ .loading = .{ .bytes = bytes, .id = id, .ticket = ticket } }, .used = read_sequence };
+        slot.* = .{ .contents = .{ .loading = .{ .bytes = bytes, .id = id, .ticket = ticket, .ahead = ahead } }, .used = read_sequence };
         if (collector) |work| work.append(id);
-        return .{ .read = .{ .ticket = ticket, .id = id, .buffer = bytes } };
+        return .{ .ticket = ticket, .id = id, .buffer = bytes };
+    }
+
+    /// A read-ahead in flight will free room when it lands, so demand waits
+    /// for it as for any pending read. Otherwise the cache is truly full.
+    fn noRoom(self: *const Cache) error{ PendingRead, ResidentCapacity } {
+        for (self.slots) |*slot| {
+            if (slot.contents == .loading and slot.contents.loading.ahead) return error.PendingRead;
+        }
+        return error.ResidentCapacity;
     }
 
     /// Retires the read's buffer only after its adapter has completed. A canceled
@@ -233,7 +268,7 @@ pub const Cache = struct {
                 if (!decoded.id.eql(pending.id) or decoded.revision > ticket.revision) return error.Corrupt;
                 self.allocated_bytes -= pending.bytes.len - exact.len;
                 self.allocator.free(pending.bytes);
-                slot.contents = .{ .resident = .{ .bytes = exact, .view = decoded, .snapshot = ticket.revision } };
+                slot.contents = .{ .resident = .{ .bytes = exact, .view = decoded, .snapshot = ticket.revision, .ahead = pending.ahead } };
             },
         }
     }
@@ -277,6 +312,7 @@ pub const Cache = struct {
             entry.* = .{ .sequence = seq, .slot = index, .revision = metadata.revision };
             self.slots[index].pins += 1;
             self.slots[index].used = seq;
+            portrait.ahead = false;
             if (collector) |work| if (!portrait.collection_reported) {
                 work.appendRecord(portrait.view);
                 portrait.collection_reported = true;
@@ -296,6 +332,36 @@ pub const Cache = struct {
             if (std.meta.eql(slot.contents.loading.ticket, ticket)) return slot;
         };
         return error.StaleCompletion;
+    }
+
+    /// Discard the unpinned resident record `load` would take first. With
+    /// `spare_ahead`, a current landed read-ahead stays.
+    fn reclaimOldest(self: *Cache, revision: u64, spare_ahead: bool) bool {
+        var oldest: ?*Slot = null;
+        for (self.slots) |*slot| {
+            if (slot.contents != .resident or slot.pins != 0 or (spare_ahead and aheadOf(slot, revision))) continue;
+            if (oldest == null or before(slot, oldest.?, revision)) oldest = slot;
+        }
+        self.discard(oldest orelse return false);
+        return true;
+    }
+
+    /// Eviction order among unpinned slots: empty, then records no one waits
+    /// on, then landed read-ahead, each least recently used first.
+    fn before(slot: *const Slot, other: *const Slot, revision: u64) bool {
+        if ((slot.bytes() == null) != (other.bytes() == null)) return slot.bytes() == null;
+        if (aheadOf(slot, revision) != aheadOf(other, revision)) return !aheadOf(slot, revision);
+        return slot.used < other.used;
+    }
+
+    /// A read-ahead in flight, or landed at `revision` where demand can
+    /// still pin it.
+    fn aheadOf(slot: *const Slot, revision: u64) bool {
+        return switch (slot.contents) {
+            .empty => false,
+            .loading => |value| value.ahead,
+            .resident => |value| value.ahead and value.snapshot == revision,
+        };
     }
 
     fn discard(self: *Cache, slot: *Slot) void {

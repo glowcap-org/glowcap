@@ -335,7 +335,6 @@ pub fn prepareDepositGiftInBatch(
     const row: outbound.Encoded = .{
         .op = .deliver,
         .frame = frame,
-        .listener = null,
         .answer = null,
         .resolver = null,
         .exports = exports,

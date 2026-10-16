@@ -101,8 +101,9 @@ impl Retirement {
 }
 impl Drop for Retirement {
 	fn drop(&mut self) {
-		// Dropping an observer cannot free an active LMDB worker's buffers.
-		// A cancelled progress future joins before installation and release.
+		// Dropping a work task cannot free an active LMDB worker's buffers.
+		// A task dropped with its LocalSet joins before installation and
+		// release.
 		if !self.completed {
 			let rc = self.complete();
 			if self.completed
@@ -124,29 +125,66 @@ impl Drop for Retirement {
 		}
 	}
 }
+/// One running storage job in the attachment's count, which close joins and
+/// a full worker waits on. It leaves the count after physical retirement.
+struct Counted(Rc<AttachmentInner>);
+impl Drop for Counted {
+	fn drop(&mut self) {
+		self.0.work_retired();
+	}
+}
+/// Built before the task is admitted, so a task that never runs still
+/// retires its work as unstarted. Fields drop in order: the queued job first,
+/// so `retirement` can join it, and the count last.
+struct Custody {
+	job: Option<StorageJob>,
+	retirement: Retirement,
+	_counted: Counted,
+}
+
+/// Start one storage effect on the blocking executor as a Host-owned task.
+/// The task kicks the drain once the work retires.
+pub(super) fn start(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLoamWork) -> Result<()> {
+	owner.work_started();
+	let completion = Arc::new(Completion::default());
+	let custody = Custody {
+		job: Some(StorageJob {
+			executor: Arc::clone(&owner.store.executor),
+			work: raw,
+			done: WorkerDone {
+				completion: Arc::clone(&completion),
+				outcome: WorkerOutcome::Unstarted,
+			},
+		}),
+		retirement: Retirement {
+			owner: Rc::clone(&owner),
+			raw,
+			completion,
+			completed: false,
+			reported: false,
+		},
+		_counted: Counted(Rc::clone(&owner)),
+	};
+	let host = Rc::clone(&owner.host);
+	super::spawn_work(&owner.host, async move {
+		let result = execute(custody).await;
+		// The completion may settle a write or free a worker slot, so the
+		// Host drains again through its one kick owner.
+		host.schedule_kick_or_record();
+		result
+	})
+}
+
 /// Each submitted effect pays for one Tokio blocking job and one shared
 /// retirement cell. The cell survives observer cancellation and joins physical
 /// access. Omitting it would allow the C slot and backend to die during I/O.
 /// Submitted payloads are borrowed, with no job-side byte copy.
-pub(super) async fn execute(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLoamWork) -> Result<()> {
-	let completion = Arc::new(Completion::default());
-	let job = StorageJob {
-		executor: Arc::clone(&owner.store.executor),
-		work: raw,
-		done: WorkerDone {
-			completion: Arc::clone(&completion),
-			outcome: WorkerOutcome::Unstarted,
-		},
-	};
-	let mut retirement = Retirement {
-		owner,
-		raw,
-		completion,
-		completed: false,
-		reported: false,
+async fn execute(mut custody: Custody) -> Result<()> {
+	let Some(job) = custody.job.take() else {
+		return Err(super::invalid("storage job already ran"));
 	};
 	let result = tokio::task::spawn_blocking(move || job.run()).await;
-	let code = retirement.complete();
+	let code = custody.retirement.complete();
 	// Retirement::drop releases the Work and clears its diagnostic slot.
 	// Capture the error before that boundary; recovery is a retained status.
 	let completion = if code == ffi::GLOWCAP_LOAM_ERR_RECOVERY_REQUIRED {

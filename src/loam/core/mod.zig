@@ -19,6 +19,7 @@ pub const Read = @import("residency.zig").Read;
 pub const ReadResult = @import("residency.zig").ReadResult;
 pub const Lease = @import("residency.zig").Lease;
 pub const Acquisition = @import("residency.zig").Acquisition;
+pub const Ahead = @import("residency.zig").Ahead;
 pub const metadata_key = @import("transaction.zig").metadata_key;
 pub const Store = @import("store.zig").Store;
 pub const CollectionRow = @import("collection.zig").Row;

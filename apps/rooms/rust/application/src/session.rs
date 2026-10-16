@@ -9,6 +9,7 @@ pub mod event;
 pub mod operations;
 pub mod operator;
 pub mod room_view;
+pub mod subject;
 pub mod visualizer;
 
 pub const CHANGED: &str = "changed";

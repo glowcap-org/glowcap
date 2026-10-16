@@ -141,6 +141,9 @@ pub struct Limits {
 	pub resident_bytes: usize,
 	pub staging_bytes: usize,
 	pub cache_slots: usize,
+	/// Records a walk may read before it needs them. Each holds a cache slot
+	/// until demand pins it, so `cache_slots` covers demand plus this depth.
+	pub read_ahead: usize,
 	pub max_leases: usize,
 	pub max_changes: usize,
 	/// Live attachment endpoints, independent of Store retention tokens.
@@ -176,6 +179,7 @@ impl Default for Limits {
 			resident_bytes: 4 * 1024 * 1024,
 			staging_bytes: 4 * 1024 * 1024,
 			cache_slots: 64,
+			read_ahead: 8,
 			max_leases: 128,
 			max_changes: 64,
 			max_references: 128,
@@ -200,6 +204,7 @@ impl Limits {
 			resident_bytes: self.resident_bytes,
 			staging_bytes: self.staging_bytes,
 			cache_slots: self.cache_slots,
+			read_ahead: self.read_ahead,
 			max_leases: self.max_leases,
 			max_changes: self.max_changes,
 			max_references: self.max_references,
@@ -305,7 +310,6 @@ impl Store {
 			callbacks: RefCell::new(Some(prepared.callbacks)),
 			driving: Cell::new(false),
 			progress_changed: Default::default(),
-			#[cfg(target_arch = "wasm32")]
 			storage_jobs: Cell::new(0),
 			release_refusal_reported: Cell::new(false),
 			#[cfg(target_arch = "wasm32")]
@@ -365,9 +369,8 @@ pub(crate) struct AttachmentInner {
 	callbacks: RefCell<Option<Vec<content::Callback>>>,
 	driving: Cell<bool>,
 	progress_changed: tokio::sync::Notify,
-	// Browser storage survives cancellation of its progress observer. This
-	// count belongs to the retained physical jobs, not the driving future.
-	#[cfg(target_arch = "wasm32")]
+	// Storage work runs as Host tasks that outlive the pass that started
+	// them. This count belongs to those physical jobs, not to any caller.
 	storage_jobs: Cell<usize>,
 	release_refusal_reported: Cell<bool>,
 	#[cfg(target_arch = "wasm32")]
@@ -409,9 +412,15 @@ impl Attachment {
 		}
 		// A reply may arrive before the task driving its physical work retires.
 		// Join that owner rather than racing its final portable completion.
-		owner.join_progress().await;
-		owner.host.kick_actions().await?;
-		owner.join_progress().await;
+		// Each drain may start works whose completions owe another advance,
+		// so close runs to the pass that leaves nothing in flight.
+		loop {
+			owner.join_progress().await;
+			owner.host.kick_actions().await?;
+			if owner.storage_jobs.get() == 0 {
+				break;
+			}
+		}
 		owner.try_close()?;
 		self.inner.take();
 		Ok(())
@@ -428,16 +437,22 @@ impl Drop for Attachment {
 	}
 }
 impl AttachmentInner {
+	fn work_started(&self) {
+		self.storage_jobs.set(self.storage_jobs.get() + 1);
+	}
+	/// Called once per work at its physical retirement, after its completion
+	/// reached the core or was parked. The core then reports the advance it
+	/// owes through `pending`.
+	fn work_retired(&self) {
+		self.storage_jobs.set(self.storage_jobs.get() - 1);
+		self.progress_changed.notify_waiters();
+	}
 	async fn join_progress(&self) {
 		loop {
 			let changed = self.progress_changed.notified();
 			tokio::pin!(changed);
 			changed.as_mut().enable();
-			#[cfg(target_arch = "wasm32")]
-			let physical = self.storage_jobs.get() != 0;
-			#[cfg(not(target_arch = "wasm32"))]
-			let physical = false;
-			if !self.driving.get() && !physical {
+			if !self.driving.get() && self.storage_jobs.get() == 0 {
 				return;
 			}
 			changed.await;
@@ -485,7 +500,11 @@ impl AttachmentInner {
 		check(rc)?;
 		Ok(pending != 0)
 	}
-	async fn progress(self: &Rc<Self>) -> Result<bool> {
+	/// One pass advances the attachment once and starts every work it then
+	/// offers, so read-ahead overlaps the read demand waits on. Each work
+	/// runs as its own Host task that kicks the drain when it retires, so a
+	/// pass never waits on storage and no caller's future holds the drive.
+	fn progress(self: &Rc<Self>) -> Result<bool> {
 		if self.raw.get().is_null() || self.driving.replace(true) {
 			return Ok(false);
 		}
@@ -493,29 +512,58 @@ impl AttachmentInner {
 			active: &self.driving,
 			changed: &self.progress_changed,
 		};
-		let mut progressed = 0;
+		let mut advanced = 0;
 		check(
 			// SAFETY: `self.raw.get()` is this `AttachmentInner`'s non-null handle from `glowcap_loam_attach`, released
-			// only by its teardown and `progress` returned early if it was null; `progressed` is a local out-parameter
+			// only by its teardown and `progress` returned early if it was null; `advanced` is a local out-parameter
 			// the callee writes.
-			unsafe { ffi::glowcap_loam_advance(self.raw.get(), &mut progressed) },
+			unsafe { ffi::glowcap_loam_advance(self.raw.get(), &mut advanced) },
 		)?;
-
+		let mut progressed = advanced != 0;
 		loop {
 			let mut raw = core::ptr::null_mut();
-			check(
+			match check(
 				// SAFETY: `self.raw.get()` is this `AttachmentInner`'s non-null handle from `glowcap_loam_attach`,
 				// released only by its teardown and `progress` returned early if it was null; `raw` is an out-parameter
 				// the callee fills with a work handle or leaves null.
 				unsafe { ffi::glowcap_loam_next_work(self.raw.get(), 0, &mut raw) },
-			)?;
-			if raw.is_null() {
-				return Ok(progressed != 0);
+			) {
+				Ok(()) if raw.is_null() => return Ok(progressed),
+				Ok(()) => {
+					progressed = true;
+					work::start(Rc::clone(self), raw)?;
+				}
+				// A full worker frees a slot when one of this attachment's works
+				// retires, and that retirement drives progress again.
+				Err(error) if error.code() == crate::sys::WOULD_BLOCK && self.storage_jobs.get() != 0 => {
+					return Ok(progressed);
+				}
+				Err(error) => return Err(error),
 			}
-			progressed = 1;
-			work::execute(Rc::clone(self), raw).await?;
 		}
 	}
+}
+/// Run one storage work as its own Host-owned task, so no caller's future
+/// owns physical work. A retained observation that stops being polled would
+/// otherwise hold the work and the attachment's drive. A failure the work's
+/// completion could not hand to an operation becomes the Host's background
+/// failure. A refused spawn drops `work`, whose custody retires the work as
+/// unstarted.
+fn spawn_work(host: &Rc<HostShared>, work: impl core::future::Future<Output = Result<()>> + 'static) -> Result<()> {
+	let registration = host.start_owned_task()?;
+	let owner = Rc::clone(host);
+	if !crate::host::try_spawn_local(async move {
+		let _registration = registration;
+		if let Err(error) = work.await {
+			owner.record_background_failure(error);
+		}
+	}) {
+		return Err(Error::with_detail(
+			crate::sys::ERR_INTERNAL,
+			"Loam storage work requires a running LocalSet".into(),
+		));
+	}
+	Ok(())
 }
 struct Driving<'a> {
 	active: &'a Cell<bool>,
@@ -540,6 +588,20 @@ impl Registry {
 		entries.retain(|entry| entry.strong_count() != 0);
 		entries.push(Rc::downgrade(owner));
 	}
+	/// Run storage to a fixpoint for a close driver that no longer drains:
+	/// join every work in flight and advance what its completion enabled,
+	/// until a pass starts nothing.
+	pub(crate) async fn settle(&self) -> Result<()> {
+		loop {
+			let entries = Rc::clone(&self.entries.borrow());
+			for owner in entries.iter().filter_map(Weak::upgrade) {
+				owner.join_progress().await;
+			}
+			if !self.progress()? {
+				return Ok(());
+			}
+		}
+	}
 	pub(crate) fn close(&self) -> Result<()> {
 		let entries = Rc::clone(&self.entries.borrow());
 		for owner in entries.iter().filter_map(Weak::upgrade) {
@@ -556,11 +618,11 @@ impl Registry {
 		}
 		Ok(false)
 	}
-	pub(crate) async fn progress(&self) -> Result<bool> {
+	pub(crate) fn progress(&self) -> Result<bool> {
 		let entries = Rc::clone(&self.entries.borrow());
 		let mut progressed = false;
 		for owner in entries.iter().filter_map(Weak::upgrade) {
-			progressed |= owner.progress().await?;
+			progressed |= owner.progress()?;
 		}
 		Ok(progressed)
 	}

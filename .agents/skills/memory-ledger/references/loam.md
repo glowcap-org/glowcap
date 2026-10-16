@@ -555,13 +555,15 @@ and residency.
 - **Loam Rust consumer boundary**: `invocation` in the Rust Loam content
   projection copies arguments into the existing owned String/Vec representation.
   Reply `SendArena` lives through the C copying call.
-  - `work::execute` allocates one Tokio job and shared retirement cell per
-    storage effect, borrowing its payload. Rust callback contexts occupy one fixed Vec for
-    the attachment.
-  - Browser `work::Custody` charges one inline physical-job counter at
+  - `work::start` allocates one `LocalSet` task, one Tokio blocking job and
+    one shared retirement cell per storage effect, borrowing its payload. The
+    task keeps physical work out of every caller's future, so a retained
+    observation that stops being polled cannot hold it. Rust callback contexts
+    occupy one fixed Vec for the attachment.
+  - Each target's `work::Custody` charges one inline physical-job counter at
     `AttachmentInner`, bounded by the C work-slot inventory. Close joins those
-    jobs even when their progress observer was cancelled. The existing progress
-    notification wakes the barrier without another task or payload copy.
+    jobs, and the existing progress notification wakes the barrier without
+    another task or payload copy.
   - `registration::Prepared` owns temporary method, graph and C declaration
     inventories through attach. Only its fixed callback Vec survives attachment.
   - `PolicyValue.derivation_arguments` constructs bounded owned wire arguments

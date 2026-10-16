@@ -213,7 +213,7 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     // An answered enliven is the gifter handoff: fetch the exporter object, whose
     // settle signs the give resolving this answer. A fetch needs an open exporter
     // session, use one that exists, else dial and defer the fetch to `on_open`.
-    if (enlivenAnswer(deliver, peer)) |answer| {
+    if (event.deliverAnswerTarget()) |answer| {
         if (existing) |exporter| {
             const swiss_owned = try allocator.dupe(u8, swiss);
             errdefer allocator.free(swiss_owned);
@@ -310,24 +310,6 @@ fn findSessionByDesignator(shared: *Shared, designator: []const u8) ?*HostSessio
         if (!session.sessionOpen()) continue;
         const partner = session.served.port.peer.session_state.partnerDesignator() orelse continue;
         if (std.mem.eql(u8, partner, designator)) return session;
-    }
-    return null;
-}
-
-/// The virtual inbound answer a V1.0 enliven deliver resolves through, its
-/// wire answer-position, or the answer the classifier allocated for its
-/// `resolve_me_desc` resolver-callback.
-fn enlivenAnswer(deliver: model.view.Deliver, peer: *engine.Peer) ?engine.AnswerTarget {
-    if (deliver.answer) |a|
-        return peer.session_state.answerTargetNamed(.fromWire(a));
-    if (deliver.resolve_me_desc) |rmd| {
-        const import_position = switch (rmd) {
-            .far => |far| far.import_position,
-            .near => |near| model.ImportPosition.from(near.export_position.int()),
-            else => return null,
-        };
-        const answer = peer.session_state.answerForResolverImport(import_position) orelse return null;
-        return peer.session_state.answerTargetNamed(answer);
     }
     return null;
 }

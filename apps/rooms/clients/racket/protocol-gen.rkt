@@ -150,7 +150,7 @@
   (list
    (field "seat" 'reference #f '())
    (field "kind" 'text #f MEMBERSHIP-KINDS)
-   (field "topic" 'reference #t '())
+   (field "subject" 'reference #t '())
    (field "files" 'reference #t '())))
 
 ;; After the line tag: the line's id, then the file records apps/rooms/lib/attachment.ts reads.

@@ -84,6 +84,7 @@ export function fixture(conversation: ConversationIntent = room()) {
 		pendingOperations: operations,
 		recoverable: pending,
 		effects: {
+			roomStandingPending: () => false,
 			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
 			cancelledConversations: cancelledEffects,
 		},

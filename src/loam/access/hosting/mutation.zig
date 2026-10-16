@@ -38,6 +38,8 @@ pub const Mutation = struct {
     lease: ?loam.Lease = null,
     pending: ?loam.Ticket = null,
     checked: usize = 0,
+    /// The next receipt edge read-ahead may start. Never behind `checked`.
+    ahead: usize = 0,
     /// The persisted receipt's facet mask, read with its result.
     facets: u64 = 0,
     bindings: std.ArrayList(Binding) = .empty,
@@ -83,14 +85,17 @@ pub const Mutation = struct {
         // retained fields before replay; a dead result must refuse, never be
         // restored as a newly callable capability or a replacement identity.
         const view = try self.call.attachment.store.currentView(self.lease.?);
-        var edges = view.edges();
-        var index: usize = 0;
-        while (edges.next()) |edge| : (index += 1) {
-            if (index < self.checked) continue;
+        // Edges are fixed width, so a resumed check starts at its own edge.
+        while (self.checked < view.edge_count) {
+            const edge = try view.edgeAt(self.checked);
             const acquired = self.call.attachment.store.acquire(edge.target) catch |err| {
-                if (err == error.PendingRead) return .waiting;
+                if (err == error.PendingRead) {
+                    self.readAhead(view);
+                    return .waiting;
+                }
                 return err;
             };
+            self.readAhead(view);
             const lease = switch (acquired) {
                 .read => |request| {
                     self.pending = request.ticket;
@@ -109,6 +114,17 @@ pub const Mutation = struct {
         self.result = receipt.result;
         self.facets = receipt.facets;
         return .ready;
+    }
+
+    /// While one retained field loads, start the reads for the fields after
+    /// it, until the Store keeps its remaining room for demand.
+    fn readAhead(self: *Mutation, receipt: loam.RecordView) void {
+        self.ahead = @max(self.ahead, self.checked + 1);
+        while (self.ahead < receipt.edge_count) : (self.ahead += 1) {
+            // tolerant: the demand check reports a malformed edge in order.
+            const edge = receipt.edgeAt(self.ahead) catch return;
+            if (!self.call.attachment.readAhead(edge.target)) return;
+        }
     }
 
     pub fn completeRead(self: *Mutation, ticket: loam.Ticket, result: loam.ReadResult) !void {

@@ -4,6 +4,8 @@ use super::*;
 #[cfg(feature = "tcp")]
 mod capacity;
 #[cfg(feature = "tcp")]
+mod close;
+#[cfg(feature = "tcp")]
 mod continuation;
 #[cfg(feature = "tcp")]
 #[path = "../../../proofs/_support/loam_continuations.rs"]

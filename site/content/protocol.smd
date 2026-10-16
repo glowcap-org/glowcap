@@ -23,12 +23,13 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | Message | What it does |
 | --- | --- |
 | `op:start-session` | Opens a session. Each side announces its location and the keys that bind the connection. |
-| `op:deliver` | Calls a method on a reference. With an answer position the caller holds a promise. With `#f` it is a one-way send. |
-| `op:resolve` | Settles an answer to its value or a break. glowcap never sends it to a live peer: CapTP 1.0 settles through the resolver below, and `glowcap-next` through `op:listen`. The codec reads and writes it for the reference fixtures. |
+| `op:deliver` | Calls a method on a reference. Next requires a resolver and listen mode. The optional answer position enables pipelining. On 1.0, omitting both answer and resolver makes a one-way send. |
+| `op:deliver-only` | Next sends a message without requesting a result. |
+| `op:resolve` | Settles an answer to its value or a break. glowcap never sends it to a live peer: CapTP 1.0 settles through the resolver below, and `glowcap-next` through its inline subscription or `op:listen`. The codec reads and writes it for the reference fixtures. |
 | `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
 | `op:abort` | Ends the session with a typed reason. A refused handshake is answered the same way, before the session ever opens. |
-| `op:get` | Reads a named field of an answer without waiting for the whole result. |
-| `op:index` | Reads one item of an answer by position. |
+| `op:get` | On 1.0, reads a named field of an answer without waiting for the whole result. |
+| `op:index` | On 1.0, reads one item of an answer by position. |
 | `op:untag` | Unwraps a tagged value read from an answer. glowcap accepts it on every 1.0 session and sends it only when the partner advertises the `untag` feature, so a silent Goblins peer never sees one. |
 | `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
 | `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
@@ -41,8 +42,12 @@ home as one more `op:deliver`, to that resolver, carrying
 `['fulfill <value>]` or `['break <error>]`. Goblins and glowcap both settle
 promises this way.
 
-`glowcap-next` is an experimental CapTP version of glowcap's own, which two
-glowcap peers can choose. It drops the resolver. A waiter sends `op:listen` instead.
+`glowcap-next` tracks the draft's operation contracts while keeping the shared
+Goblins-compatible hello and crypto formats. A call carries its resolver and a
+listen mode inline: mode 1 requests shortening, and mode 3 requests shortening
+or settlement. A separate `op:listen` can add a mode-2 settling subscription
+after mode 1. Notifications use `op:deliver-only`. Next refuses `op:get`,
+`op:index`, and `op:untag`. Those wire projections remain on 1.0.
 
 # What a CapTP 1.0 peer sees from glowcap
 

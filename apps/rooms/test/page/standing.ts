@@ -159,6 +159,16 @@ export async function run(
 		// stepped out of.
 		await tab.click("#roomStanding");
 		await tab.locator(".standing-menu [role=menuitemradio]").filter({ hasText: "Follow" }).first().click();
+		// Following and clearing the reader's standing are separate commands.
+		// Let the room acknowledge the first before changing what it follows.
+		await tab.waitForFunction(
+			() => {
+				const button = document.getElementById("roomStanding") as HTMLButtonElement | null;
+				return button != null && !button.disabled && button.textContent?.trim() === "back in ten";
+			},
+			undefined,
+			{ timeout: 30_000 },
+		);
 		await tab.click("#standingBtn");
 		await tab.locator(".standing-menu [role=menuitemradio]").filter({ hasText: "Here" }).first().click();
 		await tab.waitForFunction(

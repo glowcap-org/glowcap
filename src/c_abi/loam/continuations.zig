@@ -126,6 +126,21 @@ pub fn glowcap_loam_pending_continuation_take(raw: ?*c.GlowcapLoamPendingContinu
     // Success consumes the Pending handle and transfers the identical observer.
     return shared.GLOWCAP_OK;
 }
+/// Report 1 once the commit is confirmed absent and 0 while it is pending or
+/// confirmed. It reads only the observer, so it is valid during content
+/// callbacks, where `take` refuses.
+pub fn glowcap_loam_pending_continuation_absent(raw: ?*c.GlowcapLoamPendingContinuation, out_absent: ?*u32) callconv(.c) i32 {
+    shared.lastErrorClear();
+    const out = out_absent orelse return shared.GLOWCAP_ERR_NULL_POINTER;
+    out.* = 0;
+    const self = control(raw) catch |err| return common.code(err);
+    switch (self.phase) {
+        .pending, .confirmed => {},
+        .canceled => out.* = 1,
+        .active => return common.code(error.WrongPhase),
+    }
+    return shared.GLOWCAP_OK;
+}
 pub fn glowcap_loam_pending_continuation_release(raw: ?*c.GlowcapLoamPendingContinuation) callconv(.c) i32 {
     shared.lastErrorClear();
     if (raw == null) return shared.GLOWCAP_OK;

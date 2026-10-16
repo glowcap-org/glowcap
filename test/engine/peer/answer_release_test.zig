@@ -23,7 +23,7 @@ fn callWithAnswer(peer: *engine.Peer, answer: u64) !void {
         var frame = taken;
         frame.deinit();
     }
-    try std.testing.expectEqual(@as(usize, 2), frames);
+    try std.testing.expectEqual(@as(usize, 1), frames);
 }
 
 fn releaseAnswer(peer: *engine.Peer, answer: u64) !void {

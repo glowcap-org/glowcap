@@ -96,7 +96,7 @@
           (settle-when-both-done)))))
 
    ;; The room answers subscribe with the membership seat, its kind, and the
-   ;; topic and files facets; the line is posted on the seat, never on the room.
+   ;; subject and files facets; the line is posted on the seat, never on the room.
    (define (join room)
      (on (<- room 'subscribe nick inbox)
          (lambda (answer)

@@ -548,8 +548,8 @@ export function Composer(
 						{
 							/* Drawn only where a file can go: a direct line, or a room whose
 						    membership holds the files facet. A control that can never work
-						    is not disabled but absent, the way the topic control is absent
-						    without the topic authority. A file that arrives anyway, by paste
+						    is not disabled but absent, the way the subject control is absent
+						    without the subject facet. A file that arrives anyway, by paste
 						    or drop, is told why in the log by the one admission all three
 						    ways share. */
 						}

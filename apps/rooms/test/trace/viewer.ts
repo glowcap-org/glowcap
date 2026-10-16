@@ -16,7 +16,14 @@ import { takeCapability } from "../page/capability_set.ts";
 // lives beside the publishing half rather than under the proofs. What stays
 // here is what only a proof needs: scraping the announcement out of a child's
 // stderr, and seeding a tab's remembered capability.
-export { connectTraceViewer, traceCapOf, tracePortOf, type TraceRecord, traceUrlOf } from "../../lib/trace_view.ts";
+export {
+	connectTraceViewer,
+	traceCapOf,
+	tracePortOf,
+	tracePublishUrlOf,
+	type TraceRecord,
+	traceUrlOf,
+} from "../../lib/trace_view.ts";
 
 const ANNOUNCE = "ROOMS-TRACE-LISTENING ";
 

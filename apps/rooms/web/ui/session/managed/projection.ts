@@ -248,12 +248,17 @@ export class ManagedProjection {
 			if (row.kind === "room" && conversation.type === "room") {
 				const grants = resolveRoomGrants(conversation.grants, row);
 				const standing = this.#session.effects.standing("setRoomStanding", row.id, row.standing);
-				if (hasRoomStateDiverged(conversation, row, standing, grants)) {
+				const standingPending = this.#session.effects.roomStandingPending(row.id);
+				if (
+					hasRoomStateDiverged(conversation, row, standing, grants) ||
+					conversation.standingPending !== standingPending
+				) {
 					store.put(projection, {
 						...conversation,
 						id: row.name,
 						grants,
 						standing,
+						standingPending,
 						reconnect: row.reconnect,
 						linkToken: row.access ?? undefined,
 						managerToken: row.control ?? undefined,
@@ -550,8 +555,8 @@ function resolveRoomGrants(currentGrants: ReadonlySet<string>, row: RoomIntent):
 	const grants = new Set(currentGrants);
 	if (row.files != null) grants.add("files");
 	else grants.delete("files");
-	if (row.topic != null) grants.add("topic");
-	else grants.delete("topic");
+	if (row.subject != null) grants.add("subject");
+	else grants.delete("subject");
 	if (row.moderator != null) grants.add("steward");
 	else grants.delete("steward");
 	return grants;

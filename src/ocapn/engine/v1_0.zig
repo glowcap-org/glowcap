@@ -4,9 +4,9 @@
 //! capability* instead. On the way out, admission mints the resolver export
 //! an answered `op:deliver` advertises as `resolve_me_desc` and commits the
 //! answer-to-export link in the session (`outbound/encoded.zig`, the same
-//! mint next names in its trailing listen). This file holds the rest of the
+//! mint next advertises inline). This file holds the rest of the
 //! round trip. A projection's listener is prepared here at emission. On the way back,
-//! `preparePartnerResolver` prepares the partner's advertised resolver as our
+//! `session.deliver_resolver` prepares the partner's advertised resolver as our
 //! import, so our eventual resolution has somewhere to go. Recognizing a
 //! deliver *to* one of our resolver exports is version-neutral and belongs to
 //! the inbound classifier (ADR-0095). Our side of that settlement is
@@ -122,35 +122,4 @@ pub fn encodeResolutionAsCallback(
         release,
         .session_release_at_commit,
     );
-}
-
-/// Prepare the resolver the partner advertised on an inbound V1.0 deliver.
-/// Capacity, caps, and answer/import collisions are decided here without
-/// installing authority. The inbound owner commits the returned value only
-/// after the frame's queue or event destination is secured.
-///
-/// The other half of the V1.0 round trip, recognizing a deliver *to* one of
-/// our resolver exports, is version-neutral and lives in the inbound
-/// classifier (`inbound/deliver_route.zig`'s `classify`, ADR-0095).
-pub fn preparePartnerResolver(
-    peer: *Peer,
-    deliver: model.view.Deliver,
-) !?session_mod.PreparedInboundResolver {
-    if (deliver.resolve_me_desc) |rmd| {
-        if (rmd.position()) |import_position| {
-            const virtual: ?model.VirtualAnswer = if (deliver.answer == null) blk: {
-                break :blk try peer.session_state.nextVirtualInboundAnswer();
-            } else null;
-            const answer = if (deliver.answer) |wire|
-                model.AnswerName.fromWire(wire)
-            else
-                model.AnswerName.fromVirtual(virtual.?);
-            return try peer.session_state.prepareInboundResolver(
-                answer,
-                model.ImportPosition.from(import_position),
-                virtual,
-            );
-        }
-    }
-    return null;
 }

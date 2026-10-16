@@ -46,9 +46,9 @@ const encodeArgumentList = arguments.encodeArgumentList;
 /// `syrup.encodeMessageForProfile`. Cap'n Proto is glowcap's self-consistent
 /// dialect (ADR-0026): the struct schema always carries `resolve_me_desc` /
 /// `wants_partial`, and word layout stays profile-independent. The profile
-/// still gates what may be encoded: `.next` refuses wire `op:resolve` and a
-/// deliver that still carries `resolve_me_desc`, matching the listen-mode
-/// profile split on the decode path.
+/// still gates what may be encoded: `.next` refuses wire `op:resolve` and
+/// removed projection operations. Next delivers require an inline resolver
+/// and listen mode 1 or 3 whenever they request a result.
 pub fn encodeMessageForProfile(
     allocator: std.mem.Allocator,
     profile: model.CaptpVersion,
@@ -81,8 +81,16 @@ pub fn encodeBodyForProfile(
 
 fn render(allocator: std.mem.Allocator, profile: ?model.CaptpVersion, body: *const view.Body) EncodeError!foundation.Frame {
     if (profile == .next and body.* == .resolve) return Error.UnsupportedMessage;
-    if (profile == .next and body.* == .deliver and body.deliver.resolve_me_desc != null)
-        return Error.UnsupportedMessage;
+    if (profile == .next) switch (body.*) {
+        .get, .index, .untag => return Error.UnsupportedMessage,
+        .deliver => |deliver| {
+            if (deliver.answer != null and deliver.resolve_me_desc == null) return Error.UnsupportedMessage;
+            if (deliver.resolve_me_desc) |resolver| {
+                if (resolver != .near or deliver.listen_mode == .settling_only) return Error.UnsupportedMessage;
+            }
+        },
+        else => {},
+    };
 
     var builder = try wire.Builder.init(allocator);
     defer builder.deinit(allocator);
@@ -133,7 +141,7 @@ fn encodeBodyInto(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?mode
             setStructPtr(b, ptrIndex(loc, 0), try encodeResolution(b, allocator, &resolve.resolution));
             break :blk loc;
         },
-        .deliver => |*deliver| try encodeDeliver(b, allocator, deliver),
+        .deliver => |*deliver| try encodeDeliver(b, allocator, profile, deliver),
         .listen => |listen| blk: {
             const loc = try allocStruct(b, allocator, 1, 2);
             b.set(loc.data_idx, switch (profile orelse .v1_0) {
@@ -203,14 +211,17 @@ fn setPositionList(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLo
     try setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .eight_bytes, .count = count });
 }
 
-fn encodeDeliver(b: *wire.Builder, allocator: std.mem.Allocator, deliver: *const view.Deliver) EncodeError!StructLoc {
+fn encodeDeliver(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?model.CaptpVersion, deliver: *const view.Deliver) EncodeError!StructLoc {
     const loc = try allocStruct(b, allocator, 2, 3);
     var flags: u64 = 0;
     if (deliver.answer) |answer| {
         flags |= shared.deliver_has_answer;
         b.set(loc.data_idx + 1, answer.int());
     }
-    if (deliver.resolve_me_desc != null) flags |= shared.deliver_has_resolve_me;
+    if (deliver.resolve_me_desc != null) {
+        flags |= shared.deliver_has_resolve_me;
+        if (profile == .next) flags |= @as(u64, @backingInt(deliver.listen_mode)) << shared.deliver_listen_shift;
+    }
     b.set(loc.data_idx, flags);
     setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, deliver.target));
     try setListPtr(b, ptrIndex(loc, 1), try encodeArgumentList(b, allocator, deliver.args));

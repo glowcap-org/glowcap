@@ -16,6 +16,7 @@ const names = [_][]const u8{
     "glowcap_loam_continuation_reservation_source",
     "glowcap_loam_continuation_reservation_target",
     "glowcap_loam_pending_continuation_take",
+    "glowcap_loam_pending_continuation_absent",
     "glowcap_loam_pending_continuation_release",
     "glowcap_loam_continuation_release",
     "glowcap_loam_continuation_project",
@@ -149,6 +150,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         const fields = @typeInfo(abi.GlowcapLoamLimits).@"struct".field_names;
         var docs: [fields.len][]const u8 = @splat("");
         for (fields, 0..) |field, index| {
+            if (std.mem.eql(u8, field, "read_ahead")) docs[index] = "Records a walk may read before it needs them, each holding a cache slot until demand pins it; zero reads nothing ahead.";
             if (std.mem.eql(u8, field, "max_references")) docs[index] = "Live attachment endpoints, independent of Store retention tokens.";
             if (std.mem.eql(u8, field, "max_retentions")) docs[index] = "Live Store roots, including restored recipes held through settlement.";
             if (std.mem.eql(u8, field, "max_continuations")) docs[index] = "Live receipt continuations, independent of pending call admission; zero disables reservations.";
@@ -248,6 +250,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
     try E.emitFn(&b, gpa, "glowcap_loam_continuation_reservation_source", &.{ "reservation", "out_reference" }, "During the receipt callback, acquire one independent retain of the actual invoking source. Release this occurrence through Host ref_release after copying or staging it. Refusal zeroes output.");
     try E.emitFn(&b, gpa, "glowcap_loam_continuation_reservation_target", &.{ "reservation", "index", "out_reference" }, "During the receipt callback, acquire one independent retain of the exact selected target occurrence. No descriptor lookup or substitute target. Release through Host ref_release; refusal zeroes output.");
     try E.emitFn(&b, gpa, "glowcap_loam_pending_continuation_take", &.{ "pending", "out_continuation" }, "Top-level synchronous poll. WouldBlock preserves unconfirmed Pending; Unchanged preserves canceled Pending until release. Success consumes Pending and transfers the identical preallocated observer as an owned Continuation. It performs no work or allocation. Refusal leaves output null.");
+    try E.emitFn(&b, gpa, "glowcap_loam_pending_continuation_absent", &.{ "pending", "out_absent" }, "Report 1 once the commit is confirmed absent and 0 while it is pending or confirmed. Read-only and valid during content callbacks, where take refuses. A taken observer refuses with WrongPhase.");
     try E.emitFn(&b, gpa, "glowcap_loam_pending_continuation_release", &.{"pending"}, "Observer release, null-safe and valid during content callbacks. Does not cancel an uncertain storage outcome. Kernel confirmation retains its own custody until confirmed activation or absence; inert observer metadata and attachment borrow end only on final release.");
     try E.emitFn(&b, gpa, "glowcap_loam_continuation_release", &.{"continuation"}, "Consuming release, null-safe and valid during content callbacks. Independent endpoints and admitted executions retain their own custody.");
     try E.emitFn(&b, gpa, "glowcap_loam_continuation_project", &.{ "continuation", "index", "out_reference" }, "Create one independently owned public dispatch handle for the exact target. Each invocation rechecks original source intent and current target admission; public completion rechecks source after waits. Release its occurrence through Host ref_release. Refusal zeroes output.");

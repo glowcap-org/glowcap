@@ -118,7 +118,7 @@ enum Target {
 	},
 	Room {
 		seat: custody::FieldKey<custody::RoomSeat>,
-		topic: custody::FieldKey<custody::RoomTopic>,
+		subject: custody::FieldKey<custody::RoomSubject>,
 		files: custody::FieldKey<custody::RoomFiles>,
 	},
 }
@@ -201,7 +201,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 		};
 		let target = Target::Room {
 			seat: key(entropy)?,
-			topic: key(entropy)?,
+			subject: key(entropy)?,
 			files: key(entropy)?,
 		};
 		self.start_membership(source, selection, target, entropy, permit, move |_, args, _, origin| {

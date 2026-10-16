@@ -2,7 +2,7 @@
 import { type Behavior } from "@glowcap/runtime";
 import * as tcp from "@glowcap/tcp";
 import { Reachability } from "@glowcap/iroh";
-import { DirectMessage, Directory, Room } from "../../lib/room/client.ts";
+import { DirectMessage, Directory, type Message, Room } from "../../lib/room/client.ts";
 import { inboxPublisher } from "../../lib/dm_inbox.ts";
 import { DM } from "../../lib/protocol.ts";
 import { dial, roomsHost } from "../../lib/locator.ts";
@@ -41,13 +41,13 @@ async function nextMatching(
 	throw new Error(`timed out waiting for ${what}`);
 }
 
-async function nextRoomLine(room: Room, from: string, text: string): Promise<void> {
+async function nextRoomLine(room: Room, from: string, text: string): Promise<Message> {
 	const reader = room.messages.getReader();
 	try {
 		while (true) {
 			const next = await within(reader.read(), `${from}: ${text}`);
 			if (next.done) throw new Error(`room ended while waiting for ${from}: ${text}`);
-			if (next.value.from === from && next.value.text === text) return;
+			if (next.value.from === from && next.value.text === text) return next.value;
 		}
 	} finally {
 		reader.releaseLock();
@@ -156,8 +156,13 @@ Deno.test({
 			await writeAll(irc, encodeIrc("PRIVMSG", ["#general", "hello from IRC"]));
 			await nextRoomLine(roomsRoom, "alice", "hello from IRC");
 
-			await roomsRoom.setTopic("capabilities, not channel modes");
-			const topic = await nextMatching(lines, (line) => line.command === "TOPIC", "topic change");
+			// An IRC channel topic is text, so a linked subject shows its
+			// description there.
+			await roomsRoom.setSubject({
+				description: "capabilities, not channel modes",
+				link: "ocapn://host.tcp/s/Ym9hcmQ",
+			});
+			const topic = await nextMatching(lines, (line) => line.command === "TOPIC", "subject change");
 			assertEquals(topic.params, ["#general", "capabilities, not channel modes"]);
 			await writeAll(irc, encodeIrc("TOPIC", ["#general", "held through a topic capability"]));
 			const changed = await nextMatching(
@@ -166,8 +171,57 @@ Deno.test({
 				"topic capability result",
 			);
 			assertEquals(changed.params[0], "#general");
+			// A TOPIC sets a description alone, so the link is gone.
+			const replaced = await nextRoomLine(
+				roomsRoom,
+				"room",
+				"the subject is now: held through a topic capability",
+			);
+			assertEquals(replaced.facts?.subject, { description: "held through a topic capability" });
 			await writeAll(irc, encodeIrc("TOPIC", ["#general"]));
 			await nextMatching(lines, (line) => line.command === "332", "topic query");
+			// A topic that starts with a link sets a linked subject, the way
+			// `/subject` reads it, and the channel shows the description.
+			const board = "ocapn://host.tcp/s/Ym9hcmQ";
+			await writeAll(irc, encodeIrc("TOPIC", ["#general", `${board} the board`]));
+			await nextMatching(
+				lines,
+				(line) => line.command === "TOPIC" && line.params[1] === "the board",
+				"linked topic",
+			);
+			const linked = await nextRoomLine(roomsRoom, "room", "the subject is now: the board, with a link");
+			assertEquals(linked.facts?.subject, { description: "the board", link: board });
+			// The same words with no link drop the link. The channel's topic does not
+			// change, so the setter alone hears its TOPIC took, and the room says so.
+			await writeAll(irc, encodeIrc("TOPIC", ["#general", " the board "]));
+			await nextMatching(
+				lines,
+				(line) => line.command === "TOPIC" && line.params[1] === "the board",
+				"unlinked topic",
+			);
+			const unlinked = await nextRoomLine(roomsRoom, "room", "the subject is now: the board");
+			assertEquals(unlinked.facts?.subject, { description: "the board" });
+			// A topic query answers with the description exactly, IRC formatting
+			// codes included, as the pushed topic carries it.
+			const formatted = "\x02bold\x02 words";
+			await roomsRoom.setSubject({ description: formatted });
+			await nextMatching(
+				lines,
+				(line) => line.command === "TOPIC" && line.params[1] === formatted,
+				"formatted topic",
+			);
+			await writeAll(irc, encodeIrc("TOPIC", ["#general"]));
+			const answered = await nextMatching(lines, (line) => line.command === "332", "formatted topic query");
+			assertEquals(answered.params.slice(1), ["#general", formatted]);
+			// A TOPIC the subject rules refuse is answered with the exact reason.
+			await writeAll(irc, encodeIrc("TOPIC", ["#general", "ocapn://host.tcp/s/Ym9hcmQ"]));
+			const refused = await nextMatching(lines, (line) => line.command === "482", "refused topic");
+			assertEquals(refused.params.slice(1), ["#general", "a subject with a link needs a description"]);
+			// Taking the subject down leaves the channel with no topic at all.
+			await roomsRoom.setSubject({ description: "" });
+			await nextMatching(lines, (line) => line.command === "TOPIC" && line.params[1] === "", "topic cleared");
+			await writeAll(irc, encodeIrc("TOPIC", ["#general"]));
+			await nextMatching(lines, (line) => line.command === "331", "no topic set");
 
 			await writeAll(irc, encodeIrc("LIST"));
 			const listed = await nextMatching(lines, (line) => line.command === "322", "room list");

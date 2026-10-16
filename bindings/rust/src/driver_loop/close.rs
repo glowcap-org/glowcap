@@ -71,7 +71,7 @@ impl LoopShared {
 			let host = self.wrapper.borrow().as_ref().and_then(Weak::upgrade);
 			#[cfg(feature = "loam")]
 			if let Some(host) = host {
-				match host.loam.progress().await {
+				match host.loam.progress() {
 					Ok(true) => continue,
 					Ok(false) => {}
 					Err(error) => {
@@ -109,6 +109,13 @@ impl LoopShared {
 		debug_assert!(self.pending_listeners.borrow().is_empty());
 		let host = self.wrapper.borrow().as_ref().and_then(Weak::upgrade);
 		if let Some(host) = host {
+			// Storage work still in flight retires and is advanced before its
+			// attachment closes.
+			#[cfg(feature = "loam")]
+			if let Err(error) = host.loam.settle().await {
+				self.fail_close_or_record(error);
+				return;
+			}
 			#[cfg(feature = "loam")]
 			if let Err(error) = host.loam.close() {
 				self.fail_close_or_record(error);

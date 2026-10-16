@@ -71,7 +71,7 @@ async fn run(scenario: Scenario) {
 						)
 						.unwrap();
 				}
-				let case = Case::topic();
+				let case = Case::subject();
 				let calls = Rc::new(Cell::new(0));
 				let mut attachment = store
 					.attach(

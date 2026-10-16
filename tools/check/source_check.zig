@@ -377,6 +377,7 @@ test {
     _ = docs_claim_parity;
     _ = docs_kinds;
     _ = docs_ocapn_conformance;
+    _ = @import("source_check/docs/ocapn_conformance_transaction_test.zig");
     _ = docs_temporary;
     _ = docs_static_docs;
     _ = docs_headers;

@@ -93,6 +93,16 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 				);
 			}
 		}
+		if !self.subject.is_empty() {
+			self.tell_one(
+				&mut effects,
+				connection,
+				Notice::Subject {
+					subject: self.subject.clone(),
+					changed: false,
+				},
+			);
+		}
 		for (seated, member) in &self.members {
 			if member.away.is_empty() || *seated == connection {
 				continue;

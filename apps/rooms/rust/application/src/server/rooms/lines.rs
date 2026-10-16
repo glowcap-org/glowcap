@@ -1,16 +1,16 @@
 //! What holding a line's reference lets somebody do to it, and the same one
-//! level up for the room's topic. Neither asks who is calling: possession
+//! level up for the room's subject. Neither asks who is calling: possession
 //! already answered the question, so the authority can be passed on.
-use super::{Effects, LineKey, MAX_TOPIC, Refusal, RoomKey, Rooms, notice::Notice};
+use super::{Effects, LineKey, Refusal, RoomKey, Rooms, notice::Notice};
 use crate::{
 	files::FileLineError,
-	room::{ArgumentView, message::ChangeKind},
+	room::{ArgumentView, message::ChangeKind, subject::Subject},
 	server::{
 		history::{KeptLine, Persist},
 		links::Authority,
 	},
 };
-use alloc::{format, sync::Arc, vec::Vec};
+use alloc::{sync::Arc, vec::Vec};
 
 impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 	/// Dispatch a line verb. The staged files a refile adds are the calling
@@ -101,48 +101,38 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 		self.lines.get(&key).map(|line| line.line.id())
 	}
 
-	/// The authority successor a topic change persists first, when the room
-	/// has a durable name. `Ok(None)` when the topic already stands so.
-	pub fn prepare_topic(
+	/// The authority successor a subject change persists first, when the room
+	/// has a durable name. `Ok(None)` when the subject already stands so.
+	pub fn prepare_subject(
 		&self,
 		room: &RoomKey,
-		text: &str,
+		subject: &Subject,
 		authority: &Authority,
 	) -> Result<Option<Option<Authority>>, Refusal> {
-		if text.encode_utf16().count() > MAX_TOPIC {
-			return Err(Refusal::plain(format!("a topic may be at most {MAX_TOPIC} characters")));
-		}
 		let held = self
 			.rooms
 			.get(room)
 			.ok_or_else(|| Refusal::plain("that room is not occupied"))?;
-		if held.topic == text {
+		if held.subject == *subject {
 			return Ok(None);
 		}
-		Ok(Some(authority.with_topic(held.durable_name(), text)?))
+		Ok(Some(authority.with_subject(held.durable_name(), subject)?))
 	}
 	/// The name durable authority files `room` under, for its link and
 	/// management identity.
 	pub fn durable_name(&self, room: &RoomKey) -> Option<&str> {
 		self.rooms.get(room).map(|held| held.durable_name())
 	}
-	/// The topic changed: the room announces it as a plain line tagged so a
-	/// client that has never heard of topics still shows the sentence.
-	pub fn commit_topic(&mut self, room: &RoomKey, text: &str) -> Effects<C, R> {
+	/// The subject changed: the room announces it as a plain line tagged so
+	/// a client that has never heard of subjects still shows the sentence.
+	pub fn commit_subject(&mut self, room: &RoomKey, subject: Subject) -> Effects<C, R> {
 		let mut effects = Effects::default();
-		let Some(held) = self.rooms.get_mut(room) else {
+		// A queued change may find the subject already set by the one before it.
+		let Some(held) = self.rooms.get_mut(room).filter(|held| held.subject != subject) else {
 			return effects;
 		};
-		held.topic = text.into();
-		self.broadcast(
-			room,
-			&mut effects,
-			Notice::Topic {
-				text: text.into(),
-				changed: true,
-			},
-			None,
-		);
+		held.subject = subject.clone();
+		self.broadcast(room, &mut effects, Notice::Subject { subject, changed: true }, None);
 		effects
 	}
 }

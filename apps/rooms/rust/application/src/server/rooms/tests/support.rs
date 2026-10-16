@@ -48,7 +48,7 @@ impl World {
 			.unwrap()
 			.entrance
 	}
-	pub(super) fn join(&mut self, c: u32, entrance: &Entrance, nick: &str) -> entrance::Subscribed<u32, &'static str> {
+	pub(super) fn join(&mut self, c: u32, entrance: &Entrance, nick: &str) -> seating::Subscribed<u32, &'static str> {
 		let inbox: &'static str = alloc::boxed::Box::leak(format!("{nick}-inbox").into_boxed_str());
 		let seat: &'static str = alloc::boxed::Box::leak(format!("{nick}-seat").into_boxed_str());
 		self.rooms
@@ -59,7 +59,7 @@ impl World {
 				inbox,
 				None,
 				seat,
-				Some("topic"),
+				Some("subject"),
 				&mut self.directory,
 				same,
 				&self.authority,

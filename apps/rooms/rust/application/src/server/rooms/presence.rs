@@ -2,7 +2,7 @@
 //! room's own word: a membership is granted by subscribing and ends with the
 //! connection or a leave, and everything below states that word to the
 //! members and to the watchers following the live list.
-use super::{Effects, MembershipKey, RoomKey, Rooms, entrance::Departure, notice::Notice, state::folded};
+use super::{Effects, MembershipKey, RoomKey, Rooms, notice::Notice, seating::Departure, state::folded};
 use crate::{
 	directory::{Event, RoomChange},
 	room::stewardship::Kind,

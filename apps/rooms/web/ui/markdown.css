@@ -117,25 +117,25 @@
 	margin-left: 0.1rem;
 }
 
-/* A topic stays one line even when its source uses a block construct. */
-.topic-said p,
-.topic-said .markdown-heading,
-.topic-said blockquote,
-.topic-said ul,
-.topic-said ol {
+/* A subject stays one line even when its source uses a block construct. */
+.subject-said p,
+.subject-said .markdown-heading,
+.subject-said blockquote,
+.subject-said ul,
+.subject-said ol {
 	display: inline;
 	margin: 0;
 	padding: 0;
 }
-.topic-said li {
+.subject-said li {
 	display: inline;
 }
-.topic-said li + li::before {
+.subject-said li + li::before {
 	content: ", ";
 }
-.topic-said .markdown-table-scroll,
-.topic-said .code-block,
-.topic-said .markdown-footnote {
+.subject-said .markdown-table-scroll,
+.subject-said .code-block,
+.subject-said .markdown-footnote {
 	display: inline;
 	margin: 0;
 	padding: 0;

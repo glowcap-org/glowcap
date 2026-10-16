@@ -389,6 +389,7 @@ pub struct GlowcapLoamLimits {
 	pub resident_bytes: usize,
 	pub staging_bytes: usize,
 	pub cache_slots: usize,
+	pub read_ahead: usize,
 	pub max_leases: usize,
 	pub max_changes: usize,
 	pub max_references: usize,
@@ -406,7 +407,7 @@ pub struct GlowcapLoamLimits {
 	pub forward_reply_bytes: usize,
 }
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::size_of::<GlowcapLoamLimits>() == 144);
+const _: () = assert!(core::mem::size_of::<GlowcapLoamLimits>() == 152);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(core::mem::size_of::<GlowcapLoamLimits>() == crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_SIZE);
 #[cfg(not(target_arch = "wasm32"))]
@@ -430,102 +431,108 @@ const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, cache_slots) == crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_CACHE_SLOTS_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_leases) == 24);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, read_ahead) == 24);
+#[cfg(target_arch = "wasm32")]
+const _: () = assert!(
+	core::mem::offset_of!(GlowcapLoamLimits, read_ahead) == crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_READ_AHEAD_OFF
+);
+#[cfg(not(target_arch = "wasm32"))]
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_leases) == 32);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, max_leases) == crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_MAX_LEASES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_changes) == 32);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_changes) == 40);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, max_changes) == crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_MAX_CHANGES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_references) == 40);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_references) == 48);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, max_references)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_MAX_REFERENCES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_operations) == 48);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_operations) == 56);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, max_operations)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_MAX_OPERATIONS_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, call_bytes) == 56);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, call_bytes) == 64);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, call_bytes) == crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_CALL_BYTES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, pending_bytes) == 64);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, pending_bytes) == 72);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, pending_bytes)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_PENDING_BYTES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, ingress_bytes) == 72);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, ingress_bytes) == 80);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, ingress_bytes)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_INGRESS_BYTES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, record_capacity) == 80);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, record_capacity) == 88);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, record_capacity)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_RECORD_CAPACITY_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_reference_saves) == 88);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_reference_saves) == 96);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, max_reference_saves)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_MAX_REFERENCE_SAVES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, record_bytes) == 96);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, record_bytes) == 104);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, record_bytes)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_RECORD_BYTES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_retentions) == 104);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_retentions) == 112);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, max_retentions)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_MAX_RETENTIONS_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_continuations) == 112);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_continuations) == 120);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, max_continuations)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_MAX_CONTINUATIONS_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, continuation_bytes) == 120);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, continuation_bytes) == 128);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, continuation_bytes)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_CONTINUATION_BYTES_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_continuation_targets) == 128);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, max_continuation_targets) == 136);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, max_continuation_targets)
 		== crate::sys::layouts_gen::GLOWCAPLOAMLIMITS_MAX_CONTINUATION_TARGETS_OFF
 );
 #[cfg(not(target_arch = "wasm32"))]
-const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, forward_reply_bytes) == 136);
+const _: () = assert!(core::mem::offset_of!(GlowcapLoamLimits, forward_reply_bytes) == 144);
 #[cfg(target_arch = "wasm32")]
 const _: () = assert!(
 	core::mem::offset_of!(GlowcapLoamLimits, forward_reply_bytes)
@@ -1357,7 +1364,7 @@ const _: () = assert!(
 #[cfg(target_arch = "wasm32")]
 pub use crate::sys::layouts_gen::LOAM_ARCHIVE_FINGERPRINT;
 #[cfg(not(target_arch = "wasm32"))]
-pub const LOAM_ARCHIVE_FINGERPRINT: u64 = 13698614309606046450;
+pub const LOAM_ARCHIVE_FINGERPRINT: u64 = 3406125177086633967;
 #[cfg(not(target_arch = "wasm32"))]
 pub const LOAM_LMDB_ARCHIVE_FINGERPRINT: u64 = 6332460472659523018;
 #[cfg(not(target_arch = "wasm32"))]

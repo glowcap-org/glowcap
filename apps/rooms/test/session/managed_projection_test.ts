@@ -95,7 +95,7 @@ Deno.test("managed connection loss retires live grants while preserving the conv
 	assert(original.kind === "room", "fixture supplies a room");
 	original.seat = "seat-one";
 	original.files = "files-one";
-	original.topic = "topic-one";
+	original.subject = "subject-one";
 	original.access = "entrance-one";
 	original.reconnect = "requested";
 	const f = fixture(original);
@@ -106,7 +106,7 @@ Deno.test("managed connection loss retires live grants while preserving the conv
 		f.stage("kept draft");
 		delete original.seat;
 		delete original.files;
-		delete original.topic;
+		delete original.subject;
 		f.apply();
 		const after = f.selected();
 		assert(after.type === "room", "room remains selected");
@@ -114,7 +114,7 @@ Deno.test("managed connection loss retires live grants while preserving the conv
 		assertEquals(after.key, before.key);
 		assertEquals(after.linkToken, "entrance-one");
 		assertEquals(after.reconnect, "requested");
-		assertEquals([after.grants.has("files"), after.grants.has("topic")], [false, false]);
+		assertEquals([after.grants.has("files"), after.grants.has("subject")], [false, false]);
 		assertEquals(store.historyOf(f.page.projection, after.key).length, 1);
 		assertEquals(store.draftFor(f.page.projection, after.key).text, "kept draft");
 	} finally {
@@ -312,7 +312,7 @@ Deno.test("managed state-only room activity updates presence and facts without d
 					kind: "line",
 					from: "",
 					text: "",
-					metadata: { presence, facts: { topic: "Bridge topic", lineBytes: 512 } },
+					metadata: { presence, facts: { subject: { description: "Bridge subject" }, lineBytes: 512 } },
 				},
 			},
 		});
@@ -332,7 +332,7 @@ Deno.test("managed state-only room activity updates presence and facts without d
 		assertEquals(store.historyOf(f.page.projection, row.key).length, 0);
 		const current = f.selected();
 		assert(current.type === "room", "managed projection contract");
-		assertEquals([current.topic, current.lineBytes], ["Bridge topic", 512]);
+		assertEquals([current.subject?.description, current.lineBytes], ["Bridge subject", 512]);
 	} finally {
 		f.close();
 	}

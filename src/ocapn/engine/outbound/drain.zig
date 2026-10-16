@@ -114,10 +114,11 @@ pub fn stepPending(self: *Peer) !void {
                 self.session_state.retireVirtualAnswer(sa.target);
                 self.session_state.retireDetachedAnswer(sa.target, sa.payload);
                 self.session_state.releaseAnswerPayload(sa.payload);
+                self.session_state.collectLocalPromiseProjections();
             }
             // V1.0 sends the settlement through its resolver callback. The
-            // next profile has no wire op:resolve: its mandatory op:listen is
-            // the notification path, so only the local consequence drain runs.
+            // next profile has no wire op:resolve: its inline or explicit
+            // subscription is the notification path, so only the local consequence drain runs.
             if (self.session_state.captp_version == .v1_0) {
                 if (self.session_state.answerPayloadResolver(sa.payload)) |resolver_import| {
                     try v1_0.encodeResolutionAsCallback(self, stored.*, resolver_import);
@@ -132,7 +133,6 @@ pub fn stepPending(self: *Peer) !void {
             settleSentAnswer(self, sa.target, sa.payload, consequence, &prepared_listeners) catch |err| {
                 prepared_listeners.abandon(self);
                 listeners_prepared = false;
-                self.session_state.retireReleasedLocalPromiseAnswer(sa.target.name);
                 const consumed = self.takePending();
                 consumed.item.deinit(self);
                 emitTerminalConsequenceFailure(self, err);
@@ -179,14 +179,12 @@ fn emitTerminalConsequenceFailure(self: *Peer, err: anyerror) void {
     }
 }
 
-/// Move an admitted row's frames to `outbound`. Both seats are taken before
-/// either frame is published, so an operation never leaves without the
-/// listener next requires behind it. No waterline stands here: the row's
+/// Move an admitted row's frame, including its inline subscription, to
+/// `outbound`. No waterline stands here: the row's
 /// bytes were admitted when it was queued (`outbound/budget.zig`).
 fn emitEncoded(self: *Peer, sent: encoded.Encoded) !void {
-    try self.ensureOutboundCapacity(if (sent.listener != null) 2 else 1);
+    try self.ensureOutboundCapacity(1);
     self.outbound.pushAssumeCapacity(sent.frame);
-    if (sent.listener) |listener| self.outbound.pushAssumeCapacity(listener);
 }
 
 fn emitPendingListenerFire(self: *Peer, fire: listener_fire.Carrier) !void {
@@ -314,5 +312,4 @@ fn settleSentAnswer(
     prepared_listeners: *pipeline.PreparedListenerDrain,
 ) !void {
     try pipeline.drainAnswerConsequencesTarget(self, target, payload, consequence, prepared_listeners);
-    self.session_state.retireReleasedLocalPromiseAnswer(target.name);
 }

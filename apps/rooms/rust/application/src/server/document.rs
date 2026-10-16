@@ -6,7 +6,7 @@
 use crate::{
 	directory::creation::RecoveryKey,
 	fields::{Hex, List, SafeInteger, Text},
-	room::policy::RoomPolicy,
+	room::{policy::RoomPolicy, subject},
 };
 use alloc::{collections::BTreeSet, string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,6 @@ pub const MAX_ROOM_LINKS: usize = 4096;
 /// A durable room name: a public name, or a managed room's opaque key.
 pub const MAX_DURABLE_ROOM: usize = 33;
 pub const MAX_ROOM: usize = 32;
-pub const MAX_TOPIC: usize = 300;
 
 pub type DurableName = Text<MAX_DURABLE_ROOM, true>;
 
@@ -48,11 +47,15 @@ pub struct ManagedRoom {
 	pub policy: RoomPolicy,
 }
 
+/// A remembered subject. A room with no subject has no row, so the
+/// description is never empty, and a link is kept only beside one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Topic {
+pub struct KeptSubject {
 	pub name: DurableName,
-	pub topic: Text<MAX_TOPIC, true>,
+	pub description: Text<{ subject::MAX_DESCRIPTION }, true>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub link: Option<Text<{ subject::MAX_LINK }, true>>,
 }
 
 /// The whole server document. It carries the identity seed and the room-link
@@ -69,7 +72,7 @@ pub struct Document {
 	pub stewards: List<Steward, MAX_ROOM_LINKS>,
 	pub managers: List<Steward, MAX_ROOM_LINKS>,
 	pub managed_rooms: List<ManagedRoom, MAX_ROOM_LINKS>,
-	pub topics: List<Topic, MAX_ROOM_LINKS>,
+	pub subjects: List<KeptSubject, MAX_ROOM_LINKS>,
 }
 
 impl core::fmt::Debug for Document {
@@ -81,7 +84,7 @@ impl core::fmt::Debug for Document {
 			.field("stewards", &self.stewards.0.len())
 			.field("managers", &self.managers.0.len())
 			.field("managed_rooms", &self.managed_rooms.0.len())
-			.field("topics", &self.topics.0.len())
+			.field("subjects", &self.subjects.0.len())
 			.finish_non_exhaustive()
 	}
 }
@@ -93,6 +96,9 @@ pub enum Error {
 	Shape,
 	/// Linked, revoked, and stewarded room authority disagree.
 	Relations,
+	/// The encoded document would not fit `MAX_BYTES`, the most a server reads
+	/// back at startup.
+	Size,
 }
 impl core::fmt::Display for Error {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -101,6 +107,7 @@ impl core::fmt::Display for Error {
 			Self::Version => "rooms state version is not supported",
 			Self::Shape => "rooms state is invalid",
 			Self::Relations => "linked, revoked, and stewarded room authority is inconsistent",
+			Self::Size => "rooms state would grow past what the server reads back, so this change is refused",
 		})
 	}
 }
@@ -119,7 +126,7 @@ impl Document {
 			stewards: List(Vec::new()),
 			managers: List(Vec::new()),
 			managed_rooms: List(Vec::new()),
-			topics: List(Vec::new()),
+			subjects: List(Vec::new()),
 		}
 	}
 	pub fn identity_seed(&self) -> &[u8; KEY_BYTES] {
@@ -139,12 +146,18 @@ impl Document {
 	}
 	pub fn encode(&self) -> Result<String, Error> {
 		self.validate()?;
-		serde_json::to_string(self).map_err(|_| Error::Shape)
+		let text = serde_json::to_string(self).map_err(|_| Error::Shape)?;
+		// The writer appends a newline, and the reader stops at `MAX_BYTES`.
+		if text.len() >= MAX_BYTES {
+			return Err(Error::Size);
+		}
+		Ok(text)
 	}
 	/// The relations a server document holds: names fold case-insensitively,
 	/// stewards only over linked rooms, managers over linked or revoked ones,
 	/// managed rooms under a manager with distinct listed names, generations
-	/// and topics over rooms this document knows.
+	/// and subjects over rooms this document knows, each link a sturdyref's
+	/// shape.
 	pub fn validate(&self) -> Result<(), Error> {
 		let fold = |name: &DurableName| name.text().lowercase();
 		let mut linked = BTreeSet::new();
@@ -192,12 +205,17 @@ impl Document {
 				return Err(Error::Relations);
 			}
 		}
-		let mut topics = BTreeSet::new();
-		for topic in &self.topics.0 {
-			let key = fold(&topic.name);
-			let managed_key = topic.name.text().as_str().is_some_and(RecoveryKey::accepts);
-			if (managed_key && !linked.contains(&key)) || !topics.insert(key) {
+		let mut subjects = BTreeSet::new();
+		for row in &self.subjects.0 {
+			let key = fold(&row.name);
+			let managed_key = row.name.text().as_str().is_some_and(RecoveryKey::accepts);
+			if (managed_key && !linked.contains(&key)) || !subjects.insert(key) {
 				return Err(Error::Relations);
+			}
+			if let Some(link) = &row.link
+				&& !link.text().as_str().is_some_and(subject::link_shaped)
+			{
+				return Err(Error::Shape);
 			}
 		}
 		Ok(())
@@ -207,11 +225,11 @@ impl Document {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use alloc::{format, string::ToString};
+	use alloc::{format, string::ToString, vec::Vec};
 
 	/// A kept document for a server with one linked room,
 	/// a steward, a manager, and a managed room under it.
-	const KEPT: &str = r#"{"version":1,"identitySeed":"0101010101010101010101010101010101010101010101010101010101010101","roomLinkSecret":"0202020202020202020202020202020202020202020202020202020202020202","linkedRooms":["Garden","~00000000000000000000000000000001"],"revokedRooms":["old"],"roomLinkGenerations":[{"name":"garden","generation":3}],"stewards":[{"name":"garden","generation":1,"issued":true}],"managers":[{"name":"~00000000000000000000000000000001","generation":2,"issued":false},{"name":"old","generation":1,"issued":true}],"managedRooms":[{"id":"~00000000000000000000000000000001","name":"Garden","generation":2,"policy":{"visibility":"listed","entry":"open","speaking":"moderated"}}],"topics":[{"name":"garden","topic":"seedlings"},{"name":"~00000000000000000000000000000001","topic":"kept"}]}"#;
+	const KEPT: &str = r#"{"version":1,"identitySeed":"0101010101010101010101010101010101010101010101010101010101010101","roomLinkSecret":"0202020202020202020202020202020202020202020202020202020202020202","linkedRooms":["Garden","~00000000000000000000000000000001"],"revokedRooms":["old"],"roomLinkGenerations":[{"name":"garden","generation":3}],"stewards":[{"name":"garden","generation":1,"issued":true}],"managers":[{"name":"~00000000000000000000000000000001","generation":2,"issued":false},{"name":"old","generation":1,"issued":true}],"managedRooms":[{"id":"~00000000000000000000000000000001","name":"Garden","generation":2,"policy":{"visibility":"listed","entry":"open","speaking":"moderated"}}],"subjects":[{"name":"garden","description":"seedlings","link":"ocapn://peer.tcp/s/c3dpc3M"},{"name":"~00000000000000000000000000000001","description":"kept"}]}"#;
 
 	#[test]
 	fn a_kept_document_decodes_and_encodes_to_the_same_relations() {
@@ -242,7 +260,7 @@ mod tests {
 			Error::Version
 		);
 		assert_eq!(
-			Document::decode(&KEPT.replace("\"topics\"", "\"extra\":1,\"topics\"")).unwrap_err(),
+			Document::decode(&KEPT.replace("\"subjects\"", "\"extra\":1,\"subjects\"")).unwrap_err(),
 			Error::Shape
 		);
 		assert_eq!(
@@ -263,6 +281,36 @@ mod tests {
 			"",
 		);
 		assert_eq!(Document::decode(&unmanaged).unwrap_err(), Error::Relations);
+		// A kept link is a sturdyref beside a description, never anything else.
+		for link in ["\"https://peer/s/x\"", "\"\""] {
+			let bad = KEPT.replace("\"ocapn://peer.tcp/s/c3dpc3M\"", link);
+			assert_eq!(Document::decode(&bad).unwrap_err(), Error::Shape, "{link}");
+		}
+		let undescribed = KEPT.replace("\"description\":\"seedlings\",", "\"description\":\"\",");
+		assert_eq!(Document::decode(&undescribed).unwrap_err(), Error::Shape);
+	}
+
+	/// Every row may be full at once, so the encoder, not the row caps, keeps a
+	/// document readable after a restart.
+	#[test]
+	fn a_document_too_large_to_read_back_is_never_encoded() {
+		let link = format!("ocapn://peer.tcp/s/{}", "a".repeat(1000));
+		let names: Vec<String> = (0..MAX_ROOM_LINKS).map(|n| format!("\"r{n}\"")).collect();
+		let subjects: Vec<String> = (0..MAX_ROOM_LINKS)
+			.map(|n| {
+				format!(
+					r#"{{"name":"r{n}","description":"{}","link":"{link}"}}"#,
+					"\\\"".repeat(300)
+				)
+			})
+			.collect();
+		let full = Document::fresh([7; 32], [9; 32])
+			.encode()
+			.unwrap()
+			.replace("\"linkedRooms\":[]", &format!("\"linkedRooms\":[{}]", names.join(",")))
+			.replace("\"subjects\":[]", &format!("\"subjects\":[{}]", subjects.join(",")));
+		let document = Document::decode(&full).unwrap();
+		assert_eq!(document.encode().unwrap_err(), Error::Size);
 	}
 
 	#[test]

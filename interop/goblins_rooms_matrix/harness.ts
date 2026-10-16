@@ -9,7 +9,7 @@ import {
 	acquireTraceCapability,
 	connectTraceViewer,
 	scrapeTraceSturdyref,
-	traceUrlOf,
+	tracePublishUrlOf,
 } from "../../apps/rooms/test/trace/viewer.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
@@ -427,7 +427,7 @@ let timeline: { records: TimelineRecord[]; close: () => void } | null = null;
 try {
 	const locator = await locatorAt(httpPort);
 	const traceRef = await scrapeTraceSturdyref(web.stderr);
-	const traceUrl = traceUrlOf(traceRef);
+	const traceUrl = tracePublishUrlOf(traceRef);
 	timeline = await watchTimeline(traceRef);
 	gobA = new ChatPeer(GOB_A, locator, FULL, traceUrl);
 	gobB = new ChatPeer(GOB_B, locator, FULL, traceUrl);

@@ -28,6 +28,7 @@ pub const PreparedShortening = struct {
 pub const PreparedOutboundMessage = struct {
     message: model.Message,
     reservation: engine.Peer.PendingReservation,
+    closure_len: usize = 0,
 };
 
 /// The validated input and exact source state for one private shortening
@@ -427,20 +428,19 @@ pub fn prepareIntroducedImportReleases(
     pending_batch: *engine.Peer.PendingBatch,
     imports: []const model.ImportPosition,
 ) !?PreparedOutboundMessage {
-    if (imports.len == 0) return null;
-    const positions = try self.allocator.alloc(u64, imports.len);
-    errdefer self.allocator.free(positions);
-    const deltas = try self.allocator.alloc(u64, imports.len);
-    errdefer self.allocator.free(deltas);
-    for (imports, positions, deltas) |import_position, *position, *delta| {
-        position.* = import_position.int();
-        delta.* = 1;
-    }
-    const message: model.Message = .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
+    const message = (try session.ImportRelease.messageForMentions(self.allocator, imports)) orelse return null;
+    errdefer model.freeMessage(self.allocator, message);
     return .{ .message = message, .reservation = try pending_batch.reserve(.{ .message = message }) };
 }
 
 pub fn commitPreparedImportRelease(self: *Peer, prepared: PreparedOutboundMessage) void {
-    self.session_state.recordPreparedSend(prepared.message);
+    if (prepared.closure_len == 0) {
+        self.session_state.recordPreparedSend(prepared.message);
+    } else {
+        const gc = prepared.message.gc_export;
+        const own = gc.positions.len - prepared.closure_len;
+        self.session_state.recordPreparedSend(.{ .gc_export = .{ .positions = gc.positions[0..own], .deltas = gc.deltas[0..own] } });
+        self.session_state.recordSessionImportRelease(.{ .positions = gc.positions[own..], .deltas = gc.deltas[own..] });
+    }
     self.pushPendingAssume(prepared.reservation, .{ .message = prepared.message });
 }

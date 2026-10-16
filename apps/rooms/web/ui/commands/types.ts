@@ -78,9 +78,9 @@ export interface CommandPowers {
 	editLast(text: string): CommandResult<boolean>;
 	/** Take the most recent line of ours here back. */
 	withdrawLast(): CommandResult<boolean>;
-	/** Say what this room is about. False when this membership holds no topic
-	 * capability, as an older room leaves it. */
-	setTopic(text: string): CommandResult<boolean>;
+	/** Say what this room is about, with an optional link to an object hosted
+	 * elsewhere. False when this membership holds no subject facet. */
+	setSubject(description: string, link?: string): CommandResult<boolean>;
 	/** Say you have stepped away, or `""` that you are back. Written at whichever
 	 * of the three levels this reader's standing already comes from (the room,
 	 * the directory, or them) so a command never quietly overrules a room they
@@ -174,7 +174,7 @@ export interface Command {
 	 * one the room hands out per membership.
 	 *
 	 * This is what makes the list of commands a reader holds a fact about their
-	 * conversation rather than about this file. `/topic` is here because a room
+	 * conversation rather than about this file. `/subject` is here because a room
 	 * answers a subscribe with the capability to set it, and a room that offers
 	 * none leaves the command named but not held.
 	 *

@@ -26,7 +26,7 @@ forbid them. The policy is in [`PROVENANCE.md`](../PROVENANCE.md).
 | CapTP value-level sealer / unsealer | Not implemented as a glowcap type. The unrelated `SealedChannel` is glowcap's Noise-encrypted transport byte channel (ADR-0107). |
 
 Two findings may be useful upstream. The pinned draft, suite, and Goblins
-disagree on the operand count for `op:listen`. The draft's mapping-shaped
+disagree on the type of the third `op:listen` operand. The draft's mapping-shaped
 locator hints do not match the pinned Goblins string-or-false constructor
 contract. The records in
 [`conformance/ocapn-findings/`](../conformance/ocapn-findings/README.md) are
@@ -94,7 +94,8 @@ a recurring check.
 | Evidence | CI | Proves | Does not prove |
 | -------- | -- | ------ | -------------- |
 | `zig build check` (includes `oracle-check`) | yes | In-tree protocol scenarios, message-arm coverage, committed Syrup fixtures, Cap'n Proto goldens, resource budgets, and a complete six-peer handoff scenario. | A live outside peer or a fresh upstream Syrup run. |
-| `zig build ocapn-conformance` | yes | The upstream modules against the production Host/Node wire and authority paths, composed with canonical conformance actors and three suite-only interceptors that drive those library entry points. Plus handshake refusal and a portable pre-setup abort check. | An application with no conformance interceptors, future suite netlayers, or transport recovery after abort. The raw upstream `tests.op_abort` rejects Linux TCP reset. |
+| `zig build ocapn-conformance` | no | The upstream modules against the production Host/Node wire and authority paths, composed with canonical conformance actors and three suite-only interceptors that drive those library entry points. Plus handshake refusal and a portable pre-setup abort check. | An application with no conformance interceptors, future suite netlayers, or transport recovery after abort. The raw upstream `tests.op_abort` rejects Linux TCP reset. |
+| `zig build ocapn-conformance-next` | yes | Baseline conformance, manifest-selected upstream assertions on negotiated next, draft wire cases, and fixture failure tests. | Deferred crypto transition, next onion execution, and arbitrary future suite changes without fixture review. |
 | `zig build ocapn-findings-check` | yes | The pinned sources still disagree on `op:listen` arity and locator-hints typing. | Which form upstream should choose. |
 | `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP. Covers handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, answerless delivers, actor calls, and Goblins-written `op:get` / `op:index` requests that settle through resolver-callback fulfillments. | A public Goblins application API for outbound projections, live `op:untag`, onion, or iroh. |
 | `zig build goblins-rooms` | yes | A real Goblins vat and a glowcap member exchange room traffic while the same server records the Goblins session on Syrup/v1.0 and the glowcap session on Cap'n Proto/next. | Direct messages, browser behavior, or a secure transport. Those have separate on-demand rows. |
@@ -107,6 +108,7 @@ a recurring check.
 | `zig build goblins-gift` | yes | glowcap mints a give that Goblins redeems. | glowcap as recipient or exporter. |
 | `zig build goblins-gift-hints` | yes | A hinted locator survives decode, re-encode, signature verification, and live Goblins redemption. | General route discovery or non-TCP handoff. |
 | `zig build goblins-exporter` | yes | A Goblins pair deposits into and withdraws from glowcap's gift registry, and the withdrawn object is the exact actor the gifter mutated, across an alias replacement. | Alias removal mid-flight, or handoff over a non-TCP transport. |
+| `zig build goblins-glowcap-pair-gift` | yes | A three-party handoff across a glowcap-next Cap'n Proto session and Goblins-compatible 1.0 Syrup sessions. | The deferred five-field hello and crypto representation. |
 | `zig build goblins-relayed-give` | yes | A Goblins recipient reads a signed give from a listener notification, dials the exporter, and calls the withdrawn capability. | glowcap receiving that live introduction through `listenTo`. |
 | `zig build goblins-listen-recipient` | yes | Goblins delivers an unresolved promise to the owning Zig Session. One `listenTo` is ordered before one later Goblins settlement, whose nested capability glowcap lifts, calls, releases, and closes cleanly. | A three-party give in that fulfillment. `goblins-relayed-give` covers the reciprocal gifter topology. |
 | `zig build goblins-gc` | yes | Live inbound `op:gc-exports` after Goblins drops a near export. In the reciprocal check, a Goblins weak reference proves that release of both capability occurrences and their answer permits collection while the owning Zig Session stays open. The first release leaves the second occurrence callable. | Automatic capability finalizers in host languages. |
@@ -128,11 +130,9 @@ For a quick manual call over Syrup/TCP, use the [CLI walkthrough](cli.md).
 - **Set and Keyword.** The draft model lists neither. Goblins marshals both,
   so glowcap follows the Goblins wire, including canonical set order and
   duplicate refusal.
-- **Projections.** `op:get`, `op:index`, and `op:untag` ship in-tree for both
-  profiles because pinned Goblins sends the first two. The draft removed all
-  three on September 30, 2026, and promise pipelining through `desc:answer`
-  stays. The live limits are listed above and the next profile's move is on
-  the [roadmap](roadmap.md#ocapn-direction).
+- **Projections.** `op:get`, `op:index`, and `op:untag` remain on `1.0`.
+  Next refuses all three, following the merged draft. Promise pipelining
+  through `desc:answer` stays on both profiles.
 - **Cap'n Proto.** This codec runs between glowcap peers only. Handoff values
   carry the same structural locators, but their signatures still use the Syrup
   domain.
@@ -140,18 +140,18 @@ For a quick manual call over Syrup/TCP, use the [CLI walkthrough](cli.md).
   consumed rather than rejected. Both codecs preserve them. Syrup also retains
   the original signed location record.
 - **`op:listen`.** V1.0 follows the suite and Goblins Boolean
-  `wants_partial` form. Next uses the integer modes and mandatory shortening
-  listens that merged as PR 294 on October 13, 2026, and still sends the
-  three-operand deliver without a resolver from the closed PR 282
-  ([roadmap](roadmap.md#ocapn-direction)). A live object export settles
-  immediately. A bare unresolved promise export is refused. Third-party promise relay and
-  `listenTo` use the ordinary listen and settlement path.
+  `wants_partial` form. Next uses integer modes and mandatory shortening
+  subscriptions. Its five-operand deliver carries its resolver and mode inline.
+  A live object export settles immediately. A bare unresolved promise export
+  is refused. Third-party promise relay and `listenTo` use the ordinary listen
+  and settlement path.
 - **Handshake refusal.** An invalid signature, pinned-key mismatch, or version
   mismatch sends a typed abort and closes the CapTP session, matching the draft
   and Goblins. A corrected hello requires a new session.
 - **Settlement.** Goblins CapTP 1.0 and the merged draft use an inline
   resolver callback. Next receives the same fulfill or break callback through
-  the mandatory listen and sends no wire `op:resolve`.
+  its inline subscription or an explicit listen, using `op:deliver-only`.
+  It sends no wire `op:resolve`.
 - **Negotiation.** `op:start-session` carries the baseline version string.
   Codec, version, and feature preferences travel in its signed locator hints.
   Peers settle those offers after both verified hellos arrive.

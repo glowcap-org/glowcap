@@ -98,6 +98,19 @@ pub fn addSystemCommand(
     };
 }
 
+/// Assert a test's child output before quiet-success can hide it. Zig captures
+/// checked stdout itself; the command still runs on every gate invocation.
+pub fn expectStdOutMatch(run: *std.Build.Step.Run, expected: []const u8) void {
+    for (run.argv.items, 0..) |arg, index| {
+        if (arg == .bytes and std.mem.eql(u8, arg.bytes, "--quiet-success")) {
+            _ = run.argv.orderedRemove(index);
+            break;
+        }
+    }
+    run.has_side_effects = true;
+    run.expectStdOutMatch(expected);
+}
+
 /// Emit one compiled executable under an explicit execution posture.
 pub fn addArtifact(
     b: *std.Build,

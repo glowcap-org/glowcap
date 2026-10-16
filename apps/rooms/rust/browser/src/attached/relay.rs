@@ -18,6 +18,21 @@ struct Status {
 	failure: Option<String>,
 	closed: bool,
 }
+impl Status {
+	/// What a waiter for readiness learns now, or None to keep waiting. A
+	/// listener that has stopped is never ready, and its failure, when it has
+	/// one, is the reason it gives.
+	fn verdict(&self, stopping: bool) -> Option<Result<()>> {
+		let ended = self.closed || stopping;
+		if self.ready > 0 && !ended {
+			return Some(Ok(()));
+		}
+		if let Some(error) = &self.failure {
+			return Some(Err(error.clone()));
+		}
+		ended.then(|| Err("Rooms relay listener is closed".into()))
+	}
+}
 pub(super) struct Relay {
 	locator: Locator,
 	stop: watch::Sender<bool>,
@@ -69,7 +84,14 @@ impl Relay {
 				admission,
 			)
 			.await;
-			status.send_modify(|state| state.closed = true);
+			// A listener that ended on an error keeps it as the reason it is
+			// closed, so a waiter reports the cause and not only the closing.
+			status.send_modify(|state| {
+				state.closed = true;
+				if let Err(error) = &result {
+					state.failure = Some(error.clone());
+				}
+			});
 			ended.send_replace(Some(result));
 		});
 		Ok(Self {
@@ -85,17 +107,8 @@ impl Relay {
 	pub async fn ready(&self) -> Result<()> {
 		let mut status = self.status.clone();
 		loop {
-			{
-				let state = status.borrow_and_update();
-				if state.closed || *self.stop.borrow() {
-					return Err("Rooms relay listener is closed".into());
-				}
-				if state.ready > 0 {
-					return Ok(());
-				}
-				if let Some(error) = &state.failure {
-					return Err(error.clone());
-				}
+			if let Some(verdict) = status.borrow_and_update().verdict(*self.stop.borrow()) {
+				return verdict;
 			}
 			status
 				.changed()

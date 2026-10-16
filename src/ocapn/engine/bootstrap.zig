@@ -147,29 +147,6 @@ fn preparedAnswerForDeliver(
     return null;
 }
 
-/// The inbound answer a deliver settles. It is the deliver's wire answer
-/// position, or, for a V1.0 resolver-only deliver that carried no wire answer,
-/// the virtual answer the engine installed for the resolver import (ADR-0065).
-/// The resolve-me-desc may arrive `.far` (inbound from the wire) or `.near` (a
-/// synthesized pipelined-drain event that round-tripped through encode/decode
-/// and flipped the perspective). `position` accepts both, since near and far
-/// name one integer space. This is the one owner of that mapping. The actor
-/// layer reaches it through `Peer.answerForDeliver` and never re-decodes the
-/// resolver descriptor. It is generic over the deliver representation: the
-/// borrowed `model.view.Deliver` (inbound wire) and the owned `model.Deliver`
-/// (a queued pipelined call) both carry `.answer` and a `.resolve_me_desc` with
-/// `.position()`.
-pub fn answerForDeliver(deliver: anytype, session: *const session_mod.Session) ?model.AnswerName {
-    return if (deliver.answer) |answer| .fromWire(answer) else blk: {
-        if (deliver.resolve_me_desc) |rmd| {
-            if (rmd.position()) |import_position| {
-                break :blk session.answerForResolverImport(model.ImportPosition.from(import_position));
-            }
-        }
-        break :blk null;
-    };
-}
-
 pub fn resolveForSwissnum(
     session: *session_mod.Session,
     local_projection: ?gifts.LocalObjectProjection,

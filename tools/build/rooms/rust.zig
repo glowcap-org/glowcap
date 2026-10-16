@@ -47,13 +47,17 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
         "capacity_refusal_preserves_the_cold_graph",
         "replacement_and_cold_copy_preserve_receipt_replay",
     }) |scenario| {
-        const maximum = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
-            "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "--lib", "--", "--exact", maximum_foreign_prefix ++ scenario,
-        });
-        maximum.setCwd(b.path("."));
-        maximum.step.dependOn(previous);
-        setLibraryEnvironment(maximum, b);
-        previous = &maximum.step;
+        inline for (.{ "sqlite", "lmdb" }) |engine| {
+            const maximum = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+                "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "--lib", "--", "--exact", maximum_foreign_prefix ++ scenario ++ "_on_" ++ engine,
+            });
+            // An exact selector must execute its witness, including after a rename.
+            execution.expectStdOutMatch(maximum, "test result: ok. 1 passed;");
+            maximum.setCwd(b.path("."));
+            maximum.step.dependOn(previous);
+            setLibraryEnvironment(maximum, b);
+            previous = &maximum.step;
+        }
     }
     maximum_step.dependOn(previous);
     const workspace_tests = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
@@ -211,10 +215,13 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     }
     executor_step.dependOn(executor_previous.?);
     host_browser.step.dependOn(executor_step);
-    const foreign_browser = execution.addSystemCommand(b, .{ .browser_proof = 45 }, &.{ "deno", "run", "--allow-all", "check_host.mjs", "--session-foreign" });
+    const foreign_browser = execution.addSystemCommand(b, .{ .browser_proof = 120 }, &.{ "deno", "run", "--allow-all", "check_host.mjs", "--session-foreign" });
     foreign_browser.setCwd(b.path("apps/rooms/rust/proofs/browser"));
     foreign_browser.step.dependOn(&glue.step);
     foreign_browser.step.dependOn(&host_browser_cache.step);
+    // This four-phase maximum-population proof owns its process deadline,
+    // like the executor groups, and remains mandatory for the Host gate.
+    host_browser.step.dependOn(&foreign_browser.step);
     b.step("rooms-session-foreign-browser-test", "Run maximum foreign session fields and disconnected preservation in Chromium").dependOn(&foreign_browser.step);
     // Two independently bounded source phases share one surviving exporter.
     const foreign_reload = execution.addSystemCommand(b, .{ .browser_proof = 60 }, &.{ "deno", "run", "--allow-all", "check_host.mjs", "--session-foreign-reload" });

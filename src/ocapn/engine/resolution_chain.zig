@@ -1,8 +1,8 @@
 //! Exact-incarnation traversal for consequences of stored promise resolutions.
 //!
-//! A wire promise names a reusable answer position. The stored resolution owns
-//! the row incarnation captured when that value was committed. Every later
-//! listener, pipelined call, and projection follows that same stamp or stops.
+//! Wire answers and paired local promise exports reach the same answer store.
+//! A stored resolution captures that answer's exact incarnation at admission.
+//! Every later listener, pipelined call, and projection follows that stamp.
 
 const std = @import("std");
 
@@ -46,15 +46,18 @@ const Step = union(enum) {
 
 fn step(peer: *Peer, current: Source) Step {
     const resolution = current.stored.value;
-    if (resolution != .fulfill or resolution.fulfill != .reference or
-        resolution.fulfill.reference != .promise)
+    const target = current.stored.promise_target orelse {
+        // A wire answer must have captured its incarnation at admission. Other
+        // terminal values have no chain target. Local promise exports carry
+        // the same stamp through their Session-owned export/answer pairing.
+        if (resolution == .fulfill and resolution.fulfill == .reference and
+            resolution.fulfill.reference == .promise)
+            return .{ .terminal = .{ .terminal_break = missing_target_message } };
         return .{ .terminal = .{ .terminal = .{
             .target = current.target,
             .resolution = resolution,
         } } };
-
-    const target = current.stored.promise_target orelse
-        return .{ .terminal = .{ .terminal_break = missing_target_message } };
+    };
     const payload = peer.session_state.answerPayloadForTarget(target) orelse {
         const live = peer.session_state.answerTargetNamed(target.name) orelse
             return .{ .terminal = .{ .terminal_break = released_target_message } };
@@ -72,8 +75,9 @@ fn step(peer: *Peer, current: Source) Step {
 
 fn isPromise(source: Source) bool {
     const resolution = source.stored.value;
-    return resolution == .fulfill and resolution.fulfill == .reference and
-        resolution.fulfill.reference == .promise;
+    return source.stored.promise_target != null or
+        (resolution == .fulfill and resolution.fulfill == .reference and
+            resolution.fulfill.reference == .promise);
 }
 
 fn advanceCycleProbe(peer: *Peer, source: *Source) bool {

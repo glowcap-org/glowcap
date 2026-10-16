@@ -49,7 +49,7 @@ pub(super) async fn membership(
 			"joined",
 			canonical.to_owned(),
 			result,
-			coordinate(custody::Role::RoomTopic, 7),
+			coordinate(custody::Role::RoomSubject, 7),
 		),
 	] {
 		assert!(
@@ -164,7 +164,7 @@ pub(super) async fn membership(
 	// graph transfer. Substituting its raw target would remove the session gate.
 	owner.import(destination, actual[0].clone(), None).await.unwrap();
 	assert_eq!(snapshot(host, source).await, committed);
-	for role in [custody::Role::RoomTopic, custody::Role::RoomFiles] {
+	for role in [custody::Role::RoomSubject, custody::Role::RoomFiles] {
 		let field = coordinate(role, 1);
 		let destination = coordinate(role, 7);
 		let exists = host

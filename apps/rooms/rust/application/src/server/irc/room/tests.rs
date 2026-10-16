@@ -123,7 +123,20 @@ fn a_reader_is_seated_told_the_room_and_hears_the_channel() {
 	let effects = room
 		.observe(&line(":alice!u@h TOPIC #news :ship day"), &no_seat, &no_view)
 		.unwrap();
-	assert!(matches!(&tells(&effects, 1)[0], Notice::Topic(topic) if topic == "ship day"));
+	assert!(
+		matches!(&tells(&effects, 1)[0], Notice::Subject { subject, changed: true } if subject.description() == "ship day")
+	);
+	// A topic the room cannot hold as a subject is said as a plain line.
+	let effects = room
+		.observe(
+			&line(":alice!u@h TOPIC #news :ocapn://peer.tcp/s/x the board"),
+			&no_seat,
+			&no_view,
+		)
+		.unwrap();
+	assert!(
+		matches!(&tells(&effects, 1)[0], Notice::Announcement(said) if said.ends_with("ocapn://peer.tcp/s/x the board"))
+	);
 	let effects = room.observe(&line(":alice!u@h NICK :al"), &no_seat, &no_view).unwrap();
 	assert!(matches!(&tells(&effects, 1)[0], Notice::Leave { said, .. } if said == "irc/alice is now irc/al"));
 	// The seated member's own echo is not a second arrival.
@@ -167,4 +180,85 @@ fn a_disconnect_clears_the_irc_roster_once() {
 		matches!(&tells(&effects, 1)[0], Notice::Roster { said, names } if said == "the IRC connection ended" && names == &["reader"])
 	);
 	assert!(room.disconnected(&no_view).tells.is_empty());
+}
+
+#[test]
+fn the_channels_subject_reaches_every_arrival_and_clears_when_the_channel_has_none() {
+	let subject = |notice: &&Notice| match notice {
+		Notice::Subject { subject, .. } => Some(String::from(subject.description())),
+		_ => None,
+	};
+	let mut room = room();
+	room.subscribe(1, "reader", "one", MembershipKind::Participant, "note", 400, &no_view)
+		.unwrap();
+	room.relay().connected();
+	room.observe(&line(":gwbot!u@h JOIN :#news"), &no_seat, &no_view)
+		.unwrap();
+	let effects = room
+		.observe(&line(":s 332 gwbot #news :ship day"), &no_seat, &no_view)
+		.unwrap();
+	assert_eq!(
+		tells(&effects, 1).iter().filter_map(subject).collect::<Vec<_>>(),
+		["ship day"]
+	);
+	let effects = room
+		.observe(&line(":s 366 gwbot #news :end"), &no_seat, &no_view)
+		.unwrap();
+	assert!(tells(&effects, 1).iter().all(|notice| subject(notice).is_none()));
+	// A later arrival hears the subject the channel already has.
+	let effects = room
+		.subscribe(2, "late", "two", MembershipKind::Participant, "note", 400, &no_view)
+		.unwrap();
+	assert_eq!(
+		tells(&effects, 2).iter().filter_map(subject).collect::<Vec<_>>(),
+		["ship day"]
+	);
+	// The same topic again says nothing.
+	let effects = room
+		.observe(&line(":alice!u@h TOPIC #news :ship day"), &no_seat, &no_view)
+		.unwrap();
+	assert!(tells(&effects, 1).is_empty());
+	// Rejoined, the channel says no topic before its names end: it has none.
+	room.disconnected(&no_view);
+	room.relay().connected();
+	room.observe(&line(":gwbot!u@h JOIN :#news"), &no_seat, &no_view)
+		.unwrap();
+	let effects = room
+		.observe(&line(":s 366 gwbot #news :end"), &no_seat, &no_view)
+		.unwrap();
+	assert_eq!(tells(&effects, 2).iter().filter_map(subject).collect::<Vec<_>>(), [""]);
+	// A topic the room cannot hold takes the one before it down.
+	room.observe(&line(":alice!u@h TOPIC #news :seeds"), &no_seat, &no_view)
+		.unwrap();
+	let effects = room
+		.observe(
+			&line(":alice!u@h TOPIC #news :ocapn://peer.tcp/s/x board"),
+			&no_seat,
+			&no_view,
+		)
+		.unwrap();
+	let told = tells(&effects, 1);
+	assert!(matches!(told[0], Notice::Announcement(_)));
+	assert_eq!(told.iter().filter_map(subject).collect::<Vec<_>>(), [""]);
+	// A rejoin that says the same refused topic again repeats nothing.
+	room.disconnected(&no_view);
+	room.relay().connected();
+	room.observe(&line(":gwbot!u@h JOIN :#news"), &no_seat, &no_view)
+		.unwrap();
+	let effects = room
+		.observe(
+			&line(":s 332 gwbot #news :ocapn://peer.tcp/s/x board"),
+			&no_seat,
+			&no_view,
+		)
+		.unwrap();
+	assert!(tells(&effects, 1).is_empty());
+	// IRC formatting stays in a subject, as it does in a line.
+	let effects = room
+		.observe(&line(":alice!u@h TOPIC #news :\u{2}ship\u{2} day"), &no_seat, &no_view)
+		.unwrap();
+	assert_eq!(
+		tells(&effects, 1).iter().filter_map(subject).collect::<Vec<_>>(),
+		["\u{2}ship\u{2} day"]
+	);
 }

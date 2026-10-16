@@ -30,6 +30,10 @@ pub const Store = struct {
     pub const Limits = struct {
         records: records.Limits = .{},
         cache_slots: usize = 64,
+        /// Records a walk may start reading before it needs them. Each holds a
+        /// cache slot and its record's bytes until demand pins it, so the
+        /// slots and budget must cover demand plus this depth.
+        read_ahead: usize = 8,
         max_leases: usize = 128,
         resident_bytes: usize = 4 * 1024 * 1024,
         max_changes: usize = 64,
@@ -54,7 +58,7 @@ pub const Store = struct {
     pub fn init(allocator: std.mem.Allocator, metadata: transaction.Metadata, schemas: []const records.Schema, limits: Limits) !Store {
         if (metadata.incarnation == 0) return error.InvalidLimits;
         try validateConfiguration(schemas, limits);
-        var cache = try residency.Cache.init(allocator, limits.cache_slots, limits.max_leases, limits.resident_bytes, limits.records, schemas);
+        var cache = try residency.Cache.init(allocator, limits.cache_slots, limits.read_ahead, limits.max_leases, limits.resident_bytes, limits.records, schemas);
         errdefer cache.deinit() catch unreachable;
         var retentions = try retention.Registry.init(allocator, limits.max_retentions);
         errdefer retentions.deinit(allocator) catch unreachable;
@@ -77,6 +81,12 @@ pub const Store = struct {
         if (self.collection_work != null) return error.Busy;
         if (self.phase == .uncertain) return error.RecoveryRequired;
         return self.cache.acquire(self.metadata, id, self.collectionCustody());
+    }
+
+    /// Read-ahead is optional, so a store that refuses demand reads has no room.
+    pub fn acquireAhead(self: *Store, id: records.ObjectId) !residency.Ahead {
+        if (self.collection_work != null or self.phase == .uncertain) return .full;
+        return self.cache.acquireAhead(self.metadata, id, self.collectionCustody());
     }
 
     pub fn completeRead(self: *Store, ticket: transaction.Ticket, result: residency.ReadResult) !void {

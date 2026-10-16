@@ -36,9 +36,10 @@ import {
 	factPeopleHere,
 	factPrivateRoom,
 	factPublicRoom,
+	factSubject,
+	factSubjectLink,
+	factSubjectNone,
 	factThisIs,
-	factTopic,
-	factTopicNone,
 	factUpToBytes,
 	factYourName,
 } from "../../../lib/text/conversation.ts";
@@ -46,6 +47,7 @@ import { grantedNameSaid } from "./DirectoryFacts.tsx";
 import { dmMode } from "../prefs.ts";
 import { useManagedSession } from "../session/managed/context.tsx";
 import { CopyField } from "../Copy.tsx";
+import { subjectCopyLink } from "../../../lib/text/controls.ts";
 import { Button } from "../Button.tsx";
 import { useRoomsBrowser } from "../controller/browser.ts";
 import { useRoomsSession } from "../controller/session.ts";
@@ -123,8 +125,20 @@ export function ConvFacts(
 								<dd>{factBridgedVia(bridgeOrigin)}</dd>
 							</>
 						)}
-						<dt>{factTopic}</dt>
-						<dd>{conv.topic === undefined || conv.topic === "" ? factTopicNone : conv.topic}</dd>
+						<dt>{factSubject}</dt>
+						<dd>{conv.subject?.description ?? factSubjectNone}</dd>
+						{conv.subject?.link !== undefined && (
+							<>
+								<dt>{factSubjectLink}</dt>
+								<dd>
+									<CopyField
+										id="convcardSubjectLink"
+										text={conv.subject.link}
+										label={subjectCopyLink}
+									/>
+								</dd>
+							</>
+						)}
 						<dt>{factMembersHere}</dt>
 						<dd>{factPeopleHere(here)}</dd>
 						{conv.lineBytes !== undefined && (

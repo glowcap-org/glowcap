@@ -1,6 +1,6 @@
 //! Durable room authority: which room names this server made durable, the
 //! stewards and managers issued over them, the managed rooms under those
-//! managers, and the topics remembered for them. Every value is a function of
+//! managers, and the subjects remembered for them. Every value is a function of
 //! the server document, and every change is a new authority whose document
 //! the adapter persists before installing it, so a link is never handed out
 //! that a restart would not answer.
@@ -8,12 +8,12 @@
 //! Sturdyref entropy is derived, never drawn: a MAC over the room name under
 //! the stored secret rebuilds the same durable name on every start, and a
 //! generation folded into the message retires an old link for good.
-use super::document::{self, Document, DurableName, Generation, KEY_BYTES, ManagedRoom, Steward, Topic};
+use super::document::{self, Document, DurableName, Generation, KEY_BYTES, KeptSubject, ManagedRoom, Steward};
 use crate::{
 	directory::creation::RecoveryKey,
 	failure::FailureCode,
 	fields::{Hex, List, SafeInteger, Text, lower_hex},
-	room::policy::RoomPolicy,
+	room::{policy::RoomPolicy, subject::Subject},
 	text::DocumentText,
 };
 use alloc::{collections::BTreeMap, format, string::String};
@@ -69,7 +69,9 @@ pub struct Authority {
 	managed: BTreeMap<String, Managed>,
 	managed_by_name: BTreeMap<String, String>,
 	publications: BTreeMap<String, String>,
-	topics: BTreeMap<String, (String, String)>,
+	/// Each remembered subject under its folded room name, beside the name as
+	/// it was written.
+	subjects: BTreeMap<String, (String, Subject)>,
 }
 
 fn fold(name: &str) -> String {
@@ -108,7 +110,7 @@ impl Authority {
 			managed: BTreeMap::new(),
 			managed_by_name: BTreeMap::new(),
 			publications: BTreeMap::new(),
-			topics: BTreeMap::new(),
+			subjects: BTreeMap::new(),
 		};
 		for name in document.linked_rooms.as_slice() {
 			let name = utf8(name.text())?;
@@ -151,9 +153,11 @@ impl Authority {
 			};
 			authority.file_managed(managed);
 		}
-		for row in document.topics.as_slice() {
+		for row in document.subjects.as_slice() {
 			let name = utf8(row.name.text())?;
-			authority.topics.insert(fold(&name), (name, utf8(row.topic.text())?));
+			let link = row.link.as_ref().map(|link| utf8(link.text())).transpose()?;
+			let subject = Subject::new(utf8(row.description.text())?, link).map_err(|_| document::Error::Shape)?;
+			authority.subjects.insert(fold(&name), (name, subject));
 		}
 		authority.reindex_publications();
 		Ok(authority)
@@ -203,12 +207,13 @@ impl Authority {
 					})
 					.collect(),
 			),
-			topics: List(
-				self.topics
+			subjects: List(
+				self.subjects
 					.values()
-					.map(|(name, topic)| Topic {
+					.map(|(name, subject)| KeptSubject {
 						name: durable(name),
-						topic: Text(topic.as_str().into()),
+						description: Text(subject.description().into()),
+						link: subject.link().map(|link| Text(link.into())),
 					})
 					.collect(),
 			),
@@ -312,8 +317,8 @@ impl Authority {
 	pub fn managed_room_id_for_name(&self, name: &str) -> Option<&str> {
 		self.managed_by_name.get(&fold(name)).map(String::as_str)
 	}
-	pub fn topic(&self, name: &str) -> Option<&str> {
-		self.topics.get(&fold(name)).map(|(_, topic)| topic.as_str())
+	pub fn subject(&self, name: &str) -> Option<&Subject> {
+		self.subjects.get(&fold(name)).map(|(_, subject)| subject)
 	}
 
 	fn entropy_for(&self, message: &str) -> [u8; ENTROPY_BYTES] {

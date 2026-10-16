@@ -8,6 +8,7 @@ use rooms_application::room::{
 	membership::{self, Membership, Seat},
 	policy::{MembershipKind, RoomPolicy},
 	stewardship::Kind,
+	subject::Subject,
 };
 use std::{
 	cell::{Cell, RefCell},
@@ -297,15 +298,15 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 	pub fn kind(&self) -> Result<MembershipKind, Error> {
 		Ok(self.inner.state.borrow().membership.seat()?.kind)
 	}
-	/// A topic capability is held by the current membership, independently of
-	/// the room's mode or a saved manager link.
-	pub fn can_set_topic(&self) -> bool {
+	/// A subject capability is held by the current membership, independently
+	/// of the room's mode or a saved manager link.
+	pub fn can_set_subject(&self) -> bool {
 		self.inner
 			.state
 			.borrow()
 			.membership
 			.seat()
-			.is_ok_and(|seat| seat.topic.is_some())
+			.is_ok_and(|seat| seat.subject.is_some())
 	}
 	pub fn ended_reason(&self) -> Option<String> {
 		self.inner.state.borrow().ended_reason.clone()
@@ -350,29 +351,32 @@ impl<D: Deadline + Tasks + Clone + 'static> Room<D> {
 			.tell(&self.seat()?, membership::TYPING, &[Argument::Boolean(on)])?;
 		Ok(())
 	}
-	pub async fn set_topic(&self, text: &str) -> Result<(), Error> {
-		let topic = self
+	/// Set what the room is about. An empty subject takes it down. A link is
+	/// shared with everyone who can read the room.
+	pub async fn set_subject(&self, subject: &Subject) -> Result<(), Error> {
+		let facet = self
 			.inner
 			.state
 			.borrow()
 			.membership
 			.seat()?
-			.topic
+			.subject
 			.clone()
-			.ok_or(membership::Error::NoTopic)?;
+			.ok_or(membership::Error::NoSubject)?;
+		let args: Vec<&str> = core::iter::once(subject.description()).chain(subject.link()).collect();
 		self.inner
 			.client
 			.ask(
-				&topic,
-				membership::SET_TOPIC,
-				&[text],
-				"the room did not answer setting its topic",
+				&facet,
+				membership::SET_SUBJECT,
+				&args,
+				"the room did not answer setting its subject",
 			)
 			.await?;
 		Ok(())
 	}
 	/// Local retirement happens immediately. Dropping this future cannot keep
-	/// the queue, inbox or topic alive while an unanswered goodbye is pending.
+	/// the queue, inbox or subject facet alive while an unanswered goodbye is pending.
 	pub async fn leave(&self) -> Result<(), Error> {
 		if self.leave_started.get() {
 			return self

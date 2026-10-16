@@ -6,7 +6,6 @@
 
 const model = @import("model");
 
-const bootstrap = @import("../bootstrap.zig");
 const engine = @import("../mod.zig");
 
 const Peer = engine.Peer;
@@ -44,20 +43,6 @@ pub fn allocateAnswer(self: *Peer) error{OutboundAnswerSpaceExhausted}!u64 {
         else => unreachable,
     };
     return answer.int();
-}
-
-/// Inbound answer associated with a V1.0 resolver import (ADR-0065).
-pub fn answerForResolverImport(
-    self: *const Peer,
-    resolver_import: model.ImportPosition,
-) ?model.AnswerName {
-    return self.session_state.answerForResolverImport(resolver_import);
-}
-
-/// Answer a deliver settles: its wire answer or the virtual V1.0 resolver-only
-/// answer. Generic over borrowed and owned deliver shapes.
-pub fn answerForDeliver(self: *const Peer, deliver: anytype) ?model.AnswerName {
-    return bootstrap.answerForDeliver(deliver, &self.session_state);
 }
 
 /// Clear the in-flight enliven marker once its resolution settles.

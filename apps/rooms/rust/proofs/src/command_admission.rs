@@ -128,7 +128,7 @@ pub fn run() {
 	}
 	for name in [
 		"offerRoom",
-		"setRoomTopic",
+		"setRoomSubject",
 		"kickRoomMember",
 		"say",
 		"editLine",

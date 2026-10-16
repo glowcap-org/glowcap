@@ -113,7 +113,28 @@ const deadline = setTimeout(
 async function phase<T>(name: string, work: () => Promise<T>): Promise<T> {
 	running = name;
 	const at = performance.now();
-	const result = await work();
+	let result: T;
+	try {
+		result = await work();
+	} catch (error) {
+		for (const context of browser?.contexts() ?? []) {
+			for (const page of context.pages()) {
+				const state = await page.evaluate(() => ({
+					url: location.href,
+					room: document.getElementById("roomName")?.textContent,
+					members: document.getElementById("members")?.textContent,
+					standing: document.getElementById("standingBtn")?.textContent,
+					roomStanding: document.getElementById("roomStanding")?.parentElement?.textContent,
+					toasts: document.getElementById("toasts")?.textContent,
+					rooms: document.getElementById("roomList")?.textContent,
+					input: (document.getElementById("newRoomInput") as HTMLInputElement | null)?.value,
+					log: document.getElementById("log")?.textContent?.slice(-4000),
+				})).catch(() => ({ url: page.url(), unavailable: true }));
+				console.error(`PAGE-STATE ${name}: ${JSON.stringify(state)}`);
+			}
+		}
+		throw error;
+	}
 	finished.push(`${name} ${seconds(at)}s`);
 	return result;
 }

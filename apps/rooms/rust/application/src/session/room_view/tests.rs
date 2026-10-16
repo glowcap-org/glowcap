@@ -12,11 +12,11 @@ fn view() -> RoomView {
 		policy: RoomPolicy::Open,
 		members: List::default(),
 		members_more: None,
-		topic: Nullable::Null,
+		subject: Nullable::Null,
 		line_bytes: Nullable::Null,
 		bridge: FieldPresence::Missing,
 		carries: None,
-		can_set_topic: None,
+		can_set_subject: None,
 		can_post_files: None,
 		can_moderate: None,
 	}
@@ -218,4 +218,49 @@ fn disconnection_clears_reachability_and_return_restores_online_presence() {
 		alloc::vec!["\"bo\""; crate::server::rooms::MAX_ROOM_OFFLINE + 1].join(",")
 	);
 	assert!(serde_json::from_str::<crate::session::event::Presence>(&oversized).is_err());
+}
+
+#[test]
+fn a_subject_fact_replaces_the_view_and_an_empty_one_takes_it_down() {
+	use crate::room::{inbox::metadata::facts, subject::Subject};
+	let line = |args: &[&str]| {
+		args.iter()
+			.map(|arg| alloc::string::String::from(*arg))
+			.collect::<Vec<_>>()
+	};
+	let mut view = view();
+	let linked = line(&["room", "", "subject", "chess", "ocapn://host.tcp/s/Y2hlc3M"]);
+	apply(&mut view, None, facts(&linked).as_ref());
+	let stated = Subject::new("chess", Some("ocapn://host.tcp/s/Y2hlc3M")).unwrap();
+	let board = crate::session::subject::Subject::from_room(&stated).unwrap();
+	assert!(matches!(&view.subject, Nullable::Value(held) if *held == board));
+	let encoded = serde_json::to_value(&view).unwrap();
+	assert_eq!(
+		encoded["subject"],
+		serde_json::json!({"description":"chess","link":"ocapn://host.tcp/s/Y2hlc3M"})
+	);
+	let reread: RoomView = serde_json::from_str(&serde_json::to_string(&encoded).unwrap()).unwrap();
+	assert!(matches!(reread.subject, Nullable::Value(held) if held == board));
+	// A description the browser kept as UTF-16, lone surrogate included, reads
+	// back exactly.
+	let surrogate: crate::session::subject::Subject = serde_json::from_str(r#"{"description":"a\ud800b"}"#).unwrap();
+	assert_eq!(surrogate.description().utf16().collect::<Vec<_>>(), [97, 0xd800, 98]);
+	assert!(
+		serde_json::from_str::<crate::session::subject::Subject>(
+			r#"{"description":"a","link":"ocapn://h.tcp/s/\ud800"}"#
+		)
+		.is_err()
+	);
+	let taken_down = line(&["room", "", "subject", ""]);
+	apply(&mut view, None, facts(&taken_down).as_ref());
+	assert!(matches!(view.subject, Nullable::Null));
+	// A link without a description, more than a link, or a link of another
+	// scheme is no subject fact.
+	for refused in [
+		line(&["room", "", "subject", "", "ocapn://host.tcp/s/Y2hlc3M"]),
+		line(&["room", "", "subject", "chess", "ocapn://host.tcp/s/Y2hlc3M", "more"]),
+		line(&["room", "", "subject", "chess", "https://host/s/x"]),
+	] {
+		assert!(facts(&refused).is_none(), "{refused:?}");
+	}
 }

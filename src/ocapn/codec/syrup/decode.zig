@@ -99,8 +99,16 @@ fn decodeBodyAt(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.B
     // `shared.messageOp` and `decoderFor` both switching over
     // `std.meta.Tag(model.Message)` and on the order naming every kind: a new
     // kind cannot compile without a wire op, a decoder, and a place in line.
+    if (syntax.readKnownLabel(bytes, cursor, "op:deliver-only")) {
+        if (d.posture != .next) return Error.UnsupportedMessage;
+        const target = try values.readReference(bytes, cursor);
+        const args = try values.readArgumentList(d.slab, bytes, cursor);
+        try syntax.readByte(bytes, cursor, '>');
+        return .{ .deliver = .{ .target = values.neutralReference(target), .args = args } };
+    }
     inline for (message_op_order) |kind| {
         if (syntax.readKnownLabel(bytes, cursor, comptime shared.messageOp(kind))) {
+            if (d.posture == .next and (kind == .get or kind == .index or kind == .untag)) return Error.UnsupportedMessage;
             return decoderFor(kind)(d, bytes, cursor);
         }
     }
@@ -165,13 +173,19 @@ fn decodeDeliverBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.v
     const answer = try syntax.readOptionalPositiveInt(bytes, cursor);
     const resolve_me_desc = switch (d.posture) {
         .v1_0 => try values.readOptionalReference(bytes, cursor),
-        .next => null,
+        .next => try values.readReference(bytes, cursor),
     };
+    const mode: model.ListenMode = if (d.posture == .next)
+        model.ListenMode.fromInt(try syntax.readPositiveInt(bytes, cursor)) orelse return Error.MalformedFrame
+    else
+        .shortening_or_settling;
+    if (d.posture == .next and (mode == .settling_only or values.neutralReference(resolve_me_desc.?) != .far)) return Error.MalformedFrame;
     try syntax.readByte(bytes, cursor, '>');
     return .{ .deliver = .{
         .target = values.neutralReference(target),
         .args = args,
         .answer = if (answer) |a| model.AnswerPosition.from(a) else null,
+        .listen_mode = mode,
         .resolve_me_desc = if (resolve_me_desc) |reference| values.neutralReference(reference) else null,
     } };
 }

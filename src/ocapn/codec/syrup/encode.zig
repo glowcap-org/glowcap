@@ -98,6 +98,10 @@ fn writeMessage(
     profile: ?model.CaptpVersion,
     body: *const view.Body,
 ) WalkError!void {
+    if (profile == .next) switch (body.*) {
+        .get, .index, .untag => return Error.UnsupportedMessage,
+        else => {},
+    };
     switch (body.*) {
         .abort => |*abort| {
             try openRecord(sink, shared.messageOp(.abort));
@@ -105,12 +109,15 @@ fn writeMessage(
             try endRecord(sink);
         },
         .deliver => |*deliver| {
-            // A no-answer deliver is a single `op:deliver` with a `#f` answer
-            // position, the fire-and-forget one-way send. There is no separate
-            // one-way record on the wire.
-            try openRecord(sink, shared.messageOp(.deliver));
+            const next = profile == .next;
+            const only = next and deliver.answer == null and deliver.resolve_me_desc == null;
+            if (only) try openRecord(sink, "op:deliver-only") else try openRecord(sink, shared.messageOp(.deliver));
             try writeTargetReference(allocator, sink, deliver.target);
             try writeArgumentList(allocator, sink, deliver.args);
+            if (only) {
+                try endRecord(sink);
+                return;
+            }
             if (deliver.answer) |answer| {
                 try writePositiveInt(sink, answer.int());
             } else {
@@ -122,7 +129,10 @@ fn writeMessage(
                 else
                     try writeBool(sink, false),
                 .next => {
-                    if (deliver.resolve_me_desc != null) return Error.UnsupportedMessage;
+                    const resolver = deliver.resolve_me_desc orelse return Error.UnsupportedMessage;
+                    if (resolver != .near or deliver.listen_mode == .settling_only) return Error.UnsupportedMessage;
+                    try writePayloadReference(allocator, sink, resolver);
+                    try writePositiveInt(sink, @backingInt(deliver.listen_mode));
                 },
             }
             try endRecord(sink);

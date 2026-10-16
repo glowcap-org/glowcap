@@ -89,6 +89,9 @@ pub const data0_flag: u64 = 1 << 16;
 /// Deliver data word 0 flag bits.
 pub const deliver_has_answer: u64 = 1;
 pub const deliver_has_resolve_me: u64 = 2;
+/// Next carries its inline listen mode in bits 2..3 of deliver data word 0.
+pub const deliver_listen_shift: u6 = 2;
+pub const deliver_listen_mask: u64 = 3 << deliver_listen_shift;
 /// `op:index` data word 2 flags. A frame that omits this word reads as zero.
 pub const index_big_integer: u64 = 1;
 pub const index_negative: u64 = 2;

@@ -207,6 +207,7 @@ test "a next pipelined deliver shortens promise arguments before queue commit" {
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .args = &.{.{ .reference = .{ .near = model.NearRef.promise(77) } }},
         .answer = .from(43),
+        .resolve_me_desc = .{ .near = model.NearRef.object(99) },
     } });
     defer inbound.deinit();
     try peer.recvBorrowed(inbound.view());
@@ -493,17 +494,9 @@ test "a late pipelined call cannot follow a stored promise into a reused answer 
     try peer.session_state.registerExport(.from(7));
     try peer.session_state.registerExport(.from(9));
 
-    for ([_]u64{ 42, 50 }) |answer| {
-        var frame_bytes: [64]u8 = undefined;
-        const frame = try std.fmt.bufPrint(
-            &frame_bytes,
-            "<10'op:deliver<11'desc:export7+>[]{}+>",
-            .{answer},
-        );
-        try peer.recvBorrowed(.{ .bytes = frame, .shape = .byte });
-        var event = peer.pollEvent().?;
-        event.deinit();
-    }
+    // No subscription keeps the original target alive in this stale-name case.
+    try peer.session_state.installInboundAnswer(.from(42));
+    try peer.session_state.installInboundAnswer(.from(50));
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(50) } },
     } } } });
@@ -513,7 +506,7 @@ test "a late pipelined call cannot follow a stored promise into a reused answer 
     }
 
     try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[50+]>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]50+>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]50+<18'desc:import-object0+>1+>", .shape = .byte });
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
@@ -527,7 +520,7 @@ test "a late pipelined call cannot follow a stored promise into a reused answer 
     }
 
     try peer.recvBorrowed(.{
-        .bytes = "<10'op:deliver<11'desc:answer42+>[4\"ping]43+>",
+        .bytes = "<10'op:deliver<11'desc:answer42+>[4\"ping]43+<18'desc:import-object0+>1+>",
         .shape = .byte,
     });
     try std.testing.expect(peer.pollEvent() == null);
@@ -586,4 +579,42 @@ test "a pipelined call whose arg references an unheld export is rejected, like a
     // never reaches the queue.
     try std.testing.expectError(error.InvalidReference, p2.step());
     try std.testing.expectEqual(@as(usize, 0), p2.session_state.inboundAnswer(.from(42)).?.queued_calls);
+}
+
+test "local pipelined replay preserves nested references and inline resolver perspective" {
+    const allocator = std.testing.allocator;
+    inline for (.{ model.CodecId.syrup, model.CodecId.capnp }) |codec_id| {
+        var peer = peer_fixture.openPeer(allocator);
+        defer peer.deinit();
+        peer.session_state.codec = codec_id;
+        try peer.session_state.registerExport(.from(9));
+        try peer.session_state.registerExport(.from(8));
+        try peer.session_state.installInboundAnswer(.from(42));
+        const elements = [_]model.Argument{
+            .{ .reference = .{ .near = model.NearRef.promise(77) } },
+            .{ .reference = .{ .far = model.FarRef.object(8) } },
+        };
+        var incoming = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, .next, .{ .deliver = .{
+            .target = .{ .promise = .{ .answer_position = .from(42) } },
+            .args = &.{.{ .@"struct" = &.{.{ .key = "nested", .value = .{ .list = &elements } }} }},
+            .answer = .from(43),
+            .resolve_me_desc = .{ .near = model.NearRef.object(99) },
+        } });
+        defer incoming.deinit();
+        try peer.recvBorrowed(incoming.view());
+        try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{
+            .fulfill = .{ .reference = .{ .near = model.NearRef.object(9) } },
+        } } });
+        while (try peer.step() != .idle) {}
+        var event = peer.pollEvent() orelse return error.MissingReplay;
+        defer event.deinit();
+        const deliver = event.view().deliver;
+        try std.testing.expectEqual(@as(u32, 2), event.reference_slots.?);
+        try std.testing.expectEqualSlices(model.ImportPosition, &.{.from(77)}, event.introduced_far_imports.?);
+        try std.testing.expectEqual(@as(u64, 99), deliver.resolve_me_desc.?.far.import_position.int());
+        const nested = (try (try deliver.args.at(0)).@"struct".at(0)).value.list;
+        try std.testing.expectEqual(@as(u64, 77), (try nested.at(0)).reference.far.import_position.int());
+        try std.testing.expectEqual(model.RefKind.promise, (try nested.at(0)).reference.far.kind);
+        try std.testing.expectEqual(@as(u64, 8), (try nested.at(1)).reference.near.export_position.int());
+    }
 }

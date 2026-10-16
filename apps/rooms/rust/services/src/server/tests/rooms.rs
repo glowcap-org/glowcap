@@ -1,5 +1,5 @@
 //! Rooms under real CapTP with the Rust room client: opening, entering,
-//! presence, lines and their edits, history, topics, files, invitations,
+//! presence, lines and their edits, history, subjects, files, invitations,
 //! managed rooms with their managers and stewards, durable links redeemed
 //! from a fresh connection, and the same links and history after a restart.
 use super::{Temp, closing_tolerated, runtime, start, tcp};
@@ -11,6 +11,7 @@ use rooms_application::{
 		inbox::{Message, metadata::Presence},
 		message::ChangeKind,
 		policy::{MembershipKind, RoomPolicy},
+		subject::Subject,
 	},
 	session::checkpoint::commands::CommandRoutes,
 };
@@ -26,6 +27,7 @@ use std::{cell::RefCell, rc::Rc, time::Duration};
 type Line = Message<String, glowcap::Ref>;
 mod listing_pages;
 mod public_membership;
+mod subject_link;
 
 async fn next(messages: &mut Messages) -> Line {
 	tokio::time::timeout(Duration::from_secs(5), messages.next())
@@ -155,7 +157,7 @@ async fn rooms() {
 	alice_seen.borrow_mut().clear();
 	bob_seen.borrow_mut().clear();
 
-	// Typing, away, and the topic are the room's own word.
+	// Typing, away, and the subject are the room's own word.
 	alice_room.typing(true).unwrap();
 	alice_room.away("lunch").await.unwrap();
 	assert!(matches!(
@@ -164,9 +166,18 @@ async fn rooms() {
 	));
 	assert_eq!(bob_seen.borrow().as_slice(), ["typing Alice true"]);
 	assert!(alice_seen.borrow().is_empty(), "the typer is not told");
-	alice_room.set_topic("seeds").await.unwrap();
-	let topic = next(&mut bob_lines).await;
-	assert_eq!(topic.facts().and_then(|facts| facts.topic.as_deref()), Some("seeds"));
+	alice_room
+		.set_subject(&Subject::new("seeds".into(), None).unwrap())
+		.await
+		.unwrap();
+	let subject = next(&mut bob_lines).await;
+	assert_eq!(
+		subject
+			.facts()
+			.and_then(|facts| facts.subject.as_deref())
+			.map(Subject::description),
+		Some("seeds")
+	);
 	let carol_runtime = runtime().await;
 	let carol = Client::new(
 		carol_runtime.connect(&dial, ConnectOptions::default()).await.unwrap(),
@@ -186,11 +197,12 @@ async fn rooms() {
 			.iter()
 			.any(|line| matches!(line.presence(), Some(Presence::Away { name, .. }) if name == "Alice"))
 	);
-	assert!(
-		arrival
-			.iter()
-			.any(|line| line.facts().and_then(|f| f.topic.as_deref()) == Some("seeds"))
-	);
+	assert!(arrival.iter().any(|line| {
+		line.facts()
+			.and_then(|f| f.subject.as_deref())
+			.map(Subject::description)
+			== Some("seeds")
+	}));
 	next_presence(&mut alice_lines).await;
 	next_presence(&mut bob_lines).await;
 

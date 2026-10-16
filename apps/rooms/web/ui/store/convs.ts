@@ -224,6 +224,7 @@ function makeConv(projection: PageProjection, input: NewConv): Conv {
 			membershipKind: roomIdentity?.membershipKind ?? "participant",
 			policy: roomIdentity?.policy ?? (roomIdentity?.held === true ? privateRoomPolicy() : openRoomPolicy()),
 			standing: null,
+			standingPending: false,
 			bridgeIssue: "",
 			held: roomIdentity?.held === true,
 			...(roomIdentity?.reconnect == null ? {} : { reconnect: roomIdentity.reconnect }),

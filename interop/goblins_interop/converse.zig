@@ -205,8 +205,8 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
 
     // 6. One-way deliver (`tell`): the frame glowcap sends for a
     //    fire-and-forget send is an `op:deliver` with no answer and no
-    //    resolver, the shape the pinned draft folds one-way delivery
-    //    into. Nothing comes back by construction, so the proof is a state
+    //    resolver, the shape pinned Goblins speaks for one-way delivery.
+    //    Nothing comes back by construction, so the proof is a state
     //    change: bump the tally twice with no answer, then call `read` with
     //    one and assert live Goblins counted both.
     const tally = try goblins_child.fetchCap(allocator, peer, &conn, tally_swiss);

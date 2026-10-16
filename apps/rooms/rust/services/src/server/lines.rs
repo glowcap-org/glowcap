@@ -1,6 +1,6 @@
 //! What holding a line's reference lets somebody do to it, and the same one
-//! level up for the room's topic. Neither asks who is calling: possession
-//! already answered the question. The topic persists before it is announced
+//! level up for the room's subject. Neither asks who is calling: possession
+//! already answered the question. The subject persists before it is announced
 //! when the room has a durable name.
 use super::{
 	authority, history, rooms,
@@ -8,7 +8,7 @@ use super::{
 };
 use glowcap::Argument;
 use rooms_application::{
-	room::{ArgumentView, membership::SET_TOPIC},
+	room::{ArgumentView, membership::SET_SUBJECT, subject::Subject},
 	server::rooms::{LineKey, RoomKey},
 };
 use rooms_glowcap::Value;
@@ -58,37 +58,49 @@ pub(super) fn line(
 }
 
 /// What this room is about, as a capability every participant holds.
-pub(super) fn topic(shared: Shared, room: RoomKey) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
+/// `setSubject(description, link?)` takes the subject exactly or refuses it,
+/// and the room keeps a link without ever calling it.
+pub(super) fn subject(shared: Shared, room: RoomKey) -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
 	move |verb, args| {
 		if args.iter().any(|arg| Value(arg).contains_capability()) {
-			return Err("a room topic does not take capability arguments".into());
+			return Err("a room subject does not take capability arguments".into());
 		}
-		if verb != SET_TOPIC {
-			return Err(format!("a topic has no method {verb}"));
+		if verb != SET_SUBJECT {
+			return Err(format!("a subject has no method {verb}"));
 		}
-		let (Some(said), 1) = (args.first().and_then(Argument::as_str), args.len()) else {
-			return Err("setTopic needs one text value".into());
-		};
+		let subject = read_subject(args)?;
 		let mut state = shared.borrow_mut();
 		let (connection, _) = rooms::caller(&mut state)?;
 		state.ingress(connection)?;
-		state.admit_message(connection, said.len())?;
+		state.admit_message(
+			connection,
+			subject.description().len() + subject.link().map_or(0, str::len),
+		)?;
 		match state
 			.rooms
-			.prepare_topic(&room, said, &state.authority)
+			.prepare_subject(&room, &subject, &state.authority)
 			.map_err(|refusal| refusal.reason())?
 		{
 			None => Ok(Argument::Void),
-			// The topic persists before the room announces it, so a topic a
-			// member hears is one a restart will tell the next arrival.
-			Some(successor) => {
-				let (room, said) = (room.clone(), said.to_owned());
+			// The subject persists before the room announces it, so a subject
+			// a member hears is one a restart will tell the next arrival. The
+			// writer prepares from the authority it holds when this job's turn
+			// comes, so a change queued ahead of this one is never overwritten.
+			Some(_) => {
+				let (prepared, room) = ((room.clone(), subject.clone()), room.clone());
 				authority::submit(
 					&state,
-					rooms_application::protocol_data::SET_TOPIC,
-					move |_| Ok(successor),
+					SET_SUBJECT,
+					move |state| {
+						let (room, subject) = prepared;
+						Ok(state
+							.rooms
+							.prepare_subject(&room, &subject, &state.authority)
+							.map_err(|refusal| refusal.reason())?
+							.flatten())
+					},
 					move |state: &mut State, _| {
-						let effects = state.rooms.commit_topic(&room, &said);
+						let effects = state.rooms.commit_subject(&room, subject);
 						state.apply_rooms(effects);
 						Ok(Argument::Void)
 					},
@@ -96,4 +108,23 @@ pub(super) fn topic(shared: Shared, room: RoomKey) -> impl FnMut(&str, &[Argumen
 			}
 		}
 	}
+}
+
+/// A description and an optional link, the link a sturdyref this build can
+/// parse. The room only checks a link's shape, so the full parse is here, at
+/// the service that holds the OCapN library.
+fn read_subject(args: &[Argument]) -> Result<Subject, String> {
+	const USAGE: &str = "setSubject needs a description and an optional link, both text";
+	let text = |arg: &Argument| arg.as_str().map(str::to_owned).ok_or(USAGE);
+	let (description, link) = match args {
+		[description] => (text(description)?, None),
+		[description, link] => (text(description)?, Some(text(link)?)),
+		_ => return Err(USAGE.into()),
+	};
+	let subject = Subject::new(description, link)?;
+	if let Some(link) = subject.link() {
+		glowcap::parse_sturdyref(link, glowcap::CaptpVersion::V1_0)
+			.map_err(|_| String::from(rooms_application::room::subject::Invalid::LinkUnreadable))?;
+	}
+	Ok(subject)
 }

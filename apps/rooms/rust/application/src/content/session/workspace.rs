@@ -86,7 +86,7 @@ pub struct Room {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub seat: Option<FieldKey<custody::RoomSeat>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub topic: Option<FieldKey<custody::RoomTopic>>,
+	pub subject: Option<FieldKey<custody::RoomSubject>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub files: Option<FieldKey<custody::RoomFiles>>,
 	#[serde(

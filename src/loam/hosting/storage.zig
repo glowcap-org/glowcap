@@ -14,13 +14,30 @@ pub fn prefetch(owner: *h.Attachment, ref: driver.Capability) !void {
     };
     switch (acquired) {
         .ready => |lease| try owner.store.release(lease),
-        .read => |read| retainRead(owner, read, null),
+        .read => |read| retainRead(owner, read, .store),
     }
 }
 
-pub fn retainRead(owner: *h.Attachment, read: core.Read, operation: ?usize) void {
+/// Start the read for a record a preparation will need after the one it
+/// waits on, so a backend that pays per transaction can serve several in
+/// one turn. False once the Store keeps its remaining room for demand, or
+/// when it cannot start one. Read-ahead never fails its caller, because the
+/// demand step that follows has already taken its result.
+pub fn readAhead(owner: *h.Attachment, id: core.ObjectId) bool {
+    // tolerant: a refused read-ahead only ends the window, and the demand read
+    // of that record reports the exact failure.
+    const acquired = owner.store.acquireAhead(id) catch return false;
+    switch (acquired) {
+        .read => |read| retainRead(owner, read, .ahead),
+        .held => {},
+        .full => return false,
+    }
+    return true;
+}
+
+pub fn retainRead(owner: *h.Attachment, read: core.Read, reader: h.Reader) void {
     for (owner.reads) |*slot| if (slot.* == null) {
-        slot.* = .{ .request = read, .operation = operation };
+        slot.* = .{ .request = read, .reader = reader };
         owner.stats.loads += 1;
         return;
     };
@@ -61,10 +78,11 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
         if (slot.* != null and slot.*.?.submitted and std.meta.eql(slot.*.?.request.ticket, ticket)) break slot;
     } else return error.StaleCompletion;
     const id = slot.*.?.request.id;
-    const prepared = slot.*.?.operation;
+    const reader = slot.*.?.reader;
     slot.* = null;
     // The preparation may own the Store completion. Dispatch exactly once,
     // then notify every consumer of this shared read before handling refusal.
+    const prepared: ?usize = if (reader == .operation) reader.operation else null;
     const completion = if (prepared) |index| blk: {
         const op = &owner.operations[index];
         op.pending_read = false;
@@ -83,7 +101,9 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
             op.failure = err;
             op.phase = .failed;
         } else {
-            if (err == error.StaleCompletion) return;
+            // tolerant: a failed read-ahead leaves nothing resident, and the
+            // demand read that needs the record reports its exact failure.
+            if (err == error.StaleCompletion or reader == .ahead) return;
             for (owner.operations) |*operation| {
                 if ((operation.phase == .waiting or operation.phase == .disclosing) and operation.entry.id.eql(id)) {
                     operation.failure = err;

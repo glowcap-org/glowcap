@@ -1,7 +1,8 @@
 // The things you press, and what a screen reader calls them.
 
-export const topicChange = "Change the topic";
-export const topicClear = "Take the topic down";
+export const subjectChange = "Change the subject";
+export const subjectClear = "Take the subject down";
+export const subjectCopyLink = "Copy the subject's link";
 export const jumpToLatest = "Jump to latest messages";
 export const composerStopEditing = "Stop editing this message";
 export const composerFilesOnLine = "Files on this line";

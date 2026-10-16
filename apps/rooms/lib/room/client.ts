@@ -34,19 +34,7 @@ import {
 	fillUpload,
 	postStagedFiles,
 } from "../attachment.ts";
-import {
-	AWAY,
-	CALLED,
-	HISTORY,
-	LEAVE,
-	MINT_INVITATION,
-	POST,
-	PRIVATE,
-	ROOM_POLICY,
-	SET_TOPIC,
-	SUBSCRIBE,
-	TYPING,
-} from "../protocol.ts";
+import { AWAY, HISTORY, LEAVE, MINT_INVITATION, POST, SET_SUBJECT, SUBSCRIBE, TYPING } from "../protocol.ts";
 import { RoomStewardship } from "./stewardship.ts";
 import { managedRoomIdentity } from "./manager.ts";
 import type { RoomAuthorityChange } from "./authority.ts";
@@ -57,7 +45,8 @@ import { roomInboxBehavior } from "./inbox.ts";
 import { answerWithin } from "../deadline.ts";
 import { REQUEST_TIMEOUT_MS } from "../limits.ts";
 import { RoomInvitation } from "./invitation.ts";
-import { parseRoomPolicy, type RoomPolicy } from "./policy.ts";
+import type { RoomPolicy } from "./policy.ts";
+import { roomCalledAs, roomIsPrivate, roomPolicy } from "./entrance.ts";
 
 // The client's public names are reachable through this module. This file owns
 // Room, and the exports module owns its sibling clients.
@@ -66,36 +55,7 @@ export * from "./client_exports.ts";
 import { ask } from "../ask.ts";
 import { PostedLine, postedLineResult } from "../posted_line.ts";
 import type { Message } from "./message.ts";
-
-/** What a room calls itself, asked of an entrance reference, including one
- * just enlivened from a link before subscribe. Empty when it has no label to
- * give. */
-export async function roomCalledAs(session: Session, room: Ref): Promise<string> {
-	const said = await ask(session, room, CALLED, [], "the room did not say what it is called");
-	return typeof said === "string" ? said : "";
-}
-
-/** Create or recover a durable link from a raw room capability without joining it. */
-export async function linkRoomReference(session: Session, room: Ref): Promise<string> {
-	return await new RoomStewardship(session, room).link();
-}
-
-/** Whether an entrance reference names an unlisted room. A public room's link
- * is still that public room. Guessing from the name would open a listed room
- * that shares a private room's label. */
-export async function roomIsPrivate(session: Session, room: Ref): Promise<boolean> {
-	const said = await ask(session, room, PRIVATE, [], "the room did not say whether it is listed");
-	if (said === true || said === "private") return true;
-	if (said === false || said === "" || said === "listed") return false;
-	throw new Error("the room did not say whether it is listed");
-}
-
-export async function roomPolicy(session: Session, room: Ref): Promise<RoomPolicy> {
-	const answer = await ask(session, room, ROOM_POLICY, [], "the room did not answer its policy");
-	const policy = parseRoomPolicy(answer);
-	if (policy === null) throw new Error("the room answered an invalid policy");
-	return policy;
-}
+import { type Subject, subjectRefusal } from "./subject.ts";
 
 export interface RoomSubscribeOptions {
 	readonly onTyping?: (from: string, on: boolean) => void;
@@ -115,7 +75,7 @@ export class Room {
 	#inbox: Ref | null = null;
 	readonly #messageStream: RoomMessageStream;
 	/** The authority to say what the room is about, when it offered one. */
-	#topic: Ref | null = null;
+	#subject: Ref | null = null;
 	/** The authority to put files in this room, when it offered one: what
 	 * `attach` and `postFiles` go to. A room that cannot hold bytes offers
 	 * none, and so does an observer seat. */
@@ -193,11 +153,11 @@ export class Room {
 		void session.serve().then(endStream, endStream);
 
 		// Subscribe, handing the room a capability to our inbox. The answer carries
-		// the membership seat, kind, and optional topic authority. The room delivers
+		// the membership seat, kind, and optional subject facet. The room delivers
 		// the welcome and roster as `notify` calls. A rejected claim (for example, a
 		// taken nickname) propagates, and the connection stays open: the directory
 		// owns it, and the caller may try another room or close the session itself.
-		// Topic authority is optional, and holding one is the question a client asks
+		// The subject facet is optional, and holding one is the question a client asks
 		// instead of inferring authority from a role or protocol version.
 		// The voucher rides only when the caller has one to present. A subscribe
 		// arriving on a connection that is not the name's registrar proves itself
@@ -213,7 +173,7 @@ export class Room {
 			const membership = readMembershipAnswer(session, answer);
 			self.#membership = membership.seat;
 			self.#membershipKind = membership.kind;
-			self.#topic = membership.topic;
+			self.#subject = membership.subject;
 			self.#files = membership.files;
 			await answerWithin(self.#arrival, `the room did not announce ${nick} arriving`, REQUEST_TIMEOUT_MS);
 			if (self.#arrivalFailure !== null) throw self.#arrivalFailure;
@@ -319,8 +279,8 @@ export class Room {
 
 	/** Whether this membership holds the authority to say what the room is
 	 * about. False against a room that does not offer one. */
-	get canSetTopic(): boolean {
-		return this.#topic !== null;
+	get canSetSubject(): boolean {
+		return this.#subject !== null;
 	}
 
 	/** Whether this membership holds the authority to put files in the room.
@@ -407,13 +367,19 @@ export class Room {
 	}
 
 	/** Say what the room is about, for everyone in it and everyone who arrives
-	 * after. An empty string takes the topic down.
+	 * after. The empty subject takes it down. A link is shared with everyone
+	 * who can read the room, so what holding it grants is its host's decision.
 	 *
-	 * Throws when this membership holds no topic capability. A room that does
-	 * not offer one leaves the membership in that state. Ask `canSetTopic` first. */
-	async setTopic(text: string): Promise<void> {
-		if (this.#topic === null) throw new Error("this room did not offer a topic to set");
-		await ask(this.#session, this.#topic, SET_TOPIC, [text], "the room did not answer setting its topic");
+	 * Throws when this membership holds no subject facet, or when the subject
+	 * breaks the room's rules, before anything is sent. A room that does not
+	 * offer a facet leaves the membership in that state. Ask `canSetSubject`
+	 * first. */
+	async setSubject(subject: Subject): Promise<void> {
+		if (this.#subject === null) throw new Error("this room did not offer a subject to set");
+		const refusal = subjectRefusal(subject.description, subject.link);
+		if (refusal !== null) throw new Error(refusal);
+		const args = subject.link === undefined ? [subject.description] : [subject.description, subject.link];
+		await ask(this.#session, this.#subject, SET_SUBJECT, args, "the room did not answer setting its subject");
 	}
 
 	/** What the room kept of its own conversation, oldest first, when this
@@ -594,12 +560,12 @@ export class Room {
 
 	#releaseMembershipRefs(): unknown | null {
 		let failure: unknown | null = null;
-		const release = (field: "#inbox" | "#topic" | "#files" | "#membership", ref: Ref | null) => {
+		const release = (field: "#inbox" | "#subject" | "#files" | "#membership", ref: Ref | null) => {
 			if (ref === null) return;
 			try {
 				this.#session.release(ref);
 				if (field === "#inbox") this.#inbox = null;
-				else if (field === "#topic") this.#topic = null;
+				else if (field === "#subject") this.#subject = null;
 				else if (field === "#files") this.#files = null;
 				else this.#membership = null;
 			} catch (error) {
@@ -607,7 +573,7 @@ export class Room {
 			}
 		};
 		release("#inbox", this.#inbox);
-		release("#topic", this.#topic);
+		release("#subject", this.#subject);
 		release("#files", this.#files);
 		release("#membership", this.#membership);
 		try {

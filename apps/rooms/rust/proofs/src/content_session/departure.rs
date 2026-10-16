@@ -43,7 +43,7 @@ fn populate(intent: &workspace::Intent) -> custody::Custody<References> {
 			Role::DirectoryAccess => fields.insert_directory_access(held!(Directory)),
 			Role::DirectAccess => fields.insert_direct_access(held!(())),
 			Role::RoomSeat => fields.insert_room_seat(held!(())),
-			Role::RoomTopic => fields.insert_room_topic(held!(())),
+			Role::RoomSubject => fields.insert_room_subject(held!(())),
 			Role::RoomFiles => fields.insert_room_files(held!(())),
 			Role::Line => fields.insert_line(held!(())),
 			Role::RoomControl => fields.insert_room_control(held!(())),
@@ -73,7 +73,7 @@ pub fn run() {
 	second["id"] = json!("second");
 	second["seat"] = json!(key::<custody::RoomSeat>(2, 3));
 	second["inbox"] = json!(key::<custody::RoomInbox>(34, 35));
-	second["topic"] = json!(key::<custody::RoomTopic>(4, 5));
+	second["subject"] = json!(key::<custody::RoomSubject>(4, 5));
 	second["files"] = json!(key::<custody::RoomFiles>(24, 25));
 	second["moderator"] = json!(key::<custody::RoomAccess>(6, 7));
 	second["control"] = json!(key::<custody::RoomControl>(8, 9));
@@ -151,7 +151,7 @@ pub fn run() {
 	let workspace::Conversation::Room(first) = &mut retiring.conversations.as_mut_slice()[0] else {
 		panic!("room");
 	};
-	first.topic = Some(key(4, 5));
+	first.subject = Some(key(4, 5));
 	first.files = Some(key(24, 25));
 	let before = retiring.clone();
 	let mut retained = populate(&retiring);
@@ -162,7 +162,7 @@ pub fn run() {
 		let workspace::Conversation::Room(room) = row else {
 			panic!("room");
 		};
-		assert!(room.seat.is_none() && room.topic.is_none() && room.files.is_none() && room.lines.is_empty());
+		assert!(room.seat.is_none() && room.subject.is_none() && room.files.is_none() && room.lines.is_empty());
 		assert_eq!(room.reconnect, workspace::Reconnect::Manual);
 		assert_eq!(room.control, Some(key(8, 9)));
 	}
@@ -175,8 +175,8 @@ pub fn run() {
 		"another membership still selects the files facet"
 	);
 	assert!(
-		retained.room_topic(key(4, 5)).is_some(),
-		"another membership still selects the topic"
+		retained.room_subject(key(4, 5)).is_some(),
+		"another membership still selects the subject"
 	);
 	assert_eq!(retiring.validate(&retained), Ok(()));
 	let mut publications = initial.clone();
@@ -244,7 +244,7 @@ pub fn run() {
 	assert!(fields.room_inbox(key(32, 33)).is_none());
 	assert!(fields.room_access(key(1, 1)).is_none());
 	assert!(fields.room_seat(key(2, 3)).is_none());
-	assert!(fields.room_topic(key(4, 5)).is_none());
+	assert!(fields.room_subject(key(4, 5)).is_none());
 	assert!(fields.room_files(key(24, 25)).is_none());
 	assert!(fields.line(key(10, 11)).is_none());
 	assert!(fields.offer(key(12, 13)).is_none());

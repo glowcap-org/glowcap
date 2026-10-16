@@ -65,7 +65,7 @@ export { SNAPSHOT } from "./protocol_data.ts";
  * that private means here, and the opaque key makes a lost request safely
  * repeatable. Such a room is in no list, has no deltas, and cannot be entered
  * by name. You reach one by holding a reference somebody handed you, the rule
- * a posted line's `edit` and a room's `setTopic` already follow, applied to
+ * a posted line's `edit` and a room's `setSubject` already follow, applied to
  * the room itself. So there is no member list to be added to, no check to
  * pass, and nothing to ask the server about anybody's right to be here.
  *
@@ -124,15 +124,15 @@ export { PUBLICATION_READY, REVOKE } from "./protocol_data.ts";
 export { LINK, LINK_PUBLICATION } from "./protocol_data.ts";
 
 /** Room and membership methods a client sends. `subscribe(nick, inboxCap,
- * voucher?)` returns `[seat, kind, topic, files]`. The client sends
+ * voucher?)` returns `[seat, kind, subject, files]`. The client sends
  * `post(text)`, `typing(on)`, and `leave()` to that seat. A post broadcasts
  * to every subscriber. Typing is ephemeral and never stored or echoed.
  * Leaving drops this membership without closing the connection.
  *
  * The last two slots are facets the room hands over or withholds. A client
  * draws its controls from holding them, not from anything the room says about
- * itself. `topic` is the authority to set what the room is about, handed to a
- * participant in a room that lets members do that. `files` is the authority to
+ * itself. `subject` is the authority to set what the room is about, handed to
+ * a participant in a room that lets members do that. `files` is the authority to
  * stage files against the room's storage and publish them (`ATTACH`,
  * `POST_FILES`), handed to a participant in a room that can hold bytes at all.
  * A room bridged to a service that cannot carry a file answers null there, and
@@ -184,7 +184,7 @@ export { EDITED, HISTORY, WITHDRAWN } from "./protocol_data.ts";
  * receiving connection, so retaining a file does not require downloading it
  * again. A client that predates this skips the tag and keeps showing the
  * files it already had, which is stale but never wrong. */
-export { LEAVE, LINE_BYTES, OFFLINE, REFILED, TOPIC, TYPING } from "./protocol_data.ts";
+export { LEAVE, LINE_BYTES, OFFLINE, REFILED, SUBJECT, TYPING } from "./protocol_data.ts";
 /** What the room carries of a message beyond its text and files, stated at
  * arrival as `notify("room", "", "carries", ...features)`, before the roster,
  * so a client holds it by the time joining returns.
@@ -270,15 +270,22 @@ export { MINT_INVITATION } from "./protocol_data.ts";
 /** Claim a one-shot entrance with a retry receipt chosen by the claimant. */
 export { CLAIM_INVITATION } from "./protocol_data.ts";
 
-/** The method on the topic reference in `subscribe`'s answer: what this room is
- * about. Participant answers carry this reference in their third slot.
- * observer answers carry null.
+/** The method on the subject facet in `subscribe`'s answer:
+ * `setSubject(description, link?)`, what this room is about. Participant
+ * answers carry this facet in their third slot, and observer answers carry
+ * null.
  *
  * Same shape as a line's reference, one level up. Holding it is the authority
- * to set the topic, so the room asks nobody whether they may. Because it is a
- * reference and not a rank, a member can hand it to somebody who is not even
- * here, which lets a bot keep a topic with no concept of a bot in the room. */
-export { SET_TOPIC } from "./protocol_data.ts";
+ * to set the subject, so the room asks nobody whether they may. Because it is
+ * a reference and not a rank, a member can hand it to somebody who is not even
+ * here, which lets a bot keep a subject with no concept of a bot in the room.
+ *
+ * A description alone is a whole subject. A link is the sturdyref of an object
+ * the room is about, hosted wherever its owner hosts it. The room keeps and
+ * repeats the link and never calls it, so setting one shares it with everyone
+ * who can read the room. The room's host refuses a link that does not parse as
+ * a sturdyref, and a link always needs a description. */
+export { SET_SUBJECT } from "./protocol_data.ts";
 
 /** Ask a room or its manager for the current durable entry link: `link()`.
  *
@@ -315,7 +322,7 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
 //   `"offline"`, …names    disconnected names, kept as display-only offline rows
 //   `"typing"`, nick, on
 //   `"away"`, nick, reason  that member has stepped away (empty reason: back)
-//   `"topic"`, text         what the room is about (empty: taken down)
+//   `"subject"`, text, link? what the room is about (empty: taken down)
 //   `"line-bytes"`, n       the longest line this room will carry
 //
 // An id names a line within one live room generation. Current subscribers use

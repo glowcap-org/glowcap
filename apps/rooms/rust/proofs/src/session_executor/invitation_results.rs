@@ -138,7 +138,7 @@ async fn run_case(malformed: bool) {
 				for payload in [
 					b"entrance".as_slice(),
 					b"seat",
-					b"topic",
+					b"subject",
 					b"files",
 					b"inbox",
 					b"replacement",

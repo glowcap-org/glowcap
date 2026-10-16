@@ -185,9 +185,15 @@ export const MAX_SCROLLBACK = 2000;
  * read pending, so this is outage and flood protection, not scrollback. */
 export const MAX_ROOM_MESSAGE_BACKLOG = APPLICATION_DATA.MAX_ROOM_MESSAGE_BACKLOG;
 
-/** The longest topic a room accepts. Shorter than a line because a topic is
- * read at a glance, above every message, on a phone as well as a screen. */
-export const MAX_TOPIC = APPLICATION_DATA.MAX_TOPIC;
+/** The longest subject description a room keeps, in UTF-16 units. Shorter
+ * than a line because a subject is read at a glance, above every message, on a
+ * phone as well as a screen. The room bounds only what it keeps: the object a
+ * subject links to lives with its host. */
+export const MAX_SUBJECT_DESCRIPTION = APPLICATION_DATA.MAX_SUBJECT_DESCRIPTION;
+/** The longest subject link a room keeps, in bytes. */
+export const MAX_SUBJECT_LINK = APPLICATION_DATA.MAX_SUBJECT_LINK;
+/** The scheme every subject link carries. */
+export const SUBJECT_LINK_SCHEME = APPLICATION_DATA.SUBJECT_LINK_SCHEME;
 /** The longest reason a member may leave when they step away. Short because it
  * sits beside a name in the member list, where a sentence would push the names
  * off the edge. */

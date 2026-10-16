@@ -40,7 +40,7 @@ test "recording an outbound resolve moves the resolution into the store, copying
     // The inbound answer the resolve settles: a question the partner posed
     // (`op:deliver` to our export 7) that we now owe. Installed and drained
     // before the window so its install traffic is not counted.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+<18'desc:import-object268435467+>3+>");
 
     // An *owned* resolution, exactly as a caller hands to `Peer.send`: the move
     // transfers this heap into the store, which frees it at teardown. (Allocated

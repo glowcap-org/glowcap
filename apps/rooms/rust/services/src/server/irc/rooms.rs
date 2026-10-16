@@ -128,7 +128,7 @@ fn subscribe(
 	if enabled {
 		members::start(&mut state, publication.clone(), seat);
 	}
-	// No topic authority and no files facet: IRC has no way to carry a file,
+	// No subject facet and no files facet: IRC has no way to carry a file,
 	// and a client that holds nothing there draws no attach control.
 	Ok(Argument::List(vec![
 		Argument::Reference(capability),

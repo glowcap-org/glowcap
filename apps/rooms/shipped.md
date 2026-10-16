@@ -40,6 +40,10 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
 - *Messages.* A message keeps its authored source on the wire and in archives. Raw HTML stays inert, remote images
   never load on their own, and links may use only approved schemes. A message can preview at most five validated
   URLs, which readers fetch through a same-origin service that refuses unsafe redirects and private addresses.
+- *Room subject.* A room's subject is a description, and it may also link an object by its sturdyref. The room
+  parses the link before it accepts the subject, shares it with every reader, and never calls the object, which its
+  setter hosts. A linked subject survives a server restart, and a later member can redeem the link and call the
+  object ([proof](rust/services/src/server/tests/rooms/subject_link.rs)). The browser shows the link to copy.
 - *Sending.* A Rust room sender rebuilds its ordered receipt from retained text, and releases rejected requests even
   after the caller cancels. It reuses acknowledged, immutable upload bytes for local display and recording, while
   other members still receive the complete message.

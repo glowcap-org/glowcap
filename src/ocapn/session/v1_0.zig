@@ -42,7 +42,7 @@ pub const PreparedInboundResolver = struct {
 
     pub fn commit(self: PreparedInboundResolver, target: *Session) void {
         if (self.virtual_answer) |virtual| {
-            commitVirtualInboundAnswer(target, virtual);
+            @import("deliver_resolver.zig").commitVirtualInboundAnswer(target, virtual);
             target.commitFreshInboundAnswerNamed(self.answer);
         }
         target.v1_0_inbound_resolver_link.putAssumeNoClobber(
@@ -133,29 +133,4 @@ pub fn resolverForInboundAnswer(self: *const Session, answer: model.AnswerName) 
 /// V1.0 resolver-only pattern has no wire answer-position.
 pub fn answerForResolverImport(self: *const Session, resolver_import: model.ImportPosition) ?model.AnswerName {
     return self.v1_0_inbound_resolver_link.getByValue(resolver_import);
-}
-
-/// Allocate a fresh virtual inbound answer for V1.0 resolver-only fetches. Its
-/// type is the namespace boundary: the counter can overlap every wire answer
-/// integer without aliasing one.
-pub fn allocateInboundAnswer(self: *Session) session.Error!model.VirtualAnswer {
-    const answer = try nextVirtualInboundAnswer(self);
-    commitVirtualInboundAnswer(self, answer);
-    return answer;
-}
-
-/// Preview the next virtual identity without consuming it. Prepared inbound
-/// work uses this value until its authority transaction commits.
-pub fn nextVirtualInboundAnswer(self: *const Session) session.Error!model.VirtualAnswer {
-    const id = self.next_virtual_inbound_answer;
-    if (id == 0) return error.VirtualAnswerSpaceExhausted;
-    return .from(id);
-}
-
-fn commitVirtualInboundAnswer(self: *Session, answer: model.VirtualAnswer) void {
-    std.debug.assert(self.next_virtual_inbound_answer == answer.int());
-    self.next_virtual_inbound_answer = if (answer.int() == std.math.maxInt(u64))
-        0
-    else
-        answer.int() + 1;
 }

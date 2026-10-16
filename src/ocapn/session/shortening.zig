@@ -73,7 +73,7 @@ pub fn sourceIsHeld(self: *const Session, resolver: model.ExportPosition) bool {
     const source = switch (purpose) {
         .shortening_pending => |source| source,
         .shortening_complete => |source| source,
-        .application_answer, .local_promise_answer, .node_settling, .retired => return false,
+        .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => return false,
     };
     return incarnationIsHeld(self, source);
 }
@@ -103,7 +103,7 @@ pub fn sourceForResolver(self: *const Session, resolver: model.ExportPosition) ?
         // discipline keeps an answer purpose off a resolver key, and that
         // discipline holds across dispatches, so the null return is the
         // safe answer to a mint bug or a probing partner.
-        .application_answer, .local_promise_answer, .node_settling, .retired => null,
+        .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => null,
     };
 }
 
@@ -119,7 +119,7 @@ pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, 
     const source = switch (purpose) {
         .shortening_pending => |incarnation| incarnation,
         .shortening_complete => return session.Error.UnexpectedMessage,
-        .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
+        .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
     };
     if (!incarnationIsCurrent(self, source)) return;
     var current = target.import_position;
@@ -202,6 +202,7 @@ pub fn releaseSourceAuthority(self: *Session, source: session.PromiseIncarnation
 /// tombstone while the source import remains so a later mention cannot install
 /// a second shortening listener for the same promise.
 pub fn releaseResolverExport(self: *Session, resolver: model.ExportPosition) void {
+    @import("forwarding.zig").releaseIfUnmentioned(self, resolver);
     if (self.outbound_resolver_link.getByKey(resolver)) |purpose| {
         switch (purpose) {
             .retired => {
@@ -219,7 +220,7 @@ pub fn releaseResolverExport(self: *Session, resolver: model.ExportPosition) voi
             break :blk incarnation;
         },
         .shortening_complete => |incarnation| incarnation,
-        .application_answer, .local_promise_answer, .node_settling, .retired => return,
+        .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => return,
     };
 
     self.releaseUnsharedExport(resolver);
@@ -278,6 +279,14 @@ pub fn expandGcExportReleases(
     allocator: std.mem.Allocator,
     gc_export: *model.GcExport,
 ) !usize {
+    return expandGcExportReleasesOwned(self, allocator, gc_export, false);
+}
+
+pub fn expandSessionGcExportReleases(self: *Session, allocator: std.mem.Allocator, gc_export: *model.GcExport) !usize {
+    return expandGcExportReleasesOwned(self, allocator, gc_export, true);
+}
+
+fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_export: *model.GcExport, session_owned: bool) !usize {
     try session.validateGcExport(gc_export.*);
 
     var states: std.AutoHashMapUnmanaged(model.ImportPosition, ReleaseState) = .empty;
@@ -298,7 +307,7 @@ pub fn expandGcExportReleases(
 
     var state_it = states.iterator();
     while (state_it.next()) |entry| {
-        if (entry.value_ptr.total > self.imports.releasable(entry.key_ptr.*)) return session.Error.GcUnderflow;
+        if (entry.value_ptr.total > (if (session_owned) self.imports.sessionHeld(entry.key_ptr.*) else self.imports.releasable(entry.key_ptr.*))) return session.Error.GcUnderflow;
         if (entry.value_ptr.total == self.imports.count(entry.key_ptr.*) and retainedShorteningTarget(self, entry.key_ptr.*) != null)
             try queue.append(allocator, entry.key_ptr.*);
     }

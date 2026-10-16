@@ -104,6 +104,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
         .target = .{ .far = model.FarRef.object(0) },
         .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
         .answer = .from(1),
+        .resolve_me_desc = .{ .near = model.NearRef.object(0) },
     } });
     try exporter.feedOwned(frame);
     while ((try exporter.step()) != .idle) {}
@@ -136,6 +137,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
         .target = .{ .far = model.FarRef.object(0) },
         .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &later_handoff } },
         .answer = .from(2),
+        .resolve_me_desc = .{ .near = model.NearRef.object(0) },
     } });
     try exporter.feedOwned(later_frame);
     while ((try exporter.step()) != .idle) {}

@@ -82,32 +82,54 @@ export function inkContrast(page: Page, selector: string): Promise<{ ratio: numb
 			return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 		};
 
-		// Each layer from the element outwards, as the colours it might contribute:
-		// one for an ordinary ground, one per stop for a gradient. Collected until
-		// something opaque is reached, because that is the bottom of what a reader
-		// sees. The opacity every ancestor applies rides along, since it dims the
-		// text inside it rather than the ground behind it.
+		// Each layer from the element outwards, as the colours it might contribute
+		// at the point under the text. An element paints the way CSS does: its
+		// background colour at the bottom, then each background image over it,
+		// the last-listed lowest, and a gradient adds one of its stops. A stop is
+		// never a ground on its own, because the colour beneath it is always
+		// painted too. Collected until something opaque is reached, because that is
+		// the bottom of what a reader sees. The opacity every ancestor applies
+		// rides along, since it dims the text inside it rather than the ground
+		// behind it.
+		const images = (image: string): string[] => {
+			if (image === "none") return [];
+			const out: string[] = [];
+			let depth = 0;
+			let from = 0;
+			for (let i = 0; i < image.length; i++) {
+				if (image[i] === "(") depth++;
+				else if (image[i] === ")") depth--;
+				else if (image[i] === "," && depth === 0) {
+					out.push(image.slice(from, i));
+					from = i + 1;
+				}
+			}
+			out.push(image.slice(from));
+			return out;
+		};
+		const shows = (css: string): boolean => {
+			ctx.clearRect(0, 0, 1, 1);
+			lay(css);
+			return pixel()[3] > 0;
+		};
 		const layers: string[][] = [];
 		let dimming = 1;
 		let floor = false;
 		for (let at: HTMLElement | null = el; at !== null && !floor; at = at.parentElement) {
 			const style = getComputedStyle(at);
 			dimming *= Number(style.opacity);
-			const image = style.backgroundImage;
-			const stops = image === "none"
-				? []
-				: [...image.matchAll(/(rgba?\([^)]*\)|color\([^)]*\)|okla[bch]\([^)]*\)|#[0-9a-fA-F]{3,8})/g)]
-					.map((m) => m[1]);
+			const stops = images(style.backgroundImage).map((image) =>
+				[...image.matchAll(/(rgba?\([^)]*\)|color\([^)]*\)|okla[bch]\([^)]*\)|#[0-9a-fA-F]{3,8})/g)]
+					.map((m) => m[1])
+			);
 			const ground = style.backgroundColor;
-			for (const css of [...stops, ground]) if (!takes(css)) return null;
-			const contributing = [...stops, ground].filter((css) => {
-				ctx.clearRect(0, 0, 1, 1);
-				lay(css);
-				return pixel()[3] > 0;
-			});
-			if (contributing.length === 0) continue;
-			layers.push(contributing);
-			if (contributing.some(opaque)) floor = true;
+			for (const css of [...stops.flat(), ground]) if (!takes(css)) return null;
+			// Top first, as `layers` runs from the element outwards. An image that
+			// shows nothing at any stop paints nothing and is left out, and so is a
+			// transparent ground.
+			for (const image of stops) if (image.some(shows)) layers.push(image);
+			if (shows(ground)) layers.push([ground]);
+			if (opaque(ground) || stops.some((image) => image.length > 0 && image.every(opaque))) floor = true;
 		}
 		if (!floor) return null;
 
@@ -123,6 +145,13 @@ export function inkContrast(page: Page, selector: string): Promise<{ ratio: numb
 				ctx.clearRect(0, 0, 1, 1);
 				for (const css of chosen) lay(css);
 				const ground = pixel();
+				// Every stack ends on the opaque layer that stopped the walk, so a
+				// ground that still lets something through means the stack was read
+				// wrong, and is no answer rather than a number.
+				if (ground[3] !== 255) {
+					worst = -1;
+					return;
+				}
 				lay(ink, dimming);
 				const text = pixel();
 				const [bright, dark] = [luminance(text), luminance(ground)].sort((a, b) => b - a);
@@ -139,6 +168,6 @@ export function inkContrast(page: Page, selector: string): Promise<{ ratio: numb
 			for (const css of layers[depth]) walk(depth - 1, [...chosen, css]);
 		};
 		walk(layers.length - 1, []);
-		return worst === Infinity ? null : { ratio: worst, saw };
+		return worst === Infinity || worst < 0 ? null : { ratio: worst, saw };
 	}, selector);
 }

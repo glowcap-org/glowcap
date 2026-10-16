@@ -45,7 +45,7 @@ pub const Start = struct {
             .ready => |lease| return lease,
             .read => |read| {
                 self.pending = read.ticket;
-                @import("storage.zig").retainRead(scope.owner.?, read, null);
+                @import("storage.zig").retainRead(scope.owner.?, read, .store);
                 return null;
             },
         }

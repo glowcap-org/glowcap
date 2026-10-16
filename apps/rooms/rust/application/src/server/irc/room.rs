@@ -21,6 +21,7 @@ use crate::{
 		inbox::{MAX_NICK, nick_refusal},
 		message::LineId,
 		policy::MembershipKind,
+		subject::Subject,
 	},
 	server::rooms::MAX_ROOM,
 };
@@ -73,6 +74,18 @@ pub struct Room<C, R> {
 	members: BTreeMap<C, Member<R>>,
 	irc: Roster,
 	names_pending: Option<BTreeMap<String, String>>,
+	/// The channel's topic exactly as the channel last said it, so a topic
+	/// said again, as every rejoin does, is no news.
+	topic: String,
+	/// That topic as this room's subject, told to every arrival. It is the
+	/// last one the channel said, kept while the feed is away, and the next
+	/// join corrects it.
+	subject: Subject,
+	/// Whether the channel has said its topic since the feed last joined. A
+	/// server says a topic before the end of its names reply and says nothing
+	/// for a channel without one, so a join that ends its names unheard has no
+	/// topic.
+	topic_heard: bool,
 	relay: Relay,
 	next_line: u64,
 }
@@ -123,6 +136,9 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 			members: BTreeMap::new(),
 			irc: Roster::default(),
 			names_pending: None,
+			topic: String::new(),
+			subject: Subject::default(),
+			topic_heard: true,
 			relay: Relay::new(channel, feed_nick),
 			next_line: 1,
 		})
@@ -186,6 +202,13 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 	fn tell_all(&self, effects: &mut Effects<C, R>, notice: Notice) {
 		for (connection, member) in &self.members {
 			effects.tells.push((*connection, member.inbox.clone(), notice.clone()));
+		}
+	}
+	/// Hold the channel's subject and tell every member when it changes.
+	fn set_subject(&mut self, effects: &mut Effects<C, R>, subject: Subject) {
+		if self.subject != subject {
+			self.subject = subject.clone();
+			self.tell_all(effects, Notice::Subject { subject, changed: true });
 		}
 	}
 	fn tell_one(&self, effects: &mut Effects<C, R>, connection: C, notice: Notice) {
@@ -406,7 +429,11 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 				effects.extend(self.left_channel(seat_view));
 				return Ok(effects);
 			}
-			SelfEvent::Joined | SelfEvent::Own => return Ok(effects),
+			SelfEvent::Joined => {
+				self.topic_heard = false;
+				return Ok(effects);
+			}
+			SelfEvent::Own => return Ok(effects),
 			SelfEvent::None => {}
 		}
 		effects.extend(self.apply(message, seat_nick, seat_view)?);
@@ -448,6 +475,11 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 				self.broadcast_roster(&mut effects, "the IRC roster was refreshed", seat_view);
 				effects.count_changed = true;
 			}
+			if ours(channel) && !self.topic_heard {
+				self.topic_heard = true;
+				self.topic.clear();
+				self.set_subject(&mut effects, Subject::default());
+			}
 			return Ok(effects);
 		}
 		let Some(nick) = nick_from_prefix(message.prefix.as_deref()) else {
@@ -479,7 +511,25 @@ impl<C: Copy + Ord, R: Clone> Room<C, R> {
 		let topic_numeric =
 			message.is("332") && ours(message.params.len().checked_sub(2).and_then(|at| message.param(at)));
 		if (message.is("TOPIC") && ours(message.param(0))) || topic_numeric {
-			self.tell_all(&mut effects, Notice::Topic(message.last().unwrap_or("").into()));
+			// A topic this room cannot hold as a subject is said as a plain
+			// line, and the subject before it is taken down rather than left
+			// standing as the channel's.
+			self.topic_heard = true;
+			let topic = message.last().unwrap_or("");
+			if topic == self.topic {
+				return Ok(effects);
+			}
+			self.topic = topic.into();
+			let subject = Subject::new(String::from(topic), None).unwrap_or_else(|why| {
+				self.tell_all(
+					&mut effects,
+					Notice::room(format!(
+						"the channel's topic cannot be this room's subject ({why}): {topic}"
+					)),
+				);
+				Subject::default()
+			});
+			self.set_subject(&mut effects, subject);
 			return Ok(effects);
 		}
 		if message.is("JOIN") && ours(message.param(0)) {

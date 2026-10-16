@@ -218,7 +218,7 @@ pub const Scope = struct {
                 .ready => |lease| try self.store.release(lease),
                 .read => |read| {
                     self.pending = .{ .entry = entry, .ticket = read.ticket };
-                    @import("storage.zig").retainRead(owner, read, null);
+                    @import("storage.zig").retainRead(owner, read, .store);
                 },
             }
         }

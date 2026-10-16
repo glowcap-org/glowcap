@@ -27,11 +27,11 @@ function assert(ok: boolean, what: string): asserts ok {
 function memberView(away: string): import("../../web/ui/store.ts").RoomViewUpdate {
 	return {
 		members: [["bob", { online: true, away }]],
-		topic: null,
+		subject: null,
 		lineBytes: null,
 		bridge: null,
 		carries: null,
-		canSetTopic: false,
+		canSetSubject: false,
 		canPostFiles: false,
 		canModerate: false,
 	};
@@ -60,27 +60,27 @@ Deno.test("an attached snapshot can refresh the roster without replacing the con
 	store.setRoomMembership(projection, room.key, "joined");
 	const before = store.getConv(projection, room.key);
 	const shared = {
-		topic: "Shared work",
+		subject: { description: "Shared work" },
 		lineBytes: 4096,
 		bridge: null,
 		carries: { previews: true, typing: true },
-		canSetTopic: true,
+		canSetSubject: true,
 		canPostFiles: true,
 		canModerate: true,
 	};
 	store.setRoomView(projection, room.key, { ...shared, members: [["ada", { online: true, away: "" }]] });
-	const afterTopic = store.getConv(projection, room.key);
-	assert(afterTopic !== before, "the first view left the joining conversation in place");
-	assertEquals(afterTopic?.type === "room" ? afterTopic.topic : null, "Shared work");
+	const afterSubject = store.getConv(projection, room.key);
+	assert(afterSubject !== before, "the first view left the joining conversation in place");
+	assertEquals(afterSubject?.type === "room" ? afterSubject.subject?.description : null, "Shared work");
 	const both: [string, RoomMemberState][] = [["ada", { online: true, away: "" }], ["bo", {
 		online: true,
 		away: "",
 	}]];
 	store.setRoomView(projection, room.key, { ...shared, members: both });
-	assert(store.getConv(projection, room.key) === afterTopic, "a roster-only snapshot replaced the conversation");
+	assert(store.getConv(projection, room.key) === afterSubject, "a roster-only snapshot replaced the conversation");
 	assertEquals([...store.membersOf(projection, room.key).keys()], ["ada", "bo"]);
 	store.setRoomView(projection, room.key, { ...shared, members: both });
-	assert(store.getConv(projection, room.key) === afterTopic, "an identical snapshot replaced the conversation");
+	assert(store.getConv(projection, room.key) === afterSubject, "an identical snapshot replaced the conversation");
 });
 
 // The bug this covers: a bridged room drew its foreign members under bare row
@@ -92,10 +92,10 @@ Deno.test("an attached snapshot carries the bridge behind a room, and lets it go
 	store.setRoomMembership(projection, room.key, "joined");
 	const view = {
 		members: [["irc/ada", { online: true, away: "" }]] as [string, RoomMemberState][],
-		topic: null,
+		subject: null,
 		lineBytes: null,
 		carries: null,
-		canSetTopic: false,
+		canSetSubject: false,
 		canPostFiles: false,
 		canModerate: false,
 	};
@@ -123,4 +123,23 @@ Deno.test("forgetting a conversation forgets who was in it", () => {
 	assertEquals([...store.membersOf(projection, room.key)], []);
 	store.setRoomView(projection, room.key, memberView(""));
 	assertEquals([...store.membersOf(projection, room.key)], []);
+});
+
+// A subject that drops its link must not keep the old one, and a subject
+// taken down leaves nothing behind.
+Deno.test("a subject replaces its link exactly, and taking it down clears both", () => {
+	projection.reset();
+	const room = store.ensureRoom(projection, dirId("test-dir"), "subject-link");
+	const subjectOf = () => {
+		const conv = store.getConv(projection, room.key);
+		return conv?.type === "room" ? conv.subject : null;
+	};
+	const board = "ocapn://host.tcp/s/Ym9hcmQ";
+	store.setSubject(projection, room.key, { description: "the board", link: board });
+	assertEquals(subjectOf(), { description: "the board", link: board });
+	store.setSubject(projection, room.key, { description: "the board" });
+	assertEquals(subjectOf(), { description: "the board" });
+	store.setSubject(projection, room.key, { description: "the board", link: board });
+	store.setSubject(projection, room.key, { description: "" });
+	assertEquals(subjectOf(), undefined);
 });

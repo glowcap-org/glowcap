@@ -94,7 +94,7 @@ impl Request<'_> {
 			|| room.publication.is_some()
 			|| room.inbox.is_some()
 			|| room.seat.is_some()
-			|| room.topic.is_some()
+			|| room.subject.is_some()
 			|| room.files.is_some()
 			|| room.moderator.is_some()
 			|| !room.lines.is_empty()

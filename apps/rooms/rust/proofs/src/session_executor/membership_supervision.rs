@@ -123,7 +123,7 @@ pub(super) async fn run() {
 					for payload in [
 						b"entrance".as_slice(),
 						if options == 7 { b"name" } else { b"seat" },
-						b"topic",
+						b"subject",
 						b"files",
 					] {
 						resources
@@ -424,7 +424,7 @@ pub(super) async fn run() {
 						unreachable!()
 					};
 					assert!(row.seat.is_some());
-					assert_eq!(row.topic.is_some(), options & 1 != 0);
+					assert_eq!(row.subject.is_some(), options & 1 != 0);
 					assert_eq!(row.files.is_some(), options & 2 != 0);
 					let callback = owner
 						.restore_custody(&[session::workspace::InboxSelection::room(row, &installed.intent)

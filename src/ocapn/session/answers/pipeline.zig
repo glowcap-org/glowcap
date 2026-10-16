@@ -31,8 +31,15 @@ pub const PreparedCallQueue = struct {
         self.payload.abandon(owner);
     }
 
-    pub fn commit(self: *PreparedCallQueue, message: model.Message) void {
-        self.payload.payload.queue.appendAssumeCapacity(message);
+    pub fn commit(self: *PreparedCallQueue, owner: *Session, message: model.Message) void {
+        self.commitNamed(.{ .message = message, .answer = switch (message) {
+            .deliver => |deliver| if (deliver.answer) |answer| owner.answerTargetNamed(.fromWire(answer)) else null,
+            else => null,
+        } });
+    }
+
+    pub fn commitNamed(self: *PreparedCallQueue, call: store.QueuedCall) void {
+        self.payload.payload.queue.appendAssumeCapacity(call);
         self.payload.commit();
     }
 };
@@ -74,7 +81,7 @@ pub fn enqueuePipelinedCallNamed(
     errdefer model.freeMessage(self.allocator, message);
     var prepared = try preparePipelinedCallNamed(self, answer_position);
     errdefer prepared.abandon(self);
-    prepared.commit(message);
+    prepared.commit(self, message);
 }
 
 /// Prepare one bounded queue append without consuming a message or changing
@@ -103,18 +110,18 @@ pub fn preparePipelinedCallTarget(
 pub fn enqueuePipelinedCallTarget(
     self: *Session,
     target: session.AnswerTarget,
-    message: model.Message,
+    call: store.QueuedCall,
 ) !void {
-    errdefer model.freeMessage(self.allocator, message);
+    errdefer call.deinit(self.allocator);
     var prepared = try preparePipelinedCallTarget(self, target);
     errdefer prepared.abandon(self);
-    prepared.commit(message);
+    prepared.commitNamed(call);
 }
 
 pub fn takePipelinedCalls(
     self: *Session,
     answer_position: model.AnswerPosition,
-) ![]model.Message {
+) ![]store.QueuedCall {
     return takePipelinedCallsNamed(self, .fromWire(answer_position));
 }
 
@@ -122,7 +129,7 @@ pub fn takePipelinedCalls(
 pub fn takePipelinedCallsNamed(
     self: *Session,
     answer_position: model.AnswerName,
-) ![]model.Message {
+) ![]store.QueuedCall {
     const entry = self.inbound_answers.getPtr(answer_position) orelse return &.{};
     const payload = entry.payload orelse return &.{};
     return takePayloadCalls(self, payload);
@@ -131,7 +138,7 @@ pub fn takePipelinedCallsNamed(
 /// Transfer calls already accepted for one exact answer incarnation. The
 /// payload may be detached after `op:gc-answers`. Its row stamp, not the
 /// reusable wire name, remains their owner until settlement.
-pub fn takePayloadCalls(self: *Session, payload: *session.AnswerPayload) ![]model.Message {
+pub fn takePayloadCalls(self: *Session, payload: *session.AnswerPayload) ![]store.QueuedCall {
     if (payload.queue.items.len == 0) return &.{};
     return payload.queue.toOwnedSlice(self.allocator);
 }

@@ -49,7 +49,7 @@ enum RoomTarget {
 	Link,
 	Seat,
 	RetiringSeat(custody::FieldKey<custody::RoomSeat>),
-	Topic,
+	Subject,
 	Moderator,
 	Control,
 }
@@ -249,10 +249,19 @@ impl Dispatch {
 				),
 				acknowledgment(crate::room::membership::LEAVE, Vec::new()),
 			),
-			(Route::Effect(Effect::SetRoomTopic), [room, text]) => (
-				Selection::Room(room.clone(), RoomTarget::Topic),
-				acknowledgment(crate::room::membership::SET_TOPIC, vec![text.clone()]),
-			),
+			(Route::Effect(Effect::SetRoomSubject), [room, description, link @ ..])
+				if link.len() <= 1
+					&& crate::room::subject::Subject::new(description.as_str(), link.first().map(String::as_str))
+						.is_ok() =>
+			{
+				(
+					Selection::Room(room.clone(), RoomTarget::Subject),
+					acknowledgment(
+						crate::room::membership::SET_SUBJECT,
+						core::iter::once(description).chain(link).cloned().collect(),
+					),
+				)
+			}
 			(Route::Effect(Effect::EditLine), [room, line, text])
 				if text.len() <= crate::room::line::MAX_LINE_BYTES =>
 			{

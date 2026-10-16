@@ -15,6 +15,7 @@ const node_mod = @import("../../node.zig");
 const outbound = @import("../../outbound.zig");
 const passable = @import("../passable.zig");
 const walk = @import("walk.zig");
+const local_custody = @import("local_custody.zig");
 const gift_recipe = @import("../handoffs/gifts/recipe.zig");
 const gift_tickets = @import("../handoffs/gifts/tickets.zig");
 const peer_routes = @import("../peers/routes.zig");
@@ -52,6 +53,7 @@ pub const Batch = struct {
     allocator: std.mem.Allocator,
     payload: passable.Payload,
     payload_owned: bool = true,
+    local_custody_owned: bool = false,
     destination: Destination,
     failure_target: ?passable.FailureTarget,
     staging_reservation: ?engine.Peer.InlinePassableStagingReservation,
@@ -65,14 +67,18 @@ pub const Batch = struct {
         // `Node.deinit` retires every batch before any Peer; the occurrence row
         // was counted when the batch was staged.
         const projection_count = self.gifts.len + self.promises.len;
+        const owner = node.peer(self.recipient_peer) orelse unreachable;
         if (self.staging_reservation) |reservation| {
-            const recipient = node.peer(self.recipient_peer) orelse unreachable;
-            recipient.cancelInlinePassableStaging(reservation);
+            owner.cancelInlinePassableStaging(reservation);
+        }
+        if (self.local_custody_owned) {
+            local_custody.release(&owner.session_state, &self.payload);
+            self.local_custody_owned = false;
         }
         if (self.payload_owned) {
-            const recipient = node.peer(self.recipient_peer) orelse unreachable;
-            self.payload.deinit(recipient.allocator, &recipient.session_state);
+            self.payload.deinit(owner.allocator, &owner.session_state);
         }
+        owner.session_state.collectLocalPromiseProjections();
         switch (self.destination) {
             .outbound => {},
             .relayed => |*recipient| if (recipient.failure_reason != null) {
@@ -277,6 +283,18 @@ pub fn finish(self: *Node, batch_id: passable.BatchId) !void {
     const batch = self.inline_passable_batches.rows.getPtr(batch_id) orelse return;
     if (batch.ready != batch.gifts.len) return;
     const recipient = self.peer(batch.recipient_peer) orelse return error.RouteNotLowerable;
+    // Return pre-recording custody only under a synchronous collection pause.
+    // On retryable refusal the restored original tree reacquires that custody;
+    // on consumption Session recording takes over before tracing resumes.
+    const collection_pause = session_mod.Session.LocalPromiseCustody.pauseCollection(&recipient.session_state);
+    defer collection_pause.deinit(&recipient.session_state);
+    var return_custody = true;
+    defer if (return_custody and batch.payload_owned and !batch.local_custody_owned) {
+        // These counts were just returned, and the synchronous pause admits no
+        // competing owner, so restoration cannot overflow.
+        local_custody.restore(&recipient.session_state, &batch.payload);
+        batch.local_custody_owned = true;
+    };
     switch (batch.payload) {
         .outbound => |outbound_payload| switch (outbound_payload) {
             .answer_settlement => |settlement| {
@@ -331,6 +349,10 @@ pub fn finish(self: *Node, batch_id: passable.BatchId) !void {
             self.allocator,
             batch.promises.len,
         );
+    if (batch.local_custody_owned) {
+        local_custody.release(&recipient.session_state, &batch.payload);
+        batch.local_custody_owned = false;
+    }
     var projections_rewritten = true;
     errdefer if (projections_rewritten) walk.restore(batch);
     try walk.replace(self, batch);
@@ -406,6 +428,7 @@ pub fn finish(self: *Node, batch_id: passable.BatchId) !void {
     }
 
     // The row found at the top of `finish`; nothing in the switch removes it.
+    return_custody = false;
     var finished = (self.inline_passable_batches.rows.fetchRemove(batch_id) orelse unreachable).value;
     spendTerminalReservations(self, &finished);
     for (finished.gifts) |gift| actions.pushReserved(self, .{ .flush = gift.home });

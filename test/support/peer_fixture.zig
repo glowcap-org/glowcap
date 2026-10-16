@@ -46,7 +46,8 @@ pub fn receiveAnsweredOperation(peer: *engine.Peer, frame: []const u8) !void {
     var event = peer.pollEvent().?;
     event.deinit();
 
-    try receiveListenerForAnswer(peer, answer);
+    if (peer.session_state.captp_version != .next or body != .deliver or body.deliver.resolve_me_desc == null)
+        try receiveListenerForAnswer(peer, answer);
 }
 
 pub fn receiveListenerForAnswer(peer: *engine.Peer, answer: model.AnswerPosition) !void {

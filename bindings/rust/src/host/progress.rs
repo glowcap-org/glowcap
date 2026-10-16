@@ -100,10 +100,10 @@ impl HostShared {
 		}
 	}
 
-	async fn progress_persistence(&self) -> Result<bool> {
+	fn progress_persistence(&self) -> Result<bool> {
 		#[cfg(feature = "loam")]
 		{
-			self.loam.progress().await
+			self.loam.progress()
 		}
 		#[cfg(not(feature = "loam"))]
 		{
@@ -140,7 +140,7 @@ impl HostShared {
 					lp.fail_background(error);
 					return Err(surfaced);
 				}
-				if self.progress_persistence().await? {
+				if self.progress_persistence()? {
 					self.note_close_activity();
 					continue;
 				}
@@ -159,7 +159,7 @@ impl HostShared {
 			};
 			crate::finalizer::drain();
 			let (parked, yielded) = actions?;
-			let persistence_progress = self.progress_persistence().await;
+			let persistence_progress = self.progress_persistence();
 			crate::finalizer::drain();
 			let persistence_progress = persistence_progress?;
 			if parked.is_empty() && !yielded && !persistence_progress {

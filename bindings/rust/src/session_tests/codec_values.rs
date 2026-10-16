@@ -31,7 +31,10 @@ async fn capnp_hosts_handshake_and_round_trip_big_integer_and_keyword() {
 					crate::SessionProfile {
 						captp_version: crate::CaptpVersion::Next,
 						codec: Codec::Capnp,
-						features: crate::FeatureSet::FULL,
+						features: crate::FeatureSet::from_bits(
+							crate::FeatureSet::FULL.bits() & !crate::FeatureSet::UNTAG.bits()
+						)
+						.unwrap(),
 					}
 				);
 				session
@@ -52,7 +55,10 @@ async fn capnp_hosts_handshake_and_round_trip_big_integer_and_keyword() {
 				crate::SessionProfile {
 					captp_version: crate::CaptpVersion::Next,
 					codec: Codec::Capnp,
-					features: crate::FeatureSet::FULL,
+					features: crate::FeatureSet::from_bits(
+						crate::FeatureSet::FULL.bits() & !crate::FeatureSet::UNTAG.bits()
+					)
+					.unwrap(),
 				}
 			);
 			ready_rx.await.unwrap();

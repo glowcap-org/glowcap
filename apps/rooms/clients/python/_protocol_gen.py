@@ -97,7 +97,7 @@ REGISTRATION_ROW_FIELDS = (
 SUBSCRIBE_ANSWER_FIELDS = (
     ("seat", "reference", False, ()),
     ("kind", "text", False, MEMBERSHIP_KINDS),
-    ("topic", "reference", True, ()),
+    ("subject", "reference", True, ()),
     ("files", "reference", True, ()),
 )
 

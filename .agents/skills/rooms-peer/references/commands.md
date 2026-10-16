@@ -18,15 +18,17 @@ Use conversation IDs and line IDs from `status` and `tick`:
 ```sh
 glowcap apps rooms session command --dir "$HOME/.rooms/alice" editLine CONVERSATION LINE 'corrected text'
 glowcap apps rooms session command --dir "$HOME/.rooms/alice" withdrawLine CONVERSATION LINE
-glowcap apps rooms session command --dir "$HOME/.rooms/alice" setRoomTopic CONVERSATION 'New topic'
+glowcap apps rooms session command --dir "$HOME/.rooms/alice" setRoomSubject CONVERSATION 'New subject'
 glowcap apps rooms session command --dir "$HOME/.rooms/alice" setStanding 'Back in ten minutes'
 glowcap apps rooms session command --dir "$HOME/.rooms/alice" setDraft CONVERSATION 'unfinished reply'
 glowcap apps rooms session command --dir "$HOME/.rooms/alice" select CONVERSATION
 ```
 
 - `editLine` and `withdrawLine` require your own line authority.
-- A topic change requires the membership's topic capability, held in the
-  conversation row under `status.workspace.conversations`.
+- A subject change requires the membership's subject capability, held in the
+  conversation row under `status.workspace.conversations`. An optional third
+  argument links an object by its `ocapn://` sturdyref, and it needs a
+  non-empty description.
 - `select` changes focus only and leaves the observer in the other rooms and
   DMs.
 

@@ -1,6 +1,6 @@
 //! Each reserved worker owns one confirmed continuation and exact target call.
 use super::{
-	MAX_JOBS, State,
+	State,
 	results::{Acquisition, Prepared, Settlement},
 };
 use glowcap::{
@@ -18,7 +18,9 @@ use std::{
 use tokio::sync::Mutex;
 type ExecutionReporter = dyn Fn(&str, &glowcap::Error);
 
+mod seat;
 mod writer;
+pub(super) use seat::Seat;
 pub(super) use writer::Writer;
 
 /// One bounded job retains its actual observation across interruption or drive
@@ -26,6 +28,9 @@ pub(super) use writer::Writer;
 pub(super) struct Job<P: Tasks> {
 	pub task: Option<P::Task>,
 	work: Rc<Mutex<Option<Work<P>>>>,
+	/// The installed observation while it waits on commit, so a retry under
+	/// the same id can see a confirmed absence the worker has not yet woken to.
+	confirming: Weak<PendingContinuation>,
 	pub failure: Option<glowcap::Error>,
 	pub batch_released: Option<Rc<Cell<bool>>>,
 }
@@ -45,7 +50,7 @@ type Observation<T> = Pin<Box<dyn Future<Output = Result<T>>>>;
 const OBSERVATION_MS: u64 = 20_000;
 enum Phase {
 	Confirming {
-		pending: PendingContinuation,
+		pending: Rc<PendingContinuation>,
 		action: Option<Action>,
 	},
 	Preparing {
@@ -96,6 +101,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 		reply_bytes: usize,
 		owner: &Weak<State<P>>,
 	) -> Result<()> {
+		let cell: *const Mutex<Option<Self>> = work;
 		let mut held = work.lock().await;
 		loop {
 			let Some(work) = held.as_mut() else {
@@ -107,7 +113,16 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 						let continuation = match pending.confirmed().await {
 							Ok(continuation) => continuation,
 							Err(error) if error.code() == loam::UNCHANGED => {
-								if let Some(retirement) = &work.retirement {
+								// A retry that superseded this attempt has begun the
+								// same retirement, so only the seated job reports.
+								let seated = owner.upgrade().is_some_and(|owner| {
+									owner
+										.jobs
+										.borrow()
+										.get(id)
+										.is_some_and(|job| std::ptr::eq(&*job.work, cell))
+								});
+								if seated && let Some(retirement) = &work.retirement {
 									retirement.absent();
 								}
 								// Confirmed receipt absence justifies neither a
@@ -384,11 +399,13 @@ impl<P: Tasks + Deadline + Clone + 'static> Work<P> {
 struct Retirement<P: Tasks + Deadline + Clone + 'static> {
 	owner: Weak<State<P>>,
 	id: String,
+	work: Weak<Mutex<Option<Work<P>>>>,
 }
 impl<P: Tasks + Deadline + Clone + 'static> Drop for Retirement<P> {
 	fn drop(&mut self) {
 		if let Some(owner) = self.owner.upgrade() {
 			if let Some(job) = owner.jobs.borrow_mut().get_mut(&self.id)
+				&& Weak::ptr_eq(&Rc::downgrade(&job.work), &self.work)
 				&& job.failure.is_none()
 			{
 				job.failure = Some(loam::refusal(
@@ -422,6 +439,7 @@ pub(super) fn resume<P: Tasks + Deadline + Clone + 'static>(owner: &Rc<State<P>>
 	let retirement = Retirement {
 		owner: weak.clone(),
 		id: id.clone(),
+		work: Rc::downgrade(&work),
 	};
 	let task = owner.platform.spawn(async move {
 		let _retirement = retirement;
@@ -429,15 +447,13 @@ pub(super) fn resume<P: Tasks + Deadline + Clone + 'static>(owner: &Rc<State<P>>
 		if let Some(owner) = weak.upgrade() {
 			let retired = {
 				let mut jobs = owner.jobs.borrow_mut();
-				match result {
-					Ok(()) => jobs.remove(&id),
-					Err(error) => {
-						// `resume` replaces a job's worker under the same id; a worker whose job
-						// is gone was superseded, and the replacement owns the outcome, as the
-						// `Retirement` drop below also assumes.
-						if let Some(job) = jobs.get_mut(&id) {
-							job.failure = Some(error);
-						}
+				// A job under this id that holds other work superseded this one
+				// and owns its own outcome, as the `Retirement` drop also checks.
+				match jobs.get_mut(&id).filter(|job| Rc::ptr_eq(&job.work, &work)) {
+					None => None,
+					Some(_) if result.is_ok() => jobs.remove(&id),
+					Some(job) => {
+						job.failure = result.err();
 						None
 					}
 				}
@@ -454,176 +470,4 @@ pub(super) fn resume<P: Tasks + Deadline + Clone + 'static>(owner: &Rc<State<P>>
 		.ok_or_else(|| loam::refusal("effect has no live observation"))?
 		.task = Some(task);
 	Ok(())
-}
-/// Reserve before Loam staging. Failure withdraws this inert worker seat.
-pub(super) struct Seat<P: Tasks + Deadline + Clone + 'static> {
-	owner: Weak<State<P>>,
-	id: String,
-	installed: bool,
-	retirement: Option<Rc<super::supervision::retirement::Owner>>,
-}
-impl<P: Tasks + Deadline + Clone + 'static> Seat<P> {
-	pub fn reserve(owner: &Rc<State<P>>, id: &str) -> Result<Self> {
-		if owner.closing.get() {
-			return Err(loam::refusal("session is closing"));
-		}
-		let mut jobs = owner.jobs.borrow_mut();
-		if jobs.len() >= MAX_JOBS || jobs.contains_key(id) {
-			return Err(loam::refusal("session effect workers are full"));
-		}
-		jobs.insert(
-			id.into(),
-			Job {
-				task: None,
-				work: Rc::new(Mutex::new(None)),
-				failure: None,
-				batch_released: None,
-			},
-		);
-		let retirement = owner.memberships.retirement(id);
-		if let Some(retirement) = &retirement {
-			retirement.begin();
-		}
-		Ok(Self {
-			owner: Rc::downgrade(owner),
-			id: id.into(),
-			installed: false,
-			retirement,
-		})
-	}
-	pub fn start(
-		self,
-		pending: PendingContinuation,
-		source: Ref,
-		canonical: String,
-		intent: CallIntent,
-		outgoing: Option<super::outgoing::Capture<P>>,
-	) -> Result<()> {
-		self.install(
-			pending,
-			source,
-			canonical,
-			intent.reply,
-			Action::Call {
-				verb: intent.verb,
-				args: intent.args,
-			},
-			outgoing,
-		)
-	}
-	pub fn start_upload(
-		self,
-		pending: PendingContinuation,
-		source: Ref,
-		canonical: String,
-		intent: super::uploads::Intent,
-		direct: bool,
-		outgoing: Option<super::outgoing::Capture<P>>,
-	) -> Result<()> {
-		let released = Rc::new(Cell::new(false));
-		if let Some(owner) = self.owner.upgrade() {
-			owner
-				.jobs
-				.borrow_mut()
-				.get_mut(&self.id)
-				.ok_or_else(|| loam::refusal("effect has no live observation"))?
-				.batch_released = Some(Rc::clone(&released));
-		}
-		self.install(
-			pending,
-			source,
-			canonical,
-			Reply::Upload,
-			Action::Upload {
-				intent,
-				released,
-				direct,
-			},
-			outgoing,
-		)
-	}
-	pub fn start_bridge(
-		self,
-		pending: PendingContinuation,
-		source: Ref,
-		canonical: String,
-		intent: super::bridge::pipeline::Intent,
-	) -> Result<()> {
-		self.install(
-			pending,
-			source,
-			canonical,
-			Reply::Acknowledgment,
-			Action::Bridge(Box::new(intent)),
-			None,
-		)
-	}
-	pub fn start_archive(
-		self,
-		pending: PendingContinuation,
-		source: Ref,
-		canonical: String,
-		intent: super::archive_sharing::Intent,
-	) -> Result<()> {
-		self.install(
-			pending,
-			source,
-			canonical,
-			Reply::Acknowledgment,
-			Action::Archive(Box::new(intent)),
-			None,
-		)
-	}
-	fn install(
-		mut self,
-		pending: PendingContinuation,
-		source: Ref,
-		canonical: String,
-		reply: Reply,
-		action: Action,
-		outgoing: Option<super::outgoing::Capture<P>>,
-	) -> Result<()> {
-		let owner = self
-			.owner
-			.upgrade()
-			.ok_or_else(|| loam::refusal("session owner is closed"))?;
-		let work = Rc::clone(
-			&owner
-				.jobs
-				.borrow()
-				.get(&self.id)
-				.ok_or_else(|| loam::refusal("effect has no live observation"))?
-				.work,
-		);
-		*work
-			.try_lock()
-			.map_err(|_| loam::refusal("effect observation is already started"))? = Some(Work {
-			intent: Intent { source, canonical },
-			reply,
-			outgoing,
-			provenance: Argument::Void,
-			retirement: self.retirement.clone(),
-			phase: Phase::Confirming {
-				pending,
-				action: Some(action),
-			},
-		});
-		resume(&owner, &self.id)?;
-		self.installed = true;
-		Ok(())
-	}
-}
-impl<P: Tasks + Deadline + Clone + 'static> Drop for Seat<P> {
-	fn drop(&mut self) {
-		if !self.installed
-			&& let Some(owner) = self.owner.upgrade()
-		{
-			if let Some(retirement) = &self.retirement {
-				retirement.absent();
-			}
-			let retired = owner.jobs.borrow_mut().remove(&self.id);
-			drop(retired);
-			owner.changed.notify_waiters();
-		}
-	}
 }

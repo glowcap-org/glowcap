@@ -192,7 +192,7 @@ pub async fn join(options: &Options) -> Result<Value, Failure> {
 					public_entry: None,
 					publication: None,
 					seat: None,
-					topic: None,
+					subject: None,
 					files: None,
 					lines: List::default(),
 					moderator: None,

@@ -15,6 +15,7 @@ pub mod policy;
 pub mod queries;
 pub mod receipt;
 pub mod stewardship;
+pub mod subject;
 
 /// A borrowed view of an already decoded protocol argument. The binding adapter
 /// implements this over its own value type. Rooms never serializes references

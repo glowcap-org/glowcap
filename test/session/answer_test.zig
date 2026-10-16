@@ -197,6 +197,7 @@ test "inbound answers are bounded by max_inbound_answers (ADR-0025)" {
             .target = .{ .near = .{ .export_position = .from(1) } },
             .args = &.{},
             .answer = .from(answer),
+            .resolve_me_desc = .{ .far = model.FarRef.object(0) },
         } });
     }
     // A third partner-named answer row overflows the table, a loud typed
@@ -234,6 +235,7 @@ test "the complete u64 answer namespace remains available to the partner" {
         .target = .{ .near = .{ .export_position = .from(1) } },
         .args = &.{},
         .answer = .from(std.math.maxInt(u64)),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
     try std.testing.expect(owned.inboundAnswer(.from(std.math.maxInt(u64))) != null);
 }
@@ -273,6 +275,7 @@ test "wire gc-answers cannot alias a private local-promise answer" {
         .target = .{ .near = .{ .export_position = .from(7) } },
         .args = &.{},
         .answer = collision,
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
     try std.testing.expect(s.inboundAnswer(collision) != null);
     try std.testing.expect(s.inboundAnswerNamed(projection.answer_name) != null);
@@ -288,7 +291,7 @@ test "wire gc-answers cannot alias a private local-promise answer" {
 
 test "a projection op accepts every fresh wire answer and refuses reuse" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
+    var s = session.Session.initWith(allocator, .{ .captp_version = .v1_0 });
     defer s.deinit();
     try s.registerExport(.from(1));
 
@@ -320,6 +323,7 @@ test "a second outbound resolve for a settled inbound answer is refused" {
         .target = .{ .near = .{ .export_position = .from(7) } },
         .args = &.{},
         .answer = .from(11),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
 
     try s.recordSend(.{ .resolve = .{
@@ -360,6 +364,7 @@ test "a partner may reuse an answer position after releasing it" {
         .target = .{ .near = .{ .export_position = .from(7) } },
         .args = &.{},
         .answer = .from(11),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
     try s.recordSend(.{ .resolve = .{
         .answer = .from(11),
@@ -374,6 +379,7 @@ test "a partner may reuse an answer position after releasing it" {
         .target = .{ .near = .{ .export_position = .from(7) } },
         .args = &.{},
         .answer = .from(11),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
     try std.testing.expectEqual(session.AnswerStatus.pending, s.inboundAnswer(.from(11)).?.status);
 }

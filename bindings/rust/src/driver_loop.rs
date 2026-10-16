@@ -493,7 +493,7 @@ impl LoopShared {
 	/// Wake every close driver parked on loop activity. Waiters re-check
 	/// state on every wake, so a spare signal costs one check and a missed
 	/// one is a hang.
-	fn note_step_activity(&self) {
+	pub(crate) fn note_step_activity(&self) {
 		self.activity.notify_waiters();
 	}
 

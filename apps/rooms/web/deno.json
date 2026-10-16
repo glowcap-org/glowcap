@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/denoland/deno/main/cli/schemas/config-file.v1.json",
   "license": "Apache-2.0",
   "tasks": {
-    "check": "deno fmt --check && deno lint && deno check dev.ts dev_test.ts dev_process_test.ts vite.config.ts ui/main.tsx && deno test -A"
+    "check": "deno fmt --check && deno lint && deno check dev.ts dev_test.ts dev_process_test.ts vite.config.ts ui/main.tsx ui/ground.js && deno test -A"
   },
   "nodeModulesDir": "auto",
   "compilerOptions": {

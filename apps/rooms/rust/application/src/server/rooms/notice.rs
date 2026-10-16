@@ -70,8 +70,8 @@ pub enum Notice {
 		why: String,
 	},
 	/// What the room is about: told to an arrival, and announced on change.
-	Topic {
-		text: String,
+	Subject {
+		subject: crate::room::subject::Subject,
 		changed: bool,
 	},
 	Listed(bool),
@@ -187,14 +187,7 @@ impl Notice {
 					format!("{nick} is away: {why}").into()
 				}
 			}
-			Self::Topic { text, changed: false } => format!("the topic is: {text}").into(),
-			Self::Topic { text, changed: true } => {
-				if text.is_empty() {
-					Cow::Borrowed("the topic was taken down")
-				} else {
-					format!("the topic is now: {text}").into()
-				}
-			}
+			Self::Subject { subject, changed } => subject.said(*changed).into(),
 			Self::Said(text) | Self::Ended(text) => Cow::Borrowed(text),
 			Self::ReceiptRejected(_)
 			| Self::Forgotten(_)

@@ -65,6 +65,10 @@ unsafe extern "C" {
 		pending: *mut GlowcapLoamPendingContinuation,
 		out_continuation: *mut *mut GlowcapLoamContinuation,
 	) -> c_int;
+	pub fn glowcap_loam_pending_continuation_absent(
+		pending: *mut GlowcapLoamPendingContinuation,
+		out_absent: *mut u32,
+	) -> c_int;
 	pub fn glowcap_loam_pending_continuation_release(pending: *mut GlowcapLoamPendingContinuation) -> c_int;
 	pub fn glowcap_loam_continuation_release(continuation: *mut GlowcapLoamContinuation) -> c_int;
 	pub fn glowcap_loam_continuation_project(

@@ -164,11 +164,12 @@ pub fn arguments<E: Encoder>(notice: &Notice, e: &mut E) -> Result<Vec<E::Value>
 			out.push(e.text(nick.clone()));
 			out.push(e.text(why.clone()));
 		}
-		Notice::Topic { text, .. } => {
+		Notice::Subject { subject, .. } => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(notice.said().into_owned()));
-			out.push(e.text(crate::protocol_data::TOPIC.into()));
-			out.push(e.text(text.clone()));
+			out.push(e.text(crate::protocol_data::SUBJECT.into()));
+			out.push(e.text(subject.description().into()));
+			out.extend(subject.link().map(|link| e.text(link.into())));
 		}
 		Notice::Listed(listed) => {
 			out.push(e.text(ROOM.into()));

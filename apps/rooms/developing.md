@@ -282,21 +282,32 @@ minted for this caller.
 
 An entrance grants a nickname when `subscribe(nick, inbox)` succeeds, and
 answers four things: the membership seat, which kind of seat it is
-(`participant` or `observer`), the topic authority, and the files facet. Every
+(`participant` or `observer`), the subject facet, and the files facet. Every
 later membership verb (`post`, `leave`, `away`, `typing`) goes to the seat, so a
 post needs no sender field: the seat is the membership. Leaving or
 disconnecting releases the nickname.
 
-The topic authority carries `setTopic(text)`. Every participant is answered
-with one, and because it is a reference rather than a rank, a member can
-pass it to somebody who is not even in the room. The files facet is the same
-idea for files: `attach` and `postFiles` go to it, a room hands it out when
-it can hold bytes and answers null when it cannot, which is how a room
-bridged to IRC says so. The page draws the attach control from whether the
-membership holds that facet. Two parts of a message are description rather
-than authority, and the room states them at arrival on the `carries` tag:
-whether it keeps the link previews a line names, and whether it relays the
-typing signal.
+The subject facet carries `setSubject(description, link?)`. Every participant
+is answered with one, and because it is a reference rather than a rank, a
+member can pass it to somebody who is not even in the room.
+
+A subject is a description every client can show. It may also carry the
+sturdyref of an object the room is about, such as a shared board or a game.
+The Rooms server parses the link before it accepts it and shares it with
+everyone who reads the room, but it never calls the object. Whoever set the
+link hosts the object and decides what the shared reference may do. A
+subject with no link is the plain topic an IRC channel has. A description
+never starts with `ocapn://`, so typed text such as
+`/subject ocapn://… the board` or an IRC `TOPIC` always tells the link from
+the words describing it.
+
+The files facet is the same idea for files: `attach` and `postFiles` go to it,
+a room hands it out when it can hold bytes and answers null when it cannot,
+which is how a room bridged to IRC says so. The page draws the attach control
+from whether the membership holds that facet. Two parts of a message are
+description rather than authority, and the room states them at arrival on the
+`carries` tag: whether it keeps the link previews a line names, and whether it
+relays the typing signal.
 
 `post` answers a reference to the line it made, and holding that reference
 is the authority to `edit(text)` or `withdraw()` that one line. `postFiles`

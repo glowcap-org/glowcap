@@ -7,10 +7,14 @@ decision: "The next profile follows OCapN PR 282: answered operations have no in
 supersedes: []
 superseded_by: []
 amends: [ADR-0007, ADR-0095]
-amended_by: []
+amended_by: [ADR-0251]
 ---
 
 # ADR-0111 Next promise listeners
+
+[ADR-0251](ADR-0251-next-operations-with-retained-crypto.md) replaces the
+operation/listen pair with the merged inline subscription. The shortening and
+settling machinery below remains in use.
 
 ## Context
 

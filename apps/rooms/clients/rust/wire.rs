@@ -287,7 +287,7 @@ pub fn read_presence(from: &str, text: &str, args: &[Argument]) -> Option<Presen
 
 /// The membership seat `subscribe` answers with, the `seat` of the generated
 /// answer record. An observer is answered with void where a participant holds
-/// the topic, which the record's nullable field admits.
+/// the subject facet, which the record's nullable field admits.
 pub fn membership_seat(answer: &Argument) -> Option<glowcap::Ref> {
 	let values = answer
 		.as_list()
@@ -516,7 +516,7 @@ mod tests {
 				.iter()
 				.map(|field| field.name)
 				.collect::<Vec<_>>(),
-			["seat", "kind", "topic", "files"],
+			["seat", "kind", "subject", "files"],
 		);
 	}
 }

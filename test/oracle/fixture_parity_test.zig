@@ -113,7 +113,7 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     try peer.session_state.registerExport(.from(7));
 
     try peer.recvBorrowed(.{
-        .bytes = "<10'op:deliver<11'desc:export7+>[]11+>",
+        .bytes = "<10'op:deliver<11'desc:export7+>[]11+<18'desc:import-object0+>1+>",
         .shape = .byte,
     });
     var event = peer.pollEvent().?;
@@ -141,4 +141,44 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
         glowcap.ocapn.session.AnswerStatus.fulfilled,
         resolver.session_state.outboundAnswer(.from(42)).?.status,
     );
+}
+
+test "oracle-check drives merged next calls and deliver-only over both codecs" {
+    const allocator = std.testing.allocator;
+    const engine = glowcap.ocapn.engine;
+    const dispatch = glowcap.ocapn.codec.dispatch;
+    inline for (.{ model.CodecId.syrup, model.CodecId.capnp }) |codec_id| {
+        var pair = try engine.pairing.pairedNegotiated(allocator, .{ .captp_version = .next, .codec = codec_id, .features = model.FeatureSet.full().forCaptpVersion(.next) });
+        defer pair.deinit();
+        try pair.p1.session_state.registerImport(.from(7));
+        try pair.p2.session_state.registerExport(.from(7));
+        try pair.p1.sendBorrowed(.{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(7) },
+            .args = &.{},
+            .answer = .from(42),
+        } });
+        _ = try pair.p1.step();
+        var frame = pair.p1.takeOutbound() orelse return error.MissingCall;
+        errdefer frame.deinit();
+        const call = try dispatch.decodeBodyForProfile(codec_id, .next, frame.view());
+        try std.testing.expectEqual(model.ListenMode.shortening_or_settling, call.deliver.listen_mode);
+        try std.testing.expect(call.deliver.resolve_me_desc.? == .far);
+        try std.testing.expect(pair.p1.takeOutbound() == null);
+        try pair.p2.feedOwned(frame);
+        _ = try pair.p2.step();
+        var event = pair.p2.pollEvent() orelse return error.MissingDelivery;
+        event.deinit();
+        try pair.p2.sendBorrowed(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{ .integer = 7 } } } });
+        try std.testing.expectEqual(engine.pairing.ShuttleOutcome.quiescent, try engine.pairing.shuttleUntilQuiescent(&pair.p1, &pair.p2));
+        var reply = pair.p1.pollEvent() orelse return error.MissingReply;
+        defer reply.deinit();
+        try std.testing.expectEqual(@as(i64, 7), reply.view().resolve.resolution.fulfill.integer);
+        try pair.p1.sendBorrowed(.{ .deliver = .{ .target = .{ .far = model.FarRef.object(7) }, .args = &.{} } });
+        _ = try pair.p1.step();
+        var only = pair.p1.takeOutbound() orelse return error.MissingTell;
+        defer only.deinit();
+        const tell = try dispatch.decodeBodyForProfile(codec_id, .next, only.view());
+        try std.testing.expect(tell.deliver.answer == null and tell.deliver.resolve_me_desc == null);
+        if (codec_id == .syrup) try std.testing.expectEqualStrings("<15'op:deliver-only<11'desc:export7+>[]>", only.bytes());
+    }
 }

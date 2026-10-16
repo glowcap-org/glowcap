@@ -1,6 +1,6 @@
 //! Durable result data contains field coordinates, never bearer links. The
 //! receipt separately owns the exact capability at each returned coordinate.
-use super::custody::{FieldKey, Line, RoomAccess, RoomControl, RoomFiles, RoomSeat, RoomTopic};
+use super::custody::{FieldKey, Line, RoomAccess, RoomControl, RoomFiles, RoomSeat, RoomSubject};
 use crate::{
 	fields::SafeInteger,
 	room::policy::RoomPolicy,
@@ -128,6 +128,6 @@ impl History {
 pub struct Membership {
 	pub kind: crate::room::policy::MembershipKind,
 	pub seat: FieldKey<RoomSeat>,
-	pub topic: Option<FieldKey<RoomTopic>>,
+	pub subject: Option<FieldKey<RoomSubject>>,
 	pub files: Option<FieldKey<RoomFiles>>,
 }

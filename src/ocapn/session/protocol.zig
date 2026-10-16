@@ -122,12 +122,14 @@ pub fn recordSendInventoried(self: *Session, message: model.Message, inventory: 
 /// installed. The answer position stays spent.
 pub fn retractSend(self: *Session, exports: []const model.ExportPosition, answer: ?model.AnswerPosition) void {
     apply.releaseSentExports(self, exports);
+    for (exports) |position| @import("forwarding.zig").releaseIfUnmentioned(self, position);
     if (answer) |position| self.abandonOutboundAnswer(position);
 }
 
 /// Undo `recordPreparedSend` for a listen that never reached the wire.
 pub fn retractPreparedListen(self: *Session, message: model.Message) void {
     std.debug.assert(message == .listen);
+    @import("listen_claims.zig").retract(self, message.listen);
     apply.releaseSentMessage(self, message);
 }
 

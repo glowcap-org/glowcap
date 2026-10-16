@@ -17,7 +17,7 @@ pub(super) async fn run(
 	let mut second = first.clone();
 	second.id = rooms_application::fields::Text::new("second".into()).unwrap();
 	second.name = rooms_application::fields::Text::new("second".into()).unwrap();
-	// Both rows initially alias the same seat, topic, files and closed inbox.
+	// Both rows initially alias the same seat, subject, files and closed inbox.
 	// Replacing the first row must preserve the second row's exact custody.
 	intent
 		.conversations

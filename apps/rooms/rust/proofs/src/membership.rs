@@ -15,7 +15,7 @@ pub fn run() {
 		let result = args
 			.as_ref()
 			.and_then(|a| membership::read_answer(a).ok())
-			.map(|s| json!({"kind":s.kind.as_str(),"topic":s.topic.is_some(),"files":s.files.is_some()}))
+			.map(|s| json!({"kind":s.kind.as_str(),"subject":s.subject.is_some(),"files":s.files.is_some()}))
 			.unwrap_or(Value::Null);
 		assert_eq!(result, row["result"]);
 	}
@@ -60,7 +60,7 @@ fn state_and_queue() {
 		.accept(membership::Seat {
 			reference: (),
 			kind: MembershipKind::Observer,
-			topic: None,
+			subject: None,
 			files: None,
 		})
 		.unwrap();
@@ -73,7 +73,7 @@ fn state_and_queue() {
 			.accept(membership::Seat {
 				reference: (),
 				kind: MembershipKind::Participant,
-				topic: None,
+				subject: None,
 				files: None,
 			})
 			.is_err()

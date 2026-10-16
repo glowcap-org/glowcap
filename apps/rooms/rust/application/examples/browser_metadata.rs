@@ -43,7 +43,8 @@ fn main() -> Result<(), String> {
 		("MAX_AWAY", room::membership::MAX_AWAY),
 		("MAX_MESSAGE_FILES", room::line::MAX_MESSAGE_FILES),
 		("MAX_ROOM_MESSAGE_BACKLOG", room::inbox::queue::MAX_MESSAGES),
-		("MAX_TOPIC", server::rooms::MAX_TOPIC),
+		("MAX_SUBJECT_DESCRIPTION", room::subject::MAX_DESCRIPTION),
+		("MAX_SUBJECT_LINK", room::subject::MAX_LINK),
 		("MAX_FORM_FIELDS", bridge::MAX_FIELDS),
 		("MAX_FORM_ACTIONS", bridge::MAX_ACTIONS),
 		("MAX_FORM_JSON", bridge::MAX_JSON),
@@ -134,6 +135,11 @@ fn main() -> Result<(), String> {
 	] {
 		let _ = writeln!(text, "export const {name} = {value};");
 	}
+	let _ = writeln!(
+		text,
+		"export const SUBJECT_LINK_SCHEME = {};",
+		json!(room::subject::LINK_SCHEME)
+	);
 	let mentions = room::inbox::ROOM_MENTIONS
 		.iter()
 		.map(|name| json!(name).to_string())

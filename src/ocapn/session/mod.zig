@@ -22,6 +22,7 @@ const gc = @import("gc.zig");
 const resolver_export = @import("resolver_export.zig");
 const shortening = @import("shortening.zig");
 const v1_0 = @import("v1_0.zig");
+const deliver_resolver = @import("deliver_resolver.zig");
 const handshake = @import("handshake.zig");
 const limits = @import("limits.zig");
 const protocol = @import("protocol.zig");
@@ -132,6 +133,7 @@ pub const AnswerStatus = answers.AnswerStatus;
 pub const pendingInboundSlot = answers.pendingInboundSlot;
 pub const answerSlot = answers.answerSlot;
 pub const AnswerCell = answers.AnswerCell;
+pub const QueuedCall = answers.QueuedCall;
 pub const AnswerPayload = answers.AnswerPayload;
 pub const AnswerTarget = answers.AnswerTarget;
 pub const StoredResolution = answers.StoredResolution;
@@ -140,7 +142,6 @@ pub const Projection = answers.Projection;
 pub const ProjectionKind = answers.ProjectionKind;
 pub const ProjectionIndex = answers.ProjectionIndex;
 pub const deinitProjection = answers.deinitProjection;
-pub const AnswerView = answers.AnswerView;
 pub const PreparedPipelinedCallQueue = pipeline.PreparedCallQueue;
 pub const InboundAnswerTable = answers.InboundAnswerTable;
 pub const OutboundAnswerTable = answers.OutboundAnswerTable;
@@ -149,14 +150,13 @@ pub const inspect = @import("inspect.zig");
 pub const ExportView = inspect.ExportView;
 pub const ImportView = inspect.ImportView;
 pub const AnswerRowView = inspect.AnswerRowView;
-pub const deinitAnswerCell = answers.deinitAnswerCell;
 
 pub const PromiseListenCell = promise_types.PromiseListenCell;
 pub const ImportedPromise = promise_types.ImportedPromise;
 
 /// Supported alias for the row owned by `sturdyref_cache.zig`.
 pub const SturdyrefCacheEntry = sturdyref_cache.Entry;
-pub const PreparedInboundResolver = v1_0.PreparedInboundResolver;
+pub const PreparedDeliveryResolver = deliver_resolver.Prepared;
 
 pub const Session = struct {
     allocator: std.mem.Allocator,
@@ -240,11 +240,13 @@ pub const Session = struct {
     /// pipelining name has been GC'd and may already have been reused. Null in
     /// the steady state. Rows are keyed by the session's monotonic row stamp.
     detached_inbound_answers: ?*answers.DetachedAnswerStore = null,
+    local_promises: ?*local_promise.Registry = null,
     /// Owned bytes in resolutions retained by sent inbound-answer rows. This
     /// durable store has its own Session limit. Transient outbound flow
     /// accounting ends when a settlement moves here. Answer GC, local-promise
     /// retirement, and teardown release the exact charge.
     retained_sent_answer_bytes: usize = 0,
+    import_release_outbox: ?*@import("import_release_outbox.zig").Outbox = null,
     /// Promises imported from a third party via handoff (ADR-0009), keyed by
     /// import position for O(1) lookup. Host designators are interned in
     /// `key_arena`. Each row owns its listen cell and stored relayed resolution.
@@ -374,6 +376,7 @@ pub const Session = struct {
     pub const shorteningIncarnationForImport = shortening.incarnationForImport;
     pub const releaseShorteningResolverExport = shortening.releaseResolverExport;
     pub const expandShorteningGcExportReleases = shortening.expandGcExportReleases;
+    pub const expandSessionGcExportReleases = shortening.expandSessionGcExportReleases;
     pub const rewriteShortenedMessage = shortening.rewriteMessage;
     pub const rewriteShortenedResolution = shortening.rewriteResolution;
     pub const certifyFreight = @import("validate/freight.zig").certifyFreight;
@@ -392,8 +395,8 @@ pub const Session = struct {
     pub const prepareInboundResolver = v1_0.prepareInboundResolver;
     pub const resolverForInboundAnswer = v1_0.resolverForInboundAnswer;
     pub const answerForResolverImport = v1_0.answerForResolverImport;
-    pub const allocateInboundAnswer = v1_0.allocateInboundAnswer;
-    pub const nextVirtualInboundAnswer = v1_0.nextVirtualInboundAnswer;
+    pub const prepareDeliveryResolver = deliver_resolver.prepare;
+    pub const allocateInboundAnswer = deliver_resolver.allocateInboundAnswer;
     pub const answerTargetNamed = answer_notifications.answerTargetNamed;
     pub const answerPayloadForTarget = answer_notifications.payload;
     pub const inboundAnswerObligationCount = answer_notifications.obligationCount;
@@ -524,10 +527,9 @@ pub const Session = struct {
 
     pub const allocateLocalPromiseProjection = local_promise.allocate;
     pub const answerForLocalPromiseExport = local_promise.answerForExport;
-    pub const isLocalPromiseAnswer = local_promise.isAnswer;
+    pub const LocalPromiseCustody = local_promise.Custody;
     pub const abandonLocalPromiseProjection = local_promise.abandon;
-    pub const retireReleasedLocalPromiseAnswer = local_promise.retireReleased;
-
+    pub const collectLocalPromiseProjections = local_promise.collect;
     pub const releaseUnsharedExport = positions.releaseUnsharedExport;
     pub const releaseImportRetain = positions.releaseImportRetain;
     pub const releaseSessionImportRetain = positions.releaseSessionImportRetain;
@@ -582,7 +584,7 @@ pub const Session = struct {
     pub const peekResolution = answers.peekResolution;
     pub const peekResolutionNamed = answers.peekResolutionNamed;
     pub const peekStoredResolutionNamed = answers.peekStoredResolutionNamed;
-    pub const promiseTargetForResolution = answers.promiseTargetForResolution;
+    pub const promiseTargetForResolution = local_promise.targetForResolution;
     pub const answerResolved = answers.answerResolved;
     pub const answerResolvedNamed = answers.answerResolvedNamed;
 
@@ -644,3 +646,5 @@ pub const validateHandoffWellFormed = gc.validateHandoffWellFormed;
 /// Release the listen cell an `ImportedPromise` holds (host is `key_arena`-interned).
 /// Body in `promises/imported.zig`.
 pub const deinitImportedPromise = imported_promise.deinitImportedPromise;
+pub const ForwardedReply = @import("forwarding.zig").ForwardedReply;
+pub const ImportRelease = @import("import_release_outbox.zig").Batch;

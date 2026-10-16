@@ -54,14 +54,22 @@ fn decodedVia(allocator: std.mem.Allocator, codec_id: model.CodecId, profile: mo
 
 /// A message means the same thing through either codec.
 fn expectCodecEquivalent(message: model.Message) !void {
-    return expectCodecEquivalentForProfile(default_profile, message);
+    try expectCodecEquivalentForProfile(.v1_0, message);
+    switch (message) {
+        .get, .index, .untag, .resolve => return,
+        else => {},
+    }
+    try expectCodecEquivalentForProfile(.next, message);
 }
 
 fn expectCodecEquivalentForProfile(profile: model.CaptpVersion, message: model.Message) !void {
     const allocator = std.testing.allocator;
-    const via_syrup = try decodedVia(allocator, .syrup, profile, message);
+    var wire = message;
+    if (profile == .next and wire == .deliver and wire.deliver.answer != null and wire.deliver.resolve_me_desc == null)
+        wire.deliver.resolve_me_desc = .{ .near = model.NearRef.object(71) };
+    const via_syrup = try decodedVia(allocator, .syrup, profile, wire);
     defer model.freeMessage(allocator, via_syrup);
-    const via_capnp = try decodedVia(allocator, .capnp, profile, message);
+    const via_capnp = try decodedVia(allocator, .capnp, profile, wire);
     defer model.freeMessage(allocator, via_capnp);
     try std.testing.expect(messagesEqual(via_syrup, via_capnp));
 }
@@ -243,7 +251,7 @@ fn expectDuplicateKeyStructRefused(codec_id: model.CodecId) !void {
         .target = .{ .far = model.FarRef.object(4) },
         .args = &args,
         .answer = .from(7),
-        .resolve_me_desc = null,
+        .resolve_me_desc = .{ .near = model.NearRef.object(71) },
     } });
     defer wire_frame.deinit();
 
@@ -282,4 +290,80 @@ test "i64 boundary integers round-trip and stay codec-equivalent (regression: mi
             .{ .integer = 0 },
         },
     } });
+}
+
+test "next delivery forms preserve inline subscription semantics through both codecs" {
+    const allocator = std.testing.allocator;
+    inline for (.{ model.CodecId.syrup, model.CodecId.capnp }) |codec_id| {
+        inline for (.{ model.ListenMode.shortening_only, model.ListenMode.shortening_or_settling }) |mode| {
+            inline for (.{ @as(?model.AnswerPosition, null), @as(?model.AnswerPosition, .from(42)) }) |answer| {
+                const message = model.Message{ .deliver = .{
+                    .target = .{ .far = model.FarRef.object(7) },
+                    .args = &.{},
+                    .answer = answer,
+                    .resolve_me_desc = .{ .near = model.NearRef.promise(9) },
+                    .listen_mode = mode,
+                } };
+                const decoded = try decodedVia(allocator, codec_id, .next, message);
+                defer model.freeMessage(allocator, decoded);
+                try std.testing.expectEqual(answer, decoded.deliver.answer);
+                try std.testing.expectEqual(mode, decoded.deliver.listen_mode);
+                try std.testing.expectEqual(model.Reference{ .far = model.FarRef.promise(9) }, decoded.deliver.resolve_me_desc.?);
+            }
+        }
+        const only = try decodedVia(allocator, codec_id, .next, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(7) },
+            .args = &.{},
+        } });
+        defer model.freeMessage(allocator, only);
+        try std.testing.expect(only.deliver.answer == null and only.deliver.resolve_me_desc == null);
+        const invalid = [_]model.Message{
+            .{ .deliver = .{ .target = .{ .far = model.FarRef.object(7) }, .args = &.{}, .answer = .from(1) } },
+            .{ .deliver = .{ .target = .{ .far = model.FarRef.object(7) }, .args = &.{}, .resolve_me_desc = .{ .near = model.NearRef.object(9) }, .listen_mode = .settling_only } },
+            .{ .deliver = .{ .target = .{ .far = model.FarRef.object(7) }, .args = &.{}, .resolve_me_desc = .{ .far = model.FarRef.object(9) } } },
+        };
+        for (invalid) |message| try std.testing.expectError(error.UnsupportedMessage, codec.dispatch.encodeMessageForProfile(codec_id, allocator, .next, message));
+    }
+    const invalid_syrup = [_][]const u8{
+        "<10'op:deliver<11'desc:export7+>[]1+>",
+        "<10'op:deliver<11'desc:export7+>[]ff>",
+        "<10'op:deliver<11'desc:export7+>[]f<11'desc:export9+>3+>",
+        "<10'op:deliver<11'desc:export7+>[]f<18'desc:import-object9+>2+>",
+        "<15'op:deliver-only<11'desc:export7+>[]f>",
+    };
+    for (invalid_syrup) |bytes| try std.testing.expectError(error.MalformedFrame, codec.syrup.decodeBodyForProfile(.next, .{ .bytes = bytes, .shape = .byte }));
+}
+
+test "next Cap'n Proto rejects absent malformed and unnegotiated inline mode bits" {
+    const allocator = std.testing.allocator;
+    const capnp = codec.capnp;
+    const shared = capnp.shared;
+    var frame = try capnp.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(42),
+        .resolve_me_desc = .{ .near = model.NearRef.object(9) },
+    } });
+    defer frame.deinit();
+    const bytes = try allocator.dupe(u8, frame.bytes());
+    defer allocator.free(bytes);
+    const view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
+    const parsed = try capnp.decodeMessageView(view);
+    const flags = bytes[(parsed.body.data_idx + 1) * capnp.wire.WORD_BYTES ..][0..capnp.wire.WORD_BYTES];
+    const valid = std.mem.readInt(u64, flags, .little);
+    const base = shared.deliver_has_answer | shared.deliver_has_resolve_me;
+    const invalid = [_]u64{
+        base,
+        base | (2 << shared.deliver_listen_shift),
+        shared.deliver_has_answer,
+        1 << shared.deliver_listen_shift,
+        valid | (1 << 8),
+    };
+    for (invalid) |value| {
+        std.mem.writeInt(u64, flags, value, .little);
+        try std.testing.expectError(error.MalformedFrame, capnp.decodeBodyForProfile(.next, view));
+    }
+    std.mem.writeInt(u64, flags, valid, .little);
+    try std.testing.expectEqual(model.ListenMode.shortening_or_settling, (try capnp.decodeBodyForProfile(.next, view)).deliver.listen_mode);
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeBodyForProfile(.v1_0, view));
 }

@@ -271,17 +271,16 @@ pub const Event = struct {
     /// polled. Null for every non-deliver kind, and for a deliver that
     /// introduced no far reference (the common case: no allocation then).
     /// `driver.core.gc` reads this instead of re-walking the deliver's args
-    /// when set. A deliver surfaced by any other path (today only a
-    /// drained pipelined call redirected to a local export:
-    /// `engine.pipeline.deliverDrainedCallLocally`) leaves this null, and
-    /// `gc` falls back to its own walk.
+    /// when set. Pipelined replay preserves the original record even if
+    /// shortening rewrote the arguments. Synthetic calls without an admission
+    /// record leave this null, and `gc` falls back to its own walk.
     introduced_far_imports: ?[]model.ImportPosition = null,
     /// For a `.deliver` event this session validated: how many reference and
     /// handoff slots its application arguments hold, at every depth, counted
     /// by the same validate walk. The Vat hands it to the delivery, and a
     /// Host handler whose delivery holds none reads the frame's views with
-    /// no lift. Null for every other kind and for a deliver surfaced by any
-    /// other path, which the Host lifts as a whole.
+    /// no lift. Pipelined replay preserves this count. Null for other kinds
+    /// and synthetic delivers without an admission record.
     reference_slots: ?u32 = null,
     /// Additional local answers sharing this resolve's one next-profile wire
     /// callback. The originating frame remains single-owner. Consumers project

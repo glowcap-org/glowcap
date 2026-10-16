@@ -11,6 +11,7 @@ pub const symbols = [_]shared.symbols.Symbol{
     .{ .name = "glowcap_loam_continuation_reservation_source", .out_params = &.{1} },
     .{ .name = "glowcap_loam_continuation_reservation_target", .out_params = &.{2} },
     .{ .name = "glowcap_loam_pending_continuation_take", .out_params = &.{1} },
+    .{ .name = "glowcap_loam_pending_continuation_absent", .out_params = &.{1} },
     .{ .name = "glowcap_loam_pending_continuation_release" },
     .{ .name = "glowcap_loam_continuation_release" },
     .{ .name = "glowcap_loam_continuation_project", .out_params = &.{2} },

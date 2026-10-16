@@ -14,30 +14,36 @@ struct Custody {
 }
 impl Drop for Custody {
 	fn drop(&mut self) {
-		self.owner.storage_jobs.set(self.owner.storage_jobs.get() - 1);
-		self.owner.progress_changed.notify_waiters();
-		if self.released {
-			return;
-		}
-		if !self.started {
-			// No transaction was submitted, so non-commit is established.
-			if let Err(error) = check(unsafe { ffi::glowcap_loam_work_finish(self.raw, 1) }) {
-				self.owner.host.record_background_failure(error);
+		if !self.released {
+			if !self.started {
+				// No transaction was submitted, so non-commit is established.
+				if let Err(error) = check(unsafe { ffi::glowcap_loam_work_finish(self.raw, 1) }) {
+					self.owner.host.record_background_failure(error);
+				}
 			}
+			crate::finalizer::park_loam_work(Rc::clone(&self.owner), self.raw);
+			self.owner.host.note_close_activity();
 		}
-		crate::finalizer::park_loam_work(Rc::clone(&self.owner), self.raw);
-		self.owner.host.note_close_activity();
+		self.owner.work_retired();
 	}
 }
 
-pub(crate) async fn execute(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLoamWork) -> Result<()> {
-	owner.storage_jobs.set(owner.storage_jobs.get() + 1);
+/// Start one storage work in an IndexedDB transaction as a Host-owned task.
+/// The relay kicks the drain once the work retires.
+pub(crate) fn start(owner: Rc<AttachmentInner>, raw: *mut ffi::GlowcapLoamWork) -> Result<()> {
+	owner.work_started();
 	let custody = Custody {
 		owner: Rc::clone(&owner),
 		raw,
 		started: false,
 		released: false,
 	};
+	let host = Rc::clone(&owner.host);
+	super::super::spawn_work(&host, execute(owner, custody))
+}
+
+async fn execute(owner: Rc<AttachmentInner>, custody: Custody) -> Result<()> {
+	let raw = custody.raw;
 	retained_on_host(
 		Rc::clone(&owner.host),
 		async move {

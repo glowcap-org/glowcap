@@ -43,6 +43,10 @@ pub const GlowcapLoamLimits = extern struct {
     resident_bytes: usize,
     staging_bytes: usize,
     cache_slots: usize,
+    /// Records a walk may read before it needs them. Each holds a cache slot
+    /// until demand pins it, so cache_slots covers demand plus this depth.
+    /// Zero reads nothing ahead.
+    read_ahead: usize = 8,
     max_leases: usize,
     max_changes: usize,
     /// Live attachment endpoints. Independent of Store retention tokens.

@@ -151,7 +151,7 @@ pub const registration_row_fields = [_]Field{
 pub const subscribe_answer_fields = [_]Field{
     .{ .name = "seat", .ty = .reference, .nullable = false, .values = &.{} },
     .{ .name = "kind", .ty = .text, .nullable = false, .values = &membership_kinds },
-    .{ .name = "topic", .ty = .reference, .nullable = true, .values = &.{} },
+    .{ .name = "subject", .ty = .reference, .nullable = true, .values = &.{} },
     .{ .name = "files", .ty = .reference, .nullable = true, .values = &.{} },
 };
 

@@ -100,13 +100,10 @@ test "driven projections resolve the projected answers when each source settles"
         "scenario=driven_projections\n" ++
             "p1=sent:deliver:answer=11\n" ++
             "p2=event:deliver\n" ++
-            "p2=event:listen\n" ++
             "p1=sent:deliver:answer=21\n" ++
             "p2=event:deliver\n" ++
-            "p2=event:listen\n" ++
             "p1=sent:deliver:answer=31\n" ++
             "p2=event:deliver\n" ++
-            "p2=event:listen\n" ++
             "p1=sent:get\n" ++
             "p2=event:get\n" ++
             "p2=event:listen\n" ++

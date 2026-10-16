@@ -388,9 +388,9 @@
           (inbox-notify! queue ended-box args)
           (void)))))
   ;; Subscribe, handing the room our inbox. The room answers the generated
-  ;; `SUBSCRIBE-ANSWER-FIELDS`, the membership seat with its kind and the topic
-  ;; authority; the welcome and roster arrive as our first `notify`, not as part
-  ;; of that answer.
+  ;; `SUBSCRIBE-ANSWER-FIELDS`, the membership seat with its kind and the
+  ;; subject facet; the welcome and roster arrive as our first `notify`, not as
+  ;; part of that answer.
   (define answer (session-send c the-room SUBSCRIBE nick inbox))
   (unless (fields-fit? SUBSCRIBE-ANSWER-FIELDS answer)
     (error 'room-subscribe "the room answered subscribe without one membership capability"))

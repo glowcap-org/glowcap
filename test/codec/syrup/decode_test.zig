@@ -422,12 +422,15 @@ test "the next deliver arity is refused under v1.0 and projected under next" {
         .target = .{ .far = model.FarRef.object(4) },
         .args = &.{.{ .string = "next" }},
         .answer = .from(6),
+        .resolve_me_desc = .{ .near = model.NearRef.object(9) },
+        .listen_mode = .shortening_only,
     } });
     defer frame.deinit();
 
     try std.testing.expectError(error.MalformedFrame, syrup.decodeBody(frame.view()));
     const next_body = try syrup.decodeBodyForProfile(.next, frame.view());
     try std.testing.expectEqual(model.AnswerPosition.from(6), next_body.deliver.answer.?);
+    try std.testing.expectEqual(model.ListenMode.shortening_only, next_body.deliver.listen_mode);
 }
 
 test "a known label matches only its canonical form" {

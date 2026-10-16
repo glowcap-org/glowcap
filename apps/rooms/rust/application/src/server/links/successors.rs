@@ -5,20 +5,17 @@
 use super::*;
 
 impl Authority {
-	/// Make `name` durable, remembering `topic` when the room has none. Also
-	/// issues a steward or a manager when asked, and files a managed room
-	/// under its opaque id. The successor is `None` when nothing changes.
+	/// Make `name` durable. Also issues a steward or a manager when asked,
+	/// and files a managed room under its opaque id. The successor is `None`
+	/// when nothing changes.
 	pub fn remembered(
 		&self,
 		name: &str,
 		steward: bool,
 		manager: bool,
-		topic: Option<&str>,
 		managed: Option<Registration<'_>>,
 	) -> Result<Option<Self>, Refusal> {
 		let key = fold(name);
-		let topic = topic.filter(|topic| !topic.is_empty());
-		let needs_topic = topic.is_some() && !self.topics.contains_key(&key);
 		let existing_managed = self.managed.get(&key);
 		let needs_managed = managed.as_ref().is_some_and(|managed| {
 			existing_managed.is_none_or(|held| held.name != managed.name || held.policy != managed.policy)
@@ -26,7 +23,6 @@ impl Authority {
 		if self.linked.contains_key(&key)
 			&& (!steward || self.has_steward(name))
 			&& (!manager || self.has_manager(name))
-			&& !needs_topic
 			&& !needs_managed
 		{
 			return Ok(None);
@@ -63,17 +59,6 @@ impl Authority {
 			next.revoked.remove(&key);
 		}
 		next.linked.insert(key.clone(), name.into());
-		if let Some(topic) = topic
-			&& !next.topics.contains_key(&key)
-		{
-			if next.topics.len() == document::MAX_ROOM_LINKS {
-				return Err(Refusal::plain(format!(
-					"this server remembers topics for at most {} rooms",
-					document::MAX_ROOM_LINKS
-				)));
-			}
-			next.topics.insert(key.clone(), (name.into(), topic.into()));
-		}
 		if steward && !next.has_steward(name) {
 			let generation = next.stewards.get(&key).map_or(1, |row| row.generation + 1);
 			if generation > MAX_SAFE {
@@ -143,37 +128,31 @@ impl Authority {
 		next.refile_managed();
 		Ok(Some(Self::admitted(next)?))
 	}
-	/// Remember or take down a room's topic. `None` when nothing changes,
+	/// Remember or take down a room's subject. `None` when nothing changes,
 	/// including for a room this server has no durable name for.
-	pub fn with_topic(&self, name: &str, topic: &str) -> Result<Option<Self>, Refusal> {
-		if topic.encode_utf16().count() > document::MAX_TOPIC {
-			return Err(Refusal::plain(format!(
-				"a topic may be at most {} characters",
-				document::MAX_TOPIC
-			)));
-		}
+	pub fn with_subject(&self, name: &str, subject: &Subject) -> Result<Option<Self>, Refusal> {
 		let key = fold(name);
 		let durable = match self.linked.get(&key) {
 			Some(name) => name.clone(),
 			None if RecoveryKey::accepts(name) => return Ok(None),
 			None => name.into(),
 		};
-		if self.topics.get(&key).is_some_and(|(_, held)| held == topic) {
+		if self.subjects.get(&key).is_some_and(|(_, held)| held == subject) {
 			return Ok(None);
 		}
 		let mut next = self.clone();
-		if topic.is_empty() {
-			if next.topics.remove(&key).is_none() {
+		if subject.is_empty() {
+			if next.subjects.remove(&key).is_none() {
 				return Ok(None);
 			}
 		} else {
-			if !next.topics.contains_key(&key) && next.topics.len() == document::MAX_ROOM_LINKS {
+			if !next.subjects.contains_key(&key) && next.subjects.len() == document::MAX_ROOM_LINKS {
 				return Err(Refusal::plain(format!(
-					"this server remembers topics for at most {} rooms",
+					"this server remembers subjects for at most {} rooms",
 					document::MAX_ROOM_LINKS
 				)));
 			}
-			next.topics.insert(key, (durable, topic.into()));
+			next.subjects.insert(key, (durable, subject.clone()));
 		}
 		Ok(Some(Self::admitted(next)?))
 	}
@@ -191,7 +170,7 @@ impl Authority {
 		next.linked.remove(&key);
 		next.stewards.remove(&key);
 		if RecoveryKey::accepts(&held) && !next.managed.contains_key(&key) {
-			next.topics.remove(&key);
+			next.subjects.remove(&key);
 		}
 		next.revoked.insert(key, held);
 		Self::admitted(next)
@@ -245,7 +224,7 @@ impl Authority {
 		Ok((Self::admitted(next)?, generation))
 	}
 	/// Rotate the secret and clear every authority row, keeping the Host
-	/// identity and the topics of public rooms. Old links derive from the
+	/// identity and the subjects of public rooms. Old links derive from the
 	/// retired secret and can never collide with what is minted after this.
 	pub fn factory_reset(&self, secret: [u8; KEY_BYTES]) -> Self {
 		let mut next = self.clone();
@@ -258,7 +237,7 @@ impl Authority {
 		next.managed.clear();
 		next.managed_by_name.clear();
 		next.publications.clear();
-		next.topics.retain(|_, (name, _)| !RecoveryKey::accepts(name));
+		next.subjects.retain(|_, (name, _)| !RecoveryKey::accepts(name));
 		next
 	}
 }

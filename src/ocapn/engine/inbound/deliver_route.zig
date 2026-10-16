@@ -10,7 +10,6 @@ const engine = @import("../mod.zig");
 const bootstrap = @import("../bootstrap.zig");
 const events = @import("../events.zig");
 const pipeline = @import("../pipeline.zig");
-const v1_0 = @import("../v1_0.zig");
 
 const Peer = engine.Peer;
 
@@ -29,6 +28,7 @@ pub const Route = union(enum) {
     /// A next-profile shortening-only callback. It advances private session
     /// routing and is consumed before the application event queue.
     shortening_callback: model.ExportPosition,
+    forwarding_callback: model.ExportPosition,
     /// A resolver callback that raced with local answer release. Its arguments
     /// are admitted and immediately released, with no application event.
     retired_resolver_callback: model.ExportPosition,
@@ -52,7 +52,7 @@ pub const Route = union(enum) {
 /// validated there before the shared import preparation.
 pub const Classification = struct {
     route: Route,
-    resolver: ?session.PreparedInboundResolver = null,
+    resolver: ?session.PreparedDeliveryResolver = null,
 
     /// Ordinary routes reserve their answer/import apply before retaining a
     /// destination. Callback routes validate through specialized semantic
@@ -61,6 +61,7 @@ pub const Classification = struct {
         return switch (self.route) {
             .resolver_callback_resolve,
             .shortening_callback,
+            .forwarding_callback,
             .retired_resolver_callback,
             .node_resolver_callback,
             => true,
@@ -69,6 +70,7 @@ pub const Classification = struct {
     }
 
     pub fn abandon(self: *Classification, peer: *Peer) void {
+        if (self.resolver) |*prepared| prepared.abandon(&peer.session_state);
         if (self.route == .pipelined) self.route.pipelined.abandon(peer);
     }
 };
@@ -94,6 +96,12 @@ pub fn classify(
     // reaches the link, so a partner-named `.far` in the same integer space
     // cannot key it.
     if (deliver.target.exportPosition()) |position| {
+        if (session.ForwardedReply.find(&peer.session_state, position) != null) {
+            try validateResolverCallbackEnvelope(deliver);
+            _ = try events.resolutionFromResolverCallback(deliver.args);
+            try peer.session_state.validateInboundDeliverView(deliver, introduced);
+            return .{ .route = .{ .forwarding_callback = position } };
+        }
         if (peer.session_state.sourceForShorteningResolver(position)) |state| {
             try validateResolverCallbackEnvelope(deliver);
             return switch (state) {
@@ -126,10 +134,8 @@ pub fn classify(
     // A resolver-only deliver (no wire answer) has a virtual answer allocated
     // here. Carry it to the ordinary surface so a local object can reply
     // through the resolver callback.
-    const resolver = if (peer.session_state.needsV1_0Translation())
-        try v1_0.preparePartnerResolver(peer, deliver)
-    else
-        null;
+    var resolver = try peer.session_state.prepareDeliveryResolver(deliver);
+    errdefer if (resolver) |*prepared| prepared.abandon(&peer.session_state);
     // Reserve the ordinary answer/import apply in the same preparation epoch.
     // The conservative extra row covers a fresh resolver import; over-reserving
     // when it aliases an argument or an existing import is private capacity.
@@ -137,15 +143,18 @@ pub fn classify(
         deliver,
         introduced,
     );
-    if (try pipeline.preparePipelinedCall(peer, deliver)) |prepared| {
+    const call_answer: ?model.AnswerName = if (deliver.answer) |answer| .fromWire(answer) else if (resolver) |*prepared| blk: {
+        break :blk if (prepared.virtualAnswer()) |virtual| .fromVirtual(virtual) else null;
+    } else null;
+    if (try pipeline.preparePipelinedCall(peer, deliver, call_answer, introduced)) |prepared| {
         return .{ .route = .{ .pipelined = prepared }, .resolver = resolver };
     }
-    const prepared_virtual_answer = if (resolver) |prepared| prepared.virtual_answer else null;
+    const prepared_virtual_answer = if (resolver) |prepared| prepared.virtualAnswer() else null;
     if (try bootstrap.pendingBootstrapAction(deliver, prepared_virtual_answer)) |action| {
         return .{ .route = .{ .bootstrap = action }, .resolver = resolver };
     }
     return .{
-        .route = .{ .ordinary = if (resolver) |prepared| prepared.virtual_answer else null },
+        .route = .{ .ordinary = if (resolver) |prepared| prepared.virtualAnswer() else null },
         .resolver = resolver,
     };
 }

@@ -126,7 +126,7 @@
     [else (say "<~a> ~a" from text)]))
 
 ;; Subscribe to `room` and make its membership the current seat. The room
-;; answers `subscribe` with the seat, its kind, and the topic and files facets;
+;; answers `subscribe` with the seat, its kind, and the subject and files facets;
 ;; every later membership verb (post, leave) goes to the seat, and the welcome
 ;; and the roster arrive on the inbox.
 (define (enter-room room name #:then [then void])

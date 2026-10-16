@@ -271,17 +271,12 @@
    Membership is a distinction again in the browse list, where rooms you are not
    in also appear, and it is drawn there.
 
-   The ink here is deeper than the accent ink the rest of the rail uses, because
-   the ground is deeper too. That token is stated to clear small text on paper,
-   and this row is paper with a sixth of the accent poured into it. So the ink
-   has to move away from the colour it is standing in rather than sit in it, the
-   same move the count badge and the selected direct line make. Taken an eighth
-   of the way toward the page's plain ink it clears the 4.5 small text needs in
-   both appearances and the hue is still amber, which the contrast check in the
-   browser proof holds. */
+   Selected names use mostly page ink to clear the rail's tinted gradient and
+   hover wash. The bar and fill keep the room's amber, matching the direct
+   line's treatment in teal. The browser proof checks both appearances. */
 #roomList li.here {
 	background: color-mix(in srgb, var(--accent) 16%, transparent);
-	color: color-mix(in srgb, var(--accent-ink) 85%, var(--ink));
+	color: color-mix(in srgb, var(--accent-ink) 30%, var(--ink));
 }
 /* At full strength on a selected row, in both lists. These two grounds are the
    only ones in the rail with no headroom to turn anything down: turned to the
@@ -327,19 +322,13 @@
 #roomList .hash {
 	color: var(--dir-mark, var(--accent));
 }
-/* The badge stands on a wash of its own colour, so its ink has to move away from
-   that colour rather than sit in it. In syrup the readable teal *is* the teal,
-   which leaves ink and ground the same hue and the wash lifting the ground
-   toward the ink: measured, the count came out at 4.46 to 1 against the 4.5
-   small text needs. A sixth of the way toward the page's plain ink clears it in
-   both appearances and the badge is still teal: the same move the selected row
-   makes for the same reason, and held by the contrast check in the browser
-   proof. */
+/* Counts sit on a coloured wash over the rail's gradient. Mostly page ink
+   keeps their small text readable, as it does for the selected row's name. */
 #roomList .rcount {
 	font-size: var(--type-tiny);
 	font-variant-numeric: tabular-nums;
 	background: color-mix(in srgb, var(--teal) 16%, transparent);
-	color: color-mix(in srgb, var(--teal-ink) 84%, var(--ink));
+	color: color-mix(in srgb, var(--teal-ink) 30%, var(--ink));
 	padding: 1px 6px;
 	border-radius: var(--radius-chip);
 	min-width: 18px;
@@ -348,7 +337,7 @@
 }
 #roomList li.here .rcount {
 	background: color-mix(in srgb, var(--accent) 24%, transparent);
-	color: var(--accent-ink);
+	color: color-mix(in srgb, var(--accent-ink) 30%, var(--ink));
 }
 /* Two facts share one slot, so they must not look alike. How many people are in
    a room is a standing fact and stays in the quiet teal the badge has always
@@ -357,7 +346,7 @@
    want them without reading a single number. */
 #roomList .rcount.unread {
 	background: color-mix(in srgb, var(--accent) 24%, transparent);
-	color: var(--accent-ink);
+	color: color-mix(in srgb, var(--accent-ink) 30%, var(--ink));
 	font-weight: 700;
 }
 /* A sentence in a column this narrow wraps, and the card plane already holds

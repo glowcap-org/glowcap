@@ -119,6 +119,10 @@ changes, edges, and call memory bound each transaction separately. IndexedDB
 still owns the memory for its queued writes and its cache, and the input
 limit neither bounds that memory nor guarantees the origin has quota left.
 
+Each read is its own IndexedDB transaction. A transaction's latency overlaps
+only with other transactions already in flight, so the reads ahead that
+`Limits.read_ahead` allows set how much of that latency a long restore hides.
+
 `storage_statistics()` reports transactions, planning passes, database rows,
 writes, copied bytes, the largest input seen, the input limit, and the largest
 write per transaction. Copied bytes cover every row, missing key, and write

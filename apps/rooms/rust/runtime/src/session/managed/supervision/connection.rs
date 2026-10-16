@@ -82,7 +82,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 							&& row.seat == Some(seat)
 						{
 							row.seat = None;
-							row.topic = None;
+							row.subject = None;
 							row.files = None;
 							row.inbox = None;
 							row.lines = Default::default();

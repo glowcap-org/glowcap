@@ -133,6 +133,11 @@ Point the IRC client at `127.0.0.1:6667`, choose a nickname, and
 connection, because each room granted its membership separately and nothing
 can rename all of them at once. Reconnect to use another one.
 
+A channel's topic is its room's subject description. `TOPIC` sets the subject
+the way `/subject` does: a topic that starts with an `ocapn://` link links that
+object and describes it with the words after it, and any other topic replaces
+the subject with plain text.
+
 `JOIN` enters an existing room and reports the directory's refusal when there
 is none. A connection holds one membership per room, the same rule every Rooms
 member follows.

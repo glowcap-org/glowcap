@@ -44,11 +44,12 @@ const commitPreparedImportRelease = shortening.commitPreparedImportRelease;
 /// enough to apply authority before publishing those consequences.
 const PreparedPipelinedDeliver = struct {
     call: pipeline.PreparedPipelinedCall,
-    resolver: ?session.PreparedInboundResolver,
+    resolver: ?session.PreparedDeliveryResolver,
     shortening: PreparedShortening,
 
     fn abandon(self: *PreparedPipelinedDeliver, peer: *Peer) void {
         self.shortening.abandon(peer);
+        if (self.resolver) |*prepared| prepared.abandon(&peer.session_state);
         self.call.abandon(peer);
     }
 
@@ -59,7 +60,7 @@ const PreparedPipelinedDeliver = struct {
         introduced: *const session.validate.IntroducedImports,
     ) !void {
         try peer.session_state.applyValidatedInboundDeliverView(deliver, introduced);
-        if (self.resolver) |prepared| prepared.commit(&peer.session_state);
+        if (self.resolver) |*prepared| prepared.commit(&peer.session_state);
         commitPreparedShortening(peer, &self.shortening);
         try self.call.commit(peer);
     }
@@ -325,6 +326,8 @@ fn applyDeliverOwnedFrame(
     var shortening_callback: ?ShorteningCallbackPlan = null;
     var retired_resolver_callback: ?model.ExportPosition = null;
     var node_resolver_callback: ?model.ExportPosition = null;
+    var forwarding_callback: ?model.ExportPosition = null;
+    var discarded_forwarding = false;
     var bootstrap_request: ?bootstrap.Request = null;
     var classified_deliver: ?deliver_route.Classification = try deliver_route.classify(self, decoded_body.deliver, &introduced);
     defer if (classified_deliver) |*classified| classified.abandon(self);
@@ -356,6 +359,12 @@ fn applyDeliverOwnedFrame(
         ),
         .retired_resolver_callback => |resolver| retired_resolver_callback = resolver,
         .node_resolver_callback => |resolver| node_resolver_callback = resolver,
+        .forwarding_callback => |resolver| {
+            forwarding_callback = resolver;
+            const reply = session.ForwardedReply.find(&self.session_state, resolver) orelse unreachable;
+            const target = reply.target;
+            discarded_forwarding = !session.ForwardedReply.targetIsLive(&self.session_state, target);
+        },
         // Queued or redirected against the answer it pipelined on
         // (ADR-0007). Commit waits below for the same shortening and
         // maintenance preparation every other accepted deliver receives.
@@ -383,7 +392,7 @@ fn applyDeliverOwnedFrame(
     // validated and committed as one transaction. Reserve the whole possible
     // batch once; a per-row reservation cannot express slots for rows that
     // have not been appended yet.
-    const pending_preparation_count = if (retired_resolver_callback != null)
+    const pending_preparation_count = if (retired_resolver_callback != null or discarded_forwarding)
         @as(usize, 1)
     else if (shortening_callback) |callback|
         callback.pendingPreparationCount(&introduced)
@@ -399,7 +408,7 @@ fn applyDeliverOwnedFrame(
     defer if (prepared_pipelined_deliver) |*prepared| prepared.abandon(self);
     var prepared_shortening_callback: ?PreparedShorteningCallback = null;
     var prepared_retired_release: ?PreparedOutboundMessage = null;
-    if (retired_resolver_callback != null) {
+    if (retired_resolver_callback != null or discarded_forwarding) {
         prepared_shortening = .{};
         prepared_retired_release = try prepareIntroducedImportReleases(self, &pending_batch, introduced.mentions.items());
     } else if (shortening_callback) |callback| {
@@ -451,6 +460,30 @@ fn applyDeliverOwnedFrame(
         return;
     }
 
+    if (forwarding_callback) |resolver| {
+        const releases = session.ImportRelease;
+        var result_imports = if (!discarded_forwarding) try releases.prepare(&self.session_state, introduced.mentions.items()) else null;
+        defer if (result_imports) |batch| batch.destroy(&self.session_state);
+        const reply = session.ForwardedReply.find(&self.session_state, resolver) orelse unreachable;
+        const target = reply.target;
+        const resolution = try events.resolutionFromResolverCallback(decoded_body.deliver.args);
+        try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
+        commitPreparedShortening(self, &prepared_shortening.?);
+        prepared_shortening = null;
+        if (discarded_forwarding) {
+            if (prepared_retired_release) |prepared| {
+                commitPreparedImportRelease(self, prepared);
+                prepared_retired_release = null;
+            }
+        } else {
+            try @import("outbound/copying.zig").answerTargetView(self, target, resolution);
+        }
+        reply.complete(&self.session_state, result_imports);
+        result_imports = null;
+        frame.deinit();
+        return;
+    }
+
     // Acquire the event's GC annotation before authority applies. The event can
     // fall back to walking its frame, but allocator refusal is still a real
     // admission failure: accepting the frame while quietly dropping derived
@@ -477,7 +510,7 @@ fn applyDeliverOwnedFrame(
     } else {
         try self.session_state.applyValidatedInboundDeliverView(decoded_body.deliver, &introduced);
         self.events.backPtr().?.reference_slots = introduced.reference_slots;
-        if (classified_deliver.?.resolver) |prepared|
+        if (classified_deliver.?.resolver) |*prepared|
             prepared.commit(&self.session_state);
         if (node_resolver_callback) |resolver|
             self.session_state.completeNodeSettlingResolverCallback(resolver);

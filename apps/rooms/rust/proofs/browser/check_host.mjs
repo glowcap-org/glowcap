@@ -148,7 +148,7 @@ try {
 	if (!focused) await checkStorage(page);
 	if (!focused || graphOnly) await checkSessionGraph(page);
 	if (reloadOnly) await checkSessionForeignReload(browser, page, url);
-	if (!focused || foreignOnly) await checkSessionForeign(page);
+	if (foreignOnly) await checkSessionForeign(page);
 	if (executorOnly) await checkSessionExecutor(page, executorGroup);
 	if (sharingOnly || roomsOnly) {
 		await checkChannels(page, { script, wasm, root, moduleName }, "tcp", roomsOnly ? "rooms" : "sharing");

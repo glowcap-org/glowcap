@@ -43,7 +43,7 @@ enum Selection {
 		public_entry: Option<workspace::PublicEntry>,
 		publication: Option<Text<128, true>>,
 		seat: Option<custody::FieldKey<custody::RoomSeat>>,
-		topic: Option<custody::FieldKey<custody::RoomTopic>>,
+		subject: Option<custody::FieldKey<custody::RoomSubject>>,
 		files: Option<custody::FieldKey<custody::RoomFiles>>,
 		inbox: Option<custody::FieldKey<custody::RoomInbox>>,
 		source: custody::FieldKey<custody::SessionAccess>,
@@ -69,7 +69,7 @@ impl<P> core::ops::Deref for Operation<P> {
 }
 pub struct MembershipDestinations {
 	pub seat: custody::FieldKey<custody::RoomSeat>,
-	pub topic: Option<custody::FieldKey<custody::RoomTopic>>,
+	pub subject: Option<custody::FieldKey<custody::RoomSubject>>,
 	pub files: Option<custody::FieldKey<custody::RoomFiles>>,
 }
 fn refuse(message: &str) -> glowcap::Error {
@@ -136,14 +136,14 @@ impl Selection {
 				public_entry,
 				publication,
 				seat,
-				topic,
+				subject,
 				files,
 				inbox,
 				source,
 			} => intent.conversations.as_slice().iter().any(|row| {
 				matches!(row, workspace::Conversation::Room(row) if row.id == *id && row.directory == *directory
 					&& row.requests_membership() && row.access == *access && row.accepted == *accepted && row.public_entry == *public_entry && row.publication == *publication
-					&& row.seat == *seat && row.topic == *topic && row.files == *files && row.inbox == *inbox && row.source == Some(*source)
+					&& row.seat == *seat && row.subject == *subject && row.files == *files && row.inbox == *inbox && row.source == Some(*source)
 					&& nickname.matches(intent, directory))
 			}),
 		}
@@ -249,7 +249,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Session<P> {
 			public_entry: row.public_entry.clone(),
 			publication: row.publication.clone(),
 			seat: row.seat,
-			topic: row.topic,
+			subject: row.subject,
 			files: row.files,
 			inbox: row.inbox,
 			source: row
@@ -564,7 +564,7 @@ impl<P: Deadline + Clone> Source<P> {
 		};
 		let original = self.original_arguments(command, "joinRoom")?;
 		let acquired: results::Membership = result(&command.result().await.map_err(|e| refuse(&e.to_string()))?)?;
-		if acquired.topic.is_some() != destination.topic.is_some()
+		if acquired.subject.is_some() != destination.subject.is_some()
 			|| acquired.files.is_some() != destination.files.is_some()
 		{
 			return Err(refuse("membership destinations do not match the committed facets"));
@@ -590,9 +590,11 @@ impl<P: Deadline + Clone> Source<P> {
 				row.seat.map(|key| coordinate(custody::Role::RoomSeat, key)),
 			),
 			(
-				acquired.topic.map(|key| coordinate(custody::Role::RoomTopic, key)),
-				destination.topic.map(|key| coordinate(custody::Role::RoomTopic, key)),
-				row.topic.map(|key| coordinate(custody::Role::RoomTopic, key)),
+				acquired.subject.map(|key| coordinate(custody::Role::RoomSubject, key)),
+				destination
+					.subject
+					.map(|key| coordinate(custody::Role::RoomSubject, key)),
+				row.subject.map(|key| coordinate(custody::Role::RoomSubject, key)),
 			),
 			(
 				acquired.files.map(|key| coordinate(custody::Role::RoomFiles, key)),
@@ -614,7 +616,7 @@ impl<P: Deadline + Clone> Source<P> {
 			.filter_map(|(_, destination, old)| old.filter(|old| Some(*old) != *destination))
 			.collect();
 		row.seat = Some(destination.seat);
-		row.topic = destination.topic;
+		row.subject = destination.subject;
 		row.files = destination.files;
 		releases.retain(|old| !snapshot.intent.coordinates().any(|field| field == *old));
 		command.prepare_result_acquisition(snapshot.revision, &imports, &releases, &snapshot.intent)

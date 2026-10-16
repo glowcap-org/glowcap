@@ -195,7 +195,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 						match &target {
 							Target::Direct => unreachable!("direct readiness returns no new authority"),
 							Target::Directory { name, .. } => source.acquire_registration(&command, *name).await,
-							Target::Room { seat, topic, files } => {
+							Target::Room { seat, subject, files } => {
 								let reply = command.result().await.map_err(error)?;
 								let Some([data, Argument::List(_)]) = reply.as_list() else {
 									return Err(loam::refusal("Membership has no committed result"));
@@ -210,7 +210,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Worker<P> {
 										&command,
 										realization::MembershipDestinations {
 											seat: *seat,
-											topic: membership.topic.map(|_| *topic),
+											subject: membership.subject.map(|_| *subject),
 											files: membership.files.map(|_| *files),
 										},
 									)

@@ -261,7 +261,7 @@ export async function run(browser: Browser, port: number, transport: "TCP" | "ir
 		}, keeping);
 		await alice.keyboard.press("Escape");
 		await alice.waitForSelector("#settingsTitle", { state: "hidden" });
-		await say(alice, "/topic responsiveness proof");
+		await say(alice, "/subject responsiveness proof");
 		await bob.waitForFunction(() => document.body.textContent?.includes("responsiveness proof"));
 		await alice.click("#standingBtn");
 		await alice.locator(".standing-menu [role=menuitemradio]").filter({ hasText: /^Away$/ }).click();

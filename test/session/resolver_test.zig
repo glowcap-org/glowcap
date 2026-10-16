@@ -229,7 +229,7 @@ test "pipelining substrate owns queued calls, listeners, and stored resolution" 
     // drain is empty.
     const drained = try s.takePipelinedCalls(.from(5));
     defer {
-        for (drained) |message| model.freeMessage(allocator, message);
+        for (drained) |call| call.deinit(allocator);
         allocator.free(drained);
     }
     try std.testing.expectEqual(@as(usize, 2), drained.len);
@@ -350,6 +350,15 @@ test "gc-answers retires a resolver until its wire mention is released" {
     try std.testing.expect(s.retiredResolverState(resolver) == null);
 }
 
+fn sendRequiredShortening(s: *session.Session, position: model.ImportPosition) !void {
+    const nomination = (try s.nominateShorteningResolver(position)).?;
+    try s.recordSend(.{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(position.int()) },
+        .listener = session.slot.toReference(s.exportSlot(nomination.resolver_export).?).?,
+        .mode = .shortening_only,
+    } });
+}
+
 test "Node listener teardown releases an already returned wire mention" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
@@ -358,6 +367,7 @@ test "Node listener teardown releases an already returned wire mention" {
     defer s.deinit();
     try s.installThirdPartyImport(.from(5), "home");
 
+    try sendRequiredShortening(&s, .from(5));
     const listener = try s.allocateExport();
     try std.testing.expect(try s.claimPromiseSettlingListener(.from(5), listener, null));
     try s.recordSend(.{ .listen = .{
@@ -389,6 +399,8 @@ test "settling convergence releases an already returned source listener" {
     try s.installThirdPartyImport(.from(5), "home");
     try s.installThirdPartyImport(.from(6), "home");
 
+    try sendRequiredShortening(&s, .from(5));
+    try sendRequiredShortening(&s, .from(6));
     const source_nomination = try s.nominateResolverExport();
     try std.testing.expect(try s.claimPromiseSettlingListener(
         .from(5),
@@ -487,9 +499,9 @@ test "resolver purpose replacement evicts a colliding resolver in both direction
     try std.testing.expect(s.outbound_resolver_link.getByValue(.{ .shortening_pending = source_five }) == null);
 }
 
-test "every field of a resolver purpose is a word of its identity" {
+test "resolver purpose identity preserves authority and excludes lifetime bookkeeping" {
     // The purpose side of the outbound link is keyed on these words, so two
-    // purposes that differ in any field must differ in some word, or the
+    // purposes that differ in authority must differ in some word, or the
     // table answers one purpose's lookup with the other's export.
     const one: session.PromiseIncarnation = .{ .position = .from(1), .row_id = 1 };
     const one_reincarnated: session.PromiseIncarnation = .{ .position = .from(1), .row_id = 2 };
@@ -497,8 +509,8 @@ test "every field of a resolver purpose is a word of its identity" {
     const distinct = [_]session.ResolverPurpose{
         .{ .application_answer = .from(1) },
         .{ .application_answer = .from(2) },
-        .{ .local_promise_answer = .{ .wire = .from(1) } },
-        .{ .local_promise_answer = .{ .virtual = .from(1) } },
+        .{ .local_promise_answer = .{ .name = .{ .wire = .from(1) } } },
+        .{ .local_promise_answer = .{ .name = .{ .virtual = .from(1) } } },
         .{ .node_settling = .{ .resolver_export = .from(1) } },
         .{ .node_settling = .{ .resolver_export = .from(2) } },
         .{ .node_settling = .{ .resolver_export = .from(1), .settling_source = one } },
@@ -517,6 +529,13 @@ test "every field of a resolver purpose is a word of its identity" {
         .{ .shortening_complete = one_reincarnated },
     };
     const identity_hash = glowcap.foundation.identity_hash;
+    const pristine: session.ResolverPurpose = .{ .local_promise_answer = .{ .name = .{ .virtual = .from(1) } } };
+    var tracing = pristine;
+    tracing.local_promise_answer.gc_mark = true;
+    tracing.local_promise_answer.gc_next = .from(123);
+    tracing.local_promise_answer.staging_owners = 2;
+    try std.testing.expect(identity_hash.eql(pristine, tracing));
+    try std.testing.expectEqualSlices(u64, &identity_hash.words(pristine), &identity_hash.words(tracing));
     for (distinct, 0..) |left, i| {
         try std.testing.expect(identity_hash.eql(left, left));
         for (distinct[i + 1 ..]) |right| {
@@ -524,4 +543,83 @@ test "every field of a resolver purpose is a word of its identity" {
             try std.testing.expect(!std.mem.eql(u64, &identity_hash.words(left), &identity_hash.words(right)));
         }
     }
+}
+
+test "next sender subscriptions enforce disjoint modes for each promise incarnation" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{ .captp_version = .next });
+    defer s.deinit();
+    try s.installThirdPartyImport(.from(7), "remote");
+    try s.registerExport(.from(9));
+    var listen = model.Message{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(7) },
+        .listener = .{ .near = model.NearRef.object(9) },
+        .mode = .settling_only,
+    } };
+    const before = s.exportRefcount(.from(9));
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+    try std.testing.expectEqual(before, s.exportRefcount(.from(9)));
+    listen.listen.mode = .shortening_only;
+    try s.recordSend(listen);
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+    listen.listen.mode = .shortening_or_settling;
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+    listen.listen.mode = .settling_only;
+    try s.recordSend(listen);
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+    // Co-eviction ends the promise incarnation, permitting a fresh mode-3
+    // subscription when the same position is introduced again.
+    try s.recordSend(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{1} } });
+    try s.installThirdPartyImport(.from(7), "remote");
+    listen.listen.mode = .shortening_or_settling;
+    try s.recordSend(listen);
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(42),
+        .listen_mode = .shortening_only,
+    } });
+    listen.listen.target = .{ .promise = .{ .answer_position = .from(42) } };
+    listen.listen.mode = .shortening_only;
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+    listen.listen.mode = .settling_only;
+    try s.recordSend(listen);
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+    try s.recordSend(.{ .gc_answer = .{ .positions = &.{42} } });
+    try std.testing.expectError(error.InvalidReference, s.recordSend(listen));
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &.{},
+        .answer = .from(42),
+    } });
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+}
+
+test "withdrawing an unsent next listener returns only its subscription claim" {
+    var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = .next });
+    defer s.deinit();
+    try s.installThirdPartyImport(.from(7), "remote");
+    try s.registerExport(.from(9));
+    var listen = model.Message{ .listen = .{
+        .target = .{ .far = model.FarRef.promise(7) },
+        .listener = .{ .near = model.NearRef.object(9) },
+        .mode = .shortening_only,
+    } };
+    try s.recordSend(listen);
+    listen.listen.mode = .settling_only;
+    const before = s.exportRefcount(.from(9));
+    try s.recordSend(listen);
+    s.retractPreparedListen(listen);
+    try std.testing.expectEqual(before, s.exportRefcount(.from(9)));
+    var duplicate = listen;
+    duplicate.listen.mode = .shortening_only;
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(duplicate));
+    // The prior shortening subscription stays claimed, while the unsent
+    // settling subscription can be attempted again after turn rollback.
+    try s.recordSend(listen);
+    try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
+    s.retractPreparedListen(listen);
+    try s.recordSend(listen);
 }

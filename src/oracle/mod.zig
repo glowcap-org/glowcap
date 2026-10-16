@@ -302,11 +302,11 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
 /// Deliver → `op:get` / `op:index` / `op:untag` against the pending answers →
 /// the responder resolves each source and the engine resolves the projected
 /// answers in the same turn (ADR-0050). Scenario authority for the projection
-/// trio as whole-conversation behavior, not just per-frame fixtures.
+/// trio on baseline as whole-conversation behavior, not just per-frame fixtures.
 /// Codec-parameterized like `runDrivenDeliverResolve`.
 pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
     var pair = try engine.pairing.pairedNegotiated(allocator, .{
-        .captp_version = .next,
+        .captp_version = .v1_0,
         .codec = codec,
         .features = model.FeatureSet.full(),
     });

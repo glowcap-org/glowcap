@@ -346,8 +346,11 @@ pub fn main(init: std.process.Init) !void {
     var args = std.process.Args.Iterator.init(init.minimal.args);
     _ = args.next(); // program name
     var port: u16 = default_port;
+    var next_profile = false;
     while (args.next()) |arg| {
-        if (std.mem.startsWith(u8, arg, "--port=")) {
+        if (std.mem.eql(u8, arg, "--profile=next")) {
+            next_profile = true;
+        } else if (std.mem.startsWith(u8, arg, "--port=")) {
             if (use_onion) {
                 std.debug.print("glowcap-ocapn-onion-peer: --port is not valid for an onion service\n", .{});
                 return error.BadArgument;
@@ -375,6 +378,10 @@ pub fn main(init: std.process.Init) !void {
     var host = try Host.init(allocator, seed, session_root, blk: {
         var o = Host.Options.withFrameCap(frame_cap);
         o.local_turn_budget = 64;
+        if (next_profile) {
+            o.captp_version = .next;
+            o.codec = .syrup;
+        }
         break :blk o;
     });
     defer host.deinit();

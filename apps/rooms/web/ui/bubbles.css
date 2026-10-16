@@ -42,7 +42,7 @@
    stacked panels. Quieter than a message and louder than the header's metadata:
    it is not something anybody said, but it is the first thing worth reading.
 
-   One line, ellipsed. A topic is a sentence somebody wanted everybody to see,
+   One line, ellipsed. A subject is a sentence somebody wanted everybody to see,
    and letting it wrap to four lines pushes the conversation off the screen to
    make room for something that has not changed in a week. So it truncates, and
    carries the whole of itself in a title the way every other truncating name in
@@ -52,7 +52,7 @@
    in the log behind them. Its opaque ground covers messages passing underneath,
    and the log's own top padding below keeps the first of them
    from starting out of sight. */
-.topic {
+.subject {
 	position: relative;
 	z-index: 2;
 	flex: none;
@@ -60,16 +60,16 @@
 	align-items: center;
 	gap: 0.4rem;
 	box-sizing: border-box;
-	min-height: var(--topic-h);
+	min-height: var(--subject-h);
 	padding: 4px calc(var(--rail-pad) + var(--row-pad));
 	border-bottom: 1px solid var(--rule);
 	background: var(--paper-raised);
 	font-size: var(--type-ui);
 	color: var(--ink-soft);
 }
-/* The words take the row and give way at its end, so a long topic ends in an
+/* The words take the row and give way at its end, so a long subject ends in an
    ellipsis rather than pushing the way to change it off the edge. */
-.topic-said {
+.subject-said {
 	flex: 1 1 auto;
 	min-width: 0;
 	overflow: hidden;
@@ -89,9 +89,9 @@
 	font-style: italic;
 	color: var(--ink-soft);
 }
-/* A link in a topic is the reason topics have links, so it carries the weight
-   the rest of the line gives up rather than the quiet the bar is set in. */
-.topic a {
+/* A link in a subject's description carries the weight the rest of the line
+   gives up rather than the quiet the bar is set in. */
+.subject a {
 	color: var(--teal-ink);
 }
 

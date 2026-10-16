@@ -61,7 +61,7 @@ pub fn retire_room_control<R: References>(
 }
 
 /// Retire every workspace alias of the selected exact seat before dispatching
-/// its goodbye. Files, topic and line lists move out of their existing bounded rows.
+/// its goodbye. Files, subject facet and line lists move out of their existing bounded rows.
 /// Only their borrowed coordinates survive through alias-aware release. This
 /// adds no payload copy or field inventory. Other seats, independent imports
 /// and receipt occurrences remain held. Call only on the admitted candidate.
@@ -83,13 +83,13 @@ pub fn retire_membership<R: References>(
 			room.seat = None;
 			room.reconnect = Reconnect::Manual;
 			Some((
-				room.topic.take(),
+				room.subject.take(),
 				room.files.take(),
 				room.inbox.take(),
 				core::mem::take(&mut room.lines),
 			))
 		});
-		let Some((topic, files, inbox, lines)) = removed else {
+		let Some((subject, files, inbox, lines)) = removed else {
 			break;
 		};
 		retired = true;
@@ -97,7 +97,7 @@ pub fn retire_membership<R: References>(
 			intent,
 			custody,
 			core::iter::once(coordinate(Role::RoomSeat, seat))
-				.chain(topic.map(|key| coordinate(Role::RoomTopic, key)))
+				.chain(subject.map(|key| coordinate(Role::RoomSubject, key)))
 				.chain(files.map(|key| coordinate(Role::RoomFiles, key)))
 				.chain(inbox.map(|key| coordinate(Role::RoomInbox, key)))
 				.chain(lines.as_slice().iter().map(|row| coordinate(Role::Line, row.handle))),

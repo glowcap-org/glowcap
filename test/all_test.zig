@@ -30,6 +30,7 @@ comptime {
         _ = @import("loam/core/evaluation_test.zig");
         _ = @import("loam/core/names_test.zig");
         _ = @import("loam/core/cache_commit_test.zig");
+        _ = @import("loam/core/read_ahead_test.zig");
         _ = @import("loam/core/collection_test.zig");
         _ = @import("loam/core/collection_resume_test.zig");
         _ = @import("loam/core/collection_custody_test.zig");
@@ -156,6 +157,10 @@ comptime {
         _ = @import("engine/peer/v1_translation/oom_test.zig");
         _ = @import("engine/peer/v1_translation/resolver_test.zig");
         _ = @import("engine/peer/pipeline_test.zig");
+        _ = @import("engine/peer/pipeline_reply_identity_test.zig");
+        _ = @import("engine/peer/pipeline_remote_forward_test.zig");
+        _ = @import("engine/peer/pipeline_local_promise_test.zig");
+        _ = @import("engine/peer/pipeline_local_promise_drain_test.zig");
         _ = @import("engine/peer/pipeline/fail_closed_test.zig");
         _ = @import("engine/peer/abort_test.zig");
         _ = @import("engine/peer/shortening_test.zig");
@@ -201,6 +206,7 @@ comptime {
         _ = @import("engine/node/staged_order_test.zig");
         _ = @import("engine/node/answer_settlement_test.zig");
         _ = @import("engine/node/gift_failure_test.zig");
+        _ = @import("engine/node/staged_local_promise_test.zig");
         _ = @import("engine/node/dial_test.zig");
         _ = @import("engine/node/dial/allocation_test.zig");
         _ = @import("engine/node/dial/id_route_test.zig");

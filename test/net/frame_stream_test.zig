@@ -129,6 +129,7 @@ test "peer-less framing carries next-profile deliver frames for both codecs" {
             .target = .{ .far = model.FarRef.object(3) },
             .args = &.{.{ .integer = 8 }},
             .answer = .from(5),
+            .resolve_me_desc = .{ .near = model.NearRef.object(9) },
         } });
         defer wire.deinit();
 

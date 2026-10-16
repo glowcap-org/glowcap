@@ -20,6 +20,9 @@
 // - It fades in, slowly when the page is an arrival: a tab's first page, or
 //   any load of a page that is arrived at each time, as Rooms is.
 // - On an arrival the network also grows in from the edges, its tips lit.
+// - `dim()` fades the threads down and stills their life, for a page whose
+//   connection is lost. `regrow()` brings them back: the same network grows
+//   in again from the edges, its tips lit.
 // - Threads near the mouse light, and cool once it rests. The near plane
 //   moves a little against the mouse.
 // - A click or tap sends a wave of light out along the threads around it.
@@ -90,6 +93,10 @@ const FLICKER_WIDTH = 0.3;
  * only past this change in height, in CSS pixels, after this quiet, in ms. */
 const RESIZE_SLACK = 140;
 const RESIZE_QUIET = 220;
+/** How much of their light the threads keep while dimmed, and how long
+ * they take to dim, in ms. */
+const DIM = 0.3;
+const DIM_MS = 1600;
 
 /** The planes of threads, far to near. Each grows for a window `grown` times
  * the real one and is drawn shrunk to fit, so a far plane is finer and
@@ -107,6 +114,13 @@ const FOCUS = 1;
 export interface Mycelium {
 	/** Send a point of light along a thread. Ignored under reduced motion. */
 	pulse(): void;
+	/** Fade the threads down and stop their life of their own. Ignored while
+	 * dimmed. */
+	dim(): void;
+	/** Undo `dim()`: the threads fade back up while the same network grows in
+	 * again from the edges. Under reduced motion or in a hidden tab only the
+	 * fade runs. Ignored unless dimmed. */
+	regrow(): void;
 	/** Remove the canvases and stop every timer and listener. */
 	stop(): void;
 }
@@ -320,6 +334,18 @@ export function startMycelium(options: MyceliumOptions = {}): Mycelium | null {
 		}
 	};
 
+	// Grow the network already there in again, from nothing.
+	const replay = () => {
+		cancelAnimationFrame(frameId);
+		frameId = 0;
+		const bled = 2 * PARALLAX;
+		for (const { c } of [mid, near]) c.clearRect(-PARALLAX, -PARALLAX, size.w + bled, size.h + bled);
+		waves.length = 0;
+		runs.length = 0;
+		growth = { at: performance.now(), drawn: PLANES.map(() => 0) };
+		wake();
+	};
+
 	// A point toward the edges of the window, away from the reading, on a
 	// thread at least `minWidth` wide. -1 if none turned up.
 	const outskirt = (net: Network, minWidth: number): number => {
@@ -414,33 +440,70 @@ export function startMycelium(options: MyceliumOptions = {}): Mycelium | null {
 	// so they cost no drawing. A fade is not motion, so it runs for everyone.
 	// An arrival rises early and settles slowly, so the growth is not spent
 	// in the dark.
-	const fade = {
-		duration: first ? ARRIVE_MS : RETURN_MS,
-		easing: first ? "cubic-bezier(.25, .5, .3, 1)" : "cubic-bezier(.4, 0, .2, 1)",
-	};
 	const rest = still.matches ? 1 : 0.82;
 	const depths = [mid.canvas, near.canvas];
-	const arrivals = [
-		...depths.map((canvas) => canvas.animate([{ opacity: 0 }, { opacity: rest }], { ...fade, fill: "forwards" })),
-		light.canvas.animate([{ opacity: 0 }, { opacity: 1 }], fade),
-	];
+	// The fades that hold each shown canvas where it is, and the breaths that
+	// take over from them once the threads are fully up.
+	let fades: Animation[] = [];
 	let breaths: Animation[] = [];
-	arrivals[0].finished.then(() => {
-		if (still.matches || stopped) return;
-		// The near plane breathes half a breath behind, so the depths move
-		// apart. Until it starts, the fade holds it at rest.
-		breaths = depths.map((canvas, k) =>
-			canvas.animate([{ opacity: rest }, { opacity: 1 }], {
-				duration: BREATH_MS / 2,
-				delay: k * (BREATH_MS / 2),
-				direction: "alternate",
-				iterations: Infinity,
-				easing: "ease-in-out",
-			})
+	let dimmed = false;
+	// Each shown canvas fades from `from` to `level` of its full light.
+	const fadeTo = (from: readonly (number | string)[], level: number, timing: KeyframeAnimationOptions) => {
+		const full = [rest, rest, 1];
+		fades = shown.map(({ canvas }, k) =>
+			canvas.animate([{ opacity: from[k] }, { opacity: full[k] * level }], { ...timing, fill: "forwards" })
 		);
-	}, () => {
-		// tolerant: a fade cancelled by stop() leaves nothing to breathe
-	});
+		const mine = fades;
+		mine[0].finished.then(() => {
+			if (still.matches || stopped || dimmed || fades !== mine) return;
+			// The near plane breathes half a breath behind, so the depths move
+			// apart. Until it starts, the fade holds it at rest.
+			breaths = depths.map((canvas, k) =>
+				canvas.animate([{ opacity: rest }, { opacity: 1 }], {
+					duration: BREATH_MS / 2,
+					delay: k * (BREATH_MS / 2),
+					direction: "alternate",
+					iterations: Infinity,
+					easing: "ease-in-out",
+				})
+			);
+		}, () => {
+			// tolerant: a fade cancelled by stop(), dim(), or regrow() leaves nothing to breathe
+		});
+	};
+	// Stop every fade and breath, and say where each canvas stood.
+	const halt = () => {
+		const from = shown.map(({ canvas }) => getComputedStyle(canvas).opacity);
+		for (const a of [...fades, ...breaths]) a.cancel();
+		breaths = [];
+		return from;
+	};
+	const arriving = {
+		duration: ARRIVE_MS,
+		easing: "cubic-bezier(.25, .5, .3, 1)",
+	};
+	fadeTo(
+		[0, 0, 0],
+		1,
+		first ? arriving : { duration: RETURN_MS, easing: "cubic-bezier(.4, 0, .2, 1)" },
+	);
+
+	const dim = () => {
+		if (dimmed || stopped) return;
+		dimmed = true;
+		clearTimeout(ambient);
+		fadeTo(halt(), DIM, { duration: DIM_MS, easing: "cubic-bezier(.4, 0, .2, 1)" });
+	};
+
+	const regrow = () => {
+		if (!dimmed || stopped) return;
+		dimmed = false;
+		const from = halt();
+		const growing = lively();
+		if (growing) replay();
+		fadeTo(from, 1, arriving);
+		scheduleAmbient(growing ? GROW_MS + COOL_MS + 400 : 1200);
+	};
 
 	let resizing: ReturnType<typeof setTimeout> | undefined;
 	const onResize = () => {
@@ -461,10 +524,12 @@ export function startMycelium(options: MyceliumOptions = {}): Mycelium | null {
 
 	return {
 		pulse,
+		dim,
+		regrow,
 		stop() {
 			stopped = true;
 			cancelAnimationFrame(frameId);
-			for (const a of [...arrivals, ...breaths]) a.cancel();
+			for (const a of [...fades, ...breaths]) a.cancel();
 			clearTimeout(ambient);
 			clearTimeout(resizing);
 			themes.disconnect();

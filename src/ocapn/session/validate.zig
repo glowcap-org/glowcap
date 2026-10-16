@@ -16,6 +16,7 @@ const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
 const passable = @import("validate/passable.zig");
+const listen_claims = @import("listen_claims.zig");
 const locator_vocabulary = @import("validate/locator_vocabulary.zig");
 
 pub const carriesRouteVocabulary = locator_vocabulary.carriesRouteVocabulary;
@@ -61,6 +62,7 @@ pub fn validateRecvView(self: *Session, body: model.view.Body, introduced: *Intr
 /// an inbound projection op with an unheld position would surface to the
 /// application unvalidated, an authority gap versus deliver and listen.
 fn validateProjectionOp(self: *Session, receiver: anytype, answer: model.AnswerPosition) passable.ReferenceError(@TypeOf(receiver))!void {
+    if (self.captp_version == .next) return Error.UnexpectedMessage;
     try passable.validateReference(self, receiver, .received, .held_import);
     try checkInboundAnswerPosition(self, answer);
 }
@@ -236,18 +238,22 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
             if (!self.features.pipelining) return Error.FeatureNotNegotiated;
             try passable.validateDeliverOrListenTarget(self, listen.target, .sent);
             try passable.validateListenListener(self, listen.listener, .sent);
+            try listen_claims.validate(self, listen);
         },
         // `op:get` / `op:index` / `op:untag` name a receiver like a deliver
         // target: it must be something we hold (ADR-0050).
         .get => |get| {
+            if (self.captp_version == .next) return Error.UnexpectedMessage;
             try checkOutboundAnswerPosition(self, get.answer);
             try passable.validateReference(self, get.receiver, .sent, .held_import);
         },
         .index => |index| {
+            if (self.captp_version == .next) return Error.UnexpectedMessage;
             try checkOutboundAnswerPosition(self, index.answer);
             try passable.validateReference(self, index.receiver, .sent, .held_import);
         },
         .untag => |untag| {
+            if (self.captp_version == .next) return Error.UnexpectedMessage;
             if (!self.features.untag) return Error.FeatureNotNegotiated;
             try checkOutboundAnswerPosition(self, untag.answer);
             try passable.validateReference(self, untag.receiver, .sent, .held_import);
@@ -324,14 +330,11 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
 }
 
 fn validateOutboundDeliver(self: *Session, deliver: model.Deliver, inventory: session.Inventory) !void {
+    if (self.captp_version == .next and (deliver.answer != null or deliver.resolve_me_desc != null) and deliver.listen_mode == .settling_only) return Error.UnexpectedMessage;
     if (deliver.answer) |answer| try checkOutboundAnswerPosition(self, answer);
     try passable.validateDeliverOrListenTarget(self, deliver.target, .sent);
     if (deliver.resolve_me_desc) |reference| {
-        // Next has no inline resolver field: answered operations are followed
-        // by their mandatory op:listen. Refuse before apply installs `answer`;
-        // leaving this to the codec would commit session state for a message
-        // that can never be encoded.
-        if (self.captp_version == .next) return Error.UnexpectedMessage;
+        if (self.captp_version == .next and (deliver.listen_mode == .settling_only or reference != .near)) return Error.UnexpectedMessage;
         try passable.validateReference(self, reference, .sent, .held_import);
     }
     try passable.certifySent(self, inventory, null, .held);
@@ -358,15 +361,12 @@ fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Erro
 }
 
 fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *IntroducedImports) RecvViewError!void {
+    if (self.captp_version == .next and deliver.answer != null and deliver.resolve_me_desc == null) return Error.UnexpectedMessage;
     if (deliver.answer) |answer| try checkInboundAnswerPosition(self, answer);
     try passable.validateDeliverOrListenTarget(self, deliver.target, .received);
     if (deliver.resolve_me_desc) |reference| {
-        // Next carries settlement subscriptions in `op:listen`; an inline
-        // resolver has no negotiated meaning on that profile.
-        if (self.captp_version == .next) return Error.UnexpectedMessage;
-        // The V1.0 descriptor is exactly one partner export introduced as our
-        // import. Record it in the same batch as argument introductions so cap,
-        // refcount, allocation, and commit policy cannot diverge.
+        if (self.captp_version == .next and deliver.listen_mode == .settling_only) return Error.UnexpectedMessage;
+        // Resolver introductions share the argument import transaction.
         switch (reference) {
             .far => |far| try introduced.noteResolver(self, far),
             else => return Error.UnexpectedMessage,

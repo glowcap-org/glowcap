@@ -2,7 +2,7 @@
 
 import type { Page } from "playwright";
 import { removeCapability, takeCapability } from "./capability_set.ts";
-import { fail } from "./harness.ts";
+import { fail, fillSettled } from "./harness.ts";
 import { namedRoomRow } from "../support/conversation_row.ts";
 
 export async function runOperatorScene(tab: Page, operatorSwiss: string): Promise<void> {
@@ -16,7 +16,7 @@ export async function runOperatorScene(tab: Page, operatorSwiss: string): Promis
 	await tab.goto(new URL("/directory", tab.url()).href);
 	await tab.waitForSelector('#roomAbout[aria-label="About this directory"]');
 	await tab.click("#newRoomBtn");
-	await tab.fill("#newRoomInput", "operator-proof");
+	await fillSettled(tab, "#newRoomInput", "operator-proof");
 	await tab.press("#newRoomInput", "Enter");
 	await namedRoomRow(tab, "operator-proof", true).waitFor({ timeout: 10_000 });
 	await tab.click("#settingsBtn");

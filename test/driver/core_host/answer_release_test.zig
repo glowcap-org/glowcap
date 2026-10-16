@@ -82,7 +82,6 @@ test "core host: answer releases ride the next message or leave at the park" {
     const second = try client.send(session, opened.widget, .{ .verb = "poke", .args = &.{} });
     try std.testing.expectEqual(@as(?usize, 1), try expectFrame(session, .gc_answer));
     try std.testing.expectEqual(@as(?usize, null), try expectFrame(session, .deliver));
-    try std.testing.expectEqual(@as(?usize, null), try expectFrame(session, .listen));
     try std.testing.expect((try session.takeOutbound()) == null);
     try std.testing.expectEqual(baseline_answers + 1, peer.session_state.outbound_answers.len());
     try drainWithoutPark(&client);

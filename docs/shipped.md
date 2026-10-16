@@ -14,6 +14,14 @@ testing adapter.
 Read [known limitations](boundaries.md) before deploying, and [stability](stability.md) for the evidence behind each
 claim. If capabilities are new to you, [capabilities](capabilities.md) starts from zero.
 
+Which OCapN draft sections each wire profile has adopted, deferred, or left
+pending is the [conformance manifest](ocapn-conformance.md).
+Next uses the merged five-operand delivery, deliver-only, and integer listen
+modes, and refuses the removed projection operations. Its shared hello and
+crypto representations stay on the Goblins-compatible baseline. The recurring
+next conformance lane checks that combination alongside the unchanged baseline
+suite ([ADR-0251](decisions/adr/ADR-0251-next-operations-with-retained-crypto.md)).
+
 ## Application APIs
 
 | Surface      | What it provides |
@@ -57,7 +65,9 @@ listening, and events, over a Host it has adopted.
 - **Sessions.** glowcap negotiates a signed CapTP session and owns its imports, exports, answers, and releases. It
   validates every message before applying it and sends a typed abort when an error closes the session.
 - **Calls and promises.** Applications fetch a bootstrap capability, call it, send without waiting, and pipeline
-  calls and field, index, and tag projections through an unresolved answer. A failed turn withdraws its sends,
+  calls through an unresolved answer. The `1.0` profile also supports field, index, and tag projections over
+  that answer. Next refuses those wire projection operations. Calls and listeners wait through chains of
+  local promises until their requested result is available ([ADR-0007](decisions/adr/ADR-0007-promise-pipelining-substrate.md)). A failed turn withdraws its sends,
   including staged introductions ([ADR-0191](decisions/adr/ADR-0191-turn-sends-commit-with-the-turn.md)).
   glowcap accepts OCapN 1.0 `op:untag` from any peer and sends it only to a partner that advertises the `untag`
   feature.

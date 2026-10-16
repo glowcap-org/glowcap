@@ -8,6 +8,7 @@ import type { RoomMembershipKind } from "../../lib/room/membership.ts";
 import type { RoomPolicy } from "./room_policy.ts";
 import type { DirId } from "./types.ts";
 import type { ArchiveCoordinates } from "../../lib/archive/protocol.ts";
+import type { Subject } from "../../lib/room/subject.ts";
 
 /** What the page knows about a line it sent: still on its way, definitely
  * nowhere, or somewhere nobody can yet confirm. "unconfirmed" is the runtime's
@@ -189,7 +190,8 @@ export type Conv =
 		membershipIssue: string;
 		publicationId?: string;
 		lineBytes?: number;
-		topic?: string;
+		/** What the room says it is about. Absent when it has none. */
+		subject?: Subject;
 		/** What the bridge behind this room calls its own, when one said so: the
 		 * prefix its foreign members' names carry, and the badge and sentence for
 		 * one of them. Absent in an ordinary room, which is most of them. */
@@ -219,6 +221,8 @@ export type Conv =
 		managerToken?: string;
 		stewardToken?: string;
 		standing: string | null;
+		/** A standing command still owns this room's mutation scope. */
+		standingPending: boolean;
 		bridgeIntent?: WorkspaceRoomBridgeIntent | null;
 		bridgeIssue: string;
 	})

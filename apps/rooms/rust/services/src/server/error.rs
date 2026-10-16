@@ -93,6 +93,8 @@ impl fmt::Display for Error {
 		match self {
 			Self::Refused(detail) => f.write_str(detail),
 			Self::Storage(error) => error.fmt(f),
+			// The document is sound and only this change would outgrow it.
+			Self::Document(error @ document::Error::Size) => write!(f, "{error}"),
 			Self::Document(error) => write!(f, "the server document is unusable: {error}"),
 			Self::DocumentAt { file, cause } => {
 				write!(f, "the server document is unusable: {}: {cause}", file.display())

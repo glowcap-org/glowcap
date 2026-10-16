@@ -22,10 +22,10 @@ import {
 	MAX_SEAT_BADGE,
 	MAX_SEAT_PREFIX,
 	MAX_SEAT_SAID,
-	MAX_TOPIC,
 } from "../limits.ts";
 import type { Presence } from "./presence.ts";
-import { boundedText, nonemptyText, positiveSafeInteger } from "../schema.ts";
+import { type Subject, subject, SubjectSchema } from "./subject.ts";
+import { nonemptyText, positiveSafeInteger } from "../schema.ts";
 import {
 	AWAY,
 	CARRIES,
@@ -36,7 +36,7 @@ import {
 	REFILED,
 	ROOM_FEATURES,
 	type RoomFeature,
-	TOPIC,
+	SUBJECT,
 	UNLISTED,
 	WITHDRAWN,
 } from "../protocol.ts";
@@ -137,8 +137,8 @@ export type RoomCarries = z.infer<typeof RoomCarriesSchema>;
  * All are optional and independent. A line carries whichever the room chose to
  * put on it, usually the welcome, and none the rest of the time. */
 export const RoomFactsSchema = z.strictObject({
-	/** See `readTopic`. An empty string is a topic that was taken down. */
-	topic: z.optional(boundedText(MAX_TOPIC)),
+	/** See `readSubject`. An empty description is a subject taken down. */
+	subject: z.optional(SubjectSchema),
 	/** See `readLineBytes`. */
 	lineBytes: z.optional(positiveSafeInteger),
 	/** See `readListed`. Whether this occupancy is a name on the directory. */
@@ -157,19 +157,19 @@ export type RoomFacts = z.infer<typeof RoomFactsSchema>;
  * the common case costs no allocation and a caller can ask `if (facts)`
  * without probing each field. */
 export function readRoomFacts(args: Argument[]): RoomFacts | undefined {
-	const topic = readTopic(args);
+	const subject = readSubject(args);
 	const lineBytes = readLineBytes(args);
 	const listed = readListed(args);
 	const bridge = readBridge(args);
 	const carries = readCarries(args);
 	if (
-		topic === undefined && lineBytes === undefined && listed === undefined && bridge === undefined &&
+		subject === undefined && lineBytes === undefined && listed === undefined && bridge === undefined &&
 		carries === undefined
 	) {
 		return undefined;
 	}
 	return {
-		...(topic === undefined ? {} : { topic }),
+		...(subject === undefined ? {} : { subject }),
 		...(lineBytes === undefined ? {} : { lineBytes }),
 		...(listed === undefined ? {} : { listed }),
 		...(bridge === undefined ? {} : { bridge }),
@@ -181,7 +181,7 @@ export function readRoomFacts(args: Argument[]): RoomFacts | undefined {
  * as `notify("room", "", "carries", ...features)`.
  *
  * This is description, not authority. What a member can do is what they hold
- * (a participant seat, the topic facet, the files facet), and nothing they
+ * (a participant seat, the subject facet, the files facet), and nothing they
  * hold could say whether the room keeps a line's link previews or relays the
  * typing signal. A feature named is carried and one not named is not, so a
  * room bridged to IRC states an empty list and a Rooms room states both. A
@@ -315,22 +315,23 @@ export function readLineBytes(args: Argument[]): number | undefined {
 }
 
 /** What the room says it is about, if it says anything, as
- * `notify(from, text, "topic", "…")`.
+ * `notify(from, text, "subject", description, link?)`.
  *
- * An empty topic is a topic being cleared, so it reads as an empty string and
- * not as nothing said. That separates "this room is about nothing in
- * particular now" from "this notify was not about the topic at all", and
- * without it clearing a topic would be impossible.
+ * An empty description with no link is a subject being taken down, so it
+ * reads as the empty subject and not as nothing said. That separates "this
+ * room is about nothing in particular now" from "this notify was not about the
+ * subject at all", and without it taking a subject down would be impossible.
  *
  * A room states this on arrival when it has one, and again whenever it changes.
  * The tags are read as a bridge's would be, so a bridged room stating its own
- * topic needs nothing new here. */
-export function readTopic(args: Argument[]): string | undefined {
-	if (args[2] !== TOPIC) return undefined;
-	const said = args[3];
-	// A topic sits on screen for as long as the room is open, so a topic longer
-	// than a topic may be is something this cannot show. Read it as a malformed
-	// cap is read: the room said nothing. That leaves the last topic a reader
-	// could see in place and does not replace it with something unreadable.
-	return typeof said === "string" && said.length <= MAX_TOPIC ? said : undefined;
+ * subject needs nothing new here. */
+export function readSubject(args: Argument[]): Subject | undefined {
+	if (args[2] !== SUBJECT || args.length > 5) return undefined;
+	const [description, link] = [args[3], args[4]];
+	// A subject sits on screen for as long as the room is open, so one this
+	// cannot show is read as a malformed cap is read: the room said nothing.
+	// That leaves the last subject a reader could see in place.
+	if (typeof description !== "string") return undefined;
+	if (link !== undefined && typeof link !== "string") return undefined;
+	return subject(description, link);
 }

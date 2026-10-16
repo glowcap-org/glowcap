@@ -1,6 +1,6 @@
 //! The host Rooms server: the directory every member registers with and
 //! watches, the introductions and WebRTC signaling it relays between members,
-//! and the rooms they open and enter, with their lines, files, topics,
+//! and the rooms they open and enter, with their lines, files, subjects,
 //! invitations, and durable links. The policies are under
 //! `rooms_application::server`. This tier owns the sessions, the clocks, the
 //! work that runs outside a turn, the document, and the history on disk.

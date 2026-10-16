@@ -97,7 +97,9 @@ zig build fuzz                 # mutation-fuzz every untrusted-input target, one
 zig build fuzz-run             # the fuzz worker `zig build fuzz` drives; add --fuzz yourself for Zig's coverage UI
 zig build timeout-runner-test  # black-box the CI deadline wrapper and how the check sequence classifies its codes; runs before anything relies on that deadline; not in check (needs python3)
 zig build c-abi-extract-check  # in-tree C-ABI extract hygiene: each resolve port's own validator against the malformed fixture set in tools/c-abi/c-abi-extract-matrix.sh (ADR-0077; part of check)
+zig build ocapn-adoption-check # validate adopted, deferred, and pending draft and suite accounting, also enforced by source-check and before live suite execution
 zig build ocapn-findings-check # reproduce the pinned op:listen, locator-hints, and withdrawal-lookup discrepancies against the OCapN spec, suite, and Goblins submodules; part of check-external
+zig build ocapn-conformance-next # run baseline conformance, fixture regressions and manifest-selected next cases with the retained hello; part of check-external
 zig build ocapn-conformance    # run portable upstream OCapN modules plus the strict abort probe against glowcap (needs uv + the ocapn-conformance submodule)
 zig build fixture-gen-check    # regenerate the Syrup fixture corpus with the upstream Racket encoder and diff against the committed bytes (needs racket + syrup)
 zig build gen-capnp-fixtures   # regenerate Cap'n Proto golden fixtures under test/codec/capnp_fixtures/
@@ -293,7 +295,7 @@ zig build goblins-gift             # three-party handoff with Goblins, glowcap a
 zig build goblins-exporter         # three-party handoff with Goblins, glowcap as exporter: a Goblins pair deposits into and withdraws from glowcap's gift registry (needs racket + goblins)
 zig build goblins-relayed-give     # glowcap introduces a Goblins recipient to a promise a second Goblins vat has not settled, and the recipient reads the give out of the listener fire (needs racket + goblins)
 zig build goblins-listen-recipient # a Goblins vat hands glowcap an unsettled promise; Session.listenTo observes its later nested-capability settlement and calls that capability (needs racket + goblins)
-zig build goblins-glowcap-pair-gift # two glowcap vats and one Goblins vat: the glowcap pair settles on glowcap-next over Cap'n Proto while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split (needs racket + goblins)
+zig build goblins-glowcap-pair-gift # two glowcap vats and one Goblins vat: the glowcap pair settles on glowcap-next over Cap'n Proto while both Goblins sessions settle on the v1.0 Syrup baseline, and the give crosses that split; part of check-external (needs racket + goblins)
 zig build goblins-gift-hints       # the gift topology with an opaque route hint: Goblins round-trips the mapping-shaped exporter locator byte-exactly (needs racket + goblins)
 zig build goblins-gc               # live GC both ways: Goblins reclaims released exports and answers before close (needs racket + goblins)
 zig build goblins-handoff-iroh     # Goblins gifter and exporter, glowcap completion-loop recipient over encrypted QUIC (needs cargo + racket + goblins)

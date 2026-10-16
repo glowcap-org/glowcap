@@ -19,10 +19,10 @@ import {
 	roomAuthorityModerateNotHeld,
 	roomAuthorityModerateRetained,
 	roomAuthorityModerateViaManager,
+	roomAuthoritySubject,
+	roomAuthoritySubjectHeld,
+	roomAuthoritySubjectNotOffered,
 	roomAuthorityTitle,
-	roomAuthorityTopic,
-	roomAuthorityTopicHeld,
-	roomAuthorityTopicNotOffered,
 	roomCapabilitiesTitle,
 	roomDiscardCapability,
 	roomKeepCapability,
@@ -413,8 +413,8 @@ export function RoomCapabilities(
 			<h3 className="well-title overline" id="convcardRoomAuthorityTitle">{roomAuthorityTitle}</h3>
 			<div className="group well" role="group" aria-labelledby="convcardRoomAuthorityTitle">
 				<dl className="dirfacts">
-					<dt>{roomAuthorityTopic}</dt>
-					<dd>{conv.grants.has("topic") ? roomAuthorityTopicHeld : roomAuthorityTopicNotOffered}</dd>
+					<dt>{roomAuthoritySubject}</dt>
+					<dd>{conv.grants.has("subject") ? roomAuthoritySubjectHeld : roomAuthoritySubjectNotOffered}</dd>
 					<dt>{roomAuthorityModerate}</dt>
 					<dd>
 						{held

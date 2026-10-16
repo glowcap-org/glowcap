@@ -30,8 +30,8 @@ pub(super) async fn disclose(host: &Host, source: &Ref, id: &str, canonical: &st
 	};
 	let row: Membership = serde_json::from_str(data.as_str().unwrap()).unwrap();
 	let mut expected = vec![coordinate(custody::Role::RoomSeat, 1)];
-	if row.topic.is_some() {
-		expected.push(coordinate(custody::Role::RoomTopic, 1));
+	if row.subject.is_some() {
+		expected.push(coordinate(custody::Role::RoomSubject, 1));
 	}
 	if row.files.is_some() {
 		expected.push(coordinate(custody::Role::RoomFiles, 1));
@@ -124,7 +124,7 @@ async fn run_case(options: u8) {
 				for payload in [
 					b"entrance".as_slice(),
 					b"seat",
-					b"topic",
+					b"subject",
 					b"files",
 					b"inbox",
 					b"replacement",
@@ -338,7 +338,7 @@ async fn run_case(options: u8) {
 				.await
 				.unwrap();
 				if options & 1 != 0 {
-					host.send(&actual[1], "setTopic", &["topic".into()]).await.unwrap();
+					host.send(&actual[1], "setSubject", &["subject".into()]).await.unwrap();
 				}
 				let observation = policy
 					.value_for_kind(session::KIND, &[Permission::ObserveWorkspace.key()], &[])
@@ -365,7 +365,7 @@ async fn run_case(options: u8) {
 				.unwrap();
 				let result_fields = [
 					(custody::Role::RoomSeat, &held[1]),
-					(custody::Role::RoomTopic, &held[2]),
+					(custody::Role::RoomSubject, &held[2]),
 					(custody::Role::RoomFiles, &held[3]),
 				]
 				.into_iter()

@@ -30,6 +30,29 @@ impl Output {
 		let bytes = protocol::encode_message(command, params, prefix).map_err(|e| e.to_string())?;
 		self.enqueue(bytes)?.wait().await.map_err(|e| e.reason)
 	}
+	/// A channel's topic, or a notice when it cannot fit one IRC line.
+	pub async fn topic(&self, channel: &str, topic: &str) -> Result<(), String> {
+		self.topic_line("TOPIC", &[channel, topic], channel, topic).await
+	}
+	/// The answer to a `TOPIC` query (332). It carries the topic exactly, as
+	/// the `TOPIC` line does, so a reply never reads differently from news.
+	pub async fn topic_reply(&self, channel: &str, topic: &str) -> Result<(), String> {
+		self.topic_line("332", &[&self.nick, channel, topic], channel, topic)
+			.await
+	}
+	async fn topic_line(&self, command: &str, params: &[&str], channel: &str, topic: &str) -> Result<(), String> {
+		match protocol::encode_message(command, params, Some(&self.server)) {
+			Ok(bytes) => self.enqueue(bytes)?.wait().await.map_err(|e| e.reason),
+			Err(protocol::Error::TooLong) => {
+				self.notice(&format!(
+					"{channel} has a {}-byte topic that cannot fit one IRC line",
+					topic.len()
+				))
+				.await
+			}
+			Err(error) => Err(error.to_string()),
+		}
+	}
 	pub async fn numeric(&self, command: &str, params: &[&str]) -> Result<(), String> {
 		let (last, leading) = params.split_last().ok_or("numeric requires a recipient")?;
 		let bytes = clients::explanation(command, leading, &self.server, last).map_err(|e| e.to_string())?;

@@ -93,7 +93,7 @@ fn dispatch_cases() -> impl Iterator<Item = (String, Case)> {
 		Case::revoke("steward"),
 		Case::policy(false),
 		Case::policy(true),
-		Case::topic(),
+		Case::subject(),
 		Case::away(),
 		Case::line(false),
 		Case::line(true),

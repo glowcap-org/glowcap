@@ -120,7 +120,7 @@ async fn pending(state: &State) -> super::PendingContinuation {
 pub async fn exercise(session: &Session, root: &Ref, control: &Ref, state: &State, sequence: i64, require_park: bool) {
 	let request = [Argument::Integer(sequence), Argument::String("effect-reserve".into())];
 	let effect = async {
-		let mut pending = pending(state).await;
+		let pending = pending(state).await;
 		let continuation = {
 			let confirming = pending.confirmed();
 			tokio::pin!(confirming);
@@ -168,8 +168,13 @@ pub async fn exercise(session: &Session, root: &Ref, control: &Ref, state: &Stat
 		session.send(root, "mutate", &request).await.err().unwrap().message(),
 		Some("receipt refuses before commit")
 	);
-	let mut canceled = pending(state).await;
+	let canceled = pending(state).await;
+	assert!(canceled.absent().unwrap(), "a refused commit is confirmed absent");
 	assert_eq!(canceled.confirmed().await.err().unwrap().code(), super::UNCHANGED);
+	assert!(
+		canceled.absent().unwrap(),
+		"absence is final and the query consumes nothing"
+	);
 	drop(canceled);
 	let request = [
 		Argument::Integer(sequence + 1),
@@ -184,8 +189,10 @@ pub async fn exercise(session: &Session, root: &Ref, control: &Ref, state: &Stat
 		Argument::String("effect-reserve".into()),
 	];
 	assert!(session.send(root, "mutate", &request).await.is_ok());
-	let mut pending = pending(state).await;
+	let pending = pending(state).await;
+	assert!(!pending.absent().unwrap(), "a committed receipt is not absent");
 	let continuation = pending.confirmed().await.unwrap();
+	assert!(pending.absent().is_err(), "a taken observer answers nothing");
 	let mut execution = continuation.execute(0, "effect-fail", &[], 4096).unwrap();
 	let super::EffectResult::Unknown(error) = execution.completed().await.unwrap() else {
 		panic!("application refusal after target admission cannot prove absence")

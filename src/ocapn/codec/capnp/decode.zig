@@ -102,10 +102,7 @@ pub fn decodeBodyInto(profile: model.CaptpVersion, frame: foundation.FrameView, 
     const view = try decodeMessageView(frame);
     try shared.expectExactFrameLength(frame.bytes);
     if (profile == .next and view.kind == .resolve) return Error.UnsupportedMessage;
-    if (profile == .next and view.kind == .deliver) {
-        const flags = try view.reader.dataWord(view.body, 0);
-        if (flags & shared.deliver_has_resolve_me != 0) return Error.UnsupportedMessage;
-    }
+    if (profile == .next and (view.kind == .get or view.kind == .index or view.kind == .untag)) return Error.UnsupportedMessage;
     return neutralBodyForProfile(view, profile, slab);
 }
 
@@ -150,7 +147,21 @@ fn neutralBodyForProfile(view: MessageView, profile: model.CaptpVersion, slab: *
     var budget: usize = shared.traversalBudget(view.reader.seg_words);
     const metered = view.reader.withBudget(&budget);
     if (view.kind == .listen) return projectListenBodyForProfile(metered, view.body, profile);
-    return projectBody(metered, view.kind, view.body, slab);
+    var body = try projectBody(metered, view.kind, view.body, slab);
+    if (body == .deliver) {
+        const flags = try metered.dataWord(view.body, 0);
+        const allowed = shared.deliver_has_answer | shared.deliver_has_resolve_me |
+            (if (profile == .next) shared.deliver_listen_mask else @as(u64, 0));
+        if (flags & ~allowed != 0) return Error.MalformedFrame;
+        if (profile == .next) {
+            if (body.deliver.resolve_me_desc) |resolver| {
+                if (resolver != .far) return Error.MalformedFrame;
+                body.deliver.listen_mode = model.ListenMode.fromInt((flags & shared.deliver_listen_mask) >> shared.deliver_listen_shift) orelse return Error.MalformedFrame;
+                if (body.deliver.listen_mode == .settling_only) return Error.MalformedFrame;
+            } else if (body.deliver.answer != null or flags & shared.deliver_listen_mask != 0) return Error.MalformedFrame;
+        }
+    }
+    return body;
 }
 
 /// One body projector per Cap'n Proto `Kind` wire id, the same comptime table

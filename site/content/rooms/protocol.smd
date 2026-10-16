@@ -52,7 +52,7 @@ you to use or pass on, and the inbox is the one you make yourself.
 <p class="object-name">room</p>
 <p class="object-from"><code>open</code> or <code>enter</code>, or a room link.</p>
 <p class="object-calls"><code>subscribe</code> <code>called</code> <code>private</code> <code>roomPolicy</code> <code>managedRoomIdentity</code> <code>link</code></p>
-<p class="object-back">Hands back a <b>seat</b>, a <b>topic</b>, or a room link.</p>
+<p class="object-back">Hands back a <b>seat</b>, a <b>subject</b>, or a room link.</p>
 </article>
 <article class="object" data-tone="warm">
 <p class="object-name">name</p>
@@ -91,9 +91,9 @@ you to use or pass on, and the inbox is the one you make yourself.
 <p class="object-back">Hands back a <b>line</b>, an <b>upload</b>, an <b>invitation</b>, or the lines the room kept.</p>
 </article>
 <article class="object" data-tone="warm">
-<p class="object-name">topic</p>
+<p class="object-name">subject</p>
 <p class="object-from">The third slot of <code>subscribe</code>'s answer, for participants.</p>
-<p class="object-calls"><code>setTopic</code></p>
+<p class="object-calls"><code>setSubject</code></p>
 <p class="object-back">Hands back nothing. The room tells everyone.</p>
 </article>
 </div>
@@ -132,9 +132,15 @@ you to use or pass on, and the inbox is the one you make yourself.
 
 Nothing checks who is calling: a member without the line reference cannot
 form the `edit` at all. And a reference can be handed on. Give your
-line's reference to someone and they can take the line down. Give the topic
-reference to a bot and it can keep the topic, without the room learning what
+line's reference to someone and they can take the line down. Give the subject
+reference to a bot and it can keep the subject, without the room learning what
 a bot is.
+
+A subject is a description, and it can also link an object the room is about,
+such as a board or a game, by its `ocapn://` sturdyref. The room checks that
+the link parses and tells it to everyone in the room, but never calls the
+object. Whoever set it hosts the object and decides what that reference may
+do. A subject with no link is a plain topic.
 
 # What the room tells you
 
@@ -153,7 +159,7 @@ every client being rebuilt first.
 | `join`, `leave` | name | Someone came or went |
 | `typing` | name, on or off | Someone is typing, never stored |
 | `away` | name, reason | Someone stepped away. An empty reason means they are back |
-| `topic` | text | What the room is about. Empty means taken down |
+| `subject` | description, then an optional link | What the room is about. An empty description means taken down |
 | `line-bytes` | a number | The longest line this room will carry |
 | `listed`, `unlisted` | | Whether this room is on the public list, sent when you arrive |
 | `membershipEnded` | | This room no longer holds the seat behind your inbox |

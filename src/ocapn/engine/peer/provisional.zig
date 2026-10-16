@@ -19,8 +19,8 @@ const semantic = @import("../outbound.zig");
 
 const Peer = engine.Peer;
 
-/// The carriers a turn's far send produces: a deliver, or on `next` a deliver
-/// paired with its mandatory answer listener.
+/// The carriers a turn's far send produces: a staged or encoded deliver
+/// with its inline answer subscription.
 pub fn retractable(item: semantic.Outbound) bool {
     return switch (item) {
         .encoded => |sent| sent.op == .deliver,

@@ -73,11 +73,9 @@ pub const Outbound = union(enum) {
     /// until the release frame is encoded, so deferred V1.0 answer setup runs
     /// first and allocator/backpressure refusal remains retryable.
     answer_release: model.AnswerPosition,
-    /// A deliver, or on next an answered operation, already encoded: the
-    /// frame, the listener frame next requires behind it, and what a
-    /// retracted turn gives back. `step` moves both frames to `outbound` in
-    /// one reservation, so an allocation failure cannot expose the operation
-    /// without its listener.
+    /// A deliver encoded with its inline subscription. The frame and the
+    /// authority a retracted turn gives back are admitted together. `step`
+    /// publishes the single frame without another argument-tree walk.
     encoded: Encoded,
     /// A sent `op:resolve` whose resolution lives in the inbound answer store
     /// (recording moves it there). Carries the answer position *and* the
@@ -116,8 +114,10 @@ pub const Outbound = union(enum) {
         switch (self) {
             .answer_release, .staged => {},
             .settled_answer => |settled| {
+                peer.session_state.retireVirtualAnswer(settled.target);
                 peer.session_state.retireDetachedAnswer(settled.target, settled.payload);
                 peer.session_state.releaseAnswerPayload(settled.payload);
+                peer.session_state.collectLocalPromiseProjections();
             },
             .listener_fire => |fire| listener_fire.deinit(fire, peer),
             .encoded => |sent| sent.deinit(peer),

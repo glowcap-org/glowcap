@@ -56,7 +56,7 @@ import {
 	acquireTraceCapability,
 	connectTraceViewer,
 	scrapeTraceSturdyref,
-	traceUrlOf,
+	tracePublishUrlOf,
 } from "../../apps/rooms/test/trace/viewer.ts";
 import { freePort } from "../../apps/rooms/test/support/rooms_server.ts";
 import { confirmTitleLeave } from "../../apps/rooms/test/page/harness.ts";
@@ -264,7 +264,7 @@ try {
 			VAT_NICK,
 		],
 		cwd: RACKET_DIR,
-		env: { GLOWCAP_ROOMS_TRACE_URL: traceUrlOf(traceRef) },
+		env: { GLOWCAP_ROOMS_TRACE_URL: tracePublishUrlOf(traceRef) },
 		stdout: "piped",
 		stderr: "piped",
 	}).spawn();

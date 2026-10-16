@@ -94,6 +94,13 @@ export class ManagedEffects {
 		}
 		return accepted;
 	}
+	roomStandingPending(target: string): boolean {
+		const scope = gestureScope("setRoomStanding", [target]);
+		return [...this.#records.values()].some(({ intent }) =>
+			intent?.scope === scope &&
+			(intent.name === "setRoomStanding" || intent.name === "setEffectiveStanding")
+		);
+	}
 	get diagnostics() {
 		return [...this.#records.values()].map((record) => record.lifecycle.inspect());
 	}

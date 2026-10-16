@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const glowcap = @import("glowcap");
+const codec = glowcap.ocapn.codec;
 
 const engine = glowcap.ocapn.engine;
 const model = glowcap.ocapn.model;
@@ -21,10 +22,8 @@ fn drainOne(peer: *engine.Peer, profile: model.CaptpVersion) ![]u8 {
     defer frame.deinit();
     const bytes = try std.testing.allocator.dupe(u8, frame.bytes());
     errdefer std.testing.allocator.free(bytes);
-    if (profile == .next) {
-        var listener = peer.takeOutbound() orelse return error.MissingListener;
-        listener.deinit();
-    }
+    const body = try codec.syrup.decodeBodyForProfile(profile, frame.view());
+    try std.testing.expect(body.deliver.resolve_me_desc != null);
     try std.testing.expect(peer.takeOutbound() == null);
     try std.testing.expect(peer.pending_send.isEmpty());
     return bytes;

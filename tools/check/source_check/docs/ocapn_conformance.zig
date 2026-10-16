@@ -1,10 +1,11 @@
 //! `docs/ocapn-conformance.md` lists, per OCapN CapTP draft section, the wire
-//! profile that implements it and the evidence that proves it. The draft has
+//! adoption state and the evidence or decision that owns it. The draft has
 //! no tagged releases, so the submodule pin is the reference. Each row carries
 //! a fingerprint of its section's text at the pin, which lets a pin bump fail
 //! exactly the rows whose text moved and name them for re-review. The check
 //! also holds the table complete in both directions and holds every evidence
-//! step against `docs/build-steps.md`.
+//! step against `docs/build-steps.md`, and fingerprints upstream suite setup
+//! alongside test modules so a shared hello change always forces review.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -14,13 +15,55 @@ const appendViolation = util.appendViolation;
 const manifest_path = "docs/ocapn-conformance.md";
 const draft_path = "conformance/ocapn-spec/upstream/draft-specifications/CapTP Specification.md";
 const steps_path = "docs/build-steps.md";
-const header = "| Section | Profile | Evidence | Text |";
+const header = "| Section | Profile | State | Evidence | Decision | Text |";
+const suite_header = "| Suite source | Profile | State | Evidence | Decision | Text |";
+const suite_root = "conformance/ocapn-conformance/upstream";
 const step_prefix = "zig build ";
 const fingerprint_len = 12;
 
-/// The draft's top-level sections whose second-level headings need a row.
-const scopes = [_][]const u8{ "Cryptography", "The bootstrap Object", "Operations", "Descriptors" };
-const profiles = [_][]const u8{ "1.0", "next", "both", "none" };
+/// Non-protocol framing is excluded explicitly. Every other top-level section,
+/// including any section upstream adds, and its second-level sections need rows.
+const framing = [_][]const u8{
+    "Warning: This is a draft specification likely to undergo significant change",
+    "Introduction",
+    "Additional Documents",
+    "History of OCapN",
+    "Funding",
+};
+const profiles = [_][]const u8{ "1.0", "next", "both" };
+
+/// CommonMark fenced examples may contain heading and table syntax. Keep
+/// their bytes in fingerprints without treating those examples as structure.
+const Fence = struct {
+    marker: u8 = 0,
+    width: usize = 0,
+
+    fn consumes(self: *Fence, line: []const u8) bool {
+        const content = headingLine(line);
+        var count: usize = 0;
+        if (content.len != 0 and (content[0] == '`' or content[0] == '~')) {
+            while (count < content.len and content[count] == content[0]) : (count += 1) {}
+        }
+        if (self.width != 0) {
+            if (count >= self.width and content[0] == self.marker and std.mem.trim(u8, content[count..], " \t\r\n").len == 0) {
+                self.width = 0;
+            }
+            return true;
+        }
+        if (count < 3) return false;
+        if (content[0] == '`' and std.mem.indexOfScalar(u8, content[count..], '`') != null) return false;
+        self.marker = content[0];
+        self.width = count;
+        return true;
+    }
+};
+
+/// ATX headings and fences may be indented by up to three spaces.
+fn headingLine(line: []const u8) []const u8 {
+    var start: usize = 0;
+    while (start < line.len and start < 3 and line[start] == ' ') : (start += 1) {}
+    return line[start..];
+}
 
 const Section = struct {
     name: []const u8,
@@ -30,7 +73,9 @@ const Section = struct {
 const Row = struct {
     name: []const u8,
     profile: []const u8,
+    state: []const u8,
     evidence: []const u8,
+    decision: []const u8,
     fingerprint: []const u8,
 };
 
@@ -63,7 +108,7 @@ pub fn checkManifest(
         return;
     };
 
-    const rows = try parseRows(arena, gpa, violations, manifest);
+    const rows = try parseRows(arena, gpa, violations, manifest, header);
     const sections = try scanDraft(arena, draft);
 
     for (sections) |section| {
@@ -76,6 +121,14 @@ pub fn checkManifest(
             try appendViolation(gpa, violations, "ocapn conformance: manifest row `{s}` appears more than once", .{row.name});
             continue;
         }
+        try checkDisposition(io, gpa, root, violations, row);
+        if (std.mem.eql(u8, row.fingerprint, "removed")) {
+            if (findSection(sections, row.name) != null) {
+                try appendViolation(gpa, violations, "ocapn conformance: `{s}` is marked removed but exists in the draft", .{row.name});
+            }
+            try checkEvidence(io, gpa, root, violations, row, steps);
+            continue;
+        }
         const section = findSection(sections, row.name) orelse {
             try appendViolation(gpa, violations, "ocapn conformance: manifest row `{s}` names no draft section", .{row.name});
             continue;
@@ -85,6 +138,126 @@ pub fn checkManifest(
         }
         try checkEvidence(io, gpa, root, violations, row, steps);
     }
+    try checkSuite(io, arena, gpa, root, violations, manifest, steps);
+}
+
+/// A pending item lacks implementation or proof. A deferral is a deliberate
+/// boundary. Neither may borrow passing baseline checks as adoption evidence.
+fn checkDisposition(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    row: Row,
+) !void {
+    if (std.mem.eql(u8, row.state, "adopted")) {
+        if (std.mem.indexOf(u8, row.evidence, "`zig build ") == null) {
+            try appendViolation(gpa, violations, "ocapn conformance: adopted `{s}` needs executable evidence", .{row.name});
+        }
+        if (!std.mem.eql(u8, row.decision, "none")) {
+            try appendViolation(gpa, violations, "ocapn conformance: adopted `{s}` must retire its follow-up decision", .{row.name});
+        }
+        return;
+    }
+    if (!std.mem.eql(u8, row.state, "deferred") and !std.mem.eql(u8, row.state, "pending")) {
+        try appendViolation(gpa, violations, "ocapn conformance: `{s}` state `{s}` must be adopted, deferred, or pending", .{ row.name, row.state });
+        return;
+    }
+    if (!std.mem.eql(u8, row.evidence, "none")) {
+        try appendViolation(gpa, violations, "ocapn conformance: {s} `{s}` cannot claim adoption evidence", .{ row.state, row.name });
+    }
+    const decision = row.decision;
+    if (decision.len < 3 or decision[0] != '`' or decision[decision.len - 1] != '`') {
+        try appendViolation(gpa, violations, "ocapn conformance: {s} `{s}` needs a repository decision path in a code span", .{ row.state, row.name });
+        return;
+    }
+    const path = decision[1 .. decision.len - 1];
+    if (path.len == 0 or std.fs.path.isAbsolute(path) or std.mem.indexOf(u8, path, "..") != null or !std.mem.endsWith(u8, path, ".md")) {
+        try appendViolation(gpa, violations, "ocapn conformance: `{s}` decision must name a repository Markdown file", .{row.name});
+        return;
+    }
+    root.access(io, path, .{}) catch {
+        try appendViolation(gpa, violations, "ocapn conformance: `{s}` decision `{s}` does not exist", .{ row.name, path });
+    };
+}
+
+/// Test modules and their shared Python setup/types move independently of the
+/// spec. Review every Python source, including initializers and transport setup,
+/// so excluding a hello module cannot conceal a changed common opening grammar.
+fn checkSuite(
+    io: std.Io,
+    arena: std.mem.Allocator,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    manifest: []const u8,
+    steps: []const u8,
+) !void {
+    const rows = try parseRows(arena, gpa, violations, manifest, suite_header);
+    var dir = root.openDir(io, suite_root, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "ocapn conformance: failed to open suite with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(arena);
+    defer walker.deinit();
+    var count: usize = 0;
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".py")) continue;
+        count += 1;
+        const bytes = try dir.readFileAlloc(io, entry.path, arena, .limited(4 << 20));
+        const actual = fingerprint(bytes);
+        for ([_][]const u8{ "1.0", "next" }) |profile| {
+            const row = suiteRow(rows, entry.path, profile) orelse {
+                try appendViolation(gpa, violations, "ocapn conformance: suite source `{s}` has no reviewed row for {s}", .{ entry.path, profile });
+                continue;
+            };
+            if (!std.mem.eql(u8, row.fingerprint, &actual)) {
+                try appendViolation(gpa, violations, "ocapn conformance: suite source `{s}` ({s}) text moved: manifest {s}, suite {s}, review setup and assertions", .{ entry.path, profile, row.fingerprint, actual });
+            }
+        }
+    }
+    if (count == 0) try appendViolation(gpa, violations, "ocapn conformance: suite Python inventory is empty", .{});
+    for (rows, 0..) |row, index| {
+        for (rows[0..index]) |earlier| {
+            if (std.mem.eql(u8, row.name, earlier.name) and
+                (std.mem.eql(u8, row.profile, earlier.profile) or std.mem.eql(u8, row.profile, "both") or std.mem.eql(u8, earlier.profile, "both")))
+                try appendViolation(gpa, violations, "ocapn conformance: suite row `{s}` appears more than once for {s}", .{ row.name, row.profile });
+        }
+        if (!std.mem.endsWith(u8, row.name, ".py") or std.fs.path.isAbsolute(row.name) or std.mem.indexOf(u8, row.name, "..") != null) {
+            try appendViolation(gpa, violations, "ocapn conformance: invalid suite path `{s}`", .{row.name});
+            continue;
+        }
+        dir.access(io, row.name, .{}) catch {
+            try appendViolation(gpa, violations, "ocapn conformance: suite row `{s}` names no source", .{row.name});
+        };
+        try checkDisposition(io, gpa, root, violations, row);
+        try checkEvidence(io, gpa, root, violations, row, steps);
+    }
+}
+
+pub const SuitePlanEntry = struct { name: []const u8, state: []const u8, decision: []const u8 };
+
+/// Execution consumes the same reviewed rows as the accounting gate. The
+/// caller validates the manifest first. Returned strings belong to `arena`.
+pub fn nextSuitePlan(io: std.Io, arena: std.mem.Allocator, root: std.Io.Dir) ![]const SuitePlanEntry {
+    const manifest = try root.readFileAlloc(io, manifest_path, arena, .limited(1 << 20));
+    var violations: std.ArrayList([]const u8) = .empty;
+    const rows = try parseRows(arena, arena, &violations, manifest, suite_header);
+    if (violations.items.len != 0) return error.InvalidManifest;
+    var entries: std.ArrayList(SuitePlanEntry) = .empty;
+    for (rows) |row| {
+        if (std.mem.eql(u8, row.profile, "1.0")) continue;
+        try entries.append(arena, .{ .name = row.name, .state = row.state, .decision = row.decision });
+    }
+    return entries.items;
+}
+
+fn suiteRow(rows: []const Row, name: []const u8, profile: []const u8) ?Row {
+    for (rows) |row| {
+        if (std.mem.eql(u8, row.name, name) and (std.mem.eql(u8, row.profile, profile) or std.mem.eql(u8, row.profile, "both"))) return row;
+    }
+    return null;
 }
 
 fn findRow(rows: []const Row, name: []const u8) ?Row {
@@ -102,22 +275,28 @@ fn duplicateOf(rows: []const Row, index: usize) bool {
     return false;
 }
 
-/// Reads the single table that starts at `header`. Malformed rows are
+/// Reads the single table that starts at `table_header`. Malformed rows are
 /// reported and skipped.
 fn parseRows(
     arena: std.mem.Allocator,
     gpa: std.mem.Allocator,
     violations: *std.ArrayList([]const u8),
     manifest: []const u8,
+    table_header: []const u8,
 ) ![]const Row {
     var rows: std.ArrayList(Row) = .empty;
     var lines = std.mem.splitScalar(u8, manifest, '\n');
     var in_table = false;
     var seen_header = false;
+    var fence: Fence = .{};
     while (lines.next()) |raw| {
-        const line = std.mem.trim(u8, raw, " \t\r");
+        const line = std.mem.trimEnd(u8, headingLine(raw), " \t\r");
+        if (fence.consumes(raw)) {
+            if (in_table) break;
+            continue;
+        }
         if (!in_table) {
-            if (!std.mem.eql(u8, line, header)) continue;
+            if (!std.mem.eql(u8, line, table_header)) continue;
             in_table = true;
             seen_header = true;
             _ = lines.next(); // the separator line
@@ -125,19 +304,19 @@ fn parseRows(
         }
         if (!std.mem.startsWith(u8, line, "|")) break;
         const row = parseRow(arena, line) orelse {
-            try appendViolation(gpa, violations, "ocapn conformance: malformed manifest row `{s}`, expected four cells", .{line});
+            try appendViolation(gpa, violations, "ocapn conformance: malformed manifest row `{s}`, expected six cells", .{line});
             continue;
         };
         if (!oneOf(&profiles, row.profile)) {
-            try appendViolation(gpa, violations, "ocapn conformance: row `{s}` has profile `{s}`, expected 1.0, next, both, or none", .{ row.name, row.profile });
+            try appendViolation(gpa, violations, "ocapn conformance: row `{s}` has profile `{s}`, expected 1.0, next, or both", .{ row.name, row.profile });
         }
-        if (!isFingerprint(row.fingerprint)) {
+        if (!isFingerprint(row.fingerprint) and !std.mem.eql(u8, row.fingerprint, "removed")) {
             try appendViolation(gpa, violations, "ocapn conformance: row `{s}` fingerprint `{s}` is not {d} lowercase hex characters", .{ row.name, row.fingerprint, fingerprint_len });
         }
         try rows.append(arena, row);
     }
     if (!seen_header) {
-        try appendViolation(gpa, violations, "ocapn conformance: {s} has no table with the header `{s}`", .{ manifest_path, header });
+        try appendViolation(gpa, violations, "ocapn conformance: {s} has no table with the header `{s}`", .{ manifest_path, table_header });
     }
     return rows.items;
 }
@@ -145,12 +324,12 @@ fn parseRows(
 fn parseRow(arena: std.mem.Allocator, line: []const u8) ?Row {
     const inner = std.mem.trim(u8, line, "|");
     var cells = std.mem.splitScalar(u8, inner, '|');
-    var parsed: [4][]const u8 = undefined;
+    var parsed: [6][]const u8 = undefined;
     for (&parsed) |*cell| cell.* = std.mem.trim(u8, cells.next() orelse return null, " ");
     if (cells.next() != null) return null;
     const name = stripMarkup(arena, parsed[0]) catch return null;
     if (name.len == 0) return null;
-    return .{ .name = name, .profile = parsed[1], .evidence = parsed[2], .fingerprint = parsed[3] };
+    return .{ .name = name, .profile = parsed[1], .state = parsed[2], .evidence = parsed[3], .decision = parsed[4], .fingerprint = parsed[5] };
 }
 
 fn oneOf(set: []const []const u8, value: []const u8) bool {
@@ -238,16 +417,22 @@ fn fingerprint(body: []const u8) [fingerprint_len]u8 {
     return hex[0..fingerprint_len].*;
 }
 
-/// Every second-level heading under one of `scopes`, with the fingerprint of
-/// the bytes from that heading to the next first- or second-level heading.
+/// Protocol prose and examples at both heading levels are normative review
+/// inputs. A section ends at the next first- or second-level heading.
 fn scanDraft(arena: std.mem.Allocator, draft: []const u8) ![]const Section {
     var sections: std.ArrayList(Section) = .empty;
     var in_scope = false;
+    var fence: Fence = .{};
     var open: ?struct { name: []const u8, start: usize } = null;
     var offset: usize = 0;
     while (offset < draft.len) {
         const end = if (std.mem.indexOfScalarPos(u8, draft, offset, '\n')) |nl| nl + 1 else draft.len;
-        const line = draft[offset..end];
+        const raw = draft[offset..end];
+        if (fence.consumes(raw)) {
+            offset = end;
+            continue;
+        }
+        const line = headingLine(raw);
         const first = std.mem.startsWith(u8, line, "# ");
         const second = std.mem.startsWith(u8, line, "## ");
         if (first or second) {
@@ -257,10 +442,9 @@ fn scanDraft(arena: std.mem.Allocator, draft: []const u8) ![]const Section {
             }
             const text = try stripMarkup(arena, std.mem.trim(u8, line[if (first) 2 else 3..], "\r\n"));
             if (first) {
-                in_scope = oneOf(&scopes, text);
-            } else if (in_scope) {
-                open = .{ .name = text, .start = offset };
+                in_scope = !oneOf(&framing, text);
             }
+            if (in_scope) open = .{ .name = text, .start = offset };
         }
         offset = end;
     }
@@ -289,12 +473,13 @@ test "fingerprint hashes the section without trailing newlines" {
 test "scanDraft bounds a section at the next first- or second-level heading" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
-    const draft = "# Intro\n## Skipped\n# Operations\n## [`op:a`](#opa)\nabc\n### Sub\nx\n\n## `b` Method\nabc\n# Other\n## Out\n";
+    const draft = "# Introduction\n## Skipped\n# Operations\n## [`op:a`](#opa)\nabc\n### Sub\nx\n\n## `b` Method\nabc\n# Additional Documents\n## Out\n";
     const sections = try scanDraft(arena_state.allocator(), draft);
-    try std.testing.expectEqual(@as(usize, 2), sections.len);
-    try std.testing.expectEqualStrings("op:a", sections[0].name);
-    try std.testing.expectEqualStrings("b", sections[1].name);
-    try std.testing.expectEqualStrings(&fingerprint("## [`op:a`](#opa)\nabc\n### Sub\nx\n"), &sections[0].fingerprint);
+    try std.testing.expectEqual(@as(usize, 3), sections.len);
+    try std.testing.expectEqualStrings("Operations", sections[0].name);
+    try std.testing.expectEqualStrings("op:a", sections[1].name);
+    try std.testing.expectEqualStrings("b", sections[2].name);
+    try std.testing.expectEqualStrings(&fingerprint("## [`op:a`](#opa)\nabc\n### Sub\nx\n"), &sections[1].fingerprint);
 }
 
 test "listsStep matches whole step names" {
@@ -303,4 +488,30 @@ test "listsStep matches whole step names" {
     try std.testing.expect(listsStep(steps, "goblins-gc"));
     try std.testing.expect(!listsStep(steps, "oracle"));
     try std.testing.expect(!listsStep(steps, "goblins-gc-extra"));
+}
+
+test "scanDraft ignores fenced example headings without losing their bytes" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const examples = [_][]const u8{
+        "```text\n# Funding\n## example heading\n```\n",
+        "~~~text\n# Funding\n## example heading\n~~~\n",
+        "~~~text\n```\n# Funding\n~~~\n",
+        "````text\n```\n# Funding\n## example heading\n````\n",
+        "   ```text\n# Funding\n## example heading\n   ```\n",
+        "````text\n```\n~~~\n# Funding\n````\n",
+        "```text\n```not-a-closer\n# Funding\n```\n",
+    };
+    for (examples) |example| {
+        const body = try std.mem.concat(arena_state.allocator(), u8, &.{ "## op:deliver\n", example, "Requirement after example.\n" });
+        const draft = try std.mem.concat(arena_state.allocator(), u8, &.{ "# Operations\n", body, "## op:abort\nClose.\n" });
+        const sections = try scanDraft(arena_state.allocator(), draft);
+        try std.testing.expectEqual(@as(usize, 3), sections.len);
+        try std.testing.expectEqualStrings("op:deliver", sections[1].name);
+        try std.testing.expectEqualStrings(&fingerprint(body), &sections[1].fingerprint);
+        try std.testing.expectEqualStrings("op:abort", sections[2].name);
+    }
+    const indented = try scanDraft(arena_state.allocator(), "   # Operations\n  ## op:abort\nClose.\n");
+    try std.testing.expectEqual(@as(usize, 2), indented.len);
+    try std.testing.expectEqualStrings("op:abort", indented[1].name);
 }

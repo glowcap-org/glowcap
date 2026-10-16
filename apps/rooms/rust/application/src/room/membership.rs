@@ -2,12 +2,12 @@
 //! subscribe reply are independent. Both must finish before exposing a member.
 use super::{attachment::AttachmentArgument, policy::MembershipKind};
 
-pub use crate::protocol_data::{AWAY, LEAVE, SET_TOPIC, SUBSCRIBE, TYPING};
+pub use crate::protocol_data::{AWAY, LEAVE, SET_SUBJECT, SUBSCRIBE, TYPING};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
 	Answer,
 	Ended,
-	NoTopic,
+	NoSubject,
 	NoFiles,
 	GoodbyeUnobserved,
 }
@@ -16,7 +16,7 @@ impl core::fmt::Display for Error {
 		f.write_str(match self {
 			Self::Answer => "the room answered subscribe without one membership capability",
 			Self::Ended => "this room membership has ended",
-			Self::NoTopic => "this room did not hand over its topic authority",
+			Self::NoSubject => "this room did not hand over its subject authority",
 			Self::NoFiles => "this room does not carry files",
 			Self::GoodbyeUnobserved => "membership retired after the goodbye observation was cancelled",
 		})
@@ -26,13 +26,13 @@ impl core::error::Error for Error {}
 /// What `subscribe` answers: the seat every membership verb goes to, which
 /// kind of seat it is, and two facets the room hands over or withholds. A
 /// facet withheld is a null in its slot, and a client that holds nothing
-/// there draws no control for it: the topic authority for a participant in
+/// there draws no control for it: the subject authority for a participant in
 /// a room that lets members set one, and the files facet, which `attach`
 /// and `postFiles` go to, for a room that can hold the bytes at all.
 pub struct Seat<C> {
 	pub reference: C,
 	pub kind: MembershipKind,
-	pub topic: Option<C>,
+	pub subject: Option<C>,
 	pub files: Option<C>,
 }
 pub fn read_answer<A: AttachmentArgument>(args: &[A]) -> Result<Seat<A::Capability>, Error> {
@@ -51,7 +51,7 @@ pub fn read_answer<A: AttachmentArgument>(args: &[A]) -> Result<Seat<A::Capabili
 	Ok(Seat {
 		reference: reference.clone(),
 		kind,
-		topic: facet(2)?,
+		subject: facet(2)?,
 		files: facet(3)?,
 	})
 }

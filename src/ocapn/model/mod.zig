@@ -406,6 +406,9 @@ pub const Deliver = struct {
     args: []const Argument,
     answer: ?AnswerPosition = null,
     resolve_me_desc: ?Reference = null,
+    /// Next deliver subscribes inline. A resolver-free, answer-free deliver
+    /// is the neutral representation of next op:deliver-only.
+    listen_mode: ListenMode = .shortening_or_settling,
 };
 
 /// Which promise transition an `op:listen` asks to observe. The current OCapN

@@ -351,8 +351,8 @@ SQLite, LMDB, and in-memory companions, reusing `Host`, `Ref`, and Session.
 
 - Opening, creation, and privileged restoration are blocking startup
   operations.
-- Host progress runs on a Tokio `LocalSet`. Storage work runs on the
-  blocking executor.
+- Host progress runs on a Tokio `LocalSet`. Each storage work is its own
+  task there and runs its I/O on the blocking executor.
 - Contexts survive until detach succeeds, and a cancelled observer retains its
   work until physical retirement.
 - Host close retires quiescent attachments. Close the Store after its borrows

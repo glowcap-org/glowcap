@@ -167,7 +167,7 @@ pub(super) fn prepare_link(
 		if let Some(generation) = generation {
 			require_manager(state, &name, generation)?;
 		}
-		Ok(state.authority.remembered(&name, false, false, None, None)?)
+		Ok(state.authority.remembered(&name, false, false, None)?)
 	}
 }
 
@@ -200,7 +200,7 @@ pub(super) fn bootstrap(
 				let registration = registration
 					.as_ref()
 					.map(|(name, policy)| Registration { name, policy: *policy });
-				Ok(state.authority.remembered(&held, false, true, None, registration)?)
+				Ok(state.authority.remembered(&held, false, true, registration)?)
 			},
 			move |state, caller| {
 				let room = state.publish_room(&name)?;
@@ -308,7 +308,7 @@ fn manager(shared: Shared, name: String, generation: u64) -> impl FnMut(&str, &[
 					"giveSteward",
 					move |state| {
 						require_manager(state, &held, generation)?;
-						Ok(state.authority.remembered(&held, true, false, None, None)?)
+						Ok(state.authority.remembered(&held, true, false, None)?)
 					},
 					move |state, caller| {
 						let room = state.publish_room(&published)?;

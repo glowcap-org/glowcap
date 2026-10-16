@@ -46,7 +46,6 @@ const retireClosedSession = harness.retireClosedSession;
 const Tagged = harness.Tagged;
 const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
-const nextRouteOptions = harness.nextRouteOptions;
 
 test "wire-shaped callback: a foreign-session reply breaks one vow, not the session" {
     const allocator = std.testing.allocator;
@@ -286,11 +285,13 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
     }
 }
 
-test "core host: next Syrup traces an unresolved projected tell before settlement" {
+test "core host: baseline Syrup traces an unresolved projected tell before settlement" {
     const allocator = std.testing.allocator;
-    var client = test_host.init(allocator, @as([32]u8, @splat(0x5c)), nextRouteOptions());
+    var options = Host.Options.withFrameCap(frame_cap);
+    options.features = model.FeatureSet.full();
+    var client = test_host.init(allocator, @as([32]u8, @splat(0x5c)), options);
     defer client.deinit();
-    var server = test_host.init(allocator, @as([32]u8, @splat(0x5d)), nextRouteOptions());
+    var server = test_host.init(allocator, @as([32]u8, @splat(0x5d)), options);
     defer server.deinit();
     var trace = TraceLog{};
     try client.setTrace(.{ .ctx = &trace, .emit = TraceLog.emit });

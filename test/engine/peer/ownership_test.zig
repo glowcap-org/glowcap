@@ -293,7 +293,7 @@ test "peer step encodes pending outbound message" {
 
     try std.testing.expectEqualSlices(
         u8,
-        "<10'op:deliver<11'desc:export7+>[5:hello]42+>",
+        "<10'op:deliver<11'desc:export7+>[5:hello]42+<18'desc:import-object1+>3+>",
         outbound.bytes(),
     );
 }
@@ -352,7 +352,7 @@ test "a borrowed deliver's frame is complete before the caller mutates its argum
 
     try std.testing.expectEqualSlices(
         u8,
-        "<10'op:deliver<11'desc:export7+>[5:hello]42+>",
+        "<10'op:deliver<11'desc:export7+>[5:hello]42+<18'desc:import-object1+>3+>",
         outbound.bytes(),
     );
 }
@@ -390,7 +390,7 @@ test "peer sendBorrowed deep-copies rich argument payloads" {
 
     try std.testing.expectEqualSlices(
         u8,
-        "<10'op:deliver<11'desc:export7+>[<2'kw4'name><11'user-record5'point[1+2+]>#1+2+3+$]42+>",
+        "<10'op:deliver<11'desc:export7+>[<2'kw4'name><11'user-record5'point[1+2+]>#1+2+3+$]42+<18'desc:import-object1+>3+>",
         outbound.bytes(),
     );
 }
@@ -547,7 +547,7 @@ test "feedOwned step does not advance session state when event allocation fails"
 
 test "recvBorrowed surfaces inbound get, index, and listen events" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
     try peer.session_state.registerImport(.from(9));
@@ -575,7 +575,7 @@ test "recvBorrowed surfaces inbound get, index, and listen events" {
     // Likewise op:index is surfaced and its projected answer exported.
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
 
-    try peer.recvBorrowed(.{ .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>3+>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>t>", .shape = .byte });
     {
         var event = peer.pollEvent().?;
         defer event.deinit();

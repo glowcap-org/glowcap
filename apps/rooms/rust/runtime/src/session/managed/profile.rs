@@ -61,9 +61,14 @@ pub fn storage_limits(
 		.ok_or_else(exhausted)?;
 	let record_bytes = page_bytes.max(managed.record_bytes).max(recipes.record_bytes);
 	// A managed record window plus descriptor/directory and streamed page/recipe
-	// windows. Graph population does not determine cache residency.
+	// windows, then the read-ahead those walks keep in flight. A browser
+	// store pays one transaction's latency per read, which overlaps only
+	// across reads in flight. Graph population does not determine cache
+	// residency.
 	let record_capacity = 8;
-	let cache_slots = record_capacity + 2 + 2;
+	let read_ahead = 8;
+	let demand_slots = record_capacity + 2 + 2;
+	let cache_slots = demand_slots + read_ahead;
 	let max_references = 16;
 	Ok(Limits {
 		call_bytes,
@@ -73,7 +78,8 @@ pub fn storage_limits(
 		staging_bytes,
 		record_bytes,
 		cache_slots,
-		max_leases: cache_slots,
+		read_ahead,
+		max_leases: demand_slots,
 		resident_bytes: cache_slots.checked_mul(record_bytes).ok_or_else(exhausted)?,
 		record_capacity,
 		max_references,

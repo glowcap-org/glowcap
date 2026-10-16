@@ -388,8 +388,6 @@ pub const Peer = struct {
     pub const exportNextObject = peer_references.exportNextObject;
     pub const importObject = peer_references.importObject;
     pub const allocateAnswer = peer_references.allocateAnswer;
-    pub const answerForResolverImport = peer_references.answerForResolverImport;
-    pub const answerForDeliver = peer_references.answerForDeliver;
     pub const finishPendingEnliven = peer_references.finishPendingEnliven;
 
     /// Owned relayed settlement. `peer/settlement.zig` owns store/fire policy.
@@ -470,6 +468,12 @@ pub const Peer = struct {
 /// chooses, because those tables' verbs run without the session in hand. The
 /// sixth is the purpose side of the outbound resolver link, whose purposes
 /// carry the peer's answer positions (ADR-0223).
+/// Eight bytes hold the cold result-import release outbox (ADR-0251). Its
+/// stable heap owner lets answer payloads retire their imports without a
+/// fallible finalizer. It stays null until a forwarded result introduces caps.
+/// Eight bytes hold the cold local promise registry. It lets collection visit
+/// projections without scanning partner-sized answer tables on every release.
+/// It stays null until the session projects a local promise.
 /// Every footprint budget is stated under the safe modes, because every gate runs there and `release-pack` names ReleaseSafe as
 /// the mode to ship.
 ///
@@ -480,7 +484,7 @@ pub const Peer = struct {
 /// `wasm32` (the sans-io core under `zig build cross-check`) makes it smaller,
 /// as does a fast build. So no single number is the measurement on every target
 /// and mode, and an equality here would fail the narrow ones.
-pub const peer_session_struct_budget_bytes = 1216;
+pub const peer_session_struct_budget_bytes = 1232;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget. " ++

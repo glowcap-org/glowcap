@@ -32,7 +32,7 @@ impl Conversation {
 					room.access.map(|key| coordinate(Role::RoomAccess, key)),
 					room.accepted.map(|key| coordinate(Role::AcceptedAccess, key)),
 					room.seat.map(|key| coordinate(Role::RoomSeat, key)),
-					room.topic.map(|key| coordinate(Role::RoomTopic, key)),
+					room.subject.map(|key| coordinate(Role::RoomSubject, key)),
 					room.files.map(|key| coordinate(Role::RoomFiles, key)),
 					room.moderator.map(|key| coordinate(Role::RoomAccess, key)),
 					room.control.map(|key| coordinate(Role::RoomControl, key)),

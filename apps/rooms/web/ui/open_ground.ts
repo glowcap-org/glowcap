@@ -39,7 +39,7 @@ function isOpen(target: Element): boolean {
 	for (const node of target.childNodes) {
 		if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) return false;
 	}
-	const page = [document.body, document.documentElement];
+	const page: readonly Element[] = [document.body, document.documentElement];
 	for (let el: Element | null = target; el !== null && !page.includes(el); el = el.parentElement) {
 		const style = getComputedStyle(el);
 		if (style.cursor === "pointer" || style.backgroundImage !== "none") return false;

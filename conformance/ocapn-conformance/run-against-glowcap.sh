@@ -8,9 +8,10 @@
 #
 # Usage:
 #   bash conformance/ocapn-conformance/run-against-glowcap.sh [all|test-module] [--port=N] [--peer PATH]
+#   Add --profile=next --adoption-tool PATH for the manifest-selected next lane.
 # Default is `all`: every module in the upstream tree except the non-portable
 # `tests.op_abort` case replaced by the stricter local probe below. The list is
-# derived from upstream/tests/*.py, so a submodule bump cannot silently shrink
+# derived recursively from upstream/tests/, so a submodule bump cannot silently shrink
 # coverage. Each module has a 5s cap (raise with OCAPN_MODULE_TIMEOUT), and the
 # abort probe has a 10s cap (OCAPN_PROBE_TIMEOUT). Pass one module (e.g.
 # `tests.op_deliver`) to run the raw upstream surface.
@@ -58,6 +59,8 @@ fi
 PEER=zig-out/bin/glowcap-ocapn-peer
 PORT=22055
 MODULE=all
+PROFILE=baseline
+ADOPTION_TOOL=
 # Per-module and probe caps, raisable on a slow runner the way ci/gates.sh
 # takes GATE_TIMEOUT. A cap that fires is reported as a timeout and fails the
 # run, so the only thing a too-tight cap buys is a scheduling hiccup wearing
@@ -67,6 +70,10 @@ MODULE_TIMEOUT="${OCAPN_MODULE_TIMEOUT:-5s}"
 PROBE_TIMEOUT="${OCAPN_PROBE_TIMEOUT:-10s}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --profile=next) PROFILE=next; shift ;;
+    --adoption-tool)
+      [ "$#" -ge 2 ] || { echo "ocapn-conformance: --adoption-tool needs a path" >&2; exit 2; }
+      ADOPTION_TOOL=$2; shift 2 ;;
     --port=*) PORT="${1#--port=}"; shift ;;
     --peer)
       [ "$#" -ge 2 ] || { echo "ocapn-conformance: --peer needs a path" >&2; exit 2; }
@@ -87,7 +94,12 @@ if [ ! -x "$PEER" ]; then
   exit 1
 fi
 
-"$PEER" "--port=$PORT" >"$LOG" 2>&1 &
+peer_args=("--port=$PORT")
+if [ "$PROFILE" = next ]; then
+  [ -x "$ADOPTION_TOOL" ] || { echo "next conformance requires --adoption-tool PATH" >&2; exit 2; }
+  peer_args+=(--profile=next)
+fi
+"$PEER" "${peer_args[@]}" >"$LOG" 2>&1 &
 PEER_PID=$!
 
 peer_ready=false
@@ -123,13 +135,21 @@ run_module() {
   module="$1"
   suite_out="$SCRATCH/suite.out"
   echo "ocapn-conformance: module $module"
+  if [ "$PROFILE" = next ]; then
+    python3 tools/run-with-timeout.py --kill-after 5s "$MODULE_TIMEOUT" uv run --project conformance/ocapn-conformance --locked python conformance/ocapn-conformance/next_runner.py "$URL" --module "$module" --adoption-tool "$ADOPTION_TOOL" >"$suite_out" 2>&1
+  else
   python3 tools/run-with-timeout.py --kill-after 5s "$MODULE_TIMEOUT" bash conformance/ocapn-conformance/run.sh test "$URL" --test-module "$module" --verbose >"$suite_out" 2>&1
+  fi
   code=$?
   grep -vE "$FILTER" "$suite_out"
   if ! kill -0 "$PEER_PID" 2>/dev/null; then
     echo "ocapn-conformance: glowcap peer exited during $module" >&2
     cat "$LOG" >&2
-    code=1
+    return 1
+  fi
+  if [ "$PROFILE" = next ] && [ "$code" -eq 77 ]; then
+    grep -q '^DEFERRED ' "$suite_out" || return 1
+    return 0
   fi
   if [ "$code" -eq 124 ]; then
     echo "ocapn-conformance: $module TIMED OUT after $MODULE_TIMEOUT" >&2
@@ -159,7 +179,10 @@ if [ "$MODULE" = "all" ]; then
     echo "ocapn-conformance: upstream tests.op_abort disappeared; re-evaluate the local probe" >&2
     exit 1
   }
-  modules="$(cd conformance/ocapn-conformance/upstream/tests && ls -- *.py | sed 's/\.py$//' | grep -v '^__init__$' | grep -v '^op_abort$' | sort | sed 's/^/tests./')"
+  modules="$(cd conformance/ocapn-conformance/upstream && find tests -type f -name '*.py' ! -name '__init__.py' | sed 's/\.py$//; s|/|.|g' | sort)"
+  if [ "$PROFILE" = baseline ]; then
+    modules="$(printf '%s\n' "$modules" | grep -v '^tests.op_abort$')"
+  fi
   if [ -z "$modules" ]; then
     echo "ocapn-conformance: no upstream test modules under conformance/ocapn-conformance/upstream/tests" >&2
     echo "ocapn-conformance: run 'bash conformance/bootstrap-submodules.sh' to initialize the pinned submodules" >&2
@@ -168,7 +191,12 @@ if [ "$MODULE" = "all" ]; then
   for module in $modules; do
     run_module "$module" || exit $?
   done
-  echo "ocapn-conformance: glowcap PASSES every portable upstream module plus the strict abort probe"
+  if [ "$PROFILE" = next ]; then
+    run_module next_cases || exit $?
+    echo "ocapn-conformance-next: adopted upstream and draft cases PASS; deferred modules are reported separately"
+  else
+    echo "ocapn-conformance: glowcap PASSES every portable upstream module plus the strict abort probe"
+  fi
   exit 0
 fi
 

@@ -46,9 +46,9 @@ pub fn run() {
 					.unwrap()
 					.facts
 					.unwrap()
-					.topic
+					.subject
 					.unwrap()
-					.text()
+					.description()
 					.utf16()
 					.collect::<Vec<_>>(),
 				[97, 0xd800, 98]
@@ -93,7 +93,7 @@ pub fn run() {
 				args[7] = text("refiled");
 			}
 			12 => args[12] = Arg::Boolean(true),
-			14 => args[14] = text("{\"topic\":null}"),
+			14 => args[14] = text("{\"subject\":null}"),
 			_ => unreachable!(),
 		}
 		assert!(Event::read(&args).is_err());

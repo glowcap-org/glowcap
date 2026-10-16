@@ -132,7 +132,7 @@ impl Content for Upstream {
 				self.notices.set(self.notices.get() + 1);
 				Ok(Argument::Void)
 			}
-			"typing" | "setTopic" | rooms_application::room::correlation::POST => {
+			"typing" | "setSubject" | rooms_application::room::correlation::POST => {
 				self.acts.set(self.acts.get() + 1);
 				Ok(Argument::Void)
 			}
@@ -162,7 +162,7 @@ pub(in crate::session_executor) fn registration_with_retirement(
 		methods: [
 			"inbox",
 			"typing",
-			"setTopic",
+			"setSubject",
 			"notify",
 			rooms_application::room::correlation::POST,
 			"last-nickname",

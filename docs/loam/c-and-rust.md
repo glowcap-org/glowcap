@@ -50,6 +50,13 @@ a Tokio `LocalSet` and engine jobs on a blocking executor. The
 [browser guide](browser.md) uses the same resource model with IndexedDB, where
 those steps are asynchronous.
 
+Each storage work runs as its own task on the `LocalSet`, so the Host goes on
+sending and receiving while it runs, and no caller's future holds it. When the
+work finishes, its task drives the Host again. A failure that the finished
+work cannot hand to an operation becomes the Host's background failure.
+Closing the Host or an attachment waits for the storage work in flight and
+finishes what it enabled before releasing the attachment.
+
 In Rust, prepare the resource, save its name where your program keeps private
 startup data, and only then commit it. `persist_private_resource` below is
 your code:
@@ -414,7 +421,9 @@ it holds.
 - The reservation borrows the callback. Its source and target getters return
   references you own, for the application's own receipt record.
 - The returned `PendingContinuation` follows the commit and any recovery.
-  `confirmed` hands it over once, without allocating.
+  `confirmed` hands it over once, without allocating. `absent` reports a
+  confirmed absence without taking the observer, and a content callback may
+  ask it.
 - If the receipt never committed, it returns `UNCHANGED`. An unknown commit
   holds the work until recovery decides. Dropping the observer neither decides
   the commit nor cancels work already accepted.
@@ -470,7 +479,9 @@ records how long these capabilities live and how retries work.
 - A policy allows at most <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions and <!-- value ../../src/loam/access/core/policy.zig max_constraints -->16<!-- /value --> unsigned bounds. A registration has at most <!-- value ../../src/c_abi/loam/callbacks.zig max_methods -->64<!-- /value -->
   methods, with names of 1 to 256 bytes. An attachment takes at most <!-- value ../../src/c_abi/loam/attachment.zig max_contents -->128<!-- /value --> content
   registrations and <!-- value ../../src/c_abi/loam/common.zig max_schemas -->128<!-- /value --> schemas.
-- `Limits` sets the cache, lease, staging, reference, and operation limits.
+- `Limits` sets the cache, read-ahead, lease, staging, reference, and
+  operation limits. `read_ahead` slots come out of `cache_slots`, so size the
+  cache for leases plus that depth.
   The work pool reserves `cache_slots + 1` slots at startup, so storage work
   from C allocates no handle.
 

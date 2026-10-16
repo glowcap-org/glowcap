@@ -2,6 +2,7 @@ use super::{channels::Channel, direct::Directs, output::Output, peer::Context};
 use crate::irc::socket::Writer;
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use glowcap::{ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh, tcp};
+use rooms_application::room::subject::{self, Subject};
 use rooms_application::server::irc::{
 	clients,
 	protocol::{self, LineReader, Message, fold},
@@ -279,6 +280,8 @@ impl ClientState {
 				output
 					.numeric("002", &[nick, &format!("Your server is {}", output.server)])
 					.await?;
+				// An IRC topic is a subject's description, so it shares that limit.
+				let topic_len = format!("TOPICLEN={}", subject::MAX_DESCRIPTION);
 				output
 					.numeric(
 						"005",
@@ -287,7 +290,7 @@ impl ClientState {
 							"CASEMAPPING=rfc1459",
 							"CHANTYPES=#",
 							"NICKLEN=28",
-							"TOPICLEN=300",
+							&topic_len,
 							"are supported",
 						],
 					)
@@ -513,17 +516,33 @@ impl Registered {
 				Some(channel) => {
 					if let Some(held) = self.channels.get(&fold(channel)) {
 						if let Some(text) = message.param(1) {
-							if let Err(error) = held.room.set_topic(text).await {
-								output.numeric("482", &[nick, channel, &error.to_string()]).await?;
+							// A TOPIC is a typed subject, so a leading link word links it,
+							// and any other topic is a description that replaces the link.
+							let before = held.topic();
+							let set = match Subject::typed(text) {
+								Ok(subject) => held
+									.room
+									.set_subject(&subject.to_owned())
+									.await
+									.map(|()| subject.description().to_owned())
+									.map_err(|error| error.to_string()),
+								Err(invalid) => Err(invalid.into()),
+							};
+							match set {
+								// The channel hears a changed description from the room. An
+								// unchanged one says nothing there, so the setter alone hears
+								// that its TOPIC took.
+								Ok(description) if before.as_deref().unwrap_or("") == description => {
+									output.topic(channel, &description).await?
+								}
+								Ok(_) => {}
+								Err(error) => output.numeric("482", &[nick, channel, &error]).await?,
 							}
 						} else {
-							let topic = held.topic();
-							output
-								.numeric(
-									if topic.is_some() { "332" } else { "331" },
-									&[nick, channel, topic.as_deref().unwrap_or("No topic is set")],
-								)
-								.await?;
+							match held.topic() {
+								Some(topic) => output.topic_reply(channel, &topic).await?,
+								None => output.numeric("331", &[nick, channel, "No topic is set"]).await?,
+							}
 						}
 					} else {
 						output

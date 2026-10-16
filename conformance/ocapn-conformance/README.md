@@ -34,6 +34,17 @@ bash conformance/ocapn-conformance/run.sh smoke
 bash conformance/ocapn-conformance/run.sh shell
 ```
 
+## Adoption accounting
+
+The [conformance manifest](../../docs/ocapn-conformance.md) fingerprints every
+Python source in this suite, shared setup included, and records whether each
+is adopted, deferred, or pending. The live suite steps run
+`zig build ocapn-adoption-check` before starting a peer, so a suite bump fails
+until its changes are reviewed there. Baseline and next have separate rows.
+The next runner consumes those same rows as execution policy: pending sources
+fail, deferred modules name their decision, and adopted modules must pass
+without skips.
+
 ## Running Against glowcap
 
 `glowcap_peer.zig` serves the canonical conformance swiss-nums over the
@@ -55,7 +66,7 @@ an operator-supplied Tor (`GLOWCAP_OCAPN_TOR_SOCKS` and
 `run-against-glowcap-onion.sh` starts the onion peer, and the suite dials it
 through its own pinned onion netlayer.
 
-The wrapper reads its module list from `upstream/tests/*.py`, so a submodule
+The wrapper discovers Python test modules recursively under `upstream/tests/`, so a submodule
 bump that adds a module fails the run until glowcap targets it. It runs every
 upstream module except `tests.op_abort`, which does not accept Linux's
 TCP-reset form of teardown. A local abort probe covers the same case with the
@@ -97,6 +108,28 @@ Two details keep the suite's verdict valid:
   invalid-version and invalid-signature tests for the wrong reason.
 - Signature verification reads the captured raw locator bytes, not a re-encode
   of them.
+
+## Next with the retained opening
+
+`zig build ocapn-conformance-next` runs baseline conformance first, then fixture
+regressions and the next lane. It uses the production Host configured for next
+and Syrup. Signed locator hints offer next using the shared four-field hello.
+The fixture checks the signature and chosen profile before operations.
+
+`next_wire.py` adapts the pinned suite's baseline constructors at the socket
+boundary. Production deliveries must have the draft wire shape. The runner
+keeps upstream assertions and deliberate bad-certificate mutations, choosing
+32-byte gift IDs before signing. `next_cases.py` checks draft delivery forms,
+inline modes, promise arguments, shared resolver callbacks during pipelining,
+and refusal of removed projections. Upstream files stay unmodified.
+
+The next rows defer `tests/op_start_session.py` to the crypto transition plan.
+Both profiles replace the reset-sensitive `tests/op_abort.py` with the strict
+portable probe. Next also defers `test_runner.py` because `next_runner.py` owns
+its policy and fixture, and `netlayers/onion.py` because this lane is TCP-only.
+These replacements are explicit coverage limits, never passing upstream cases.
+Shared hello setup and message types remain fingerprinted for both profiles.
+A suite update that changes them requires review and adapter changes.
 
 ## What a green run shows
 

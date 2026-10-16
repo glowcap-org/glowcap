@@ -15,7 +15,7 @@ pub fn run() {
 	raw["conversations"][0]["control"] = json!(key::<custody::RoomControl>(2, 3));
 	raw["conversations"][0]["moderator"] = json!(key::<custody::RoomAccess>(4, 5));
 	raw["conversations"][0]["seat"] = json!(key::<custody::RoomSeat>(6, 7));
-	raw["conversations"][0]["topic"] = json!(key::<custody::RoomTopic>(8, 9));
+	raw["conversations"][0]["subject"] = json!(key::<custody::RoomSubject>(8, 9));
 	raw["conversations"][0]["lines"] = json!([{ "id": 23, "handle": key::<custody::Line>(10, 11) }]);
 	raw["peering"] = json!([{ "id": "publication", "directory": "directory", "room": key::<custody::RoomAccess>(1, 1), "lease": key::<custody::PublicationLease>(14, 15), "name": "room" }]);
 	raw["operations"] =
@@ -306,10 +306,10 @@ pub fn run() {
 			(6, 7),
 		),
 		(
-			"setRoomTopic",
-			vec!["conversation", "topic"],
-			"setTopic",
-			custody::Role::RoomTopic,
+			"setRoomSubject",
+			vec!["conversation", "subject"],
+			"setSubject",
+			custody::Role::RoomSubject,
 			(8, 9),
 		),
 		(
@@ -389,7 +389,7 @@ pub fn run() {
 		room.moderator = None;
 		room.control = None;
 		room.seat = None;
-		room.topic = None;
+		room.subject = None;
 		room.lines = rooms_application::fields::List::default();
 		if name == "ensureRoomLink" {
 			assert_eq!(
@@ -496,7 +496,7 @@ pub fn run() {
 		("editLine", vec!["conversation", "9007199254740992", "edit"]),
 		("withdrawLine", vec!["conversation", "23", "bearer"]),
 		("say", vec!["conversation"]),
-		("setRoomTopic", vec!["conversation"]),
+		("setRoomSubject", vec!["conversation"]),
 		("ensureRoomLink", vec![]),
 		("ensureRoomLink", vec!["conversation", "bearer"]),
 		("issueRoomModerator", vec![]),

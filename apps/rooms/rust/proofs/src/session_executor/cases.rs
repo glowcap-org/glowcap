@@ -22,13 +22,13 @@ impl Case {
 			policy: None,
 		}
 	}
-	pub fn topic() -> Self {
+	pub fn subject() -> Self {
 		Self {
-			name: "setRoomTopic",
-			args: vec!["conversation".into(), "topic".into()],
-			verb: "setTopic",
-			forwarded: vec!["topic".into()],
-			role: custody::Role::RoomTopic,
+			name: "setRoomSubject",
+			args: vec!["conversation".into(), "subject".into()],
+			verb: "setSubject",
+			forwarded: vec!["subject".into()],
+			role: custody::Role::RoomSubject,
 			policy: None,
 		}
 	}
@@ -289,7 +289,7 @@ impl Case {
 					"access": if self.role == custody::Role::RoomAccess || self.name == "revokeManagedRoomAuthority" { Some(&entry) } else { None },
 					"moderator": if self.name == "revokeManagedRoomAuthority" && self.args[1] == "steward" { Some(serde_json::to_value(entry).unwrap()) } else if self.role == custody::Role::RoomAccess { Some(key.clone()) } else { None },
 					"control": if self.role == custody::Role::RoomControl { Some(&key) } else { None },
-					"topic": if self.role == custody::Role::RoomTopic { Some(&key) } else { None },
+					"subject": if self.role == custody::Role::RoomSubject { Some(&key) } else { None },
 					"seat": if self.role == custody::Role::RoomSeat { Some(&key) } else { None },
 					"lines": if self.role == custody::Role::Line { serde_json::json!([{ "id": 23, "handle": key }]) } else { serde_json::json!([]) },
 					"reconnect": if self.role == custody::Role::RoomAccess || self.name == "revokeManagedRoomAuthority" { "requested" } else { "manual" }, "standing": null, "draft": ""
@@ -320,8 +320,8 @@ async fn listener_and_irc_mutations_retain_exact_interfaces_typed_data_and_resul
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]
-async fn topic_retains_exact_live_target_through_interruption_and_restart() {
-	run(Case::topic()).await;
+async fn subject_retains_exact_live_target_through_interruption_and_restart() {
+	run(Case::subject()).await;
 }
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[tokio::test]

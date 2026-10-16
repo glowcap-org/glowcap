@@ -32,11 +32,11 @@ Deno.test("two pages do not share drafts, conversations, members, typers, histor
 	store.setDraft(first.projection, "only on the first page");
 	store.setRoomView(first.projection, room.key, {
 		members: [["ada", { online: true, away: "" }]],
-		topic: null,
+		subject: null,
 		lineBytes: null,
 		bridge: null,
 		carries: null,
-		canSetTopic: false,
+		canSetSubject: false,
 		canPostFiles: false,
 		canModerate: false,
 	});

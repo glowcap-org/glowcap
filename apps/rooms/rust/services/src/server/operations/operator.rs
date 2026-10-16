@@ -148,7 +148,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Resul
 				authority::submit(
 					&state,
 					"giveSteward",
-					move |state| Ok(state.authority.remembered(&held, true, false, None, None)?),
+					move |state| Ok(state.authority.remembered(&held, true, false, None)?),
 					move |state, caller| {
 						state.publish_room(&published)?;
 						state.publish_steward(&published)?;
@@ -167,7 +167,7 @@ pub(super) fn behavior(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Resul
 				authority::submit(
 					&state,
 					"giveManager",
-					move |state| Ok(state.authority.remembered(&held, false, true, None, None)?),
+					move |state| Ok(state.authority.remembered(&held, false, true, None)?),
 					move |state, caller| {
 						state.publish_room(&published)?;
 						let manager = state.publish_manager(&published)?;

@@ -147,7 +147,7 @@ fn room(shared: Shared) -> impl FnMut(&str, &[Argument]) -> Reply {
 					state.release(id, old.capability);
 				}
 				state.apply(effects);
-				// No topic authority and no files facet: IRC has no way to
+				// No subject facet and no files facet: IRC has no way to
 				// carry bytes, and a client that holds nothing draws no control.
 				Ok(Argument::List(vec![
 					Argument::Reference(seat),

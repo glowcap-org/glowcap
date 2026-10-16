@@ -13,7 +13,7 @@ fn coordinate<K>(role: custody::Role, key: FieldKey<K>) -> Coordinate {
 }
 fn coordinates(row: &Membership) -> Vec<Coordinate> {
 	core::iter::once(coordinate(custody::Role::RoomSeat, row.seat))
-		.chain(row.topic.map(|key| coordinate(custody::Role::RoomTopic, key)))
+		.chain(row.subject.map(|key| coordinate(custody::Role::RoomSubject, key)))
 		.chain(row.files.map(|key| coordinate(custody::Role::RoomFiles, key)))
 		.collect()
 }
@@ -26,12 +26,12 @@ pub(super) fn read(value: &Argument) -> Result<Settlement> {
 	let row = Membership {
 		kind: seat.kind,
 		seat: key(),
-		topic: seat.topic.as_ref().map(|_| key()),
+		subject: seat.subject.as_ref().map(|_| key()),
 		files: seat.files.as_ref().map(|_| key()),
 	};
 	let fields = coordinates(&row)
 		.into_iter()
-		.zip(core::iter::once(seat.reference).chain(seat.topic).chain(seat.files))
+		.zip(core::iter::once(seat.reference).chain(seat.subject).chain(seat.files))
 		.map(|(coordinate, reference)| {
 			Ok(Argument::List(vec![
 				serde_json::to_string(&coordinate)

@@ -52,6 +52,20 @@ fn effect(op: &'static str, text: DocumentText, refusal: Option<&'static str>) -
 		refusal,
 	}
 }
+/// A leading `ocapn://` word is the subject's link, and the words after it
+/// describe it. Any other text is a description alone. This is the grammar
+/// `Subject::typed` reads, kept here in UTF-16 so a browser's text survives.
+fn subject_refusal(invalid: crate::room::subject::Invalid) -> String {
+	use crate::room::subject::{Invalid, MAX_DESCRIPTION, MAX_LINK};
+	match invalid {
+		Invalid::DescriptionLength => format!("A subject may be described in at most {MAX_DESCRIPTION} characters."),
+		Invalid::DescriptionLines => "A subject is one line of text.".into(),
+		Invalid::DescriptionStartsWithLink => "Put the link first: /subject ocapn://… what it is.".into(),
+		Invalid::LinkWithoutDescription => "Say what the link is after it: /subject ocapn://… what it is.".into(),
+		Invalid::LinkShape => format!("A subject's link is one ocapn:// sturdyref of at most {MAX_LINK} characters."),
+		Invalid::LinkUnreadable => "A subject's link must be a sturdyref this room can read.".into(),
+	}
+}
 fn room(context: &Context<'_>, why: &'static str) -> Result<(), Plan> {
 	if context.place == Place::Room {
 		Ok(())
@@ -171,17 +185,27 @@ pub fn interpret(name: Name, rest: &DocumentText, context: &Context<'_>) -> Plan
 					)
 				}
 			}
-			Topic => {
-				room(context, "Only a room has a topic.")?;
+			Subject => {
+				room(context, "Only a room has a subject.")?;
 				if empty(&text) {
-					effect("showTopic", text, None)
+					effect("showSubject", text, None)
 				} else {
-					let text = if text.as_str() == Some("-") { "".into() } else { text };
-					let maximum = crate::server::document::MAX_TOPIC;
-					if text.utf16().count() > maximum {
-						refused(format!("A topic may be at most {maximum} characters."))
+					let subject = if text.as_str() == Some("-") {
+						Ok(crate::room::subject::Subject::default())
 					} else {
-						effect("setTopic", text, Some("This room did not offer a topic to set."))
+						text.as_str()
+							.ok_or(None)
+							.and_then(|text| crate::room::subject::Subject::typed(text).map_err(Some))
+					};
+					match subject {
+						Err(None) => refused("A subject must be well-formed text."),
+						Err(Some(invalid)) => refused(subject_refusal(invalid)),
+						Ok(subject) => Plan::Effect {
+							op: "setSubject",
+							text: subject.description().into(),
+							extra: subject.link().map(DocumentText::from),
+							refusal: Some("This room did not offer a subject to set."),
+						},
 					}
 				}
 			}

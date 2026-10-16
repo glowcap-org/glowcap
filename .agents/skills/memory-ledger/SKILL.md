@@ -138,6 +138,43 @@ declaration under `src/`.
   - Zero copies and no added Peer footprint, pinned by
     `test/engine/resolve_alloc_budget_test.zig` and
     `test/engine/node/answer_settlement_test.zig`.
+- **Inline next subscription**: `deliver_resolver.prepare`. Prepares the
+  answer payload and ordinary listener backing before publishing an inbound
+  result-producing call. Refusal frees both; commit transfers them to the
+  answer store. Deliver-only has neither cost.
+
+  `answers.QueuedCall` retains
+  the exact reply name and row stamp in the existing bounded pipeline queue,
+  so calls sharing a resolver capability or reusing a released answer position
+  cannot alias reply ownership. Its argument-import slice preserves the original
+  wire mentions across shortening. It transfers to a local event or forwarding
+  GC and frees on refusal. Rewalking rewritten arguments cannot recover that
+  ownership. Local replay reverses descriptor perspective in its owned tree
+  before encoding the event, without another value-tree allocation or clone.
+- **Forwarded result imports**: `ImportRelease.prepare`. One cold
+  outbox per session, then one batch and two exact position/delta arrays per
+  capability-bearing forwarded result. The shared GC model requires both
+  arrays. Values-only results allocate none of these. The answer payload owns
+  the callback's original import retains, and final release links its prepared
+  batch into the outbox without allocation.
+
+  Live and ready batches together
+  spend the inbound-answer count and retained-answer byte limits. Bytes stay
+  charged through wire publication. Pressure preserves the batch for retry.
+  Emission or teardown frees it. One nullable pointer adds eight bytes to a
+  64-bit safe-mode Peer, four million bytes at 500,000 sessions.
+- **Local promise registry**: `local_promise.Registry`. One cold box per
+  session with local promise projections, plus one export position per
+  projection, freed with the last projection or at teardown. Collection checks
+  each projection's own roots there first and scans the answer and
+  imported-promise tables only when some projection could be garbage, so a
+  pending or wire-held projection never makes every partner release pay a
+  partner-sized trace. One nullable pointer adds eight bytes to a 64-bit
+  safe-mode Peer, four million bytes at 500,000 sessions.
+- **Forwarded reply identity**: `ForwardedReply.prepare`. One entry in the existing
+  resolver-purpose map, bounded by the export cap. The fresh local resolver
+  binds the original answer's row stamp. It adds no reverse index or payload
+  retain. Refusal, callback completion, resolver GC or teardown retires it.
 - **Listener fire carriers**: `engine.Outbound.listener_fire`,
   `Session.store_stamp_counter`. POD carriers over the stored resolution or a
   live export's near fulfill. Zero payload copies.

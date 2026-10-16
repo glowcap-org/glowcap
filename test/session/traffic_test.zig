@@ -312,6 +312,7 @@ test "inbound deliver targets enforce descriptor role and answer liveness atomic
         .target = .{ .near = model.NearRef.object(8) },
         .args = &.{},
         .answer = .from(77),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
     const live_answer = model.Message{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(77) } },
@@ -466,6 +467,7 @@ test "send-side resolve fulfill nested past max_nesting_depth is refused before 
         .target = .{ .near = .{ .export_position = .from(1) } },
         .args = &.{},
         .answer = .from(11),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
 
     // We resolve it with fulfill = list([ near(1), list(list([])) ]). The retain

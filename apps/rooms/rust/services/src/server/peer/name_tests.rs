@@ -47,7 +47,6 @@ async fn scenario() {
 				ID,
 				false,
 				true,
-				None,
 				Some(Registration {
 					name: "original",
 					policy: RoomPolicy::Open,

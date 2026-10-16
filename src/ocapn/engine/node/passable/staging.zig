@@ -13,6 +13,7 @@ const batches = @import("batches.zig");
 const passable = @import("../passable.zig");
 const walk = @import("walk.zig");
 const gift_tickets = @import("../handoffs/gifts/tickets.zig");
+const local_custody = @import("local_custody.zig");
 
 const Node = node_mod.Node;
 const Internal = node_mod.Internal;
@@ -151,6 +152,9 @@ pub fn stage(
         .relayed_resolution => null,
     };
 
+    try local_custody.acquire(&recipient.session_state, payload, inventory);
+    var custody_owned = true;
+    errdefer if (custody_owned) local_custody.release(&recipient.session_state, payload);
     // This is the last fallible step before publication. The Node-wide ticket
     // range commits once, then every batch row/action below publishes
     // infallibly without wrapping into an older effect generation.
@@ -160,6 +164,7 @@ pub fn stage(
         .recipient_peer = recipient_peer,
         .allocator = recipient.allocator,
         .payload = payload.*,
+        .local_custody_owned = true,
         .destination = destination.*,
         .failure_target = failure_target,
         .staging_reservation = staging_reservation,
@@ -172,6 +177,7 @@ pub fn stage(
     else
         rows.occurrences_by_recipient.getPtr(recipient_peer).?.* = next_occurrences;
     staging_reservation_owned = false;
+    custody_owned = false;
     gifts_owned = false;
     promises_owned = false;
     payload.* = undefined;

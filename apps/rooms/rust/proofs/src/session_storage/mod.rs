@@ -96,8 +96,8 @@ async fn exercise(store: &Store, resource: Resource, writing: bool) {
 	if writing {
 		let reply = client.send(&root, "mutate", &mutation).await.unwrap();
 		assert!(
-			reply.as_i64().unwrap() > limits().cache_slots as i64,
-			"graph exceeds cache residency"
+			reply.as_i64().unwrap() > limits().max_leases as i64,
+			"graph exceeds what the Store can hold at once"
 		);
 		assert_eq!(invocations.get(), 1);
 		let mut replacement = mutation.clone();

@@ -34,7 +34,7 @@
 import { readAnnouncedLocator } from "../../apps/rooms/lib/locator.ts";
 import { runChild, stopSpawnedServer } from "../../apps/_demo/orchestrator.ts";
 import { CAPTP_VERSION_WIRE, type TraceEvent } from "@glowcap/runtime";
-import { connectTraceViewer, traceUrlOf } from "../../apps/rooms/test/trace/viewer.ts";
+import { connectTraceViewer, tracePublishUrlOf } from "../../apps/rooms/test/trace/viewer.ts";
 
 /** `--iroh` runs the same room over encrypted QUIC instead of cleartext TCP.
  *
@@ -256,7 +256,7 @@ try {
 	// while a producer opens a socket and writes records to it. So the vat is
 	// told where the endpoint listens, which the endpoint itself names in the
 	// sturdyref it announced.
-	const publishUrl = traceUrlOf(traceRef);
+	const publishUrl = tracePublishUrlOf(traceRef);
 
 	// Both members enter the same room and each waits to hear the other. The
 	// glowcap client posts once its whole roster is present; the Goblins vat

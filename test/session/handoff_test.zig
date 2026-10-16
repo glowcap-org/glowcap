@@ -106,6 +106,7 @@ test "inbound give admission rejects wrong recipient and gift width atomically" 
         .target = .{ .near = .{ .export_position = .from(session.BOOTSTRAP_POSITION) } },
         .args = &.{.{ .handoff = &handoff }},
         .answer = .from(41),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } };
 
     // No allocation is available after handshake. Admission must refuse before
@@ -387,6 +388,7 @@ test "identity-route locators require the negotiated feature in handoff gives" {
         .target = .{ .near = model.NearRef.object(2) },
         .args = &.{.{ .handoff = &handoff }},
         .answer = .from(61),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } };
 
     try std.testing.expectError(session.Error.FeatureNotNegotiated, s.recordSend(outbound));
@@ -411,7 +413,7 @@ test "listen target and listener descriptor roles match on owned and borrowed pa
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
-    try s.registerImport(.from(1));
+    try s.installThirdPartyImport(.from(1), "remote");
     try s.registerExport(.from(2));
     try s.registerExport(.from(3));
 
@@ -421,11 +423,13 @@ test "listen target and listener descriptor roles match on owned and borrowed pa
         .target = .{ .far = model.FarRef.object(1) },
         .args = &.{},
         .answer = .from(20),
+        .listen_mode = .shortening_only,
     } });
     try s.recordRecv(.{ .deliver = .{
         .target = .{ .near = model.NearRef.object(3) },
         .args = &.{},
         .answer = .from(30),
+        .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
 
     // Outbound: target is the partner's export or our live answer; listener is
@@ -433,7 +437,7 @@ test "listen target and listener descriptor roles match on owned and borrowed pa
     try s.recordSend(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(1) },
         .listener = .{ .near = model.NearRef.object(2) },
-        .mode = .settling_only,
+        .mode = .shortening_or_settling,
     } });
     try s.recordSend(.{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(20) } },

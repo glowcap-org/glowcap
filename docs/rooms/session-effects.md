@@ -69,7 +69,7 @@ before any capability is saved or content changes. An unknown reply keeps the
 original candidate. Only a confirmed conflict allows preparing it again, a
 bounded number of times, through the same source.
 
-Saving a result adopts its seat, topic, file and initiating endpoint fields
+Saving a result adopts its seat, subject, file and initiating endpoint fields
 together with the request. An invalid selection imports nothing. An exact
 replay changes no revision, and edits made in between refuse the kept
 candidate. Receipt targets keep their own references when workspace storage

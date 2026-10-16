@@ -134,7 +134,7 @@ pub(super) struct Room<C, R> {
 	pub lifetime_owner: C,
 	/// Names the next line this room generation makes.
 	pub next_line: u64,
-	pub topic: String,
+	pub subject: crate::room::subject::Subject,
 	pub files: FileRoom,
 }
 

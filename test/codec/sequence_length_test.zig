@@ -46,6 +46,7 @@ fn expectRefused(codec: model.CodecId, profile: model.CaptpVersion, args: view.A
         .target = .{ .promise = .{ .answer_position = .from(3) } },
         .args = args,
         .answer = .from(9),
+        .resolve_me_desc = .{ .near = model.NearRef.object(10) },
     } };
     return expectBodyRefused(codec, profile, body);
 }

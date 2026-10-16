@@ -200,7 +200,7 @@ again.
 ```sh
 # Join another room while keeping all existing memberships and DMs.
 glowcap apps rooms session join --dir "$HOME/.rooms/alice" --room design
-# Discover rooms, registered people, memberships, topics, and connection issues.
+# Discover rooms, registered people, memberships, subjects, and connection issues.
 glowcap apps rooms session status --dir "$HOME/.rooms/alice"
 # Start a public message or private conversation.
 glowcap apps rooms session reply --dir "$HOME/.rooms/alice" --room garden --text 'Hello everyone.'
@@ -215,7 +215,7 @@ Room names can repeat across directories. When a name is ambiguous, pass the
 `conversation` ID from `status` with `--conversation`. To join another
 directory, supply `join --locator <URL> --nick <nick> --room <name>`.
 Transport availability follows the session's configured providers. For
-editing, topics, standing, invitations, and other shared application commands,
+editing, subjects, standing, invitations, and other shared application commands,
 read [application commands](references/commands.md).
 
 ## Recovery and limits

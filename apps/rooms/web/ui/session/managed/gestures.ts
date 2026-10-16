@@ -80,7 +80,7 @@ export const GESTURES = {
 	shareArchiveHistory: indicate("conversation"),
 	offerDurableArchive: indicate("conversation"),
 	revokeIssuedArchiveShare: indicate("archive"),
-	setRoomTopic: indicate("conversation"),
+	setRoomSubject: indicate("conversation"),
 	setRoomAway: indicate("conversation"),
 	retireRoomMembership: indicate("conversation"),
 	kickRoomMember: indicate("conversation"),

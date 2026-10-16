@@ -50,7 +50,7 @@
 /* One authority for the bar's height: it sets the bar and the room the log
    leaves for it, so the two cannot drift into overlapping. */
 .stream {
-	--topic-h: 30px;
+	--subject-h: 30px;
 	/* The column the scrollbar is drawn in. The fade below stops at its edge, so
 	   the thumb has clear air from the top of the conversation to the bottom. It
 	   is chosen rather than measured, because an overlay scrollbar takes no
@@ -67,8 +67,8 @@
 	   scrolling up thins rather than meeting an edge. */
 	--log-fade-h: 16px;
 }
-.stream:has(#topic) #log {
-	padding-top: calc(16px + var(--topic-h));
+.stream:has(#subject) #log {
+	padding-top: calc(16px + var(--subject-h));
 }
 #log {
 	position: absolute;

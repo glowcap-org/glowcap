@@ -50,6 +50,7 @@ function room(id: string): RoomConv {
 		earlierHistory: "unasked",
 		grants: new Set(),
 		standing: null,
+		standingPending: false,
 		bridgeIssue: "",
 		held: false,
 	};

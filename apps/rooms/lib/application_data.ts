@@ -7,7 +7,8 @@ export const MAX_LINE = 8192;
 export const MAX_AWAY = 120;
 export const MAX_MESSAGE_FILES = 8;
 export const MAX_ROOM_MESSAGE_BACKLOG = 256;
-export const MAX_TOPIC = 300;
+export const MAX_SUBJECT_DESCRIPTION = 300;
+export const MAX_SUBJECT_LINK = 1024;
 export const MAX_FORM_FIELDS = 8;
 export const MAX_FORM_ACTIONS = 3;
 export const MAX_FORM_JSON = 16384;
@@ -71,6 +72,7 @@ export const MAX_SESSION_GRANT_LABEL = 80;
 export const MAX_SESSION_GRANT_NOTE = 200;
 export const MAX_ACTIVE_ARCHIVE_SHARES = 32;
 export const MAX_LIFETIME_ARCHIVE_SHARES = 256;
+export const SUBJECT_LINK_SCHEME = "ocapn://";
 export const ROOM_MENTIONS: readonly string[] = ["here", "room", "channel", "everyone", "all"];
 export const BOOT_CAPS = {
 	adminListeners: {

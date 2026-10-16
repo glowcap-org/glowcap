@@ -220,7 +220,7 @@ pub const Discovery = struct {
         };
         switch (acquired) {
             .read => |read| {
-                storage.retainRead(owner, read, null);
+                storage.retainRead(owner, read, .store);
                 group.phase = .reading;
                 return null;
             },

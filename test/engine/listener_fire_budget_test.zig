@@ -35,7 +35,7 @@ fn preSpecPeer(gpa: std.mem.Allocator) engine.Peer {
 
 /// `op:deliver` to local export 7, answer-pos 42: the question whose answer the
 /// listeners below anchor on.
-const deliver_opening_answer = "<10'op:deliver<11'desc:export7+>[]42+>";
+const deliver_opening_answer = "<10'op:deliver<11'desc:export7+>[]42+<18'desc:import-object0+>1+>";
 
 /// One inbound `op:listen` on answer 42 nominating partner import-object `P` as
 /// the listener (the partner introduces its listener object as a descriptor we
@@ -180,12 +180,10 @@ test "answer listener preparation restores after OOM and retries from the settle
     defer failing.fail_index = std.math.maxInt(usize);
     try peer.session_state.registerExport(.from(7));
 
-    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    // Stage bare rows to isolate transfer allocation from deliver subscriptions.
+    try peer.session_state.installInboundAnswer(.from(42));
     try peer.recvBorrowed(.{ .bytes = listenFrame("9"), .shape = .byte });
-    try peer.recvBorrowed(.{
-        .bytes = "<10'op:deliver<11'desc:export7+>[]43+>",
-        .shape = .byte,
-    });
+    try peer.session_state.installInboundAnswer(.from(43));
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
@@ -233,7 +231,7 @@ test "listener promise chains borrow the terminal answer store" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]7+>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]7+<18'desc:import-object0+>1+>", .shape = .byte });
     {
         var event = peer.pollEvent().?;
         event.deinit();
@@ -275,7 +273,7 @@ test "a late listener on a stored promise cycle receives one terminal break" {
 
     try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
     try peer.recvBorrowed(.{
-        .bytes = "<10'op:deliver<11'desc:export7+>[]43+>",
+        .bytes = "<10'op:deliver<11'desc:export7+>[]43+<18'desc:import-object0+>1+>",
         .shape = .byte,
     });
     while (peer.pollEvent()) |event_in| {
@@ -324,8 +322,9 @@ test "a late listener cannot follow a stored promise into a reused answer positi
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]43+>", .shape = .byte });
+    // Bare rows leave no earlier subscription pinning the released target.
+    try peer.session_state.installInboundAnswer(.from(42));
+    try peer.session_state.installInboundAnswer(.from(43));
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
@@ -336,7 +335,7 @@ test "a late listener cannot follow a stored promise into a reused answer positi
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
 
     try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[43+]>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]43+>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]43+<18'desc:import-object0+>1+>", .shape = .byte });
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
@@ -451,7 +450,7 @@ test "a listener accepted before answer GC still publishes exactly once" {
 
     // Subsequent traffic still flows: a fresh deliver to the live export
     // surfaces its event as ever.
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]43+>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]43+<18'desc:import-object0+>1+>", .shape = .byte });
     var event = peer.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.deliver, event.kind());

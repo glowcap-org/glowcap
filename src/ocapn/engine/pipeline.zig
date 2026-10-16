@@ -34,6 +34,7 @@ const freeMessage = model.freeMessage;
 const resolution_math = @import("pipeline_resolution.zig");
 const listener_drain = @import("pipeline_listeners.zig");
 const resolution_chain = @import("resolution_chain.zig");
+const remote_forward = @import("remote_forward.zig");
 
 pub const rewriteDeliverTarget = resolution_math.rewriteDeliverTarget;
 pub const borrowedListenerFire = resolution_math.borrowedListenerFire;
@@ -76,6 +77,9 @@ pub const PreparedPipelinedCall = struct {
         dispatch: resolution_chain.Outcome,
     },
     message: ?model.Message,
+    answer: ?model.AnswerName,
+    introduced_far_imports: ?[]model.ImportPosition,
+    reference_slots: u32,
 
     pub fn abandon(self: *PreparedPipelinedCall, peer: *Peer) void {
         switch (self.action) {
@@ -86,6 +90,10 @@ pub const PreparedPipelinedCall = struct {
             freeMessage(peer.allocator, message);
             self.message = null;
         }
+        if (self.introduced_far_imports) |imports| {
+            peer.allocator.free(imports);
+            self.introduced_far_imports = null;
+        }
     }
 
     pub fn commit(self: *PreparedPipelinedCall, peer: *Peer) !void {
@@ -93,11 +101,21 @@ pub const PreparedPipelinedCall = struct {
         // pair. The unset state is a caller bug, not a peer-reachable one.
         const message = self.message orelse unreachable;
         self.message = null;
+        // Classification chose the name before receive committed its row.
+        // Capture the stamp now, once, before GC can release and reuse it.
+        const answer = if (self.answer) |name| peer.session_state.answerTargetNamed(name) orelse unreachable else null;
+        const call: session.QueuedCall = .{
+            .message = message,
+            .answer = answer,
+            .introduced_far_imports = self.introduced_far_imports,
+            .reference_slots = self.reference_slots,
+        };
+        self.introduced_far_imports = null;
         switch (self.action) {
-            .queue => |*prepared| prepared.commit(message),
+            .queue => |*prepared| prepared.commitNamed(call),
             .dispatch => |outcome| {
                 peer.local_delivery_depth = 0;
-                try dispatchDrainedCall(peer, message, outcome);
+                try dispatchDrainedCall(peer, call, outcome);
             },
         }
     }
@@ -126,10 +144,14 @@ pub const PreparedPipelinedCall = struct {
 pub fn preparePipelinedCall(
     peer: *Peer,
     deliver: model.view.Deliver,
+    call_answer: ?model.AnswerName,
+    introduced: *const session.validate.IntroducedImports,
 ) !?PreparedPipelinedCall {
     const answer = pipelinedAnswer(peer, deliver.target) orelse return null;
     const owned = try (model.view.Body{ .deliver = deliver }).toOwned(peer.allocator);
     errdefer freeMessage(peer.allocator, owned);
+    const imports = try introduced.dupeArgumentMentions(peer.allocator);
+    errdefer if (imports) |positions| peer.allocator.free(positions);
 
     // The stored resolution is the settled/pending decision (the
     // `applySentResolve` invariant: a settled inbound answer always holds its
@@ -145,11 +167,17 @@ pub fn preparePipelinedCall(
             return .{
                 .action = .{ .dispatch = resolution_chain.followAnswer(peer, target, payload) },
                 .message = owned,
+                .answer = call_answer,
+                .introduced_far_imports = imports,
+                .reference_slots = introduced.reference_slots,
             };
     }
     return .{
         .action = .{ .queue = try peer.session_state.preparePipelinedCallNamed(answer) },
         .message = owned,
+        .answer = call_answer,
+        .introduced_far_imports = imports,
+        .reference_slots = introduced.reference_slots,
     };
 }
 
@@ -187,11 +215,16 @@ fn drainPipelinedCalls(
     // connection. The cross-turn chain is application-paced, not unbounded
     // auto-recursion, and the shared resolution walk breaks promise cycles.
     peer.local_delivery_depth = 0;
+    // Undispatched calls temporarily belong to the drain's local array.
+    // Nested import release must not collect capabilities that those accepted
+    // calls still own. Restore tracing after their ownership has transferred.
+    const collection_pause = session.Session.LocalPromiseCustody.pauseCollection(&peer.session_state);
+    defer collection_pause.deinit(&peer.session_state);
     const calls = try peer.session_state.takeAnswerPayloadCalls(payload);
     defer peer.allocator.free(calls);
 
     var index: usize = 0;
-    errdefer for (calls[index..]) |queued| freeMessage(peer.allocator, queued);
+    errdefer for (calls[index..]) |queued| queued.deinit(peer.allocator);
 
     while (index < calls.len) {
         const queued = calls[index];
@@ -355,7 +388,7 @@ fn settleProjection(peer: *Peer, projection: session.Projection, resolution: mod
 /// Dispatch one owned call against the shared exact-incarnation chain result.
 fn dispatchDrainedCall(
     peer: *Peer,
-    queued: model.Message,
+    queued: session.QueuedCall,
     consequence: resolution_chain.Outcome,
 ) !void {
     switch (consequence) {
@@ -369,7 +402,7 @@ fn dispatchDrainedCall(
     }
 }
 
-fn dispatchTerminalCall(peer: *Peer, queued: model.Message, resolution: model.Resolution) !void {
+fn dispatchTerminalCall(peer: *Peer, queued: session.QueuedCall, resolution: model.Resolution) !void {
     const maybe_reference: ?model.Reference = switch (resolution) {
         .fulfill => |arg| if (arg == .reference) arg.reference else null,
         .@"break" => null,
@@ -377,14 +410,22 @@ fn dispatchTerminalCall(peer: *Peer, queued: model.Message, resolution: model.Re
     const reference = maybe_reference orelse
         return propagateBreakToDrainedCall(peer, queued, resolution);
     switch (reference) {
-        .far => |far| try peer.send(rewriteDeliverTarget(peer.allocator, queued.deliver, .{ .far = far })),
+        .far => |far| try remote_forward.send(
+            peer,
+            rewriteDeliverTarget(peer.allocator, queued.message.deliver, .{ .far = far }),
+            queued.answer,
+            queued.introduced_far_imports,
+        ),
         .near => |near| try deliverDrainedCallLocally(peer, queued, near),
         .promise => try propagateBreakToDrainedCall(
             peer,
             queued,
             .{ .@"break" = .{ .message = resolution_chain.missing_target_message } },
         ),
-        .routed, .sturdy, .broken => freeMessage(peer.allocator, queued),
+        .routed, .sturdy, .broken => {
+            defer freeMessage(peer.allocator, queued.message);
+            try remote_forward.releaseArguments(peer, queued.introduced_far_imports);
+        },
     }
 }
 
@@ -392,25 +433,23 @@ fn dispatchTerminalCall(peer: *Peer, queued: model.Message, resolution: model.Re
 /// or a non-reference fulfill), taking ownership of `queued`: propagate the
 /// break so the partner isn't left hanging on any answer or V1.0 resolver the
 /// queued call expected, then release the call.
-fn propagateBreakToDrainedCall(peer: *Peer, queued: model.Message, resolution: model.Resolution) !void {
-    // The virtual answer a V1.0 resolver-only call settles, through the one
-    // engine seam that owns the resolver-descriptor mapping.
-    const call_answer = peer.answerForDeliver(queued.deliver);
-    if (call_answer) |ca| {
+fn propagateBreakToDrainedCall(peer: *Peer, queued: session.QueuedCall, resolution: model.Resolution) !void {
+    if (queued.answer) |target| if (session.ForwardedReply.targetIsLive(&peer.session_state, target)) {
         const break_reason: model.BreakReason = switch (resolution) {
             .@"break" => |err| err,
             .fulfill => .{ .message = "pipelined target resolved to a non-reference value" },
         };
-        // A failure here means the partner is left hanging on `ca`, so
+        // A failure here means the partner is left hanging on this target, so
         // it surfaces as a step error like every other drain refusal
         // (the resolution frame is already on `outbound`; see
         // `drainPipelinedCalls`).
-        peer.sendAnswerResolutionCopying(ca, .{ .@"break" = break_reason }) catch |err| {
-            freeMessage(peer.allocator, queued);
+        peer.sendAnswerTargetResolutionCopying(target, .{ .@"break" = break_reason }) catch |err| {
+            queued.deinit(peer.allocator);
             return err;
         };
-    }
-    freeMessage(peer.allocator, queued);
+    };
+    defer freeMessage(peer.allocator, queued.message);
+    try remote_forward.releaseArguments(peer, queued.introduced_far_imports);
 }
 
 /// Deliver a drained pipelined call to a local export `near` resolved its
@@ -418,9 +457,13 @@ fn propagateBreakToDrainedCall(peer: *Peer, queued: model.Message, resolution: m
 /// owes, and surface a synthesized `op:deliver` event so the application
 /// dispatches it as if it had arrived directly. Bounded by
 /// `SessionLimits.max_local_deliveries` to stop a resolution chain looping.
-fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.NearRef) !void {
+fn deliverDrainedCallLocally(peer: *Peer, queued: session.QueuedCall, near: model.NearRef) !void {
+    var imports_transferred = false;
+    defer if (!imports_transferred) {
+        if (queued.introduced_far_imports) |imports| peer.allocator.free(imports);
+    };
     if (peer.local_delivery_depth >= peer.session_state.limits.max_local_deliveries) {
-        freeMessage(peer.allocator, queued);
+        freeMessage(peer.allocator, queued.message);
         return error.LocalDeliveryCapExceeded;
     }
     // Re-target at the export the resolution named. A delivery to a local
@@ -429,36 +472,26 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
     // event is indistinguishable from one that arrived on the wire.
     // The rewritten call is serialized into its own frame below, so its heap
     // is always released here regardless of the append outcome.
-    const rewritten = rewriteDeliverTarget(
+    var rewritten = rewriteDeliverTarget(
         peer.allocator,
-        queued.deliver,
+        queued.message.deliver,
         // Local delivery is wire-shaped as `desc:export` (a `far` here); the
         // export position is reinterpreted into the import space explicitly.
         .{ .far = .{ .import_position = near.export_position.reinterpret(model.ImportPosition) } },
     );
     defer freeMessage(peer.allocator, rewritten);
+    // This serialization recreates an inbound event. Restore sender
+    // perspective for every descriptor so decoding preserves the admitted
+    // receiver-perspective values, including the inline resolver.
+    if (rewritten.deliver.resolve_me_desc) |resolver|
+        rewritten.deliver.resolve_me_desc = replayReference(resolver);
+    for (@constCast(rewritten.deliver.args)) |*argument| replayArgument(argument);
 
-    // A V1.0 resolver-only call carries its answer in session state rather than
-    // on the wire, and a queued one has to recover it here. The classifier
-    // installed the virtual answer and linked it to the partner's resolver
-    // import when the call arrived, then discarded it as `.pipelined`, because
-    // at that moment the call had no target to be answered by. Re-encoding the
-    // queued frame reproduces the wire, and the wire is exactly what never held
-    // this answer, so without the override the surfaced deliver has nothing to
-    // reply to and the reply is dropped where it is optional
-    // (`actors.serve.resolveFulfill` returns on a null answer). Silence on the
-    // partner's vow, from a call the engine accepted.
-    const answer_override: events.AnswerOverride = if (rewritten.deliver.answer == null) blk: {
-        const rmd = rewritten.deliver.resolve_me_desc orelse break :blk .none;
-        const import_position = rmd.position() orelse break :blk .none;
-        const named = peer.session_state.answerForResolverImport(
-            model.ImportPosition.from(import_position),
-        ) orelse break :blk .none;
-        break :blk switch (named) {
-            .virtual => |virtual| .{ .virtual_deliver = virtual },
-            // A wire answer needs no override: the frame carries it.
-            .wire => .none,
-        };
+    // Private reply identity travels with the queued call, independently of
+    // wire answer positions and reusable resolver capabilities.
+    const answer_override: events.AnswerOverride = if (queued.answer) |answer| switch (answer.name) {
+        .virtual => |virtual| .{ .virtual_deliver = virtual },
+        .wire => .none,
     } else .none;
     var frame = try codec.dispatch.encodeMessageForProfile(
         peer.session_state.codec,
@@ -484,13 +517,31 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
         .codec = peer.session_state.codec,
         .captp_version = peer.session_state.captp_version,
         .answer_override = answer_override,
-        .deliver_answer_target = if (rewritten.deliver.answer) |answer|
-            peer.session_state.answerTargetNamed(.fromWire(answer))
-        else switch (answer_override) {
-            .virtual_deliver => |answer| peer.session_state.answerTargetNamed(.fromVirtual(answer)),
-            else => null,
-        },
+        .deliver_answer_target = queued.answer,
+        .introduced_far_imports = queued.introduced_far_imports,
+        .reference_slots = queued.reference_slots,
         .allocator = peer.allocator,
     });
+    imports_transferred = true;
     peer.local_delivery_depth += 1;
+}
+
+/// Invert codec perspective without consulting authority or allocating. Only
+/// synthesized local replay needs this: its owned tree came from decode.
+fn replayReference(reference: model.Reference) model.Reference {
+    return switch (reference) {
+        .near => |near| .{ .far = .{ .import_position = near.export_position.reinterpret(model.ImportPosition), .kind = near.kind } },
+        .far => |far| .{ .near = .{ .export_position = far.import_position.reinterpret(model.ExportPosition), .kind = far.kind } },
+        .promise, .routed, .sturdy, .broken => reference,
+    };
+}
+
+fn replayArgument(argument: *model.Argument) void {
+    switch (argument.*) {
+        .reference => |reference| argument.* = .{ .reference = replayReference(reference) },
+        .list, .set => |children| for (@constCast(children)) |*child| replayArgument(child),
+        .tagged => |tagged| for (@constCast(tagged.value)) |*child| replayArgument(child),
+        .@"struct" => |entries| for (@constCast(entries)) |*entry| replayArgument(&entry.value),
+        .bytes, .symbol, .@"error", .handoff, .string, .integer, .boolean, .void, .float64, .keyword, .big_integer => {},
+    }
 }

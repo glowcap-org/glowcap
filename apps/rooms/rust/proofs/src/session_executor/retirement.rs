@@ -90,7 +90,7 @@ fn retired(intent: &Intent) {
 		let workspace::Conversation::Room(room) = row else {
 			panic!("room");
 		};
-		assert!(room.seat.is_none() && room.topic.is_none() && room.lines.is_empty());
+		assert!(room.seat.is_none() && room.subject.is_none() && room.lines.is_empty());
 		assert_eq!(room.reconnect, workspace::Reconnect::Manual);
 	}
 }
@@ -191,7 +191,7 @@ async fn run_case(scenario: Scenario, mode: &str) {
 				for role in [
 					custody::Role::DirectoryAccess,
 					custody::Role::RoomSeat,
-					custody::Role::RoomTopic,
+					custody::Role::RoomSubject,
 					custody::Role::Line,
 				] {
 					owner.import(coordinate(role, 1), target.clone(), None).await.unwrap();
@@ -209,7 +209,7 @@ async fn run_case(scenario: Scenario, mode: &str) {
 				let workspace::Conversation::Room(room) = &mut intent.conversations.as_mut_slice()[0] else {
 					panic!("room");
 				};
-				room.topic = Some(key());
+				room.subject = Some(key());
 				if matches!(scenario, Scenario::Publication) {
 					room.access = Some(key());
 				}

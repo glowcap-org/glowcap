@@ -11,10 +11,10 @@ settle alone, so they are not on [the roadmap](roadmap.md). Each section names
 the proposal deciding it, because `glowcap-next` follows current direction as
 well as merged text. Each number below was open on October 13, 2026.
 
-What the pinned draft says and which profile speaks each section is the
-[conformance manifest](ocapn-conformance.md). Draft text merged past the pin
-is glowcap work, listed under [OCapN direction](roadmap.md#ocapn-direction) on
-the roadmap.
+Which draft sections each profile has adopted, deferred, or left pending is
+the [conformance manifest](ocapn-conformance.md). Implementation work is
+listed under
+[OCapN direction](roadmap.md#ocapn-direction) on the roadmap.
 
 Where two pinned sources disagree, `zig build ocapn-findings-check` reproduces
 the disagreement against the exact upstream revisions this repository pins, and
@@ -31,10 +31,11 @@ That is a wire-breaking session change.
 PR 288 merged on September 8, 2026. The merged text names the required
 version as `Ed25519_SHA256` when describing the sender and `Ed25519` when
 describing the receiver, and the implementation guide's example hello writes
-`Ed25519`. The specification pin stays at
-`d05fd192be530b448e6d80c14714b9ff16644c4e` until the text names one version
-and a Goblins release speaks it, so that the session codecs, fixtures, live
-Goblins checks, and both profiles move together.
+`Ed25519`. The specification reference tracks the merged text independently
+of adoption. The manifest defers the shared opening and dependent crypto
+records until the contract is consistent and the suite and Goblins agree.
+Session codecs, fixtures, live Goblins checks, and both profiles move together
+when that transition is adopted.
 
 The Racket and Guile Goblins issues for this change are open and unassigned.
 Racket Goblins `master` and the pinned OCapN suite use the four-field record.

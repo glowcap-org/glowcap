@@ -22,8 +22,10 @@ import {
 	MAX_SIGNAL_CANDIDATE,
 	MAX_SIGNAL_ID,
 	MAX_SIGNAL_SDP,
-	MAX_TOPIC,
+	MAX_SUBJECT_DESCRIPTION,
+	MAX_SUBJECT_LINK,
 	relayedSignalFits,
+	SUBJECT_LINK_SCHEME,
 } from "../../lib/limits.ts";
 import {
 	readCarries,
@@ -32,7 +34,7 @@ import {
 	readPresence,
 	readRoomEvent,
 	readRoomFacts,
-	readTopic,
+	readSubject,
 } from "../../lib/room/client.ts";
 import { parseDirectoryWatchSnapshot, parseRooms } from "../../lib/directory_publications.ts";
 import { assertEquals } from "../assert.ts";
@@ -89,23 +91,56 @@ Deno.test("a room states its cap in the tail a presence change rides in", () => 
 // reason: a bridge or a room can begin saying it whenever it likes, and clients
 // already shipped will understand.
 
-Deno.test("a room states its topic in the same tail", () => {
-	assertEquals(readTopic(["alice", "welcome", "topic", "release 2.0 is out"]), "release 2.0 is out");
-	// Cleared and never-set are different things, and both have to be sayable:
-	// somebody taking a topic down is doing something, and reading it
-	// as "nothing said" would make clearing one impossible.
-	assertEquals(readTopic(["alice", "welcome", "topic", ""]), "", "cleared on purpose");
-	assertEquals(readTopic(["alice", "hi"]), undefined, "an ordinary line says nothing about it");
-	// A room that states a topic longer than a topic may be has said something
-	// this cannot show, and a topic sits on screen for as long as the room is
-	// open. Read the way a malformed cap is: it said nothing, which leaves the
-	// last topic a reader could actually read in place.
+Deno.test("a room states its subject in the same tail", () => {
+	const board = "ocapn://host.tcp/s/Ym9hcmQ";
+	assertEquals(readSubject(["alice", "welcome", "subject", "release 2.0 is out"]), {
+		description: "release 2.0 is out",
+	});
+	assertEquals(readSubject(["room", "", "subject", "the board", board]), { description: "the board", link: board });
+	// Taken down and never set are different things, and both have to be
+	// sayable: somebody taking a subject down is doing something, and reading
+	// it as "nothing said" would make taking one down impossible.
+	assertEquals(readSubject(["alice", "welcome", "subject", ""]), { description: "" }, "taken down on purpose");
+	assertEquals(readSubject(["alice", "hi"]), undefined, "an ordinary line says nothing about it");
 	assertEquals(
-		readTopic(["alice", "welcome", "topic", "t".repeat(MAX_TOPIC + 1)]),
-		undefined,
-		"a room stated a topic longer than one may be and it was taken",
+		readSubject(["room", "", "subject", "\u0002ship\u0002 day\tsoon"]),
+		{ description: "\u0002ship\u0002 day\tsoon" },
+		"IRC formatting and a tab stay on one line",
 	);
-	assertEquals(readTopic(["alice", "welcome", "topic", "t".repeat(MAX_TOPIC)]), "t".repeat(MAX_TOPIC));
+	// A room that states a subject this cannot show has said nothing, which
+	// leaves the last subject a reader could actually read in place.
+	assertEquals(
+		readSubject(["alice", "welcome", "subject", "t".repeat(MAX_SUBJECT_DESCRIPTION + 1)]),
+		undefined,
+		"a description longer than one may be",
+	);
+	assertEquals(readSubject(["alice", "welcome", "subject", "t".repeat(MAX_SUBJECT_DESCRIPTION)]), {
+		description: "t".repeat(MAX_SUBJECT_DESCRIPTION),
+	});
+	// The bound counts UTF-16 units, as the room does, so each emoji is two.
+	const astral = "😀".repeat(MAX_SUBJECT_DESCRIPTION / 2);
+	assertEquals(readSubject(["alice", "welcome", "subject", astral])?.description, astral, "the bound in units");
+	assertEquals(readSubject(["alice", "welcome", "subject", astral + "😀"]), undefined, "one emoji past it");
+	const longest = SUBJECT_LINK_SCHEME + "a".repeat(MAX_SUBJECT_LINK - SUBJECT_LINK_SCHEME.length);
+	assertEquals(readSubject(["room", "", "subject", "x", longest])?.link, longest, "the longest link");
+	for (
+		const [refused, why] of [
+			[["room", "", "subject", "", board], "a link with no description"],
+			[["room", "", "subject", "x", longest + "a"], "a link past its bound"],
+			[["room", "", "subject", "x", "https://host/s/Ym9hcmQ"], "a link of another scheme"],
+			[["room", "", "subject", "x", "ocapn://host.tcp/s/a b"], "a link with a space"],
+			[["room", "", "subject", "x", board, "more"], "more than a link"],
+			[["room", "", "subject", "x", 7n], "a link that is not text"],
+			[["room", "", "subject", board], "a description that would read back as a link"],
+			[["room", "", "subject", "two\nlines"], "a description of two lines"],
+			[["room", "", "subject", "a\u0085b"], "a description with a next-line character"],
+			[["room", "", "subject", "a\u2028b"], "a description with a line separator"],
+			[["room", "", "subject", "a\ud800b"], "a description that is not well-formed text"],
+			[["room", "", "subject", "x", "ocapn://host.tcp/s/\ud800"], "a link that is not well-formed text"],
+		] as const
+	) {
+		assertEquals(readSubject([...refused]), undefined, why);
+	}
 
 	// The roster draws a row per name it is given, so a name longer than any this
 	// protocol grants is dropped rather than drawn.
@@ -120,10 +155,10 @@ Deno.test("a room states its topic in the same tail", () => {
 		undefined,
 		"somebody joined under a name longer than one may be",
 	);
-	assertEquals(readTopic(["alice", "hi", "roster", "bob"]), undefined, "nor does a roster");
-	// A topic that is not text is a room saying something malformed, which reads
-	// as having said nothing rather than as a topic of "undefined".
-	assertEquals(readTopic(["alice", "welcome", "topic", 7n]), undefined, "not text");
+	assertEquals(readSubject(["alice", "hi", "roster", "bob"]), undefined, "nor does a roster");
+	// A subject that is not text is a room saying something malformed, which
+	// reads as having said nothing rather than as a subject of "undefined".
+	assertEquals(readSubject(["alice", "welcome", "subject", 7n]), undefined, "not text");
 });
 
 Deno.test("a bridged room states one member's IRC seat without exposing an account", () => {
@@ -177,12 +212,12 @@ Deno.test("a bridged room states one member's IRC seat without exposing an accou
 
 Deno.test("the two room facts do not answer for each other", () => {
 	// They ride the same tail and are told apart by their name alone, so reading
-	// one as the other would put a byte count in the topic bar or a sentence in
-	// the line cap.
-	assertEquals(readTopic(["a", "b", "line-bytes", 400n]), undefined, "a cap is not a topic");
-	assertEquals(readLineBytes(["a", "b", "topic", "about things"]), undefined, "a topic is not a cap");
-	assertEquals(readListed(["a", "b", "topic", "about things"]), undefined, "a topic is not listed-ness");
-	assertEquals(readTopic(["a", "b", "listed"]), undefined, "listed-ness is not a topic");
+	// one as the other would put a byte count in the subject bar or a sentence
+	// in the line cap.
+	assertEquals(readSubject(["a", "b", "line-bytes", 400n]), undefined, "a cap is not a subject");
+	assertEquals(readLineBytes(["a", "b", "subject", "about things"]), undefined, "a subject is not a cap");
+	assertEquals(readListed(["a", "b", "subject", "about things"]), undefined, "a subject is not listed-ness");
+	assertEquals(readSubject(["a", "b", "listed"]), undefined, "listed-ness is not a subject");
 	assertEquals(readListed(["room", "", "listed"]), true, "listed");
 	assertEquals(readListed(["room", "", "unlisted"]), false, "unlisted");
 });
@@ -216,13 +251,21 @@ Deno.test("a line carries whichever facts the room put on it, and nothing otherw
 	// and a caller can ask one question rather than probing each field.
 	assertEquals(readRoomFacts(["alice", "hello"]), undefined, "an ordinary line");
 	assertEquals(readRoomFacts(["room", "welcome", "roster", "bob"]), undefined, "a roster");
-	assertEquals(readRoomFacts(["room", "welcome", "topic", "about things"]), { topic: "about things" }, "a topic");
+	assertEquals(
+		readRoomFacts(["room", "welcome", "subject", "about things"]),
+		{ subject: { description: "about things" } },
+		"a subject",
+	);
 	assertEquals(readRoomFacts(["room", "welcome", "line-bytes", 400n]), { lineBytes: 400 }, "a cap");
 	assertEquals(readRoomFacts(["room", "", "listed"]), { listed: true }, "a listed occupancy");
 	assertEquals(readRoomFacts(["room", "", "unlisted"]), { listed: false }, "an unlisted occupancy");
-	// A topic taken down is a fact, so it survives the "did this line say
+	// A subject taken down is a fact, so it survives the "did this line say
 	// anything" question rather than being read as silence.
-	assertEquals(readRoomFacts(["room", "welcome", "topic", ""]), { topic: "" }, "a topic cleared");
+	assertEquals(
+		readRoomFacts(["room", "welcome", "subject", ""]),
+		{ subject: { description: "" } },
+		"a subject taken down",
+	);
 });
 
 Deno.test("a line from somebody else is held to what this app will show", () => {

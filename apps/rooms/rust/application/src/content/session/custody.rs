@@ -199,7 +199,7 @@ custody! {
 	CreationReceipt => creation_receipt, insert_creation_receipt, remove_creation_receipt;
 	PublicationLease => publication_lease, insert_publication_lease, remove_publication_lease;
 	RoomSeat => room_seat, insert_room_seat, remove_room_seat;
-	RoomTopic => room_topic, insert_room_topic, remove_room_topic;
+	RoomSubject => room_subject, insert_room_subject, remove_room_subject;
 	RoomInbox => room_inbox, insert_room_inbox, remove_room_inbox;
 	RoomFiles => room_files, insert_room_files, remove_room_files;
 	Line => line, insert_line, remove_line;
@@ -220,7 +220,7 @@ impl Role {
 				| Self::IrcConnection
 				| Self::AcceptedAccess
 				| Self::RoomSeat
-				| Self::RoomTopic
+				| Self::RoomSubject
 				| Self::RoomInbox
 				| Self::RoomFiles
 				| Self::Line | Self::PublicationLease

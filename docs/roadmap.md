@@ -42,27 +42,12 @@ and storage, in order.
 
 ## OCapN direction
 
-The V1.0 profile answers to the pinned OCapN draft as pinned Racket Goblins
-speaks it, and `glowcap-next` follows the merged draft. The
-[conformance manifest](ocapn-conformance.md) says which profile implements
-each section of the pinned draft. [Upstream watch](upstream-watch.md) holds
+The `1.0` profile preserves pinned Goblins interoperability, and
+`glowcap-next` tracks the merged draft. The
+[conformance manifest](ocapn-conformance.md) records adopted, deferred, and
+pending sections independently of the specification reference. [Upstream watch](upstream-watch.md) holds
 what glowcap cannot settle alone. These items are glowcap's side.
 
-- **`glowcap-next` carries the merged deliver and listen shape.** The draft
-  merged on October 13, 2026 keeps the resolver on `op:deliver` and adds a
-  fifth `listen-mode` operand. It gives `op:listen` an integer third operand,
-  restores `op:deliver-only` for a send without a result, and removes
-  `op:get`, `op:index`, and `op:untag`. Next sends a three-operand deliver
-  with no resolver and still accepts the three projections. Move next to the
-  merged shape in one change, and keep V1.0 on the pinned shape until a
-  Goblins release speaks the new one. An ADR amends
-  [ADR-0111](decisions/adr/ADR-0111-next-promise-listeners.md) for the deliver
-  and listen operands, and amends
-  [ADR-0050](decisions/adr/ADR-0050-get-index-responder.md) and
-  [ADR-0052](decisions/adr/ADR-0052-untag-responder.md) so the projections
-  stay V1.0 only. The change covers both codecs, the next validator, oracle
-  scenarios for every changed arm, and the two-glowcap live checks
-  ([plan to plan](planning/plan-to-plan.md)).
 - **Five-field `op:start-session`.** The merged draft moves `crypto-version`
   into the hello and replaces the structured key and signature records with
   raw bytes. The hello is the one message both profiles share, because a peer

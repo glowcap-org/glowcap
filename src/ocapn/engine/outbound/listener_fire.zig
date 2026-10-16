@@ -45,8 +45,10 @@ pub fn deinitEmitted(carrier: Carrier, peer: *Peer) void {
     switch (carrier.target) {
         .store => |target| switch (target) {
             .answer => |answer| {
+                peer.session_state.retireVirtualAnswer(answer.target);
                 peer.session_state.retireDetachedAnswer(answer.target, answer.payload);
                 peer.session_state.releaseAnswerPayload(answer.payload);
+                peer.session_state.collectLocalPromiseProjections();
             },
             .import => {},
         },

@@ -35,7 +35,7 @@ permissions! {
 	ReadContent = 12 => "readContent", None;
 	ReadFile = 13 => "readFile", None;
 	Upload = 14 => "upload", Some(Self::Post);
-	SetTopic = 15 => "setTopic", Some(Self::Receive);
+	SetSubject = 15 => "setSubject", Some(Self::Receive);
 	Invite = 16 => "invite", None;
 	Moderate = 17 => "moderate", None;
 	ListEntries = 18 => "listEntries", None;

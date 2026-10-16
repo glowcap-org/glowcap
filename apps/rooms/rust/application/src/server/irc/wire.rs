@@ -6,6 +6,7 @@ use crate::room::{
 	carries::{self, Carries},
 	inbox::{AUTHORITY_CHANGED, ENDED, ROOM},
 	message::LineId,
+	subject::Subject,
 };
 use crate::server::rooms::wire::DataEncoder;
 use alloc::{format, string::String, vec::Vec};
@@ -38,7 +39,14 @@ pub enum Notice {
 		nick: String,
 		why: String,
 	},
-	Topic(String),
+	/// The channel's topic, which the room tells as its subject's
+	/// description. A topic from another network is text, never a link the
+	/// room would vouch for, so this subject has none. Told to an arrival, and
+	/// announced on change.
+	Subject {
+		subject: Subject,
+		changed: bool,
+	},
 	/// What a membership here can use: text when the bridge carries lines
 	/// back, and never files, previews, or typing, which IRC has no way to
 	/// carry. Told first at arrival, ahead of the roster a client returns on.
@@ -85,7 +93,7 @@ impl Notice {
 					format!("{nick} is away: {why}")
 				}
 			}
-			Self::Topic(topic) => format!("the topic is: {topic}"),
+			Self::Subject { subject, changed } => subject.said(*changed),
 			Self::Ended(reason) => reason.clone(),
 			Self::Carries(_) | Self::Bridge { .. } | Self::Seat { .. } | Self::AuthorityChanged { .. } => String::new(),
 		}
@@ -137,11 +145,11 @@ pub fn arguments<E: DataEncoder>(notice: &Notice, e: &mut E) -> Vec<E::Value> {
 			out.push(e.text(nick.clone()));
 			out.push(e.text(why.clone()));
 		}
-		Notice::Topic(topic) => {
+		Notice::Subject { subject, .. } => {
 			out.push(e.text(ROOM.into()));
 			out.push(e.text(said));
-			out.push(e.text(crate::protocol_data::TOPIC.into()));
-			out.push(e.text(topic.clone()));
+			out.push(e.text(crate::protocol_data::SUBJECT.into()));
+			out.push(e.text(subject.description().into()));
 		}
 		Notice::Carries(carries) => {
 			out.push(e.text(ROOM.into()));

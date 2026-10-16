@@ -73,7 +73,7 @@ pub fn bindFreshResolverExport(
 
 /// Mint a resolver export whose mention will ride a message recorded outside
 /// the ordinary send apply walk. This is the shared accounting seam for V1.0's
-/// inline resolver and next's mandatory answer listener: bind the export to the
+/// inline resolver and next's inline answer subscription: bind the export to the
 /// answer and take exactly one wire retain for the resolver mention.
 pub fn mintMentionedResolverExport(
     self: *Session,
@@ -144,7 +144,7 @@ pub fn answerForResolverExport(self: *const Session, resolver_export: model.Expo
     const purpose = self.outbound_resolver_link.getByKey(resolver_export) orelse return null;
     return switch (purpose) {
         .application_answer => |answer| answer,
-        .local_promise_answer, .node_settling, .retired, .shortening_pending, .shortening_complete => null,
+        .forwarding, .local_promise_answer, .node_settling, .retired, .shortening_pending, .shortening_complete => null,
     };
 }
 

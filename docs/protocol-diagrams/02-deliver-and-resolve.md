@@ -13,36 +13,36 @@ sources:
 These diagrams follow the CapTP Specification sections op:deliver, The
 bootstrap Object, op:get, and op:index.
 
-These diagrams use the next profile unless a step says V1.0. Next follows the
-pending promise-listening proposal: an answered operation is followed by an
-`op:listen`, and settlement returns as a resolver callback. Goblins V1.0 puts
-that resolver in `op:deliver` instead. Neither profile sends wire `op:resolve`.
+These diagrams use the next profile unless a step says V1.0. Next carries a resolver and integer listen mode in
+`op:deliver`. Goblins V1.0 carries the resolver as its fourth operand and has
+no inline listen mode. Neither profile sends wire `op:resolve`. The projection
+operations below are V1.0 only.
 
 ## DR-1: op:deliver with an answer
 
-The questioner allocates a fresh answer position and follows the operation with
-a mode-3 listen. The answerer records both and later calls the resolver once.
+The questioner allocates a fresh answer position and includes a resolver with
+mode 3. The answerer records the answer and subscription, then calls the
+resolver once when shortening or settlement occurs.
 
 ```mermaid
 sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
-    Q->>R: op:deliver (to-desc, args, answer-pos N)
-    Q->>R: op:listen (desc:answer N, desc:import-object P, mode 3)
+    Q->>R: op:deliver (to-desc, args, answer-pos N, resolver P, mode 3)
     Note over R: answers-owed table records position N
-    R->>Q: op:deliver (to desc:export P, ['fulfill, value], answer-pos false)
+    R->>Q: op:deliver-only (to desc:export P, ['fulfill, value])
 ```
 
 ## DR-2: op:deliver with no answer (one-way)
 
-Fire-and-forget: the answer position is `false`, so no callback returns.
-The receiver invokes the target and the transaction ends.
+`op:deliver-only` carries the target and arguments, with no answer or resolver.
+The receiver invokes the target and no callback returns.
 
 ```mermaid
 sequenceDiagram
     participant Q as Sender
     participant R as Receiver
-    Q->>R: op:deliver (to-desc, args, answer-pos false)
+    Q->>R: op:deliver-only (to-desc, args)
     Note over R: target invoked, nothing owed back
 ```
 
@@ -56,10 +56,9 @@ error. A broken answer propagates its error to anything pipelined against it
 sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
-    Q->>R: op:deliver (to-desc, args, answer-pos N)
-    Q->>R: op:listen (desc:answer N, desc:import-object P, mode 3)
+    Q->>R: op:deliver (to-desc, args, answer-pos N, resolver P, mode 3)
     Note over R: invocation raises an error
-    R->>Q: op:deliver (to desc:export P, ['break, error], answer-pos false)
+    R->>Q: op:deliver-only (to desc:export P, ['break, error])
 ```
 
 ## DR-4: V1.0 inline resolver
@@ -87,14 +86,13 @@ out-of-band authority into a live reference.
 sequenceDiagram
     participant C as Client
     participant H as Host
-    C->>H: op:deliver (to desc:export 0, args ['fetch, swiss-num], answer-pos N)
-    C->>H: op:listen (desc:answer N, desc:import-object P, mode 3)
+    C->>H: op:deliver (to desc:export 0, args ['fetch, swiss-num], answer-pos N, resolver P, mode 3)
     Note over H: bootstrap object looks up the swiss number
-    H->>C: op:deliver (to desc:export P, ['fulfill, desc:import-object M], answer-pos false)
+    H->>C: op:deliver-only (to desc:export P, ['fulfill, desc:import-object M])
     Note over C: client now imports the fetched object at M
 ```
 
-## DR-6: op:get
+## DR-6: V1.0 op:get
 
 `op:get` projects one field out of a receiver's eventual fulfillment into a
 fresh promise. It breaks if the fulfillment has no such field, and it inherits
@@ -105,12 +103,12 @@ sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
     Q->>R: op:get (receiver-desc, field-name, new-answer-pos M)
-    Q->>R: op:listen (desc:answer M, desc:import-object P, mode 3)
+    Q->>R: op:listen (desc:answer M, desc:import-object P, wants-partial false)
     Note over R: waits for receiver to settle, projects the field
     R->>Q: op:deliver (to desc:export P, ['fulfill, field-value], answer-pos false)
 ```
 
-## DR-7: op:index
+## DR-7: V1.0 op:index
 
 `op:index` is the list-shaped sibling of `op:get`: it projects one element by
 index. An index out of range breaks the new answer.
@@ -120,7 +118,7 @@ sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
     Q->>R: op:index (receiver-desc, index, new-answer-pos M)
-    Q->>R: op:listen (desc:answer M, desc:import-object P, mode 3)
+    Q->>R: op:listen (desc:answer M, desc:import-object P, wants-partial false)
     alt index in range of the fulfillment
         R->>Q: op:deliver (to desc:export P, ['fulfill, element], answer-pos false)
     else out of range or wrong shape

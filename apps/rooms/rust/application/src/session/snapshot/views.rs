@@ -56,7 +56,7 @@ pub struct RoomView {
 	pub members: List<(Text<32, true>, Member), MAX_MEMBERS>,
 	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
 	pub members_more: Option<bool>,
-	pub topic: Nullable<Text<300>>,
+	pub subject: Nullable<crate::session::subject::Subject>,
 	pub line_bytes: Nullable<SafeInteger<true>>,
 	#[serde(default, skip_serializing_if = "Presence::missing")]
 	pub bridge: Presence<Bridge>,
@@ -66,10 +66,10 @@ pub struct RoomView {
 	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
 	pub carries: Option<Carries>,
 	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
-	pub can_set_topic: Option<bool>,
+	pub can_set_subject: Option<bool>,
 	/// Whether this membership holds the files facet `subscribe` hands a
 	/// participant where the room can hold bytes. A composer draws its attach
-	/// control from this, the way it draws the topic control from the field
+	/// control from this, the way it draws the subject control from the field
 	/// above: from what the member holds, never from a word about the room.
 	#[serde(default, deserialize_with = "present", skip_serializing_if = "Option::is_none")]
 	pub can_post_files: Option<bool>,
@@ -174,14 +174,14 @@ impl Serialize for VisibleRoom<'_> {
 	fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
 		use serde::ser::SerializeStruct;
 		let r = self.0;
-		let can_set_topic = if self.1 { r.can_set_topic } else { Some(false) };
+		let can_set_subject = if self.1 { r.can_set_subject } else { Some(false) };
 		let can_post_files = if self.1 { r.can_post_files } else { Some(false) };
 		let can_moderate = if self.1 { r.can_moderate } else { Some(false) };
 		let fields = 6
 			+ usize::from(r.members_more.is_some())
 			+ usize::from(!r.bridge.missing())
 			+ usize::from(r.carries.is_some())
-			+ usize::from(can_set_topic.is_some())
+			+ usize::from(can_set_subject.is_some())
 			+ usize::from(can_post_files.is_some())
 			+ usize::from(can_moderate.is_some());
 		let mut value = s.serialize_struct("RoomView", fields)?;
@@ -192,7 +192,7 @@ impl Serialize for VisibleRoom<'_> {
 		if let Some(v) = r.members_more {
 			value.serialize_field("membersMore", &v)?;
 		}
-		value.serialize_field("topic", &r.topic)?;
+		value.serialize_field("subject", &r.subject)?;
 		value.serialize_field("lineBytes", &r.line_bytes)?;
 		if !r.bridge.missing() {
 			value.serialize_field("bridge", &r.bridge)?;
@@ -200,8 +200,8 @@ impl Serialize for VisibleRoom<'_> {
 		if let Some(carries) = &r.carries {
 			value.serialize_field("carries", carries)?;
 		}
-		if let Some(v) = can_set_topic {
-			value.serialize_field("canSetTopic", &v)?;
+		if let Some(v) = can_set_subject {
+			value.serialize_field("canSetSubject", &v)?;
 		}
 		if let Some(v) = can_post_files {
 			value.serialize_field("canPostFiles", &v)?;

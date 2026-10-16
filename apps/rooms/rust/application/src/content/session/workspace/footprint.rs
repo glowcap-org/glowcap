@@ -32,7 +32,7 @@ graph!(Intent { accesses, directories, conversations, invitations, active,
 graph!(Directory { id, nick, assigned_nick, standing };
 	access, name, source, inbox, home, nick_allocation);
 graph!(Room { id, directory, name, publication, lines, standing, draft };
-		kind, source, inbox, access, accepted, public_entry, seat, topic, files, moderator, control, reconnect);
+		kind, source, inbox, access, accepted, public_entry, seat, subject, files, moderator, control, reconnect);
 graph!(Direct { id, directory, peer, introduction, lines, draft }; kind, source, access, inbox, closed);
 graph!(Introduction { registration, opening }; access, name, callback);
 graph!(PublicEntry { }; access);

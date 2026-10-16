@@ -188,20 +188,17 @@ async fn pump(
 			}
 			_ => {}
 		}
-		if let Some(topic) = facts.and_then(|f| f.topic) {
-			view.borrow_mut().topic = Some(topic.clone());
-			match protocol::encode_message("TOPIC", &[channel, &topic], Some(&output.server)) {
-				Ok(bytes) => output.enqueue(bytes)?.wait().await.map_err(|e| e.reason)?,
-				Err(protocol::Error::TooLong) => {
-					output
-						.notice(&format!(
-							"{channel} has a {}-byte topic that cannot fit one IRC line",
-							topic.len()
-						))
-						.await?
-				}
-				Err(error) => return Err(error.to_string()),
-			}
+		// An IRC channel topic is text, so a channel shows the subject's
+		// description. A client that can use the link reads it from the room,
+		// so a change to the link alone says nothing here. A taken-down subject
+		// clears the topic.
+		if let Some(topic) = facts
+			.and_then(|f| f.subject)
+			.map(|subject| subject.description().to_owned())
+			.filter(|topic| view.borrow().topic.as_deref().unwrap_or("") != topic)
+		{
+			view.borrow_mut().topic = (!topic.is_empty()).then(|| topic.clone());
+			output.topic(channel, &topic).await?;
 		}
 		if message.from != inbox::ROOM && fold(&message.from) != fold(&output.nick) {
 			output.chat(&message.from, &message.text, channel).await?;

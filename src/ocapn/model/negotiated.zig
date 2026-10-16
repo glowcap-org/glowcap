@@ -166,6 +166,7 @@ pub const FeatureSet = packed struct {
     pub fn forCaptpVersion(self: FeatureSet, captp_version: CaptpVersion) FeatureSet {
         var out = self;
         if (captp_version != .next) out.multi_location = false;
+        if (captp_version == .next) out.untag = false;
         return out;
     }
 

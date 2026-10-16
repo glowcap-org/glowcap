@@ -1,8 +1,7 @@
 //! The row a deliver leaves the pending queue as: its frame (ADR-0236).
 //!
-//! Admission encodes a deliver, and on next any operation that produces an
-//! answer, so the queue holds the frame, the listener frame next requires
-//! behind it, and what a retracted turn gives back: the near exports
+//! Admission encodes a deliver with its inline result subscription, so the
+//! queue holds one frame and what a retracted turn gives back: the near exports
 //! recording retained and the answer it installed. The encoder reads the
 //! tree here and nothing keeps it, so a caller that lent its values owns
 //! them again when the send returns.
@@ -29,12 +28,9 @@ const Peer = engine.Peer;
 pub const Encoded = struct {
     op: std.meta.Tag(model.Message),
     frame: foundation.Frame,
-    /// On next, the mandatory `op:listen` on the answer, which follows the
-    /// operation on the wire.
-    listener: ?foundation.Frame,
     answer: ?model.AnswerPosition,
     /// The resolver export minted for `answer`. V1.0 advertises it inline as
-    /// `resolve_me_desc`, and next names it as the listener.
+    /// `resolve_me_desc`; next also carries its listen mode inline.
     resolver: ?model.ExportPosition,
     /// The near exports recording retained, in wire order
     /// (`Session.listSentExports`).
@@ -42,19 +38,13 @@ pub const Encoded = struct {
 
     /// The row's admission charge: the wire bytes it holds plus its list.
     pub fn charge(self: Encoded) usize {
-        var total = self.frame.bytes().len;
-        if (self.listener) |listener| total += listener.bytes().len;
-        return total + self.exports.len * @sizeOf(model.ExportPosition);
+        return self.frame.bytes().len + self.exports.len * @sizeOf(model.ExportPosition);
     }
 
     /// Release a row whose frames never reached `outbound`.
     pub fn deinit(self: Encoded, peer: *Peer) void {
         var frame = self.frame;
         frame.deinit();
-        if (self.listener) |listener| {
-            var pending = listener;
-            pending.deinit();
-        }
         self.deinitEmitted(peer);
     }
 
@@ -107,30 +97,18 @@ pub fn admit(self: *Peer, message: model.Message, inventory: session.Inventory, 
     else
         null;
 
-    const v1_0 = self.session_state.needsV1_0Translation();
     var wire = message;
-    if (v1_0 and resolver_ref != null) wire.deliver.resolve_me_desc = resolver_ref;
+    if (resolver_ref != null) wire.deliver.resolve_me_desc = resolver_ref;
     var body = model.view.Body.fromOwned(&wire);
     if (freight) |args| body.deliver.args = args;
     var frame = try self.encodeOutboundBody(&body);
     errdefer frame.deinit();
-    var listener: ?foundation.Frame = if (!v1_0 and resolver_ref != null)
-        try self.encodeOutbound(.{ .listen = .{
-            .target = .{ .promise = .{ .answer_position = answer.? } },
-            .listener = resolver_ref.?,
-            .mode = .shortening_or_settling,
-        } })
-    else
-        null;
-    errdefer if (listener) |*pending| pending.deinit();
-
     const exports = try self.session_state.listSentExports(self.allocator, message, inventory);
     errdefer self.allocator.free(exports);
 
     const row: Encoded = .{
         .op = std.meta.activeTag(message),
         .frame = frame,
-        .listener = listener,
         .answer = answer,
         .resolver = resolver,
         .exports = exports,

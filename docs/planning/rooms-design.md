@@ -91,7 +91,7 @@ session's memberships. The UI and protocol keep all three apart.
 - **Check at the owner of the effect.** Every protected operation uses a
   typed admission result bound to the exact resource, grant generation, and
   committed revision, rechecked after any asynchronous wait and before
-  returning new authority. Returned capabilities (topic, file, upload, line,
+  returning new authority. Returned capabilities (subject, file, upload, line,
   history, watch, voucher, signaling, session view) consult their grant while
   they exercise it. Independent authority is explicit in the result.
 - **A change has a boundary.** Success means the durable policy committed
@@ -248,7 +248,7 @@ caller strings, and unknown or unsupported combinations fail before issuance.
 | Directory construction | `CreateRoom` creates an independently owned room. `PublishListing` publishes an exact held room reference. |
 | Conversation participation | `Receive` live content and roster. `History` retained events. `Post` speaks and types. `EditOwn`, `WithdrawOwn` on lines created through this grant. Post, EditOwn, WithdrawOwn require Receive. |
 | Content and files | `ReadContent` selected objects. `ReadFile` bounded readers. `Upload` stages and posts files (requires Post and file storage). |
-| Room facilities | `SetTopic` (requires Receive). `Invite` creates offers within held delegable authority. `Moderate` removes live seats and changes no grant. |
+| Room facilities | `SetSubject` (requires Receive). `Invite` creates offers within held delegable authority. `Moderate` removes live seats and changes no grant. |
 | Collection structure | `ListEntries`, `CreateChild`, `Rename`, `Reorganize`, `ArchiveConversation`, `EditContent`, `WithdrawContent`. |
 | Session workspace and custody | `ObserveWorkspace`, `InteractWorkspace`, `ReplaceWorkspace`, `ManageCustody`, `ResolvePending`, `UseOperations` (shipped, see the [effect contract](../rooms/session-effects.md)). |
 | Archive storage | `RecordArchive`, `ReadArchive`. Returned files also need ReadFile. |
@@ -262,7 +262,7 @@ preset that names an unsupported key is unavailable on that kind.
 | Kind | Supported keys |
 | --- | --- |
 | Directory | Browse, Presence, Introduce, Signal, CreateRoom, PublishListing, ManagePublicOffer |
-| Room | Receive, History, Post, EditOwn, WithdrawOwn, ReadContent, ReadFile, Upload, SetTopic, Invite, Moderate, ListEntries, CreateChild, Rename, Reorganize, ArchiveConversation, EditContent, WithdrawContent, ManagePublicOffer, ManagePublication |
+| Room | Receive, History, Post, EditOwn, WithdrawOwn, ReadContent, ReadFile, Upload, SetSubject, Invite, Moderate, ListEntries, CreateChild, Rename, Reorganize, ArchiveConversation, EditContent, WithdrawContent, ManagePublicOffer, ManagePublication |
 | Conversation | Receive, History, Post, EditOwn, WithdrawOwn, ReadContent, ReadFile, Upload, EditContent, WithdrawContent |
 | Message | ReadContent, ReadFile, EditContent, WithdrawContent |
 | File | ReadFile |
@@ -325,7 +325,7 @@ the keys above as follows. Names may change. Effects and authority may not.
 | `introduce`, `requestDirect`, `offerSignaling`, `signal*` | Introduce or Signal plus current registration. Established direct capabilities are independent. |
 | Entrance `called`, `private`, `roomPolicy`, `subscribe`. Invitation `mintInvitation`, `claimInvitation` | Replaced by typed offers with four admission modes. Subscribe or join consumes exact accepted access. |
 | Seat `membershipKind`, `away`, `leave`, `post*`, `typing`, `history` | Active seat. Post returns the line facet in one reply. History with cursor and floor. Leave is always allowed. |
-| Topic `setTopic`, files `attach*`, `postFiles*`, upload `write`, `discard`, file `read`, line `edit`, `withdraw`, `refile` | SetTopic, Upload plus Post, current Upload per chunk, ReadFile plus projection, EditOwn or EditContent, WithdrawOwn or WithdrawContent, Upload for refile. |
+| Subject `setSubject`, files `attach*`, `postFiles*`, upload `write`, `discard`, file `read`, line `edit`, `withdraw`, `refile` | SetSubject, Upload plus Post, current Upload per chunk, ReadFile plus projection, EditOwn or EditContent, WithdrawOwn or WithdrawContent, Upload for refile. |
 | Moderator `governs`, `kick`, manager `setRoomPolicy`, `unregisterRoom` | Moderate (ends a seat only), ManagePublicOffer, and ManagePublication. |
 | `giveSteward`, `giveManager`, `revokeSteward`, `revokeRoomLink`, `revokeRoomAuthority` | Replaced by exact Issue and Revoke controls with ceilings. |
 | Direct inbox `dm`, `handRoom`, `offerRoom`, `handArchive`, `offerArchive`. Direct line edits | Held direct capability. Direct sharing passes the exact reference, managed sharing derives first. |
@@ -334,7 +334,7 @@ the keys above as follows. Names may change. Effects and authority may not.
 | Session `facet`, `revoke`, `issueGrant`, `setGrantPolicy`, `revokeGrant` | Replaced by shared derivation and controls. |
 | Operator methods | Separately held operator capability, never on a public root. Session mediation needs UseOperations. |
 
-Roster, seat, line, receipt, topic, typing, listing, registration, policy,
+Roster, seat, line, receipt, subject, typing, listing, registration, policy,
 direct, and signaling callbacks are deliveries whose producer rechecks the
 originating requirement at delivery. Status channels carry no content while
 paused or revoked. Unknown notifications may be skipped. Unknown callable
@@ -376,7 +376,7 @@ Revocation cannot be undone by a preset.
 | Participation | Receive, Post, EditOwn, WithdrawOwn | Observer: Receive. Speaker: Receive, Post. Participant: all. |
 | Content Reading | ReadContent, ListEntries | Item reader. Collection reader: both. |
 | Files | ReadFile, Upload | None. Reader. Contributor: both. |
-| Room Facilities | SetTopic, Invite | None. Host: both. |
+| Room Facilities | SetSubject, Invite | None. Host: both. |
 | Moderation | Moderate | None. Moderator. |
 | Collection Structure | CreateChild, Rename, Reorganize, ArchiveConversation | None. Organizer: all four. |
 | Exact content editing | EditContent, WithdrawContent | None. Editor. Curator: both. |
@@ -531,7 +531,7 @@ Each row is an acceptance scenario, proved on production fronts.
 | Scenario | Issue | Use and change | Reconnect and revoke |
 | --- | --- | --- | --- |
 | Session display | Create managed access "display": Observer, History off, no custody, persistent, with a ceiling allowing later Collaborator. | Sees live state only. Promotion within the ceiling keeps the link. Pause carries no content. A copy is the same grant. | Restores the exact endpoint and cursor. Revocation stops the display and its children while seats and other views continue. |
-| Room helper | Single admission, Can rejoin, Speaker, History off, no Upload, SetTopic, Invite. | Join returns a seat. Files, topic, and minting refuse. Promotion needs ceiling and source. Narrowing makes retained facets refuse at the next effect. | Rejoins through the exact grant, never a room link. Receipt retry returns the same result. Close keeps access, Revoke branch ends it, Kick ends a seat only. |
+| Room helper | Single admission, Can rejoin, Speaker, History off, no Upload, SetSubject, Invite. | Join returns a seat. Files, subject, and minting refuse. Promotion needs ceiling and source. Narrowing makes retained facets refuse at the next effect. | Rejoins through the exact grant, never a room link. Receipt retry returns the same result. Close keeps access, Revoke branch ends it, Kick ends a seat only. |
 | Directory visitor and creator | Member access plus a separately controlled CreateRoom grant. | Registration returns a dependent voucher. Creation records an independent room with explicit ownership. Listings grant nothing. | Narrowing to Visitor releases presence, inbox, introductions, signaling. Revoking CreateRoom stops creation without destroying rooms. |
 | Existing session authority and a managed equivalent | Send existing access hands the exact capability. Create managed access issues equal terms with a source dependency. | Both exercise their operations. Only the managed grant has a control, ceiling, revision, and pause. | Each saves its own form. Revoking the child keeps the original, revoking the source disables the branch, revoking only the control keeps use. |
 | One message from a nested room | An exact message scope with ReadContent and permitted projections. | Focused view, placement elsewhere, Reply in source needs posting authority. Narrowing stops readers, previews, search, notifications. | Saved with a checked sturdyref. Restoration never walks a room root. Revoking the reshare leaves an unavailable entry. |
@@ -540,7 +540,7 @@ Reorganization: rename keeps everything. Same-owner move, split, and merge
 preview selection, revisions, coverage changes, and preserved grants, need
 AudienceChange when content is newly exposed, and commit atomically within
 16 effects. Cross-owner placement is insert then remove, reporting two
-placements on partial failure. Every proof holds older topic, file, line, and
+placements on partial failure. Every proof holds older subject, file, line, and
 name references across a change, loses an acknowledgement at the authority
 commit, reconnects with exact retained terms, and keeps an independent
 capability usable on the same connection.

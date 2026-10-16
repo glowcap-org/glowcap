@@ -21,6 +21,20 @@ pub fn register(
     goblins_reg: goblins_build.Registered,
     rooms_web_proofs: *std.Build.Step,
 ) void {
+    const adoption_exe = b.addExecutable(.{
+        .name = "ocapn-adoption-check",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/check/ocapn_adoption.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const adoption = execution.addArtifact(b, .{ .deterministic = 30 }, adoption_exe);
+    adoption.setCwd(b.path("."));
+    adoption.has_side_effects = true;
+    const adoption_step = b.step("ocapn-adoption-check", "Validate adopted, deferred, and pending draft and upstream suite accounting without claiming behavioral conformance");
+    adoption_step.dependOn(&adoption.step);
+
     // ── External conformance pressure (siblings of `check`) ──────────────────
     // A glowcap peer the upstream OCapN test suite can dial: it serves the
     // canonical conformance swiss-nums over `tcp-testing-only`. The orchestrator
@@ -44,6 +58,7 @@ pub fn register(
     ocapn_conformance.addArtifactArg(ocapn_peer_exe);
     ocapn_conformance.setCwd(b.path("."));
     ocapn_conformance.has_side_effects = true;
+    ocapn_conformance.step.dependOn(adoption_step);
     // The run above takes the peer's path directly, so it needs no install.
     // The install still happens, as a dependency of this step rather than of
     // `install`, because the wrapper is also run by hand for one module at a
@@ -54,6 +69,25 @@ pub fn register(
     if (pin_port) |p| ocapn_conformance.addArg(b.fmt("--port={d}", .{p}));
     const ocapn_conformance_step = b.step("ocapn-conformance", "Run portable upstream OCapN modules plus the strict abort probe against glowcap (needs uv + the ocapn-conformance submodule)");
     ocapn_conformance_step.dependOn(&ocapn_conformance.step);
+
+    const next_conformance = execution.addSystemCommand(b, .child_bounded, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap.sh", "--profile=next", "--peer" });
+    next_conformance.addArtifactArg(ocapn_peer_exe);
+    next_conformance.addArg("--adoption-tool");
+    next_conformance.addArtifactArg(adoption_exe);
+    next_conformance.setCwd(b.path("."));
+    next_conformance.has_side_effects = true;
+    next_conformance.step.dependOn(adoption_step);
+    const next_fixtures = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
+        "uv",                   "run",      "--project", "conformance/ocapn-conformance", "--locked",                      "python",
+        "-m",                   "unittest", "discover",  "-s",                            "conformance/ocapn-conformance", "-p",
+        "next_fixture_test.py",
+    });
+    next_fixtures.setCwd(b.path("."));
+    next_fixtures.has_side_effects = true;
+    next_conformance.step.dependOn(&next_fixtures.step);
+    if (pin_port) |p| next_conformance.addArg(b.fmt("--port={d}", .{p}));
+    const next_conformance_step = b.step("ocapn-conformance-next", "Run manifest-selected upstream cases and draft-native cases on negotiated next with the retained hello");
+    next_conformance_step.dependOn(&next_conformance.step);
 
     // Dedicated upstream pressure over the standardized onion netlayer.
     // Glowcap uses the operator-configured Tor; the pinned suite owns its own
@@ -67,6 +101,7 @@ pub fn register(
     const ocapn_conformance_onion = execution.addSystemCommand(b, .real_internet, &.{ "bash", "conformance/ocapn-conformance/run-against-glowcap-onion.sh", "--peer" });
     ocapn_conformance_onion.addArtifactArg(ocapn_onion_peer_exe);
     ocapn_conformance_onion.setCwd(b.path("."));
+    ocapn_conformance_onion.step.dependOn(adoption_step);
     ocapn_conformance_onion.has_side_effects = true;
     const ocapn_conformance_onion_step = b.step("ocapn-conformance-onion", "Run the upstream OCapN suite against glowcap over an operator-supplied Tor (needs uv + external Tor + network)");
     ocapn_conformance_onion_step.dependOn(&ocapn_conformance_onion.step);
@@ -108,7 +143,9 @@ pub fn register(
     // before believing a protocol claim; the checks workflow runs
     // `ci/gates.sh` on main-branch pushes and pull requests.
     const check_external_step = b.step("check-external", "Run outside-authority protocol conformance and every shipped Rooms page browser proof (needs uv + racket + goblins + cargo + deno + Playwright)");
-    check_external_step.dependOn(ocapn_conformance_step);
+    check_external_step.dependOn(next_conformance_step);
+    check_external_step.dependOn(&b.top_level_steps.get("goblins-glowcap-pair-gift").?.step);
+    next_conformance.step.dependOn(ocapn_conformance_step);
     check_external_step.dependOn(ocapn_findings_step);
     check_external_step.dependOn(goblins_reg.interop_step);
     check_external_step.dependOn(goblins_reg.handoff_step);

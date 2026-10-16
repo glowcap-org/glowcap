@@ -332,6 +332,7 @@ test "early-withdraw admission OOM leaves no pending row or replay state" {
                 .target = .{ .far = model.FarRef.object(0) },
                 .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
                 .answer = .from(1),
+                .resolve_me_desc = .{ .near = model.NearRef.object(0) },
             } });
             try exporter.feedOwned(frame);
 
@@ -441,6 +442,7 @@ test "a second early withdraw past max_pending_withdraws refuses loud and projec
             .target = .{ .far = model.FarRef.object(0) },
             .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
             .answer = .from(@intCast(i + 1)),
+            .resolve_me_desc = .{ .near = model.NearRef.object(0) },
         } });
         try exporter.feedOwned(frame);
         if (i == 0) {

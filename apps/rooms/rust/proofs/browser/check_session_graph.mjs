@@ -65,6 +65,8 @@ export async function checkSessionGraph(page) {
 
 // Cold source owners restore the complete distinct foreign field population.
 // The exporter stays alive in this realm; this does not claim exporter restart.
+// Four cold-owner phases restore the maximum field population through IndexedDB.
+// This scenario has its own process and budget, separate from the Host journey.
 export async function checkSessionForeign(page) {
 	await page.evaluate(async () => {
 		const binding = await import("/rooms_contract_proofs.js");
@@ -74,7 +76,7 @@ export async function checkSessionForeign(page) {
 			await Promise.race([
 				binding.rooms_session_foreign_contract(),
 				new Promise((_, reject) => {
-					deadline = setTimeout(() => reject(new Error("maximum foreign session timed out")), 30_000);
+					deadline = setTimeout(() => reject(new Error("maximum foreign session timed out")), 90_000);
 				}),
 			]);
 		} finally {

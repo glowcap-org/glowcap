@@ -106,7 +106,7 @@ impl<P: Tasks + Deadline + Clone + 'static> loam::ForwardAdmission for SessionCo
 			| wire::EDIT
 			| wire::DM
 			| wire::REFILE
-			| wire::SET_TOPIC
+			| wire::SET_SUBJECT
 			| rooms_application::room::receipt::POST
 			| rooms_application::room::receipt::POST_FILES
 			| rooms_application::room::correlation::POST
@@ -188,7 +188,7 @@ impl<P: Tasks + Deadline + Clone + 'static> Content for SessionContent<P> {
 			| protocol::REVOKE
 			| rooms_application::bridge::SUBMIT
 			| protocol::PUBLICATION_READY
-			| protocol::SET_TOPIC => Requirement::new(&[Permission::InteractWorkspace.key()], &[]),
+			| protocol::SET_SUBJECT => Requirement::new(&[Permission::InteractWorkspace.key()], &[]),
 			protocol::READ => Requirement::new(&[Permission::ReadFile.key()], &[]),
 			protocol::PUBLICATION_DESCRIBE => Requirement::new(&[Permission::UseOperations.key()], &[]),
 			protocol::HISTORY => Requirement::new(&[Permission::History.key()], &[]),

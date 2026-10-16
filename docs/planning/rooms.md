@@ -124,7 +124,7 @@ the shipped inventory, and the known limitations with it.
    [storage and budgets](rooms-design.md#storage-and-budgets) and the
    methods under [operation authority](rooms-design.md#operation-authority).
    Test: a helper admitted once can speak without inviting, loses file and
-   topic powers on references they already hold, pauses, resumes, and
+   subject powers on references they already hold, pauses, resumes, and
    reconnects under the same grant, and a retried receipt returns the same
    admission.
 4. **Replace the methods** (sweep). One commit per row of "Methods to
@@ -195,7 +195,7 @@ acceptance test for the whole, not for one step.
 | Exact scope | Foreign IDs, old generations, sibling grants, reused names, stale dialogs, and forged view records confer nothing. |
 | Delegation | Copies share revocation. Children attenuate. A parent's restriction constrains its children, and its expansion cannot exceed a child's ceiling. Independent grants survive. |
 | Offer admission | Concurrent claims, repeated receipts, cancelled waits, crashes, and lost replies produce exactly the recorded admission. One-visit and rejoin differ as advertised. |
-| Live changes | Held topic, file, upload, line, history, naming, and watch references obey current rights. Promoted holders acquire new facets. |
+| Live changes | Held subject, file, upload, line, history, naming, and watch references obey current rights. Promoted holders acquire new facets. |
 | Change observation | Committed edits emit scoped events over CapTP. Failed edits emit none. Reconnect and overflow resynchronize. Missed events never preserve permission. |
 | Pending effects | Revocation during storage, handoff, upload, introduction, signaling, or watch delivery prevents a later effect or disclosure. |
 | Isolation | Revoking one grant does not close transport or retire unrelated memberships. |

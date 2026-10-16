@@ -48,7 +48,7 @@ export function directoryNamesMoreThanOne(asked: string, names: string): string 
 	return `"${asked}" names more than one: ${names}.`;
 }
 
-/** /whois and /topic. */
+/** /whois and /subject. */
 export function nobodyCalled(name: string): string {
 	return `Nobody here is called ${name}.`;
 }
@@ -57,7 +57,7 @@ export function whoisAway(away: string): string {
 }
 export const whoisHereNow = "here now";
 export const whoisNotHere = "not here just now";
-export const noTopic = "This room has no topic.";
-export function topicIs(topic: string): string {
-	return `The topic is: ${topic}`;
+export const noSubject = "This room has no subject.";
+export function subjectIs(description: string, link?: string): string {
+	return link === undefined ? `The subject is: ${description}` : `The subject is: ${description} (${link})`;
 }

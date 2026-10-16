@@ -95,6 +95,8 @@ typedef struct GlowcapLoamLimits {
     size_t resident_bytes;
     size_t staging_bytes;
     size_t cache_slots;
+    /* Records a walk may read before it needs them, each holding a cache slot until demand pins it; zero reads nothing ahead. */
+    size_t read_ahead;
     size_t max_leases;
     size_t max_changes;
     /* Live attachment endpoints, independent of Store retention tokens. */
@@ -285,7 +287,7 @@ typedef int32_t (*GlowcapLoamKvFn)(void *, uint32_t, const uint8_t *, size_t, co
 #define GLOWCAP_LOAM_METADATA_SIZE 142
 #define GLOWCAP_LOAM_MAX_KEY_BYTES 35
 #define GLOWCAP_LOAM_MAX_URI_BYTES 4096
-#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 13698614309606046450
+#define GLOWCAP_LOAM_ARCHIVE_FINGERPRINT 3406125177086633967
 /* Construct a portable Store from exclusively claimed encoded metadata. Schema descriptors are copied. Inputs borrow for this call; out_store owns one release. No backend is opened. */
 int32_t glowcap_loam_store_new(const uint8_t *metadata, size_t metadata_len, const GlowcapLoamSchema *schemas, size_t schema_count, const GlowcapLoamLimits *limits, GlowcapLoamStore **out_store);
 /* Construct a portable Store using the Context allocator for every Store and attachment allocation. The Context and its allocator callbacks outlive the Store and all its borrows. Metadata and schema rules match store_new. */
@@ -416,6 +418,8 @@ int32_t glowcap_loam_continuation_reservation_source(GlowcapLoamContinuationRese
 int32_t glowcap_loam_continuation_reservation_target(GlowcapLoamContinuationReservation *reservation, size_t index, GlowcapReference *out_reference);
 /* Top-level synchronous poll. WouldBlock preserves unconfirmed Pending; Unchanged preserves canceled Pending until release. Success consumes Pending and transfers the identical preallocated observer as an owned Continuation. It performs no work or allocation. Refusal leaves output null. */
 int32_t glowcap_loam_pending_continuation_take(GlowcapLoamPendingContinuation *pending, GlowcapLoamContinuation **out_continuation);
+/* Report 1 once the commit is confirmed absent and 0 while it is pending or confirmed. Read-only and valid during content callbacks, where take refuses. A taken observer refuses with WrongPhase. */
+int32_t glowcap_loam_pending_continuation_absent(GlowcapLoamPendingContinuation *pending, uint32_t *out_absent);
 /* Observer release, null-safe and valid during content callbacks. Does not cancel an uncertain storage outcome. Kernel confirmation retains its own custody until confirmed activation or absence; inert observer metadata and attachment borrow end only on final release. */
 int32_t glowcap_loam_pending_continuation_release(GlowcapLoamPendingContinuation *pending);
 /* Consuming release, null-safe and valid during content callbacks. Independent endpoints and admitted executions retain their own custody. */

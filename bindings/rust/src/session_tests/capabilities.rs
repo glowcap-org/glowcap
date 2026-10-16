@@ -272,15 +272,15 @@ async fn pipelined_projections_reach_a_field() {
 				}),
 				None,
 			);
-			let next_host = || {
+			let baseline_host = || {
 				Host::with_options(crate::HostOptions {
-					captp_version: crate::CaptpVersion::Next,
+					captp_version: crate::CaptpVersion::V1_0,
 					features: crate::FeatureSet::FULL,
 					..Default::default()
 				})
 				.unwrap()
 			};
-			let server = listen_with_host("127.0.0.1:0", next_host()).await.unwrap();
+			let server = listen_with_host("127.0.0.1:0", baseline_host()).await.unwrap();
 			let addr = std::net::SocketAddr::from(([127, 0, 0, 1], server.port().unwrap()));
 			let (ready_tx, ready_rx) = oneshot::channel::<()>();
 			let (resolver_tx, mut resolver_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -326,15 +326,21 @@ async fn pipelined_projections_reach_a_field() {
 					.unwrap();
 			});
 
-			let session = connect_with_host(&crate::tcp::locator(&addr.ip().to_string(), addr.port()), next_host())
-				.await
-				.unwrap();
+			let session = connect_with_host(
+				&crate::tcp::locator(&addr.ip().to_string(), addr.port()),
+				baseline_host(),
+			)
+			.await
+			.unwrap();
 			assert_eq!(
 				session.profile().unwrap(),
 				crate::SessionProfile {
-					captp_version: crate::CaptpVersion::Next,
+					captp_version: crate::CaptpVersion::V1_0,
 					codec: Codec::Syrup,
-					features: crate::FeatureSet::FULL,
+					features: crate::FeatureSet::from_bits(
+						crate::FeatureSet::FULL.bits() & !crate::FeatureSet::MULTI_LOCATION.bits()
+					)
+					.unwrap(),
 				}
 			);
 			ready_rx.await.unwrap();

@@ -22,10 +22,10 @@ pub const clock_seam: []const Ban = &.{
 
 /// The V1.0 resolver descriptor (`resolve_me_desc`) is CapTP wire knowledge:
 /// mapping a resolver-only deliver to the virtual answer the engine installed
-/// is the engine's job, reached through `Peer.answerForDeliver`. The actor
+/// is the engine's job, carried by `Event.deliverAnswerTarget`. The actor
 /// layer must never decode it, because `actors` adds no CapTP semantics the
 /// engine lacks (architecture rule). This holds the boundary the
-/// `answerForDeliver` seam established, so the vat's old inline descriptor
+/// exact answer-target seam established, so the vat's old inline descriptor
 /// walk cannot creep back.
 pub const actors_layer_purity: []const Ban = &.{
     .{
@@ -33,7 +33,7 @@ pub const actors_layer_purity: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{"resolve_me_desc"},
         .check = "actors-layer-purity",
-        .why = "the V1.0 resolver descriptor is CapTP wire knowledge; route a resolver-only deliver's answer through `Peer.answerForDeliver`, never by decoding resolve_me_desc in the actor layer (architecture: actors adds no CapTP semantics the engine lacks)",
+        .why = "the resolver descriptor is CapTP wire knowledge; use `Event.deliverAnswerTarget` for its exact reply incarnation, never decode resolve_me_desc in the actor layer (architecture: actors adds no CapTP semantics the engine lacks)",
     },
 };
 

@@ -151,7 +151,7 @@ const QUIET: CommandPowers = {
 	ignored: () => [],
 	editLast: () => false,
 	withdrawLast: () => false,
-	setTopic: () => true,
+	setSubject: () => true,
 	setAway: () => true,
 	invite: () => true,
 	kick: () => true,
@@ -229,11 +229,11 @@ Deno.test("the reader's list is what this conversation has actually handed over"
 	for (const name of ["edit", "delete", "help", "me", "details"]) {
 		if (!names([], "room").includes(name)) fail(`/${name} works but is not among the commands /help lists`);
 	}
-	if (names([], "room").includes("topic")) fail("/topic is listed before any room has offered one");
-	if (!names(["topic"], "room").includes("topic")) {
-		fail("a room that handed over its topic did not put /topic on the list");
+	if (names([], "room").includes("subject")) fail("/subject is listed before any room has offered one");
+	if (!names(["subject"], "room").includes("subject")) {
+		fail("a room that handed over its subject did not put /subject on the list");
 	}
-	if (names(["topic"], "room").includes("kick")) fail("holding one grant produced another");
+	if (names(["subject"], "room").includes("kick")) fail("holding one grant produced another");
 	if (!names(["steward"], "room").includes("kick")) {
 		fail("a room that handed over its moderator capability did not put /kick on the list");
 	}
@@ -244,11 +244,11 @@ Deno.test("the reader's list is what this conversation has actually handed over"
 	if (!names([], "room").includes("invite")) fail("/invite is missing in a room, where handing the room over works");
 	if (names([], "direct").includes("invite")) fail("a direct line listed /invite");
 	if (names([], "direct").includes("members")) fail("a direct line listed /members");
-	if (names(["topic"], "direct").includes("topic")) fail("a direct line listed /topic");
+	if (names(["subject"], "direct").includes("subject")) fail("a direct line listed /subject");
 	if (names([], "directory").includes("me")) fail("a directory listed /me, which travels in a message");
 	if (names([], "directory").includes("invite")) fail("a directory listed /invite");
 	if (names([], "directory").includes("members")) fail("a directory listed /members");
-	if (names(["topic"], "directory").includes("topic")) fail("a directory listed /topic");
+	if (names(["subject"], "directory").includes("subject")) fail("a directory listed /subject");
 	if (names([], "directory").includes("edit")) fail("a directory listed /edit");
 	if (!names([], "directory").includes("help")) fail("a directory omitted /help");
 	if (!names([], "directory").includes("join")) fail("a directory omitted /join");

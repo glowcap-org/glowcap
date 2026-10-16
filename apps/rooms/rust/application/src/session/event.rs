@@ -10,7 +10,10 @@ use crate::{
 		line::MAX_LINE_BYTES,
 		message::ChangeKind,
 	},
-	session::snapshot::views::{Bridge, SeatPhase},
+	session::{
+		snapshot::views::{Bridge, SeatPhase},
+		subject::Subject,
+	},
 };
 use alloc::{borrow::Cow, string::String, vec::Vec};
 use serde::{Deserialize, Serialize};
@@ -159,7 +162,7 @@ pub struct Facts {
 		deserialize_with = "super::fields::present",
 		skip_serializing_if = "Option::is_none"
 	)]
-	pub topic: Option<Text<300>>,
+	pub subject: Option<Subject>,
 	#[serde(
 		default,
 		deserialize_with = "super::fields::present",
@@ -287,7 +290,7 @@ impl<C> Event<C> {
 			}
 		});
 		let facts = self.facts.as_ref().map_or(0, |f| {
-			f.topic.as_ref().map_or(0, |t| t.text().heap_bytes())
+			f.subject.as_ref().map_or(0, Subject::heap_bytes)
 				+ f.bridge.as_ref().map_or(0, |b| {
 					b.prefix.text().heap_bytes()
 						+ b.badge.text().heap_bytes()

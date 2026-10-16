@@ -42,12 +42,12 @@ function view(state?: "rooms" | "connecting" | "linked" | "failed"): import("../
 			}],
 			["irc/bo", { online: true, away: "" }],
 		],
-		topic: null,
+		subject: null,
 		lineBytes: null,
 		// IRC holds no bytes, keeps no previews, and relays no typing: the
 		// facet is withheld and the statement names nothing.
 		carries: { previews: false, typing: false },
-		canSetTopic: false,
+		canSetSubject: false,
 		canPostFiles: false,
 		canModerate: false,
 		bridge: { prefix: "irc/", badge: "IRC", said: "IRC only", scope: "Libera" },

@@ -139,6 +139,8 @@ pub const Set = struct {
     captures: []usize,
     captures_current: bool = false,
     index: usize = 0,
+    /// The next slot whose recipe read-ahead may start. Never behind `index`.
+    ahead: usize = 0,
     pending: ?core.Ticket = null,
     live_checked_revision: ?u64 = null,
     const Slot = struct {
@@ -273,9 +275,15 @@ pub const Set = struct {
                     }
                     if (slot.lease == null) {
                         const acquired = store.acquire(edge.target) catch |err| {
-                            if (err == error.PendingRead) return .waiting;
+                            if (err == error.PendingRead) {
+                                self.readAhead();
+                                return .waiting;
+                            }
                             return err;
                         };
+                        // Demand takes its room first. Each step then keeps
+                        // the read-ahead window full.
+                        self.readAhead();
                         switch (acquired) {
                             .ready => |lease| slot.lease = lease,
                             .read => |read| {
@@ -364,6 +372,23 @@ pub const Set = struct {
             self.index += 1;
         }
         return .ready;
+    }
+
+    /// While one recipe loads, start the reads the following restorations
+    /// will make, until the Store keeps its remaining room for demand. Each
+    /// slot is considered once. A read-ahead that is evicted or fails costs
+    /// only the demand read its slot would have made anyway.
+    fn readAhead(self: *Set) void {
+        self.ahead = @max(self.ahead, self.index + 1);
+        while (self.ahead < self.slots.len) : (self.ahead += 1) {
+            const slot = &self.slots[self.ahead];
+            const selection = selectionOf(slot.request) orelse continue;
+            if (slot.lease != null or slot.live_epoch != null) continue;
+            // tolerant: the demand pass reports a refused edge in slot order.
+            const edge = edgeAt(self.selected(selection.record), selection.index) catch continue;
+            if (edge.restoration == .object) continue;
+            if (!self.call.attachment.readAhead(edge.target)) return;
+        }
     }
 
     pub fn completeRead(self: *Set, ticket: core.Ticket, result: core.ReadResult) !void {

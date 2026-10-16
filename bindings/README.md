@@ -52,6 +52,10 @@ promises, attenuate, revoke, and collect references no peer still holds.
 That last one, distributed garbage collection, is on by default in Rust and
 opt-in per session elsewhere.
 
+Field, index, and tag projections over an unresolved remote answer use the
+`1.0` wire operations. On `glowcap-next`, await the value before projecting it
+locally. Ordinary call pipelining remains available on both profiles.
+
 ### References
 
 A `Ref` is opaque. Pass it as an argument and the binding picks the wire

@@ -58,7 +58,7 @@ require_text() {
 }
 
 require_text "$spec" "<op:listen to-desc" "draft op:listen record"
-require_text "$spec" "listen-desc>      ; desc:import-object | desc:import-promise" "draft two-operand op:listen tail"
+require_text "$spec" "listen-mode>      ; Postive integer (1, 2, or 3)" "draft integer op:listen mode"
 require_text "$suite" "assert len(record.args) == 3" "suite op:listen arity"
 require_text "$suite" "wants_partial = record.args[2]" "suite third op:listen operand"
 require_text "$goblins" "(to-desc listener-desc wants-partial?)" "Goblins third op:listen operand"
@@ -83,5 +83,5 @@ require_text "$repo_root/conformance/ocapn-conformance/upstream/tests/third_part
 require_text "$repo_root/conformance/ocapn-conformance/upstream/tests/third_party_handoffs.py" "may not exist if test fails early" "suite receiver-teardown hazard comment"
 require_text "$repo_root/conformance/ocapn-conformance/upstream/tests/third_party_handoffs.py" "if self.e2r_session is not None:" "suite receiver-teardown unguarded attribute read"
 
-printf '%s\n' "ocapn-findings-check: pinned op:listen, locator-hints, withdrawal-lookup, handoff-count, pre-handshake-abort, onion-declared-location, hello-hint-tolerance, gift-id-width, and receiver-teardown observations reproduced"
+printf '%s\n' "ocapn-findings-check: pinned op:listen mode, locator-hints, withdrawal-lookup, handoff-count, pre-handshake-abort, onion-declared-location, hello-hint-tolerance, gift-id-width, and receiver-teardown observations reproduced"
 git -C "$repo_root" submodule status -- $submodules

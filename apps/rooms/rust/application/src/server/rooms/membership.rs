@@ -4,8 +4,9 @@
 use super::{
 	Effects, HISTORY_ANSWERED, InvitationKey, LineKey, MAX_AWAY, MAX_ROOM_INVITATIONS, MembershipKey, Refusal, RoomKey,
 	Rooms, UploadKey,
-	entrance::{Departure, Entrance, Gate},
+	entrance::{Entrance, Gate},
 	notice::Notice,
+	seating::Departure,
 	state::{Invitation, Line, Upload},
 };
 use crate::{

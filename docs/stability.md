@@ -18,7 +18,7 @@ change a deployment, read [known limitations](boundaries.md).
 
 | Area | Evidence | What remains |
 | --- | --- | --- |
-| Protocol core | The upstream OCapN suite and live Goblins peers exercise the V1.0 model, session, engine, calls, promises, and all three handoff roles. [Community review](community-review.md) lists each check. In-tree scenarios exercise the next profile's promise-listen behavior in `glowcap-next`. | No outside peer exercises the next profile. Community review lists the other exact gaps. |
+| Protocol core | The upstream OCapN suite and live Goblins peers exercise the V1.0 model, session, engine, calls, promises, and all three handoff roles. [Community review](community-review.md) lists each check. The next conformance lane adapts upstream assertions to the merged operation shapes and adds draft wire cases with the retained hello. | No independent production peer exercises the next profile. The crypto transition remains deferred. Community review lists the other exact gaps. |
 | Syrup | Fixtures are regenerated with upstream Syrup encoders and compared byte for byte. | None known in the supported message set. |
 | Cap'n Proto | In-tree golden frames and cross-codec tests run under `zig build check`. | No outside Cap'n Proto implementation reads glowcap's hand-written format. |
 | `tcp` | Live Goblins interoperability runs over glowcap's cleartext TCP adapter. | Goblins ships onion rather than TCP. The channel is cleartext and the peer proves no identity. |

@@ -80,7 +80,7 @@ roles!(
 	CreationReceipt,
 	PublicationLease,
 	RoomSeat,
-	RoomTopic,
+	RoomSubject,
 	RoomInbox,
 	RoomFiles,
 	Line,

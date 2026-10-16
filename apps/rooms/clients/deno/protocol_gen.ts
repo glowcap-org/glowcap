@@ -135,7 +135,7 @@ export const REGISTRATION_ROW_FIELDS: readonly Field[] = [
 export const SUBSCRIBE_ANSWER_FIELDS: readonly Field[] = [
 	{ name: "seat", type: "reference", nullable: false, values: [] },
 	{ name: "kind", type: "text", nullable: false, values: MEMBERSHIP_KINDS },
-	{ name: "topic", type: "reference", nullable: true, values: [] },
+	{ name: "subject", type: "reference", nullable: true, values: [] },
 	{ name: "files", type: "reference", nullable: true, values: [] },
 ];
 

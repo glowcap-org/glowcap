@@ -283,9 +283,11 @@ row.
 - A refused login restores the member's previous identity.
 
 Being in a bridged room means being in the channel. `/me` crosses as an
-action in both directions, IRC topic changes become the room's topic, and a
-member's own messages echoed back by the channel are hidden, so they never
-appear twice.
+action in both directions, and a member's own messages echoed back by the
+channel are hidden, so they never appear twice. The channel's topic is the
+room's subject, and a member who joins later hears it too. A topic that
+cannot be a subject, such as one longer than a subject allows, is shown as a
+line, and the room then has no subject.
 
 [IRC on Rooms](irc/README.md) covers the standalone bridge and IRC server, the
 network policy a bot must follow, and the bounds.
@@ -569,6 +571,13 @@ transports and browser reachability, are in
   browsers or tabs must change the same workspace, attach them all to one
   durable session.
 
+- **A subject's link is offered to copy, not opened.** A member can set a
+  room subject that links an object by its sturdyref, and every reader sees
+  the link. The browser and the terminal clients do not redeem it or draw the
+  object, so taking part happens in whatever client that object comes with.
+  The room never attenuates the link, so whoever sets it decides what holding
+  it allows.
+
 - **Directory discovery is a bounded live view.** A watch baseline carries
   at most <!-- value rust/application/src/directory.rs MAX_ROWS -->256<!-- /value --> current room publications. Watch clients receive an explicit
   truncation event and continue receiving later deltas. A one-shot list
@@ -592,7 +601,7 @@ transports and browser reachability, are in
     nickname for the connection because Rooms grants names per capability and
     no atomic rename exists across several memberships. Rooms names outside
     IRC's alphabet receive disclosed connection-local aliases.
-  - Lines, topics, and file capabilities that cannot fit IRC are reported
+  - Lines, subjects, and file capabilities that cannot fit IRC are reported
     rather than silently truncated or discarded. Foreign room publications
     without a member count, and Rooms room names IRC cannot address, are
     omitted from `LIST` with a notice instead of invented fields.

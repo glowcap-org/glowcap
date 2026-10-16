@@ -22,6 +22,7 @@ pub fn Types(
             args: Args,
             answer: ?model.AnswerPosition = null,
             resolve_me_desc: ?Reference = null,
+            listen_mode: model.ListenMode = .shortening_or_settling,
         };
 
         pub const Resolve = struct {
@@ -92,6 +93,7 @@ pub fn Types(
                         .target = Reference.fromOwned(&deliver.target),
                         .args = Args.fromOwnedSlice(deliver.args),
                         .answer = deliver.answer,
+                        .listen_mode = deliver.listen_mode,
                         .resolve_me_desc = if (deliver.resolve_me_desc) |*r| Reference.fromOwned(r) else null,
                     } },
                     .resolve => |*resolve| .{ .resolve = .{
@@ -220,6 +222,7 @@ pub fn Types(
                 .target = target,
                 .args = args,
                 .answer = deliver.answer,
+                .listen_mode = deliver.listen_mode,
                 .resolve_me_desc = resolve_me_desc,
             } };
         }

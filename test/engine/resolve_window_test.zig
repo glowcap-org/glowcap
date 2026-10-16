@@ -33,11 +33,11 @@ const peer_fixture = @import("../support/peer_fixture.zig");
 
 test "a projection anchoring while the receiver's resolve is queued still settles" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
 
     // Record (queue) the receiver's resolve but do NOT step: the frame sits
     // unemitted on `pending_send`, so answer 11 reads settled before its
@@ -58,12 +58,12 @@ test "a projection anchoring while the receiver's resolve is queued still settle
 
 test "a chained projection whose inner answer's resolve is still queued reaches the element" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // Answer 11 is fully settled and drained.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "row",
         .value = &.{ .{ .string = "alice" }, .{ .string = "bob" } },
@@ -148,7 +148,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
 
 test "a failed immediate pipeline dispatch keeps its inbound commit and closes" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .next });
     defer peer.deinit();
 
     try peer.session_state.registerExport(.from(9));
@@ -167,6 +167,7 @@ test "a failed immediate pipeline dispatch keeps its inbound commit and closes" 
         .target = .{ .promise = .{ .answer_position = .from(42) } },
         .args = &.{.{ .reference = .{ .near = model.NearRef.promise(77) } }},
         .answer = .from(43),
+        .resolve_me_desc = .{ .near = model.NearRef.object(99) },
     } });
     defer inbound.deinit();
 

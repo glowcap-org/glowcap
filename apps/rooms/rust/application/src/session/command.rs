@@ -29,7 +29,7 @@ catalog! { Effect {
 	ShareArchiveHistory,
 	OfferDurableArchive,
 	RevokeIssuedArchiveShare,
-	SetRoomTopic,
+	SetRoomSubject,
 	SetRoomAway,
 	RetireRoomMembership,
 	KickRoomMember,

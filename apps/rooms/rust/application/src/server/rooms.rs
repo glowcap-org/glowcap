@@ -1,5 +1,5 @@
 //! The rooms a server hosts: who is in each, what they say, the files they
-//! post, the topic, and the invitations, links, and stewardship that let
+//! post, the subject, and the invitations, links, and stewardship that let
 //! others in. Connections are the adapter's keys (`C`) and capabilities its
 //! tokens (`R`). The policy performs no effect. Every verb answers with the
 //! notices to tell, the capabilities to give back, the directory events to
@@ -20,6 +20,7 @@ mod membership;
 mod notice;
 mod presence;
 mod receipts;
+mod seating;
 mod state;
 pub(crate) use state::roster_count;
 #[cfg(test)]
@@ -27,9 +28,10 @@ mod tests;
 pub mod wire;
 
 pub use super::{Refusal, Release};
-pub use entrance::{Bootstrap, Entrance, Fresh, Gate, Open, Opening, Subscribed};
+pub use entrance::{Bootstrap, Entrance, Fresh, Gate, Open, Opening};
 pub use notice::{Blob, Effects, Mutation, Notice, Tell};
 pub use receipts::Delivery;
+pub use seating::Subscribed;
 pub use state::{InvitationKey, LineKey, MembershipKey, RoomKey, UploadKey};
 
 /// One live room as an inventory reads it.
@@ -71,7 +73,6 @@ pub const MAX_ROSTER_SEEN: usize = MAX_ROOM_MEMBERS + MAX_ROOM_OFFLINE;
 pub const MAX_ROOMS_PER_CREATOR: usize = 256;
 pub const MAX_ROOM_INVITATIONS: usize = 64;
 pub use crate::room::membership::MAX_AWAY;
-pub const MAX_TOPIC: usize = super::document::MAX_TOPIC;
 pub const MAX_ROOM: usize = super::document::MAX_ROOM;
 /// The lines a room membership's `history` answers.
 pub const HISTORY_ANSWERED: usize = 100;
@@ -202,7 +203,7 @@ impl<C: Copy + Ord, R: Clone> Rooms<C, R> {
 			return effects;
 		};
 		effects.tell(connection, inbox, Notice::Ended(why.into()));
-		effects.extend(self.leave_member(key, membership, None, entrance::Departure::Ended));
+		effects.extend(self.leave_member(key, membership, None, seating::Departure::Ended));
 		effects
 	}
 	/// An operator removes one exact room generation: every member hears

@@ -280,7 +280,7 @@ pub const SUBSCRIBE_ANSWER_FIELDS: &[Field] = &[
 		values: MEMBERSHIP_KINDS,
 	},
 	Field {
-		name: "topic",
+		name: "subject",
 		ty: Ty::Reference,
 		nullable: true,
 		values: &[],

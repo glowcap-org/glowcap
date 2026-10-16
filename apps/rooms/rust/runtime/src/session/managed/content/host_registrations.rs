@@ -44,12 +44,12 @@ pub(super) fn invoke(call: &mut loam::Call<'_>, input: loam::Invocation<'_>, roo
 				&mut row.lines
 			}
 			workspace::Conversation::Room(row) => {
-				changed |= row.seat.is_some() || row.topic.is_some() || row.files.is_some() || row.inbox.is_some();
+				changed |= row.seat.is_some() || row.subject.is_some() || row.files.is_some() || row.inbox.is_some();
 				if let Some(key) = row.seat.take() {
 					record.custody.remove(coordinate(custody::Role::RoomSeat, key));
 				}
-				if let Some(key) = row.topic.take() {
-					record.custody.remove(coordinate(custody::Role::RoomTopic, key));
+				if let Some(key) = row.subject.take() {
+					record.custody.remove(coordinate(custody::Role::RoomSubject, key));
 				}
 				if let Some(key) = row.files.take() {
 					record.custody.remove(coordinate(custody::Role::RoomFiles, key));

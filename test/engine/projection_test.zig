@@ -16,11 +16,11 @@ const peer_fixture = @import("../support/peer_fixture.zig");
 
 test "op:get on a pending answer resolves the projected answer to the Struct field" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     // The projected answer is exported (installed) the moment the op:get lands.
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
@@ -41,11 +41,11 @@ test "op:get on a pending answer resolves the projected answer to the Struct fie
 
 test "op:index on a pending answer resolves the projected answer to the List element" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:index<11'desc:answer21+>1+22+>");
 
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .list = &.{
@@ -58,11 +58,11 @@ test "op:index on a pending answer resolves the projected answer to the List ele
 
 test "releasing an intermediate answer preserves its accepted projection" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer11+>4\"task12+>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:index<11'desc:answer12+>1+13+>");
 
@@ -92,11 +92,11 @@ test "releasing an intermediate answer preserves its accepted projection" {
 
 test "an arbitrary-precision op:index waits for the receiver then breaks out of bounds" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer.recvBorrowed(.{
         .bytes = "<8'op:index<11'desc:answer21+>9223372036854775808+22+>",
         .shape = .byte,
@@ -152,13 +152,13 @@ test "op:untag on a pending answer unwraps the matching Tagged's single value" {
 
 test "op:untag unwraps a variadic Goblins-shaped payload as its value List" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // glowcap's Tagged carries the user-record payload as a slice (ADR-0021);
     // a two-value payload unwraps to the List it is rather than guessing one.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer21+>5\"point22+>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "point",
@@ -175,12 +175,12 @@ test "op:untag unwraps a variadic Goblins-shaped payload as its value List" {
 
 test "op:untag breaks on a mismatched tag and on a non-Tagged receiver" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // The asserted tag does not match the settled Tagged: spec-mandated break.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer11+>2\"cm12+>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "inches",
@@ -188,7 +188,7 @@ test "op:untag breaks on a mismatched tag and on a non-Tagged receiver" {
     } } } } });
 
     // The receiver settles to something that is not Tagged at all.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer21+>2\"cm22+>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .integer = 9 } } } });
 
@@ -202,7 +202,7 @@ test "op:untag breaks on a mismatched tag and on a non-Tagged receiver" {
 
 test "sending op:untag installs the outbound answer so the partner's resolve admits" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerImport(.from(9));
 
@@ -222,11 +222,11 @@ test "sending op:untag installs the outbound answer so the partner's resolve adm
 
 test "a late op:get against an already-settled answer resolves immediately" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "name", .value = .{ .string = "tabby" } },
     } } } } });
@@ -243,29 +243,29 @@ test "a late op:get against an already-settled answer resolves immediately" {
 
 test "projection breaks: wrong shape, absent field, out-of-bounds, inherited break, non-promise receiver" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // Receiver resolves to a non-Struct: the get breaks.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .integer = 5 } } } });
 
     // Absent field on a Struct.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer21+>4\"name22+>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(21), .resolution = .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "age", .value = .{ .integer = 12 } },
     } } } } });
 
     // Out-of-bounds index on a List.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]31+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]31+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:index<11'desc:answer31+>9+32+>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(31), .resolution = .{ .fulfill = .{ .list = &.{.{ .integer = 1 }} } } } });
 
     // The receiver itself breaks: the projection inherits the reason.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]41+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]41+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer41+>4\"name42+>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(41), .resolution = .{ .@"break" = .{ .message = "upstream broke" } } } });
 
@@ -285,14 +285,14 @@ test "projection breaks: wrong shape, absent field, out-of-bounds, inherited bre
 
 test "a projection follows a resolution that is itself a promise" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // Two pending answers; the projection anchors on 11, which resolves to the
     // promise for 21, so the projection re-anchors and settles when 21 does.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
 
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{
@@ -317,7 +317,7 @@ test "a projection follows a resolution that is itself a promise" {
 
 test "sending op:get installs the outbound answer so the partner's resolve admits" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerImport(.from(9));
 
@@ -340,14 +340,14 @@ test "sending op:get installs the outbound answer so the partner's resolve admit
 
 test "projections chained on projections all settle, one queued message per step" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // Each projected answer carries the next projection; encode deferral makes
     // the drain iterative (a projected resolve is queued, never recursed), so
     // the whole chain settles without growing the native stack.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>1\"a12+>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer12+>1\"a13+>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer13+>1\"a14+>");
@@ -371,15 +371,15 @@ test "projections chained on projections all settle, one queued message per step
 
 test "a cyclic stored-resolution walk reports the cycle" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // Two answers settled into a promise cycle: 11 stored promise(21), 21
     // stored promise(11). A late get anchoring on 11 walks the stored
     // resolutions synchronously; the hop bound breaks it instead of spinning.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer.sendBorrowed(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{
         .reference = .{ .promise = .{ .answer_position = .from(21) } },
     } } } });
@@ -400,7 +400,7 @@ test "a cyclic stored-resolution walk reports the cycle" {
 
 test "a distinct stored-resolution chain obeys max_resolution_chain" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     peer.session_state.limits.max_resolution_chain = 1;
     try peer.session_state.registerExport(.from(7));
@@ -409,7 +409,7 @@ test "a distinct stored-resolution chain obeys max_resolution_chain" {
         var bytes: [64]u8 = undefined;
         const frame = try std.fmt.bufPrint(
             &bytes,
-            "<10'op:deliver<11'desc:export7+>[]{}+>",
+            "<10'op:deliver<11'desc:export7+>[]{}+f>",
             .{answer},
         );
         try peer.recvBorrowed(.{ .bytes = frame, .shape = .byte });
@@ -436,12 +436,12 @@ test "a distinct stored-resolution chain obeys max_resolution_chain" {
 
 test "a late projection cannot follow a stored promise into a reused answer position" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]21+>", .shape = .byte });
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]21+f>", .shape = .byte });
     var original_target: session.AnswerTarget = undefined;
     {
         var event = peer.pollEvent().?;
@@ -457,7 +457,7 @@ test "a late projection cannot follow a stored promise into a reused answer posi
     }
 
     try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[21+]>", .shape = .byte });
-    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]21+>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = "<10'op:deliver<11'desc:export7+>[]21+f>", .shape = .byte });
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
         event.deinit();
@@ -492,12 +492,12 @@ test "a late projection cannot follow a stored promise into a reused answer posi
 
 test "the projection cap refuses the overflowing op:get loudly" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     peer.session_state.limits.max_listeners_per_target = 2;
     try peer.session_state.registerExport(.from(7));
 
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>1\"a12+>", .shape = .byte });
     try peer.recvBorrowed(.{ .bytes = "<6'op:get<11'desc:answer11+>1\"b13+>", .shape = .byte });
     try std.testing.expectError(
@@ -508,13 +508,13 @@ test "the projection cap refuses the overflowing op:get loudly" {
 
 test "a released projection settles detached without touching a reused position" {
     const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
+    var peer = peer_fixture.openPeerWith(allocator, .{ .captp_version = .v1_0 });
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // The partner asks a question (answer 11), then projects a field of it
     // onto answer 12.
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<6'op:get<11'desc:answer11+>4\"name12+>");
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
 
@@ -526,7 +526,7 @@ test "a released projection settles detached without touching a reused position"
         e.deinit();
     }
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) == null);
-    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]12+>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]12+f>");
     try std.testing.expect(peer.session_state.inboundAnswer(.from(12)) != null);
 
     // The old projection still owes its already-accepted listener, but its row

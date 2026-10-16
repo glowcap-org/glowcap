@@ -350,7 +350,7 @@ fn ordinary_subject(material: &DocumentText) -> &'static str {
 		Some("sendFiles") => "Send message attachments",
 		Some("editLine") => "Edit a message",
 		Some("withdrawLine") => "Withdraw a message",
-		Some("setRoomTopic") => "Set a room topic",
+		Some("setRoomSubject") => "Set a room subject",
 		Some("kickRoomMember") => "Ask a room member to leave",
 		Some("offerRoom") => "Offer a room invitation",
 		Some("operator") => "Run a Rooms operator action",

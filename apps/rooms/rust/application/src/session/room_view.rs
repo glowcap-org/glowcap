@@ -4,6 +4,7 @@ use super::snapshot::{
 	Nullable, Presence as FieldPresence, SafeInteger, Text,
 	views::{Bridge, Member, RoomView, Seat, SeatPhase},
 };
+use super::subject::Subject;
 use crate::room::inbox::metadata::{Facts, Presence};
 use alloc::vec::Vec;
 
@@ -75,8 +76,12 @@ pub fn apply<T: AsRef<str>>(view: &mut RoomView, presence: Option<&Presence<T>>,
 		}
 	}
 	if let Some(facts) = facts {
-		if let Some(topic) = facts.topic.as_ref().and_then(|topic| Text::new(topic.as_ref().into())) {
-			view.topic = Nullable::Value(topic);
+		if let Some(subject) = &facts.subject {
+			view.subject = if subject.is_empty() {
+				Nullable::Null
+			} else {
+				Subject::from_room(subject).map_or(Nullable::Null, Nullable::Value)
+			};
 		}
 		if let Some(bytes) = facts.line_bytes.and_then(SafeInteger::new) {
 			view.line_bytes = Nullable::Value(bytes);

@@ -32,9 +32,25 @@ pub const NodeSettlingResolver = struct {
     settling_source: ?PromiseIncarnation = null,
 };
 
+/// The answer pairing is authority. Trace state is temporary scratch in the
+/// existing purpose row, excluded from the reverse map's identity words.
+pub const LocalPromiseAnswer = struct {
+    name: model.AnswerName,
+    gc_next: ?model.ExportPosition = null,
+    gc_mark: bool = false,
+    /// Node-adopted payload occurrences waiting before Session recording.
+    staging_owners: u32 = 0,
+};
+
+comptime {
+    if (@sizeOf(LocalPromiseAnswer) > @sizeOf(RetiredResolver))
+        @compileError("local promise trace scratch must fit the existing resolver-purpose union");
+}
+
 pub const ResolverPurpose = union(enum) {
+    forwarding: @import("../forwarding.zig").ForwardedReply,
     application_answer: model.AnswerPosition,
-    local_promise_answer: model.AnswerName,
+    local_promise_answer: LocalPromiseAnswer,
     node_settling: NodeSettlingResolver,
     retired: RetiredResolver,
     shortening_pending: PromiseIncarnation,
@@ -45,8 +61,9 @@ pub const ResolverPurpose = union(enum) {
     /// purposes with equal words are one purpose.
     pub fn identityWords(self: ResolverPurpose) [4]u64 {
         return switch (self) {
+            .forwarding => |forwarding| .{ 6, forwarding.target.name.identityKey(), forwarding.target.row_id, forwarding.resolver_export.int() },
             .application_answer => |answer| .{ 0, @backingInt(answer), 0, 0 },
-            .local_promise_answer => |name| .{ 1, name.identityKey(), 0, 0 },
+            .local_promise_answer => |local| .{ 1, local.name.identityKey(), 0, 0 },
             .node_settling => |node| settlingWords(2, node.resolver_export, node.settling_source),
             .retired => |retired| settlingWords(
                 3 | (@as(u64, @backingInt(retired.state)) << 4),
@@ -63,6 +80,7 @@ pub const ResolverPurpose = union(enum) {
     /// the outbound link.
     pub fn namedKey(self: ResolverPurpose) ?model.ExportPosition {
         return switch (self) {
+            .forwarding => |forwarding| forwarding.resolver_export,
             .node_settling => |node| node.resolver_export,
             .retired => |retired| retired.resolver_export,
             .application_answer, .local_promise_answer, .shortening_pending, .shortening_complete => null,
@@ -103,6 +121,8 @@ pub const ImportedPromise = struct {
     /// its source was already released owns none: the engine released that
     /// retain in the callback's own transaction.
     shortening_target_retained: bool = false,
+    /// Wire subscription modes already sent for this imported incarnation.
+    sent_listen_modes: u2 = 0,
     settling_listener_claimed: bool = false,
     settling_listener_export: model.ExportPosition = .from(0),
     settling_answer: ?model.AnswerPosition = null,

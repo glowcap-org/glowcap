@@ -164,7 +164,7 @@ impl Admission {
 fn command_class(route: Route) -> Option<Class> {
 	match route {
 		Route::Effect(effect) => match effect {
-			Effect::Say | Effect::EditLine | Effect::SetRoomTopic => Some(Class::Message),
+			Effect::Say | Effect::EditLine | Effect::SetRoomSubject => Some(Class::Message),
 			Effect::SetRoomAway => Some(Class::Transient),
 			Effect::EnterRoom => Some(Class::Join),
 			Effect::DirectReady | Effect::OfferDirectInbox => Some(Class::Signal),

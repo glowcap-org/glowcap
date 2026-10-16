@@ -19,6 +19,7 @@
 const std = @import("std");
 const model = @import("model");
 const answers = @import("answers/store.zig");
+const listen_claims = @import("listen_claims.zig");
 const sent_exports = @import("apply/sent_exports.zig");
 const session = @import("mod.zig");
 const validate = @import("validate.zig");
@@ -179,6 +180,8 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
         .deliver => |deliver| {
             if (deliver.answer) |answer| {
                 installPreparedOutboundAnswer(self, answer);
+                if (self.captp_version == .next)
+                    self.outbound_answers.getPtr(answer).?.sent_listen_modes = @backingInt(deliver.listen_mode);
             }
         },
         // Sending `op:get` / `op:index` / `op:untag` allocates the projected
@@ -224,7 +227,8 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
         // them explicitly (rather
         // than `else`) makes a new `model.Message` kind fail to compile until
         // its apply decision is classified here.
-        .listen, .abort => {},
+        .listen => |listen| listen_claims.record(self, listen),
+        .abort => {},
     }
 }
 
@@ -323,11 +327,10 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
             try session.applyGcExportDecrement(&self.exports, gc_export);
             for (gc_export.positions) |position| {
                 const export_position = model.ExportPosition.from(position);
-                if (self.answerForLocalPromiseExport(export_position)) |answer|
-                    self.retireReleasedLocalPromiseAnswer(answer);
                 self.releaseRetiredResolverIfUnmentioned(export_position);
                 self.releaseShorteningResolverExport(model.ExportPosition.from(position));
             }
+            self.collectLocalPromiseProjections();
         },
         // Inbound `op:gc-answers` releases an answer we created for the
         // partner, decrement our inbound answers and prune the inbound
@@ -390,6 +393,7 @@ fn retireReleasedImports(self: *Session, positions: []const u64) void {
         if (self.shorteningIncarnationForImport(import_id)) |source|
             self.releaseShorteningSourceAuthority(source);
     }
+    self.collectLocalPromiseProjections();
 }
 
 /// Apply `op:gc-answers` to the partner's pipelining ownership. A final
@@ -404,6 +408,7 @@ fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) !void {
         if (entry.count == 0) return Error.GcUnderflow;
         if (entry.count == 1) self.commitFinalAnswerGc(answer) else entry.count -= 1;
     }
+    self.collectLocalPromiseProjections();
 }
 
 /// Apply `op:gc-answers` to our outbound answers. A fully-released answer is no

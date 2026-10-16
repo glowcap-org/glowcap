@@ -7,6 +7,7 @@ const foundation = @import("foundation");
 const model = @import("model");
 const answers = @import("store.zig");
 const session = @import("../mod.zig");
+const local_promise = @import("../local_promise.zig");
 
 const Session = session.Session;
 
@@ -258,6 +259,10 @@ fn noticeComplete(payload_in: *const answers.AnswerPayload) bool {
 /// releases the exact stored charge.
 pub fn retireDetached(self: *Session, target: answers.AnswerTarget, answer_payload: *answers.AnswerPayload) void {
     if (!noticeComplete(answer_payload)) return;
+    // The caller is releasing one carrier retain. Keep the registry owner
+    // while another carrier still borrows its tree, so local-capability
+    // tracing can discover every not-yet-encoded payload.
+    if (self.local_promises != null and answer_payload.refs > 2) return;
     const store = self.detached_inbound_answers orelse return;
     const row = store.rows.get(target.row_id) orelse return;
     if (row.payload != answer_payload or !targetEql(row.target, target)) return;
@@ -275,11 +280,12 @@ pub fn retireDetached(self: *Session, target: answers.AnswerTarget, answer_paylo
 /// row. Queued listener carriers retain the stable payload independently.
 pub fn retireVirtual(self: *Session, target: answers.AnswerTarget) void {
     if (target.name != .virtual) return;
-    if (self.isLocalPromiseAnswer(target.name)) return;
+    if (local_promise.isAnswer(self, target.name)) return;
     const row = self.inbound_answers.getPtr(target.name) orelse return;
     if (row.row_id != target.row_id) return;
     const answer_payload = row.payload orelse return;
     if (!noticeComplete(answer_payload)) return;
+    if (self.local_promises != null and answer_payload.refs > 2) return;
     const released = answers.deinitAnswerCell(self.allocator, row);
     std.debug.assert(self.retained_sent_answer_bytes >= released);
     self.retained_sent_answer_bytes -= released;

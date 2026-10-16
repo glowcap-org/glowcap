@@ -194,14 +194,14 @@ fn subscribe(
 	let seat = session
 		.spawn_owned(seat::seat(shared.clone(), entrance.room.clone(), membership.clone()))
 		.map_err(|e| e.to_string())?;
-	// A participant is handed the topic authority and the files facet; an
+	// A participant is handed the subject facet and the files facet; an
 	// observer holds neither, and a client draws its controls from what it
 	// holds rather than from the seat's word about itself.
-	let (topic, files) = match entrance.kind {
+	let (subject, files) = match entrance.kind {
 		rooms_application::room::policy::MembershipKind::Participant => (
 			Some(
 				session
-					.spawn_owned(lines::topic(shared.clone(), entrance.room.clone()))
+					.spawn_owned(lines::subject(shared.clone(), entrance.room.clone()))
 					.map_err(|e| e.to_string())?,
 			),
 			Some(
@@ -230,7 +230,7 @@ fn subscribe(
 			inbox.clone(),
 			voucher,
 			seat.clone(),
-			topic.clone(),
+			subject.clone(),
 			policy,
 			same,
 			&authority,
@@ -242,7 +242,7 @@ fn subscribe(
 	Ok(Argument::List(vec![
 		Argument::Reference(seat),
 		seated.kind.as_str().into(),
-		topic.map(Argument::Reference).unwrap_or(Argument::Void),
+		subject.map(Argument::Reference).unwrap_or(Argument::Void),
 		files.map(Argument::Reference).unwrap_or(Argument::Void),
 	]))
 }

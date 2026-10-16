@@ -26,6 +26,7 @@ pub const glowcap_loam_call_reserve_continuation_copying = @import("continuation
 pub const glowcap_loam_continuation_reservation_source = @import("continuations.zig").glowcap_loam_continuation_reservation_source;
 pub const glowcap_loam_continuation_reservation_target = @import("continuations.zig").glowcap_loam_continuation_reservation_target;
 pub const glowcap_loam_pending_continuation_take = @import("continuations.zig").glowcap_loam_pending_continuation_take;
+pub const glowcap_loam_pending_continuation_absent = @import("continuations.zig").glowcap_loam_pending_continuation_absent;
 pub const glowcap_loam_pending_continuation_release = @import("continuations.zig").glowcap_loam_pending_continuation_release;
 pub const glowcap_loam_continuation_release = @import("continuations.zig").glowcap_loam_continuation_release;
 pub const glowcap_loam_continuation_project = @import("continuations.zig").glowcap_loam_continuation_project;

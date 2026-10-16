@@ -56,7 +56,7 @@ export const ROOMS_PERMISSIONS = {
 		key: 14,
 		prerequisite: "post",
 	},
-	"setTopic": {
+	"setSubject": {
 		key: 15,
 		prerequisite: "receive",
 	},
@@ -176,7 +176,7 @@ export const SESSION_CONTENT = {
 			"creationReceipt",
 			"publicationLease",
 			"roomSeat",
-			"roomTopic",
+			"roomSubject",
 			"roomInbox",
 			"roomFiles",
 			"line",
@@ -402,7 +402,7 @@ export const SESSION_COMMAND_REQUIREMENTS = {
 		"workspace": ["interactWorkspace"],
 	},
 	"revokeIssuedArchiveShare": { "conditional": [], "targets": ["archiveRevoke"], "workspace": ["interactWorkspace"] },
-	"setRoomTopic": { "conditional": [], "targets": ["roomTopic"], "workspace": ["interactWorkspace"] },
+	"setRoomSubject": { "conditional": [], "targets": ["roomSubject"], "workspace": ["interactWorkspace"] },
 	"setRoomAway": { "conditional": [], "targets": ["membershipPresence"], "workspace": ["interactWorkspace"] },
 	"retireRoomMembership": {
 		"conditional": [],
@@ -454,7 +454,7 @@ export const SESSION_TARGET_PERMISSIONS = {
 	"creationReceipt": [],
 	"directoryCreation": [["createRoom"]],
 	"directoryAdmission": [],
-	"roomTopic": [["setTopic"]],
+	"roomSubject": [["setSubject"]],
 	"membershipPresence": [["receive"]],
 	"membershipRetirement": [],
 	"roomModeration": [["moderate"]],

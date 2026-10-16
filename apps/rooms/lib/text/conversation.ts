@@ -106,8 +106,9 @@ export const factIrcChannel = "IRC channel";
 export function factBridgedVia(origin: string): string {
 	return `Bridged via ${origin}`;
 }
-export const factTopic = "Topic";
-export const factTopicNone = "None set";
+export const factSubject = "Subject";
+export const factSubjectNone = "None set";
+export const factSubjectLink = "Subject link";
 export const factMembersHere = "Members here";
 export const membersTitle = "Members";
 export const directoryConnection = "Connection";

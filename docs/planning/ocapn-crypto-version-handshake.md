@@ -39,6 +39,19 @@ profile
 this change cannot land in `glowcap-next` first. Older four-field source
 revisions are outside the post-cutover interoperability target.
 
+## Adoption boundary
+
+The [conformance manifest](../ocapn-conformance.md) tracks the current draft
+without changing this decision. The deferral covers the hello, public keys,
+signatures, identifier derivation, signed envelopes, handoff certificates, and
+withdrawal records that depend on the new crypto representation.
+An unchanged section can still depend on a changed representation.
+
+Deliver, deliver-only, listen, and projection removal are adopted on next
+under [ADR-0251](../decisions/adr/ADR-0251-next-operations-with-retained-crypto.md).
+`zig build ocapn-conformance-next` exercises them with the retained opening.
+Their adoption does not require this crypto transition.
+
 ## Current upstream state
 
 [OCapN PR 288](https://github.com/ocapn/ocapn/pull/288) changes the opening

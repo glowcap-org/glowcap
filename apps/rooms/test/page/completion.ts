@@ -411,36 +411,48 @@ export async function run(tab: Page, second: Page): Promise<void> {
 	// did not open the room, and it reaches everybody including whoever arrives
 	// afterwards.
 	{
-		await tab.fill("#line", "/topic what we are here for");
+		await tab.fill("#line", "/subject what we are here for");
 		await tab.press("#line", "Enter");
-		await second.waitForSelector('#topic:has-text("what we are here for")', { timeout: 30_000 })
+		await second.waitForSelector('#subject:has-text("what we are here for")', { timeout: 30_000 })
 			.catch(async () => {
 				const said = await tab.evaluate(() =>
 					[...document.querySelectorAll("#log .sys")].map((s) => (s.textContent ?? "").slice(0, 90)).slice(-3)
 				);
-				fail(`the topic never reached the other peer; this tab was last told ${JSON.stringify(said)}`);
+				fail(`the subject never reached the other peer; this tab was last told ${JSON.stringify(said)}`);
 			});
 		// The way to change it is offered because this membership was handed the
-		// ability, and pressing it writes the command with what the topic says
-		// now, so amending a topic is amending text rather than retyping it.
-		await tab.waitForSelector('#topic [aria-label="Change the topic"]', { timeout: 10_000 })
-			.catch(() => fail("a member the room handed the topic to was not offered a way to change it"));
-		await tab.click('#topic [aria-label="Change the topic"]');
-		if (await tab.inputValue("#line") !== "/topic what we are here for") {
-			fail(`changing the topic did not write the command: ${JSON.stringify(await tab.inputValue("#line"))}`);
+		// ability, and pressing it writes the command with what the subject says
+		// now, so amending a subject is amending text rather than retyping it.
+		await tab.waitForSelector('#subject [aria-label="Change the subject"]', { timeout: 10_000 })
+			.catch(() => fail("a member the room handed the subject to was not offered a way to change it"));
+		await tab.click('#subject [aria-label="Change the subject"]');
+		if (await tab.inputValue("#line") !== "/subject what we are here for") {
+			fail(`changing the subject did not write the command: ${JSON.stringify(await tab.inputValue("#line"))}`);
+		}
+		// A subject can link an object hosted elsewhere. Every reader is offered
+		// the link to copy, and amending it writes the link back first.
+		const board = "ocapn://board.tcp/s/Ym9hcmQ";
+		await tab.fill("#line", `/subject ${board} the board`);
+		await tab.press("#line", "Enter");
+		await second.waitForSelector(`#subject:has-text("the board") [aria-label="Copy the subject's link"]`, {
+			timeout: 30_000,
+		}).catch(() => fail("a linked subject reached the other peer without its link"));
+		await tab.click('#subject [aria-label="Change the subject"]');
+		if (await tab.inputValue("#line") !== `/subject ${board} the board`) {
+			fail(`changing a linked subject lost its link: ${JSON.stringify(await tab.inputValue("#line"))}`);
 		}
 		// Taking it down is a thing somebody does, so it is an empty
-		// topic rather than no topic, and the bar goes rather than sitting there
-		// holding a blank. The bar offers it as its own control, which writes
-		// the command like the pencil does, so the reader confirms in the
-		// composer rather than losing the topic to one slip.
-		await tab.click('#topic [aria-label="Take the topic down"]');
-		if (await tab.inputValue("#line") !== "/topic -") {
+		// subject rather than no subject, and the bar goes rather than sitting
+		// there holding a blank. The bar offers it as its own control, which
+		// writes the command like the pencil does, so the reader confirms in the
+		// composer rather than losing the subject to one slip.
+		await tab.click('#subject [aria-label="Take the subject down"]');
+		if (await tab.inputValue("#line") !== "/subject -") {
 			fail(`the take-down control did not write the command: ${JSON.stringify(await tab.inputValue("#line"))}`);
 		}
 		await tab.press("#line", "Enter");
-		await second.waitForSelector("#topic", { state: "detached", timeout: 30_000 })
-			.catch(() => fail("taking the topic down left the bar on screen"));
+		await second.waitForSelector("#subject", { state: "detached", timeout: 30_000 })
+			.catch(() => fail("taking the subject down left the bar on screen"));
 	}
 
 	// Stepping away is a member's own standing rather than something handed to

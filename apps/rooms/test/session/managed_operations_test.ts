@@ -100,6 +100,7 @@ Deno.test("operations possession follows custody and replacement clears the old 
 		effects: {
 			cancelledConversations: [],
 			standingVersion: "",
+			roomStandingPending: () => false,
 			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
 		},
 		access: { status: "active" },
@@ -149,6 +150,7 @@ for (const change of ["replace", "drop", "newer"] as const) {
 			current,
 			effects: {
 				standingVersion: "",
+				roomStandingPending: () => false,
 				standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
 			},
 			workspace: {
@@ -204,6 +206,7 @@ Deno.test("peering publication and revoke update the pane from its held leases",
 		current,
 		effects: {
 			standingVersion: "",
+			roomStandingPending: () => false,
 			cancelledConversations: [],
 			standing: (_name: string, _target: string | null, accepted: string | null) => accepted,
 		},

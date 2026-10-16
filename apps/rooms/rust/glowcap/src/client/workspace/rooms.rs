@@ -64,7 +64,7 @@ impl<D: Deadline + Clone> Workspace<D> {
 			public_entry: Some(workspace::PublicEntry { access }),
 			publication: Some(selected.publication),
 			seat: None,
-			topic: None,
+			subject: None,
 			files: None,
 			lines: List::default(),
 			moderator: None,

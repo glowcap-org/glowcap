@@ -9,6 +9,7 @@
 import type { BridgeFacts, DirId, Invitation, RoomCarries, RoomConv } from "./types.ts";
 import { NO_MEMBERS, NO_TYPERS, type PageProjection, type State } from "./store/core.ts";
 import type { RoomMemberState } from "../../lib/room/presence.ts";
+import { isSubjectEmpty, type Subject } from "../../lib/room/subject.ts";
 import { getConv, put } from "./store/convs.ts";
 import { patchDir } from "./store/dirs.ts";
 
@@ -27,16 +28,19 @@ export * from "./store/trouble.ts";
 
 // ── Room membership and typing ────────────────────────────────────────────
 
-/** What a room says it is about.
- *
- * Cleared and never-set are different states and both are spellable: a room that
- * has had its topic taken down says so with an empty string, and a room that has
- * never had one says nothing. The bar draws neither, so the difference shows
- * only in whether a change is worth announcing, taking one down is news. */
-export function setTopic(projection: PageProjection, key: string, topic: string): void {
+/** What a room says it is about. The empty subject takes it down, so the room
+ * holds no subject afterward. */
+export function setSubject(projection: PageProjection, key: string, subject: Subject): void {
 	const conv = getConv(projection, key);
-	if (conv?.type !== "room" || conv.topic === topic) return;
-	put(projection, { ...conv, topic });
+	if (conv?.type !== "room") return;
+	const next = isSubjectEmpty(subject) ? undefined : subject;
+	if (subjectsEqual(conv.subject, next)) return;
+	const { subject: _subject, ...base } = conv;
+	put(projection, next === undefined ? base : { ...base, subject: next });
+}
+
+function subjectsEqual(a: Subject | undefined, b: Subject | undefined): boolean {
+	return a?.description === b?.description && a?.link === b?.link;
 }
 
 /** What a room will carry in one line, in bytes. See `lineBytes`. */
@@ -126,12 +130,12 @@ const SEAT_FIELDS = Object.keys(SEAT_FIELD_SET) as readonly SeatField[];
  * field breaks every caller until each one says what it means to send. */
 export interface RoomViewUpdate {
 	members: readonly [string, RoomMemberState][];
-	topic: string | null;
+	subject: Subject | null;
 	lineBytes: number | null;
 	bridge: BridgeFacts | null;
 	/** What the room stated it carries, or null while it has not said. */
 	carries: RoomCarries | null;
-	canSetTopic: boolean;
+	canSetSubject: boolean;
 	/** Whether this membership holds the files facet: the `files` grant. */
 	canPostFiles: boolean;
 	canModerate: boolean;
@@ -142,15 +146,15 @@ export function setRoomView(projection: PageProjection, key: string, view: RoomV
 	const conv = getConv(projection, key);
 	if (conv?.type !== "room") return;
 	const grants = new Set([
-		...(view.canSetTopic ? ["topic"] : []),
+		...(view.canSetSubject ? ["subject"] : []),
 		...(view.canPostFiles ? ["files"] : []),
 		...(view.canModerate ? ["steward"] : []),
 	]);
-	const nextTopic = view.topic == null ? undefined : view.topic;
+	const nextSubject = view.subject == null || isSubjectEmpty(view.subject) ? undefined : view.subject;
 	const nextLineBytes = view.lineBytes == null ? undefined : view.lineBytes;
 	const nextBridge = view.bridge ?? undefined;
 	const nextCarries = view.carries ?? undefined;
-	const viewChanged = !setsEqual(conv.grants, grants) || conv.topic !== nextTopic ||
+	const viewChanged = !setsEqual(conv.grants, grants) || !subjectsEqual(conv.subject, nextSubject) ||
 		conv.lineBytes !== nextLineBytes || !bridgeFactsEqual(conv.bridge, nextBridge) ||
 		!carriesEqual(conv.carries, nextCarries);
 	const roster = new Map(view.members);
@@ -162,11 +166,11 @@ export function setRoomView(projection: PageProjection, key: string, view: RoomV
 		// Each optional field is stripped before the spread puts it back, so a
 		// view that stops carrying one clears it rather than leaving the previous
 		// snapshot's value standing.
-		const { topic: _topic, lineBytes: _lineBytes, bridge: _bridge, carries: _carries, ...base } = conv;
+		const { subject: _subject, lineBytes: _lineBytes, bridge: _bridge, carries: _carries, ...base } = conv;
 		convs.set(key, {
 			...base,
 			grants,
-			...(nextTopic == null ? {} : { topic: nextTopic }),
+			...(nextSubject == null ? {} : { subject: nextSubject }),
 			...(nextLineBytes == null ? {} : { lineBytes: nextLineBytes }),
 			...(nextBridge == null ? {} : { bridge: nextBridge }),
 			...(nextCarries == null ? {} : { carries: nextCarries }),

@@ -42,16 +42,12 @@
 	align-items: center;
 	gap: var(--gap-row);
 }
-/* The teal answer to what the selected room does with the amber, and for the
-   same reason: this row stands on a wash of its own colour, so its ink has to
-   move away from that colour rather than sit in it. In syrup the readable teal
-   *is* the teal, which leaves ink and ground the same hue with the wash lifting
-   one toward the other, measured, the name came out at 4.33 to 1 against the
-   4.5 small text needs. A sixth of the way toward the page's plain ink clears it
-   in both appearances, and the row is still teal. */
+/* The selected name sits over the rail's gradient and a stronger wash on
+   hover. Mostly page ink keeps it readable on both grounds in both themes.
+   Teal still marks the name, the selection bar and the row's fill. */
 #dmList li.here {
 	background: color-mix(in srgb, var(--teal) 18%, transparent);
-	color: color-mix(in srgb, var(--teal-ink) 84%, var(--ink));
+	color: color-mix(in srgb, var(--teal-ink) 30%, var(--ink));
 }
 #dmList li.here::before {
 	background: var(--teal);

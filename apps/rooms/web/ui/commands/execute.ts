@@ -19,9 +19,9 @@ import {
 	noDirectoryCalled,
 	noDirectoryHeld,
 	noLongerIgnoring,
-	noTopic,
+	noSubject,
+	subjectIs,
 	thisDirectory,
-	topicIs,
 	wereNotIgnoring,
 	whoisAway,
 	whoisHereNow,
@@ -180,11 +180,15 @@ export function applyCommandPlan(
 			return granted(powers.editLast(text));
 		case "delete":
 			return granted(powers.withdrawLast());
-		case "showTopic":
-			say(conv?.type === "room" && conv.topic ? topicIs(conv.topic) : noTopic);
+		case "showSubject":
+			say(
+				conv?.type === "room" && conv.subject
+					? subjectIs(conv.subject.description, conv.subject.link)
+					: noSubject,
+			);
 			break;
-		case "setTopic":
-			return granted(powers.setTopic(text));
+		case "setSubject":
+			return granted(powers.setSubject(text, plan.extra));
 		case "roomLink":
 			return granted(powers.roomLink(text === "" ? undefined : text));
 		case "moderator":

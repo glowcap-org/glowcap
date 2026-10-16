@@ -90,7 +90,7 @@ export class AttachedLineProjection<F extends FileDescription = FileDescription>
 		// What the room states about itself folds in whatever else the line
 		// carries, before any line is judged to be state alone and spared the
 		// log: a statement with no words is exactly the line that is.
-		if (event.facts?.topic != null) store.setTopic(this.#page.projection, key, event.facts.topic);
+		if (event.facts?.subject != null) store.setSubject(this.#page.projection, key, event.facts.subject);
 		if (event.facts?.lineBytes != null) store.setLineBytes(this.#page.projection, key, event.facts.lineBytes);
 		if (event.facts?.bridge != null) store.setBridgeFacts(this.#page.projection, key, event.facts.bridge);
 		if (event.facts?.carries != null) store.setCarries(this.#page.projection, key, event.facts.carries);

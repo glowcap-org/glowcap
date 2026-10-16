@@ -300,7 +300,7 @@ function TopbarPane(
 					follows={follows}
 					about={roomCalled(conv.id, conv.held)}
 					onSay={(said) => session.setRoomStanding(conv.key, said)}
-					disabled={!canInteract}
+					disabled={!canInteract || (conv.type === "room" && conv.standingPending)}
 				/>
 			)}
 			<IconButton

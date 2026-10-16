@@ -1619,7 +1619,7 @@
         null,
         false,
         null,
-        "{\"topic\":\"\",\"lineBytes\":8192,\"listed\":false,\"bridge\":{\"prefix\":\"irc/\",\"badge\":\"IRC\",\"said\":\"network\",\"scope\":\"net\"}}",
+        "{\"subject\":{\"description\":\"\"},\"lineBytes\":8192,\"listed\":false,\"bridge\":{\"prefix\":\"irc/\",\"badge\":\"IRC\",\"said\":\"network\",\"scope\":\"net\"}}",
         "[]"
       ],
       "accepted": true
@@ -1647,13 +1647,13 @@
         null,
         false,
         null,
-        "{\"topic\":\"a\\ud800b\"}",
+        "{\"subject\":{\"description\":\"a\\ud800b\"}}",
         "[]"
       ],
       "accepted": true
     },
     {
-      "name": "facts-nullTopic",
+      "name": "facts-nullSubject",
       "raw": [
         "source",
         {
@@ -1675,7 +1675,7 @@
         null,
         false,
         null,
-        "{\"topic\":null}",
+        "{\"subject\":null}",
         "[]"
       ],
       "accepted": false
@@ -1821,7 +1821,7 @@
       "accepted": false
     },
     {
-      "name": "facts-longTopic",
+      "name": "facts-longSubject",
       "raw": [
         "source",
         {
@@ -1843,7 +1843,91 @@
         null,
         false,
         null,
-        "{\"topic\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+        "{\"subject\":{\"description\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}}",
+        "[]"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-linkedSubject",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"subject\":{\"description\":\"the board\",\"link\":\"ocapn://host.tcp/s/Ym9hcmQ\"}}",
+        "[]"
+      ],
+      "accepted": true
+    },
+    {
+      "name": "facts-undescribedLink",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"subject\":{\"description\":\"\",\"link\":\"ocapn://host.tcp/s/Ym9hcmQ\"}}",
+        "[]"
+      ],
+      "accepted": false
+    },
+    {
+      "name": "facts-foreignLink",
+      "raw": [
+        "source",
+        {
+          "integer": "1"
+        },
+        "room",
+        "Ada",
+        "hello",
+        {
+          "integer": "0"
+        },
+        {
+          "integer": "1"
+        },
+        "said",
+        true,
+        null,
+        null,
+        null,
+        false,
+        null,
+        "{\"subject\":{\"description\":\"the board\",\"link\":\"https://host/s/Ym9hcmQ\"}}",
         "[]"
       ],
       "accepted": false
