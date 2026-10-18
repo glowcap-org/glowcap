@@ -9,7 +9,6 @@ const net = @import("net");
 const c = @import("c_abi_shared");
 const attempts = @import("attempt.zig");
 const connection = @import("connection.zig");
-const failure_projection = @import("../failure.zig");
 const runtime = @import("../runtime/state.zig");
 
 const GLOWCAP_OK = c.GLOWCAP_OK;
@@ -45,7 +44,7 @@ pub fn init(owner: *runtime.Netlayer) void {
         .entry_count = 1,
         .lease_ctx = owner,
         .same_configuration = providerSameConfiguration,
-        .retain = providerRetain,
+        .retain = c.transport_provider.retainCallback(runtime.Netlayer),
         .release = providerRelease,
     };
 }
@@ -82,22 +81,12 @@ fn providerSameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(
     );
 }
 
-fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const payload: *runtime.Netlayer = @ptrCast(@alignCast(ctx orelse {
-        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-        return GLOWCAP_ERR_NULL_POINTER;
-    }));
-    if (payload.retain()) return GLOWCAP_OK;
-    c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
-    return GLOWCAP_ERR_CLOSED;
-}
-
 fn providerRelease(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const payload: *runtime.Netlayer = @ptrCast(@alignCast(ctx orelse return GLOWCAP_OK));
     if (payload.release()) |failure| {
         c.setLastErrorChain("onion provider release", failure);
-        const code = failure_projection.providerListen(failure.cause);
-        return c.transport_provider.failProviderChain(out_failure, code, failure, failure_projection.providerListen);
+        const code = c.netlayerFailureCode(failure.cause);
+        return c.transport_provider.failProviderChain(out_failure, code, failure, c.netlayerFailureCode);
     }
     return GLOWCAP_OK;
 }
@@ -251,7 +240,7 @@ fn providerFinishConnect(
     switch (result) {
         .failure => |err| {
             _ = attempt.owner.tasks.reap(&attempt.operation);
-            const code = failure_projection.providerDial(err);
+            const code = c.netlayerFailureCode(err);
             return c.transport_provider.failProvider(out_failure, code, err);
         },
         .pending => unreachable,
@@ -365,8 +354,8 @@ fn providerFinishListen(
     switch (result) {
         .failure => |failure| {
             c.setLastErrorChain("onion provider listen", failure);
-            const code = failure_projection.providerListen(failure.cause);
-            c.transport_provider.setProviderFailureChain(out_failure, code, failure, failure_projection.providerListen);
+            const code = c.netlayerFailureCode(failure.cause);
+            c.transport_provider.setProviderFailureChain(out_failure, code, failure, c.netlayerFailureCode);
             return code;
         },
         .pending => unreachable,
@@ -375,7 +364,7 @@ fn providerFinishListen(
                 var failure = net.netlayer.ListenFailure.init(error.Closed);
                 if (listener.deinit()) |cleanup| failure.noteChain(cleanup);
                 c.setLastErrorChain("onion provider listen", failure);
-                c.transport_provider.setProviderFailureChain(out_failure, GLOWCAP_ERR_CLOSED, failure, failure_projection.providerListen);
+                c.transport_provider.setProviderFailureChain(out_failure, GLOWCAP_ERR_CLOSED, failure, c.netlayerFailureCode);
                 return GLOWCAP_ERR_CLOSED;
             }
             var owns_owner_ref = true;
@@ -388,7 +377,7 @@ fn providerFinishListen(
                 var failure = net.netlayer.ListenFailure.init(err);
                 if (listener.deinit()) |cleanup| failure.noteChain(cleanup);
                 c.setLastErrorChain("onion provider listener locator", failure);
-                c.transport_provider.setProviderFailureChain(out_failure, GLOWCAP_ERR_INTERNAL, failure, failure_projection.providerListen);
+                c.transport_provider.setProviderFailureChain(out_failure, GLOWCAP_ERR_INTERNAL, failure, c.netlayerFailureCode);
                 return GLOWCAP_ERR_INTERNAL;
             };
             const raw = attempt.owner.allocator.create(RawListener) catch |err| {
@@ -396,7 +385,7 @@ fn providerFinishListen(
                 var failure = net.netlayer.ListenFailure.init(err);
                 if (listener.deinit()) |cleanup| failure.noteChain(cleanup);
                 c.setLastErrorChain("onion provider listener", failure);
-                c.transport_provider.setProviderFailureChain(out_failure, GLOWCAP_ERR_INTERNAL, failure, failure_projection.providerListen);
+                c.transport_provider.setProviderFailureChain(out_failure, GLOWCAP_ERR_INTERNAL, failure, c.netlayerFailureCode);
                 return GLOWCAP_ERR_INTERNAL;
             };
             raw.* = .{ .listener = listener, .locator = locator, .owner = attempt.owner, .operations = .{} };
@@ -517,19 +506,8 @@ fn providerListenerClose(
     const owner = listener.owner;
     if (listener.operations.beginShutdown(owner.io())) listener.listener.shutdown();
     listener.operations.wait(owner.io());
-    var failure = listener.listener.deinit();
+    const failure = listener.listener.deinit();
     model.freePeerLocator(owner.allocator, listener.locator);
     owner.allocator.destroy(listener);
-    if (owner.release()) |runtime_failure| {
-        if (failure) |*primary|
-            primary.noteChain(runtime_failure)
-        else
-            failure = runtime_failure;
-    }
-    if (failure) |chain| {
-        c.setLastErrorChain("onion provider listener close", chain);
-        const code = failure_projection.providerListen(chain.cause);
-        return c.transport_provider.failProviderChain(out_failure, code, chain, failure_projection.providerListen);
-    }
-    return GLOWCAP_OK;
+    return connection.closeOutcome("onion provider listener close", failure, owner.release(), out_failure);
 }

@@ -1,6 +1,8 @@
 //! Managed owner records participate in the existing Loam Store and executor.
 pub const Read = @import("read.zig").Read;
+pub const Rooting = @import("record.zig").Rooting;
 pub const Target = @import("read.zig").Target;
+pub const OwnerIndex = @import("owner_index.zig").OwnerIndex;
 pub const Append = @import("append.zig").Append;
 pub const stage = @import("stage.zig");
 pub const Capabilities = @import("capabilities.zig").Capabilities;

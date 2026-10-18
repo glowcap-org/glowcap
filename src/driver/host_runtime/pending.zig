@@ -78,3 +78,13 @@ pub const Listener = struct {
     deadline_ms: ?i64,
     observation: ListenerObservation,
 };
+
+/// Remove the heap-pinned `row` from `rows`, which holds it exactly once.
+pub fn remove(rows: anytype, row: anytype) void {
+    for (rows.items, 0..) |candidate, i| {
+        if (candidate != row) continue;
+        std.debug.assert(rows.swapRemove(i) == row);
+        return;
+    }
+    unreachable; // the caller found the row in this list
+}

@@ -55,11 +55,6 @@ const signing_files = [_]SigningFile{
         .record = "codec.signed.locationBytes: the hello's acceptable-location signature over the canonical advertised locator.",
     },
     .{
-        .file = "ocapn/engine/pairing.zig",
-        .sites = 2,
-        .record = "codec.signed.locationBytes: both in-process peers' hello signatures in the pairing harness.",
-    },
-    .{
         .file = "ocapn/engine/handoff_gifter.zig",
         .sites = 1,
         .record = "codec.signed.wrapGive over giveBytes: the desc:handoff-give certificate.",

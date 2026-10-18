@@ -4,12 +4,16 @@
 const engine = @import("engine");
 const model = @import("model");
 const Host = @import("host.zig").Host;
+const host_errors = @import("host/errors.zig");
 const capability = @import("capability.zig");
 const pump = @import("host/pump.zig");
 const Recipient = @import("enliven/observation.zig").Recipient;
 
 pub const Lookup = struct {
-    pub const Admission = union(enum) { accepted, unhandled, refused: anyerror };
+    /// Why a provider refused a request: its own lookup or fetch capacity is
+    /// spent, or the Host refused the work admission it asked for.
+    pub const Refusal = error{ LookupCapacity, FetchCapacity } || host_errors.HostError;
+    pub const Admission = union(enum) { accepted, unhandled, refused: Refusal };
     pub const Cancellation = union(enum) { origin: Fetch.Origin, local_shutdown: []const u8 };
     context: *anyopaque,
     /// Consult the provider's authoritative work custody before unregister.
@@ -125,7 +129,7 @@ pub const Fetch = struct {
     }
 };
 
-pub fn resolveFetch(context: ?*anyopaque, scope: engine.PeerHandle, request: engine.bootstrap.FetchContext) !engine.bootstrap.FetchOutcome {
+pub fn resolveFetch(context: ?*anyopaque, scope: engine.PeerHandle, request: engine.bootstrap.FetchContext) engine.bootstrap.gifts.LocalObjectProjection.Error!engine.bootstrap.FetchOutcome {
     const host: *Host = @ptrCast(@alignCast(context.?));
     const session = host.sessions.get(scope) orelse return error.UnknownCapability;
     if (host.publications.get(request.swissnum)) |row| {
@@ -150,21 +154,21 @@ pub fn resolveFetch(context: ?*anyopaque, scope: engine.PeerHandle, request: eng
 /// registry and cold provider as a wire fetch. It creates no self connection.
 /// The name remains public fetch authority. No private owner lookup runs here.
 pub fn resolveLocal(host: *Host, name: []const u8, recipient: Recipient, admission: @import("host/admission.zig").WorkAdmission) !u64 {
-    const id = host.next_vow;
+    const id = try @import("vows.zig").peekVowId(host);
     if (recipient == .action) try host.reserveActions(1);
     if (host.publications.get(name)) |row| {
         if (row.active) {
             const retained = try host.retainLocalCapability(row.actor);
-            host.next_vow += 1;
+            host.vow_ids.commit(id);
             recipient.foundLocal(host, id, retained);
         } else {
-            host.next_vow += 1;
+            host.vow_ids.commit(id);
             recipient.failedLocal(host, id, .broken, "unknown swissnum");
         }
         return id;
     }
     const lookup = host.publication_lookup orelse {
-        host.next_vow += 1;
+        host.vow_ids.commit(id);
         recipient.failedLocal(host, id, .broken, "unknown swissnum");
         return id;
     };
@@ -174,20 +178,19 @@ pub fn resolveLocal(host: *Host, name: []const u8, recipient: Recipient, admissi
     };
     const fetch: Fetch = .{ .host = host, .destination = .{ .local = .{ .id = id, .recipient = recipient, .lifetime = lifetime } } };
     const admitted = admission: {
-        const prior = host.in_callback;
-        host.in_callback = true;
-        defer host.in_callback = prior;
+        const hold = host.callback_latch.hold();
+        defer hold.release();
         break :admission lookup.start(lookup.context, name, fetch);
     };
     switch (admitted) {
         .accepted => {
-            host.next_vow += 1;
+            host.vow_ids.commit(id);
             host.pending_enliven_count += 1;
             recipient.pendingLocal(id);
         },
         .unhandled => {
             lifetime.complete();
-            host.next_vow += 1;
+            host.vow_ids.commit(id);
             recipient.failedLocal(host, id, .broken, "unknown swissnum");
         },
         .refused => |err| {

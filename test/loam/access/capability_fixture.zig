@@ -15,14 +15,15 @@ pub fn load(store: *f.loam.core.Store, backend: anytype, id: f.loam.core.ObjectI
     };
 }
 
-pub fn descriptor(caps: *storage.Capabilities, backend: anytype, owner: f.loam.core.ObjectId, grant: core.GrantId, powers: ?core.Control.Powers, rooted: bool) !f.loam.core.ObjectId {
-    var read = try storage.Read.init(caps.allocator, caps.store, owner, 4);
+pub fn descriptor(caps: *storage.Capabilities, backend: anytype, owner: f.loam.core.ObjectId, grant: core.GrantId, powers: ?core.Control.Powers, rooting: storage.Rooting) !f.loam.core.ObjectId {
+    var read: storage.Read = undefined;
+    try read.init(caps.allocator, caps.store, owner, 4, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     try caps.store.begin();
     errdefer if (caps.store.phase == .staging) caps.store.abort() catch unreachable;
     for (0..128) |_| {
-        const result = if (powers) |value| caps.stageControl(&read, grant, value, rooted) else caps.stageUse(&read, grant, rooted);
+        const result = if (powers) |value| caps.stageControl(&read, grant, value, rooting) else caps.stageUse(&read, grant, rooting);
         const id = result catch |err| {
             if (err != error.RecordUnloaded) return err;
             _ = try f.pump(&read, backend);

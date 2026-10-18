@@ -122,11 +122,11 @@ fn overlaps(a: []const u8, b: []const u8) bool {
     return if (first >= second) first - second < b.len else second - first < a.len;
 }
 
-fn val(bytes: []const u8) c.Val {
+pub fn val(bytes: []const u8) c.Val {
     return .{ .size = bytes.len, .data = @ptrCast(@constCast(bytes.ptr)) };
 }
 
-fn valueBytes(value: c.Val) []const u8 {
+pub fn valueBytes(value: c.Val) []const u8 {
     const bytes: [*]const u8 = @ptrCast(value.data);
     return bytes[0..value.size];
 }

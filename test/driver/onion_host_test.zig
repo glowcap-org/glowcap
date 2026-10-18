@@ -154,7 +154,7 @@ fn profileClient(
     const transports: driver.Transports = .{ .symbols = &.{.onion}, .onion = .{ .socks = try net.tcp.parseDesignator(socks) } };
     const profile_hints = [_]model.HintEntry{.{
         .name = model.transport.hint_captp_version,
-        .value = .{ .string = model.CaptpVersion.next.wireString() },
+        .value = .{ .string = model.CaptpVersion.next.hintToken() },
     }};
     var session = try driver.connect(allocator, io, transports, .{
         .transport = model.transport.onion,

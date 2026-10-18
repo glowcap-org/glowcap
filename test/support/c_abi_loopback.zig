@@ -101,7 +101,7 @@ pub fn Harness(comptime Transport: type) type {
                     if (try fetch_pump.matchFetchEvent(
                         allocator,
                         prepared.resolver_export,
-                        prepared.answer_position,
+                        prepared.answer.position,
                         &event,
                     )) |reference| {
                         model.freeReference(allocator, reference);

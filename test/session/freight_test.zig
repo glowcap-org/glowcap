@@ -8,6 +8,7 @@ const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
 const session = glowcap.ocapn.session;
+const NoMeter = session.inventory.NoMeter;
 const view = model.view;
 const a = std.testing.allocator;
 
@@ -43,7 +44,7 @@ test "freight refuses inconsistent lengths in every nested collection" {
             .{ .list = args }, .{ .set = args }, .{ .tagged = .{ .tag = "t", .value = args } }, .{ .@"struct" = entries },
         };
         for (containers) |container| {
-            try std.testing.expectError(error.MalformedView, s.certifyFreight(.fromViews(&.{container})));
+            try std.testing.expectError(error.MalformedView, s.certifyFreight(.fromViews(&.{container}), NoMeter));
         }
     }
 }
@@ -57,16 +58,16 @@ test "freight refuses an overflowing virtual owned run charge without reading wo
     const count = std.math.maxInt(usize) / @sizeOf(model.Argument) + 1;
     const ptr: [*]const u8 = @ptrFromInt(8);
     const run = view.Args.fromRun(ptr[0 .. count * 8]);
-    try std.testing.expectError(error.MalformedView, s.certifyFreight(run));
+    try std.testing.expectError(error.MalformedView, s.certifyFreight(run, NoMeter));
 }
 
 test "freight refuses a reference or handoff anywhere in the tree" {
     var s = session.Session.init(a);
     defer s.deinit();
     const far = [_]view.Argument{.{ .reference = .{ .far = .{ .import_position = .from(3) } } }};
-    try std.testing.expectError(session.Error.MalformedMessage, s.certifyFreight(.fromViews(&far)));
+    try std.testing.expectError(session.Error.MalformedMessage, s.certifyFreight(.fromViews(&far), NoMeter));
     const nested = [_]view.Argument{ .{ .integer = 1 }, .{ .list = .fromViews(&far) } };
-    try std.testing.expectError(session.Error.MalformedMessage, s.certifyFreight(.fromViews(&nested)));
+    try std.testing.expectError(session.Error.MalformedMessage, s.certifyFreight(.fromViews(&nested), NoMeter));
 }
 
 test "freight and an owned tree refuse at the same nesting depth" {
@@ -84,11 +85,11 @@ test "freight and an owned tree refuse at the same nesting depth" {
     const d2_v = [_]view.Argument{.{ .list = .fromViews(&d3_v) }};
     const d1_v = [_]view.Argument{.{ .list = .fromViews(&d2_v) }};
 
-    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(&d1));
-    try std.testing.expectError(session.Error.NestingTooDeep, s.certifyFreight(.fromViews(&d1_v)));
-    const ok = try s.inventoryArguments(&d2);
+    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(&d1, NoMeter));
+    try std.testing.expectError(session.Error.NestingTooDeep, s.certifyFreight(.fromViews(&d1_v), NoMeter));
+    const ok = try s.inventoryArguments(&d2, NoMeter);
     ok.deinit(a);
-    _ = try s.certifyFreight(.fromViews(&d2_v));
+    _ = try s.certifyFreight(.fromViews(&d2_v), NoMeter);
 }
 
 test "freight refuses a duplicate set element and a duplicate struct key" {
@@ -96,17 +97,17 @@ test "freight refuses a duplicate set element and a duplicate struct key" {
     defer s.deinit();
     const twice = [_]view.Argument{ .{ .integer = 7 }, .{ .string = "x" }, .{ .integer = 7 } };
     const set = [_]view.Argument{.{ .set = .fromViews(&twice) }};
-    try std.testing.expectError(session.Error.DuplicateSetElement, s.certifyFreight(.fromViews(&set)));
+    try std.testing.expectError(session.Error.DuplicateSetElement, s.certifyFreight(.fromViews(&set), NoMeter));
     const entries = [_]view.StructEntry{
         .{ .key = "a", .value = .{ .integer = 1 } },
         .{ .key = "b", .value = .{ .integer = 2 } },
         .{ .key = "a", .value = .{ .integer = 3 } },
     };
     const record = [_]view.Argument{.{ .@"struct" = .fromViews(&entries) }};
-    try std.testing.expectError(session.Error.DuplicateStructKey, s.certifyFreight(.fromViews(&record)));
+    try std.testing.expectError(session.Error.DuplicateStructKey, s.certifyFreight(.fromViews(&record), NoMeter));
     const distinct = [_]view.StructEntry{ entries[0], entries[1] };
     const fine = [_]view.Argument{ .{ .set = .fromViews(twice[0..2]) }, .{ .@"struct" = .fromViews(&distinct) } };
-    _ = try s.certifyFreight(.fromViews(&fine));
+    _ = try s.certifyFreight(.fromViews(&fine), NoMeter);
 }
 
 test "freight measures what the owned model measures" {
@@ -127,6 +128,6 @@ test "freight measures what the owned model measures" {
     var args = [_]model.Argument{ .{ .list = &list_items }, .{ .symbol = "greet" }, .{ .float64 = 1.5 } };
     try std.testing.expectEqual(
         try model.measureArgumentSliceOwnedBytes(&args),
-        try s.certifyFreight(.fromOwnedSlice(&args)),
+        (try s.certifyFreight(.fromOwnedSlice(&args), NoMeter)).owned_bytes,
     );
 }

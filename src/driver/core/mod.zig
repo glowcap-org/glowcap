@@ -56,6 +56,7 @@ pub const Served = served.Served;
 pub const DriveError = served.DriveError;
 pub const ServeOptions = served.ServeOptions;
 pub const BeforeServeHook = served.BeforeServeHook;
+pub const BeforeServeError = served.BeforeServeError;
 pub const Publish = served.Publish;
 pub const PendingSend = pending_send.PendingSend;
 pub const default_loop_local_turn_budget = served.default_loop_local_turn_budget;

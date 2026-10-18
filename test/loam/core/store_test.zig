@@ -358,3 +358,48 @@ test "loam committed residency transfers prepared ownership without allocation o
         try std.testing.expect(store.cache.allocated_bytes <= store.limits.resident_bytes);
     }
 }
+
+test "loam every store transition advances the state generation" {
+    var fixture = try f.Fixture.init(std.testing.allocator);
+    defer fixture.deinit();
+    const store = &fixture.store;
+    const Seen = struct {
+        last: u64,
+        fn advanced(self: *@This(), s: *const core.Store) !void {
+            try std.testing.expect(s.state_generation != self.last);
+            self.last = s.state_generation;
+        }
+    };
+    var seen: Seen = .{ .last = store.state_generation };
+
+    // An id allocated in an aborted transaction leaves with it, so each
+    // transaction allocates its own.
+    try store.begin();
+    try seen.advanced(store);
+    try store.putCopying(f.record(try store.allocateId(), "staged"), null);
+    try seen.advanced(store);
+    try store.abort();
+    try seen.advanced(store);
+
+    try store.begin();
+    try seen.advanced(store);
+    try store.putCopying(f.record(try store.allocateId(), "committed"), null);
+    try seen.advanced(store);
+    const ticket = try store.prepare();
+    try seen.advanced(store);
+    const batch = try store.beginWrite(ticket);
+    try seen.advanced(store);
+    try std.testing.expect(fixture.backend.commit(batch) == .committed);
+    try store.completeWrite(ticket, .unknown);
+    try seen.advanced(store);
+    try store.resolve(ticket, try fixture.backend.recover(try store.recoveryBatch()));
+    try seen.advanced(store);
+    try std.testing.expectEqual(@as(u64, 1), store.metadata.revision);
+
+    // A read that checked itself at this generation stays checked until the
+    // next transition.
+    const settled = store.state_generation;
+    try store.begin();
+    try std.testing.expect(store.state_generation != settled);
+    try store.abort();
+}

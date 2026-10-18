@@ -103,7 +103,7 @@ pub fn settleFetch(
             const matched = try matchFetchEvent(
                 allocator,
                 prepared.resolver_export,
-                prepared.answer_position,
+                prepared.answer.position,
                 &event,
             );
             if (matched) |reference| {

@@ -4,8 +4,8 @@
 //! Reader-facing props also cover short labels without sentence punctuation.
 //!
 //! The sentence heuristic is narrow to keep false positives
-//! from obscuring real prose. Comments and throw/log lines are outside the
-//! reader-text boundary. Component specimens have explicit exemptions below.
+//! from obscuring real prose. Comments, throw/log lines, and a shader's source
+//! (a template opened by `/* wgsl */`) are outside the reader-text boundary. Component specimens have explicit exemptions below.
 //!
 //! Negative probes in `SessionSetup.tsx` cover JSX text, quoted expressions
 //! and template literals. A `className` full of words stays admissible.
@@ -336,6 +336,10 @@ fn textLineArm(report: *Report, raw: []const u8) !void {
 
 fn inspectBody(report: *Report, body: []const u8) !void {
     var in_comment = false;
+    // A shader's source, from the backtick after `/* wgsl */` to the line its
+    // closing backtick opens. WGSL's `struct Point { … }` and `array<f32>`
+    // read as JSX text to the arms below.
+    var in_shader = false;
     // A log call whose arguments run onto the lines below it.
     var in_log = false;
     var lines = std.mem.splitScalar(u8, body, '\n');
@@ -343,6 +347,14 @@ fn inspectBody(report: *Report, body: []const u8) !void {
     while (lines.next()) |raw| {
         report.line_no += 1;
         const line = std.mem.trim(u8, raw, " \t\r");
+        if (in_shader) {
+            if (std.mem.startsWith(u8, line, "`")) in_shader = false;
+            continue;
+        }
+        if (std.mem.endsWith(u8, line, "/* wgsl */ `")) {
+            in_shader = true;
+            continue;
+        }
         if (in_comment) {
             if (std.mem.indexOf(u8, line, "*/") != null) in_comment = false;
             continue;
@@ -463,4 +475,23 @@ test "JSX text is judged with its expressions cut out, and a lone brace is code"
     try std.testing.expect(looksSpoken(words));
     try std.testing.expect(try withoutJsxHoles(gpa, "} else {") == null);
     try std.testing.expect(try withoutJsxHoles(gpa, "{ a: { b } }") == null);
+}
+
+test "a shader's source is code, and text after it is still read" {
+    const gpa = std.testing.allocator;
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |v| gpa.free(v);
+        violations.deinit(gpa);
+    }
+    var report: Report = .{ .gpa = gpa, .violations = &violations, .path = "probe.ts", .line_no = 0 };
+    try inspectBody(&report,
+        \\export const SHADER = /* wgsl */ `
+        \\struct Point { pos: vec2f, width: f32 }
+        \\@group(0) @binding(0) var<storage, read> points: array<Point>;
+        \\`;
+        \\const label = "Something went wrong. Try again later.";
+    );
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "probe.ts:5:") != null);
 }

@@ -50,16 +50,16 @@ test "pending inbound answer through real syrup codec matches answer oracle fixt
 }
 
 test "AnswerCell carries status independently of wire position" {
-    try std.testing.expectEqual(@as(usize, 48), @sizeOf(answers.AnswerCell));
+    try std.testing.expectEqual(@as(usize, 56), @sizeOf(answers.AnswerCell));
     var cell = answers.AnswerCell.initPending(42);
     try std.testing.expectEqual(answers.AnswerStatus.pending, cell.status());
     try std.testing.expect(cell.payload == null);
 
-    try cell.fulfill();
+    cell.settle(std.meta.Tag(model.Resolution).fulfill);
     try std.testing.expectEqual(answers.AnswerStatus.fulfilled, cell.status());
 
     cell = answers.AnswerCell.initPending(42);
-    try cell.breakCell();
+    cell.settle(std.meta.Tag(model.Resolution).@"break");
     try std.testing.expectEqual(answers.AnswerStatus.broken, cell.status());
 }
 
@@ -77,7 +77,7 @@ test "InboundAnswerTable stores wire and virtual names independently" {
     try std.testing.expectEqual(@as(usize, 2), table.len());
     const cell = table.getPtr(wire).?;
     try std.testing.expectEqual(answers.AnswerStatus.pending, cell.status());
-    try cell.fulfill();
+    cell.settle(std.meta.Tag(model.Resolution).fulfill);
     try std.testing.expectEqual(answers.AnswerStatus.fulfilled, table.getPtr(wire).?.status());
     try std.testing.expectEqual(answers.AnswerStatus.pending, table.getPtr(virtual).?.status());
 }

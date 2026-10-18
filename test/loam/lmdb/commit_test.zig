@@ -17,7 +17,7 @@ test "LMDB uncertain completion fences the adapter and reopen observes the commi
         defer std.testing.allocator.free(path);
         const terminated = try std.testing.allocator.dupeSentinel(u8, path, 0);
         defer std.testing.allocator.free(terminated);
-        var db = try Lmdb.open(terminated, .{ .mode = .{ .create = f.id } });
+        var db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.id, .mode = .create } });
         var opened = true;
         defer if (opened) db.close() catch unreachable;
         var snapshot = try db.beginRead();
@@ -45,7 +45,7 @@ test "LMDB uncertain completion fences the adapter and reopen observes the commi
         reading = false;
         try db.close();
         opened = false;
-        db = try Lmdb.open(terminated, .{ .mode = .{ .open = f.id } });
+        db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.id, .mode = .open } });
         opened = true;
         var read = try db.beginRead();
         defer read.end();
@@ -60,7 +60,7 @@ test "a commit that runs out of map is refused and the engine accepts a smaller 
     defer std.testing.allocator.free(path);
     const terminated = try std.testing.allocator.dupeSentinel(u8, path, 0);
     defer std.testing.allocator.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = f.id } });
+    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.id, .mode = .create } });
     defer db.close() catch unreachable;
 
     // LMDB reuses a page one transaction freed only two transactions later.

@@ -14,6 +14,7 @@
 const std = @import("std");
 const model = @import("model");
 
+const frame = @import("frame.zig");
 const vat_mod = @import("mod.zig");
 const Vat = vat_mod.Vat;
 const Turn = vat_mod.Turn;
@@ -57,7 +58,7 @@ pub const StateBox = struct {
     /// Deep-copy this box's state into a fresh `Boxed` block, for copy-on-write.
     /// Null when the actor opted out of cloning. Such a box is snapshottable only
     /// if it is `persistent`.
-    clone: ?*const fn (box: *const StateBox, allocator: std.mem.Allocator) ?*StateBox,
+    clone: ?*const fn (box: *const StateBox, allocator: std.mem.Allocator) std.mem.Allocator.Error!*StateBox,
     /// Set at spawn for a persistent actor: its state is never mutated in place,
     /// so copy-on-write is skipped and a snapshot shares it directly.
     persistent: bool,
@@ -134,11 +135,6 @@ pub const Cell = struct {
     pending_become: ?*StateBox = null,
 };
 
-/// A staged `Turn.become`: the next state box, held on the turn until the frame
-/// returns. On success it is promoted onto the actor's `Cell`. On a handler
-/// error it is discarded, so a failed turn leaves the actor unchanged.
-pub const PendingBecome = struct { id: u64, box: *StateBox };
-
 /// Release one reference to `box`, freeing its whole `Boxed` block (state
 /// `deinit` included) when the last reference drops. The single chokepoint for
 /// box lifetime, shared by the vat and by `Snapshot.deinit` so both count the
@@ -173,20 +169,20 @@ pub fn stateAs(comptime Behavior: type, box: *const StateBox) ?*const Behavior {
     return @ptrCast(@alignCast(box.ptr));
 }
 
-/// The box functions one behavior type wires, named at file scope so the
-/// type's `drop` address identifies its boxes.
+/// The box functions one behavior type wires.
 fn Glue(comptime Behavior: type) type {
     const Block = Boxed(Behavior);
     return struct {
+        /// A persistent actor never mutates `self` (that is why a snapshot
+        /// may share its state with no copy-on-write), so it is dispatched
+        /// through a `*const` receiver: the ordinary `self.field = x` then
+        /// fails to compile instead of silently writing through the pointer
+        /// a live snapshot shares. This enforces shallow immutability only;
+        /// a persistent actor still must not mutate through an interior
+        /// pointer it owns, which `*const self` cannot reach.
+        const Receiver = if (behaviorIsPersistent(Behavior)) *const Behavior else *Behavior;
+
         fn handle(erased: *anyopaque, turn: *Turn, msg: Delivery) HostedActor.Result {
-            // A persistent actor never mutates `self` (that is why a snapshot
-            // may share its state with no copy-on-write), so it is dispatched
-            // through a `*const` receiver: the ordinary `self.field = x` then
-            // fails to compile instead of silently writing through the pointer
-            // a live snapshot shares. This enforces shallow immutability only;
-            // a persistent actor still must not mutate through an interior
-            // pointer it owns, which `*const self` cannot reach.
-            const Receiver = if (comptime behaviorIsPersistent(Behavior)) *const Behavior else *Behavior;
             const behavior: Receiver = @ptrCast(@alignCast(erased));
             const result = behavior.handle(turn, msg);
             if (comptime @TypeOf(result) == HostedActor.Result) return result;
@@ -197,12 +193,7 @@ fn Glue(comptime Behavior: type) type {
             return HostedActor.Result.fromResult(result);
         }
         fn handleOpaque(erased: *anyopaque, turn: *Turn, msg: vat_mod.OpaqueMessage) ?[]const u8 {
-            if (comptime behaviorIsPersistent(Behavior)) {
-                const behavior: *const Behavior = @ptrCast(@alignCast(erased));
-                behavior.handleOpaque(turn, msg) catch |err| return @errorName(err);
-                return null;
-            }
-            const behavior: *Behavior = @ptrCast(@alignCast(erased));
+            const behavior: Receiver = @ptrCast(@alignCast(erased));
             behavior.handleOpaque(turn, msg) catch |err| return @errorName(err);
             return null;
         }
@@ -213,21 +204,19 @@ fn Glue(comptime Behavior: type) type {
             if (@hasDecl(Behavior, "deinit")) block.state.deinit(allocator);
             allocator.destroy(block);
         }
-        fn clone(box: *const StateBox, allocator: std.mem.Allocator) ?*StateBox {
+        fn clone(box: *const StateBox, allocator: std.mem.Allocator) std.mem.Allocator.Error!*StateBox {
             // Reached only when `clone` was wired below, i.e. the actor
             // defines it; the guard keeps the body compilable for actors
             // that do not.
             if (@hasDecl(Behavior, "clone")) {
                 const behavior: *const Behavior = @ptrCast(@alignCast(box.ptr));
-                const fresh = allocator.create(Block) catch return null;
+                const fresh = try allocator.create(Block);
+                errdefer allocator.destroy(fresh);
                 // The by-value clone contract: the state's `clone` builds
-                // the next value, and the vat moves it into the fresh
-                // block, so the clone path is also one allocation.
-                const next: std.mem.Allocator.Error!Behavior = behavior.clone(allocator);
-                fresh.state = next catch {
-                    allocator.destroy(fresh);
-                    return null;
-                };
+                // the next value with only allocation to refuse, and the vat
+                // moves it into the fresh block, so the clone path is also
+                // one allocation.
+                fresh.state = try behavior.clone(allocator);
                 fresh.box = .{
                     .ptr = @ptrCast(&fresh.state),
                     .refs = 1,
@@ -316,7 +305,7 @@ pub fn ensureUnshared(self: *Vat, cell: *Cell) Error!void {
     const clone_fn = box.clone orelse unreachable;
     // The wired `clone` builds the whole fresh `Boxed` block (state cloned
     // by value into it), so the copy costs one block allocation.
-    const new_box = clone_fn(box, self.allocator) orelse return error.OutOfMemory;
+    const new_box = try clone_fn(box, self.allocator);
     // Drop this cell's reference to the shared box (the snapshot keeps it
     // alive, so this never frees it) and point the cell at the private copy.
     box.refs -= 1;
@@ -325,10 +314,6 @@ pub fn ensureUnshared(self: *Vat, cell: *Cell) Error!void {
 
 /// Stage `next` as the running actor's pending become (see `Turn.become`).
 pub fn stageBecome(self: *Vat, turn: *Turn, comptime Behavior: type, next: Behavior) Error!void {
-    const id = switch (turn.self_ref) {
-        .local => |a| a,
-        .far => return Error.NotLocal,
-    };
     const box = try makeBox(self, Behavior, next);
     errdefer releaseBox(self.allocator, box);
     // Reserve the slots the installs will need to retire their outgoing boxes.
@@ -341,21 +326,21 @@ pub fn stageBecome(self: *Vat, turn: *Turn, comptime Behavior: type, next: Behav
     // unwind then appends once per frame. An actor installs at most once per
     // run and every install is preceded by a stage in some open frame, so the
     // number of appends still to come is bounded by the open frame count.
-    try vat_mod.reserveRetirementCapacity(self, 0, self.turn_depth);
+    try frame.reserveRetirementCapacity(self, 0, self.turn_depth);
     // Last become in a turn wins: release any value staged earlier this turn.
-    if (turn.pending_become) |prev| releaseBox(self.allocator, prev.box);
-    turn.pending_become = .{ .id = id, .box = box };
+    if (turn.pending_become) |prev| releaseBox(self.allocator, prev);
+    turn.pending_become = box;
 }
 
 /// Promote a successful frame's staged become onto the actor's `Cell`, to be
 /// installed when the actor's outermost running frame unwinds. Last write
 /// wins across the frames of one reentrant run: an earlier promoted box that
 /// never installed is released here.
-pub fn promoteBecome(self: *Vat, pending: PendingBecome) void {
+pub fn promoteBecome(self: *Vat, id: u64, box: *StateBox) void {
     // The running frame keeps the actor row alive.
-    const cell = self.actors.getPtr(pending.id).?;
+    const cell = self.actors.getPtr(id).?;
     const previous = cell.pending_become;
-    cell.pending_become = pending.box;
+    cell.pending_become = box;
     // Destructors can grow the actor table or reenter this actor. Publish the
     // replacement first and never use the borrowed cell after that callback.
     if (previous) |prev| releaseBox(self.allocator, prev);
@@ -369,18 +354,17 @@ fn quiescent(self: *const Vat) bool {
 }
 
 /// Capture the local actor heap: share every actor's `StateBox` (refcount up,
-/// no bytes copied, O(objects), Goblins's `snapshot-whactormap` shape) and
-/// Requires quiescence (`NotQuiescent`) and every
-/// actor to be cloneable or persistent (`NotSnapshottable`). On either failure
-/// nothing is left shared. The returned `Snapshot` is the owner's to `deinit`.
+/// no bytes copied, O(objects), Goblins's `snapshot-whactormap` shape).
+/// Requires quiescence (`NotQuiescent`) and every actor to be cloneable or
+/// persistent (`NotSnapshottable`). On either failure nothing is left shared. The returned `Snapshot` is the owner's to `deinit`.
 pub fn snapshot(self: *Vat) Error!Snapshot {
-    if (!quiescent(self)) return Error.NotQuiescent;
+    if (!quiescent(self)) return error.NotQuiescent;
     var snap = Snapshot{ .allocator = self.allocator };
     errdefer snap.deinit();
     var it = self.actors.iterator();
     while (it.next()) |entry| {
         const box = entry.value_ptr.box;
-        if (box.clone == null and !box.persistent) return Error.NotSnapshottable;
+        if (box.clone == null and !box.persistent) return error.NotSnapshottable;
         try snap.boxes.put(self.allocator, entry.key_ptr.*, box);
         box.refs += 1;
     }
@@ -394,7 +378,7 @@ pub fn snapshot(self: *Vat) Error!Snapshot {
 /// reusable across repeated restores. Touches local actor state only, never
 /// the peer, exports, far listeners, or arenas.
 pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
-    if (!quiescent(self)) return Error.NotQuiescent;
+    if (!quiescent(self)) return error.NotQuiescent;
     var rebuilt: std.AutoHashMapUnmanaged(u64, Cell) = .{};
     errdefer {
         var rit = rebuilt.valueIterator();
@@ -419,7 +403,7 @@ pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
     var lit = previous.valueIterator();
     while (lit.next()) |cell| releaseBox(self.allocator, cell.box);
     previous.deinit(self.allocator);
-    // `next_actor` is *not* rewound. An actor id is what the
+    // `actor_ids` is *not* rewound. An actor id is what the
     // export table maps a wire position to, and that table is not part of a
     // snapshot: rewinding it would rewind authority a partner already holds,
     // which is not local state. But rewinding only the counter is worse than

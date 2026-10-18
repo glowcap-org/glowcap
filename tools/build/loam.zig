@@ -5,19 +5,19 @@ const Gates = @import("gates.zig").Registered;
 const profile_build = @import("profile.zig");
 const lmdb_build = @import("loam/lmdb.zig");
 const sqlite_build = @import("loam/sqlite.zig");
-const owner_lock_build = @import("loam/owner_lock.zig");
+const custody_build = @import("loam/custody.zig");
 const crash_build = @import("loam/crash.zig");
 
 /// The disk engine modules, each registered with its own test step.
 pub const Engines = struct { lmdb: *std.Build.Module, sqlite: *std.Build.Module };
 
 pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, gates: Gates, profiles: profile_build.Profiles) Engines {
-    const owner_lock = owner_lock_build.create(b, target, optimize);
+    const custody = custody_build.create(b, target, optimize);
     const support = b.createModule(.{ .root_source_file = b.path("test/loam/core/fixture.zig"), .target = target, .optimize = optimize });
     support.addImport("glowcap", b.modules.get("glowcap").?);
     const temp = b.createModule(.{ .root_source_file = b.path("test/loam/engines/temp.zig"), .target = target, .optimize = optimize });
-    const lmdb_engine = lmdb_build.register(b, target, optimize, core, owner_lock, support, temp, gates);
-    const sqlite_engine = sqlite_build.register(b, target, optimize, core, owner_lock, support, temp, gates);
+    const lmdb_engine = lmdb_build.register(b, target, optimize, core, custody, support, temp, gates);
+    const sqlite_engine = sqlite_build.register(b, target, optimize, core, custody, support, temp, gates);
     crash_build.register(b, target, optimize, core, &.{ lmdb_engine, sqlite_engine }, gates);
     @import("loam/io_fault.zig").register(b, target, optimize, core, &.{ lmdb_engine, sqlite_engine }, gates);
     const engines: Engines = .{ .lmdb = lmdb_engine.module, .sqlite = sqlite_engine.module };
@@ -29,10 +29,10 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     bench_smoke.addArg("--smoke");
     gates.check_step.dependOn(&bench_smoke.step);
     // The same bench over the profiled graph, with its own engines for that target.
-    const profiled_owner_lock = owner_lock_build.create(b, profiles.target, profile_build.Profiles.optimize);
+    const profiled_custody = custody_build.create(b, profiles.target, profile_build.Profiles.optimize);
     const profiled_engines: Engines = .{
-        .lmdb = lmdb_build.create(b, profiles.target, profile_build.Profiles.optimize, profiles.module("loam_core"), profiled_owner_lock, false),
-        .sqlite = sqlite_build.create(b, profiles.target, profile_build.Profiles.optimize, profiles.module("loam_core"), profiled_owner_lock, false),
+        .lmdb = lmdb_build.create(b, profiles.target, profile_build.Profiles.optimize, profiles.module("loam_core"), profiled_custody, false),
+        .sqlite = sqlite_build.create(b, profiles.target, profile_build.Profiles.optimize, profiles.module("loam_core"), profiled_custody, false),
     };
     const profiled = benchExecutable(b, "loam-profile", profiles.moduleOptions(b, "bench/loam_bench.zig"), profiles.module("glowcap"), profiled_engines);
     b.step("profile-loam", "Profile bench-loam under callgrind: self cost per file and function for each marked phase, taking bench-loam's filters after --").dependOn(profile_build.addRun(b, profiles, profiled));

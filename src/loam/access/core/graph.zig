@@ -11,6 +11,7 @@ const ResourceId = identity.ResourceId;
 const KindId = identity.KindId;
 const Revision = identity.Revision;
 const Policy = @import("policy.zig").Policy;
+const bounds = @import("bounds.zig");
 
 const Node = struct {
     kind: KindId,
@@ -33,7 +34,7 @@ pub const Graph = struct {
     slots: []Slot,
     free_head: ?u32,
     live_count: u32 = 0,
-    current_revision: Revision = @fromBackingInt(@intCast(0)),
+    current_revision: Revision = @fromBackingInt(0),
     reservation: ?Reservation = null,
     reservation_sequence: u64 = 0,
 
@@ -44,7 +45,7 @@ pub const Graph = struct {
     pub const Limits = struct {
         capacity: u32,
         /// Root depth is zero. This bounds every ancestry walk.
-        max_depth: u32 = 64,
+        max_depth: u32 = bounds.max_depth,
     };
 
     pub const Error = ResourceView.Error || Policy.Error || error{
@@ -155,7 +156,7 @@ pub const Graph = struct {
         const next_revision = try self.nextRevision(base);
         const parent_index = if (parent) |id| try self.indexOf(id) else null;
         try policy.validatePlacement(kind, if (parent_index) |index| self.slots[index].node.?.kind else null);
-        _ = try self.childDepth(parent_index);
+        try self.checkChildDepth(parent_index);
         const index = self.free_head orelse return error.CapacityExceeded;
         const slot = &self.slots[index];
         self.free_head = slot.next_free;
@@ -175,11 +176,11 @@ pub const Graph = struct {
         try self.checkWritable(base);
         const index = try self.indexOf(id);
         const parent_index = if (parent) |p| try self.indexOf(p) else null;
-        try policy.validatePlacement(self.slots[index].node.?.kind, if (parent_index) |index_| self.slots[index_].node.?.kind else null);
+        try policy.validatePlacement(self.slots[index].node.?.kind, if (parent_index) |target| self.slots[target].node.?.kind else null);
         if (self.slots[index].node.?.parent == parent_index) return;
         const next_revision = try self.nextRevision(base);
         var resources = self.readView();
-        _ = try resources.checkReparent(id, parent, self.subtreeHeight(index));
+        try resources.checkReparent(id, parent, self.subtreeHeight(index));
         self.detach(index);
         self.attach(index, parent_index);
         self.current_revision = next_revision;
@@ -206,7 +207,7 @@ pub const Graph = struct {
 
     fn nextRevision(self: *const Graph, base: Revision) Error!Revision {
         try self.checkWritable(base);
-        return @fromBackingInt(@intCast(std.math.add(u64, @backingInt(base), 1) catch return error.RevisionExhausted));
+        return base.next() orelse error.RevisionExhausted;
     }
 
     fn checkWritable(self: *const Graph, base: Revision) Error!void {
@@ -226,11 +227,10 @@ pub const Graph = struct {
         return .{ .owner = self.owner, .slot = index, .generation = self.slots[index].generation };
     }
 
-    fn childDepth(self: *const Graph, parent: ?u32) Error!u32 {
-        const index = parent orelse return 0;
-        const depth = self.depthOf(index);
-        if (depth >= self.limits.max_depth) return error.DepthLimit;
-        return depth + 1;
+    /// A child of `parent` stays within `max_depth`.
+    fn checkChildDepth(self: *const Graph, parent: ?u32) Error!void {
+        const index = parent orelse return;
+        if (self.depthOf(index) >= self.limits.max_depth) return error.DepthLimit;
     }
 
     /// Parent edges above a live node. Every mutation keeps depth within

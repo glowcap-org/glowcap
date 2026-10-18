@@ -20,3 +20,6 @@ pub const encodeMessage = encode.encodeMessage;
 pub const encodeMessageForProfile = encode.encodeMessageForProfile;
 pub const encodeBody = encode.encodeBody;
 pub const encodeBodyForProfile = encode.encodeBodyForProfile;
+/// Cap'n Proto sizes its own segments: no meter walks a tree ahead of its
+/// encode.
+pub const meter: ?type = null;

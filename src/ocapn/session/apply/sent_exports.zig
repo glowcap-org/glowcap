@@ -11,7 +11,7 @@ const session = @import("../mod.zig");
 const Session = session.Session;
 const Error = session.Error;
 const RecvViewError = session.RecvViewError;
-const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const bootstrap_position = session.bootstrap_position;
 
 /// Retain a wire reference for every `near` export this outbound message puts
 /// on the wire. This is the outbound mirror of inbound introduced-import
@@ -90,7 +90,7 @@ const Mentions = struct {
 
     fn add(self: *Mentions, reference: model.Reference) void {
         const position = reference.exportPosition() orelse return;
-        if (position.int() == BOOTSTRAP_POSITION) return;
+        if (position.int() == bootstrap_position) return;
         if (self.list) |list| list[self.index.*] = position;
         self.index.* += 1;
     }
@@ -117,7 +117,7 @@ pub fn releaseMessage(self: *Session, message: model.Message) void {
 
 fn releaseRef(self: *Session, reference: model.Reference) void {
     switch (reference) {
-        .near => |near| if (near.export_position.int() != BOOTSTRAP_POSITION) {
+        .near => |near| if (near.export_position.int() != bootstrap_position) {
             std.debug.assert(self.exports.count(near.export_position) >= 2);
             self.exports.decrement(near.export_position, 1) catch unreachable;
         },
@@ -125,28 +125,28 @@ fn releaseRef(self: *Session, reference: model.Reference) void {
     }
 }
 
-/// Retain the wire mention of one sent export reference. Public because the
-/// engine's V1.0 resolver augmentation puts a resolver mention on the wire at
-/// encode time, bypassing `recordSend`.
+/// Retain the wire mention of one sent export reference: the per-reference
+/// step of `recordSend`'s export accounting. The session exposes it as
+/// `retainSentExportRef` so a test can take one mention outside a message.
 pub fn retainRef(self: *Session, reference: model.Reference) !void {
     switch (reference) {
-        .near => |near| if (near.export_position.int() != BOOTSTRAP_POSITION) {
+        .near => |near| if (near.export_position.int() != bootstrap_position) {
             try establishRef(self, near);
             // A live row's cell is authoritative from establishment. A
             // re-mention only takes the wire-delta retain; it never rebinds the
             // cell from `near.kind`.
-            try self.exports.retain(self.allocator, near.export_position);
+            self.exports.retain(near.export_position);
         },
         else => {},
     }
 }
 
 fn establishRef(self: *Session, near: model.NearRef) !void {
-    if (near.export_position.int() == BOOTSTRAP_POSITION or self.exports.contains(near.export_position)) return;
+    if (near.export_position.int() == bootstrap_position or self.exports.contains(near.export_position)) return;
     // A resolution may establish an export before next puts it on the wire.
     // Establish the local baseline separately from wire-delta accounting so a
     // later listener callback can retain exactly its own mention.
-    try self.admitExportPositionForMarshal(near.export_position);
+    try self.validateExportPositionForMarshal(near.export_position);
     const cell: session.slot.Slot = switch (near.kind) {
         .object => .{ .local_value = near.export_position.int() },
         .promise => .{ .local_unresolved = near.export_position.int() },
@@ -189,7 +189,7 @@ pub fn ensureResolutionCapacity(
     var mentions: usize = 0;
     for (inventory.slots) |slot| switch (slot.read(root).*) {
         .reference => |reference| mentions += @intFromBool(reference == .near and
-            reference.near.export_position.int() != BOOTSTRAP_POSITION),
+            reference.near.export_position.int() != bootstrap_position),
         else => {},
     };
     try self.exports.ensureUnusedCapacity(self.allocator, mentions);

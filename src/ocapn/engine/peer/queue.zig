@@ -41,6 +41,15 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
             try self.items.ensureUnusedCapacity(allocator, count);
         }
 
+        /// Append one row the caller fills in place, for a row too wide to
+        /// build and then copy. Only an unweighted queue offers it, since a
+        /// weighed row is measured as it is pushed.
+        pub fn pushUninit(self: *Self, allocator: std.mem.Allocator) !*T {
+            comptime std.debug.assert(weightOf == null);
+            if (self.items.items.len == self.items.capacity) fifo.compactHead(T, &self.items, &self.head);
+            return self.items.addOne(allocator);
+        }
+
         pub fn pushAssumeCapacity(self: *Self, value: T) void {
             self.items.appendAssumeCapacity(value);
             self.addWeight(&value);
@@ -59,11 +68,9 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         }
 
         /// Remove the front row `peek` lent the caller, which consumed it, and
-        /// perform drain housekeeping immediately.
+        /// reclaim the backing at once when that drained the queue.
         pub fn consumeFront(self: *Self, allocator: std.mem.Allocator) T {
-            const value = self.pop(allocator) orelse unreachable;
-            if (self.isEmpty()) std.debug.assert(self.pop(allocator) == null);
-            return value;
+            return consumeFrontBounded(self, allocator, steady_retain_bytes);
         }
 
         /// Consume the front row `peek` lent the caller while retaining backing
@@ -71,32 +78,19 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
         /// steady-footprint trim resumes as soon as the last reservation
         /// publishes or cancels.
         pub fn consumeFrontReserved(self: *Self, allocator: std.mem.Allocator) T {
-            const value = fifo.popHead(
-                T,
-                &self.items,
-                &self.head,
-                allocator,
-                fifo.retain_all,
-            ) orelse unreachable;
-            if (self.isEmpty()) std.debug.assert(fifo.popHead(
-                T,
-                &self.items,
-                &self.head,
-                allocator,
-                fifo.retain_all,
-            ) == null);
+            return consumeFrontBounded(self, allocator, fifo.retain_all);
+        }
+
+        fn consumeFrontBounded(self: *Self, allocator: std.mem.Allocator, steady_bytes: usize) T {
+            const value = self.pop(allocator) orelse unreachable;
+            if (self.isEmpty()) fifo.reclaimDrained(T, &self.items, &self.head, allocator, steady_bytes);
             return value;
         }
 
+        /// Return a drained queue's burst capacity above the steady bound.
         pub fn trimDrained(self: *Self, allocator: std.mem.Allocator) void {
             std.debug.assert(self.isEmpty());
-            std.debug.assert(fifo.popHead(
-                T,
-                &self.items,
-                &self.head,
-                allocator,
-                steady_retain_bytes,
-            ) == null);
+            fifo.reclaimDrained(T, &self.items, &self.head, allocator, steady_retain_bytes);
         }
 
         /// Roll back the most-recent append without crossing the drain cursor.
@@ -142,7 +136,7 @@ pub fn Queue(comptime T: type, comptime weightOf: ?*const fn (*const T) usize) t
 
         fn addWeight(self: *Self, value: *const T) void {
             if (weightOf) |measure| {
-                self.queued_weight = std.math.add(usize, self.queued_weight, measure(value)) catch unreachable;
+                self.queued_weight += measure(value);
             }
         }
 

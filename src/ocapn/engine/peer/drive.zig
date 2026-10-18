@@ -13,10 +13,10 @@ const engine = @import("../mod.zig");
 const events = @import("../events.zig");
 const inbound = @import("../inbound.zig");
 const outbound = @import("../outbound.zig");
+const remote_forward = @import("../remote_forward.zig");
 const outbound_drain = @import("../outbound/drain.zig");
 const failures = @import("failures.zig");
 const handoffs = @import("handoffs.zig");
-const settlement = @import("settlement.zig");
 
 const Peer = engine.Peer;
 
@@ -46,7 +46,7 @@ pub fn feedOwned(self: *Peer, frame: foundation.Frame) !void {
 /// dispatch one inbound frame, or encode one pending outbound carrier. A next-
 /// profile operation and mandatory listener publish atomically as one item.
 pub fn step(self: *Peer) !events.StepOutcome {
-    if (settlement.retryImportedPromiseFire(self) catch |err| {
+    if (outbound.retryDeferredSettlement(self) catch |err| {
         failures.projectDeferredStepFailure(self, err);
         return err;
     }) return .progress;
@@ -74,8 +74,7 @@ pub fn step(self: *Peer) !events.StepOutcome {
     // saves one kernel send per call. When the embedder is about to park, it
     // calls `flushAnswerReleases` and the releases go alone, so a quiet
     // session still sends them (ADR-0214).
-    const has_import_release = if (self.session_state.import_release_outbox) |outbox| outbox.head != null else false;
-    if (outbound_drain.holdsAnswerReleases(self) and !has_import_release) return .idle;
+    if (outbound_drain.holdsAnswerReleases(self) and !self.session_state.hasImportRelease()) return .idle;
     if (self.pending_send.peek() != null) {
         outbound_drain.stepPending(self) catch |err| {
             failures.projectDeferredStepFailure(self, err);
@@ -83,7 +82,7 @@ pub fn step(self: *Peer) !events.StepOutcome {
         };
         return .progress;
     }
-    if (try @import("../remote_forward.zig").drainImportRelease(self)) return .progress;
+    if (try remote_forward.drainImportRelease(self)) return .progress;
     return .idle;
 }
 
@@ -111,7 +110,7 @@ pub fn stepToIdle(self: *Peer) !void {
 
 /// Copy borrowed wire bytes into the engine's owned inbound frame: one block
 /// with the shape's required alignment and a head sized for the parse, which
-/// admission writes through `events.Parse.store`, and for the argument views
+/// `events.Parse.decode` fills, and for the argument views
 /// the decoder fills, sized by the bytes (`events.headViewsFor`). This is the
 /// single shape-aware materialization used when a surfaced event or
 /// netlayer-owned frame must outlive its borrowed buffer.
@@ -155,9 +154,8 @@ pub fn recvPacket(self: *Peer, packet: []const u8) !void {
     try recvBorrowed(self, .{ .bytes = packet, .shape = shape });
 }
 
-/// Transfer the next surfaced event to the caller, or null when drained. The
-/// queued row decodes its frame here, once, for every reader downstream.
-pub fn pollEvent(self: *Peer) ?events.Event {
-    const queued = self.events.pop(self.allocator) orelse return null;
-    return queued.surface();
+/// Transfer the next surfaced event to the caller, or null when drained.
+/// Inline, so the row moves from the queue into the caller's binding.
+pub inline fn pollEvent(self: *Peer) ?events.Event {
+    return self.events.pop(self.allocator);
 }

@@ -82,7 +82,7 @@ const crypto = foundation.crypto;
 /// so the ephemeral secret does not linger. The `HostRuntime` handshake halves
 /// and its identity key use this one entropy boundary.
 pub fn drawSessionSecret(io: std.Io) Error!crypto.SecretKey {
-    var seed: [crypto.SEED_BYTES]u8 = undefined;
+    var seed: [crypto.seed_bytes]u8 = undefined;
     defer std.crypto.secureZero(u8, &seed);
     io.randomSecure(&seed) catch return Error.HandshakeEntropyFailed;
     return crypto.SecretKey.fromSeed(seed);

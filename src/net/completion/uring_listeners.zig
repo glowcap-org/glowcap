@@ -56,10 +56,6 @@ pub const Listeners = struct {
         self.rows.putAssumeCapacityNoClobber(fd, .{});
     }
 
-    pub fn isListener(self: *const Listeners, fd: Fd) bool {
-        return self.rows.contains(fd);
-    }
-
     pub fn noteAccept(self: *Listeners, fd: Fd, user_data: u64) void {
         const row = self.rows.getPtr(fd).?;
         std.debug.assert(row.accept_ud == null);

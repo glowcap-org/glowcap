@@ -181,7 +181,7 @@ and target before any wait. `preparedLiveDependent` borrows only that declared
 facet for the transaction, and hands nothing out. Saving the facet once means
 a receipt and its replays all return the same capability. When a reply is
 retried, `matchesLiveDependent` checks the saved facet's source and target
-without building another facet. Restoring it cold after a restart is still
+without building another facet. Restoring it cold after a restart is
 refused ([ADR-0205](../decisions/adr/ADR-0205-stable-dependent-live-results.md)).
 
 A forwarded call is delivered once through the Host and Vat, and later Store
@@ -189,7 +189,7 @@ changes cannot run it again. Its reply keeps nested capabilities and the
 target's failure text, and settles like any other promise. The Host owns how
 those capabilities cross the wire or reach local listeners.
 
-Local Vat calls still pass only plain data in arguments and results. Use the
+Local Vat calls pass only plain data in arguments and results. Use the
 Host's value delivery for capability values the call owns. Receipt arguments
 and results can hold durable capabilities from the same attachment, and other
 kinds of capability are refused before any content is written. Unresolved
@@ -201,7 +201,8 @@ Attachment options limit saves in progress (`max_reference_saves`, default
 <!-- value ../../src/loam/hosting/attachment.zig max_reference_saves -->64<!-- /value -->) and forwarded reply storage (`forward_reply_bytes`, default
 <!-- value ../../src/loam/hosting/attachment.zig forward_reply_bytes bytes -->16 KiB<!-- /value -->). Reference slots, recipe copies, and forwarded results use the
 call's fixed memory. A scope allocates one fixed array for its attachments. A
-recipe has at most one local edge and 4097 payload bytes. Store read buffers,
+recipe holds at most one local edge, and its payload is at most the URI limit
+plus one byte. Store read buffers,
 retentions, and the Host's limits for reviving and dialing sturdyrefs are
 separate.
 

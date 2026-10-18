@@ -35,11 +35,11 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
     var frame = try codec.syrup.encodeMessage(allocator, prepared.message);
     defer frame.deinit();
     const view = try codec.syrup.decodeBody(frame.view());
-    const action = try engine.bootstrap.pendingBootstrapAction(view.deliver, null);
+    const action = try engine.bootstrap.pendingBootstrapAction(&view.deliver, null);
     try std.testing.expect(action != null);
     try std.testing.expect(action.? == .fetch);
     try std.testing.expectEqualStrings("swiss", action.?.fetch.swissnum);
-    try std.testing.expectEqual(model.AnswerName.fromWire(prepared.answer_position), action.?.fetch.answer);
+    try std.testing.expectEqual(model.AnswerName.fromWire(prepared.answer.position), action.?.fetch.answer);
 
     // Miss: a deliver whose method symbol is not "fetch" falls through (null, no error).
     {
@@ -47,7 +47,7 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
         args[0] = .{ .symbol = try allocator.dupe(u8, "frob") };
         args[1] = .{ .bytes = try allocator.dupe(u8, "swiss") };
         const msg = model.Message{ .deliver = .{
-            .target = .{ .far = model.FarRef.object(session.BOOTSTRAP_POSITION) },
+            .target = .{ .far = model.FarRef.object(session.bootstrap_position) },
             .args = args,
             .answer = .from(4),
         } };
@@ -55,7 +55,7 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
         var miss_frame = try codec.syrup.encodeMessage(allocator, msg);
         defer miss_frame.deinit();
         const miss_view = try codec.syrup.decodeBody(miss_frame.view());
-        try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(miss_view.deliver, null)) == null);
+        try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(&miss_view.deliver, null)) == null);
     }
 
     // Miss: a fetch-shaped deliver to a non-bootstrap target falls through too.
@@ -72,7 +72,7 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
         var miss_frame = try codec.syrup.encodeMessage(allocator, msg);
         defer miss_frame.deinit();
         const miss_view = try codec.syrup.decodeBody(miss_frame.view());
-        try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(miss_view.deliver, null)) == null);
+        try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(&miss_view.deliver, null)) == null);
     }
 }
 
@@ -89,8 +89,8 @@ test "a deliver to .far import 0 is not auto-served as a bootstrap fetch" {
     const wire = "<10'op:deliver<18'desc:import-object0+>[5'fetch5:swiss]4+f>";
     const view = try codec.syrup.decodeBody(.{ .bytes = wire, .shape = .byte });
     try std.testing.expect(view.deliver.target == .far);
-    try std.testing.expectEqual(session.BOOTSTRAP_POSITION, view.deliver.target.far.import_position.int());
-    try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(view.deliver, null)) == null);
+    try std.testing.expectEqual(session.bootstrap_position, view.deliver.target.far.import_position.int());
+    try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(&view.deliver, null)) == null);
 }
 
 test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
@@ -122,7 +122,7 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
     const match = try engine.fetch.tryMatchFetchOutcome(
         std.testing.allocator,
         prepared.resolver_export,
-        prepared.answer_position,
+        prepared.answer.position,
         owned,
     );
     switch (match.settled) {

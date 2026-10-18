@@ -155,7 +155,14 @@ test "failed application operation leaves a provisional exporter retireable" {
 
     const give = try signedGiveForLifecycleTest(allocator);
     defer allocator.free(give);
-    try client.node.acceptGive(introducing_pair.a.peer_handle, 45, give, "ocapn://127.0.0.1%3A7099.tcp");
+    const introducing_state = &introducing_pair.a.served.port.peer.session_state;
+    try introducing_state.installOutboundAnswer(.from(45));
+    try client.node.acceptGive(
+        introducing_pair.a.peer_handle,
+        introducing_state.outboundAnswerTarget(.from(45)).?,
+        give,
+        "ocapn://127.0.0.1%3A7099.tcp",
+    );
     const dial = client.node.nextAction() orelse return error.MissingDial;
     try std.testing.expect(dial == .dial);
     _ = try client.node.exporterDialed(dial.dial.pending, 0, pair.a.peer_handle);
@@ -164,7 +171,8 @@ test "failed application operation leaves a provisional exporter retireable" {
 
     var pending_withdraws = client.node.redeems.withdrawals.rows.keyIterator();
     const withdraw = pending_withdraws.next() orelse return error.MissingWithdraw;
-    try std.testing.expect(try client.node.claimResolve(pair.a.peer_handle, withdraw.answer, .not_capability));
+    const withdraw_target = pair.a.served.port.peer.session_state.outboundAnswerTarget(.from(withdraw.answer)).?;
+    try std.testing.expect(try client.node.claimResolve(pair.a.peer_handle, withdraw_target, .not_capability));
     const failure = client.node.nextAction() orelse return error.MissingFailure;
     try std.testing.expect(failure == .fail);
 
@@ -235,6 +243,8 @@ test "core host: an inline give becomes one nested promise identity and terminal
     }
     const pair = try openPair(allocator, &host, &partner, "127.0.0.1:7100", &dials);
     const session = pair.a;
+    const baseline_operations = session.pendingOperations();
+    const baseline_host_operations = host.pending_operations;
 
     const signed = try signedGiveForLifecycleTest(allocator);
     defer allocator.free(signed);
@@ -313,6 +323,8 @@ test "core host: an inline give becomes one nested promise identity and terminal
         session.served.port.peer.session_state.answerForLocalPromiseExport(projected.near.export_position) == null,
     );
     try std.testing.expect(host.localActorFor(argument_cap) == null);
+    try std.testing.expectEqual(baseline_operations, session.pendingOperations());
+    try std.testing.expectEqual(baseline_host_operations, host.pending_operations);
     try std.testing.expectError(
         error.PromiseBroken,
         host.sendCapability(session, promise, .{ .verb = "poke", .args = &.{} }),
@@ -390,7 +402,17 @@ test "core host: releasing queued promise operations cancels their exact ownersh
     try host.releaseCapability(promise, 1);
 }
 
-fn runNestedGivePipelining(close_introducer: bool, application: bool, version: model.CaptpVersion) !void {
+const PipeliningCase = struct {
+    close_introducer: bool = false,
+    application: bool = false,
+    version: model.CaptpVersion = .next,
+    callback_release: bool = false,
+};
+
+fn runNestedGivePipelining(case: PipeliningCase) !void {
+    const close_introducer = case.close_introducer;
+    const application = case.application;
+    const version = case.version;
     const allocator = std.testing.allocator;
     var options = Host.Options.withFrameCap(frame_cap);
     options.captp_version = version;
@@ -562,7 +584,7 @@ fn runNestedGivePipelining(close_introducer: bool, application: bool, version: m
         );
         try std.testing.expectError(
             error.PromiseBroken,
-            recipient.routeCapability(r_to_anchor.a, promise, true),
+            recipient.routeCapability(r_to_anchor.a, promise, .object_only),
         );
         try std.testing.expect(ready.broken);
         try std.testing.expect(recipient.capabilitySession(promise) == null);
@@ -573,7 +595,7 @@ fn runNestedGivePipelining(close_introducer: bool, application: bool, version: m
         }
     } else {
         try pumpToQuiescence(allocator, &hosts, &.{ g_to_e, r_to_g, r_to_anchor, r_to_e }, &dials);
-        const routed = try recipient.routeCapability(dialed, promise, true);
+        const routed = try recipient.routeCapability(dialed, promise, .object_only);
         try std.testing.expect(routed.session == dialed);
         try std.testing.expect(recipient.capabilitySession(promise) == dialed);
         const observed = try recipient.routeSend(dialed, try ready.require(), &.{});
@@ -583,7 +605,7 @@ fn runNestedGivePipelining(close_introducer: bool, application: bool, version: m
         const generic = try recipient.routeSend(dialed, try resolved_ready.require(), &.{});
         try std.testing.expectEqual(observed.target.far, generic.target.far);
         const settled = (try recipient.resolveCapability(r_to_anchor.a, promise)).resolved;
-        try std.testing.expect((try recipient.routeCapability(dialed, settled, true)).session == dialed);
+        try std.testing.expect((try recipient.routeCapability(dialed, settled, .object_only)).session == dialed);
         try recipient.releaseCapability(settled, 1);
         try std.testing.expectEqualStrings("poked over fed bytes", reply.text());
         if (application) {
@@ -596,20 +618,27 @@ fn runNestedGivePipelining(close_introducer: bool, application: bool, version: m
         }
     }
     try std.testing.expect(recipient.localActorFor(argument_cap) == null);
-    try recipient.releaseCapability(promise, 1);
+    if (case.callback_release) {
+        try @import("give/abandon_callback.zig").exercise(&recipient, dialed, r_to_g.a, &handoff, promise);
+    } else try recipient.releaseCapability(promise, 1);
 }
 
 test "core host: a nested give pipelines immediately and settles through its exporter" {
-    try runNestedGivePipelining(false, false, .next);
+    try runNestedGivePipelining(.{});
 }
 
 test "core host: closing a nested give's introducing session breaks its pipeline once" {
-    try runNestedGivePipelining(true, false, .next);
+    try runNestedGivePipelining(.{ .close_introducer = true });
 }
 
 test "core host: application sends and tells pipeline through handed-off capabilities" {
     for ([_]model.CaptpVersion{ .v1_0, .next }) |version| {
-        try runNestedGivePipelining(false, true, version);
-        try runNestedGivePipelining(true, true, version);
+        try runNestedGivePipelining(.{ .application = true, .version = version });
+        try runNestedGivePipelining(.{ .close_introducer = true, .application = true, .version = version });
     }
+}
+
+test "core host: fulfilled promise release survives callback promise map growth" {
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |version|
+        try runNestedGivePipelining(.{ .version = version, .callback_release = true });
 }

@@ -13,7 +13,7 @@ superseded_by: []
 ## Context
 
 If a spawned capability's export position is addressable the moment it is
-allocated, a partner that guesses the small, dense, monotonic integer can
+allocated, a partner that guesses the small, dense integer can
 deliver to it between the spawn and the first send of its reference. This
 covers `driver.spawnAt` (and every surface riding it: `Served.spawn`,
 `glowcap_host_session_spawn`, `glowcap_host_turn_spawn`, the bindings' `spawn`)
@@ -37,7 +37,7 @@ partner would kill our live capability.
 Admission lives in the session's tables, where authority lives. An export row's
 refcount is one local baseline plus everything the partner was granted: each
 wire mention (`retainSentExports`, on every send path) and each explicit grant
-(`registerExport`). `ExportTable.wireHeld` (`src/ocapn/session/slot_table.zig`)
+(`registerExport`). `ExportTable.wireHeld` (`src/ocapn/session/export_table.zig`)
 names the partner-releasable, partner-addressable share: count minus baseline.
 The one reference validator (`validateReference`,
 `src/ocapn/session/validate.zig`) takes a comptime perspective: on the `sent`

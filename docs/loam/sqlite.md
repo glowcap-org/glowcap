@@ -113,8 +113,11 @@ the size your storage budget allows and open with it.
 
 `Sqlite.compact()` rewrites the file without its free pages, in place, and
 refuses while a transaction is open. SQLite's vacuum runs as one transaction,
-so a crash leaves the store as it was or fully compacted, and the engine then
-checkpoints the log so the file shrinks before `compact` returns.
+so a crash leaves the store as it was or fully compacted. The engine then
+checkpoints the log so the file shrinks before `compact` returns. If another
+connection holds the log, `compact` returns `Busy` with the rows already
+compacted, and the file shrinks at a later checkpoint or at close.
+
 While it runs, the vacuum writes a copy of the live rows to a temporary file
 and another to the log, so it needs about twice their size in free disk.
 The temporary file goes in the directory `SQLITE_TMPDIR` or `TMPDIR` names,

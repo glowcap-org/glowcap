@@ -27,6 +27,13 @@ a micro-saving earns an asymmetry.
   is wrong. Never hide allocation behind a neutral name.
 - A standard generic over a wide value (`std.mem.reverse`, `std.mem.swap`)
   moves it byte by byte. On the wire path, move whole values and measure.
+- A record near a kilobyte or wider is filled in place (`fn init(self:
+  *Record, ...)`, `decodeOwned(self: *Record, ...)`), never returned by value
+  or through an error union. Storing `null` into a wide optional, or a void
+  arm into a wide `union(enum)`, zeroes the whole payload even in
+  ReleaseFast: one such row cost inbound dispatch a third of its
+  instructions, and a `?Read` reset cost the loam hot read six percent. Hold a
+  wide member inline and unconditional, with a phase flag beside it.
 - A block's size class is a cost: `engine.events.small_block_bytes` names
   the C allocator's cheap class, and ADR-0238 holds what a block past it
   measured, so re-derive from that before pooling anything.

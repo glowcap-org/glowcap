@@ -43,7 +43,7 @@ test "raw routing admits the depth limit and refuses the next node without mutat
     try destination.served.port.peer.importObject(7);
     const target = try host.node.enrollForeign(
         destination.peer_handle,
-        .{ .far = model.FarRef.object(7) },
+        model.FarRef.object(7),
     );
     var exact_backing: [model.max_value_depth + 1][1]model.Argument = undefined;
     const exact = nestedArgument(
@@ -58,7 +58,7 @@ test "raw routing admits the depth limit and refuses the next node without mutat
     const destination_pending = destination.pendingOperations();
     const host_pending = host.pending_operations;
     const vows = host.vows.count();
-    const next_vow = host.next_vow;
+    const next_vow = host.vow_ids.next;
     const routes = host.node.foreign_imports.count();
     var over_backing: [model.max_value_depth + 2][1]model.Argument = undefined;
     const over = nestedArgument(
@@ -77,7 +77,7 @@ test "raw routing admits the depth limit and refuses the next node without mutat
     try std.testing.expectEqual(destination_pending, destination.pendingOperations());
     try std.testing.expectEqual(host_pending, host.pending_operations);
     try std.testing.expectEqual(vows, host.vows.count());
-    try std.testing.expectEqual(next_vow, host.next_vow);
+    try std.testing.expectEqual(next_vow, host.vow_ids.next);
     try std.testing.expectEqual(routes, host.node.foreign_imports.count());
 
     const retried = try host.routeSend(
@@ -134,7 +134,7 @@ test "near raw routing refuses a foreign argument and accepts its own import" {
     try foreign.served.port.peer.importObject(8);
     const foreign_reference = try host.node.enrollForeign(
         foreign.peer_handle,
-        .{ .far = model.FarRef.object(8) },
+        model.FarRef.object(8),
     );
     const pending = source.pendingOperations();
     const vows = host.vows.count();

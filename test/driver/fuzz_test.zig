@@ -122,7 +122,7 @@ fn checkSession(session: *HostSession) !void {
 
 /// The largest unit a sealed channel may hold while waiting for the rest of
 /// it: one record header plus the longest body the header can name.
-const max_sealed_unit_bytes = glowcap.foundation.noise.RECORD_HEADER_BYTES + glowcap.foundation.noise.MAX_RECORD_BYTES;
+const max_sealed_unit_bytes = glowcap.foundation.noise.record_header_bytes + glowcap.foundation.noise.max_record_bytes;
 
 /// How a session's wire is delimited: an outer stream prefix around each
 /// frame, or the sealed channel's own records.

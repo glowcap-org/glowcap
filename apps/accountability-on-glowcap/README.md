@@ -32,9 +32,8 @@ roots under `.data/`, which is generated and gitignored.
    retired key are both refused.
 
 The identity scheme follows a small KERI-shaped model. Its self-certifying
-identifier is an AID, and the service being invoked is an Affordance. Both
-belong to this application. glowcap only carries the capability call and its
-result.
+identifier is an AID, and the service being invoked is an Affordance. Both are
+part of this application, and glowcap carries only the call and its result.
 
 ## Cross-language callers
 
@@ -79,9 +78,6 @@ This is an application example, not a complete KERI implementation:
   JSON body rather than KERI's CESR encoding.
 - The generated log and root live together under `.data/`. Detecting a rewritten
   log requires an auditor to retain or publish a trusted root elsewhere.
-
-The host still records an accepted call only when the presented history binds
-the request's signing key to the claimed identity.
 
 See [Design and verification](design.md) for the exact validation steps, refusal
 cases, and a map of the source files. [HTTP and capability

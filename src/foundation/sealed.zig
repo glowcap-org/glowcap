@@ -26,7 +26,7 @@
 //!   additional framing.
 //! - After the handshake, length-prefixed sealed records: a two-byte
 //!   big-endian ciphertext length, then that many bytes, at most
-//!   `foundation.noise.MAX_RECORD_BYTES` including the 16-byte tag. Record
+//!   `foundation.noise.max_record_bytes` including the 16-byte tag. Record
 //!   boundaries carry no meaning above this layer. A CapTP frame larger than
 //!   one record's plaintext capacity spans several.
 //!
@@ -42,13 +42,17 @@ const crypto = @import("crypto.zig");
 const spill = @import("spill.zig");
 const frame = @import("frame.zig");
 const identity_binding = @import("sealed_identity.zig");
+
+/// The longest transport symbol a sealed channel's prologue holds. A Host
+/// refuses a longer sealed-channel transport profile at definition.
+pub const max_transport_bytes = identity_binding.max_transport_bytes;
 const stream_framing = @import("stream_framing.zig");
 
 /// Fixed wire sizes of the three handshake messages. See the module header.
 const identity_proof_bytes: usize = identity_binding.proof_bytes;
-pub const msg1_wire_bytes: usize = noise.HandshakeState.MSG1_OVERHEAD;
-pub const msg2_wire_bytes: usize = noise.HandshakeState.MSG2_OVERHEAD + identity_proof_bytes;
-pub const msg3_wire_bytes: usize = noise.HandshakeState.MSG3_OVERHEAD + identity_proof_bytes;
+pub const msg1_wire_bytes: usize = noise.HandshakeState.msg1_overhead;
+pub const msg2_wire_bytes: usize = noise.HandshakeState.msg2_overhead + identity_proof_bytes;
+pub const msg3_wire_bytes: usize = noise.HandshakeState.msg3_overhead + identity_proof_bytes;
 
 /// Steady capacity of the record-plaintext scratch, and the retained capacity
 /// of the inbound staging after a drain, the byte-fed tier's steady-queue
@@ -76,6 +80,14 @@ pub const SealedError = error{
     HandshakeOutOfOrder,
 };
 
+/// Everything `ingest` can refuse: a Noise verdict, a channel verdict, or
+/// allocation pressure that consumed nothing.
+pub const IngestError = noise.NoiseError || SealedError || std.mem.Allocator.Error;
+
+/// Everything sealing can refuse: a Noise verdict, outbound arithmetic, or
+/// allocation pressure that advanced no cipher state.
+pub const SealError = noise.NoiseError || SealedError || std.mem.Allocator.Error;
+
 /// One connection's sealed channel: the handshake while it runs, the two
 /// transport ciphers after `open`, the inbound wire staging, and the one
 /// pending outbound handshake message. Owned by exactly one shell, a
@@ -90,7 +102,7 @@ pub const SealedError = error{
 /// size, exactly like an unsealed stream tail. Completion owners retain their
 /// receive-buffer borrow instead and never park a complete unit. `plain` is the
 /// scratch one record opens into, at most
-/// `foundation.noise.MAX_RECORD_PLAINTEXT_BYTES`, shrunk back to
+/// `foundation.noise.max_record_plaintext_bytes`, shrunk back to
 /// `steady_plain_bytes` by the next small record. Sealing and opening each pay
 /// the one AEAD pass per record ADR-0107 names: AEAD cannot encrypt in place
 /// across the borrowed-frame boundary the engine relies on, so ciphertext is
@@ -109,7 +121,7 @@ pub const SealedChannel = struct {
     local_proof: [identity_proof_bytes]u8,
     /// Initial Noise transcript shared by both sides, retained solely to
     /// verify the far side's role-specific identity proof.
-    identity_context: [noise.KEY_BYTES]u8,
+    identity_context: [noise.key_bytes]u8,
     /// The one pending outbound handshake message, drained by `takeWire`.
     /// At most one is ever pending: each side writes its next message only
     /// after consuming the reply to its previous one.
@@ -172,16 +184,16 @@ pub const SealedChannel = struct {
     pub fn initInitiator(
         identity: *const crypto.SecretKey,
         remote: crypto.PeerKey,
-        ephemeral_seed: [crypto.SEED_BYTES]u8,
+        ephemeral_seed: [crypto.seed_bytes]u8,
         transport: []const u8,
-    ) (noise.NoiseError || error{ InvalidIdentity, InvalidRemoteKey })!SealedChannel {
+    ) (noise.NoiseError || error{ InvalidIdentity, InvalidRemoteKey, TransportTooLong })!SealedChannel {
         var local = crypto.x25519FromSecretKey(identity) orelse return error.InvalidIdentity;
         defer std.crypto.secureZero(u8, &local.secret);
         const remote_x = crypto.x25519FromPeerKey(remote) orelse return error.InvalidRemoteKey;
         var ephemeral = crypto.X25519KeyMaterial.fromSecret(ephemeral_seed);
         defer std.crypto.secureZero(u8, &ephemeral.secret);
         var prologue_buf: [identity_binding.prologue_max_bytes]u8 = undefined;
-        const prologue = identity_binding.buildPrologue(&prologue_buf, transport, &remote.toDesignator());
+        const prologue = try identity_binding.buildPrologue(&prologue_buf, transport, &remote.toDesignator());
         var handshake = noise.HandshakeState.initInitiator(&local, remote_x, &ephemeral, prologue);
         defer handshake.deinit();
         const identity_context = handshake.initialHandshakeHash();
@@ -208,16 +220,16 @@ pub const SealedChannel = struct {
     /// agree, and it learns the initiator's identity from message three.
     pub fn initResponder(
         identity: *const crypto.SecretKey,
-        ephemeral_seed: [crypto.SEED_BYTES]u8,
+        ephemeral_seed: [crypto.seed_bytes]u8,
         transport: []const u8,
-    ) error{InvalidIdentity}!SealedChannel {
+    ) error{ InvalidIdentity, TransportTooLong }!SealedChannel {
         var local = crypto.x25519FromSecretKey(identity) orelse return error.InvalidIdentity;
         defer std.crypto.secureZero(u8, &local.secret);
         var ephemeral = crypto.X25519KeyMaterial.fromSecret(ephemeral_seed);
         defer std.crypto.secureZero(u8, &ephemeral.secret);
         var prologue_buf: [identity_binding.prologue_max_bytes]u8 = undefined;
         const local_identity = identity.publicKey();
-        const prologue = identity_binding.buildPrologue(&prologue_buf, transport, &local_identity.toDesignator());
+        const prologue = try identity_binding.buildPrologue(&prologue_buf, transport, &local_identity.toDesignator());
         var handshake = noise.HandshakeState.initResponder(&local, &ephemeral, prologue);
         defer handshake.deinit();
         const identity_context = handshake.initialHandshakeHash();
@@ -270,7 +282,7 @@ pub const SealedChannel = struct {
     /// Complete units are read directly from the borrowed slice. Only a unit
     /// split across calls enters `staged`. Allocation pressure consumes no
     /// caller bytes and leaves already-staged bytes retryable.
-    pub fn ingest(self: *SealedChannel, gpa: std.mem.Allocator, bytes: []const u8) !Ingest {
+    pub fn ingest(self: *SealedChannel, gpa: std.mem.Allocator, bytes: []const u8) IngestError!Ingest {
         std.debug.assert(self.pending_plain_len == 0);
         return self.ingestInner(gpa, bytes) catch |err| {
             if (err != error.OutOfMemory) self.fail();
@@ -298,7 +310,7 @@ pub const SealedChannel = struct {
                 .failed => unreachable,
                 .handshake => header_need,
                 .open => blk: {
-                    var header: [noise.RECORD_HEADER_BYTES]u8 = undefined;
+                    var header: [noise.record_header_bytes]u8 = undefined;
                     @memcpy(header[0..self.staged.len], self.staged.bytes());
                     const from_input = header_need - self.staged.len;
                     @memcpy(header[self.staged.len..header_need], bytes[0..from_input]);
@@ -347,12 +359,12 @@ pub const SealedChannel = struct {
         return switch (self.phase) {
             .failed => 0,
             .handshake => |hs| switch (hs.stage) {
-                0 => msg1_wire_bytes,
-                1 => msg2_wire_bytes,
-                2 => msg3_wire_bytes,
-                else => unreachable,
+                .message_one => msg1_wire_bytes,
+                .message_two => msg2_wire_bytes,
+                .message_three => msg3_wire_bytes,
+                .complete, .retired => unreachable,
             },
-            .open => noise.RECORD_HEADER_BYTES,
+            .open => noise.record_header_bytes,
         };
     }
 
@@ -365,7 +377,7 @@ pub const SealedChannel = struct {
             .open => std.math.add(
                 usize,
                 header_len,
-                noise.recordBodyLen(bytes[0..noise.RECORD_HEADER_BYTES].*),
+                noise.recordBodyLen(bytes[0..noise.record_header_bytes].*),
             ) catch SealedError.InboundOverflow,
         };
     }
@@ -378,7 +390,7 @@ pub const SealedChannel = struct {
                 const got = try hs.readMessage(unit, payload[0..]);
                 switch (self.role) {
                     .responder => switch (hs.stage) {
-                        1 => {
+                        .message_two => {
                             // Answer message one at once; message two is the
                             // only message this side writes.
                             if (self.pending_len != 0) return SealedError.HandshakeOutOfOrder;
@@ -387,7 +399,7 @@ pub const SealedChannel = struct {
                             self.pending_len = written.len;
                             return .handshake;
                         },
-                        3 => {
+                        .complete => {
                             const claimed = try identity_binding.verifyProof(
                                 got,
                                 .initiator,
@@ -398,12 +410,12 @@ pub const SealedChannel = struct {
                             self.remote_identity = claimed;
                             return self.completeHandshake();
                         },
-                        else => unreachable,
+                        .message_one, .message_three, .retired => unreachable,
                     },
                     .initiator => {
                         // Message two proves the exact responder identity the
                         // dial named. Only then answer with our own proof.
-                        std.debug.assert(hs.stage == 2);
+                        std.debug.assert(hs.stage == .message_three);
                         if (self.pending_len != 0) return SealedError.HandshakeOutOfOrder;
                         _ = try identity_binding.verifyProof(
                             got,
@@ -420,9 +432,9 @@ pub const SealedChannel = struct {
                 }
             },
             .open => |*keys| {
-                const header_len = noise.RECORD_HEADER_BYTES;
+                const header_len = noise.record_header_bytes;
                 const body_len = noise.recordBodyLen(unit[0..header_len].*);
-                const plain_len = body_len -| noise.TAG_BYTES;
+                const plain_len = body_len -| noise.tag_bytes;
                 // Reserve the plaintext scratch before touching cipher state,
                 // so an allocation failure leaves the record staged and
                 // retryable. No borrow is live here, the previous record's
@@ -451,8 +463,8 @@ pub const SealedChannel = struct {
 
     fn ensurePlainCapacityForUnitLen(self: *SealedChannel, gpa: std.mem.Allocator, unit_len: usize) !void {
         if (self.phase != .open) return;
-        const body_len = unit_len - noise.RECORD_HEADER_BYTES;
-        const plain_len = body_len -| noise.TAG_BYTES;
+        const body_len = unit_len - noise.record_header_bytes;
+        const plain_len = body_len -| noise.tag_bytes;
         if (plain_len > self.plain.len) {
             self.wipePlain();
             self.plain = try gpa.realloc(self.plain, plain_len);
@@ -509,33 +521,15 @@ pub const SealedChannel = struct {
     /// writes verbatim: the outer Syrup prefix as its own small record, then
     /// the frame bytes across as many records as they need, so the plaintext
     /// stream inside the records is exactly the unsealed wire's.
-    pub fn sealFrame(self: *SealedChannel, gpa: std.mem.Allocator, frame_bytes: []const u8) !frame.Frame {
-        std.debug.assert(self.phase == .open);
-        const keys = &self.phase.open;
+    pub fn sealFrame(self: *SealedChannel, gpa: std.mem.Allocator, frame_bytes: []const u8) SealError!frame.Frame {
         var prefix_buf: [stream_framing.prefix_buffer_bytes]u8 = undefined;
-        const prefix = stream_framing.renderPrefix(&prefix_buf, frame_bytes.len);
-        const record_overhead = noise.RECORD_HEADER_BYTES + noise.TAG_BYTES;
-        const body_records = std.math.divCeil(usize, frame_bytes.len, noise.MAX_RECORD_PLAINTEXT_BYTES) catch unreachable;
-        const record_count = std.math.add(usize, 1, body_records) catch
-            return SealedError.OutboundOverflow;
-        try keys.send.ensureNonceCapacity(record_count);
-        const overhead_bytes = std.math.mul(usize, record_count, record_overhead) catch
-            return SealedError.OutboundOverflow;
-        const framed_bytes = std.math.add(usize, prefix.len, frame_bytes.len) catch
-            return SealedError.OutboundOverflow;
-        const total = std.math.add(usize, overhead_bytes, framed_bytes) catch
-            return SealedError.OutboundOverflow;
-        const storage = try gpa.alloc(u8, total);
+        const spans = [_][]const u8{ stream_framing.renderPrefix(&prefix_buf, frame_bytes.len), frame_bytes };
+        const plan = try self.planSeal(&spans);
+        const storage = try gpa.alloc(u8, plan.bytes);
         errdefer gpa.free(storage);
-        var written: usize = 0;
-        written += (try noise.sealRecord(&keys.send, prefix, storage[written..])).len;
-        var offset: usize = 0;
-        while (offset < frame_bytes.len) {
-            const take = @min(noise.MAX_RECORD_PLAINTEXT_BYTES, frame_bytes.len - offset);
-            written += (try noise.sealRecord(&keys.send, frame_bytes[offset..][0..take], storage[written..])).len;
-            offset += take;
-        }
+        const written = try self.sealSpans(&spans, storage);
         std.debug.assert(written == storage.len);
+        // A byte frame over byte-aligned storage cannot be shape-refused.
         return frame.Frame.initOwned(gpa, storage, .byte, .fromByteUnits(1)) catch unreachable;
     }
 
@@ -545,26 +539,51 @@ pub const SealedChannel = struct {
     /// alignment with frame boundaries and none is created. An allocation
     /// refusal appends nothing and advances no cipher state, so the caller
     /// may retry the same bytes.
-    pub fn sealBytes(self: *SealedChannel, gpa: std.mem.Allocator, out: *std.ArrayList(u8), bytes: []const u8) !void {
+    pub fn sealBytes(self: *SealedChannel, gpa: std.mem.Allocator, out: *std.ArrayList(u8), bytes: []const u8) SealError!void {
+        const spans = [_][]const u8{bytes};
+        const plan = try self.planSeal(&spans);
+        try out.ensureUnusedCapacity(gpa, plan.bytes);
+        out.items.len += try self.sealSpans(&spans, out.unusedCapacitySlice());
+    }
+
+    const SealPlan = struct { records: usize, bytes: usize };
+
+    /// Size `spans` as sealed records. Each span fills whole records on its
+    /// own boundary, so the plaintext inside the records is exactly the
+    /// unsealed stream. Refuses before any cipher state advances.
+    fn planSeal(self: *SealedChannel, spans: []const []const u8) (noise.NoiseError || SealedError)!SealPlan {
         std.debug.assert(self.phase == .open);
-        if (bytes.len == 0) return;
-        const keys = &self.phase.open;
-        const record_overhead = noise.RECORD_HEADER_BYTES + noise.TAG_BYTES;
-        const records = std.math.divCeil(usize, bytes.len, noise.MAX_RECORD_PLAINTEXT_BYTES) catch unreachable;
-        try keys.send.ensureNonceCapacity(records);
-        const overhead_bytes = std.math.mul(usize, records, record_overhead) catch
-            return SealedError.OutboundOverflow;
-        const total = std.math.add(usize, overhead_bytes, bytes.len) catch
-            return SealedError.OutboundOverflow;
-        try out.ensureUnusedCapacity(gpa, total);
-        var offset: usize = 0;
-        while (offset < bytes.len) {
-            const take = @min(noise.MAX_RECORD_PLAINTEXT_BYTES, bytes.len - offset);
-            const dest = out.unusedCapacitySlice();
-            const sealed_len = (try noise.sealRecord(&keys.send, bytes[offset..][0..take], dest)).len;
-            out.items.len += sealed_len;
-            offset += take;
+        const record_overhead = noise.record_header_bytes + noise.tag_bytes;
+        var plan: SealPlan = .{ .records = 0, .bytes = 0 };
+        for (spans) |span| {
+            const records = std.math.divCeil(usize, span.len, noise.max_record_plaintext_bytes) catch unreachable;
+            plan.records = std.math.add(usize, plan.records, records) catch
+                return SealedError.OutboundOverflow;
+            plan.bytes = std.math.add(usize, plan.bytes, span.len) catch
+                return SealedError.OutboundOverflow;
         }
+        const overhead = std.math.mul(usize, plan.records, record_overhead) catch
+            return SealedError.OutboundOverflow;
+        plan.bytes = std.math.add(usize, plan.bytes, overhead) catch
+            return SealedError.OutboundOverflow;
+        try self.phase.open.send.ensureNonceCapacity(plan.records);
+        return plan;
+    }
+
+    /// Seal `spans` into `out`, which `planSeal` sized, and return the bytes
+    /// written.
+    fn sealSpans(self: *SealedChannel, spans: []const []const u8, out: []u8) noise.NoiseError!usize {
+        const send = &self.phase.open.send;
+        var written: usize = 0;
+        for (spans) |span| {
+            var offset: usize = 0;
+            while (offset < span.len) {
+                const take = @min(noise.max_record_plaintext_bytes, span.len - offset);
+                written += (try noise.sealRecord(send, span[offset..][0..take], out[written..])).len;
+                offset += take;
+            }
+        }
+        return written;
     }
 
     /// Retire the channel: wipe the handshake or transport keys and drop any
@@ -591,6 +610,6 @@ pub const SealedChannel = struct {
         self.staged.deinit(gpa);
         std.crypto.secureZero(u8, self.plain);
         gpa.free(self.plain);
-        self.plain = &.{};
+        self.* = undefined;
     }
 };

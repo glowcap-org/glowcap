@@ -9,6 +9,7 @@ const preparation = @import("preparation.zig");
 const recipe_mod = @import("reference_recipe.zig");
 const save_mod = @import("reference_save.zig");
 const live_mod = @import("live_scope.zig");
+const live_epoch = @import("live_epoch.zig");
 pub const schema = recipe_mod.schema;
 pub const Scope = @import("reference_scope.zig").Scope;
 pub const Save = save_mod.Save;
@@ -67,7 +68,18 @@ pub fn retainedUriAllocationBound(count: usize, uri_bytes: usize) !AllocationBou
     try bound.include(uri_bytes, 1, count);
     return bound;
 }
-pub const Replacement = union(enum) { edge: core.Edge, saved: *Saved };
+pub const Replacement = union(enum) {
+    edge: core.Edge,
+    saved: *Saved,
+
+    /// The edge to store: the committed one, or the proof's staged edge.
+    pub fn stage(self: Replacement, store: *core.Store) !core.Edge {
+        return switch (self) {
+            .edge => |edge| edge,
+            .saved => |saved| try saved.stage(store),
+        };
+    }
+};
 
 /// A call-bound recipe proof. Application code cannot manufacture a saved
 /// target from a name. Copies retain the actual capability through outcome.
@@ -143,6 +155,8 @@ pub const Set = struct {
     ahead: usize = 0,
     pending: ?core.Ticket = null,
     live_checked_revision: ?u64 = null,
+    const Step = preparation.Preparation.Step;
+
     const Slot = struct {
         request: Request,
         retention: ?core.Retention = null,
@@ -152,7 +166,7 @@ pub const Set = struct {
         save: ?*Save = null,
         proof: ?*Saved = null,
         live: ?*live_mod.Reservation = null,
-        live_epoch: ?@import("live_epoch.zig").Epoch = null,
+        live_epoch: ?live_epoch.Epoch = null,
         ready: bool = false,
         recipe: union(enum) { absent, local, foreign: []const u8, live } = .absent,
     };
@@ -219,159 +233,175 @@ pub const Set = struct {
         return self;
     }
 
-    pub fn advance(self: *Set) !preparation.Preparation.Step {
+    pub fn advance(self: *Set) !Step {
         if (self.pending != null) return .waiting;
         if (self.index != self.slots.len) self.captures_current = false;
-        const store = self.call.attachment.store;
         while (self.index < self.slots.len) {
             const slot = &self.slots[self.index];
-            switch (slot.request) {
+            const parked: ?Step = switch (slot.request) {
                 .save_live, .save_live_dependent => switch (try self.prepareLive()) {
-                    .ready => {},
-                    else => |step| return step,
+                    .ready => null,
+                    else => |step| step,
                 },
-                .save => |request| {
-                    if (slot.save == null) {
-                        // An inline handoff owns its eventual object before its
-                        // exporter route exists. Retain that exact occurrence
-                        // and resume this preparation after Host redemption.
-                        _ = self.call.attachment.host.settledCapability(slot.capability.?) catch |err| switch (err) {
-                            error.PromisePending => return .waiting,
-                            else => return err,
-                        };
-                        var scratch = self.call.memory.scratch();
-                        defer scratch.deinit();
-                        slot.save = try save_mod.beginPrepared(self.call.attachment, self.call.arena(), scratch.allocator(), slot.capability.?, request.uri, self.call.work);
-                        self.call.attachment.host.releaseCapabilityTerminal(slot.capability.?, null);
-                        slot.capability = null;
-                    }
-                    switch (slot.save.?.result()) {
-                        .pending => return .waiting,
-                        .failed => |err| return err,
-                        .ready => {},
-                    }
-                },
-                .restore, .restore_record => {
-                    const selection = selectionOf(slot.request).?;
-                    const edge = try edgeAt(self.selected(selection.record), selection.index);
-                    if (edge.restoration == .object) {
-                        if (slot.request == .restore_record and slot.request.restore_record.retain_uri) slot.recipe = .local;
-                        slot.ready = true;
-                        self.index += 1;
-                        continue;
-                    }
-                    // Retention precedes cold loading and network restoration.
-                    if (slot.retention == null) slot.retention = try store.retain(edge.target);
-                    if (slot.live_epoch) |epoch| {
-                        switch (try self.prepareLive()) {
-                            .ready => {},
-                            else => |step| return step,
-                        }
-                        slot.capability = try self.call.attachment.options.live_scope.?.restore(self.call.arena(), edge.target, epoch);
-                        if (slot.request == .restore_record and slot.request.restore_record.retain_uri) slot.recipe = .live;
-                        slot.ready = true;
-                        self.index += 1;
-                        continue;
-                    }
-                    if (slot.lease == null) {
-                        const acquired = store.acquire(edge.target) catch |err| {
-                            if (err == error.PendingRead) {
-                                self.readAhead();
-                                return .waiting;
-                            }
-                            return err;
-                        };
-                        // Demand takes its room first. Each step then keeps
-                        // the read-ahead window full.
-                        self.readAhead();
-                        switch (acquired) {
-                            .ready => |lease| slot.lease = lease,
-                            .read => |read| {
-                                self.pending = read.ticket;
-                                return .{ .read = read };
-                            },
-                        }
-                    }
-                    const recipe = try recipe_mod.Recipe.decode(try store.currentView(slot.lease.?));
-                    if (slot.request == .restore_record and slot.request.restore_record.metadata_only) {
-                        // Inspection retains the canonical recipe in the same
-                        // bounded Call allowance as URI-bearing restoration.
-                        // It grants no capability and never dials or revives
-                        // a local or expired live endpoint. Retire each row
-                        // window before inspecting the next selected field.
-                        slot.recipe = switch (recipe) {
-                            .local => .local,
-                            .foreign => |uri| .{ .foreign = try self.call.arena().dupe(u8, uri) },
-                            .live => .live,
-                        };
-                        try store.release(slot.lease.?);
-                        slot.lease = null;
-                        slot.ready = true;
-                        self.index += 1;
-                        continue;
-                    }
-                    switch (recipe) {
-                        .local => |local| {
-                            const scope = self.call.attachment.options.reference_scope orelse return error.ReferenceScopeRequired;
-                            const target = scope.find(local.attachment) orelse return .waiting;
-                            slot.capability = try h.restoreEdge(target, local.target);
-                        },
-                        .foreign => |uri| {
-                            if (slot.enliven == null) {
-                                var scratch = self.call.memory.scratch();
-                                defer scratch.deinit();
-                                const sturdy = try model.uri.parseSturdyref(scratch.allocator(), uri);
-                                slot.enliven = if (self.call.work) |work|
-                                    try work.enliven(self.call.attachment.host, self.call.arena(), sturdy)
-                                else
-                                    try self.call.attachment.host.enlivenCapability(self.call.arena(), sturdy);
-                            }
-                            switch (slot.enliven.?.result()) {
-                                .pending => return .waiting,
-                                .failed => return error.RestorationFailed,
-                                .ready => |ready| {
-                                    try save_mod.validateForeignObject(self.call.attachment.host, ready.capability);
-                                    slot.capability = try slot.enliven.?.take();
-                                },
-                            }
-                        },
-                        .live => |epoch| {
-                            // The scalar marker survives this read window. A
-                            // tiny cache can load it after retiring the recipe.
-                            slot.live_epoch = epoch;
-                            try store.release(slot.lease.?);
-                            slot.lease = null;
-                            switch (try self.prepareLive()) {
-                                .ready => {},
-                                else => |step| return step,
-                            }
-                            slot.capability = try self.call.attachment.options.live_scope.?.restore(self.call.arena(), edge.target, epoch);
-                        },
-                    }
-                    if (slot.request == .restore_record and slot.request.restore_record.retain_uri) {
-                        // Only explicit recipe consumers pay for this copy.
-                        // The row lease retires before the next restoration;
-                        // requested URI bytes belong to this Call through its
-                        // callback and cannot pin an unbounded recipe window.
-                        slot.recipe = switch (recipe) {
-                            .local => .local,
-                            .foreign => |uri| .{ .foreign = try self.call.arena().dupe(u8, uri) },
-                            .live => .live,
-                        };
-                    }
-                    // Exact restoration has completed. Its capability and the
-                    // recipe retention own custody through settlement; the
-                    // decoded row lends no bytes to a later slot. Releasing
-                    // here bounds recipe residency to one active read window,
-                    // even when fields span a large application graph.
-                    if (slot.lease) |lease| try store.release(lease);
-                    slot.lease = null;
-                },
-            }
+                .save => |request| try self.awaitSave(slot, request.uri),
+                .restore, .restore_record => try self.restore(slot),
+            };
+            if (parked) |step| return step;
             slot.ready = true;
             self.index += 1;
         }
         return .ready;
+    }
+
+    /// Start one Save once its capability has settled, then wait on it.
+    /// Null once the Save holds its proof.
+    fn awaitSave(self: *Set, slot: *Slot, uri: ?[]const u8) !?Step {
+        if (slot.save == null) {
+            // An inline handoff owns its eventual object before its
+            // exporter route exists. Retain that exact occurrence
+            // and resume this preparation after Host redemption.
+            _ = self.call.attachment.host.settledCapability(slot.capability.?) catch |err| switch (err) {
+                error.PromisePending => return .waiting,
+                else => return err,
+            };
+            var scratch = self.call.memory.scratch();
+            defer scratch.deinit();
+            slot.save = try save_mod.beginPrepared(self.call.attachment, self.call.arena(), scratch.allocator(), slot.capability.?, uri, self.call.work);
+            self.call.attachment.host.releaseCapabilityTerminal(slot.capability.?, null);
+            slot.capability = null;
+        }
+        return switch (slot.save.?.result()) {
+            .pending => .waiting,
+            .failed => |err| err,
+            .ready => null,
+        };
+    }
+
+    /// Restore one selected edge: an object edge resolves in place, a live
+    /// edge revives through the live scope, and a cold edge reads its recipe
+    /// row, restores through it, and retires the row before the next slot.
+    /// Null once the slot holds its capability.
+    fn restore(self: *Set, slot: *Slot) !?Step {
+        const store = self.call.attachment.store;
+        const selection = selectionOf(slot.request).?;
+        const edge = try edgeAt(self.selected(selection.record), selection.index);
+        if (edge.restoration == .object) {
+            if (retainsUri(slot.request)) slot.recipe = .local;
+            return null;
+        }
+        // Retention precedes cold loading and network restoration.
+        if (slot.retention == null) slot.retention = try store.retain(edge.target);
+        if (slot.live_epoch) |epoch| {
+            if (try self.restoreLive(slot, edge.target, epoch)) |step| return step;
+            if (retainsUri(slot.request)) slot.recipe = .live;
+            return null;
+        }
+        if (slot.lease == null) if (try self.acquireRecipeRow(slot, edge.target)) |step| return step;
+        const recipe = try recipe_mod.Recipe.decode(try store.currentView(slot.lease.?));
+        if (slot.request == .restore_record and slot.request.restore_record.metadata_only) {
+            // Inspection retains the canonical recipe in the same
+            // bounded Call allowance as URI-bearing restoration.
+            // It grants no capability and never dials or revives
+            // a local or expired live endpoint. Retire each row
+            // window before inspecting the next selected field.
+            slot.recipe = try self.retainedRecipe(recipe);
+            try store.release(slot.lease.?);
+            slot.lease = null;
+            return null;
+        }
+        if (try self.restoreByRecipe(slot, edge.target, recipe)) |step| return step;
+        if (retainsUri(slot.request)) {
+            // Only explicit recipe consumers pay for this copy.
+            // The row lease retires before the next restoration;
+            // requested URI bytes belong to this Call through its
+            // callback and cannot pin an unbounded recipe window.
+            slot.recipe = try self.retainedRecipe(recipe);
+        }
+        // Exact restoration has completed. Its capability and the
+        // recipe retention own custody through settlement; the
+        // decoded row lends no bytes to a later slot. Releasing
+        // here bounds recipe residency to one active read window,
+        // even when fields span a large application graph.
+        if (slot.lease) |lease| try store.release(lease);
+        slot.lease = null;
+        return null;
+    }
+
+    /// Acquire the recipe row of a cold edge. Demand takes its room first,
+    /// and each step then keeps the read-ahead window full.
+    fn acquireRecipeRow(self: *Set, slot: *Slot, target: core.ObjectId) !?Step {
+        const acquired = self.call.attachment.store.acquire(target) catch |err| {
+            if (err == error.PendingRead) {
+                self.readAhead();
+                return .waiting;
+            }
+            return err;
+        };
+        self.readAhead();
+        switch (acquired) {
+            .ready => |lease| slot.lease = lease,
+            .read => |read| {
+                self.pending = read.ticket;
+                return .{ .read = read };
+            },
+        }
+        return null;
+    }
+
+    fn restoreByRecipe(self: *Set, slot: *Slot, edge_target: core.ObjectId, recipe: recipe_mod.Recipe) !?Step {
+        switch (recipe) {
+            .local => |local| {
+                const scope = self.call.attachment.options.reference_scope orelse return error.ReferenceScopeRequired;
+                const target = scope.find(local.attachment) orelse return .waiting;
+                slot.capability = try h.restoreEdge(target, local.target);
+            },
+            .foreign => |uri| {
+                if (slot.enliven == null) {
+                    var scratch = self.call.memory.scratch();
+                    defer scratch.deinit();
+                    const sturdy = try model.uri.parseSturdyref(scratch.allocator(), uri);
+                    slot.enliven = if (self.call.work) |work|
+                        try work.enliven(self.call.attachment.host, self.call.arena(), sturdy)
+                    else
+                        try self.call.attachment.host.enlivenCapability(self.call.arena(), sturdy);
+                }
+                switch (slot.enliven.?.result()) {
+                    .pending => return .waiting,
+                    .failed => return error.RestorationFailed,
+                    .ready => |ready| {
+                        try save_mod.validateForeignObject(self.call.attachment.host, ready.capability);
+                        slot.capability = try slot.enliven.?.take();
+                    },
+                }
+            },
+            .live => |epoch| {
+                // The scalar marker survives this read window. A
+                // tiny cache can load it after retiring the recipe.
+                slot.live_epoch = epoch;
+                try self.call.attachment.store.release(slot.lease.?);
+                slot.lease = null;
+                return try self.restoreLive(slot, edge_target, epoch);
+            },
+        }
+        return null;
+    }
+
+    fn restoreLive(self: *Set, slot: *Slot, target: core.ObjectId, epoch: live_epoch.Epoch) !?Step {
+        switch (try self.prepareLive()) {
+            .ready => {},
+            else => |step| return step,
+        }
+        slot.capability = try self.call.attachment.options.live_scope.?.restore(self.call.arena(), target, epoch);
+        return null;
+    }
+
+    /// The caller's copy of a recipe lives in the bounded Call arena.
+    fn retainedRecipe(self: *Set, recipe: recipe_mod.Recipe) !@FieldType(Slot, "recipe") {
+        return switch (recipe) {
+            .local => .local,
+            .foreign => |uri| .{ .foreign = try self.call.arena().dupe(u8, uri) },
+            .live => .live,
+        };
     }
 
     /// While one recipe loads, start the reads the following restorations
@@ -592,6 +622,10 @@ pub const Set = struct {
         };
     }
 };
+
+fn retainsUri(request: Request) bool {
+    return request == .restore_record and request.restore_record.retain_uri;
+}
 
 fn selectionOf(request: Request) ?struct { record: usize, index: usize } {
     return switch (request) {

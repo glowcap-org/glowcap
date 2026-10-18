@@ -4,7 +4,9 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
+const actors = @import("actors");
 const engine = @import("engine");
 
 const host_mod = @import("../host.zig");
@@ -32,8 +34,8 @@ const queueUniqueSessionAction = pump_schedule.queueUniqueSessionAction;
 /// boundary. The next top-level Host tail picks up queued effects.
 pub fn finishVerb(self: *Host) !void {
     if (self.withinCallback()) return;
-    self.in_callback = true;
-    defer self.in_callback = false;
+    const hold = self.callback_latch.hold();
+    defer hold.release();
     if (self.lifecyclePhase() == .terminating) {
         // Establish the terminal verdict before driving work, so queued
         // application turns are cancelled with their ingress instead of being
@@ -139,7 +141,7 @@ fn drainWork(self: *Host) !void {
                 },
                 .local => if (self.vat.local_ingress.pending_turns != 0) {
                     remaining -= 1;
-                    if (self.lifecyclePhase() == .terminating or self.lifecyclePhase() == .closed) {
+                    if (!self.lifecyclePhase().serving()) {
                         @import("local_delivery.zig").cancel(self);
                     } else {
                         _ = try self.vat.driveIngressBudgeted(.local, 1);
@@ -347,7 +349,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !ActionOutcome {
 /// already projected a typed op:abort, so the session's admission-reserved
 /// flush notification is queued for the embedder and the dispatch error
 /// passes through.
-pub fn failDispatch(self: *Host, peer_handle: engine.PeerHandle, err: anyerror) anyerror {
+pub fn failDispatch(self: *Host, peer_handle: engine.PeerHandle, err: anytype) @TypeOf(err) {
     queueUniqueSessionAction(self, .flush, peer_handle);
     return err;
 }
@@ -356,11 +358,13 @@ pub const testing = pump_schedule.testing;
 
 /// Whole-frame inbound spine: latch, body, fail projection, finishDispatch.
 pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !void {
-    try enterCallback(self, session);
+    try self.refuseReentry();
+    try self.checkSession(session);
     {
+        const hold = self.callback_latch.hold();
         defer {
             if (session.sessionOpen()) self.finishSessionOpen(session);
-            leaveCallback(self);
+            hold.release();
         }
         body.call() catch |err| {
             if (session.sessionClosed()) {
@@ -423,16 +427,14 @@ pub fn retireTransportClosed(self: *Host, session: *HostSession, reason: []const
 /// verb-tail failure is retained on the condemned peer while the channel's own
 /// refusal remains the caller-visible cause.
 pub fn retireSealedSession(self: *Host, session: *HostSession) void {
-    const latched = self.in_callback;
     var cleanup_failed = false;
-    if (!latched) self.in_callback = true;
+    const hold = self.callback_latch.hold();
     retireQuietly(self, session, "sealed channel refused") catch |err|
         recordRetirementFailure(session.served.port.peer, &cleanup_failed, err);
-    if (!latched) {
-        self.in_callback = false;
-        finishVerb(self) catch |err|
-            recordRetirementFailure(session.served.port.peer, &cleanup_failed, err);
-    }
+    hold.release();
+    // Under an outer hold this returns at once and the outer tail pumps.
+    finishVerb(self) catch |err|
+        recordRetirementFailure(session.served.port.peer, &cleanup_failed, err);
 }
 
 /// Start one fresh cleanup diagnostic chain for this retirement, then retain
@@ -457,26 +459,12 @@ fn retireQuietly(self: *Host, session: *HostSession, reason: []const u8) !void {
     host_close.markSessionTerminating(self, session);
     self.unindexSession(session);
     session.served.port.breakFarVows(reason);
-    var first_error: ?anyerror = null;
+    var first_error: ?actors.IngressCancellationError = null;
     self.cancelSessionIngress(session, reason) catch |err| {
         first_error = err;
     };
     pump_schedule.queueUniqueSessionAction(self, .close, session.peer_handle);
     if (first_error) |err| return err;
-}
-
-/// Shared inbound-dispatch latch: refuse reentry, refuse a condemned
-/// session, then arm the callback latch. Pair with `leaveCallback`
-/// (defer) and `finishDispatch` (on success). Own caller:
-/// `dispatchUnderLatch`.
-fn enterCallback(self: *Host, session: *HostSession) !void {
-    try self.refuseReentry();
-    try self.checkSession(session);
-    self.in_callback = true;
-}
-
-fn leaveCallback(self: *Host) void {
-    self.in_callback = false;
 }
 
 /// Outbound verb tail: note encode work, then pump to quiescence.
@@ -508,24 +496,28 @@ pub fn finishDispatch(self: *Host, session: *HostSession) !void {
     try dirtyThenPump(self, session.peer_handle);
 }
 
+/// What condemning a session can report after it has already retired the
+/// session's authority: the abort frame's encode, or the ingress cancel.
+pub const CondemnError = foundation.error_sets.Of(engine.Peer.commitAbortOutbound) ||
+    actors.IngressCancellationError;
+
 /// Condemn a session the host is done with (a crossed-hellos tiebreak loser, or
 /// one whose local turns amplified past the budget). Queue its typed abort
 /// (`kind` names which contract it broke) and mark it so every later verb
 /// refuses `SessionCondemned`. The abort rides the ordinary flush path. The
 /// embedder drains and writes it, then releases the session.
-pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, message: []const u8) !void {
+pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, message: []const u8) CondemnError!void {
     if (session.isTerminating()) return;
     host_close.markSessionTerminating(self, session);
-    const was_in_callback = self.in_callback;
-    self.in_callback = true;
-    defer self.in_callback = was_in_callback;
+    const hold = self.callback_latch.hold();
+    defer hold.release();
     // Drop uniqueness-index rows immediately so a condemned session cannot
     // squat dial / partner-key slots while its abort drains (ADR-0012).
     self.unindexSession(session);
     // Encode the terminal frame and close the Peer in one operation. If encode
     // fails, close explicitly: authority retirement cannot depend on whether
     // the partner receives the diagnostic.
-    var first_error: ?anyerror = null;
+    var first_error: ?CondemnError = null;
     session.served.port.peer.commitAbortOutbound(.{
         .kind = kind,
         .message = message,

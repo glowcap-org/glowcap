@@ -20,7 +20,6 @@ const PreparedHome = struct {
     key: topology.HomeKey,
     listener_export: model.ExportPosition,
     current_wire_pos: u64,
-    next: bool,
     message: model.Message,
     reservation: engine.Peer.PendingReservation,
     proxy: topology.Proxy,
@@ -30,12 +29,7 @@ const PreparedHome = struct {
         if (self.committed) return;
         if (node.peer(self.key.home)) |home| {
             home.cancelPendingReservation(self.reservation);
-            if (self.next) {
-                home.session_state.abandonPromiseSettlingListener(.from(self.current_wire_pos));
-            } else {
-                std.debug.assert(home.session_state.removeOutboundResolver(self.listener_export));
-            }
-            home.session_state.releaseUnsharedExport(self.listener_export);
+            releaseHomeListener(home, self.listener_export, self.current_wire_pos);
         }
         self.proxy.deinit(node.allocator);
         self.* = undefined;
@@ -71,18 +65,14 @@ const Group = struct {
 const PreparedRecipient = struct {
     home_key: topology.HomeKey,
     peer: PeerHandle,
-    export_position: model.ExportPosition,
-    import_position: model.ImportPosition,
-    row_id: u64,
+    projection: session_mod.Session.LocalPromiseProjection,
     failure_reason: []u8,
     committed: bool = false,
 
     fn abandon(self: *PreparedRecipient, node: *Node) void {
         if (self.committed) return;
-        if (node.peer(self.peer)) |recipient| {
-            recipient.session_state.abandonUnsharedThirdPartyImport(self.import_position);
-            recipient.session_state.releaseUnsharedExport(self.export_position);
-        }
+        if (node.peer(self.peer)) |recipient|
+            recipient.session_state.abandonLocalPromiseProjection(self.projection.export_position);
         node.allocator.free(self.failure_reason);
         self.* = undefined;
     }
@@ -92,8 +82,8 @@ const PreparedRecipient = struct {
         const proxy = node.promise_proxies.getPtr(self.home_key) orelse unreachable;
         proxy.recipients.appendAssumeCapacity(.{
             .peer = self.peer,
-            .import_pos = self.import_position.int(),
-            .row_id = self.row_id,
+            .export_position = self.projection.export_position,
+            .target = self.projection.answer_target,
             .failure_reason = self.failure_reason,
         });
         self.committed = true;
@@ -133,8 +123,8 @@ pub const Prepared = struct {
         for (self.recipients.items) |recipient| receipts.appendAssumeCapacity(.{
             .home_key = recipient.home_key,
             .peer = recipient.peer,
-            .export_position = recipient.export_position,
-            .import_position = recipient.import_position,
+            .export_position = recipient.projection.export_position,
+            .target = recipient.projection.answer_target,
         });
     }
 
@@ -153,7 +143,7 @@ pub const Receipt = struct {
     home_key: topology.HomeKey,
     peer: PeerHandle,
     export_position: model.ExportPosition,
-    import_position: model.ImportPosition,
+    target: session_mod.AnswerTarget,
 };
 
 /// The window that made the send committed: the recipient stays, and so does
@@ -165,44 +155,60 @@ pub fn keep(self: *Node, receipt: Receipt) void {
 
 /// The window that made the send was retracted. Its carrier is already gone
 /// from the recipient Peer, which released the carrier's export retain, so
-/// only the rows the commit created remain: the recipient's promise export
-/// and third-party import, its proxy entry, and, when the window created the
-/// proxy and no recipient is left, the home listener and its queued listen.
+/// only the rows the commit created remain: the recipient's promise
+/// projection, unless that release already collected it, its proxy entry,
+/// and, when the window created the proxy and no recipient is left, the home
+/// listener and its queued listen.
 pub fn withdraw(self: *Node, receipt: Receipt) void {
     const proxy = self.promise_proxies.getPtr(receipt.home_key) orelse unreachable;
     const index = for (proxy.recipients.items, 0..) |recipient, i| {
-        if (recipient.peer == receipt.peer and recipient.import_pos == receipt.import_position.int())
+        if (recipient.peer == receipt.peer and std.meta.eql(recipient.target, receipt.target))
             break i;
     } else unreachable;
     var removed = proxy.recipients.orderedRemove(index);
-    if (removed.failure_reason != null) actions.releaseProxyReservation(self);
-    removed.releaseFailure(self.allocator);
+    topology.retireEscrow(self, &removed);
+    // A settled projection belongs to its settlement: the carrier drain or
+    // the partner's release collects it. Only the pending projection this
+    // receipt admitted, still under the admitted stamp, is abandoned here.
     if (self.peer(receipt.peer)) |recipient| {
-        recipient.session_state.abandonUnsharedThirdPartyImport(receipt.import_position);
-        recipient.session_state.releaseUnsharedExport(receipt.export_position);
+        const state = &recipient.session_state;
+        if (state.answerTargetNamed(receipt.target.name)) |live| {
+            if (std.meta.eql(live, receipt.target) and state.peekResolutionNamed(receipt.target.name) == null)
+                state.abandonLocalPromiseProjection(receipt.export_position);
+        }
     }
     if (!proxy.provisional or proxy.recipients.items.len != 0) return;
 
     var withdrawn = (self.promise_proxies.fetchRemove(receipt.home_key) orelse unreachable).value;
-    std.debug.assert(self.proxy_by_listener.remove(.{
-        .home = receipt.home_key.home,
-        .listener_export = withdrawn.listener_export,
-    }));
-    std.debug.assert(self.proxy_by_source.remove(.{
-        .home = receipt.home_key.home,
-        .wire_pos = withdrawn.current_wire_pos,
-    }));
+    topology.unindexProxy(self, receipt.home_key.home, &withdrawn);
     if (self.peer(receipt.home_key.home)) |home| {
         const listener = model.ExportPosition.from(withdrawn.listener_export);
         home.withdrawQueuedListen(listener);
-        if (home.session_state.captp_version == .next) {
-            home.session_state.abandonPromiseSettlingListener(.from(withdrawn.current_wire_pos));
-        } else {
-            std.debug.assert(home.session_state.removeOutboundResolver(listener));
-        }
-        home.session_state.releaseUnsharedExport(listener);
+        releaseHomeListener(home, listener, withdrawn.current_wire_pos);
     }
     withdrawn.deinit(self.allocator);
+}
+
+/// Give back a home listener that never fired: its settling claim or
+/// resolver row, then the export it rode on.
+fn releaseHomeListener(home: *engine.Peer, listener: model.ExportPosition, current_wire_pos: u64) void {
+    if (home.session_state.captp_version == .next) {
+        home.session_state.abandonPromiseSettlingListener(.from(current_wire_pos));
+    } else {
+        std.debug.assert(home.session_state.removeOutboundResolver(listener));
+    }
+    home.session_state.releaseUnsharedExport(listener);
+}
+
+/// The proxy a promise's home keys it under: its current wire position, or
+/// the source row an earlier admission already indexed.
+fn homeKeyOf(self: *Node, promise: passable.PromiseProjection) !topology.HomeKey {
+    const home = self.peer(promise.home) orelse return error.PeerGone;
+    const source_key: topology.HomeKey = .{
+        .home = promise.home,
+        .wire_pos = home.session_state.promiseWirePosition(promise.source.import_position).int(),
+    };
+    return self.proxy_by_source.get(source_key) orelse source_key;
 }
 
 fn prepareHome(
@@ -212,28 +218,23 @@ fn prepareHome(
     recipient_count: usize,
 ) !PreparedHome {
     const home = self.peer(key.home) orelse return error.PeerGone;
-    if (!home.sessionIsOpen()) return error.session_not_open;
+    if (!home.sessionIsOpen()) return error.SessionNotOpen;
     const next = home.session_state.captp_version == .next;
-    const settling_target = if (next)
-        home.session_state.shortenedPromiseTarget(wire_far.import_position)
-    else
-        wire_far.import_position;
+    const settling_target = home.session_state.promiseWirePosition(wire_far.import_position);
     const listener = try home.session_state.allocateExport();
-    errdefer home.session_state.releaseUnsharedExport(listener);
-    if (next) {
-        if (!(try home.session_state.claimPromiseSettlingListener(settling_target, listener, null)))
-            return error.UnexpectedMessage;
-    } else {
-        try home.session_state.installNodeSettlingResolver(listener);
+    {
+        errdefer home.session_state.releaseUnsharedExport(listener);
+        if (next) {
+            if (!home.session_state.claimPromiseSettlingListener(settling_target, listener, null))
+                return error.UnexpectedMessage;
+        } else {
+            home.session_state.installNodeSettlingResolver(listener);
+        }
     }
-    errdefer if (next) {
-        home.session_state.abandonPromiseSettlingListener(settling_target);
-    } else {
-        std.debug.assert(home.session_state.removeOutboundResolver(listener));
-    };
+    errdefer releaseHomeListener(home, listener, settling_target.int());
     const message: model.Message = .{ .listen = .{
         .target = .{ .far = model.FarRef.promise(settling_target.int()) },
-        .listener = session_mod.slot.toReference(home.session_state.exportSlot(listener).?).?,
+        .listener = home.session_state.exportReference(listener).?,
         .mode = .settling_only,
     } };
     try home.session_state.admits(model.view.Body.fromOwned(&message));
@@ -251,7 +252,6 @@ fn prepareHome(
         .key = key,
         .listener_export = listener,
         .current_wire_pos = settling_target.int(),
-        .next = next,
         .message = message,
         .reservation = reservation,
         .proxy = proxy,
@@ -263,20 +263,14 @@ fn prepareRecipient(
     recipient: *engine.Peer,
     recipient_peer: PeerHandle,
     home_key: topology.HomeKey,
-    host_bytes: []const u8,
 ) !PreparedRecipient {
-    const export_position = try recipient.session_state.allocatePromiseExport();
-    errdefer recipient.session_state.releaseUnsharedExport(export_position);
-    const import_position = model.ImportPosition.from(export_position.int());
-    try recipient.session_state.installThirdPartyImport(import_position, host_bytes);
-    errdefer recipient.session_state.abandonUnsharedThirdPartyImport(import_position);
+    const projection = try recipient.session_state.allocateLocalPromiseProjection();
+    errdefer recipient.session_state.abandonLocalPromiseProjection(projection.export_position);
     const reason = try self.allocator.dupe(u8, failure_reason);
     return .{
         .home_key = home_key,
         .peer = recipient_peer,
-        .export_position = export_position,
-        .import_position = import_position,
-        .row_id = recipient.session_state.importedPromiseRowId(import_position).?,
+        .projection = projection,
         .failure_reason = reason,
     };
 }
@@ -295,35 +289,19 @@ pub fn prepare(
     try prepared.groups.ensureUnusedCapacity(self.allocator, @intCast(promises.len));
     for (promises) |promise| {
         const foreign = Internal.foreignRoute(self, promise.route_id) orelse return error.RouteNotLowerable;
-        if (foreign.peer_handle != promise.home or foreign.reference != .far or
-            !std.meta.eql(foreign.reference.far, promise.source))
+        if (foreign.peer_handle != promise.home or !std.meta.eql(foreign.far, promise.source))
             return error.RouteNotLowerable;
-        const home = self.peer(promise.home) orelse return error.PeerGone;
-        const current_wire_pos = if (home.session_state.captp_version == .next)
-            home.session_state.shortenedPromiseTarget(promise.source.import_position).int()
-        else
-            promise.source.import_position.int();
-        const source_key: topology.HomeKey = .{ .home = promise.home, .wire_pos = current_wire_pos };
-        const home_key = self.proxy_by_source.get(source_key) orelse source_key;
+        const home_key = try homeKeyOf(self, promise);
         const entry = prepared.groups.getOrPutAssumeCapacity(home_key);
         if (!entry.found_existing) entry.value_ptr.* = .{};
-        entry.value_ptr.count = std.math.add(
-            usize,
-            entry.value_ptr.count,
-            1,
-        ) catch return error.ProxyRecipientCapExceeded;
+        entry.value_ptr.count += 1;
     }
 
     var new_homes: usize = 0;
     var groups = prepared.groups.iterator();
     while (groups.next()) |entry| {
         if (self.promise_proxies.getPtr(entry.key_ptr.*)) |proxy| {
-            const total_recipients = std.math.add(
-                usize,
-                proxy.recipients.items.len,
-                entry.value_ptr.count,
-            ) catch return error.ProxyRecipientCapExceeded;
-            if (total_recipients > topology.max_recipients)
+            if (proxy.recipients.items.len + entry.value_ptr.count > topology.max_recipients)
                 return error.ProxyRecipientCapExceeded;
             try proxy.recipients.ensureUnusedCapacity(self.allocator, entry.value_ptr.count);
         } else {
@@ -350,24 +328,10 @@ pub fn prepare(
     try prepared.recipients.ensureTotalCapacityPrecise(self.allocator, promises.len);
     const recipient = self.peer(recipient_peer) orelse return error.PeerGone;
     for (promises) |*promise| {
-        const home = self.peer(promise.home) orelse return error.PeerGone;
-        const current_wire_pos = if (home.session_state.captp_version == .next)
-            home.session_state.shortenedPromiseTarget(promise.source.import_position).int()
-        else
-            promise.source.import_position.int();
-        const source_key: topology.HomeKey = .{ .home = promise.home, .wire_pos = current_wire_pos };
-        const home_key = self.proxy_by_source.get(source_key) orelse source_key;
-        const host_bytes = home.session_state.partnerDesignator() orelse
-            return error.MissingPartnerDesignator;
-        const projected = try prepareRecipient(
-            self,
-            recipient,
-            recipient_peer,
-            home_key,
-            host_bytes,
-        );
+        const home_key = try homeKeyOf(self, promise.*);
+        const projected = try prepareRecipient(self, recipient, recipient_peer, home_key);
         prepared.recipients.appendAssumeCapacity(projected);
-        promise.projected = .{ .near = model.NearRef.promise(projected.export_position.int()) };
+        promise.projected = .{ .near = model.NearRef.promise(projected.projection.export_position.int()) };
     }
     return prepared;
 }
@@ -382,11 +346,7 @@ pub fn foreignPromiseFulfill(
     const home = Internal.homeOf(self, route_id) orelse return null;
     if (home == recipient_peer) return null;
     const enrolled = Internal.foreignRoute(self, route_id) orelse return null;
-    const wire_far = switch (enrolled.reference) {
-        .far => |f| f,
-        else => return null,
-    };
-    if (wire_far.kind != .promise) return null;
+    if (enrolled.far.kind != .promise) return null;
 
     // One seat is the future recipient settlement drive; the other is the
     // possible first home-listener flush. Existing proxies leave the second
@@ -399,7 +359,7 @@ pub fn foreignPromiseFulfill(
         // own by-value result, which is the root slot's meaning.
         .slot = .root,
         .original = .{ .routed = .{ .id = route_id, .kind = .promise } },
-        .source = wire_far,
+        .source = enrolled.far,
     }};
     var prepared = try prepare(self, recipient_peer, &projections);
     defer prepared.deinit(self);

@@ -24,11 +24,20 @@ pub fn List(comptime T: type, comptime inline_capacity: usize) type {
 
         pub const empty: Self = .{};
 
-        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            self.heap.deinit(allocator);
+        /// `empty`, written in place: only the bookkeeping fields, so the
+        /// unwritten rows cost a wide record nothing per fill.
+        pub inline fn init(self: *Self) void {
+            self.held_len = 0;
+            self.heap = .empty;
+            self.spilled = false;
         }
 
-        pub fn items(self: *const Self) []const T {
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.heap.deinit(allocator);
+            self.* = undefined;
+        }
+
+        pub inline fn items(self: *const Self) []const T {
             return if (self.spilled) self.heap.items else self.held[0..self.held_len];
         }
 
@@ -40,7 +49,7 @@ pub fn List(comptime T: type, comptime inline_capacity: usize) type {
         /// fail. Rows that still fit in place cost no allocation.
         pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, additional: usize) std.mem.Allocator.Error!void {
             if (self.spilled) return self.heap.ensureUnusedCapacity(allocator, additional);
-            if (self.held_len + additional <= inline_capacity) return;
+            if (additional <= inline_capacity - self.held_len) return;
             try self.spill(allocator, additional);
         }
 
@@ -59,6 +68,7 @@ pub fn List(comptime T: type, comptime inline_capacity: usize) type {
             if (self.spilled) {
                 self.heap.appendAssumeCapacity(item);
             } else {
+                if (inline_capacity == 0) unreachable;
                 std.debug.assert(self.held_len < inline_capacity);
                 self.appendHeld(item);
             }
@@ -72,7 +82,8 @@ pub fn List(comptime T: type, comptime inline_capacity: usize) type {
         /// Move the held rows to the allocator once, with room for what is
         /// coming. Nothing changes if the allocation refuses.
         fn spill(self: *Self, allocator: std.mem.Allocator, additional: usize) std.mem.Allocator.Error!void {
-            try self.heap.ensureTotalCapacity(allocator, self.held_len + additional);
+            const total = std.math.add(usize, self.held_len, additional) catch return error.OutOfMemory;
+            try self.heap.ensureTotalCapacity(allocator, total);
             self.heap.appendSliceAssumeCapacity(self.held[0..self.held_len]);
             self.held_len = 0;
             self.spilled = true;
@@ -112,8 +123,17 @@ pub fn Table(
             return .{ .heap = .keyed(multiplier) };
         }
 
+        /// `keyed`, written in place: only the bookkeeping fields, so the
+        /// unwritten rows cost a wide record nothing per fill.
+        pub inline fn initKeyed(self: *Self, multiplier: u64) void {
+            self.held_len = 0;
+            self.heap = .keyed(multiplier);
+            self.spilled = false;
+        }
+
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.heap.deinit(allocator);
+            self.* = undefined;
         }
 
         pub fn count(self: *const Self) usize {
@@ -126,6 +146,7 @@ pub fn Table(
 
         pub fn getPtr(self: *Self, key: K) ?*V {
             if (self.spilled) return self.heap.getPtr(key);
+            if (inline_capacity == 0) return null;
             // A handful of rows: compare each one rather than hash the key.
             for (self.keys[0..self.held_len], 0..) |held, index| {
                 if (identity_hash.eql(held, key)) return &self.values[index];
@@ -137,10 +158,10 @@ pub fn Table(
         /// fail. Rows that still fit in place cost no allocation.
         pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, additional: usize) std.mem.Allocator.Error!void {
             if (self.spilled) {
-                const more = std.math.cast(u32, additional) orelse return error.OutOfMemory;
-                return self.heap.ensureUnusedCapacity(allocator, more);
+                const total = try reservationSize(self.count(), additional);
+                return self.heap.ensureTotalCapacity(allocator, total);
             }
-            if (self.held_len + additional <= inline_capacity) return;
+            if (additional <= inline_capacity - self.held_len) return;
             try self.spill(allocator, additional);
         }
 
@@ -159,6 +180,7 @@ pub fn Table(
         pub fn getOrPutAssumeCapacity(self: *Self, key: K) GetOrPut {
             if (!self.spilled) {
                 if (self.getPtr(key)) |value_ptr| return .{ .value_ptr = value_ptr, .found_existing = true };
+                if (inline_capacity == 0) unreachable;
                 std.debug.assert(self.held_len < inline_capacity);
                 return .{ .value_ptr = self.putHeld(key), .found_existing = false };
             }
@@ -175,13 +197,24 @@ pub fn Table(
         /// Move the held rows into the map once, with room for what is
         /// coming. Nothing changes if the allocation refuses.
         fn spill(self: *Self, allocator: std.mem.Allocator, additional: usize) std.mem.Allocator.Error!void {
-            const total = std.math.cast(u32, self.held_len + additional) orelse return error.OutOfMemory;
+            const total = try reservationSize(self.held_len, additional);
             try self.heap.ensureTotalCapacity(allocator, total);
             for (self.keys[0..self.held_len], self.values[0..self.held_len]) |key, value| {
                 self.heap.putAssumeCapacityNoClobber(key, value);
             }
             self.held_len = 0;
             self.spilled = true;
+        }
+
+        /// The backing map rounds capacity to a power of two and computes
+        /// capacity * load percentage in u32. Refuse before either can overflow.
+        fn reservationSize(current: usize, additional: usize) std.mem.Allocator.Error!u32 {
+            const load = std.hash_map.default_max_load_percentage;
+            const max_capacity = std.math.floorPowerOfTwo(u32, std.math.maxInt(u32) / load);
+            const max_rows = max_capacity * load / 100;
+            const total = std.math.add(usize, current, additional) catch return error.OutOfMemory;
+            if (total > max_rows) return error.OutOfMemory;
+            return @intCast(total);
         }
 
         pub const Iterator = struct {
@@ -194,6 +227,7 @@ pub fn Table(
                     const entry = self.heap_it.next() orelse return null;
                     return .{ .key_ptr = entry.key_ptr, .value_ptr = entry.value_ptr };
                 }
+                if (inline_capacity == 0) return null;
                 if (self.index >= self.table.held_len) return null;
                 defer self.index += 1;
                 return .{ .key_ptr = &self.table.keys[self.index], .value_ptr = &self.table.values[self.index] };

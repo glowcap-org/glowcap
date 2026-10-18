@@ -76,7 +76,8 @@ const Backend = struct {
     }
 };
 fn resourceObject(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectId, id: h.c.core.ResourceId) !h.loam.core.ObjectId {
-    var read = try h.c.storage.Read.init(a, store, owner, 1);
+    var read: h.c.storage.Read = undefined;
+    try read.init(a, store, owner, 1, null);
     defer read.deinit() catch unreachable;
     _ = try h.f.pump(&read, backend);
     for (0..128) |_| {
@@ -95,13 +96,14 @@ fn sourceEndpoint(store: *h.loam.core.Store, backend: anytype, data: h.Data, roo
     const held = try h.c.load(store, backend, data.use);
     defer store.release(held) catch unreachable;
     const endpoint = try h.loam.access.records.EndpointRecord.decode(try store.currentView(held));
-    var read = try h.c.storage.Read.init(a, store, data.owner, 1);
+    var read: h.c.storage.Read = undefined;
+    try read.init(a, store, data.owner, 1, null);
     defer read.deinit() catch unreachable;
     try h.prepareEndpointOwner(&read, backend, 1);
     try store.begin();
     const content = try store.allocateId();
     try store.putCopying(.{ .id = content, .revision = 0, .schema = 7, .payload = &@as([8]u8, @splat(0)), .edges = &.{.{ .target = data.use }} }, null);
-    const source = try h.access.stageEndpoint(&read, a, .{ .descriptor = endpoint.descriptor, .content = .{ .resource = root, .object = content } }, true);
+    const source = try h.access.stageEndpoint(&read, a, .{ .descriptor = endpoint.descriptor, .content = .{ .resource = root, .object = content } }, .rooted);
     try h.f.commit(store, backend);
     return source;
 }

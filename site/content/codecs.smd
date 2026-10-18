@@ -6,9 +6,8 @@
 .draft = false,
 ---
 
-A codec turns CapTP messages into bytes and back. It does not decide whether a
-reference is valid, which stays with the session, so changing codecs changes
-the wire format, not application behavior.
+A codec turns CapTP messages into bytes and back. The session decides whether
+a reference is valid, so changing codecs changes only the wire format.
 
 glowcap ships two:
 
@@ -41,16 +40,17 @@ makes partial reads and random access cheap, but padding and pointer words make
 small messages larger.
 
 It works only between two glowcap peers, since Goblins does not speak it. Codec
-and CapTP version are separate choices: glowcap prefers Cap'n Proto with
-`glowcap-next`, but it can also carry CapTP 1.0 between glowcap peers. Set
+and CapTP version are separate choices. glowcap's own profile pairs Cap'n
+Proto with `glowcap-next`, and Cap'n Proto can also carry CapTP 1.0 between
+glowcap peers. Set
 `codec = .capnp` and the version you need in Zig `SessionOptions`, or use the
 matching Host or binding preference.
 
 # Choosing
 
 Measure your own messages before switching. The
-[performance page]($link.page('performance')) shows one small mixed-argument
-call, not a universal result.
+[performance page]($link.page('performance')) measures one small
+mixed-argument call, which may look nothing like yours.
 
 Either codec can hand the session a temporary view of a message. glowcap copies
 into owned memory only when it must keep that message after decode finishes.

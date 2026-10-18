@@ -29,7 +29,7 @@ test "loam LMDB refuses initialization over rows without metadata" {
     const terminated = try std.testing.allocator.dupeSentinel(u8, path, 0);
     defer std.testing.allocator.free(terminated);
     const id: core.StoreId = @fromBackingInt(42);
-    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = id } });
+    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = id, .mode = .create } });
     var txn: ?*Txn = null;
     try std.testing.expectEqual(@as(c_int, 0), mdb_txn_begin(db.env, null, 0, &txn));
     var row_key = value("surviving-row");
@@ -40,8 +40,8 @@ test "loam LMDB refuses initialization over rows without metadata" {
     try std.testing.expectEqual(@as(c_int, 0), mdb_txn_commit(txn.?));
     try db.close();
     for ([_]Lmdb.Options{
-        .{ .mode = .{ .create = id } },
-        .{ .mode = .{ .bootstrap = id } },
+        .{ .opening = .{ .id = id, .mode = .create } },
+        .{ .opening = .{ .id = id, .mode = .bootstrap } },
     }) |options| {
         const attempted = Lmdb.open(terminated, options);
         if (attempted) |opened| {

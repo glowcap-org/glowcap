@@ -6,6 +6,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const answers = @import("store.zig");
+const lifecycle = @import("lifecycle.zig");
 const session = @import("../mod.zig");
 const local_promise = @import("../local_promise.zig");
 
@@ -49,14 +50,6 @@ pub fn obligationCount(self: *const Session) usize {
     const detached = if (self.detached_inbound_answers) |store| store.rows.count() else 0;
     return std.math.add(usize, self.inbound_answers.len(), detached) catch
         std.math.maxInt(usize);
-}
-
-fn hasAcceptedConsequences(answer_payload: *const answers.AnswerPayload) bool {
-    return answer_payload.resolver_import != null or
-        answer_payload.queue.items.len != 0 or
-        answer_payload.listeners.len() != 0 or
-        answer_payload.projections.items.len != 0 or
-        answer_payload.refs > 1;
 }
 
 fn prepareDetachedCapacity(self: *Session, additional: u32) !void {
@@ -110,15 +103,13 @@ pub fn prepareGc(self: *Session, positions: []const u64) !void {
         const row = self.inbound_answers.getPtr(name) orelse return error.GcUnderflow;
         if (row.count == 0 or count.value_ptr.* > row.count) return error.GcUnderflow;
         if (row.count != count.value_ptr.*) continue;
-        if (self.resolverForInboundAnswer(name)) |resolver_import| {
-            _ = resolver_import;
-            if (row.payload == null) {
-                _ = try answers.ensureAnswerPayload(self.allocator, row);
-                attached.appendAssumeCapacity(name);
-            }
+        const has_resolver = self.resolverForInboundAnswer(name) != null;
+        if (has_resolver and row.payload == null) {
+            _ = try answers.ensureAnswerPayload(self.allocator, row);
+            attached.appendAssumeCapacity(name);
         }
         if (row.payload) |answer_payload| {
-            if (self.resolverForInboundAnswer(name) != null or hasAcceptedConsequences(answer_payload))
+            if (has_resolver or answer_payload.hasConsequences())
                 detached_count = std.math.add(u32, detached_count, 1) catch
                     return error.QueueCapExceeded;
         }
@@ -145,7 +136,7 @@ pub fn commitFinalGc(self: *Session, name: model.AnswerName) void {
     row.count = 0;
     _ = self.v1_0_inbound_resolver_link.removeByKey(name);
     if (row.payload) |answer_payload| {
-        if (hasAcceptedConsequences(answer_payload)) {
+        if (answer_payload.hasConsequences()) {
             const target: answers.AnswerTarget = .{ .name = name, .row_id = row.row_id };
             self.detached_inbound_answers.?.rows.putAssumeCapacity(
                 target.row_id,
@@ -156,9 +147,7 @@ pub fn commitFinalGc(self: *Session, name: model.AnswerName) void {
             return;
         }
     }
-    const released = answers.deinitAnswerCell(self.allocator, row);
-    std.debug.assert(self.retained_sent_answer_bytes >= released);
-    self.retained_sent_answer_bytes -= released;
+    lifecycle.releaseInboundCell(self, row);
     self.inbound_answers.remove(name);
 }
 
@@ -286,9 +275,7 @@ pub fn retireVirtual(self: *Session, target: answers.AnswerTarget) void {
     const answer_payload = row.payload orelse return;
     if (!noticeComplete(answer_payload)) return;
     if (self.local_promises != null and answer_payload.refs > 2) return;
-    const released = answers.deinitAnswerCell(self.allocator, row);
-    std.debug.assert(self.retained_sent_answer_bytes >= released);
-    self.retained_sent_answer_bytes -= released;
+    lifecycle.releaseInboundCell(self, row);
     self.inbound_answers.remove(target.name);
     _ = self.v1_0_inbound_resolver_link.removeByKey(target.name);
 }
@@ -300,4 +287,14 @@ pub fn deinitDetached(self: *Session) void {
     store.rows.deinit(self.allocator);
     self.allocator.destroy(store);
     self.detached_inbound_answers = null;
+}
+
+/// Retire a settled answer's carrier once its notification has left: the
+/// virtual row, the detached row, the retain the carrier held, and the
+/// local promise projections that release frees.
+pub fn releaseCarrier(self: *Session, target: answers.AnswerTarget, answer_payload: *answers.AnswerPayload) void {
+    retireVirtual(self, target);
+    retireDetached(self, target, answer_payload);
+    releasePayload(self, answer_payload);
+    self.collectLocalPromiseProjections();
 }

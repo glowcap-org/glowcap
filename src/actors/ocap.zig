@@ -19,6 +19,7 @@
 
 const std = @import("std");
 const model = @import("model");
+const boxed = @import("vat/boxed.zig");
 const vat_mod = @import("vat/mod.zig");
 
 const Vat = vat_mod.Vat;
@@ -33,38 +34,36 @@ pub const Error = error{
     Attenuated,
 };
 
-/// A revoke flag shared by a caretaker's proxy actor and its `Caretaker` handle.
-/// It lives with, and is freed by, the proxy actor, so it stays valid for the
-/// vat's lifetime, which a `Caretaker` never outlives.
-const RevokeCell = struct { live: bool };
-
 /// A caretaker: a forwarding proxy you can switch off. Hand `proxy` to a
-/// partner. Keep the `Caretaker` and call `revoke()` to sever it. Until revoked
+/// partner. Keep the `Caretaker` and call `revoke` to sever it. Until revoked
 /// the proxy forwards every call to its target (local or far). After, every call
-/// through `proxy` breaks with `Revoked`.
+/// through `proxy` breaks with `Revoked`. The flag is the proxy actor's own
+/// state, so a vat holding a caretaker is not snapshottable: revocation is
+/// authority, and a rewound heap must not quietly restore it.
 pub const Caretaker = struct {
     /// The reference to delegate. Forwards to the target until revoked.
     proxy: Ref,
-    cell: *RevokeCell,
 
     /// Sever the proxy: subsequent calls through it break with `Revoked`.
-    /// Idempotent.
-    pub fn revoke(self: Caretaker) void {
-        self.cell.live = false;
+    /// Idempotent, and a proxy row the vat already dropped has nothing to
+    /// sever.
+    pub fn revoke(self: Caretaker, vat: *Vat) void {
+        const cell = vat.actors.getPtr(self.proxy.local) orelse return;
+        std.debug.assert(cell.box.kind == boxed.StateBox.Kind.of(CaretakerActor));
+        // A clone-less mutable box is never shared with a snapshot.
+        std.debug.assert(cell.box.refs == 1);
+        const state: *CaretakerActor = @ptrCast(@alignCast(cell.box.ptr));
+        state.live = false;
     }
 };
 
 const CaretakerActor = struct {
     target: Ref,
-    cell: *RevokeCell,
+    live: bool = true,
 
     pub fn handle(self: *CaretakerActor, turn: *Turn, msg: Delivery) !model.Argument {
-        if (!self.cell.live) return Error.Revoked;
+        if (!self.live) return error.Revoked;
         return turn.forward(self.target, msg);
-    }
-
-    pub fn deinit(self: *CaretakerActor, allocator: std.mem.Allocator) void {
-        allocator.destroy(self.cell);
     }
 };
 
@@ -77,7 +76,7 @@ const AttenuatorActor = struct {
         for (self.allowed) |verb| {
             if (std.mem.eql(u8, verb, msg.verb)) return turn.forward(self.target, msg);
         }
-        return Error.Attenuated;
+        return error.Attenuated;
     }
 
     pub fn deinit(self: *AttenuatorActor, allocator: std.mem.Allocator) void {
@@ -91,12 +90,7 @@ const AttenuatorActor = struct {
 /// (which may be a far reference), so this hands out a revocable view of a
 /// capability the holder need not own locally.
 pub fn caretaker(vat: *Vat, target: Ref) !Caretaker {
-    const cell = try vat.allocator.create(RevokeCell);
-    cell.* = .{ .live = true };
-    // On `spawn` failure the actor's `deinit` frees `cell` (makeBox contract),
-    // so there is nothing to unwind here.
-    const proxy = try vat.spawn(CaretakerActor, .{ .target = target, .cell = cell });
-    return .{ .proxy = proxy, .cell = cell };
+    return .{ .proxy = try vat.spawn(CaretakerActor, .{ .target = target }) };
 }
 
 /// Spawn an attenuator over `target`: a forwarder that passes only the verbs in

@@ -3,7 +3,9 @@
 ;; Bench server entrypoint: racket server.rkt <backend> <suite> <host> <port>.
 ;; Loads the requested app and backend, then serves the app's root on that
 ;; substrate over loopback TCP, printing one NDJSON readiness line and then
-;; serving until killed.
+;; serving until interrupted. The glowcap backend closes its server on the
+;; interrupt; the Goblins backend has nothing to drain, so its break ends the
+;; process here.
 (file-stream-buffer-mode (current-output-port) 'line)
 
 (define-runtime-path here ".")
@@ -23,4 +25,5 @@
 
 ;; build-root is the app's server-build (mint-cap -> root-ctor); the backend's
 ;; server-run supplies the connection-appropriate mint-cap.
-(server-run "root" host port server-build)
+(with-handlers ([exn:break? void])
+  (server-run "root" host port server-build))

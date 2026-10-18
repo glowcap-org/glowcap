@@ -14,8 +14,11 @@
 //! A codec is identified on the wire by its `model.CodecId` (a stable `u16`).
 //! A `Spec` binds that id to the codec's frame shape and its implementation
 //! module, any type exposing `decodeBody`, `decodeBodyForProfile`,
-//! `decodeBodyInto`, `encodeMessageForProfile`, `encodeBodyForProfile`, and
-//! an `Error` set, exactly the shape `syrup` and `capnp` already have. The `comptime` block below
+//! `decodeBodyInto`, `encodeMessageForProfile`, `encodeBodyForProfile`, a
+//! `meter` (the type that sizes an outbound tree's values during the
+//! session's admission walk, or null when the codec sizes its own frames),
+//! and an `Error` set, exactly the shape `syrup` and `capnp` already have.
+//! The `comptime` block below
 //! `active` holds every registered module to this shape, so a misspelled
 //! member is a compile error naming the member rather than a silent fallback.
 
@@ -33,9 +36,9 @@ pub const Spec = struct {
     id: model.CodecId,
     /// `.byte` for a self-delimiting byte stream, `.word` for 8-byte-aligned.
     frame_shape: foundation.FrameShape,
-    /// The implementation: a type with `decodeBody` / `decodeBodyForProfile` /
-    /// `decodeBodyInto` / `encodeMessageForProfile` / `encodeBodyForProfile` /
-    /// `Error` (see the module header).
+    /// The implementation: a type with `decodeBodyInto` /
+    /// `encodeMessageForProfile` / `encodeBodyForProfile` / `meter` / `Error` /
+    /// `EncodeError` (see the module header).
     module: type,
 };
 
@@ -75,7 +78,7 @@ comptime {
         }
         const M = spec.module;
         const name = @typeName(M);
-        for ([_][]const u8{ "decodeBody", "decodeBodyForProfile", "decodeBodyInto", "encodeMessageForProfile", "encodeBodyForProfile", "Error", "EncodeError" }) |member| {
+        for ([_][]const u8{ "decodeBodyInto", "encodeMessageForProfile", "encodeBodyForProfile", "meter", "Error", "EncodeError" }) |member| {
             if (!@hasDecl(M, member))
                 @compileError("codec module " ++ name ++ " is missing `" ++ member ++ "` (see registry.Spec.module)");
         }

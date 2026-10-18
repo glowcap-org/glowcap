@@ -7,25 +7,30 @@ const serve = @import("serve.zig");
 const vows = @import("vows.zig");
 const Vat = vat_mod.Vat;
 const Turn = vat_mod.Turn;
+const Port = vat_mod.Port;
 const Error = vat_mod.Error;
 
-const Answer = union(enum) { local: u64, wire: engine.AnswerTarget };
+/// Where a forwarded turn's completion goes: a local vow, or a served wire
+/// answer with the Port that serves it.
+const Answer = union(enum) {
+    local: u64,
+    wire: struct { port: *Port, target: engine.AnswerTarget },
+};
 pub const ForwardContext = struct {
     vat: *Vat,
-    port: ?*vat_mod.Port,
     answer: Answer,
 
     /// Capture an eventual answer before an adapter publishes its effect.
     /// Storage belongs to the adapter. Completion never frees this context.
     pub fn prepare(turn: *const Turn) !?ForwardContext {
-        if (turn.forwarded) return Error.AlreadyForwarded;
+        if (turn.forwarded) return error.AlreadyForwarded;
         const answer = (try destination(turn)) orelse return null;
-        return .{ .vat = turn.vat, .port = turn.port, .answer = answer };
+        return .{ .vat = turn.vat, .answer = answer };
     }
 
     /// The adapter has committed a completion recipient for this answer.
     pub fn commit(self: *const ForwardContext, turn: *Turn) void {
-        std.debug.assert(self.vat == turn.vat and self.port == turn.port);
+        std.debug.assert(self.vat == turn.vat);
         std.debug.assert(!turn.forwarded);
         std.debug.assert(std.meta.eql(self.answer, (destination(turn) catch unreachable).?));
         markForwarded(turn, true);
@@ -38,10 +43,13 @@ pub const ForwardContext = struct {
                 .give => .{ .broken = "introduction not forwardable" },
                 else => resolution,
             }),
-            .wire => |answer| switch (resolution) {
-                .fulfilled => |value| serve.resolveFulfill(self.port.?, answer, value) catch |err| self.port.?.peer.emitFailure(err),
-                .broken => |message| serve.resolveBreak(self.port.?, answer, message) catch |err| self.port.?.peer.emitFailure(err),
-                .give => serve.resolveBreak(self.port.?, answer, "introduction not forwardable") catch |err| self.port.?.peer.emitFailure(err),
+            .wire => |wire| {
+                const sent = switch (resolution) {
+                    .fulfilled => |value| serve.resolveFulfill(wire.port, wire.target, value),
+                    .broken => |message| serve.resolveBreak(wire.port, wire.target, message),
+                    .give => serve.resolveBreak(wire.port, wire.target, "introduction not forwardable"),
+                };
+                sent catch |err| wire.port.peer.emitFailure(err);
             },
         }
     }
@@ -53,11 +61,12 @@ pub const ForwardContext = struct {
 /// ordinary context with the listener. Abort detaches before any notification.
 const ForwardRegistration = struct {
     context: ?*ForwardContext,
-    port: ?*vat_mod.Port,
+    port: ?*Port,
     source: vat_mod.Vow,
 
     comptime {
-        std.debug.assert(@sizeOf(@This()) <= 32);
+        // Two pointers and a vow, whose far arm names its question by identity.
+        std.debug.assert(@sizeOf(@This()) <= 40);
     }
 
     fn commit(ctx: *anyopaque, vat: *Vat) void {
@@ -99,7 +108,7 @@ fn destination(turn: *const Turn) !?Answer {
     return switch (turn.origin) {
         .local => Error.NotLocal,
         .eventual => |eventual| if (eventual.answer) |id| .{ .local = id } else null,
-        .served => |answer| if (answer) |wire| .{ .wire = wire } else null,
+        .served => |answer| if (answer) |target| .{ .wire = .{ .port = turn.source.port, .target = target } } else null,
     };
 }
 
@@ -110,8 +119,8 @@ pub fn forwardListener(ctx: ?*anyopaque, resolution: vat_mod.Resolution) void {
 }
 
 pub fn forwardTurn(self: *Vat, turn: *Turn, target: vat_mod.Ref, msg: vat_mod.Delivery) anyerror!model.Argument {
-    if (turn.forwarded) return Error.AlreadyForwarded;
-    if (turn.origin == .local) return self.nearDelivery(turn.port, turn.ingress, target, msg);
+    if (turn.forwarded) return error.AlreadyForwarded;
+    if (turn.origin == .local) return self.nearDelivery(turn.source, target, msg);
     // An eventual hop leaves the turn, and views end with it: a far hop is
     // the Port's to send as it is, and a local one is materialized once into
     // the turn arena, which holds it until the queue clones it
@@ -132,10 +141,10 @@ pub fn forwardTurn(self: *Vat, turn: *Turn, target: vat_mod.Ref, msg: vat_mod.De
 /// Adapter-owned messages use the same queued answer transfer. The result
 /// value belongs to the adapter. This vow carries only its completion token.
 pub fn forwardOpaque(self: *Vat, turn: *Turn, target: vat_mod.Ref, body: vat_mod.OpaqueMessage) !void {
-    if (turn.port != null or target != .local) return Error.NotConnected;
+    if (turn.port() != null or target != .local) return error.NotConnected;
     const reservation = try reserveForward(self, turn, .local);
     errdefer cancelForward(self, reservation);
-    const id = try @import("ingress.zig").enqueueOpaque(self, turn.ingress, target.local, body, reservation == .answer);
+    const id = try @import("ingress.zig").enqueueOpaque(self, turn.ingress(), target.local, body, if (reservation == .answer) .answered else .unanswered);
     commitForward(self, turn, reservation, .{ .local = id });
 }
 
@@ -143,13 +152,7 @@ pub fn reserveForward(self: *Vat, turn: *Turn, location: vat_mod.VowLocation) !F
     const prepared = (try ForwardContext.prepare(turn)) orelse return .no_answer;
     const context = try self.allocator.create(ForwardContext);
     errdefer self.allocator.destroy(context);
-    const listener = if (turn.port) |port|
-        try port.reserveListener(self, location)
-    else blk: {
-        if (location != .local) return Error.NotConnected;
-        try vows.reserveLocalListener(self);
-        break :blk vat_mod.ListenerReservation{ .location = .local };
-    };
+    const listener = try turn.reserveListener(location);
     context.* = prepared;
     return .{ .answer = .{ .context = context, .listener = listener } };
 }
@@ -175,13 +178,7 @@ pub fn commitForward(self: *Vat, turn: *Turn, reservation: ForwardReservation, v
     switch (reservation) {
         .no_answer => {},
         .answer => |answer| {
-            const listener = vat_mod.Listener{ .ctx = answer.context, .func = self.forward_listener };
-            if (turn.port) |port| {
-                port.onReserved(self, answer.listener, vow, listener);
-            } else {
-                std.debug.assert(vow == .local and answer.listener.location == .local);
-                vows.onReservedLocal(self, vow.local, listener);
-            }
+            turn.onReserved(answer.listener, vow, .{ .ctx = answer.context, .func = self.forward_listener });
         },
     }
     markForwarded(turn, reservation == .answer);
@@ -190,21 +187,21 @@ pub fn commitForward(self: *Vat, turn: *Turn, reservation: ForwardReservation, v
 /// An existing vow uses checked installation: it may already have a listener
 /// or have settled, unlike a just-minted send's reserved continuation.
 pub fn forwardTurnVow(self: *Vat, turn: *Turn, vow: vat_mod.Vow) !void {
-    if (turn.forwarded) return Error.AlreadyForwarded;
+    if (turn.forwarded) return error.AlreadyForwarded;
     const answer = (try destination(turn)) orelse {
         markForwarded(turn, false);
         return;
     };
     const context = try self.allocator.create(ForwardContext);
     errdefer self.allocator.destroy(context);
-    context.* = .{ .vat = self, .port = turn.port, .answer = answer };
+    context.* = .{ .vat = self, .answer = answer };
     const registration = try self.allocator.create(ForwardRegistration);
     errdefer self.allocator.destroy(registration);
-    registration.* = .{ .context = context, .port = turn.port, .source = vow };
+    registration.* = .{ .context = context, .port = turn.port(), .source = vow };
     const listener = vat_mod.Listener{ .ctx = context, .func = self.forward_listener };
-    if (turn.port) |port| try port.on(self, vow, listener) else try self.on(vow, listener);
+    try turn.observe(vow, listener);
     errdefer {
-        const removed = if (turn.port) |port| port.takeListener(self, vow) else self.takeListener(vow);
+        const removed = turn.unobserve(vow);
         std.debug.assert(removed != null and removed.?.ctx == listener.ctx);
     }
     try self.enrollTurn(.{

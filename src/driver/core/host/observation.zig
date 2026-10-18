@@ -39,12 +39,10 @@ fn fetchWithProgress(self: *Host, session: *HostSession, name: []const u8, drive
     try self.admitSessionOperation(session);
     try self.checkSession(session);
     try self.checkOutboundAdmission(session);
-    const reservation = try vows.reserveVow(self, session, .far, .fetch, .peer_visible);
-    var reservation_live = true;
-    errdefer if (reservation_live) vows.cancelVowReservation(self, reservation);
+    var reservation = try vows.reserveVow(self, session, .far, .fetch, .peer_visible);
+    defer reservation.deinit();
     const vow = try session.served.sendBootstrapFetch(&self.vat, name);
-    const id = vows.commitVow(self, session, reservation, vow);
-    reservation_live = false;
+    const id = reservation.commit(vow);
     self.node.exporterApplicationOwned(session.peer_handle);
     if (drive_now)
         host_pump.finishCommittedVow(self, session)
@@ -159,7 +157,7 @@ fn observeCapability(
             .broken => return error.PromiseBroken,
         }
     }
-    const routed = try self.routeCapability(session, current, false);
+    const routed = try self.routeCapability(session, current, .any_target);
     if (accept_objects and (routed.target == .local or routed.target.far.kind == .object)) {
         return .{ .resolved = try self.capabilities.retain(self.allocator, resolved_target) };
     }
@@ -177,12 +175,10 @@ fn commitRoutedListen(
     wire: model.Reference,
     drive_now: bool,
 ) !u64 {
-    const reservation = try vows.reserveVow(self, home, .far, .plain, .session_private);
-    var reservation_live = true;
-    errdefer if (reservation_live) vows.cancelVowReservation(self, reservation);
+    var reservation = try vows.reserveVow(self, home, .far, .plain, .session_private);
+    defer reservation.deinit();
     const vow = try home.served.listenTo(wire);
-    const id = vows.commitVow(self, home, reservation, vow);
-    reservation_live = false;
+    const id = reservation.commit(vow);
     self.node.exporterApplicationOwned(home.peer_handle);
     if (drive_now)
         host_pump.finishCommittedVow(self, home)

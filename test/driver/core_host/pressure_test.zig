@@ -20,6 +20,7 @@ const crypto = glowcap.foundation.crypto;
 const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("harness.zig");
+const projection_support = @import("../../support/projection.zig");
 const PublicationProbe = harness.PublicationProbe;
 const frame_cap = harness.frame_cap;
 const Widget = harness.Widget;
@@ -188,25 +189,24 @@ test "core host: committed relayed listeners resume after outbound pressure" {
     const pair = try openPair(allocator, &client, &host, "127.0.0.1:7096", &dials);
     const peer = pair.b.served.port.peer;
 
-    const relayed = model.ImportPosition.from(41);
-    try peer.session_state.installThirdPartyImport(relayed, "home");
-    const row_id = peer.session_state.importedPromiseRowId(relayed).?;
+    const projection = try peer.session_state.allocateLocalPromiseProjection();
+    peer.session_state.exports.retain(projection.export_position);
     try peer.session_state.retainImportForSession(.from(42));
-    try peer.session_state.installImportedPromiseListener(relayed, .{
+    try peer.session_state.installListenerNamed(projection.answer_name, .{
         .listener = .{ .import_position = .from(42) },
         .mode = .settling_only,
     });
 
     // The source fire is already consumed. With no outbound admission left,
-    // the authoritative store still commits and leaves its listener carrier
-    // parked for Host scheduling rather than turning pressure into a retry of
-    // the one-shot protocol event.
+    // the authoritative store still commits and leaves its settlement carrier
+    // deferred for Host scheduling rather than turning pressure into a retry
+    // of the one-shot protocol event.
     peer.outbound_budget = 0;
     const reason = try allocator.dupe(u8, "settled under pressure");
-    try peer.applyRelayedResolutionGuaranteed(relayed, row_id, .{
+    try peer.settleAnswerTargetGuaranteed(projection.answer_target, .{
         .@"break" = .{ .message = reason },
     });
-    try std.testing.expect(peer.session_state.importedPromiseResolution(relayed) != null);
+    try std.testing.expect(projection_support.resolution(&peer.session_state, projection.export_position) != null);
 
     driver.core.testing.markDirty(&host, pair.b.peer_handle);
     driver.core.testing.finishCommittedWork(&host, pair.b);
@@ -265,7 +265,7 @@ test "core host: unbounded feed condemns an event consumed before serve OOM" {
     pair.b.served.serve_options = .{
         .hook_ctx = &attempts,
         .before_serve = struct {
-            fn fail(ctx: ?*anyopaque, _: *driver.core.Served, _: *engine.Event) anyerror!bool {
+            fn fail(ctx: ?*anyopaque, _: *driver.core.Served, _: *engine.Event) driver.core.BeforeServeError!bool {
                 const count: *usize = @ptrCast(@alignCast(ctx.?));
                 count.* += 1;
                 return error.OutOfMemory;

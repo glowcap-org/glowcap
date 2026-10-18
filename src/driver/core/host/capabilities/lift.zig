@@ -7,34 +7,30 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 
 const host_mod = @import("../../host.zig");
 const value_mod = @import("../../value.zig");
 const host_pump = @import("../pump.zig");
 const identity = @import("identity.zig");
+const receipt_list = @import("receipt_list.zig");
 const capability_promise = @import("../../capability_promise.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const CapabilityLift = identity.CapabilityLift;
 
-const CapabilityLiftReceipts = struct {
-    const inline_capacity = 8;
+/// The lifts one transaction committed so far, with how many of them came
+/// from wire references rather than inline gives.
+const inline_capacity = 8;
 
-    inline_items: [inline_capacity]CapabilityLift = undefined,
-    len: usize = 0,
+const CapabilityLiftReceipts = struct {
+    list: receipt_list.ReceiptList(CapabilityLift, inline_capacity) = .{},
     reference_count: usize = 0,
-    spill: std.ArrayListUnmanaged(CapabilityLift) = .empty,
 
     fn ensureOne(self: *CapabilityLiftReceipts, arena: std.mem.Allocator) !void {
-        if (self.spill.capacity != 0) {
-            try self.spill.ensureUnusedCapacity(arena, 1);
-            return;
-        }
-        if (self.len < inline_capacity) return;
-        try self.spill.ensureTotalCapacityPrecise(arena, inline_capacity + 1);
-        self.spill.appendSliceAssumeCapacity(self.inline_items[0..self.len]);
+        return self.list.ensureOne(arena);
     }
 
     fn appendAssumeCapacity(
@@ -42,16 +38,16 @@ const CapabilityLiftReceipts = struct {
         lift: CapabilityLift,
         source: enum { reference, inline_give },
     ) void {
-        if (self.spill.capacity != 0)
-            self.spill.appendAssumeCapacity(lift)
-        else
-            self.inline_items[self.len] = lift;
-        self.len += 1;
+        self.list.appendAssumeCapacity(lift);
         if (source == .reference) self.reference_count += 1;
     }
 
     fn items(self: *const CapabilityLiftReceipts) []const CapabilityLift {
-        return if (self.spill.capacity != 0) self.spill.items else self.inline_items[0..self.len];
+        return self.list.items();
+    }
+
+    fn deinit(self: *CapabilityLiftReceipts, allocator: std.mem.Allocator) void {
+        self.list.deinit(allocator);
     }
 };
 
@@ -169,7 +165,7 @@ const ByteOwnership = enum {
 pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, arg: model.Argument) !value_mod.Value {
     var lifts = CapabilityLiftReceipts{};
     // Receipt spill is temporary; the action arena retains only its Value.
-    defer lifts.spill.deinit(self.allocator);
+    defer lifts.deinit(self.allocator);
     var value: value_mod.Value = undefined;
     const view = model.view.Argument.fromOwned(&arg);
     liftValueInner(self, session, arena, view, &lifts, 0, .owned, &value) catch |err| {
@@ -180,10 +176,16 @@ pub fn ownValue(self: *Host, session: *HostSession, arena: std.mem.Allocator, ar
     return value;
 }
 
-/// The lift walk keeps `anyerror`: `liftValueInner` and `liftValuesInner` are
-/// mutually recursive, which this toolchain refuses to resolve as inferred
-/// sets, and the walk's true set mirrors the actor-turn error vocabulary
-/// reached through `liftCapabilityTracked`.
+/// Everything the value lift walk can refuse. The walk is recursive, so its
+/// set is spelled from the non-recursive steps it takes.
+pub const LiftError = error{ NestingTooDeep, MalformedView, UnsupportedValue } ||
+    std.mem.Allocator.Error ||
+    model.view.ProjectError ||
+    foundation.error_sets.Of(CapabilityLiftReceipts.ensureOne) ||
+    foundation.error_sets.Of(identity.callableReference) ||
+    foundation.error_sets.Of(identity.liftCapabilityTracked) ||
+    foundation.error_sets.Of(capability_promise.liftInlineGive);
+
 /// Writes the lifted value into `out` so each arm lands in place: a result
 /// returned through an error union is copied out of it by the caller, and a
 /// value is wide enough for that copy to be a call.
@@ -196,7 +198,7 @@ fn liftValueInner(
     depth: usize,
     comptime bytes: ByteOwnership,
     out: *value_mod.Value,
-) anyerror!void {
+) LiftError!void {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     out.* = switch (arg) {
         .bytes => |v| .{ .bytes = try bytes.materialize(arena, v) },
@@ -255,7 +257,7 @@ fn liftValuesInner(
     lifts: *CapabilityLiftReceipts,
     depth: usize,
     comptime bytes: ByteOwnership,
-) anyerror![]value_mod.Value {
+) LiftError![]value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     const out = try arena.alloc(value_mod.Value, try args.len());
     var filled: usize = 0;
@@ -277,7 +279,7 @@ pub fn liftValue(
     session: *HostSession,
     arena: std.mem.Allocator,
     arg: model.Argument,
-) anyerror!value_mod.Value {
+) LiftError!value_mod.Value {
     return liftView(self, session, arena, .fromOwned(&arg));
 }
 
@@ -287,7 +289,7 @@ pub fn liftView(
     session: *HostSession,
     arena: std.mem.Allocator,
     view: model.view.Argument,
-) anyerror!value_mod.Value {
+) LiftError!value_mod.Value {
     var lifts = CapabilityLiftReceipts{};
     var value: value_mod.Value = undefined;
     liftValueInner(self, session, arena, view, &lifts, 0, .borrowed, &value) catch |err| {
@@ -313,7 +315,7 @@ pub fn projectValue(
     arg: model.Argument,
     context: anytype,
     comptime project: anytype,
-) anyerror!projectedValueType(project) {
+) (LiftError || foundation.error_sets.Of(project))!projectedValueType(project) {
     var lifts = CapabilityLiftReceipts{};
     var value: value_mod.Value = undefined;
     const view = model.view.Argument.fromOwned(&arg);
@@ -338,7 +340,7 @@ pub fn projectValues(
     args: model.view.Args,
     context: anytype,
     comptime project: anytype,
-) anyerror!projectedValueType(project) {
+) (LiftError || foundation.error_sets.Of(project))!projectedValueType(project) {
     var lifts = CapabilityLiftReceipts{};
     const values = liftValuesInner(self, session, arena, args, &lifts, 0, .borrowed) catch |err| {
         failValuesProjection(self, session, args, &lifts);
@@ -361,7 +363,7 @@ pub fn liftValues(
     session: *HostSession,
     arena: std.mem.Allocator,
     args: model.view.Args,
-) anyerror![]value_mod.Value {
+) LiftError![]value_mod.Value {
     var lifts = CapabilityLiftReceipts{};
     const values = liftValuesInner(self, session, arena, args, &lifts, 0, .borrowed) catch |err| {
         failValuesProjection(self, session, args, &lifts);

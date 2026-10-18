@@ -17,6 +17,7 @@ const crypto = glowcap.foundation.crypto;
 const stream_framing = glowcap.foundation.stream_framing;
 
 const harness = @import("../harness.zig");
+const projection_support = @import("../../../support/projection.zig");
 const frame_cap = harness.frame_cap;
 const Widget = harness.Widget;
 const FairCounter = harness.FairCounter;
@@ -76,13 +77,15 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
     try home_pair.a.served.port.peer.session_state.registerImport(.from(source_export.int()));
     const source_token = try relay.node.enrollForeign(
         home_pair.a.peer_handle,
-        .{ .far = model.FarRef.promise(source_export.int()) },
+        model.FarRef.promise(source_export.int()),
     );
     const projected = (try relay.node.proxyForeignPromiseFulfill(
         recipient_pair.a.peer_handle,
         source_token.routed.id,
     )).?;
-    const recipient_import = model.ImportPosition.from(projected.near.export_position.int());
+    const recipient_export = projected.near.export_position;
+    // Hold the projection as the partner would once its message is sent.
+    recipient_pair.a.served.port.peer.session_state.exports.retain(recipient_export);
 
     // Inspect and acknowledge the home op:listen exactly as a wire peer would.
     // Registering its listener import is enough for the manual
@@ -128,8 +131,9 @@ fn runRelayedPromiseProjection(codec_id: model.CodecId) !void {
         listener_position.int(),
     ));
 
-    const settled = recipient_pair.a.served.port.peer.session_state.importedPromiseResolution(
-        recipient_import,
+    const settled = projection_support.resolution(
+        &recipient_pair.a.served.port.peer.session_state,
+        recipient_export,
     ) orelse return error.MissingRelayedSettlement;
     try std.testing.expect(settled.* == .fulfill);
     try std.testing.expect(settled.fulfill == .@"struct");

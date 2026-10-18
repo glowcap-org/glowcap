@@ -15,6 +15,7 @@ const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesA
 const Node = engine.Node;
 
 const harness = @import("harness.zig");
+const projection_support = @import("../../support/projection.zig");
 const pendingWithdrawAnswer = harness.pendingWithdrawAnswer;
 const peerUri = harness.peerUri;
 const peerUriWithAlternatives = harness.peerUriWithAlternatives;
@@ -39,14 +40,14 @@ fn fixtureSessionTransport(ctx: ?*anyopaque, peer_handle: engine.PeerHandle) ?[]
     return fixture.transport;
 }
 
-const fixture_transport_vtable: Node.RuntimeTransportResolver.VTable = .{
+const fixture_transport_vtable: engine.Node.TransportResolver.VTable = .{
     .designator_scheme = fixtureDesignatorScheme,
     .session_transport = fixtureSessionTransport,
 };
 
 test "one baseline exporter recipe stays concrete for every recipient" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x6a)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x6a)));
     defer node.deinit();
 
     const next_id = try node.registerPeer(.{
@@ -62,25 +63,25 @@ test "one baseline exporter recipe stays concrete for every recipient" {
         allocator,
         &node,
         next,
-        @as([crypto.SEED_BYTES]u8, @splat(0x6b)),
+        @as([crypto.seed_bytes]u8, @splat(0x6b)),
     );
     defer next_counterpart.deinit();
     var baseline_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         baseline,
-        @as([crypto.SEED_BYTES]u8, @splat(0x6c)),
+        @as([crypto.seed_bytes]u8, @splat(0x6c)),
     );
     defer baseline_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x6d)),
+        @as([crypto.seed_bytes]u8, @splat(0x6d)),
     );
     defer exporter_counterpart.deinit();
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x6e))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6e))).publicKey().toDesignator();
     const via = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(via);
     const route_hints = [_]model.HintEntry{
@@ -96,7 +97,7 @@ test "one baseline exporter recipe stays concrete for every recipient" {
     try next.session_state.registerImport(.from(2));
     try baseline.session_state.registerImport(.from(3));
     try exporter.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
+    const foreign = try node.enrollForeign(exporter_id, model.FarRef.object(4));
     try next.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
@@ -108,8 +109,8 @@ test "one baseline exporter recipe stays concrete for every recipient" {
 
     const next_ticket = node.nextAction().?.need_gift_id.ticket;
     const baseline_ticket = node.nextAction().?.need_gift_id.ticket;
-    try node.provideGiftId(next_ticket, &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x6f)));
-    try node.provideGiftId(baseline_ticket, &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x70)));
+    try node.provideGiftId(next_ticket, &@as([model.handoff_gift_id_bytes]u8, @splat(0x6f)));
+    try node.provideGiftId(baseline_ticket, &@as([model.handoff_gift_id_bytes]u8, @splat(0x70)));
     while (node.nextAction()) |_| {}
 
     try next.stepToIdle();
@@ -143,7 +144,7 @@ test "one baseline exporter recipe stays concrete for every recipient" {
 
 test "give lowering asks for the physical recipient transport instead of its advertised route" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x71)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x71)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -163,18 +164,18 @@ test "give lowering asks for the physical recipient transport instead of its adv
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x72)),
+        @as([crypto.seed_bytes]u8, @splat(0x72)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x73)),
+        @as([crypto.seed_bytes]u8, @splat(0x73)),
     );
     defer exporter_counterpart.deinit();
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x74))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x74))).publicKey().toDesignator();
     const via = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.iroh|ocapn://{s}.noise-tcp",
@@ -193,13 +194,13 @@ test "give lowering asks for the physical recipient transport instead of its adv
 
     try recipient.session_state.registerImport(.from(2));
     try exporter.session_state.registerImport(.from(3));
-    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(3) });
+    const foreign = try node.enrollForeign(exporter_id, model.FarRef.object(3));
     try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
     } });
     const ticket = node.nextAction().?.need_gift_id.ticket;
-    try node.provideGiftId(ticket, &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x75)));
+    try node.provideGiftId(ticket, &@as([model.handoff_gift_id_bytes]u8, @splat(0x75)));
     while (node.nextAction()) |_| {}
 
     try recipient.stepToIdle();
@@ -217,7 +218,7 @@ test "give lowering asks for the physical recipient transport instead of its adv
 
 test "inline gift staging refuses a complete message that exceeds the recipient budget" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x70)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x70)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -228,20 +229,20 @@ test "inline gift staging refuses a complete message that exceeds the recipient 
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x71)),
+        @as([crypto.seed_bytes]u8, @splat(0x71)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x72)),
+        @as([crypto.seed_bytes]u8, @splat(0x72)),
     );
     defer exporter_counterpart.deinit();
 
     try recipient.session_state.registerImport(.from(2));
     try exporter.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
+    const foreign = try node.enrollForeign(exporter_id, model.FarRef.object(4));
     const message: model.Message = .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
@@ -260,7 +261,7 @@ test "inline gift staging refuses a complete message that exceeds the recipient 
 
 test "inline gift occurrence admission is aggregate per recipient" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x73)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x73)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{ .limits = .{ .queue_cap = 2 } });
@@ -271,20 +272,20 @@ test "inline gift occurrence admission is aggregate per recipient" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x74)),
+        @as([crypto.seed_bytes]u8, @splat(0x74)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x75)),
+        @as([crypto.seed_bytes]u8, @splat(0x75)),
     );
     defer exporter_counterpart.deinit();
 
     try recipient.session_state.registerImport(.from(2));
     try exporter.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
+    const foreign = try node.enrollForeign(exporter_id, model.FarRef.object(4));
     const message: model.Message = .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
@@ -312,7 +313,7 @@ test "inline gift occurrence admission is aggregate per recipient" {
 
 test "same-exporter inline deposits share one cumulative outbound reservation" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x76)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x76)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -323,24 +324,24 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x77)),
+        @as([crypto.seed_bytes]u8, @splat(0x77)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x78)),
+        @as([crypto.seed_bytes]u8, @splat(0x78)),
     );
     defer exporter_counterpart.deinit();
 
     try recipient.session_state.registerImport(.from(2));
     try exporter.session_state.registerImport(.from(4));
-    const wire = model.Reference{ .far = model.FarRef.object(4) };
+    const wire = model.FarRef.object(4);
     const foreign = try node.enrollForeign(exporter_id, wire);
     const one_deposit: model.Message = .{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
-        .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = &(@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0))) }, .{ .reference = wire } },
+        .target = .{ .far = model.FarRef.object(engine.bootstrap_position) },
+        .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = &(@as([model.handoff_gift_id_bytes]u8, @splat(0))) }, .{ .reference = .{ .far = wire } } },
         .answer = null,
     } };
     // A deposit is queued as its frame (ADR-0236), so its charge is the
@@ -356,8 +357,8 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
     } });
     const first = node.nextAction().?.need_gift_id.ticket;
     const second = node.nextAction().?.need_gift_id.ticket;
-    const first_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x79));
-    const second_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x7a));
+    const first_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x79));
+    const second_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x7a));
     try node.provideGiftId(first, &first_id);
     try node.provideGiftId(second, &second_id);
 
@@ -370,7 +371,7 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
 
 test "nested foreign promises share one prepared home listener" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x7b)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x7b)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -381,20 +382,20 @@ test "nested foreign promises share one prepared home listener" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x7c)),
+        @as([crypto.seed_bytes]u8, @splat(0x7c)),
     );
     defer recipient_counterpart.deinit();
     var home_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         home,
-        @as([crypto.SEED_BYTES]u8, @splat(0x7d)),
+        @as([crypto.seed_bytes]u8, @splat(0x7d)),
     );
     defer home_counterpart.deinit();
 
     try recipient.session_state.registerImport(.from(2));
     try home.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(home_id, .{ .far = model.FarRef.promise(4) });
+    const foreign = try node.enrollForeign(home_id, model.FarRef.promise(4));
     try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .list = &.{
@@ -454,8 +455,8 @@ test "nested foreign promises share one prepared home listener" {
     try std.testing.expect(node.consumeProjectedProxyListenerFire(home_id, listener_position, .{
         .fulfill = .{ .bytes = settlement },
     }));
-    const first_settlement = recipient.session_state.importedPromiseResolution(first.far.import_position).?;
-    const second_settlement = recipient.session_state.importedPromiseResolution(second.far.import_position).?;
+    const first_settlement = projection_support.resolution(&recipient.session_state, .from(first.far.import_position.int())).?;
+    const second_settlement = projection_support.resolution(&recipient.session_state, .from(second.far.import_position.int())).?;
     try std.testing.expectEqualStrings("settled", first_settlement.fulfill.bytes);
     try std.testing.expectEqualStrings("settled", second_settlement.fulfill.bytes);
     var settlement_flushes: usize = 0;

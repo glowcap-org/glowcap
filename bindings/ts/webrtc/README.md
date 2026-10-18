@@ -5,13 +5,14 @@ listens with `RtcPeer`, and Deno does the same through the WebRTC C library.
 Each keyed session runs over one `RTCDataChannel`, one bare CapTP frame per
 packet.
 
-Signaling is yours to carry, usually through an OCapN capability such as a
+Your application carries the signaling, usually through an OCapN capability such as a
 room. The same `SignalingAuthority` serves every side: `offer` sends an offer
 and resolves with the answer, `answer` sends an answer, `candidate` sends a
 local candidate, and `onCandidate` subscribes the far peer's candidates. Every
 call names its exchange by id. `offer`, `answer`, and `onCandidate` also
 receive a `SignalingTarget` whose `designator` names the peer, and `candidate`
-takes only the id. Once the channel opens, the room is out of the byte path.
+takes only the id. Once the channel opens, bytes flow directly between the
+peers.
 
 ## Dial and listen in a browser
 

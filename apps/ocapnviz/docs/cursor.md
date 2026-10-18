@@ -67,12 +67,9 @@ The cursors the verbs use:
 | `grab` | The Overview's pan. |
 | `crosshair` | A marquee. |
 
-`ew-resize` moves along time and `col-resize` changes a size, so the two are
-not interchangeable.
-
 A row label reads `pointer` rather than a vertical resize cursor, because its
-click selects the row's entity and only its drag reorders the stack. The cursor
-describes the click. While the row is moving, the in-flight step answers
+click selects the row's entity and only its drag reorders the stack. While the
+row is moving, the in-flight step answers
 `grabbing`.
 
 **`willPick` is supplied by the host.** Whether a two-click tool will take the

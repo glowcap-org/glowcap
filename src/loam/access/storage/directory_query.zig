@@ -1,18 +1,20 @@
 //! A revision-bound sparse index cursor retains only a four-level path.
+const std = @import("std");
 const loam = @import("loam_core");
 const records = @import("loam_access_records");
+const Page = records.DirectoryPage;
 const Read = @import("read.zig").Read;
 const Step = @import("read.zig").Step;
 const Load = @import("load.zig").Load;
 
 pub const DirectoryQuery = struct {
     view: *Read,
-    frames: [4]Frame = undefined,
-    count: u3 = 0,
+    frames: [Page.levels]Frame = undefined,
+    count: std.math.IntFittingRange(0, Page.levels) = 0,
     load: Load = .{},
     entry: ?Entry = null,
     done: bool = false,
-    family: records.DirectoryPage.Family = .resource,
+    family: Page.Family = .resource,
     floor: u64 = 0,
     pub const Entry = struct { slot: u32, object: loam.ObjectId };
     const Frame = struct { object: loam.ObjectId, digit: u16 = 0, prefix: u32 };
@@ -26,7 +28,7 @@ pub const DirectoryQuery = struct {
         return self;
     }
 
-    pub fn initAt(view: *Read, root: ?loam.ObjectId, family: records.DirectoryPage.Family, floor: u64) DirectoryQuery {
+    pub fn initAt(view: *Read, root: ?loam.ObjectId, family: Page.Family, floor: u64) DirectoryQuery {
         var result = init(view, if (floor < records.OwnerRecord.max_slots) root else null);
         result.family = family;
         result.floor = floor;
@@ -60,15 +62,14 @@ pub const DirectoryQuery = struct {
     /// page.
     fn advancePage(self: *DirectoryQuery, view: loam.RecordView, level: u2) !Step {
         const frame = &self.frames[level];
-        const page = try records.DirectoryPage.decodeHeader(view);
+        const page = try Page.decodeHeader(view);
         try page.expect(self.view.header.owner, self.family, level, frame.prefix);
         while (page.nextKey(frame.digit)) |digit| {
             frame.digit = @as(u16, digit) + 1;
             const target = (try page.target(view, digit)).?;
-            const prefix = frame.prefix | (@as(u32, digit) << (@as(u5, 3 - @as(u5, level)) * 8));
-            const span: u64 = @as(u64, 1) << (@as(u6, 3 - @as(u6, level)) * 8);
-            if (@as(u64, prefix) + span <= self.floor) continue;
-            if (level == 3) {
+            const prefix = Page.childPrefix(frame.prefix, digit, level);
+            if (@as(u64, prefix) + Page.span(level) <= self.floor) continue;
+            if (level == Page.last_level) {
                 self.entry = .{ .slot = prefix, .object = target };
                 return .ready;
             }

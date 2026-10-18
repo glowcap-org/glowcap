@@ -16,11 +16,12 @@ test "access identity registry retains pages without retaining descriptor payloa
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?.grant;
     var caps = try storage.Capabilities.init(h.a, store, .{});
     defer caps.deinit() catch unreachable;
-    _ = try c.descriptor(&caps, backend, owner, grant, null, false);
+    _ = try c.descriptor(&caps, backend, owner, grant, null, .reachable);
     const before = store.metadata.objects;
     try @import("../core/fixture.zig").collect(store, backend);
     try std.testing.expectEqual(before - 1, store.metadata.objects);
-    var read = try storage.Read.init(h.a, store, owner, 1);
+    var read: storage.Read = undefined;
+    try read.init(h.a, store, owner, 1, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     try std.testing.expectEqual(@as(u64, 1), read.header.next_identity);
@@ -31,12 +32,14 @@ test "access identity registry composes descriptor and endpoint membership in on
     var fixture = try f.Fixture.init(h.a, h.limits);
     defer fixture.deinit();
     const data = try h.seed(&fixture.store, &fixture.backend);
-    var read = try storage.Read.init(h.a, &fixture.store, data.owner, 1);
+    var read: storage.Read = undefined;
+    try read.init(h.a, &fixture.store, data.owner, 1, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, &fixture.backend);
     try std.testing.expectEqual(@as(u64, 6), read.header.next_identity);
     for (0..read.header.next_identity) |slot| {
-        var lookup = try storage.Read.init(h.a, &fixture.store, data.owner, 1);
+        var lookup: storage.Read = undefined;
+        try lookup.init(h.a, &fixture.store, data.owner, 1, null);
         defer lookup.deinit() catch unreachable;
         _ = try f.pump(&lookup, &fixture.backend);
         try std.testing.expect(try lookup.binding(.{ .identity = .{ .owner = read.header.owner, .slot = @intCast(slot) } }) == null);

@@ -37,7 +37,7 @@ pub fn inspect(operation: *op.Operation, target: ?core.GrantId) !InspectedGrant 
     const value = op.state(operation);
     try op.requireControl(value);
     if (!value.descriptor.powers.inspect) return error.Denied;
-    var grants = try value.read.?.grantView();
+    var grants = try value.read.grantView();
     const inherited = try grants.effectiveStatus(value.descriptor.grant);
     if (inherited == .revoked) return error.Revoked;
     var path = grants.ancestry(target orelse value.descriptor.grant);

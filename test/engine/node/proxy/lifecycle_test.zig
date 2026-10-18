@@ -10,10 +10,11 @@ const crypto = glowcap.foundation.crypto;
 const Node = engine.Node;
 
 const openKeyedSessionWithCounterpart = @import("../harness.zig").openKeyedSessionWithCounterpart;
+const projection_support = @import("../../../support/projection.zig");
 
 test "closing a committed proxy home breaks its recipient at logical close" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x71)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x71)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -22,15 +23,17 @@ test "closing a committed proxy home breaks its recipient at logical close" {
         allocator,
         &node,
         node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x72)),
+        @as([crypto.seed_bytes]u8, @splat(0x72)),
     );
     defer home_counterpart.deinit();
 
     const wire_pos: u64 = 4;
     try node.peer(home).?.session_state.registerImport(.from(wire_pos));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(wire_pos));
     const projected = (try node.proxyForeignPromiseFulfill(recipient, route.routed.id)).?;
     const recipient_import = projected.near.export_position.int();
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient).?.session_state.exports.retain(.from(recipient_import));
 
     try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
     var frame = node.peer(home).?.takeOutbound().?;
@@ -41,7 +44,7 @@ test "closing a committed proxy home breaks its recipient at logical close" {
 
     node.peer(home).?.closeSession();
 
-    const resolution = node.peer(recipient).?.session_state.importedPromiseResolution(.from(recipient_import)).?;
+    const resolution = projection_support.resolution(&node.peer(recipient).?.session_state, .from(recipient_import)).?;
     try std.testing.expect(resolution.* == .@"break");
     try std.testing.expectEqualStrings("relayed promise could not be settled", resolution.@"break".message);
     try std.testing.expect(!node.isProxyHomeListener(home, listener));
@@ -55,7 +58,7 @@ test "closing a committed proxy home breaks its recipient at logical close" {
 
 test "closing a committed proxy recipient retires its escrow and home listener" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x73)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x73)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
@@ -64,13 +67,13 @@ test "closing a committed proxy recipient retires its escrow and home listener" 
         allocator,
         &node,
         node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x74)),
+        @as([crypto.seed_bytes]u8, @splat(0x74)),
     );
     defer home_counterpart.deinit();
 
     const wire_pos: u64 = 4;
     try node.peer(home).?.session_state.registerImport(.from(wire_pos));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(wire_pos));
     _ = (try node.proxyForeignPromiseFulfill(recipient, route.routed.id)).?;
 
     try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
@@ -93,7 +96,7 @@ test "closing a committed proxy recipient retires its escrow and home listener" 
 
 test "node teardown breaks committed proxies retained by borrowed peers" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x75)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x75)));
 
     const home = try node.registerPeer(.{});
     var borrowed = engine.Peer.initNegotiating(allocator);
@@ -103,27 +106,29 @@ test "node teardown breaks committed proxies retained by borrowed peers" {
         allocator,
         &node,
         node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x76)),
+        @as([crypto.seed_bytes]u8, @splat(0x76)),
     );
     defer home_counterpart.deinit();
 
     const wire_pos: u64 = 4;
     try node.peer(home).?.session_state.registerImport(.from(wire_pos));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(wire_pos));
     const projected = (try node.proxyForeignPromiseFulfill(recipient, route.routed.id)).?;
     const recipient_import = projected.near.export_position.int();
+    // Hold the projection as the partner would once its message is sent.
+    borrowed.session_state.exports.retain(.from(recipient_import));
 
     node.deinit();
 
     try std.testing.expect(borrowed.node_services == null);
-    const resolution = borrowed.session_state.importedPromiseResolution(.from(recipient_import)).?;
+    const resolution = projection_support.resolution(&borrowed.session_state, .from(recipient_import)).?;
     try std.testing.expect(resolution.* == .@"break");
     try std.testing.expectEqualStrings("relayed promise could not be settled", resolution.@"break".message);
 }
 
 test "node teardown breaks entropy-delayed proxy work retained by a borrowed peer" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x77)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x77)));
 
     const home = try node.registerPeer(.{});
     var borrowed = engine.Peer.initNegotiating(allocator);
@@ -133,16 +138,18 @@ test "node teardown breaks entropy-delayed proxy work retained by a borrowed pee
         allocator,
         &node,
         node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x78)),
+        @as([crypto.seed_bytes]u8, @splat(0x78)),
     );
     defer home_counterpart.deinit();
 
     try node.peer(home).?.session_state.registerImport(.from(4));
     try node.peer(home).?.session_state.registerImport(.from(5));
-    const promise = try node.enrollForeign(home, .{ .far = model.FarRef.promise(4) });
-    const gifted = try node.enrollForeign(home, .{ .far = model.FarRef.object(5) });
+    const promise = try node.enrollForeign(home, model.FarRef.promise(4));
+    const gifted = try node.enrollForeign(home, model.FarRef.object(5));
     const projected = (try node.proxyForeignPromiseFulfill(recipient, promise.routed.id)).?;
     const recipient_import = projected.near.export_position.int();
+    // Hold the projection as the partner would once its message is sent.
+    borrowed.session_state.exports.retain(.from(recipient_import));
     try std.testing.expectEqual(home, node.nextAction().?.flush);
 
     try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
@@ -154,11 +161,11 @@ test "node teardown breaks entropy-delayed proxy work retained by a borrowed pee
         .fulfill = .{ .reference = gifted },
     }));
     try std.testing.expect(node.nextAction().? == .need_gift_id);
-    try std.testing.expect(borrowed.session_state.importedPromiseResolution(.from(recipient_import)) == null);
+    try std.testing.expect(projection_support.resolution(&borrowed.session_state, .from(recipient_import)) == null);
 
     node.deinit();
 
-    const resolution = borrowed.session_state.importedPromiseResolution(.from(recipient_import)).?;
+    const resolution = projection_support.resolution(&borrowed.session_state, .from(recipient_import)).?;
     try std.testing.expect(resolution.* == .@"break");
     try std.testing.expectEqualStrings("relayed promise could not be settled", resolution.@"break".message);
 }

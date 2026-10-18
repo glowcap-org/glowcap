@@ -82,7 +82,7 @@ test "a session refuses malformed reserved profile hints on the borrowed start-s
     // session, which refuses the meaning. A value of another shape is
     // refused by the decoder's hint walk, borrowed and owned alike.
     const hint_maps = .{
-        .{ "{21\"glowcap/captp-version7\"ocapn-2}", glowcap.ocapn.session.Error.MalformedMessage },
+        .{ "{13\"glowcap/codec5\"capnp}", glowcap.ocapn.session.Error.MalformedMessage },
         .{ "{13\"glowcap/codec3:bad}", glowcap.ocapn.session.Error.MalformedMessage },
         .{ "{16\"glowcap/features[1+]}", syrup.Error.MalformedFrame },
     };
@@ -101,6 +101,32 @@ test "a session refuses malformed reserved profile hints on the borrowed start-s
         try std.testing.expectError(case[1], peer.recvBorrowed(view));
         try std.testing.expect(!peer.session_state.handshake_remote_received);
     }
+}
+
+test "a borrowed start-session reads another build's profile tokens as the baseline" {
+    const allocator = std.testing.allocator;
+    // The decoded-view hint path (`findNamed`) and the owned one agree: a
+    // version or codec token this build does not write reads as the baseline
+    // on its axis, and an unknown feature name is dropped, not refused.
+    var peer = glowcap.ocapn.engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    peer.verify_partner_handshake = false;
+
+    const frame_bytes: []const u8 =
+        "<16'op:start-session3\"1.0" ++
+        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1" ++
+        "{13\"glowcap/codec18\"0/0123456789abcdef" ++
+        "16\"glowcap/features26\"pipelining,a_later_feature" ++
+        "21\"glowcap/captp-version12\"glowcap-next}>" ++
+        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
+    const view = glowcap.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    try peer.recvBorrowed(view);
+    try std.testing.expect(peer.session_state.handshake_remote_received);
+    const partner = peer.session_state.partner_preference;
+    try std.testing.expectEqual(glowcap.ocapn.model.CaptpVersion.v1_0, partner.captp_version);
+    try std.testing.expectEqual(glowcap.ocapn.model.CodecId.syrup, partner.codec);
+    try std.testing.expectEqual(glowcap.ocapn.model.FeatureSet{ .pipelining = true }, partner.features);
 }
 
 test "Syrup decodes a start-session whose location carries non-empty hints" {
@@ -194,4 +220,22 @@ test "a hint map carries every value shape the hint grammar knows and skips the 
     try std.testing.expectEqual(@as(usize, 4), entries.len);
     try std.testing.expectEqualStrings("int", entries[0].name);
     try std.testing.expectEqualStrings("text", entries[3].name);
+}
+
+test "an unknown hint value is walked as Syrup, so a non-Syrup byte or a noncanonical integer inside it is refused" {
+    // The hint grammar leaves the value's shape open, and this span is signed
+    // as received, so only bytes the argument walk admits may sit inside it.
+    const head: []const u8 =
+        "<16'op:start-session3\"1.0" ++
+        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1{5\"extra";
+    const tail: []const u8 =
+        "}>[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
+    const stray_byte = glowcap.foundation.FrameView{ .bytes = head ++ "[x]" ++ tail, .shape = .byte };
+    try std.testing.expectError(syrup.Error.UnsupportedArgument, syrup.decodeBody(stray_byte));
+    const leading_zero = glowcap.foundation.FrameView{ .bytes = head ++ "[03+]" ++ tail, .shape = .byte };
+    try std.testing.expectError(syrup.Error.MalformedFrame, syrup.decodeBody(leading_zero));
+    const nested = glowcap.foundation.FrameView{ .bytes = head ++ "[3+[1\"a]]" ++ tail, .shape = .byte };
+    const body = try syrup.decodeBody(nested);
+    try std.testing.expect(body.start_session.acceptable_location.hints == .lazy);
 }

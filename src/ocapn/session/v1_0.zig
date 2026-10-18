@@ -70,13 +70,14 @@ pub fn needsV1_0Translation(self: *const Session) bool {
 /// it rather than restating the three steps and risking drift from
 /// `applySend`. All-or-none: a failure after the export is minted rolls it
 /// back, since it was never handed to the partner. Returns the minted
-/// resolver export position.
+/// resolver's near reference.
 ///
-/// It binds an `answer` the encode hook already holds, so it shares
-/// `bindFreshResolverExport` and its rollback rather than the whole
-/// `nominateResolverExport` verb.
-pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model.ExportPosition {
-    return self.mintMentionedResolverExport(answer, .object);
+/// It binds an `answer` whose row the projection's record already installed,
+/// so it shares `bindFreshResolverExport`, which writes both rows, and its
+/// rollback rather than the whole `nominateResolverExport` verb.
+pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model.NearRef {
+    const resolver_export = try self.bindFreshResolverExport(answer, .object, 1);
+    return .{ .export_position = resolver_export, .kind = .object };
 }
 
 /// Record that the partner's inbound `answer` is resolved via their resolver
@@ -108,7 +109,7 @@ pub fn prepareInboundResolver(
 ) !PreparedInboundResolver {
     if (self.v1_0_inbound_resolver_link.getByKey(answer) != null or
         self.v1_0_inbound_resolver_link.getByValue(resolver_import) != null)
-        return session.Error.UnexpectedMessage;
+        return error.UnexpectedMessage;
 
     if (virtual_answer) |virtual| {
         std.debug.assert(answer == .virtual and answer.virtual == virtual);

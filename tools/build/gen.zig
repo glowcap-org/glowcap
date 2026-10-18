@@ -243,6 +243,15 @@ pub fn register(ctx: Context) void {
             .reflects = .{ .name = "c_abi_host", .module = host_abi_mod },
         },
         .{
+            .check_step_name = "gen-own-wire-check",
+            .check_desc = "Verify src/ocapn/model/own_wire.zig fingerprints what the encoders write (fails if stale)",
+            .write_step_name = "gen-own-wire",
+            .write_desc = "Regenerate the own-wire fingerprint in src/ocapn/model/own_wire.zig from the Syrup and Cap'n Proto encoders",
+            .generator = "tools/gen/own_wire.zig",
+            .reflects = .{ .name = "codec", .module = host_mods[layerIndex("codec")] },
+            .extra_imports = &.{.{ .name = "model", .module = host_mods[layerIndex("model")] }},
+        },
+        .{
             .check_step_name = "gen-header-transport-provider-check",
             .check_desc = "Verify include/glowcap_transport_provider.h matches the shared provider ABI (fails if stale)",
             .write_step_name = "gen-header-transport-provider",

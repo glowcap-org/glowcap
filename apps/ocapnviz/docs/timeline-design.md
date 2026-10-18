@@ -10,7 +10,7 @@ sources:
 # Timeline authoring
 
 The lane model and authoring verbs let a user author a three-vat handoff from
-scratch, not only edit one event.
+scratch.
 
 - Per-entity rows, category collapse, row reorder, and per-row visibility live in
   `src/ui/Timeline/` (`rowOrder`, `rowHidden`, `rowLabelHidden`, and
@@ -56,8 +56,8 @@ on a shared row once a scenario has more than a handful of peers. Per-entity
 rows alone lose the dense overview of the whole scenario. So each category
 expands or collapses on its own, with one row per entity as the default.
 
-Collapsed rows paint with the existing lane drawing, sticky labels, cluster
-collapse, zebra striping and all. Expanded rows use the same span vocabulary
+Collapsed rows use the lane drawing, with sticky labels, cluster collapse,
+and zebra striping. Expanded rows use the same span vocabulary
 without the cross-entity stacking, one horizontal track each, and each row is
 its own label-flow context so labels never interact across rows.
 
@@ -79,8 +79,8 @@ per-entity stage hiding is a separate feature.
 
 All of them work in both expanded and collapsed lanes.
 
-**Multi-select.** Rubber-band from empty timeline area, shift-click or cmd-click
-to toggle one pill, Cmd-A for everything in the visible window, Escape to clear.
+**Multi-select.** Rubber-band from empty timeline area, Shift-click to add one pill,
+Shift+Option-click to remove one, Cmd-A for every declared entity, Escape to clear.
 Selection is entity-keyed, and clicking a pill selects its parent entity.
 
 With more than one entity selected the Inspector switches to a summary. A field
@@ -112,7 +112,7 @@ letting one item silently drop.
 **It does not create entities.** An entity has both a place on the stage and a
 place in time, and only the stage can supply the first. Creation lives in the
 stage's tool palette, where the click supplies the position and the playhead
-supplies the time. Paste covers "the same thing again, later."
+supplies the time. Paste and duplicate copy entities that already exist.
 
 ## Timeline and stage stay in step
 
@@ -137,8 +137,7 @@ implementation or a smaller scope.
 - **Lane bundles stay memoized**, per-entity bundles included, on a key that
   covers the theme and the expansion state.
 - **Click and drag stay four pixels apart**, the same threshold peer dragging
-  uses, and snapping uses the existing pixel-tolerance constant rather than a
-  new one.
+  uses, and snapping uses the one pixel-tolerance constant.
 - **A burst is one transaction.** A multi-drag opens a transaction when it
   crosses the threshold, dispatches per pointer move, and closes on pointer up.
   The handler captured at commit survives mid-drag prop changes.

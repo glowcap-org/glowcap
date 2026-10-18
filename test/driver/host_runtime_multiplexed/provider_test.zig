@@ -324,7 +324,7 @@ test "a resident's dial refusal reaches the dial observer with its exact failure
     var resident = try AcceptOwnershipResident.init();
     defer resident.deinit();
     var chain = glowcap.foundation.FailureChain.initNamed(error.ProviderIo, "ExactDialRefusal");
-    chain.noteNamed(error.ProviderIo, "ExactDialCleanup");
+    chain.noteChain(.initNamed(error.ProviderIo, "ExactDialCleanup"));
     resident.dial_failure = .fromChain(error.ConnectionRefused, chain);
     var runtime = try driver.HostRuntime.init(std.testing.allocator, threaded.io(), .{}, .ephemeral, opts);
     defer runtime.deinit();
@@ -342,10 +342,10 @@ test "a resident's dial refusal reaches the dial observer with its exact failure
 
     const failure = recorder.failure orelse return error.MissingDialFailure;
     try std.testing.expectEqual(@as(u64, 41), recorder.tag);
-    try std.testing.expectEqual(driver.OperationFailure.Kind.io, failure.kind);
-    try std.testing.expectEqualStrings("ExactDialRefusal", failure.primaryName());
-    try std.testing.expectEqualStrings("ExactDialCleanup", failure.secondaryName().?);
-    try std.testing.expectEqual(@as(u16, 1), failure.secondary_count);
+    try std.testing.expectEqual(driver.OperationFailure.Kind.io, failure.kind());
+    try std.testing.expectEqualStrings("ExactDialRefusal", failure.chain.primaryName());
+    try std.testing.expectEqualStrings("ExactDialCleanup", failure.chain.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 1), failure.chain.secondary_count);
 }
 
 test "an always-ready resident cannot starve a sibling resident's turn" {

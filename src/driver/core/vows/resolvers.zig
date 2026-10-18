@@ -16,9 +16,8 @@ const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
 
-fn ensureFreshResolverId(self: *Host) !void {
-    if (self.next_resolver == std.math.maxInt(u64))
-        return error.CapabilitySpaceExhausted;
+fn peekResolverId(self: *const Host) error{CapabilitySpaceExhausted}!u64 {
+    return self.resolver_ids.peek() orelse error.CapabilitySpaceExhausted;
 }
 
 /// Atomically mint the resolver authority and defer `turn` onto its vow. Every
@@ -29,20 +28,17 @@ pub fn deferTurn(self: *Host, maybe_session: ?*HostSession, turn: *actors.Turn) 
     const session = maybe_session orelse return deferOwned(self, turn);
     try self.admitApplicationOperation();
     if (session.host != self or self.sessions.get(session.peer_handle) != session)
-        return HostError.ForeignTurn;
-    if (turn.vat != &self.vat) return HostError.ForeignTurn;
+        return error.ForeignTurn;
+    if (turn.vat != &self.vat) return error.ForeignTurn;
     switch (turn.origin) {
-        .local => return actors.Error.NotLocal,
-        .eventual => |eventual| if (eventual.answer == null) return HostError.NoAnswer,
-        .served => |answer| if (answer == null) return HostError.NoAnswer,
+        .local => return error.NotLocal,
+        .eventual => |eventual| if (eventual.answer == null) return error.NoAnswer,
+        .served => |answer| if (answer == null) return error.NoAnswer,
     }
-    if (turn.port != &session.served.port or
-        turn.ingress != session.served.port.ingress)
-        return HostError.ForeignTurn;
+    if (turn.port() != &session.served.port) return error.ForeignTurn;
     try self.admitSessionOperation(session);
-    try vows.ensureFreshVowId(self);
-    try ensureFreshResolverId(self);
-    const row = try vows.reserveRow(self, null, .plain, .none, self.next_vow);
+    const resolver_id = try peekResolverId(self);
+    const row = try vows.reserveRow(self, null, .plain, .none, try vows.peekVowId(self));
     errdefer self.allocator.destroy(row);
     try self.resolver_index.ensureUnusedCapacity(self.allocator, 1);
     const vat_reservation = try self.vat.reserveResolverPair();
@@ -51,9 +47,8 @@ pub fn deferTurn(self: *Host, maybe_session: ?*HostSession, turn: *actors.Turn) 
     const pair = self.vat.spawnReservedVow(vat_reservation);
     row.vow = pair.vow;
     vows.publishRow(self, row);
-    self.next_vow += 1;
-    const resolver_id = self.next_resolver;
-    self.next_resolver += 1;
+    self.vow_ids.commit(row.id);
+    self.resolver_ids.commit(resolver_id);
     self.resolver_index.putAssumeCapacity(resolver_id, .{
         .vow_id = row.id,
         .vat_resolver = pair.resolver,
@@ -71,7 +66,7 @@ pub fn deferTurn(self: *Host, maybe_session: ?*HostSession, turn: *actors.Turn) 
 /// capability authority.
 pub fn fulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
     try self.refuseReentry();
-    if (!model.argumentIsPlainData(&value)) return HostError.ForeignArgument;
+    if (!model.argumentIsPlainData(&value)) return error.ForeignArgument;
     if (self.resolver_index.get(resolver_id)) |entry| {
         const row = self.vows.get(entry.vow_id) orelse unreachable;
         if (row.forwarded == .owning) {
@@ -91,8 +86,8 @@ pub fn fulfill(self: *Host, resolver_id: u64, value: model.Argument) !void {
 /// transfer foreign occurrences through Node's ordinary outbound staging.
 pub fn fulfillValue(self: *Host, resolver_id: u64, value: @import("../value.zig").Value, arena: std.mem.Allocator) !void {
     try self.refuseReentry();
-    if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
-    const entry = self.resolver_index.get(resolver_id) orelse return actors.Error.AlreadySettled;
+    if (!self.resolver_ids.issued(resolver_id)) return error.NoSuchResolver;
+    const entry = self.resolver_index.get(resolver_id) orelse return error.AlreadySettled;
     const row = self.vows.get(entry.vow_id) orelse unreachable;
     if (row.forwarded == .owning) {
         const producer = row.forwarded.owning.producer;
@@ -127,8 +122,8 @@ pub fn breakVow(self: *Host, resolver_id: u64, reason: []const u8) !void {
 /// whether an external effect applied. Receipt outcome belongs to its owner.
 pub fn reject(self: *Host, resolver_id: u64, kind: @import("../host/action.zig").VowFailure, reason: []const u8) !void {
     try self.refuseReentry();
-    if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
-    const entry = self.resolver_index.get(resolver_id) orelse return actors.Error.AlreadySettled;
+    if (!self.resolver_ids.issued(resolver_id)) return error.NoSuchResolver;
+    const entry = self.resolver_index.get(resolver_id) orelse return error.AlreadySettled;
     const row = self.vows.get(entry.vow_id) orelse unreachable;
     if (row.forwarded != .owning) return settle(self, resolver_id, .{ .broken = reason }, null);
     const producer = row.forwarded.owning.producer;
@@ -151,9 +146,9 @@ pub fn abandon(self: *Host, resolver_id: u64, reason: []const u8) !void {
 fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution, staging: ?*lower.PreparedValues) !void {
     // An id this Host never minted is a caller defect, distinct from a
     // consumed settle authority.
-    if (resolver_id == 0 or resolver_id >= self.next_resolver) return HostError.NoSuchResolver;
+    if (!self.resolver_ids.issued(resolver_id)) return error.NoSuchResolver;
     const entry = self.resolver_index.get(resolver_id) orelse
-        return actors.Error.AlreadySettled;
+        return error.AlreadySettled;
     const row = self.vows.get(entry.vow_id) orelse unreachable;
     const forwarded = row.forwarded;
     switch (resolution) {
@@ -169,8 +164,7 @@ fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution, staging:
     }
     settlement.markRowSettled(self, row);
     std.debug.assert(self.resolver_index.remove(resolver_id));
-    std.debug.assert(self.vows.remove(entry.vow_id));
-    self.allocator.destroy(row);
+    settlement.retireRow(self, row);
 
     if (forwarded == .owning) forwarded.owning.producer.release();
     if (forwarded == .session) {
@@ -187,19 +181,15 @@ fn settle(self: *Host, resolver_id: u64, resolution: actors.Resolution, staging:
 /// failure. Ordinary success leaves only the durable caller's explicit handle.
 fn deferOwned(self: *Host, turn: *actors.Turn) !u64 {
     const producer = try @import("../host/local_delivery.zig").producer(turn);
-    if (producer.host != self or turn.port != null or producer.phase != .running or producer.lease == null)
-        return HostError.ForeignTurn;
-    switch (self.lifecyclePhase()) {
-        .active, .finishing => {},
-        .terminating, .closed => return error.HostClosing,
-    }
+    if (producer.host != self or turn.port() != null or producer.phase != .running or producer.lease == null)
+        return error.ForeignTurn;
+    if (!self.lifecyclePhase().serving()) return error.HostClosing;
     switch (turn.origin) {
-        .eventual => |eventual| if (eventual.answer == null) return HostError.NoAnswer,
-        else => return HostError.NoAnswer,
+        .eventual => |eventual| if (eventual.answer == null) return error.NoAnswer,
+        else => return error.NoAnswer,
     }
-    try vows.ensureFreshVowId(self);
-    try ensureFreshResolverId(self);
-    const row = try vows.reserveRow(self, null, .plain, .none, self.next_vow);
+    const resolver = try peekResolverId(self);
+    const row = try vows.reserveRow(self, null, .plain, .none, try vows.peekVowId(self));
     errdefer self.allocator.destroy(row);
     try self.resolver_index.ensureUnusedCapacity(self.allocator, 1);
     const reservation = try self.vat.reserveResolverPair();
@@ -208,12 +198,11 @@ fn deferOwned(self: *Host, turn: *actors.Turn) !u64 {
     try self.vat.enrollTurn(.{ .ctx = row, .commit = keepOwnedResolver, .abort = abortOwnedResolver });
     const pair = self.vat.spawnReservedVow(reservation);
     row.vow = pair.vow;
-    const resolver = self.next_resolver;
     producer.retain();
     row.forwarded = .{ .owning = .{ .producer = producer, .resolver = resolver } };
     vows.publishRow(self, row);
-    self.next_vow += 1;
-    self.next_resolver += 1;
+    self.vow_ids.commit(row.id);
+    self.resolver_ids.commit(resolver);
     self.resolver_index.putAssumeCapacity(resolver, .{ .vow_id = row.id, .vat_resolver = pair.resolver });
     turn.forwardReservedVow(forward, pair.vow);
     return resolver;
@@ -236,7 +225,6 @@ pub fn terminateOwned(self: *Host, resolver: u64) void {
     self.vat.breakVowTerminal(entry.vat_resolver, "TurnAborted");
     settlement.markRowSettled(self, row);
     std.debug.assert(self.resolver_index.remove(resolver));
-    std.debug.assert(self.vows.remove(row.id));
-    self.allocator.destroy(row);
+    settlement.retireRow(self, row);
     producer.release();
 }

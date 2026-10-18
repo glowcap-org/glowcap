@@ -32,30 +32,30 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "acceptGive with no dialable exporter locator fails the answer closed" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(2)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(2)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
-    try node.acceptGive(recipient, 7, "give-bytes", "");
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 7), "give-bytes", "");
 
     const action = node.nextAction().?;
     try std.testing.expectEqual(recipient, action.fail.dest.answer.recipient_peer);
-    try std.testing.expectEqual(@as(u64, 7), action.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 7), action.fail.dest.answer.answer.position.int());
     try std.testing.expectEqualStrings("handoff give names no dialable exporter locator", action.fail.reason.bytes());
     try std.testing.expect(node.nextAction() == null);
 }
 
 test "an unknown exporter becomes one dial action; a second give joins it" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(4)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(4)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const locator = "ocapn://127.0.0.1%3A9050.tcp";
-    try node.acceptGive(recipient, 11, "give-one", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 11), "give-one", locator);
     // A second redeem naming the same exporter joins the pending dial instead
     // of opening a second connection.
-    try node.acceptGive(recipient, 12, "give-two", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 12), "give-two", locator);
 
     const action = node.nextAction().?;
     const join_view = node.pendingDial(action.dial.pending, 0).?;
@@ -66,10 +66,10 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     // The dial failing breaks both waiting answers, in order.
     _ = try node.dialFailed(action.dial.pending, 0, "connection refused");
     const first = node.nextAction().?;
-    try std.testing.expectEqual(@as(u64, 11), first.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 11), first.fail.dest.answer.answer.position.int());
     try std.testing.expectEqualStrings("handoff redeem failed: connection refused", first.fail.reason.bytes());
     const second = node.nextAction().?;
-    try std.testing.expectEqual(@as(u64, 12), second.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 12), second.fail.dest.answer.answer.position.int());
     try std.testing.expect(node.nextAction() == null);
 
     // The settled ticket is retired: reporting it again is a no-op.
@@ -78,7 +78,7 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
 }
 
 test "pending dial introducers remain local to each ticket and follow waiter retirement" {
-    var node = Node.init(std.testing.allocator, @as([crypto.SEED_BYTES]u8, @splat(5)));
+    var node = Node.init(std.testing.allocator, @as([crypto.seed_bytes]u8, @splat(5)));
     defer node.deinit();
     const first = try node.registerPeer(.{});
     const second = try node.registerPeer(.{});
@@ -111,7 +111,7 @@ test "pending dial introducers remain local to each ticket and follow waiter ret
 
 test "fresh dial ticket exhaustion refuses atomically and remains retryable" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x40)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x40)));
     defer node.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9050.tcp";
@@ -130,7 +130,7 @@ test "fresh dial ticket exhaustion refuses atomically and remains retryable" {
 
 test "fresh give dial ticket exhaustion retains no waiter or action" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x42)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x42)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -138,7 +138,7 @@ test "fresh give dial ticket exhaustion retains no waiter or action" {
     node.actions.next_ticket = std.math.maxInt(u64);
     try std.testing.expectError(
         error.CapabilitySpaceExhausted,
-        node.acceptGive(recipient, 17, "give", locator),
+        node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 17), "give", locator),
     );
     try std.testing.expectEqual(@as(usize, 0), node.pendingDialCount());
     try std.testing.expectEqual(@as(usize, 0), node.redeems.dials.by_identity.count());
@@ -150,13 +150,13 @@ test "fresh give dial ticket exhaustion retains no waiter or action" {
     try std.testing.expect(node.nextAction() == null);
 
     node.actions.next_ticket = 0;
-    try node.acceptGive(recipient, 17, "give", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 17), "give", locator);
     try std.testing.expectEqual(@as(u64, 0), node.nextAction().?.dial.pending);
 }
 
 test "cache hits and identity joins mint no pending ticket" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x43)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x43)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -167,13 +167,13 @@ test "cache hits and identity joins mint no pending ticket" {
     defer allocator.free(second_give);
     const third_give = try testGiveBytes(allocator);
     defer allocator.free(third_give);
-    try node.acceptGive(recipient, 18, first_give, locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 18), first_give, locator);
     const pending = node.nextAction().?.dial.pending;
     node.actions.next_ticket = std.math.maxInt(u64);
 
     // The second give joins the existing canonical-identity row; max is still
     // the unissued sentinel and no second dial action appears.
-    try node.acceptGive(recipient, 19, second_give, locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 19), second_give, locator);
     try std.testing.expectEqual(std.math.maxInt(u64), node.actions.next_ticket);
     try std.testing.expectEqual(@as(usize, 1), node.pendingDialCount());
     try std.testing.expect(node.nextAction() == null);
@@ -183,7 +183,7 @@ test "cache hits and identity joins mint no pending ticket" {
         allocator,
         &node,
         node.peer(exporter).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x44)),
+        @as([crypto.seed_bytes]u8, @splat(0x44)),
     );
     defer counterpart.deinit();
     _ = try node.exporterDialed(pending, 0, exporter);
@@ -191,7 +191,7 @@ test "cache hits and identity joins mint no pending ticket" {
     try std.testing.expectEqual(exporter, node.nextAction().?.flush);
 
     // The live cache likewise starts a withdrawal without minting a ticket.
-    try node.acceptGive(recipient, 20, third_give, locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 20), third_give, locator);
     try std.testing.expectEqual(std.math.maxInt(u64), node.actions.next_ticket);
     try std.testing.expectEqual(exporter, node.nextAction().?.flush);
 }
@@ -199,13 +199,13 @@ test "cache hits and identity joins mint no pending ticket" {
 test "owner cancellation settles every queued dial waiter without allocation" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x44)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x44)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const locator = "ocapn://127.0.0.1%3A9050.tcp";
-    try node.acceptGive(recipient, 21, "give-one", locator);
-    try node.acceptGive(recipient, 22, "give-two", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 21), "give-one", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 22), "give-two", locator);
 
     failing.fail_index = failing.alloc_index;
     var cancellations = node.requestDialCancellations();
@@ -217,21 +217,21 @@ test "owner cancellation settles every queued dial waiter without allocation" {
     // required no close-time allocation.
     const first = node.nextAction().?;
     const second = node.nextAction().?;
-    try std.testing.expectEqual(@as(u64, 21), first.fail.dest.answer.answer.int());
-    try std.testing.expectEqual(@as(u64, 22), second.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 21), first.fail.dest.answer.answer.position.int());
+    try std.testing.expectEqual(@as(u64, 22), second.fail.dest.answer.answer.position.int());
     try std.testing.expectEqualStrings("handoff redeem failed: host closing", first.fail.reason.bytes());
     try std.testing.expect(node.nextAction() == null);
 }
 
 test "owner cancellation settles in-flight dial waiters once before physical join" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x45)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x45)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const locator = "ocapn://127.0.0.1%3A9050.tcp";
-    try node.acceptGive(recipient, 31, "give-one", locator);
-    try node.acceptGive(recipient, 32, "give-two", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 31), "give-one", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 32), "give-two", locator);
     const dial = node.nextAction().?;
     const ticket = dial.dial.pending;
 
@@ -245,8 +245,8 @@ test "owner cancellation settles in-flight dial waiters once before physical joi
 
     const first = node.nextAction().?;
     const second = node.nextAction().?;
-    try std.testing.expectEqual(@as(u64, 31), first.fail.dest.answer.answer.int());
-    try std.testing.expectEqual(@as(u64, 32), second.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 31), first.fail.dest.answer.answer.position.int());
+    try std.testing.expectEqual(@as(u64, 32), second.fail.dest.answer.answer.position.int());
     try std.testing.expect(node.nextAction() == null);
 
     node.dialCancelled(ticket, 0);
@@ -257,12 +257,12 @@ test "owner cancellation settles in-flight dial waiters once before physical joi
 
 test "acceptGive materializes dial view once for pendingDial" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(4)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(4)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const locator = "ocapn://127.0.0.1%3A9049.tcp?direct-addresses=10.0.0.1%3A1";
-    try node.acceptGive(recipient, 9, "give-bytes", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 9), "give-bytes", locator);
     const action = node.nextAction().?;
     const view = node.pendingDial(action.dial.pending, 0).?;
     try std.testing.expectEqualStrings("tcp", view.locator.transport);
@@ -275,7 +275,7 @@ test "acceptGive materializes dial view once for pendingDial" {
 
 test "alternative locators retry in order on one ticket and a later path succeeds" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2a)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x2a)));
     defer node.deinit();
 
     const first_alt = try peerUri(allocator, "127.0.0.1:9050");
@@ -324,7 +324,7 @@ test "alternative locators retry in order on one ticket and a later path succeed
 
 test "pending dials share identity only when their route plans match" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x31)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x31)));
     defer node.deinit();
 
     const first_alt = try peerUri(allocator, "127.0.0.1:9060");
@@ -346,7 +346,7 @@ test "pending dials share identity only when their route plans match" {
 
 test "a conflicting handoff route plan fails instead of joining pending work" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x32)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x32)));
     defer node.deinit();
     const recipient = try node.registerPeer(.{});
 
@@ -359,23 +359,23 @@ test "a conflicting handoff route plan fails instead of joining pending work" {
     const second_plan = try peerUriWithAlternatives(allocator, "127.0.0.1:9062", second_alt);
     defer allocator.free(second_plan);
 
-    try node.acceptGive(recipient, 61, "give-one", first_plan);
-    try node.acceptGive(recipient, 62, "give-two", second_plan);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 61), "give-one", first_plan);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 62), "give-two", second_plan);
     const dial = node.nextAction().?;
     try std.testing.expect(dial == .dial);
     const refused = node.nextAction().?;
     try std.testing.expect(refused == .fail);
-    try std.testing.expectEqual(@as(u64, 62), refused.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 62), refused.fail.dest.answer.answer.position.int());
     try std.testing.expect(std.mem.indexOf(u8, refused.fail.reason.bytes(), "conflicts") != null);
     try std.testing.expect(node.pendingDial(dial.dial.pending, 0) != null);
 }
 
 test "a direct key fallback does not inherit the primary durable-key demand" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x33)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x33)));
     defer node.deinit();
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x34))).publicKey();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x34))).publicKey();
     const designator = key.toDesignator();
     const alternate = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{designator[0..]});
     defer allocator.free(alternate);
@@ -396,15 +396,15 @@ test "a direct key fallback does not inherit the primary durable-key demand" {
 
 test "alternative locator staging refuses malformed and oversized hints" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2b)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x2b)));
     defer node.deinit();
     const recipient = try node.registerPeer(.{});
 
     const malformed = "ocapn://127.0.0.1%3A9049.tcp?alt-locators=not-a-peer-uri";
-    try node.acceptGive(recipient, 31, "give-malformed", malformed);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 31), "give-malformed", malformed);
     const malformed_action = node.nextAction().?;
     try std.testing.expect(malformed_action == .fail);
-    try std.testing.expectEqual(@as(u64, 31), malformed_action.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 31), malformed_action.fail.dest.answer.answer.position.int());
     try std.testing.expect(node.pendingDial(0, 0) == null);
 
     var oversized_hint: [model.route_bundle.max_route_list_bytes + 1]u8 = undefined;
@@ -415,10 +415,10 @@ test "alternative locator staging refuses malformed and oversized hints" {
         .{oversized_hint},
     );
     defer allocator.free(oversized);
-    try node.acceptGive(recipient, 32, "give-oversized", oversized);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 32), "give-oversized", oversized);
     const oversized_action = node.nextAction().?;
     try std.testing.expect(oversized_action == .fail);
-    try std.testing.expectEqual(@as(u64, 32), oversized_action.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 32), oversized_action.fail.dest.answer.answer.position.int());
 
     var too_many = std.ArrayList(u8).empty;
     defer too_many.deinit(allocator);
@@ -428,16 +428,16 @@ test "alternative locator staging refuses malformed and oversized hints" {
     }
     const count_limited = try peerUriWithAlternatives(allocator, "127.0.0.1:9050", too_many.items);
     defer allocator.free(count_limited);
-    try node.acceptGive(recipient, 33, "give-too-many", count_limited);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 33), "give-too-many", count_limited);
     const count_action = node.nextAction().?;
     try std.testing.expect(count_action == .fail);
-    try std.testing.expectEqual(@as(u64, 33), count_action.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 33), count_action.fail.dest.answer.answer.position.int());
     try std.testing.expect(node.nextAction() == null);
 }
 
 test "alternative locator retry exhaustion breaks waiters only after the last path" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2c)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x2c)));
     defer node.deinit();
     const recipient = try node.registerPeer(.{});
     const alternative = try peerUri(allocator, "127.0.0.1:9052");
@@ -445,7 +445,7 @@ test "alternative locator retry exhaustion breaks waiters only after the last pa
     const primary = try peerUriWithAlternatives(allocator, "127.0.0.1:9049", alternative);
     defer allocator.free(primary);
 
-    try node.acceptGive(recipient, 41, "give-retry", primary);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 41), "give-retry", primary);
     const first = node.nextAction().?;
     const ticket = first.dial.pending;
     _ = try node.dialFailed(ticket, 0, "primary down");
@@ -456,7 +456,7 @@ test "alternative locator retry exhaustion breaks waiters only after the last pa
     _ = try node.dialFailed(ticket, 1, "alternative down");
     const failed = node.nextAction().?;
     try std.testing.expect(failed == .fail);
-    try std.testing.expectEqual(@as(u64, 41), failed.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 41), failed.fail.dest.answer.answer.position.int());
     try std.testing.expectEqualStrings("handoff redeem failed: alternative down", failed.fail.reason.bytes());
     try std.testing.expect(node.pendingDial(ticket, 0) == null);
     try std.testing.expect(node.nextAction() == null);
@@ -464,7 +464,7 @@ test "alternative locator retry exhaustion breaks waiters only after the last pa
 
 test "ordinary primary dial success keeps the existing pending ticket contract" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2d)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x2d)));
     defer node.deinit();
 
     const staged = try node.stageDial("ocapn://127.0.0.1%3A9053.tcp");
@@ -480,7 +480,7 @@ test "ordinary primary dial success keeps the existing pending ticket contract" 
 
 test "pending alternative paths are released when the node tears down" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2e)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x2e)));
     defer node.deinit();
 
     const alternative = try peerUri(allocator, "127.0.0.1:9054");
@@ -488,7 +488,7 @@ test "pending alternative paths are released when the node tears down" {
     const primary = try peerUriWithAlternatives(allocator, "127.0.0.1:9049", alternative);
     defer allocator.free(primary);
     const recipient = try node.registerPeer(.{});
-    try node.acceptGive(recipient, 51, "give-teardown", primary);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 51), "give-teardown", primary);
     const action = node.nextAction().?;
     try std.testing.expect(node.pendingDial(action.dial.pending, 0) != null);
     // `deinit` owns both the queued action and every parsed path in the
@@ -498,14 +498,14 @@ test "pending alternative paths are released when the node tears down" {
 
 test "acceptGive fails closed on unparseable exporter locator" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(6)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(6)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
-    try node.acceptGive(recipient, 3, "give-bytes", "not-a-locator");
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 3), "give-bytes", "not-a-locator");
     const action = node.nextAction().?;
     try std.testing.expect(action == .fail);
-    try std.testing.expectEqual(@as(u64, 3), action.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 3), action.fail.dest.answer.answer.position.int());
     try std.testing.expect(std.mem.indexOf(u8, action.fail.reason.bytes(), "unparseable") != null);
     try std.testing.expect(node.nextAction() == null);
 }
@@ -514,13 +514,13 @@ test "exporterDialed frees empty hint sentinel without leaking" {
     // Hint-less URI stages an unowned empty hint; exporterDialed must free
     // through freeDialPart (not raw allocator.free on "").
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(7)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(7)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
     const locator = "ocapn://127.0.0.1%3A9051.tcp";
-    try node.acceptGive(recipient, 4, "give-bytes", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 4), "give-bytes", locator);
     const action = node.nextAction().?;
     const view = node.pendingDial(action.dial.pending, 0).?;
     try std.testing.expectEqual(@as(usize, 0), view.locator.hints.entries.len);
@@ -534,14 +534,14 @@ test "acceptGive joins pending dials on peer identity, not URI representation" {
     // the same transport+designator must share one in-flight dial even when the
     // URI bytes differ (query hints / encoding).
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(5)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(5)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const bare = "ocapn://127.0.0.1%3A9050.tcp";
     const hinted = "ocapn://127.0.0.1%3A9050.tcp?host=127.0.0.1&port=9050";
-    try node.acceptGive(recipient, 11, "give-one", bare);
-    try node.acceptGive(recipient, 12, "give-two", hinted);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 11), "give-one", bare);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 12), "give-two", hinted);
 
     const action = node.nextAction().?;
     const identity_view = node.pendingDial(action.dial.pending, 0).?;
@@ -550,18 +550,18 @@ test "acceptGive joins pending dials on peer identity, not URI representation" {
     try std.testing.expect(node.nextAction() == null);
 
     _ = try node.dialFailed(action.dial.pending, 0, "connection refused");
-    try std.testing.expectEqual(@as(u64, 11), node.nextAction().?.fail.dest.answer.answer.int());
-    try std.testing.expectEqual(@as(u64, 12), node.nextAction().?.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 11), node.nextAction().?.fail.dest.answer.answer.position.int());
+    try std.testing.expectEqual(@as(u64, 12), node.nextAction().?.fail.dest.answer.answer.position.int());
     try std.testing.expect(node.nextAction() == null);
 }
 
 test "a dialed exporter whose session never opened fails the redeem closed" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(6)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(6)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
-    try node.acceptGive(recipient, 21, "give-bytes", "ocapn://127.0.0.1%3A9051.tcp");
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 21), "give-bytes", "ocapn://127.0.0.1%3A9051.tcp");
     const dial = node.nextAction().?;
 
     // The embedder registers the exporter conn but the keyed session is not
@@ -571,6 +571,6 @@ test "a dialed exporter whose session never opened fails the redeem closed" {
     _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     const action = node.nextAction().?;
     try std.testing.expectEqual(recipient, action.fail.dest.answer.recipient_peer);
-    try std.testing.expectEqual(@as(u64, 21), action.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 21), action.fail.dest.answer.answer.position.int());
     try std.testing.expect(std.mem.startsWith(u8, action.fail.reason.bytes(), "handoff redeem failed:"));
 }

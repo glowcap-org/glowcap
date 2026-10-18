@@ -34,7 +34,7 @@ pub fn asFarRef(arg: model.Argument) ?@FieldType(model.Reference, "far") {
 pub fn localActorId(ref: actors.Ref) actors.Error!u64 {
     return switch (ref) {
         .local => |id| id,
-        .far => actors.Error.NotLocal,
+        .far => error.NotLocal,
     };
 }
 
@@ -65,7 +65,7 @@ pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: mode
     var claimed_wire_retain = false;
     const target: capability.Target = switch (reference) {
         .near => |near| blk: {
-            if (near.kind != .object) return vocab.Error.UncallableTarget;
+            if (near.kind != .object) return error.UncallableTarget;
             const actor = session.served.refForExport(near.export_position.int()) orelse return actors.Error.NoSuchActor;
             const actor_id = switch (actor) {
                 .local => |id| id,
@@ -79,18 +79,18 @@ pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: mode
             try self.checkSession(home);
             const far = switch (routed.target) {
                 .far => |value| value,
-                else => return HostError.ForeignArgument,
+                else => return error.ForeignArgument,
             };
-            if (!home.served.port.peer.session_state.holdsImport(far.import_position)) return HostError.ForeignArgument;
+            if (!home.served.port.peer.session_state.holdsImport(far.import_position)) return error.ForeignArgument;
             if (home.served.port.peer.session_state.hostImportIdentity(far.import_position)) |identity| {
                 const existing = self.capabilities.refFromRaw(identity.ref);
                 const existing_target = self.capabilities.resolve(existing) orelse return error.UnknownCapability;
                 switch (existing_target) {
                     .remote => |remote| {
                         if (remote.peer_handle != routed.peer_handle or remote.far.import_position != far.import_position or remote.far.kind != far.kind)
-                            return HostError.ImportKindConflict;
+                            return error.ImportKindConflict;
                     },
-                    .local, .deferred => return HostError.ForeignArgument,
+                    .local, .deferred => return error.ForeignArgument,
                 }
                 const retained = try self.capabilities.retain(self.allocator, existing_target);
                 // A fresh wire occurrence contributes another import retain;
@@ -119,7 +119,7 @@ pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: mode
                 .incarnation = incarnation,
             } };
         },
-        else => return vocab.Error.UncallableTarget,
+        else => return error.UncallableTarget,
     };
     if (target == .local) return .{
         .ref = try retainLocalCapability(self, .{ .local = target.local }),
@@ -129,7 +129,7 @@ pub fn liftCapabilityTracked(self: *Host, session: *HostSession, reference: mode
     errdefer _ = self.capabilities.release(ref, 1) catch unreachable;
     const home = self.sessions.get(target.remote.peer_handle) orelse return HostError.CapabilityRouteUnavailable;
     try home.served.port.peer.session_state.noteHostCapability(target.remote.far.import_position, ref.raw());
-    claimed_wire_retain = target.remote.far.import_position.int() != engine.BOOTSTRAP_POSITION;
+    claimed_wire_retain = target.remote.far.import_position.int() != engine.bootstrap_position;
     self.next_import_incarnation = target.remote.incarnation + 1;
     return .{
         .ref = ref,
@@ -174,7 +174,7 @@ pub fn retainLocalCapability(self: *Host, actor: actors.Ref) !capability.Ref {
     // Vat retain is tolerant for relationships that outlive a restore. This
     // mint is not: no registry identity may be published for an actor that is
     // already gone.
-    if (!self.vat.hasActor(actor_id)) return actors.Error.NoSuchActor;
+    if (!self.vat.hasActor(actor_id)) return error.NoSuchActor;
     return (try retainLiveLocalCapability(self, actor_id)).ref;
 }
 
@@ -190,7 +190,7 @@ pub fn liftLocalActor(self: *Host, actor: actors.Ref) !capability.Ref {
     // Preflight before Registry mutation: `Vat.retainActor` and
     // `Vat.releaseActor` are tolerant no-ops for retired rows, while a Host
     // capability must never canonically name one.
-    if (!self.vat.hasActor(actor_id)) return actors.Error.NoSuchActor;
+    if (!self.vat.hasActor(actor_id)) return error.NoSuchActor;
     const retained = try retainLiveLocalCapability(self, actor_id);
     // The transfer: the fresh slot's root replaces the spawn's.
     if (retained.fresh) self.vat.releaseActor(actor_id);
@@ -375,10 +375,7 @@ pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
         .remote => |remote| remote_release: {
             const session = self.sessions.get(remote.peer_handle) orelse return error.UnknownCapability;
             try self.checkOwnedSession(session);
-            switch (session.lifecyclePhase()) {
-                .active, .finishing => {},
-                .cancel_pending, .terminating => break :remote_release,
-            }
+            if (session.lifecyclePhase().condemned()) break :remote_release;
             const position = remote.far.import_position;
             // A partner may already have reused the numeric position after
             // another retain released the old import row. The stale Host row

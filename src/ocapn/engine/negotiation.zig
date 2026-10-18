@@ -126,8 +126,8 @@ pub const Negotiated = struct {
 /// `local_idx + remote_idx` over each intersection. Ties break on version and
 /// codec declaration order.
 pub fn negotiate(local: Offer, remote: Offer) ?Negotiated {
-    const captp_version = chooseCaptpVersion(local.captp_versions, remote.captp_versions) orelse return null;
-    const codec = chooseCodec(local.codecs, remote.codecs) orelse return null;
+    const captp_version = choosePreferred(model.CaptpVersion, local.captp_versions, remote.captp_versions) orelse return null;
+    const codec = choosePreferred(model.CodecId, local.codecs, remote.codecs) orelse return null;
     return .{
         .captp_version = captp_version,
         .codec = codec,
@@ -135,42 +135,21 @@ pub fn negotiate(local: Offer, remote: Offer) ?Negotiated {
     };
 }
 
-fn chooseCaptpVersion(local: []const model.CaptpVersion, remote: []const model.CaptpVersion) ?model.CaptpVersion {
-    var best: ?struct { score: usize, captp_version: model.CaptpVersion } = null;
-    for (local, 0..) |lp, local_idx| {
-        for (remote, 0..) |rp, remote_idx| {
-            if (lp != rp) continue;
+/// The option both sides list that ranks best: the lowest sum of the two
+/// list positions, and the lower wire value when two tie, so both peers reach
+/// the same answer from either side's view of the lists.
+fn choosePreferred(comptime Option: type, local: []const Option, remote: []const Option) ?Option {
+    var best: ?struct { score: usize, option: Option } = null;
+    for (local, 0..) |lo, local_idx| {
+        for (remote, 0..) |ro, remote_idx| {
+            if (lo != ro) continue;
             const score = local_idx + remote_idx;
-            if (best) |current| {
-                if (score < current.score or
-                    (score == current.score and @backingInt(lp) < @backingInt(current.captp_version)))
-                {
-                    best = .{ .score = score, .captp_version = lp };
-                }
-            } else {
-                best = .{ .score = score, .captp_version = lp };
-            }
+            const better = if (best) |current|
+                score < current.score or (score == current.score and @backingInt(lo) < @backingInt(current.option))
+            else
+                true;
+            if (better) best = .{ .score = score, .option = lo };
         }
     }
-    return if (best) |winner| winner.captp_version else null;
-}
-
-fn chooseCodec(local: []const model.CodecId, remote: []const model.CodecId) ?model.CodecId {
-    var best: ?struct { score: usize, codec: model.CodecId } = null;
-    for (local, 0..) |lc, local_idx| {
-        for (remote, 0..) |rc, remote_idx| {
-            if (lc != rc) continue;
-            const score = local_idx + remote_idx;
-            if (best) |current| {
-                if (score < current.score or
-                    (score == current.score and @backingInt(lc) < @backingInt(current.codec)))
-                {
-                    best = .{ .score = score, .codec = lc };
-                }
-            } else {
-                best = .{ .score = score, .codec = lc };
-            }
-        }
-    }
-    return if (best) |winner| winner.codec else null;
+    return if (best) |winner| winner.option else null;
 }

@@ -33,7 +33,7 @@ pub fn commit(vat: *Vat) void {
 /// participant's failed work. The Vat shares this buffer across Ports and keeps
 /// at most steady_list_bytes after the turn. No per-session buffer is added.
 pub fn reserveBreak(vat: *Vat) vat_mod.Error!void {
-    const count = std.math.add(usize, vat.turn_break_reservations, 1) catch return error.ResourceExhausted;
+    const count = vat.turn_break_reservations + 1;
     try vat.turn_breaks.ensureTotalCapacity(vat.allocator, count);
     vat.turn_break_reservations = count;
 }
@@ -73,20 +73,22 @@ pub fn drop(vat: *Vat, reason: []const u8) void {
     }
     for (breaks.items) |pending| pending.port.breakRetracted(pending.answer, reason);
     breaks.clearRetainingCapacity();
-    if (vat.turn_breaks.capacity >= breaks.capacity) {
-        breaks.deinit(vat.allocator);
-    } else {
-        vat.turn_breaks.deinit(vat.allocator);
-        vat.turn_breaks = breaks;
-    }
+    keepLarger(vat_mod.TurnBreak, vat, &vat.turn_breaks, &breaks);
     trimBreaks(vat);
     for (staged.items) |entry| ingress_mod.dropStaged(vat, entry, reason);
     staged.clearRetainingCapacity();
-    if (vat.staged.capacity >= staged.capacity) {
-        staged.deinit(vat.allocator);
+    keepLarger(ingress_mod.StagedIngress, vat, &vat.staged, &staged);
+}
+
+/// Keep whichever of the vat's list and the emptied `detached` list has the
+/// larger backing, so a callback that regrew the vat's list during the drop
+/// never shrinks the retained capacity.
+fn keepLarger(comptime T: type, vat: *Vat, live: *std.ArrayListUnmanaged(T), detached: *std.ArrayListUnmanaged(T)) void {
+    if (live.capacity >= detached.capacity) {
+        detached.deinit(vat.allocator);
     } else {
-        vat.staged.deinit(vat.allocator);
-        vat.staged = staged;
+        live.deinit(vat.allocator);
+        live.* = detached.*;
     }
 }
 

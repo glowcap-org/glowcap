@@ -26,6 +26,12 @@ pub const library_options: @import("std").Options = .{
     .signal_stack_size = null,
 };
 
+// A libc-linked shared archive stays mapped for its process lifetime: a dynamic
+// library emits the loader entry in `archive_pin.zig`, everything else nothing.
+comptime {
+    _ = @import("archive_pin.zig");
+}
+
 /// The one cross-archive schema and bounded mechanics for failures with no
 /// remaining return recipient (ADR-0115). This leaf owns no mutable global.
 /// Storage belongs to an explicit Context, Host, or driver owner.
@@ -196,7 +202,7 @@ pub const GLOWCAP_ERR_NOT_FOUND = result.GLOWCAP_ERR_NOT_FOUND;
 pub const GLOWCAP_ERR_BUFFER_TOO_SMALL = result.GLOWCAP_ERR_BUFFER_TOO_SMALL;
 pub const GLOWCAP_ERR_TIMEOUT = result.GLOWCAP_ERR_TIMEOUT;
 pub const locatorAdapterErrorCode = result.locatorAdapterErrorCode;
-pub const dialFailureCode = result.dialFailureCode;
+pub const netlayerFailureCode = result.netlayerFailureCode;
 pub const isStableFailureResult = result.isStableFailureResult;
 pub const hasValidFailureCauses = result.hasValidFailureCauses;
 
@@ -295,12 +301,15 @@ pub const GLOWCAP_ABORT_DOMAIN_FOREIGN = value.GLOWCAP_ABORT_DOMAIN_FOREIGN;
 pub const GlowcapLastAbort = value.GlowcapLastAbort;
 pub const lastAbortToC = value.lastAbortToC;
 pub const sliceFromC = value.sliceFromC;
+pub const itemsFromC = value.itemsFromC;
 pub const max_marshal_depth = value.max_marshal_depth;
 pub const argumentFromCWith = value.argumentFromCWith;
 pub const argsFromCWith = value.argsFromCWith;
 pub const valuesFromCWith = value.valuesFromCWith;
 pub const argumentToCWith = value.argumentToCWith;
 pub const argsToCWith = value.argsToCWith;
+pub const valueToCWith = value.valueToCWith;
+pub const valuesToCWith = value.valuesToCWith;
 pub const connection = @import("connection.zig");
 pub const ForeignCallBarrier = connection.ForeignCallBarrier;
 pub const ConnDirectionGates = connection.ConnDirectionGates;

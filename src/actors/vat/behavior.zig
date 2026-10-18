@@ -201,4 +201,10 @@ pub const HostedActor = struct {
     /// Release `ctx` when the actor's box drops (vat `deinit`, or a failed
     /// spawn). Null when the consumer keeps ownership of `ctx`.
     free: ?*const fn (ctx: *anyopaque) void = null,
+
+    /// Release `ctx` for a hosted actor the Vat never adopted, because the
+    /// transfer refused before the spawn.
+    pub fn discard(self: HostedActor) void {
+        if (self.free) |free| free(self.ctx);
+    }
 };

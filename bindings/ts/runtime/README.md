@@ -25,7 +25,7 @@ The optional encrypted-QUIC transport ships separately as
 never installs its Rust library. Pass its `provider(config)` or
 `connector(config)` when opening a Runtime.
 
-One source serves three runtimes. Everything that differs between them (the FFI,
+The same source runs on Deno, Bun, and the browser. Everything that differs between them (the FFI,
 the sockets, and the struct layout) lives in
 [`internal/ffi/runtime.ts`](internal/ffi/runtime.ts). That module uses an
 adapter injected before load, which is how [`@glowcap/web`](../web/README.md)
@@ -33,8 +33,6 @@ runs this package in a browser over WebAssembly. Otherwise it detects the
 runtime and `import()`s the matching adapter, so `bun:ffi` never loads on the
 wrong runtime.
 
-Like the C libraries under it (ADR-0059), the binding lets you pick what you need: import the
-core plus the transports you want, and each module opens only its own archive.
 [`../../README.md`](../../README.md) describes the API all bindings share.
 
 ## Runtimes
@@ -54,8 +52,8 @@ lifecycles refuse with an error. Any other runtime is refused at load with an er
 
 The public API is one core module plus one module per built-in transport, declared in
 [`deno.json`](deno.json)'s `exports` map (the JSR manifest, which Bun also reads). Each maps
-to an archive and opens only that archive through the runtime shim's `dlopen`, so importing the core
-never loads a transport and importing one transport never loads another.
+to an archive and opens only that archive through the runtime shim's `dlopen`, as the C libraries
+do (ADR-0059), so an import loads only what it needs.
 
 | Import                            | File                                         | Archive it opens                                                                                                                                                                 |
 | --------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -87,7 +85,7 @@ that connects needs a provider or connector that you pass.
   64-bit mirror, or the Wasm module's own descriptor in the browser. Every
   struct marshaller reads through it.
 
-Applications never import any of these internals.
+These files are internal to the package.
 
 ## The core
 

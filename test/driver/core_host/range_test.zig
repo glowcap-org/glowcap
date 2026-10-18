@@ -221,14 +221,14 @@ test "cross-session: a released session's export range comes back for reuse" {
     var first = engine.Peer.initNegotiating(allocator);
     defer first.deinit();
     const a = try publishAndOpenAcceptedOver(&host, &first, "tcp", "127.0.0.1:7461", &.{});
-    const released_base = first.session_state.export_base;
+    const released_base = first.session_state.exports.base;
     const counter_after_first = host.node.next_export_base;
     try host.releaseSession(a);
 
     var second = engine.Peer.initNegotiating(allocator);
     defer second.deinit();
     _ = try publishAndOpenAcceptedOver(&host, &second, "tcp", "127.0.0.1:7462", &.{});
-    try std.testing.expectEqual(released_base, second.session_state.export_base);
+    try std.testing.expectEqual(released_base, second.session_state.exports.base);
     // And the counter did not move: the reuse is what paid for this session.
     try std.testing.expectEqual(counter_after_first, host.node.next_export_base);
 }
@@ -248,8 +248,8 @@ test "cross-session: a reused export range is the oldest freed, not the newest" 
     defer second.deinit();
     const a = try publishAndOpenAcceptedOver(&host, &first, "tcp", "127.0.0.1:7463", &.{});
     const b = try publishAndOpenAcceptedOver(&host, &second, "tcp", "127.0.0.1:7464", &.{});
-    const oldest = first.session_state.export_base;
-    const newer = second.session_state.export_base;
+    const oldest = first.session_state.exports.base;
+    const newer = second.session_state.exports.base;
     try host.releaseSession(a);
     try host.releaseSession(b);
 
@@ -259,8 +259,8 @@ test "cross-session: a reused export range is the oldest freed, not the newest" 
     defer fourth.deinit();
     _ = try publishAndOpenAcceptedOver(&host, &third, "tcp", "127.0.0.1:7465", &.{});
     _ = try publishAndOpenAcceptedOver(&host, &fourth, "tcp", "127.0.0.1:7466", &.{});
-    try std.testing.expectEqual(oldest, third.session_state.export_base);
-    try std.testing.expectEqual(newer, fourth.session_state.export_base);
+    try std.testing.expectEqual(oldest, third.session_state.exports.base);
+    try std.testing.expectEqual(newer, fourth.session_state.exports.base);
 }
 
 test "cross-session: a host that has spent its export slot refuses rather than naming the next host's" {

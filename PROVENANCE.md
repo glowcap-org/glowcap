@@ -5,9 +5,9 @@ The maintainer builds it with AI coding assistants, authors every commit,
 directs the work, and is answerable for what lands. There is no earlier,
 human-only codebase. The first commit is from June 2026.
 
-`Co-Authored-By: Claude` and `Co-authored-by: Cursor` trailers corroborate
-the disclosure, but they are not the disclosure: different tools emit different
-trailers, and some emit none.
+`Co-Authored-By: Claude` and `Co-authored-by: Cursor` trailers support this
+account but do not complete it, because different tools emit different
+trailers and some emit none.
 
 The illustration in `site/assets/glowcap-goblin-512.png` was generated with an
 AI image tool for this project and refined by the maintainer in Pixelmator
@@ -44,30 +44,27 @@ from an agent-produced packet.
 
 The maintainer uses glowcap and stands behind the repository. The author field
 records who accepted responsibility for what landed. It is not evidence of
-independent review, does not erase how the work was made, and creates no
-exception to another project's policy.
+independent review, and it creates no exception to another project's policy.
 
 glowcap-authored work is available under [Apache-2.0](LICENSE-APACHE). This does
 not settle broader copyright questions about generated code. Third-party files
 keep their original terms.
 
-The repository is hosted on GitHub because Codeberg's rule excludes it and
-because frequent container builds would consume donation-funded resources.
-A paid commercial forge avoids both conflicts.
+The repository is hosted on GitHub, a commercial forge, because Codeberg's
+rule excludes it and because frequent container builds would draw on
+Codeberg's donation-funded resources.
 
 ## Checking the claims
 
 `zig build check` covers the tests, public examples, architecture rules,
-protocol fixtures, and allocation budgets written inside this repository.
-Those checks show that glowcap agrees with its own expectations.
+protocol fixtures, and allocation budgets written inside this repository, so
+they measure glowcap against its own expectations.
 
-External evidence is separate. [Community review](docs/community-review.md)
-lists each check against the upstream OCapN suite and live
+[Community review](docs/community-review.md) lists each check against the upstream OCapN suite and live
 [Spritely Goblins](https://spritely.institute/goblins/) peers, and what each
 one proves.
 
-The external checks pin their direct inputs rather than pulling whatever a
-package catalog serves:
+The external checks pin their direct inputs:
 
 - OCapN conformance dependencies and the Python WebSocket proofs use committed
   `uv` locks.
@@ -77,8 +74,8 @@ package catalog serves:
   Racket's `--auto` still resolves transitive packages through its catalogs.
   The direct pins keep those roots fixed, but the transitive graph is not
   locked.
-- GitHub workflow actions are pinned to immutable commit SHAs. The matching
-  major tag is kept beside each one only to help review, and an upgrade
+- GitHub workflow actions are pinned to immutable commit SHAs. A version
+  comment is kept beside each one only to help review, and an upgrade
   changes both together.
 
 [Known limitations](docs/boundaries.md) records what the checks do not

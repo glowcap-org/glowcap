@@ -25,9 +25,10 @@ pub const Error = error{
     /// from the wire (ADR-0009).
     InvalidHandoffSession,
     /// A wire-delta GC message (`op:gc-exports` / `op:gc-answers`) tried to
-    /// decrement a refcount below zero or release an id the table never held.
-    /// Per ADR-0008 wire-delta reference counting this is a loud protocol
-    /// error, never a silent clamp.
+    /// decrement a refcount below zero, release an id the table never held,
+    /// or sum deltas past what any held count could cover. Per ADR-0008
+    /// wire-delta reference counting this is a loud protocol error, never a
+    /// silent clamp.
     GcUnderflow,
     /// A message arrived (or was sent) in a state that does not admit it:
     /// `op:start-session` outside `negotiating`, or non-handshake traffic
@@ -56,11 +57,6 @@ pub const Error = error{
     /// `SessionLimits.max_listeners_per_target` (the same partner-driven
     /// fan-out class as listeners, bounded by the same knob, ADR-0050).
     ProjectionCapExceeded,
-    /// A third-party import (ADR-0009) was re-rooted at a different host than the
-    /// one it was first installed with. An import's host is fixed for its
-    /// lifetime. A conflicting re-root is a loud protocol error, never a silent
-    /// overwrite.
-    HostMismatch,
     /// The import table exceeded `SessionLimits.max_imports`. A loud bound on a
     /// partner introducing unboundedly many imports (ADR-0025). Never a silent
     /// drop. Projects to a `ResourceExhausted` abort.
@@ -94,10 +90,6 @@ pub const Error = error{
     /// resolver-only calls. Refusal preserves monotonic identity instead of
     /// wrapping onto a stale local answer.
     VirtualAnswerSpaceExhausted,
-    /// This session minted every outbound answer position it can safely hand
-    /// to the partner. Refusal preserves monotonic identity instead of wrapping
-    /// onto a stale answer.
-    OutboundAnswerSpaceExhausted,
     /// A set argument carried two Equal elements. A set admits each member
     /// once, so a duplicate is a second wire encoding of one value and is
     /// refused rather than admitted: inbound as the codec-neutral twin of the
@@ -105,9 +97,9 @@ pub const Error = error{
     /// `protocol_error`), and on send pre-commit, before send-side export
     /// accounting records wire deltas. The send fold is at least as strict as the
     /// encoders' byte-level refusal (ADR-0003): Equal-but-byte-distinct
-    /// forms refuse only in validation, matching the inbound rule. The
-    /// relayed-resolution store holds the same rule pre-commit
-    /// (`validateStoredResolution`).
+    /// forms refuse only in validation, matching the inbound rule. The answer
+    /// store holds the same rule before a settlement commits
+    /// (`validateSentResolutionValue`).
     DuplicateSetElement,
     /// A send-side struct argument carried two entries with the same key.
     /// Same contract as `DuplicateSetElement`'s send arm: the canonical-order

@@ -40,7 +40,7 @@ pub fn register(self: *Session, swissnum: []const u8) !model.ExportPosition {
 fn bind(self: *Session, swissnum: []const u8, export_position: model.ExportPosition) !void {
     // Structural refusal, rather than a process-local tombstone, prevents an
     // old durable reference from being retargeted after restart (ADR-0098).
-    if (isDurableSwiss(swissnum)) return Error.ReservedDurableNamespace;
+    if (isDurableSwiss(swissnum)) return error.ReservedDurableNamespace;
     const gop = try self.bootstrap.getOrPut(self.allocator, swissnum);
     if (!gop.found_existing) {
         // getOrPut borrowed the caller slice. Replace it with arena ownership;

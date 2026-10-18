@@ -17,13 +17,15 @@ pub const CapabilityRecord = struct {
     dependency: ?loam.ObjectId = null,
     revoked: bool = false,
     pub const Role = enum { use, control };
-    pub const version = 2;
+    pub const format_version: u64 = 2;
+    pub const max_edges = 3;
+    const label = "access:capability";
     pub const max_encoded_bytes = 32 * 1024;
     /// Both independent ceilings can select the complete bounded scope.
     /// Fixed decoder storage owns the selections for the operation lifetime.
     pub const selection_bytes = 2 * core.max_scope_objects * @sizeOf(core.ResourceId);
 
-    pub fn edges(self: CapabilityRecord, buffer: *[3]loam.Edge) []const loam.Edge {
+    pub fn edges(self: CapabilityRecord, buffer: *[max_edges]loam.Edge) []const loam.Edge {
         buffer[0] = .{ .target = self.owner };
         buffer[1] = .{ .target = self.grant_object };
         if (self.dependency) |parent| {
@@ -38,49 +40,41 @@ pub const CapabilityRecord = struct {
         return syrup.render.renderRecordExact(allocator, write, .{self});
     }
 
-    pub const Owned = struct {
-        value: CapabilityRecord,
-        pub fn deinit(self: *Owned, allocator: std.mem.Allocator) void {
-            if (self.value.powers.policy_ceiling) |ceiling| terms.free(allocator, ceiling);
-            if (self.value.powers.issue_ceiling) |ceiling| terms.free(allocator, ceiling);
-            self.* = undefined;
-        }
-    };
+    /// Releases the ceilings `decodeOwned` took from `allocator`.
+    pub fn deinit(self: *CapabilityRecord, allocator: std.mem.Allocator) void {
+        if (self.powers.policy_ceiling) |ceiling| ceiling.deinitOwned(allocator);
+        if (self.powers.issue_ceiling) |ceiling| ceiling.deinitOwned(allocator);
+        self.* = undefined;
+    }
 
-    /// Each selected ceiling owns at most 256 IDs, independently.
-    pub fn decodeOwned(allocator: std.mem.Allocator, view: loam.View) !Owned {
-        if (view.schema != profile.capability or view.schema_version != version or view.payload.len > max_encoded_bytes or (view.edge_count != 2 and view.edge_count != 3)) return error.InvalidRecord;
+    /// Fills `self` from `view`. Each selected ceiling owns at most 256 IDs
+    /// from `allocator`, independently, until `deinit`.
+    pub fn decodeOwned(self: *CapabilityRecord, allocator: std.mem.Allocator, view: loam.View) !void {
+        if (view.schema != profile.capability or view.schema_version != format_version or view.payload.len > max_encoded_bytes or (view.edge_count != 2 and view.edge_count != 3)) return error.InvalidRecord;
         var edges_it = view.edges();
-        const owner = edges_it.next().?;
-        const grant_object = edges_it.next().?;
-        if (owner.strength != .strong or grant_object.strength != .strong) return error.InvalidRecord;
+        const owner = try fields.readEdge(&edges_it, view.id.store);
+        const grant_object = try fields.readEdge(&edges_it, view.id.store);
         const b = view.payload;
         var c: usize = 0;
         try s.readByte(b, &c, '<');
-        if (!std.mem.eql(u8, try s.readSymbol(b, &c), "access:capability")) return error.InvalidRecord;
-        if (try s.readPositiveInt(b, &c) != version) return error.UnsupportedVersion;
+        if (!std.mem.eql(u8, try s.readSymbol(b, &c), label)) return error.InvalidRecord;
+        if (try s.readPositiveInt(b, &c) != format_version) return error.UnsupportedVersion;
         const grant = try fields.readId(core.GrantId, b, &c);
-        const tag = try s.readSymbol(b, &c);
-        const role: Role = if (std.mem.eql(u8, tag, "use")) .use else if (std.mem.eql(u8, tag, "control")) .control else return error.InvalidRecord;
-        var result: Owned = .{ .value = .{ .owner = owner.target, .grant_object = grant_object.target, .grant = grant, .role = role } };
-        errdefer result.deinit(allocator);
-        if (try s.readBool(b, &c)) result.value.powers.policy_ceiling = try terms.readOwned(allocator, b, &c, grant.owner);
-        if (try s.readBool(b, &c)) result.value.powers.issue_ceiling = try terms.readOwned(allocator, b, &c, grant.owner);
-        result.value.powers.inspect = try s.readBool(b, &c);
-        result.value.powers.delegate_control = try s.readBool(b, &c);
-        result.value.powers.pause = try s.readBool(b, &c);
-        result.value.powers.resume_access = try s.readBool(b, &c);
-        result.value.powers.revoke = try s.readBool(b, &c);
-        result.value.revoked = try s.readBool(b, &c);
-        if (view.edge_count == 3) {
-            const dependency = edges_it.next().?;
-            if (dependency.strength != .strong) return error.InvalidRecord;
-            result.value.dependency = dependency.target;
-        }
+        const role = std.meta.stringToEnum(Role, try s.readSymbol(b, &c)) orelse return error.InvalidRecord;
+        self.* = .{ .owner = owner, .grant_object = grant_object, .grant = grant, .role = role };
+        errdefer self.deinit(allocator);
+        if (try s.readBool(b, &c)) self.powers.policy_ceiling = try terms.readOwned(allocator, b, &c, grant.owner);
+        if (try s.readBool(b, &c)) self.powers.issue_ceiling = try terms.readOwned(allocator, b, &c, grant.owner);
+        self.powers.inspect = try s.readBool(b, &c);
+        self.powers.delegate_control = try s.readBool(b, &c);
+        self.powers.pause = try s.readBool(b, &c);
+        self.powers.resume_access = try s.readBool(b, &c);
+        self.powers.revoke = try s.readBool(b, &c);
+        self.revoked = try s.readBool(b, &c);
+        if (view.edge_count == 3) self.dependency = try fields.readEdge(&edges_it, view.id.store);
         try s.readByte(b, &c, '>');
         try s.expectEnd(b, c);
-        try result.value.validate();
-        return result;
+        try self.validate();
     }
 
     fn validate(self: CapabilityRecord) !void {
@@ -93,19 +87,11 @@ pub const CapabilityRecord = struct {
 
     fn write(sink: anytype, self: CapabilityRecord) !void {
         try s.beginRecord(sink);
-        try s.writeSymbol(sink, "access:capability");
-        try s.writePositiveInt(sink, version);
+        try s.writeSymbol(sink, label);
+        try s.writePositiveInt(sink, format_version);
         try fields.writeId(sink, self.grant);
         try s.writeSymbol(sink, @tagName(self.role));
-        try s.writeBool(sink, self.powers.policy_ceiling != null);
-        if (self.powers.policy_ceiling) |ceiling| try terms.write(sink, ceiling);
-        try s.writeBool(sink, self.powers.issue_ceiling != null);
-        if (self.powers.issue_ceiling) |ceiling| try terms.write(sink, ceiling);
-        try s.writeBool(sink, self.powers.inspect);
-        try s.writeBool(sink, self.powers.delegate_control);
-        try s.writeBool(sink, self.powers.pause);
-        try s.writeBool(sink, self.powers.resume_access);
-        try s.writeBool(sink, self.powers.revoke);
+        try terms.writePowers(sink, self.powers);
         try s.writeBool(sink, self.revoked);
         try s.endRecord(sink);
     }

@@ -1,6 +1,6 @@
 ---
 .title = "TypeScript",
-.description = "Use one TypeScript session API across Deno, Bun, and browser WebAssembly.",
+.description = "Use glowcap from TypeScript on Deno, Bun, and in the browser.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "page.shtml",
 .draft = false,
@@ -9,7 +9,8 @@
 The TypeScript binding runs on Deno, Bun, and the browser from one source tree.
 `@glowcap/runtime`
 ([`mod.ts`](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/runtime/mod.ts))
-gives Deno and Bun the `Session` and `Host` API over the glowcap C ABI.
+gives Deno the `Session` and `Host` API over the glowcap C ABI. Bun gets the
+synchronous Host and locator calls.
 `Runtime.open` installs the transport providers and connectors once, and
 `runtime.connect` picks the one that matches the locator.
 
@@ -157,17 +158,16 @@ console.log(reply);
 <!-- /site-examples:dial:ts -->
 ```
 
-The CapTP verbs stay the same across tabs. What changes is the locator helper,
-how the listener gets its key, and whether CapTP rides cleartext or Noise. The iroh
+The iroh
 tab needs `@glowcap/iroh` and a discovery-reachable node id.
 
 The `serve` promise resolves when the session closes cleanly and rejects on a
 transport or protocol error. When the loop ends, every `send` still awaiting a
 reply breaks too, so failures surface on the calls you await.
 
-# Hosting the other half
+# Listen
 
-The hosting side reads the same way. `listen` binds a port and returns a
+`listen` binds a port and returns a
 `Server` you iterate for each accepted `Session`, `publish` makes an actor
 fetchable by name, and `serve` dispatches the partner's calls to it. Keyed and
 Noise listeners take a 32-byte seed so the advertised designator survives a

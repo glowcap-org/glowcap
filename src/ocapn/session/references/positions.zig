@@ -1,9 +1,9 @@
 //! Import/export namespace and capability-identity operations for one Session.
 //!
-//! `Session` retains the authoritative tables and allocation cursors. This
-//! module owns every operation that admits, allocates, inspects, or unwinds a
-//! position in those tables, plus the Node and Host identities attached to an
-//! import incarnation. Keeping those doors together prevents the marshal,
+//! `Session` retains the authoritative tables. This module owns every
+//! operation that admits, allocates, inspects, or unwinds a position in those
+//! tables, plus the Node and Host identities attached to an import
+//! incarnation. Keeping those doors together prevents the marshal,
 //! engine, and Host paths from acquiring different ideas of which capability
 //! names the session holds.
 //!
@@ -17,51 +17,29 @@ const model = @import("model");
 const session = @import("../mod.zig");
 const slot = @import("../slot.zig");
 
-const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const bootstrap_position = session.bootstrap_position;
 const Error = session.Error;
 const Session = session.Session;
 
-/// The marshal-side door into `admitExportPosition`, for `apply`'s
-/// first-mention branch. Same rule, reachable from the sibling module.
-pub fn admitExportPositionForMarshal(self: *Session, id: model.ExportPosition) Error!void {
-    return admitExportPosition(self, id);
-}
-
-/// Prove a first-marshaled export position belongs to this session without
-/// mutating its allocator cursor. Send validation calls this before apply,
-/// `admitExportPosition` reuses it at the commit boundary.
-pub fn validateExportPositionForMarshal(self: *const Session, id: model.ExportPosition) Error!void {
-    if (id.int() == BOOTSTRAP_POSITION or self.exports.contains(id)) return;
-    if (id.int() < self.export_base or id.int() >= self.export_position_end)
-        return Error.InvalidReference;
-}
-
-/// Admit an export position that did not come from this session's own
-/// allocator, and advance past it.
+/// Prove a first-marshaled export position belongs to this session. Send
+/// validation calls this before apply, and every explicit grant or
+/// reservation calls it at the commit boundary.
 ///
 /// An export position is a name in *this* session's namespace and nowhere
-/// else, so one from outside the session's range names nothing here. Minting a
-/// row for it would answer a partner with an object this session does not host,
-/// and dragging the allocator up to it would spend the range the session has
-/// left, after which it can export nothing at all. Every door a position can
-/// arrive through, an explicit grant, a reservation, or a first marshal in a
-/// sent resolve, comes through here.
-///
-/// The bootstrap position sits below every range by construction and is always
-/// this session's own.
-fn admitExportPosition(self: *Session, id: model.ExportPosition) Error!void {
-    try validateExportPositionForMarshal(self, id);
-    if (id.int() == BOOTSTRAP_POSITION or self.exports.contains(id)) return;
-    if (id.int() >= self.next_export_position) {
-        self.next_export_position = id.int() + 1;
-    }
+/// else, so one from outside the session's range names nothing here: minting
+/// a row for it would answer a partner with an object this session does not
+/// host. The bootstrap position sits below every range by construction and
+/// is always this session's own.
+pub fn validateExportPositionForMarshal(self: *const Session, id: model.ExportPosition) Error!void {
+    if (id.int() == bootstrap_position or self.exports.contains(id)) return;
+    if (!self.exports.inRange(id)) return error.InvalidReference;
 }
 
 pub fn registerExport(self: *Session, id: model.ExportPosition) !void {
-    try admitExportPosition(self, id);
+    try validateExportPositionForMarshal(self, id);
     try self.exports.register(self.allocator, id);
-    if (id.int() != BOOTSTRAP_POSITION and self.exports.wireHeld(id) == 0) {
-        try self.exports.retain(self.allocator, id);
+    if (id.int() != bootstrap_position and self.exports.wireHeld(id) == 0) {
+        self.exports.retain(id);
     }
 }
 
@@ -72,7 +50,7 @@ pub fn registerExport(self: *Session, id: model.ExportPosition) !void {
 /// `allocateExport`. Idempotent, and it never downgrades: reserving an already
 /// granted position leaves the grant standing.
 pub fn reserveExport(self: *Session, id: model.ExportPosition) !void {
-    try admitExportPosition(self, id);
+    try validateExportPositionForMarshal(self, id);
     try self.exports.register(self.allocator, id);
 }
 
@@ -81,7 +59,7 @@ pub fn reserveExport(self: *Session, id: model.ExportPosition) !void {
 /// `SessionLimits.max_imports`. An already-held id increments its wire-delta
 /// count so the later `op:gc-exports` releases the same total delta.
 pub fn registerImport(self: *Session, id: model.ImportPosition) !void {
-    if (id.int() == BOOTSTRAP_POSITION) return;
+    if (id.int() == bootstrap_position) return;
     try self.imports.retain(self.allocator, id, self.limits.max_imports);
 }
 
@@ -90,7 +68,7 @@ pub fn registerImport(self: *Session, id: model.ImportPosition) !void {
 /// it, which no caller's `op:gc-exports` may address. `registerImport` and
 /// `adoptImportRetain` in one step.
 pub fn retainImportForSession(self: *Session, id: model.ImportPosition) !void {
-    if (id.int() == BOOTSTRAP_POSITION) return;
+    if (id.int() == bootstrap_position) return;
     try self.imports.retain(self.allocator, id, self.limits.max_imports);
     self.imports.adoptForSession(id);
 }
@@ -100,7 +78,7 @@ pub fn retainImportForSession(self: *Session, id: model.ImportPosition) !void {
 /// resolver, a shortening callback's advanced-to promise), so the row is live
 /// with a retain left to adopt. The partner bootstrap carries no retain.
 pub fn adoptImportRetain(self: *Session, id: model.ImportPosition) void {
-    if (id.int() == BOOTSTRAP_POSITION) return;
+    if (id.int() == bootstrap_position) return;
     self.imports.adoptForSession(id);
 }
 
@@ -110,7 +88,7 @@ pub fn adoptImportRetain(self: *Session, id: model.ImportPosition) void {
 /// verbs assert this so an entry built without `retainImportForSession` fails
 /// where it is installed rather than where it fires.
 pub fn listenerRetainHeld(self: *const Session, listener: model.FarRef) bool {
-    if (listener.import_position.int() == BOOTSTRAP_POSITION) return true;
+    if (listener.import_position.int() == bootstrap_position) return true;
     return self.imports.sessionHeld(listener.import_position) != 0;
 }
 
@@ -121,7 +99,7 @@ pub fn listenerRetainHeld(self: *const Session, listener: model.FarRef) bool {
 /// release is validated against `importReleasable`, so it can never spend the
 /// retain the session kept for this release.
 pub fn importRequiresWireRelease(self: *const Session, id: model.ImportPosition) bool {
-    if (id.int() == BOOTSTRAP_POSITION) return false;
+    if (id.int() == bootstrap_position) return false;
     std.debug.assert(self.imports.contains(id));
     return true;
 }
@@ -138,12 +116,18 @@ pub fn hasImport(self: *const Session, id: model.ImportPosition) bool {
 /// the partner's pinned bootstrap, which is always addressable and carries no
 /// row. Send validation and Host lifting share this definition.
 pub fn holdsImport(self: *const Session, id: model.ImportPosition) bool {
-    return id.int() == BOOTSTRAP_POSITION or self.imports.contains(id);
+    return id.int() == bootstrap_position or self.imports.contains(id);
 }
 
 /// Live export row's CapTP slot, or null if absent.
 pub fn exportSlot(self: *const Session, id: model.ExportPosition) ?slot.Slot {
     return self.exports.slotOf(id);
+}
+
+/// The reference naming a live export, or null for a position with no live
+/// row or a broken one.
+pub fn exportReference(self: *const Session, id: model.ExportPosition) ?model.Reference {
+    return slot.toReference(self.exportSlot(id) orelse return null);
 }
 
 pub fn exportRefcount(self: *const Session, id: model.ExportPosition) u64 {
@@ -166,27 +150,24 @@ pub fn importReleasable(self: *const Session, id: model.ImportPosition) u64 {
 /// Allocate a fresh object export at its local baseline. The row can marshal,
 /// but the partner does not hold it until its first wire mention.
 pub fn allocateExport(self: *Session) !model.ExportPosition {
-    if (self.next_export_position >= self.export_position_end)
-        return Error.ExportRangeExhausted;
-    const id = model.ExportPosition.from(self.next_export_position);
-    try self.exports.register(self.allocator, id);
-    self.next_export_position += 1;
-    return id;
+    return allocateExportMentioned(self, .object, 0);
 }
 
 /// Allocate the promise twin of `allocateExport`, authoritative as unresolved
 /// before any codec renders the reference.
 pub fn allocatePromiseExport(self: *Session) !model.ExportPosition {
-    if (self.next_export_position >= self.export_position_end)
-        return Error.ExportRangeExhausted;
-    const id = model.ExportPosition.from(self.next_export_position);
-    try self.exports.registerPromise(self.allocator, id);
-    self.next_export_position += 1;
-    return id;
+    return allocateExportMentioned(self, .promise, 0);
 }
 
-/// Roll back one freshly allocated, unshared export. Position allocation stays
-/// monotonic. The skipped id is not reused. The retain is certain because
+/// Allocate a fresh export of `kind` holding `mentions` wire retains beyond
+/// its baseline, in one row install (`ExportTable.allocate`). A mint whose
+/// mention rides outside `recordSend` takes the mention's retain here.
+pub fn allocateExportMentioned(self: *Session, kind: model.RefKind, mentions: u64) !model.ExportPosition {
+    return self.exports.allocate(self.allocator, kind, mentions);
+}
+
+/// Roll back one freshly allocated, unshared export. The slot returns to the
+/// slab's free list. The retain is certain because
 /// every caller runs this as the errdefer of an allocation made in the same
 /// dispatch (for example `port.zig`'s dial-mint errdefer), so the decrement
 /// cannot underflow.
@@ -199,7 +180,7 @@ pub fn releaseUnsharedExport(self: *Session, id: model.ExportPosition) void {
 /// runs this as the errdefer of the retain it took in the same dispatch, so
 /// the decrement cannot underflow.
 pub fn releaseImportRetain(self: *Session, id: model.ImportPosition) void {
-    if (id.int() == BOOTSTRAP_POSITION) return;
+    if (id.int() == bootstrap_position) return;
     self.imports.decrement(id, 1) catch unreachable;
 }
 
@@ -208,7 +189,7 @@ pub fn releaseImportRetain(self: *Session, id: model.ImportPosition) void {
 /// peer, or an install rolled back. A retain that reaches the wire leaves
 /// through `recordSessionImportRelease` instead.
 pub fn releaseSessionImportRetain(self: *Session, id: model.ImportPosition) void {
-    if (id.int() == BOOTSTRAP_POSITION) return;
+    if (id.int() == bootstrap_position) return;
     self.imports.releaseSessionHeld(id, 1);
 }
 
@@ -218,7 +199,7 @@ pub fn foreignRouteIdFor(self: *const Session, position: model.ImportPosition) ?
 }
 
 pub fn noteForeignRouteId(self: *Session, position: model.ImportPosition, route_id: model.CapabilityRouteId) !void {
-    if (!self.holdsImport(position)) return Error.InvalidReference;
+    if (!self.holdsImport(position)) return error.InvalidReference;
     return self.imports.noteRouteId(self.allocator, position, route_id);
 }
 
@@ -239,12 +220,12 @@ pub fn hostImportIdentity(self: *const Session, position: model.ImportPosition) 
 /// claim one wire retain. Bootstrap is permanently held and claims none.
 /// Session retains only scalar identity, Host owns its meaning and lifetime.
 pub fn noteHostCapability(self: *Session, position: model.ImportPosition, ref: u64) !void {
-    if (!self.holdsImport(position)) return Error.InvalidReference;
+    if (!self.holdsImport(position)) return error.InvalidReference;
     return self.imports.noteHostRef(
         self.allocator,
         position,
         ref,
-        @intFromBool(position.int() != BOOTSTRAP_POSITION),
+        @intFromBool(position.int() != bootstrap_position),
     );
 }
 

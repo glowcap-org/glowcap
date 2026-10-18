@@ -11,9 +11,9 @@ sources:
 # Sturdyrefs and locators
 
 These diagrams follow the OCapN Locators specification and the CapTP
-Specification section The bootstrap Object (fetch). The next profile follows an
-answered fetch with a mandatory listen. Goblins V1.0 carries the resolver in
-the fetch deliver instead.
+Specification section The bootstrap Object (fetch). The next profile carries the resolver and
+listen mode in the fetch deliver. Goblins V1.0 carries the resolver as its
+fourth operand.
 
 ## ST-1: Sturdyref anatomy
 
@@ -21,7 +21,8 @@ A sturdyref is offline authority: a locator saying _where_ the hosting peer
 lives plus a swiss number saying _which_ object to fetch there. It carries no
 live session state, so the token survives restarts. Whether it still redeems
 after the hosting peer restarts depends on that host re-registering the swiss
-number under the same identity. glowcap's default Host registry is ephemeral
+number under the same identity. glowcap keeps no registry across processes,
+so a glowcap host republishes the name from its saved entropy
 (see [boundaries](../boundaries.md)).
 
 ```mermaid
@@ -45,9 +46,8 @@ sequenceDiagram
     participant P as Hosting peer
     Note over H: holds sturdyref (locator, swiss number)
     H->>P: op:start-session handshake per the locator
-    H->>P: op:deliver (to desc:export 0, ['fetch, swiss-num], answer-pos N)
-    H->>P: op:listen (desc:answer N, desc:import-object R, mode 3)
-    P->>H: op:deliver (to desc:export R, ['fulfill, desc:import-object M], answer-pos false)
+    H->>P: op:deliver (to desc:export 0, ['fetch, swiss-num], answer-pos N, resolver R, mode 3)
+    P->>H: op:deliver-only (to desc:export R, ['fulfill, desc:import-object M])
     Note over H: sturdy authority is now a live import at M
 ```
 

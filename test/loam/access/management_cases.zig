@@ -13,9 +13,9 @@ pub fn native(store: *h.loam.core.Store, backend: anytype) !void {
     const wide = try f.vocabulary.terms(.{ .object = resource }, &.{ f.vocabulary.read, f.vocabulary.post }, null);
     const narrow = try f.vocabulary.terms(.{ .objects = &.{resource} }, &.{f.vocabulary.read}, null);
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(wide, 1) })).?.grant;
-    const use = try c.use(&caps, backend, try c.descriptor(&caps, backend, owner, grant, null, true));
+    const use = try c.use(&caps, backend, try c.descriptor(&caps, backend, owner, grant, null, .rooted));
     defer use.release();
-    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = wide }, true));
+    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = wide }, .rooted));
     defer root.release();
     const id = try m.attenuation(&caps, backend, root, .{ .delegate_control = true, .pause = true, .policy_ceiling = narrow });
     const child = try c.control(&caps, backend, id);
@@ -68,7 +68,7 @@ fn descriptorBeforeHeader(store: *h.loam.core.Store, backend: anytype) !void {
     const resource = try f.resource(store, backend, owner, null);
     const terms = try f.vocabulary.terms(.{ .object = resource }, &.{f.vocabulary.read}, null);
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?.grant;
-    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true }, true));
+    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true }, .rooted));
     defer root.release();
     const late = try root.begin(8);
     defer late.deinit() catch unreachable;
@@ -107,7 +107,7 @@ fn composedOutcome(store: *h.loam.core.Store, backend: anytype, committed: bool)
     const resource = try f.resource(store, backend, owner, null);
     const terms = try f.vocabulary.terms(.{ .object = resource }, &.{f.vocabulary.read}, null);
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 1) })).?.grant;
-    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true }, true));
+    const root = try c.control(&caps, backend, try c.descriptor(&caps, backend, owner, grant, .{ .delegate_control = true, .pause = true }, .rooted));
     defer root.release();
     const child = try c.control(&caps, backend, try m.attenuation(&caps, backend, root, .{ .pause = true }));
     defer child.release();
@@ -121,7 +121,7 @@ fn composedOutcome(store: *h.loam.core.Store, backend: anytype, committed: bool)
     try store.begin();
     defer if (store.phase == .staging) store.abort() catch unreachable;
     try std.testing.expect(try revoking.stageControlRevocation());
-    try std.testing.expectError(error.RevisionConflict, caps.stage(prepared, false));
+    try std.testing.expectError(error.RevisionConflict, caps.stage(prepared, .reachable));
     try store.abort();
     // A refused independent preparation aborts through the batch owner. Start
     // a fresh batch to inspect revocation's composed state and final outcome.

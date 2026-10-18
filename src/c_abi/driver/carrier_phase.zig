@@ -14,11 +14,6 @@ pub const Projection = struct {
     engine_code: i32 = 0,
 };
 
-pub fn encode(phase: ?net.carrier_failure.Phase) u32 {
-    const value = phase orelse return abi.GLOWCAP_CARRIER_PHASE_NONE;
-    return abi.carrierPhaseCode(value);
-}
-
 pub fn decode(value: u32) DecodeError!?net.carrier_failure.Phase {
     return switch (value) {
         abi.GLOWCAP_CARRIER_PHASE_NONE => null,
@@ -40,7 +35,7 @@ pub fn project(
 ) Projection {
     if (phase == null) return .{};
     var projected: Projection = .{
-        .phase = encode(phase),
+        .phase = abi.optionalCarrierPhaseCode(phase),
         .verification_flags = detail.verification_flags,
     };
     if (detail.peer_alert) |alert| {

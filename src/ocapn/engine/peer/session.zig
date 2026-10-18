@@ -29,8 +29,7 @@ pub fn isClosed(self: *const Peer) bool {
 pub fn retireClosedAuthority(self: *Peer) void {
     std.debug.assert(self.session_state.state == .closed);
     lifecycle.clearPendingWithdraws(self);
-    self.gift_registry.deinit(self.allocator, self.localObjectProjection());
-    self.gift_registry = .{};
+    lifecycle.retireGiftRegistry(self);
     if (self.node_services) |services| services.sessionClosed();
 }
 

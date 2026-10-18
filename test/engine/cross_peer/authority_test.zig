@@ -390,7 +390,7 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
     // exporter verifies against the key the give carries.
     const withdrawing_side = sideOf(gifter_pub);
     const exporter_side = sideOf(crypto.SecretKey.fromSeed(exporter_seed).publicKey());
-    const receiving_session_name = engine.handoff_recipient.sessionName(withdrawing_side, exporter_side);
+    const receiving_session_name = engine.handoff_names.sessionName(withdrawing_side, exporter_side);
 
     var give_signed: []u8 = undefined;
     var give_sig: crypto.Signature = undefined;
@@ -541,7 +541,7 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
             try std.testing.expectEqualSlices(u8, give_signed, recanonical);
 
             const carried = crypto.Signature.fromBytes(
-                decoded_give.signature[0..crypto.SIGNATURE_BYTES].*,
+                decoded_give.signature[0..crypto.signature_bytes].*,
             );
             try crypto.verify(gifter_secret.publicKey(), recanonical, carried);
         }
@@ -549,7 +549,7 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
 }
 
 test "handoff side-name helper enforces the 32-byte Ed25519 key contract" {
-    const handoff = engine.handoff_recipient;
+    const handoff = engine.handoff_names;
 
     // A 32-byte key produces a stable, deterministic side name.
     const key32 = repeated(32, 0x42);

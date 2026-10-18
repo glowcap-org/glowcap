@@ -20,7 +20,7 @@ const Fixture = struct {
     recipient_id: engine.PeerHandle,
     recipient: *engine.Peer,
     counterparts: [2]engine.Peer,
-    answer: ?model.AnswerPosition,
+    answer: ?engine.OutboundAnswerTarget,
 
     fn deinit(self: *Fixture) void {
         for (&self.counterparts) |*counterpart| counterpart.deinit();
@@ -32,23 +32,23 @@ const Fixture = struct {
 /// arrives) and then a plain deliver, both to the recipient's import 2.
 fn queueGiftThenPlain(fixture: *Fixture, profile: model.CaptpVersion, provisional: bool) !void {
     const allocator = std.testing.allocator;
-    fixture.node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x91)));
+    fixture.node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x91)));
     fixture.recipient_id = try fixture.node.registerPeer(.{ .captp_version = profile });
     const exporter_id = try fixture.node.registerPeer(.{ .captp_version = profile });
     fixture.recipient = fixture.node.peer(fixture.recipient_id).?;
     const exporter = fixture.node.peer(exporter_id).?;
-    fixture.counterparts[0] = try openKeyedSessionWithCounterpart(allocator, &fixture.node, fixture.recipient, @as([crypto.SEED_BYTES]u8, @splat(0x92)));
-    fixture.counterparts[1] = try openKeyedSessionWithCounterpart(allocator, &fixture.node, exporter, @as([crypto.SEED_BYTES]u8, @splat(0x93)));
+    fixture.counterparts[0] = try openKeyedSessionWithCounterpart(allocator, &fixture.node, fixture.recipient, @as([crypto.seed_bytes]u8, @splat(0x92)));
+    fixture.counterparts[1] = try openKeyedSessionWithCounterpart(allocator, &fixture.node, exporter, @as([crypto.seed_bytes]u8, @splat(0x93)));
 
     try fixture.recipient.session_state.registerImport(.from(2));
     try exporter.session_state.registerImport(.from(4));
-    const foreign = try fixture.node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
-    fixture.answer = if (provisional) .from(try fixture.recipient.allocateAnswer()) else null;
+    const foreign = try fixture.node.enrollForeign(exporter_id, model.FarRef.object(4));
+    fixture.answer = if (provisional) try fixture.recipient.allocateAnswer() else null;
     if (provisional) fixture.recipient.openProvisional();
     try fixture.recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
-        .answer = fixture.answer,
+        .answer = if (fixture.answer) |answer| answer.position else null,
     } });
     try fixture.recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
@@ -107,7 +107,7 @@ test "retracting a staged gift retires its queued release without sending either
         recipient.publishAnswerRelease(release, answer);
         const Retractions = struct {
             count: usize = 0,
-            fn record(ctx: *anyopaque, _: model.AnswerPosition) void {
+            fn record(ctx: *anyopaque, _: engine.OutboundAnswerTarget) void {
                 const self: *@This() = @ptrCast(@alignCast(ctx));
                 self.count += 1;
             }
@@ -126,7 +126,7 @@ test "retracting a staged gift retires its queued release without sending either
         try recipient.stepToIdle();
         try std.testing.expect(recipient.takeOutbound() == null);
         try std.testing.expect(!recipient.canObserveAnswer(answer));
-        try std.testing.expect(recipient.session_state.outboundAnswer(answer) == null);
+        try std.testing.expect(recipient.session_state.outboundAnswer(answer.position) == null);
         try std.testing.expectEqual(@as(usize, 0), recipient.pending_send_bytes);
         try std.testing.expectEqual(@as(usize, 0), recipient.pending_send_reservations);
     }

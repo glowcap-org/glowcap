@@ -58,11 +58,17 @@ pub const SturdyRefPayload = struct {
     }
 };
 
-pub fn locFromOpaque(loc: ?*c.GlowcapLocator) ?*LocatorPayload {
+/// The payload behind a C handle, as const as the handle the caller holds.
+fn Backing(comptime Handle: type, comptime Payload: type) type {
+    const pointer = @typeInfo(@typeInfo(Handle).optional.child).pointer;
+    return if (pointer.attrs.@"const") *const Payload else *Payload;
+}
+
+pub fn locFromOpaque(loc: anytype) ?Backing(@TypeOf(loc), LocatorPayload) {
     return @ptrCast(@alignCast(loc orelse return null));
 }
 
-pub fn sturdyFromOpaque(sturdyref: ?*c.GlowcapSturdyRef) ?*SturdyRefPayload {
+pub fn sturdyFromOpaque(sturdyref: anytype) ?Backing(@TypeOf(sturdyref), SturdyRefPayload) {
     return @ptrCast(@alignCast(sturdyref orelse return null));
 }
 

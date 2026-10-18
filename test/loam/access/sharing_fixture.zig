@@ -64,9 +64,10 @@ pub fn publishedGrant(server: *h.Hosted, backend: anytype, session: *h.driver.Ho
     const endpoint = try h.loam.access.records.EndpointRecord.decode(try store.currentView(endpoint_lease));
     const descriptor_lease = try h.c.load(store, backend, endpoint.descriptor);
     defer store.release(descriptor_lease) catch unreachable;
-    var descriptor = try h.loam.access.records.CapabilityRecord.decodeOwned(h.a, try store.currentView(descriptor_lease));
+    var descriptor: h.loam.access.records.CapabilityRecord = undefined;
+    try descriptor.decodeOwned(h.a, try store.currentView(descriptor_lease));
     defer descriptor.deinit(h.a);
-    return descriptor.value.grant;
+    return descriptor.grant;
 }
 fn entropy(context: ?*anyopaque, bytes: *h.driver.Host.DurableSwiss.Entropy) !void {
     const counter: *u64 = @ptrCast(@alignCast(context.?));

@@ -6,7 +6,7 @@ const std = @import("std");
 const core = @import("loam_core");
 const c = @import("c.zig");
 const connection = @import("connection.zig");
-const owner_lock = @import("loam_owner_lock");
+const custody = @import("loam_custody");
 
 /// The database inside the store directory. Its `-wal` and `-shm` siblings
 /// are SQLite's, and `loam-owner.lock` is the owner lock.
@@ -42,18 +42,17 @@ pub const Sqlite = struct {
     readers: [max_readers_limit]Reader,
     reader_count: u32,
     /// Bit `i` set: reader `i` holds no transaction.
-    idle_readers: std.atomic.Value(u16),
+    idle_readers: std.atomic.Value(ReaderMask),
     writer_idle: std.atomic.Value(bool) = .init(true),
     connections_open: bool = true,
-    lock: owner_lock.Held,
+    lock: custody.owner_lock.Held,
     metadata: core.Metadata,
-    users: std.atomic.Value(usize) = .init(0),
-    const closing: usize = @as(usize, 1) << (@bitSizeOf(usize) - 1);
-    const maintenance = closing >> 1;
-    const reopen_required = maintenance >> 1;
+    admission: custody.Admission = .{},
 
     /// The most reader connections one engine opens.
     pub const max_readers_limit = 16;
+    /// Bit `i` names reader `i`.
+    const ReaderMask = std.math.IntFittingRange(0, (1 << max_readers_limit) - 1);
     /// The requested page-cache target per connection. The writer and each
     /// reader have their own cache, outside the Store's residency budget.
     pub const page_cache_bytes = connection.page_cache_bytes;
@@ -66,7 +65,7 @@ pub const Sqlite = struct {
         /// Reader connections opened with the store. Each read transaction
         /// holds one until it ends.
         max_readers: u32 = 4,
-        mode: union(enum) { create: core.StoreId, open: core.StoreId, bootstrap: core.StoreId },
+        opening: core.Opening,
     };
 
     /// The directory must exist. Create refuses an existing Loam store. Open
@@ -74,14 +73,14 @@ pub const Sqlite = struct {
     /// is not a Loam store is refused untouched. Successful opening durably
     /// reserves a fresh incarnation while holding exclusive lifetime custody.
     pub fn open(path: [:0]const u8, options: Options) !Sqlite {
-        if (options.capacity_bytes < 1024 * 1024 or options.capacity_bytes / page_bytes > max_pages or options.max_readers == 0 or options.max_readers > max_readers_limit) return error.InvalidLimits;
+        if (options.capacity_bytes < core.backend.min_capacity_bytes or options.capacity_bytes / page_bytes > max_pages or options.max_readers == 0 or options.max_readers > max_readers_limit) return error.InvalidLimits;
         var absolute: [std.fs.max_path_bytes:0]u8 = undefined;
-        var lock = try owner_lock.acquire(path, &absolute);
+        var lock = try custody.owner_lock.acquire(path, &absolute);
         // best-effort: the lock is released on every refusal below, and a failing unlock cannot change what the refusal reports.
         errdefer lock.release() catch {};
         var file: [std.fs.max_path_bytes:0]u8 = undefined;
         const file_path = try filePath(&absolute, &file);
-        const creating = options.mode != .open;
+        const creating = options.opening.mode != .open;
         if (!creating and std.c.access(file_path, std.c.F_OK) != 0) return error.MissingStore;
         try connection.check(c.sqlite3_initialize());
         var result: Sqlite = .{ .directory = absolute, .capacity_limit_bytes = options.capacity_bytes, .reader_limit = options.max_readers, .writer = undefined, .readers = undefined, .reader_count = 0, .idle_readers = .init(0), .connections_open = false, .lock = lock, .metadata = undefined };
@@ -93,9 +92,7 @@ pub const Sqlite = struct {
         // Absent metadata means new storage only when no row remains. A
         // reclaimed allocator or identity floor would revive stale authority.
         if (stored == null and try result.writer.next("", null) != null) return error.Corrupt;
-        const meta = switch (options.mode) {
-            inline else => |id, mode| try core.Metadata.select(id, @field(core.OpenMode, @tagName(mode)), stored),
-        };
+        const meta = try core.Metadata.select(options.opening.id, options.opening.mode, stored);
         const claimed = try meta.claim();
         try result.writer.put(core.metadata_key, &claimed.encode());
         const rc = result.writer.commitTransaction();
@@ -108,7 +105,7 @@ pub const Sqlite = struct {
     /// engine. Retry after joining that work. A close SQLite refuses leaves
     /// the owner lock held, and the next close releases it.
     pub fn close(self: *Sqlite) !void {
-        if (self.users.fetchOr(closing, .acq_rel) & ~(closing | reopen_required) != 0) return error.Busy;
+        try self.admission.close();
         try self.closeConnections();
         try self.lock.release();
         self.* = undefined;
@@ -131,23 +128,20 @@ pub const Sqlite = struct {
     /// what the fresh connections read. Ordinary work is refused until it
     /// succeeds.
     pub fn recover(self: *Sqlite, batch: core.Batch) !core.Resolution {
-        const fenced = self.users.load(.acquire) & reopen_required;
-        if (self.users.cmpxchgStrong(fenced, fenced | maintenance | reopen_required, .acq_rel, .acquire)) |current| {
-            return if (current & closing != 0) error.Closed else error.Busy;
-        }
-        defer self.endMaintenance();
-        if (fenced != 0) {
+        const fenced = try self.admission.beginRecovery();
+        defer self.admission.endMaintenance();
+        if (fenced) {
             try self.closeConnections();
             try self.openConnections(false);
         }
         try self.writer.beginTransaction();
-        errdefer if (!self.writer.rollBack()) self.fence();
+        errdefer if (!self.writer.rollBack()) self.admission.fence();
         const resolution = try batch.resolve(try core.backend.metadata(&self.writer));
         if (!self.writer.rollBack()) return error.ReopenRequired;
         // Observation may come from a complete but unsynced WAL frame. A full
         // checkpoint flushes the WAL and database before reporting durability.
         if (try connection.readInt(self.writer.db, "PRAGMA wal_checkpoint(FULL)") != 0) return error.Busy;
-        _ = self.users.fetchAnd(~reopen_required, .release);
+        self.admission.recovered();
         return resolution;
     }
 
@@ -205,8 +199,8 @@ pub const Sqlite = struct {
     /// active. Capacity minus file size, plus free bytes, is what later
     /// writes can still use.
     pub fn inspect(self: *Sqlite) !Statistics {
-        try self.beginMaintenance();
-        defer self.endMaintenance();
+        try self.admission.beginMaintenance();
+        defer self.admission.endMaintenance();
         return self.statistics();
     }
 
@@ -214,8 +208,8 @@ pub const Sqlite = struct {
     /// number of pages. The new capacity lasts until close, and the next
     /// open names its own.
     pub fn grow(self: *Sqlite, capacity_bytes: usize) !void {
-        try self.beginMaintenance();
-        defer self.endMaintenance();
+        try self.admission.beginMaintenance();
+        defer self.admission.endMaintenance();
         const current = try self.statistics();
         if (capacity_bytes <= current.capacity_bytes or capacity_bytes % page_bytes != 0 or capacity_bytes / page_bytes > max_pages) return error.InvalidLimits;
         try setCapacity(self.writer.db, capacity_bytes);
@@ -230,8 +224,8 @@ pub const Sqlite = struct {
     /// foreign connection held the log, the rows are compacted, and the file
     /// shrinks at a later checkpoint.
     pub fn compact(self: *Sqlite) !void {
-        try self.beginMaintenance();
-        defer self.endMaintenance();
+        try self.admission.beginMaintenance();
+        defer self.admission.endMaintenance();
         try connection.exec(self.writer.db, "VACUUM");
         // The first column is 1 when a reader kept the checkpoint from
         // finishing. Every reader here is idle and the owner lock keeps other
@@ -254,19 +248,6 @@ pub const Sqlite = struct {
         };
     }
 
-    fn beginMaintenance(self: *Sqlite) !void {
-        if (self.users.cmpxchgStrong(0, maintenance, .acq_rel, .acquire)) |current| {
-            if (current & reopen_required != 0) return error.ReopenRequired;
-            return if (current & closing != 0) error.Closed else error.Busy;
-        }
-    }
-
-    fn endMaintenance(self: *Sqlite) void {
-        // A concurrent close can set its fence while maintenance is in flight.
-        const previous = self.users.fetchAnd(~maintenance, .release);
-        std.debug.assert(previous & maintenance != 0);
-    }
-
     /// The read transactions open at once, one per reader connection. One
     /// more is refused as `ReaderCapacity`.
     pub fn readerCapacity(self: *const Sqlite) usize {
@@ -276,8 +257,8 @@ pub const Sqlite = struct {
     /// Retains the engine and one reader connection until `end`. The snapshot
     /// is taken at the transaction's first read.
     pub fn beginRead(self: *Sqlite) !ReadTransaction {
-        try self.retain();
-        errdefer self.release();
+        try self.admission.retain();
+        errdefer self.admission.release();
         const slot = self.takeReader() orelse return error.ReaderCapacity;
         errdefer self.returnReader(slot);
         try self.readers[slot].beginTransaction();
@@ -287,14 +268,13 @@ pub const Sqlite = struct {
     /// Retains the engine and the one writer connection until `commit` or
     /// `abort`. A second concurrent writer is `error.Busy`, never a wait.
     pub fn beginWrite(self: *Sqlite) !WriteTransaction {
-        try self.retain();
-        errdefer self.release();
+        try self.admission.retain();
+        errdefer self.admission.release();
         if (!self.writer_idle.swap(false, .acq_rel)) return error.Busy;
         errdefer self.writer_idle.store(true, .release);
         // The prior writer may have fenced after our retain but before it
         // released this connection. Acquiring the slot must observe that fence.
-        if (self.users.load(.acquire) & reopen_required != 0) return error.ReopenRequired;
-        if (self.users.load(.acquire) & closing != 0) return error.Closed;
+        try self.admission.checkOpen();
         try self.writer.beginTransaction();
         return .{ .owner = self };
     }
@@ -315,47 +295,36 @@ pub const Sqlite = struct {
         /// the pool until the engine closes, so a later read never inherits it.
         pub fn end(self: *ReadTransaction) void {
             if (self.owner.readers[self.slot].rollBack()) self.owner.returnReader(self.slot);
-            self.owner.release();
+            self.owner.admission.release();
         }
     };
 
     pub const WriteTransaction = struct {
         owner: *Sqlite,
-        state: union(enum) { active, finished: core.backend.Commit, aborted } = .active,
+        state: State = .active,
+        const State = union(enum) { active, finished: core.backend.Commit, aborted };
 
         /// A read the writer cannot answer ends the transaction too, because
         /// what it would have applied is no longer known.
         pub fn get(self: *WriteTransaction, key: []const u8) !?[]const u8 {
             if (self.state != .active) return error.Closed;
-            return self.owner.writer.get(key) catch |err| {
-                self.abort();
-                return err;
-            };
+            return self.abortOnError(self.owner.writer.get(key));
         }
 
         pub fn next(self: *WriteTransaction, prefix: []const u8, after: ?[]const u8) !?core.CollectionRow {
             if (self.state != .active) return error.Closed;
-            return self.owner.writer.next(prefix, after) catch |err| {
-                self.abort();
-                return err;
-            };
+            return self.abortOnError(self.owner.writer.next(prefix, after));
         }
 
         /// A refused put applied nothing and ends the transaction.
         pub fn put(self: *WriteTransaction, key: []const u8, value: []const u8) !void {
             if (self.state != .active) return error.Closed;
-            self.owner.writer.put(key, value) catch |err| {
-                self.abort();
-                return err;
-            };
+            try self.abortOnError(self.owner.writer.put(key, value));
         }
 
         pub fn remove(self: *WriteTransaction, key: []const u8) !void {
             if (self.state != .active) return error.Closed;
-            self.owner.writer.remove(key) catch |err| {
-                self.abort();
-                return err;
-            };
+            try self.abortOnError(self.owner.writer.remove(key));
         }
 
         /// Commit once and retain the reported state. A refused commit changed
@@ -375,7 +344,7 @@ pub const Sqlite = struct {
             // SQLite rolls a failed commit back itself unless it kept the
             // transaction for a retry. Either way nothing stays open here.
             const clean = self.owner.writer.rollBack();
-            if (!clean) self.owner.fence();
+            if (!clean) self.owner.admission.fence();
             if (commitRefusal(rc)) |err| {
                 self.finish(.aborted);
                 return if (clean) err else error.ReopenRequired;
@@ -383,7 +352,7 @@ pub const Sqlite = struct {
             // A clean connection does not prove that the WAL lacks a commit
             // frame. Reopen before recovery so cached state cannot prove a
             // false absence after a write or sync reported an uncertain result.
-            self.owner.fence();
+            self.owner.admission.fence();
             self.finish(.{ .finished = .unknown });
             return .unknown;
         }
@@ -393,48 +362,36 @@ pub const Sqlite = struct {
             if (self.state != .active) return;
             // A writer that cannot roll back can never begin again, so the
             // engine closes to be reopened.
-            if (!self.owner.writer.rollBack()) self.owner.fence();
+            if (!self.owner.writer.rollBack()) self.owner.admission.fence();
             self.finish(.aborted);
         }
 
-        fn finish(self: *WriteTransaction, state: @FieldType(WriteTransaction, "state")) void {
+        /// `result`, with a refusal ending the transaction first.
+        fn abortOnError(self: *WriteTransaction, result: anytype) @TypeOf(result) {
+            return result catch |err| {
+                self.abort();
+                return err;
+            };
+        }
+
+        fn finish(self: *WriteTransaction, state: State) void {
             self.state = state;
             self.owner.writer_idle.store(true, .release);
-            self.owner.release();
+            self.owner.admission.release();
         }
     };
 
     fn takeReader(self: *Sqlite) ?usize {
         var idle = self.idle_readers.load(.acquire);
         while (idle != 0) {
-            const slot: u4 = @intCast(@ctz(idle));
-            idle = self.idle_readers.cmpxchgWeak(idle, idle & ~(@as(u16, 1) << slot), .acq_rel, .acquire) orelse return slot;
+            const slot: std.math.Log2Int(ReaderMask) = @intCast(@ctz(idle));
+            idle = self.idle_readers.cmpxchgWeak(idle, idle & ~(@as(ReaderMask, 1) << slot), .acq_rel, .acquire) orelse return slot;
         }
         return null;
     }
 
     fn returnReader(self: *Sqlite, slot: usize) void {
-        _ = self.idle_readers.fetchOr(@as(u16, 1) << @intCast(slot), .release);
-    }
-
-    /// Refuse ordinary work until fresh-connection recovery or close.
-    fn fence(self: *Sqlite) void {
-        _ = self.users.fetchOr(reopen_required, .acq_rel);
-    }
-
-    fn retain(self: *Sqlite) !void {
-        var current = self.users.load(.acquire);
-        while (true) {
-            if (current & reopen_required != 0) return error.ReopenRequired;
-            if (current & closing != 0) return error.Closed;
-            if (current & maintenance != 0 or current == reopen_required - 1) return error.Busy;
-            current = self.users.cmpxchgWeak(current, current + 1, .acq_rel, .acquire) orelse return;
-        }
-    }
-
-    fn release(self: *Sqlite) void {
-        const previous = self.users.fetchSub(1, .release);
-        std.debug.assert(previous & ~(closing | reopen_required) != 0);
+        _ = self.idle_readers.fetchOr(@as(ReaderMask, 1) << @intCast(slot), .release);
     }
 
     comptime {

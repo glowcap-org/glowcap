@@ -51,20 +51,17 @@ pub fn set(self: *Node, peer_handle: PeerHandle, location: ?model.PeerLocator) !
         return;
     };
     if (std.mem.eql(u8, loc.transport, model.transport.id))
-        _ = try self.validateIdRouteLocator(loc);
+        _ = try Node.validateIdRouteLocator(loc);
     // Gives embed canonical Syrup locator-record bytes; no URI spelling can
     // cross this authority boundary.
     const owned = try engine.encodePeerLocatorRecord(self.allocator, loc);
     errdefer self.allocator.free(owned);
-    const present = self.gifts.recipe.by_exporter.contains(peer_handle);
-    if (!present)
-        try self.gifts.recipe.by_exporter.ensureUnusedCapacity(self.allocator, 1);
-    if (present) {
-        const locations = self.gifts.recipe.by_exporter.getPtr(peer_handle).?;
-        if (locations.explicit) |previous| self.allocator.free(previous);
-        locations.explicit = owned;
+    const slot = try self.gifts.recipe.by_exporter.getOrPut(self.allocator, peer_handle);
+    if (slot.found_existing) {
+        if (slot.value_ptr.explicit) |previous| self.allocator.free(previous);
+        slot.value_ptr.explicit = owned;
     } else {
-        self.gifts.recipe.by_exporter.putAssumeCapacity(peer_handle, .{ .explicit = owned });
+        slot.value_ptr.* = .{ .explicit = owned };
     }
 }
 
@@ -124,23 +121,27 @@ pub fn removeForPeer(self: *Node, peer_handle: PeerHandle) void {
 }
 
 /// Mint before either Peer queue is prepared, so signing/encoding failure
-/// cannot leave stale session reservations.
+/// cannot leave stale session reservations. The exporter location is the
+/// explicit override when one is set, else the locator the exporter's keyed
+/// session claimed.
 pub fn mint(
     self: *Node,
     recipient: *engine.Peer,
     recipient_peer: PeerHandle,
+    exporter: *engine.Peer,
     exporter_peer: PeerHandle,
     gift_id: []const u8,
-    recipient_key: []const u8,
-    exporter_key: []const u8,
-    exporter_loc: []const u8,
+    exporter_location: []const u8,
 ) ![]u8 {
+    const recipient_key = recipient.session_state.partnerSessionKey() orelse
+        return error.NoRecipientKey;
+    const exporter_key = exporter.session_state.partnerSessionKey() orelse
+        return error.NoExporterKey;
+    const claimed = exporter.session_state.partnerLocatorRaw() orelse
+        return error.NoExporterLocator;
     var secret = Internal.sessionSecret(self, exporter_peer) orelse
         return error.RouteNotLowerable;
     defer std.crypto.secureZero(u8, std.mem.asBytes(&secret));
-    const exporter = self.peer(exporter_peer) orelse return error.RouteNotLowerable;
-    const exporter_session_location = exporter.session_state.partnerLocatorRaw() orelse
-        return error.RouteNotLowerable;
     const policy: engine.handoff_gifter.RecipientLocatorPolicy = .{
         .known_glowcap = recipient.session_state.partnerKnownGlowcap(),
         .route_vocabulary = recipient.session_state.captp_version == .next and
@@ -153,12 +154,12 @@ pub fn mint(
         gift_id,
         recipient_key,
         exporter_key,
-        exporter_loc,
+        if (exporter_location.len != 0) exporter_location else claimed,
         policy,
         .{
             .route_vocabulary = exporter.session_state.captp_version == .next and
                 exporter.session_state.features.multi_location,
-            .session_location = exporter_session_location,
+            .session_location = claimed,
         },
     );
 }

@@ -1,8 +1,7 @@
 //! Inline gift staging under failure: preparation rollback on a refused
 //! recipient message, entropy tickets that retire whole messages, exporter
-//! and home closures retiring every ticket, recipient refusals and
-//! admission failures publishing no orphan deposit, and relayed failures
-//! that spend no allocation after the home fire.
+//! and home closures retiring every ticket, and recipient refusals and
+//! admission failures publishing no orphan deposit.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
@@ -11,22 +10,15 @@ const model = glowcap.ocapn.model;
 const codec = glowcap.ocapn.codec;
 const engine = glowcap.ocapn.engine;
 const crypto = glowcap.foundation.crypto;
-const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesAllocator;
 
 const Node = engine.Node;
 
 const harness = @import("harness.zig");
-const pendingWithdrawAnswer = harness.pendingWithdrawAnswer;
-const peerUri = harness.peerUri;
-const peerUriWithAlternatives = harness.peerUriWithAlternatives;
-const takeWithdrawCount = harness.takeWithdrawCount;
-const testGiveBytes = harness.testGiveBytes;
-const mintRedeemedRoute = harness.mintRedeemedRoute;
 const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "foreign-promise preparation rolls back when the recipient message is refused" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x7e)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x7e)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -37,19 +29,19 @@ test "foreign-promise preparation rolls back when the recipient message is refus
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x7f)),
+        @as([crypto.seed_bytes]u8, @splat(0x7f)),
     );
     defer recipient_counterpart.deinit();
     var home_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         home,
-        @as([crypto.SEED_BYTES]u8, @splat(0x80)),
+        @as([crypto.seed_bytes]u8, @splat(0x80)),
     );
     defer home_counterpart.deinit();
 
     try home.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(home_id, .{ .far = model.FarRef.promise(4) });
+    const foreign = try node.enrollForeign(home_id, model.FarRef.promise(4));
     try std.testing.expectError(error.InvalidReference, recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(99) },
         .args = &.{.{ .reference = foreign }},
@@ -60,12 +52,12 @@ test "foreign-promise preparation rolls back when the recipient message is refus
     try std.testing.expectEqual(engine.StepOutcome.idle, try home.step());
     try std.testing.expect(home.takeOutbound() == null);
     // The failed projection's paired export/import rows were never published.
-    try std.testing.expect(!recipient.session_state.hasImport(.from(recipient.session_state.export_base)));
+    try std.testing.expect(!recipient.session_state.hasImport(.from(recipient.session_state.exports.base)));
 }
 
 test "mixed object and promise projections publish only after gift entropy" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x81)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x81)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -76,22 +68,22 @@ test "mixed object and promise projections publish only after gift entropy" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x82)),
+        @as([crypto.seed_bytes]u8, @splat(0x82)),
     );
     defer recipient_counterpart.deinit();
     var home_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         home,
-        @as([crypto.SEED_BYTES]u8, @splat(0x83)),
+        @as([crypto.seed_bytes]u8, @splat(0x83)),
     );
     defer home_counterpart.deinit();
 
     try recipient.session_state.registerImport(.from(2));
     try home.session_state.registerImport(.from(4));
     try home.session_state.registerImport(.from(5));
-    const object = try node.enrollForeign(home_id, .{ .far = model.FarRef.object(4) });
-    const promise = try node.enrollForeign(home_id, .{ .far = model.FarRef.promise(5) });
+    const object = try node.enrollForeign(home_id, model.FarRef.object(4));
+    const promise = try node.enrollForeign(home_id, model.FarRef.promise(5));
     try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = object }, .{ .reference = promise } },
@@ -105,7 +97,7 @@ test "mixed object and promise projections publish only after gift entropy" {
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try recipient.step());
     try std.testing.expectEqual(engine.StepOutcome.idle, try home.step());
-    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x84));
+    const gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x84));
     try node.provideGiftId(ticket, &gift_id);
 
     var flushes: usize = 0;
@@ -149,7 +141,7 @@ test "mixed object and promise projections publish only after gift entropy" {
 
 test "closing a promise home breaks only the mixed projection's answer" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x85)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x85)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -162,33 +154,34 @@ test "closing a promise home breaks only the mixed projection's answer" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x86)),
+        @as([crypto.seed_bytes]u8, @splat(0x86)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x87)),
+        @as([crypto.seed_bytes]u8, @splat(0x87)),
     );
     defer exporter_counterpart.deinit();
     var promise_home_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         promise_home,
-        @as([crypto.SEED_BYTES]u8, @splat(0x88)),
+        @as([crypto.seed_bytes]u8, @splat(0x88)),
     );
     defer promise_home_counterpart.deinit();
 
     try recipient.session_state.registerImport(.from(2));
     try exporter.session_state.registerImport(.from(4));
     try promise_home.session_state.registerImport(.from(5));
-    const object = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
-    const promise = try node.enrollForeign(promise_home_id, .{ .far = model.FarRef.promise(5) });
+    const object = try node.enrollForeign(exporter_id, model.FarRef.object(4));
+    const promise = try node.enrollForeign(promise_home_id, model.FarRef.promise(5));
+    const answer = try recipient.allocateAnswer();
     try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = object }, .{ .reference = promise } },
-        .answer = .from(31),
+        .answer = answer.position,
     } });
 
     _ = node.nextAction().?.need_gift_id;
@@ -197,7 +190,7 @@ test "closing a promise home breaks only the mixed projection's answer" {
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     const failure = node.nextAction().?.fail;
     try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
-    try std.testing.expectEqual(model.AnswerPosition.from(31), failure.dest.answer.answer);
+    try std.testing.expectEqual(answer, failure.dest.answer.answer);
     try std.testing.expectEqualStrings("RouteNotLowerable", failure.reason.bytes());
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expect(recipient.sessionIsOpen());
@@ -207,7 +200,7 @@ test "closing a promise home breaks only the mixed projection's answer" {
 
 test "inline gift entropy failure breaks only the answered message" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x30)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x30)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -218,14 +211,14 @@ test "inline gift entropy failure breaks only the answered message" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x31)),
+        @as([crypto.seed_bytes]u8, @splat(0x31)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x32)),
+        @as([crypto.seed_bytes]u8, @splat(0x32)),
     );
     defer exporter_counterpart.deinit();
 
@@ -233,12 +226,13 @@ test "inline gift entropy failure breaks only the answered message" {
     try exporter.session_state.registerImport(.from(4));
     const foreign = try node.enrollForeign(
         exporter_id,
-        .{ .far = model.FarRef.object(4) },
+        model.FarRef.object(4),
     );
+    const answer = try recipient.allocateAnswer();
     try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{ .{ .reference = foreign }, .{ .reference = foreign } },
-        .answer = .from(32),
+        .answer = answer.position,
     } });
     const failed_ticket = node.nextAction().?.need_gift_id.ticket;
     _ = node.nextAction().?; // the sibling ticket becomes stale with the batch
@@ -247,7 +241,7 @@ test "inline gift entropy failure breaks only the answered message" {
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     const failure = node.nextAction().?.fail;
     try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
-    try std.testing.expectEqual(model.AnswerPosition.from(32), failure.dest.answer.answer);
+    try std.testing.expectEqual(answer, failure.dest.answer.answer);
     try std.testing.expectEqualStrings("GiftIdUnavailable", failure.reason.bytes());
     try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expect(node.nextAction() == null);
@@ -257,7 +251,7 @@ test "inline gift entropy failure breaks only the answered message" {
 
 test "terminal cancellation retires an inline batch and its admission budget" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x39)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x39)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{ .limits = .{ .queue_cap = 1 } });
@@ -268,20 +262,20 @@ test "terminal cancellation retires an inline batch and its admission budget" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x3a)),
+        @as([crypto.seed_bytes]u8, @splat(0x3a)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x3b)),
+        @as([crypto.seed_bytes]u8, @splat(0x3b)),
     );
     defer exporter_counterpart.deinit();
 
     try recipient.session_state.registerImport(.from(2));
     try exporter.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
+    const foreign = try node.enrollForeign(exporter_id, model.FarRef.object(4));
     const message: model.Message = .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
@@ -309,7 +303,7 @@ test "terminal cancellation retires an inline batch and its admission budget" {
 
 test "closing an inline gift exporter retires a tell without condemning its recipient" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x36)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x36)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -320,14 +314,14 @@ test "closing an inline gift exporter retires a tell without condemning its reci
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x37)),
+        @as([crypto.seed_bytes]u8, @splat(0x37)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x38)),
+        @as([crypto.seed_bytes]u8, @splat(0x38)),
     );
     defer exporter_counterpart.deinit();
 
@@ -335,7 +329,7 @@ test "closing an inline gift exporter retires a tell without condemning its reci
     try exporter.session_state.registerImport(.from(4));
     const foreign = try node.enrollForeign(
         exporter_id,
-        .{ .far = model.FarRef.object(4) },
+        model.FarRef.object(4),
     );
     try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
@@ -354,7 +348,7 @@ test "closing an inline gift exporter retires a tell without condemning its reci
 
 test "inline gift recipient refusal publishes no prepared deposit" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x33)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x33)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -365,14 +359,14 @@ test "inline gift recipient refusal publishes no prepared deposit" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x34)),
+        @as([crypto.seed_bytes]u8, @splat(0x34)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x35)),
+        @as([crypto.seed_bytes]u8, @splat(0x35)),
     );
     defer exporter_counterpart.deinit();
 
@@ -380,23 +374,24 @@ test "inline gift recipient refusal publishes no prepared deposit" {
     try exporter.session_state.registerImport(.from(4));
     const foreign = try node.enrollForeign(
         exporter_id,
-        .{ .far = model.FarRef.object(4) },
+        model.FarRef.object(4),
     );
+    const answer = try recipient.allocateAnswer();
     try recipient.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(2) },
         .args = &.{.{ .reference = foreign }},
-        .answer = .from(33),
+        .answer = answer.position,
     } });
     const ticket = node.nextAction().?.need_gift_id.ticket;
 
     // Every exporter deposit can be prepared, but the recipient cannot admit
     // its rewritten message. None of those preparations may become visible.
     recipient.outbound_budget = 1;
-    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xa3));
+    const gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0xa3));
     try node.provideGiftId(ticket, &gift_id);
     const failure = node.nextAction().?.fail;
     try std.testing.expectEqual(recipient_id, failure.dest.answer.recipient_peer);
-    try std.testing.expectEqual(model.AnswerPosition.from(33), failure.dest.answer.answer);
+    try std.testing.expectEqual(answer, failure.dest.answer.answer);
     try std.testing.expectEqualStrings("OutboundBackpressure", failure.reason.bytes());
     try std.testing.expect(recipient.sessionIsOpen());
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
@@ -407,7 +402,7 @@ test "inline gift recipient refusal publishes no prepared deposit" {
 
 test "origination fails closed when the gift's home connection is gone" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(5)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(5)));
     defer node.deinit();
 
     const here = try node.registerPeer(.{});
@@ -421,7 +416,7 @@ test "origination fails closed when the gift's home connection is gone" {
     // `interceptFulfilledRoute` test below; the live positive proof is the
     // `*-goblins-gift` matrix.
     try node.peer(elsewhere).?.session_state.registerImport(.from(4));
-    const gift = try node.enrollForeign(elsewhere, .{ .far = model.FarRef.object(4) });
+    const gift = try node.enrollForeign(elsewhere, model.FarRef.object(4));
     try node.peer(here).?.session_state.installInboundAnswer(.from(61));
     try std.testing.expect(try node.interceptFulfilledRoute(here, 61, gift.routed.id));
     const ask = node.nextAction().?;
@@ -439,7 +434,7 @@ test "origination fails closed when the gift's home connection is gone" {
 
 test "recipient admission failure publishes no orphan deposit" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x6a)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x6a)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -448,21 +443,21 @@ test "recipient admission failure publishes no orphan deposit" {
         allocator,
         &node,
         node.peer(recipient).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x6b)),
+        @as([crypto.seed_bytes]u8, @splat(0x6b)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         node.peer(exporter).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x6c)),
+        @as([crypto.seed_bytes]u8, @splat(0x6c)),
     );
     defer exporter_counterpart.deinit();
 
     const answer = model.AnswerPosition.from(62);
     try node.peer(recipient).?.session_state.installInboundAnswer(answer);
     try node.peer(exporter).?.session_state.registerImport(.from(4));
-    const gift = try node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    const gift = try node.enrollForeign(exporter, model.FarRef.object(4));
     try std.testing.expect(try node.interceptFulfilledRoute(recipient, answer.int(), gift.routed.id));
     const ask = node.nextAction().?;
 
@@ -470,7 +465,7 @@ test "recipient admission failure publishes no orphan deposit" {
     // give. Origination must publish neither half: a deposit-first order would
     // leave a real deposit queued here with no give that could ever name it.
     node.peer(recipient).?.outbound_budget = 1;
-    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x6d));
+    const gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x6d));
     try node.provideGiftId(ask.need_gift_id.ticket, &gift_id);
     const failed = node.nextAction().?;
     try std.testing.expectEqual(recipient, failed.fail.dest.served_answer.recipient_peer);
@@ -485,13 +480,13 @@ test "recipient admission failure publishes no orphan deposit" {
 
 test "gift-id entropy failure settles the claimed handoff instead of stranding its ticket" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(6)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(6)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const exporter = try node.registerPeer(.{});
     try node.peer(exporter).?.session_state.registerImport(.from(4));
-    const gift = try node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    const gift = try node.enrollForeign(exporter, model.FarRef.object(4));
     try node.peer(recipient).?.session_state.installInboundAnswer(.from(62));
     try std.testing.expect(try node.interceptFulfilledRoute(recipient, 62, gift.routed.id));
     const ask = node.nextAction().?;
@@ -513,134 +508,3 @@ test "gift-id entropy failure settles the claimed handoff instead of stranding i
     try node.giftIdFailed(ask.need_gift_id.ticket);
     try std.testing.expect(node.nextAction() == null);
 }
-
-test "relayed gift-id failure spends no allocation after the home fire" {
-    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    const allocator = failing.allocator();
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x76)));
-    defer node.deinit();
-    defer failing.fail_index = std.math.maxInt(usize);
-
-    const home = try node.registerPeer(.{});
-    const recipient = try node.registerPeer(.{});
-    var recipient_counterpart = try openKeyedSessionWithCounterpart(
-        allocator,
-        &node,
-        node.peer(recipient).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x75)),
-    );
-    defer recipient_counterpart.deinit();
-    var home_counterpart = try openKeyedSessionWithCounterpart(
-        allocator,
-        &node,
-        node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x77)),
-    );
-    defer home_counterpart.deinit();
-
-    try node.peer(home).?.session_state.registerImport(.from(4));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(4) });
-    const rewritten = (try node.proxyForeignPromiseFulfill(recipient, route.routed.id)).?;
-    const import_pos = rewritten.near.export_position.int();
-    try std.testing.expectEqual(home, node.nextAction().?.flush);
-    try node.peer(recipient).?.session_state.retainImportForSession(.from(12));
-    try node.peer(recipient).?.session_state.installImportedPromiseListener(.from(import_pos), .{
-        .listener = .{ .import_position = .from(12) },
-        .mode = .settling_only,
-    });
-
-    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
-    const listener = blk: {
-        var frame = node.peer(home).?.takeOutbound().?;
-        defer frame.deinit();
-        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
-        break :blk view.listen.listener.far.import_position.int();
-    };
-
-    try node.peer(home).?.session_state.registerImport(.from(9));
-    const gifted = try node.enrollForeign(home, .{ .far = model.FarRef.object(9) });
-    try std.testing.expect(node.consumeProjectedProxyListenerFire(home, listener, .{
-        .fulfill = .{ .reference = gifted },
-    }));
-    const ask = node.nextAction().?;
-    try std.testing.expect(ask == .need_gift_id);
-
-    // The source fire and its only retry opportunity are gone. Admission
-    // reserved the terminal resolution, so reporting entropy failure must
-    // settle even when the allocator refuses every request from here onward.
-    failing.fail_index = failing.alloc_index;
-    try node.giftIdFailed(ask.need_gift_id.ticket);
-    const settled = node.peer(recipient).?.session_state.importedPromiseResolution(.from(import_pos)).?;
-    try std.testing.expect(settled.* == .@"break");
-    try std.testing.expectEqualStrings("relayed promise could not be settled", settled.@"break".message);
-
-    // The admission-time scheduler reservation becomes a recipient flush even
-    // though no carrier could be allocated yet. Once pressure clears, `step`
-    // retries the stored settlement and emits the listener fire exactly once.
-    try std.testing.expectEqual(recipient, node.nextAction().?.flush);
-    failing.fail_index = std.math.maxInt(usize);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(recipient).?.step());
-    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(recipient).?.step());
-    var fire = node.peer(recipient).?.takeOutbound().?;
-    defer fire.deinit();
-    const fire_body = try glowcap.ocapn.codec.syrup.decodeBody(fire.view());
-    try std.testing.expect(fire_body == .deliver);
-    var release = node.peer(recipient).?.takeOutbound().?;
-    defer release.deinit();
-    const release_body = try glowcap.ocapn.codec.syrup.decodeBody(release.view());
-    try std.testing.expect(release_body == .gc_export);
-    try std.testing.expect(node.peer(recipient).?.takeOutbound() == null);
-    try std.testing.expectEqual(engine.StepOutcome.idle, try node.peer(recipient).?.step());
-}
-
-test "a projected relayed value breaks from admission escrow under allocation failure" {
-    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
-    const allocator = failing.allocator();
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x78)));
-    defer node.deinit();
-    defer failing.fail_index = std.math.maxInt(usize);
-
-    const home = try node.registerPeer(.{});
-    const recipient = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(
-        allocator,
-        &node,
-        node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x79)),
-    );
-    defer home_counterpart.deinit();
-
-    try node.peer(home).?.session_state.registerImport(.from(4));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(4) });
-    const rewritten = (try node.proxyForeignPromiseFulfill(recipient, route.routed.id)).?;
-    const import_pos = rewritten.near.export_position.int();
-    try std.testing.expectEqual(home, node.nextAction().?.flush);
-
-    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
-    const listener = blk: {
-        var frame = node.peer(home).?.takeOutbound().?;
-        defer frame.deinit();
-        const view = try glowcap.ocapn.codec.syrup.decodeBody(frame.view());
-        break :blk view.listen.listener.far.import_position.int();
-    };
-
-    // The already-consumed source fire cannot be retried when recipient
-    // materialization fails. Its admission escrow must still settle broken
-    // without a best-effort allocation.
-    try node.peer(home).?.session_state.registerImport(.from(10));
-    const chained = try node.enrollForeign(home, .{ .far = model.FarRef.promise(10) });
-    failing.fail_index = failing.alloc_index;
-    try std.testing.expect(node.consumeProjectedProxyListenerFire(home, listener, .{
-        .fulfill = .{ .reference = chained },
-    }));
-    const settled = node.peer(recipient).?.session_state.importedPromiseResolution(.from(import_pos)).?;
-    try std.testing.expect(settled.* == .@"break");
-    try std.testing.expectEqualStrings("relayed promise could not be settled", settled.@"break".message);
-}
-
-// ── The serve step: the sans-io redeem state machine ─────────────────────────
-//
-// These prove the *decisions* the serve step owns, interception, the exporter
-// cache, dial dedup, pending withdraws, route settlement, fail-closed arms,
-// as data in and actions out, with no socket. The live proof that the same
-// step drives a real three-party redeem is `zig build goblins-handoff`.

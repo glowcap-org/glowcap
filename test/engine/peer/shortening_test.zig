@@ -23,7 +23,7 @@ test "a private shortening callback rewrites future sends and subscribes to the 
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
@@ -74,7 +74,7 @@ test "a shortened deliver moves to the new position and stays on one wire" {
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
@@ -141,7 +141,7 @@ test "a delayed shortening callback cannot rewrite a reused import position" {
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const stale_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const stale_resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
@@ -316,7 +316,7 @@ test "a shortening callback crossing source release returns its introduced promi
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
@@ -377,7 +377,7 @@ test "releasing a shortened source also releases the callback-introduced target"
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {

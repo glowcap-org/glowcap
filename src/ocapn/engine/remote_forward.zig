@@ -38,22 +38,26 @@ pub fn send(peer: *Peer, message_in: model.Message, target: ?session.AnswerTarge
         return err;
     };
     errdefer abandonRelease(peer, release);
-    const live_target = if (target) |answer| session.ForwardedReply.targetIsLive(&peer.session_state, answer) else false;
+    // A reply rides only toward a target still waiting on it.
+    const live: ?session.AnswerTarget = if (target) |answer|
+        (if (session.ForwardedReply.targetIsLive(&peer.session_state, answer)) answer else null)
+    else
+        null;
     message.deliver.answer = null;
     message.deliver.resolve_me_desc = null;
-    if (!live_target) {
-        try peer.send(message);
-    } else {
-        const reply = session.ForwardedReply.prepare(&peer.session_state, target.?) catch |err| {
+    var reply: ?session.ForwardedReply = null;
+    errdefer if (reply) |prepared| prepared.abandon(&peer.session_state);
+    if (live) |answer| {
+        const prepared = session.ForwardedReply.prepare(&peer.session_state, answer) catch |err| {
             model.freeMessage(peer.allocator, message);
             return err;
         };
-        errdefer reply.abandon(&peer.session_state);
-        message.deliver.resolve_me_desc = .{ .near = model.NearRef.object(reply.resolver_export.int()) };
+        reply = prepared;
+        message.deliver.resolve_me_desc = .{ .near = model.NearRef.object(prepared.resolver_export.int()) };
         // The original subscription decides which callbacks leave this peer.
         message.deliver.listen_mode = .shortening_or_settling;
-        try peer.send(message);
     }
+    try peer.send(message);
     if (release) |prepared| maintenance.commitPreparedImportRelease(peer, prepared);
 }
 

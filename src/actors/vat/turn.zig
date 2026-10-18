@@ -1,12 +1,6 @@
-//! The vat's turn machinery: frames, arenas, and the synchronous call spine.
-//!
-//! `Turn` is the per-turn context every handler receives, its authority to
-//! spawn, near-call, eventual-send, `become`, forward, and move replies out.
-//! The frame spine here (`openTurnFrame`/`closeTurnFrame` around `callLocal`)
-//! is the one dispatch path both the near-call and the wire deliver run, and
-//! the turn/moved-reply arenas reset on its outermost boundaries. The `Vat`
-//! re-binds nothing from here except through `near`. The sibling serve module
-//! runs the same spine for inbound delivers.
+//! The per-turn handler context: an actor's authority to spawn, near-call,
+//! eventual-send, `become`, forward, and move replies out. The sibling frame
+//! module opens the frame a `Turn` runs in.
 
 const std = @import("std");
 const engine = @import("engine");
@@ -15,44 +9,34 @@ const model = @import("model");
 const boxed = @import("boxed.zig");
 const serve = @import("serve.zig");
 const forwarding = @import("forwarding.zig");
-const turn_commit = @import("turn_commit.zig");
+const frame = @import("frame.zig");
 const vat_mod = @import("mod.zig");
+const vows = @import("vows.zig");
 
 const Message = vat_mod.Message;
+const Delivery = vat_mod.Delivery;
 const Ref = vat_mod.Ref;
 const Vow = vat_mod.Vow;
 const Error = vat_mod.Error;
 const Vat = vat_mod.Vat;
 const Port = vat_mod.Port;
-const PendingBecome = boxed.PendingBecome;
+const Listener = vat_mod.Listener;
+const ListenerReservation = vat_mod.ListenerReservation;
+const VowLocation = vat_mod.VowLocation;
 const StateBox = boxed.StateBox;
-const releaseBox = boxed.releaseBox;
-
-/// Released rows leave boxes borrowed by the preceding turn. The next outer
-/// boundary owns their reclamation. Idle adapters can observe that obligation.
-pub fn hasRetiredState(self: *const vat_mod.Vat) bool {
-    return self.retired_boxes.items.len != 0;
-}
-
-/// Cap on synchronous near-call (`$`) nesting depth. Eventual-sends do not count
-/// (they queue and drive iteratively). Only a handler that near-calls another
-/// actor that near-calls back recurses the native stack, so this bounds that
-/// recursion well below a stack overflow while leaving ample room for the few
-/// levels real code nests.
-const max_near_call_depth: u32 = 128;
 
 /// The per-turn context handed to an actor's handler. It is the actor's authority
 /// to spawn, near-call, and eventual-send, plus its own identity. An explicit
 /// argument, never global: the Zig answer to Goblins's `current-syscaller`.
 pub const Turn = struct {
     vat: *Vat,
-    /// Session projection inherited by work caused through a Port. Null for a
-    /// pure-local turn.
-    port: ?*Port,
-    self_ref: Ref,
-    /// Causal queue owner. Near-calls and local sends inherit this id, so an
-    /// ingress cannot evade admission by bouncing through another actor.
-    ingress: vat_mod.IngressId,
+    /// The causal queue this turn runs on, and the session Port whose
+    /// authority caused it when one did. Near-calls and local sends inherit
+    /// it, so an ingress cannot evade admission by bouncing through another
+    /// actor.
+    source: Source,
+    /// The handled actor's own id.
+    self_id: u64,
     /// A per-turn allocator for the handler's reply and any scratch. The vat owns
     /// it and reclaims it when its next top-level turn begins, so a handler
     /// allocates from it freely and never frees the result. Nested near-calls and
@@ -62,9 +46,9 @@ pub const Turn = struct {
     /// Adapter-local payload borrowed only during this queued handler. Null
     /// for model messages, including nested near calls.
     opaque_message: ?vat_mod.OpaqueMessage = null,
-    /// A pending `become` staged by this turn, or null. Installed when the turn
-    /// frame returns successfully. Discarded (its box released) on a handler error.
-    pending_become: ?PendingBecome = null,
+    /// The state box a `become` staged this turn, or null. Promoted when the
+    /// turn frame returns successfully, released on a handler error.
+    pending_become: ?*StateBox = null,
     /// Where this turn came from, the one axis `forward` dispatches on. No
     /// default: every constructor states the provenance, and the illegal
     /// combination (a near-call carrying a wire answer) is unrepresentable.
@@ -72,7 +56,7 @@ pub const Turn = struct {
         /// A synchronous near-call (`$`), whose caller consumes a value.
         local,
         /// A queued eventual call, whose local answer can be deferred.
-        eventual: struct { answer: ?u64, outcome: *EventualOutcome },
+        eventual: struct { answer: ?u64, outcome: *frame.EventualOutcome },
         /// An inbound wire deliver, carrying the answer this turn must settle,
         /// or null for a no-answer deliver (a wire `tell`). `forward` defers
         /// the answer onto the forwarded send's vow.
@@ -89,10 +73,37 @@ pub const Turn = struct {
     /// `become` with no sever-copy.
     moves_begin: ?usize = null,
 
+    /// Where a turn's causal queue is.
+    pub const Source = union(enum) {
+        /// A pure-local turn on this queue.
+        ingress: vat_mod.IngressId,
+        /// A turn a session Port caused, on that Port's queue.
+        port: *Port,
+
+        pub fn ingressId(self: Source) vat_mod.IngressId {
+            return switch (self) {
+                .ingress => |id| id,
+                .port => |via| via.ingress,
+            };
+        }
+    };
+
     /// The handled actor's own reference, for replying with itself or handing
     /// itself out as a callback.
     pub fn me(self: *const Turn) Ref {
-        return self.self_ref;
+        return .{ .local = self.self_id };
+    }
+    /// The session Port whose authority caused this turn, or null for a
+    /// pure-local turn.
+    pub fn port(self: *const Turn) ?*Port {
+        return switch (self.source) {
+            .port => |via| via,
+            .ingress => null,
+        };
+    }
+    /// The causal queue this turn runs on.
+    pub fn ingress(self: *const Turn) vat_mod.IngressId {
+        return self.source.ingressId();
     }
     /// Spawn a new actor in this vat (see `Vat.spawn`).
     pub fn spawn(self: *Turn, comptime Behavior: type, initial: Behavior) Error!Ref {
@@ -103,32 +114,36 @@ pub const Turn = struct {
     /// the application handler boundary, and a refused handler reconstructs
     /// its own error by value.
     pub fn near(self: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
-        return self.vat.nearFromPort(self.port, self.ingress, target, msg);
+        return self.vat.nearDelivery(self.source, target, msg.delivery());
     }
     /// Eventual-send to a local or far reference, returning the reply
     /// `Vow`, the `<-` of this layer. Pure-local turns enter through
     /// `Vat.send`. Turns with a session projection enter through `Port.send`.
     pub fn send(self: *Turn, target: Ref, msg: Message) Error!Vow {
-        if (self.port) |port| return port.sendFromIngress(self.vat, self.ingress, target, msg);
-        return self.vat.sendFromIngress(self.ingress, target, msg);
+        return switch (self.source) {
+            .port => |via| via.send(self.vat, target, msg),
+            .ingress => |id| self.vat.sendFromIngress(id, target, msg),
+        };
     }
     /// Fire-and-forget eventual-send while preserving this turn's Port and
     /// causal ingress. A handler must use this rather than reaching through
     /// `turn.vat.tell`, which would reclassify the work as pure-local.
     pub fn tell(self: *Turn, target: Ref, msg: Message) Error!void {
-        if (self.port) |port| return port.tellFromIngress(self.vat, self.ingress, target, msg);
-        return self.vat.tellFromIngress(self.ingress, target, msg);
+        return switch (self.source) {
+            .port => |via| via.tell(self.vat, target, msg),
+            .ingress => |id| self.vat.tellFromIngress(id, target, msg),
+        };
     }
     /// `send` for a delivery as a handler holds it. A far delivery is the
     /// Port's to send as it is (`Port.sendDelivery`), and a local one
     /// becomes a message in this turn's arena.
     pub fn sendDelivery(self: *Turn, target: Ref, delivery: Delivery) Error!Vow {
-        if (target == .far) if (self.port) |port| return port.sendDeliveryFromIngress(self.vat, self.ingress, target, delivery);
+        if (target == .far) if (self.port()) |via| return via.sendDelivery(self.vat, target, delivery);
         return self.send(target, try self.messageOf(delivery));
     }
     /// `tell` for a delivery as a handler holds it, routed as `sendDelivery`.
     pub fn tellDelivery(self: *Turn, target: Ref, delivery: Delivery) Error!void {
-        if (target == .far) if (self.port) |port| return port.tellDeliveryFromIngress(self.vat, self.ingress, target, delivery);
+        if (target == .far) if (self.port()) |via| return via.tellDelivery(self.vat, target, delivery);
         return self.tell(target, try self.messageOf(delivery));
     }
     fn messageOf(self: *Turn, delivery: Delivery) Error!Message {
@@ -145,7 +160,7 @@ pub const Turn = struct {
     /// frame, so the box the outer frame holds as `self` is never freed under it.
     /// A persistent actor never mutates its `self`. It calls `become` instead,
     /// which is why a snapshot can share its state with no copy-on-write. Calling
-    /// it twice in one turn keeps the last value. Legal only for a local self-ref.
+    /// it twice in one turn keeps the last value.
     /// `next` is consumed on every outcome: on failure its resources are
     /// reclaimed through the state's `deinit`, so the caller never frees it.
     pub fn become(self: *Turn, comptime Behavior: type, next: Behavior) Error!void {
@@ -227,6 +242,49 @@ pub const Turn = struct {
     /// partner pipelining on the proxy's answer queues on this side until the
     /// forwarded send settles (ADR-0064). Keeps `anyerror`: the
     /// local arm re-enters the near-call handler boundary.
+    /// Reserve the listener table a not-yet-committed send from this turn
+    /// will use: the Port's for a Port-caused turn, else the vat's local
+    /// table, where only a local vow can be observed.
+    pub fn reserveListener(self: *Turn, location: VowLocation) Error!ListenerReservation {
+        return switch (self.source) {
+            .port => |via| via.reserveListener(self.vat, location),
+            .ingress => {
+                if (location != .local) return error.NotConnected;
+                try vows.reserveLocalListener(self.vat);
+                return .{ .location = .local };
+            },
+        };
+    }
+
+    /// Install `listener` on the fresh `vow` into capacity `reserveListener`
+    /// took.
+    pub fn onReserved(self: *Turn, reservation: ListenerReservation, vow: Vow, listener: Listener) void {
+        switch (self.source) {
+            .port => |via| via.onReserved(self.vat, reservation, vow, listener),
+            .ingress => {
+                std.debug.assert(vow == .local and reservation.location == .local);
+                vows.onReservedLocal(self.vat, vow.local, listener);
+            },
+        }
+    }
+
+    /// Observe an existing vow from this turn's source (`Port.on` or
+    /// `Vat.on`).
+    pub fn observe(self: *Turn, vow: Vow, listener: Listener) Error!void {
+        return switch (self.source) {
+            .port => |via| via.on(self.vat, vow, listener),
+            .ingress => self.vat.on(vow, listener),
+        };
+    }
+
+    /// Remove and return `vow`'s pending listener without settling it.
+    pub fn unobserve(self: *Turn, vow: Vow) ?Listener {
+        return switch (self.source) {
+            .port => |via| via.takeListener(self.vat, vow),
+            .ingress => self.vat.takeListener(vow),
+        };
+    }
+
     pub fn forward(self: *Turn, target: Ref, msg: Delivery) anyerror!model.Argument {
         return forwarding.forwardTurn(self.vat, self, target, msg);
     }
@@ -296,7 +354,7 @@ pub const Turn = struct {
         switch (self.origin) {
             .served => |answer| {
                 if (self.forwarded) return;
-                try serve.resolveBreak(self.port.?, answer, message);
+                try serve.resolveBreak(self.source.port, answer, message);
                 self.forwarded = true;
             },
             .eventual => |eventual| {
@@ -307,319 +365,7 @@ pub const Turn = struct {
                     .discarded;
                 self.forwarded = true;
             },
-            .local => return Error.NotLocal,
+            .local => return error.NotLocal,
         }
     }
 };
-
-/// Stack-owned completion of one queued call. A deferral transfers settlement
-/// to its listener. Diagnostics borrow the turn arena or immutable archive text.
-const Delivery = vat_mod.Delivery;
-const Queued = @import("behavior.zig").Queued;
-
-/// What one turn dispatches to its box: a delivery the handler reads, or an
-/// adapter-owned body for a box that accepts one.
-const Dispatch = union(enum) {
-    delivery: Delivery,
-    owned: vat_mod.OpaqueMessage,
-
-    fn fromQueued(msg: Queued) Dispatch {
-        return switch (msg) {
-            .message => |message| .{ .delivery = message.delivery() },
-            .owned => |body| .{ .owned = body },
-        };
-    }
-};
-
-const EventualOutcome = union(enum) { returned: ?[]const u8, deferred, discarded, broken: []const u8 };
-
-pub fn callQueued(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Queued, answer: ?u64) ?vat_mod.Resolution {
-    var outcome: EventualOutcome = .{ .returned = null };
-    const result = callWithOrigin(self, port, ingress, id, Dispatch.fromQueued(msg), .{ .eventual = .{ .answer = answer, .outcome = &outcome } });
-    return switch (outcome) {
-        .returned => |refusal| if (result) |value| .{ .fulfilled = value } else |err| .{ .broken = refusal orelse @errorName(err) },
-        .deferred => null,
-        .discarded => .{ .fulfilled = .{ .void = {} } },
-        .broken => |reason| .{ .broken = reason },
-    };
-}
-
-/// Free every reply a handler moved to the vat and not yet reclaimed. Called
-/// when an outermost turn begins (mirroring the turn arena's reset) and at
-/// teardown, so a moved reply lives exactly as long as a borrowed one would.
-pub fn drainMovedReplies(self: *Vat) void {
-    for (self.moved_replies.items) |bytes| self.allocator.free(bytes);
-    self.moved_replies.clearRetainingCapacity();
-    if (self.moved_replies.capacity * @sizeOf([]const u8) > vat_mod.steady_list_bytes) {
-        self.moved_replies.clearAndFree(self.allocator);
-    }
-}
-
-/// Open a top-level or nested turn and hand back its scratch allocator. The
-/// arena is reset only when an *outermost* turn opens (depth was 0), so a turn
-/// keeps its scratch live across any near-calls and sends it makes, and the
-/// previous outermost turn's reply stays valid until the next one begins.
-const TurnBoundary = struct {
-    outermost: bool,
-    /// A right-sized replacement prepared before the boundary commits. This
-    /// makes burst trimming exact and fallible without discarding any prior
-    /// turn lifetime when its allocation is refused.
-    retired_replacement: ?std.ArrayList(*StateBox) = null,
-
-    fn deinit(self: *TurnBoundary, allocator: std.mem.Allocator) void {
-        if (self.retired_replacement) |*replacement| replacement.deinit(allocator);
-        self.* = undefined;
-    }
-};
-
-fn prepareTurnBoundary(self: *Vat) Error!TurnBoundary {
-    if (self.turn_depth != 0) return .{ .outermost = false };
-
-    const live_actor_slots = self.actors.count();
-    const burst_sized = self.retired_boxes.capacity > vat_mod.steady_list_bytes / @sizeOf(*StateBox);
-    if (!burst_sized or self.retired_boxes.capacity <= live_actor_slots) {
-        return .{ .outermost = true };
-    }
-
-    var replacement: std.ArrayList(*StateBox) = .empty;
-    errdefer replacement.deinit(self.allocator);
-    try replacement.ensureTotalCapacityPrecise(self.allocator, live_actor_slots);
-    return .{ .outermost = true, .retired_replacement = replacement };
-}
-
-fn beginTurn(self: *Vat, boundary: *TurnBoundary) std.mem.Allocator {
-    // Destructors are application code too. Establish the execution boundary
-    // before reclaiming retired state, so adapters cannot re-drive this Vat.
-    self.turn_depth += 1;
-    if (boundary.outermost) {
-        // Every allocation the boundary needs succeeded in prepareTurnBoundary,
-        // so the lifetime transition below is one infallible commit.
-        releaseRetiredBoxes(self);
-        if (boundary.retired_replacement) |replacement| {
-            self.retired_boxes.deinit(self.allocator);
-            self.retired_boxes = replacement;
-            boundary.retired_replacement = null;
-        }
-        // The turn arena is scratch space for one turn. Everything allocated
-        // in it is freed at once when the turn ends. The reset keeps up to a
-        // bounded amount of memory for the next turn, so steady traffic
-        // allocates nothing and one large turn cannot pin its peak.
-        _ = self.turn_arena.reset(.{ .retain_with_limit = vat_mod.steady_turn_arena_bytes });
-        // Moved replies share the arena's lifetime, so reclaim the previous
-        // outermost turn's moved bytes at the same boundary its scratch
-        // resets. A borrowed reply from the last turn is now invalid too.
-        drainMovedReplies(self);
-    }
-    return self.turn_arena.allocator();
-}
-
-fn endTurn(self: *Vat) void {
-    self.turn_depth -= 1;
-    if (self.turn_depth != 0) return;
-    // A successful outermost turn committed its sends inside its frame; a
-    // failed one drops them now, with listeners running at depth zero.
-    if (self.turn_failure) |reason| {
-        self.turn_failure = null;
-        turn_commit.drop(self, reason);
-    }
-    std.debug.assert(self.staged.items.len == 0);
-    std.debug.assert(self.participants.items.len == 0);
-}
-
-/// One open turn frame: the actor's state box, the turn arena, and the
-/// actor id whose run count the close decrements.
-const TurnFrame = struct { box: *StateBox, arena: std.mem.Allocator, id: u64 };
-
-/// The one turn-open spine both dispatch paths (`callLocal`,
-/// `serveDeliver`) run: bound the near-call depth, refuse a missing actor,
-/// copy-on-write a snapshot-shared box, mark the frame running, and open
-/// the turn arena, in exactly that order, because a refusal must happen
-/// before the arena resets or the frame is marked running, so a refused
-/// dispatch leaves the vat untouched. The box pointer is read out before
-/// the handler runs: a handler may spawn, which can resize `actors` and
-/// invalidate the cell pointer. Close with `defer closeTurnFrame(id)`.
-pub fn openTurnFrame(self: *Vat, id: u64) Error!TurnFrame {
-    // Bound the near-call recursion before it can overflow the native
-    // stack: each nested `$` deepens `turn_depth`, so refuse once it would
-    // exceed the cap rather than crashing on a cyclic local graph.
-    if (self.turn_depth >= max_near_call_depth) return Error.NearCallTooDeep;
-    const cell = self.actors.getPtr(id) orelse return Error.NoSuchActor;
-    var boundary = try prepareTurnBoundary(self);
-    errdefer boundary.deinit(self.allocator);
-    try boxed.ensureUnshared(self, cell);
-    const box = cell.box;
-    cell.running += 1;
-    // beginTurn runs destructors, which can spawn or release actors. Commit
-    // the running hold before that effect and never reuse the borrowed cell.
-    const arena = beginTurn(self, &boundary);
-    return .{ .box = box, .arena = arena, .id = id };
-}
-
-/// Unwind an open turn frame: install any promoted `become` only when this
-/// actor's outermost frame unwinds (so a reentrant inner become never
-/// frees the box an outer frame is still running as `self`), then close
-/// the turn, `finishCellRun` before `endTurn`, the order the two paths'
-/// paired defers always ran in.
-pub fn closeTurnFrame(self: *Vat, id: u64) void {
-    finishCellRun(self, id);
-    endTurn(self);
-}
-
-pub fn callLocal(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Delivery) anyerror!model.Argument {
-    return callWithOrigin(self, port, ingress, id, .{ .delivery = msg }, .local);
-}
-
-fn callWithOrigin(self: *Vat, port: ?*Port, ingress: vat_mod.IngressId, id: u64, msg: Dispatch, origin: @FieldType(Turn, "origin")) anyerror!model.Argument {
-    const frame = try openTurnFrame(self, id);
-    const box = frame.box;
-    const arena = frame.arena;
-    defer closeTurnFrame(self, id);
-    var turn = Turn{ .vat = self, .port = port, .self_ref = .{ .local = id }, .ingress = ingress, .arena = arena, .origin = origin };
-    turn.opaque_message = switch (msg) {
-        .delivery => null,
-        .owned => |body| body,
-    };
-    var refusal: ?[]const u8 = null;
-    var reply_copied = false;
-    const result: anyerror!model.Argument = switch (msg) {
-        .delivery => |delivery| switch (box.handle(box.ptr, &turn, delivery)) {
-            .returned => |value| value,
-            .viewed => |value| copied: {
-                if (turn.forwarded) break :copied .{ .void = {} };
-                const owned = value.toOwned(arena) catch |err| break :copied err;
-                reply_copied = true;
-                break :copied owned;
-            },
-            .refused => |failure| refused: {
-                refusal = failure.name;
-                break :refused failure.localError();
-            },
-        },
-        .owned => |body| owning: {
-            const handle = box.handleOpaque orelse break :owning Error.UnsupportedDelivery;
-            if (handle(box.ptr, &turn, body)) |reason| {
-                refusal = reason;
-                break :owning Error.OpaqueHandlerRefused;
-            }
-            break :owning .{ .void = {} };
-        },
-    };
-    if (result) |value| {
-        var reply = value;
-        if (turn.forwarded) {
-            reply = .{ .void = {} };
-        } else {
-            // The actor's outermost frame installs a pending become at unwind.
-            // Its reply may borrow the box that installation frees, including
-            // when an inner frame staged the replacement. Preserve those bytes
-            // before promoting this frame's become or committing its sends.
-            // POD replies and moved bytes already outlive the box. Nested
-            // frames need no copy because they cannot install the replacement.
-            // A become promoted by an inner frame survives an outer failure.
-            // The served path copies its reply while the original box is live.
-            const cell_now = self.actors.getPtr(id).?; // a running actor is never removed
-            const install_at_unwind = cell_now.running == 1 and
-                (turn.pending_become != null or cell_now.pending_become != null);
-            if (install_at_unwind and !reply_copied and !replyOutlivesBox(self, value, turn.moves_begin)) {
-                reply = model.cloneArgument(arena, value) catch |err| {
-                    if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
-                    if (self.turn_depth == 1) self.turn_failure = @errorName(err);
-                    return err;
-                };
-            }
-        }
-        if (turn.pending_become) |pending| boxed.promoteBecome(self, pending);
-        // Reply preservation can still refuse. Publish effects only after it
-        // succeeds, with the replacement state ready to install at unwind.
-        if (self.turn_depth == 1) turn_commit.commit(self);
-        return reply;
-    } else |err| {
-        // Bytes a failed turn `moveOut`ed are already vat-held (freed at the
-        // next outermost turn). The staged become is discarded here; the
-        // outermost frame's held sends drop when it closes.
-        if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
-        // Forwarding owns settlement once it captured the answer. A failed
-        // forward breaks it through rollback, preserving the original reason.
-        // An answerless forward captured no completion owner. Keep its refusal
-        // for input retirement even though no caller awaits a reply.
-        if (refusal) |reason| {
-            if (turn.origin == .eventual) switch (turn.origin.eventual.outcome.*) {
-                .returned, .discarded => turn.origin.eventual.outcome.* = .{ .returned = reason },
-                .deferred, .broken => {},
-            };
-        }
-        if (self.turn_depth == 1) self.turn_failure = refusal orelse @errorName(err);
-        return err;
-    }
-}
-
-/// Whether a handler's reply stays valid after this turn's `become` frees
-/// the actor's old state box: a POD arm cannot alias the box, and bytes
-/// the turn moved to the vat (`Turn.moveOut` / `moveOutString`) are
-/// vat-owned and outlive it. The pointer-identity scan covers every
-/// allocation moved since this turn began, O(moves-in-turn), O(1) in
-/// practice, so a handler that moves several fields may return any of
-/// them, while a reply borrowing any *other* state is still severed.
-fn replyOutlivesBox(self: *const Vat, value: model.Argument, moves_begin: ?usize) bool {
-    const reply: []const u8 = switch (value) {
-        .integer, .boolean, .void, .float64 => return true,
-        .bytes => |bytes| bytes,
-        .string => |string| string,
-        else => return false,
-    };
-    const begin = moves_begin orelse return false;
-    for (self.moved_replies.items[begin..]) |moved| {
-        if (reply.ptr == moved.ptr) return true;
-    }
-    return false;
-}
-
-/// End one frame of an actor's reentrant run. When the last frame unwinds,
-/// install any promoted `become`: swap the actor's live box for the new one,
-/// releasing the old live reference (a snapshot that shares it keeps it
-/// alive). Deferring the swap to zero depth is what keeps a running outer
-/// frame's `self` valid across a reentrant inner become.
-fn finishCellRun(self: *Vat, id: u64) void {
-    // A running actor is never removed (the `callLocal` invariant, upheld by
-    // `releaseActor` deferring a root-zero removal to this unwind).
-    const cell = self.actors.getPtr(id).?;
-    cell.running -= 1;
-    if (cell.running != 0) return;
-    if (cell.pending_become) |next| {
-        cell.pending_become = null;
-        // Retire rather than release: a reply handed back by an earlier frame of
-        // this same actor may still borrow the outgoing box, and that frame has
-        // already returned, so no sever can reach it. `stageBecome` reserved this
-        // slot, so the append cannot fail here during unwind.
-        self.retired_boxes.appendAssumeCapacity(cell.box);
-        cell.box = next;
-    }
-    // A handler that released its own last root (ADR-0101) finishes its turn
-    // on live state; the retire happens here, at the frame the deferral named.
-    if (cell.roots == 0) retireActorRow(self, id);
-}
-
-/// Retire a zero-rooted, non-running actor row (ADR-0101): remove the row and
-/// park its box until the next outermost-turn boundary, the borrowed-reply
-/// lifetime, so a reply an earlier turn handed out never dangles. Registration
-/// escrowed one retired-list slot for every live actor. Removing this row
-/// releases that exact obligation before the append consumes it, so this path
-/// is allocation-free even in destructor and frame-unwind contexts. A staged
-/// become can be pending here only while frames still run, and a running actor
-/// is never retired, so the row's box is the only parked one.
-pub fn retireActorRow(self: *Vat, id: u64) void {
-    const removed = self.actors.fetchRemove(id) orelse unreachable;
-    std.debug.assert(removed.value.running == 0);
-    std.debug.assert(removed.value.pending_become == null);
-    self.retired_boxes.appendAssumeCapacity(removed.value.box);
-}
-
-/// Drop the vat's reference to every retired box without changing the backing
-/// reservation. A destructor may release the last root of a sibling actor, so
-/// remove each box before running its destructor and continue through anything
-/// it retires. Turn-boundary preparation decides transactionally whether a
-/// burst-sized list should be replaced. Teardown needs only this infallible
-/// release. A snapshot sharing a box keeps it alive past the boundary.
-pub fn releaseRetiredBoxes(self: *Vat) void {
-    while (self.retired_boxes.pop()) |box| releaseBox(self.allocator, box);
-}

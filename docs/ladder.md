@@ -28,7 +28,7 @@ glowcap checks its protocol behavior three ways:
 
 - the upstream OCapN suite runs against the production host
 - live Spritely Goblins peers call glowcap and accept calls from it, over
-  cleartext test TCP
+  test TCP, Tor onion services, and iroh
 - in-tree scenarios cover message arms, failure paths, limits, and both codecs
 
 The live checks cover calls, promises, sturdyrefs, garbage collection in both

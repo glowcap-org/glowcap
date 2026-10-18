@@ -10,16 +10,16 @@
 //! import, so our eventual resolution has somewhere to go. Recognizing a
 //! deliver *to* one of our resolver exports is version-neutral and belongs to
 //! the inbound classifier (ADR-0095). Our side of that settlement is
-//! `encodeResolveAsCallback`, which
-//! renders a semantic `Resolve` as the `['fulfill|'break, payload]` deliver the
+//! `encodeResolutionAsCallback`, which
+//! renders a semantic resolution as the `['fulfill|'break, payload]` deliver the
 //! partner's resolver import expects. The functions take a `*Peer` and mutate
 //! session authority through it, as the names say, like the engine's
 //! `pipeline` half.
 
 const model = @import("model");
-const session_mod = @import("session");
 
 const engine = @import("mod.zig");
+const resolution_math = @import("pipeline_resolution.zig");
 const Peer = engine.Peer;
 
 /// A V1.0 wire message whose synthesized resolver mention has been installed
@@ -56,17 +56,17 @@ pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosi
     // Mint the resolver export and commit its answer link and wire-delta retain
     // through the session's single accounting seam, then carry the mention on
     // `op:listen`.
-    const resolver_export = try peer.session_state.mintOutboundResolver(projected_answer);
+    const resolver = try peer.session_state.mintOutboundResolver(projected_answer);
     return .{
         .message = .{
             .listen = .{
                 .target = .{ .promise = .{ .answer_position = projected_answer } },
-                // Project from the authoritative slot, never a hand-typed kind (ADR-0080).
-                .listener = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
+                // The mint projects the listener from the cell it registered (ADR-0080).
+                .listener = .{ .near = resolver },
                 .mode = .settling_only,
             },
         },
-        .resolver_export = resolver_export,
+        .resolver_export = resolver.export_position,
     };
 }
 
@@ -81,23 +81,12 @@ pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosi
 /// `captp-unknown-record-rag` on the partner and the break is lost (the
 /// `<error>` record stays next / `.error`-argument vocabulary, which never
 /// reaches this path).
-pub fn encodeResolveAsCallback(
-    peer: *Peer,
-    resolve: model.Resolve,
-    resolver_import: model.ImportPosition,
-) !void {
-    return encodeResolutionAsCallback(peer, resolve.resolution, resolver_import);
-}
-
 pub fn encodeResolutionAsCallback(
     peer: *Peer,
     resolution: model.Resolution,
     resolver_import: model.ImportPosition,
 ) !void {
-    var args: [2]model.Argument = switch (resolution) {
-        .fulfill => |value| .{ .{ .symbol = "fulfill" }, value },
-        .@"break" => |err| .{ .{ .symbol = "break" }, .{ .symbol = err.message } },
-    };
+    var args = resolution_math.callbackArgs(resolution);
     const wire: model.Message = .{
         .deliver = .{
             // A far import carries no wire kind, `desc:export` names it regardless

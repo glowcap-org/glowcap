@@ -38,7 +38,7 @@ test "relay stream failure is exact and claim-once" {
     var resident = try relay.Resident.init(allocator, io, url);
     defer _ = resident.deinit();
     const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x72)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x72)),
     );
     const designator = identity.publicKey().toDesignator();
     var connection = try resident.dialRaw(.{

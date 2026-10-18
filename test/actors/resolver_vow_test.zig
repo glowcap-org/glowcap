@@ -49,13 +49,13 @@ test "resolver pair id exhaustion refuses before publishing either side" {
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
 
-    vat.next_vow = std.math.maxInt(u64);
+    vat.vow_ids.next = std.math.maxInt(u64);
     try std.testing.expectError(actors.Error.ResourceExhausted, vat.spawnVow());
     try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
     try std.testing.expectEqual(@as(usize, 0), vat.resolver_vows.count());
 
-    vat.next_vow = 1;
-    vat.next_resolver = std.math.maxInt(u64);
+    vat.vow_ids.next = 1;
+    vat.resolver_ids.next = std.math.maxInt(u64);
     try std.testing.expectError(actors.Error.ResourceExhausted, vat.spawnVow());
     try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
     try std.testing.expectEqual(@as(usize, 0), vat.resolver_vows.count());
@@ -78,7 +78,7 @@ test "a resolver pair settles its listener once, and every second path refuses" 
     try std.testing.expectError(actors.Error.AlreadySettled, vat.fulfillVow(pair.resolver, .{ .void = {} }));
     try std.testing.expectError(actors.Error.AlreadySettled, vat.breakVow(pair.resolver, "late"));
     // An id never minted is distinct from a consumed settle authority.
-    for ([_]u64{ 0, vat.next_resolver, std.math.maxInt(u64) }) |id| {
+    for ([_]u64{ 0, vat.resolver_ids.next, std.math.maxInt(u64) }) |id| {
         try std.testing.expectError(error.NoSuchResolver, vat.breakVow(id, "unminted"));
         try std.testing.expectError(error.NoSuchResolver, vat.fulfillVow(id, .{ .void = {} }));
     }
@@ -91,7 +91,7 @@ test "unminted local vows cannot capture a future operation's listener" {
     defer vat.deinit();
     var captured = Capture{};
     const listener = actors.Listener{ .ctx = &captured, .func = Capture.listener };
-    for ([_]u64{ vat.next_vow, 0, std.math.maxInt(u64) }) |id| {
+    for ([_]u64{ vat.vow_ids.next, 0, std.math.maxInt(u64) }) |id| {
         try std.testing.expectError(error.NoSuchVow, vat.on(.{ .local = id }, listener));
         try std.testing.expectEqual(@as(usize, 0), vat.listeners.count());
     }
@@ -368,9 +368,8 @@ test "forwardVow checks vows that are settled or already observed" {
     try vat.breakVow(settled.resolver, "finished");
     var settled_turn = Turn{
         .vat = &vat,
-        .port = &port,
-        .self_ref = .{ .local = 0 },
-        .ingress = .local,
+        .source = .{ .port = &port },
+        .self_id = 0,
         .arena = allocator,
         .origin = .{ .served = .{ .name = .fromWire(.from(1)), .row_id = 1 } },
     };
@@ -382,9 +381,8 @@ test "forwardVow checks vows that are settled or already observed" {
     try vat.on(observed.vow, .{ .ctx = &captured, .func = Capture.listener });
     var observed_turn = Turn{
         .vat = &vat,
-        .port = &port,
-        .self_ref = .{ .local = 0 },
-        .ingress = .local,
+        .source = .{ .port = &port },
+        .self_id = 0,
         .arena = allocator,
         .origin = .{ .served = .{ .name = .fromWire(.from(2)), .row_id = 2 } },
     };

@@ -58,8 +58,8 @@ locally. Ordinary call pipelining remains available on both profiles.
 
 ### References
 
-A `Ref` is opaque. Pass it as an argument and the binding picks the wire
-reference, so application code never handles import or export numbers.
+A `Ref` is opaque. Pass it as an argument, and the binding picks the wire
+reference and its import or export number.
 
 Two `Ref`s are equal when they name the same capability on the Host: Rust
 `==`, Python `==`, Racket `equal?`, and TypeScript `Ref.equals`. TypeScript's
@@ -167,12 +167,13 @@ iroh, onion, Noise, and WebRTC are the transports for real deployments
 ([known limitations](../docs/boundaries.md#transports-and-peer-identity) says
 what each one proves). iroh and onion are optional archives: iroh links a Rust
 library, and onion needs a Tor daemon you run. The TCP archive carries
-`noise-tcp`, plus the testing `tcp` and `inproc`.
+`noise-tcp`, `keyed-tcp`, and the testing `tcp`. `inproc` has its own
+archive.
 
 Applications call `runtime.connect(locator)` after composing the Runtime with
 the provider or connector they need. Each optional transport package owns its
-locator construction, configuration, setup, and options, and the generic
-binding code never names a concrete transport.
+locator construction, configuration, setup, and options, so the generic
+binding code names no transport.
 
 ### Onion and WebRTC
 
@@ -198,16 +199,15 @@ binding code never names a concrete transport.
 The relay package exposes one Zig provider through the C ABI.
 
 - Its configuration is declarative: `ws` or `wss`, system or copied-PEM trust,
-  and how registration works. A binding never parses a certificate or holds
-  TLS state.
+  and how registration works. glowcap's C library does the TLS work.
 - All four bindings offer managed keyed and Noise relay listeners. A listener
   registers one durable Host identity, publishes the relay-routed locator, and
   accepts sessions through the binding's ordinary server type.
 - Managed browser and event-loop connectors use their runtime's own WebSocket,
   while the byte-fed Host still handles Noise and CapTP.
 - Failures from installing a provider, closing a listener, or releasing the
-  loop come back as one versioned failure record. A binding reads that record
-  and never parses error text.
+  loop come back as one versioned failure record, which the binding reads
+  field by field.
 - If the final release is refused, the binding retries it once at each later
   safe point and stops when a result arrives. A release or cleanup failure
   along the way is recorded as a consequence of the original failure.
@@ -229,9 +229,8 @@ keeps, and the application drains that list when it chooses:
 - Python: `host.take_failures()`
 - Racket: `host-take-failures!`
 
-A full list drops its oldest record and counts the loss, so a drained set
-never looks like a complete history. A failure that a call returns, or that a
-close reports, never appears in the list as well.
+A full list drops its oldest record and counts how many it dropped. A failure
+that a call returns or a close reports goes only to that caller.
 
 ## Building and checking
 

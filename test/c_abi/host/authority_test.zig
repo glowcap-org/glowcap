@@ -91,6 +91,9 @@ test "libglowcap_host: opaque references cannot cross Host authority" {
     // A local actor belongs to the Host Vat, not to the Port that first
     // projected it, so it has no unique exporter session.
     try std.testing.expect(exporter == null);
+    // Releasing more than the caller holds is the caller's mistake and
+    // commits nothing, so the exact release still succeeds afterward.
+    try std.testing.expectEqual(c.GLOWCAP_ERR_INVALID_ARGUMENT, cd.glowcap_host_ref_release(b, &b_ref, 2));
     try expectOk(cd.glowcap_host_ref_release(b, &b_ref, 1));
     try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_ref_release(b, &b_ref, 1));
 }
@@ -179,7 +182,7 @@ test "libglowcap_host: rejected recursive projection releases every reference oc
             .exporter = .{ .transport = "memory", .designator = "exporter" },
             .gifter_exporter_session = "gifter-session",
             .gifter_side = "gifter-side",
-            .gift_id = &(@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x77))),
+            .gift_id = &(@as([model.handoff_gift_id_bytes]u8, @splat(0x77))),
             .signature = "give-signature",
         },
         .signature = "receive-signature",

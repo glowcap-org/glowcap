@@ -144,7 +144,7 @@ test "openDialedOver retains onion profile knowledge through adoption" {
     defer pinned.deinit();
     const profile_hints = [_]model.HintEntry{.{
         .name = model.transport.hint_captp_version,
-        .value = .{ .string = model.CaptpVersion.next.wireString() },
+        .value = .{ .string = model.CaptpVersion.next.hintToken() },
     }};
     const session = try host.openDialedOver(&pinned, .{
         .transport = model.transport.onion,

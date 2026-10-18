@@ -35,7 +35,7 @@ pub const Volatile = struct {
     pub fn open(self: *Volatile) !core.Metadata {
         if (self.opened) return error.Busy;
         const next = try self.metadata.claim();
-        @memcpy(self.rows.get(try self.storageKey(core.metadata_key)).?, &next.encode());
+        @memcpy(self.rows.get(try storageKey(core.metadata_key)).?, &next.encode());
         self.metadata = next;
         self.opened = true;
         self.closing = false;
@@ -93,7 +93,7 @@ pub const Volatile = struct {
         store: *Volatile,
 
         pub fn get(self: *ReadTransaction, key: []const u8) !?[]const u8 {
-            return self.store.rows.get(try self.store.storageKey(key));
+            return self.store.rows.get(try storageKey(key));
         }
 
         pub fn next(self: *ReadTransaction, prefix: []const u8, after: ?[]const u8) !?core.CollectionRow {
@@ -111,11 +111,12 @@ pub const Volatile = struct {
     pub const WriteTransaction = struct {
         store: *Volatile,
         entries: std.ArrayList(Entry) = .empty,
-        state: enum { active, committed, aborted } = .active,
+        state: State = .active,
+        const State = enum { active, committed, aborted };
 
         pub fn get(self: *WriteTransaction, key: []const u8) !?[]const u8 {
             if (self.state != .active) return error.Closed;
-            const k = try self.store.storageKey(key);
+            const k = try storageKey(key);
             for (self.entries.items) |entry| if (std.meta.eql(entry.key, k)) return entry.value;
             return self.store.rows.get(k);
         }
@@ -141,7 +142,7 @@ pub const Volatile = struct {
         }
 
         fn append(self: *WriteTransaction, key: []const u8, value: ?[]u8) !void {
-            const k = try self.store.storageKey(key);
+            const k = try storageKey(key);
             for (self.entries.items) |*entry| if (std.meta.eql(entry.key, k)) {
                 if (entry.value) |old| self.store.allocator.free(old);
                 entry.value = value;
@@ -192,7 +193,7 @@ pub const Volatile = struct {
             self.finish(.aborted);
         }
 
-        fn finish(self: *WriteTransaction, state: @FieldType(WriteTransaction, "state")) void {
+        fn finish(self: *WriteTransaction, state: State) void {
             for (self.entries.items) |entry| {
                 if (entry.value) |bytes| self.store.allocator.free(bytes);
             }
@@ -204,16 +205,8 @@ pub const Volatile = struct {
         }
     };
 
-    fn storageKey(self: *Volatile, bytes: []const u8) !Key {
-        _ = self;
-        if (bytes.len == 0 or bytes.len > core.max_key_bytes) return error.Corrupt;
-        var result: Key = .{ .length = @intCast(bytes.len) };
-        @memcpy(result.bytes[0..bytes.len], bytes);
-        return result;
-    }
-
     fn putInitial(self: *Volatile, key: []const u8, value: []const u8) !void {
-        const k = try self.storageKey(key);
+        const k = try storageKey(key);
         const v = try self.allocator.dupe(u8, value);
         errdefer self.allocator.free(v);
         try self.rows.put(self.allocator, k, v);
@@ -233,6 +226,13 @@ const Key = struct {
     }
 };
 const Entry = struct { key: Key, value: ?[]u8 };
+
+fn storageKey(bytes: []const u8) !Key {
+    if (bytes.len == 0 or bytes.len > core.max_key_bytes) return error.Corrupt;
+    var result: Key = .{ .length = @intCast(bytes.len) };
+    @memcpy(result.bytes[0..bytes.len], bytes);
+    return result;
+}
 /// The first row under `prefix` after `after`, with `entries` (a write
 /// transaction's own puts and removes) taking precedence over the rows.
 fn nextRow(store: *Volatile, entries: []const Entry, prefix: []const u8, after: ?[]const u8) !?core.CollectionRow {

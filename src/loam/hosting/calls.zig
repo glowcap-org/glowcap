@@ -9,10 +9,12 @@ const h = @import("attachment.zig");
 const values = @import("values.zig");
 const storage = @import("storage.zig");
 const forwarding = @import("forwarding.zig");
+const execution = @import("execution.zig");
+const call_memory = @import("call_memory.zig");
 pub const Completion = union(enum) {
     protected,
-    mediated: *Projection,
-    receipt: *@import("execution.zig").Dispatch,
+    mediated: *const Projection,
+    receipt: *execution.Dispatch,
 
     pub fn retain(self: Completion) void {
         if (self == .receipt) self.receipt.retain();
@@ -42,7 +44,7 @@ pub const Operation = struct {
     sequence: u64 = 0,
     ingress: actors.IngressId = .local,
     peer: ?@FieldType(driver.HostSession, "peer_handle") = null,
-    memory: @import("call_memory.zig").Memory = undefined,
+    memory: call_memory.Memory = undefined,
     pending_read: bool = false,
     verb: []const u8 = "",
     args: []const driver.Value = &.{},
@@ -110,8 +112,7 @@ pub const Endpoint = struct {
         return values.copy(model.Argument, turn.arena, reply);
     }
 
-    pub fn deinit(self: *Endpoint, allocator: std.mem.Allocator) void {
-        _ = allocator;
+    pub fn deinit(self: *Endpoint, _: std.mem.Allocator) void {
         if (self.entry.retention) |token| {
             self.entry.owner.store.releaseRetention(token) catch unreachable;
             self.entry.retention = null;
@@ -168,7 +169,7 @@ fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, ver
     if (owner.sequence == std.math.maxInt(i64)) return error.SequenceExhausted;
     if (owner.pending_bytes > owner.options.pending_bytes - owner.options.call_bytes) return error.CallCapacity;
     var ingress_calls: usize = 0;
-    for (owner.operations) |operation| if (operation.phase != .free and operation.ingress == turn.ingress) {
+    for (owner.operations) |operation| if (operation.phase != .free and operation.ingress == turn.ingress()) {
         ingress_calls += 1;
     };
     if (ingress_calls >= owner.host.vat.queue_limits.max_pending_turns or
@@ -176,7 +177,7 @@ fn admit(entry: *h.Entry, turn: *actors.Turn, session: ?*driver.HostSession, ver
     const op = for (owner.operations) |*operation| {
         if (operation.phase == .free) break operation;
     } else return error.CallCapacity;
-    op.* = .{ .entry = entry, .ingress = turn.ingress, .peer = if (session) |s| s.peer_handle else null, .completion = completion };
+    op.* = .{ .entry = entry, .ingress = turn.ingress(), .peer = if (session) |s| s.peer_handle else null, .completion = completion };
     op.memory.init(owner.allocator, owner.options.call_bytes);
     errdefer {
         op.memory.deinit();

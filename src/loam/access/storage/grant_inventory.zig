@@ -6,6 +6,7 @@ const loam = @import("loam_core");
 const op = @import("capability_operation.zig");
 const read_mod = @import("read.zig");
 const Query = @import("directory_query.zig").DirectoryQuery;
+const load = @import("load.zig");
 
 pub const Inventory = struct {
     operation: *op.Operation,
@@ -14,7 +15,7 @@ pub const Inventory = struct {
     entry: ?Query.Entry = null,
     lease: ?loam.Lease = null,
     done: bool = false,
-    load: @import("load.zig").Load = .{},
+    load: load.Load = .{},
 
     /// Scalar copies survive the next model lookup. No use endpoint, bearer
     /// secret or owner's unrelated grant population participates in this page.
@@ -33,10 +34,10 @@ pub const Inventory = struct {
         const own = try self.operation.inspectGrant(null);
         if (self.done) return .ready;
         if (self.query == null) {
-            var grants = try state.read.?.grantView();
+            var grants = try state.read.grantView();
             _ = try grants.borrow(own.id);
             defer grants.release();
-            self.query = Query.initAt(&state.read.?, state.read.?.heldRow().children, .grant, self.floor);
+            self.query = Query.initAt(&state.read, state.read.heldRow().children, .grant, self.floor);
         }
         if (self.entry == null) {
             const step = try self.query.?.advance();
@@ -61,10 +62,11 @@ pub const Inventory = struct {
         if (self.entry == null) return null;
         const lease = self.lease orelse return error.NotPrepared;
         const store = state.binding.owner.store;
-        var fixed = std.heap.FixedBufferAllocator.init(try state.read.?.grantScratch());
-        var decoded = try records.GrantRecord.decodeOwned(fixed.allocator(), (try store.currentView(lease)).payload);
+        var fixed = std.heap.FixedBufferAllocator.init(try state.read.grantScratch());
+        var decoded: records.GrantRecord = undefined;
+        try decoded.decodeOwned(fixed.allocator(), (try store.currentView(lease)).payload);
         defer decoded.deinit(fixed.allocator());
-        const value = &decoded.value.grant;
+        const value = &decoded.grant;
         if (value.id.slot != self.entry.?.slot or value.parent == null or !value.parent.?.eql(state.descriptor.grant)) return error.InvalidRecord;
         const result = Item.of(value, inherited);
         self.floor = @as(u64, value.id.slot) + 1;

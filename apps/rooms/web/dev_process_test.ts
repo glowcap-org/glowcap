@@ -155,8 +155,14 @@ Deno.test("rooms-dev serves source modules and finishes retirement across repeat
 		const locator = await fetch(`http://127.0.0.1:${port}/locator`);
 		assertEquals(await locator.text(), "ocapn://development.fixture\n");
 
-		const version = await fetch(`http://127.0.0.1:${port}/ui-version`);
-		assertEquals(await version.text(), "vite-development\n");
+		// The page and `/ui-version` name one build, the Wasm application's, so
+		// an open page reloads only when the application's bytes change.
+		const version = (await (await fetch(`http://127.0.0.1:${port}/ui-version`)).text()).trim();
+		assert(/^vite-development-[0-9a-f]{16}$/.test(version), `the development build is unnamed: ${version}`);
+		assert(
+			html.includes(`dataset.uiBuild=${JSON.stringify(version)}`),
+			"the page and /ui-version name different builds",
+		);
 
 		const origin = `http://127.0.0.1:${port}`;
 		const preview = await fetch(`${origin}/link-preview?url=https://example.test`, {

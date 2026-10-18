@@ -81,6 +81,33 @@ and residency.
     borrows those bytes, and refuses while a loan is open. No additional
     buffer allocation or record lease exists. `docs/loam/store.md` owns the
     storage operation and shared-cache budgets.
+  - `Binding.resource` keeps the resource reply decoded from a binding's
+    committed row for the Read's lifetime, because a policy walk asks for the
+    same ancestors many times per operation. A binding the owner index seeds
+    starts with the reply an earlier Read decoded at the same revision
+    (`OwnerIndex.Resolved.resource`). A staged row decodes afresh.
+  - `Capabilities.index` is one heap-held `OwnerIndex`: `resident_owners`
+    decoded owner headers and `resident_targets` resolved directory slots
+    each, with the resource reply decoded at a slot's leaf, keyed by the
+    owner's committed header revision. A Read consults it only while the
+    store holds no proposal for the owner. It pins no lease and holds no row
+    bytes; the per-Read binding still acquires the leaf.
+  - `OwnerIndex.GrantMemo` is the one heap state the index keeps: the grant
+    record a Read decoded from a slot's committed row, with its terms' object
+    lists copied into the index's allocator (`GrantRecord.copyOwned`), freed
+    when the slot, the owner's revision, or the index goes. A later Read
+    outside a transaction adopts it into `grant_row` (`Read.adoptGrantMemo`,
+    lists copied into `grant_scratch`) instead of acquiring and decoding the
+    row again.
+  - `Read` and `State` are filled in place (`Read.init(self, ...)`), and a
+    record wider than a few hundred bytes decodes in place
+    (`decodeOwned(self, ...)`): a by-value return or an error-union payload
+    copies the inline rows, and a `?Read` or a void union arm beside one
+    zero-fills its 20 KiB on every reset. `State.loaded` is the phase flag.
+  - `Store.staged_views` holds one decoded `View` per staged change beside
+    its bytes, so composing onto a staged row reads it back without
+    re-validating the envelope. It is `max_changes` views wide and borrows the
+    change's bytes until commit or abort.
   - Preparation restarts reclaim arena space after retiring reads. The portrait
     lease survives through preparation deinit at settlement, including commit and
     reply retries.
@@ -508,26 +535,6 @@ and residency.
   - Persistent name reservations retain 25 key bytes plus 33 identity bytes
     before backend overhead, including after collection. `Host` adds one opt-in
     provider pointer.
-- **Loam committed residency**: `Store.retainOnCommit` transfers prepared
-  record buffers to eligible cache slots during installation, without another
-  allocation or copy. Admission establishes the checked envelope once. Views
-  reuse it. Pinned snapshots cannot be displaced. A full cache leaves
-  the buffer with its transaction owner for release.
-- **Loam collection custody**: `Store.captureCollectionCustody` creates one
-  bounded `Custody` journal and record-sized worker scratch per cycle.
-  - Root capacity grows only within `max_collection_roots`. New custody reserves
-    before publication. A resident portrait reports its strong edges once per
-    cycle, and its marker fits the existing slot.
-  - `Store.prepareCollection` borrows pending obligations and reuses scratch.
-    Backend tracing copies the current row there before writes invalidate mapped
-    borrows. Allocations survive batch abort and commit-outcome recovery, and are
-    freed at completed idle or Store teardown.
-  - `Store.retain` uses the fixed registry allocated at Store initialization.
-    Marks and pending trace entries occupy backend storage, not actor residency.
-  - Confirmed collection receipts alone acknowledge submitted roots. The
-    collection-cost smoke profile holds one submission per unchanged root and
-    one scratch allocation per cycle.
-
 - **Loam C registration inventory**: `Content.init` copies bounded method
   tables, names and optional graph schema identifiers. `Attachment.create`
   owns behavior arrays and the fixed

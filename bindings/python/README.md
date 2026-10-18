@@ -56,7 +56,7 @@ The application passes `iroh.provider(config)`, `tcp.provider(config)`, or
 another transport package. The driver starts with no providers and receives
 the chosen package through the common provider ABI. A routed `keyed-relay` or
 `noise-relay` locator likewise loads the relay archive and installs its
-provider package. Either way you get the same `Session` API.
+provider package.
 
 `Runtime.open(adopt_host=host, ...)` transfers an existing Host into the
 Runtime. `await runtime.close()` then shuts that Host down for good.
@@ -72,7 +72,7 @@ because glowcap cannot infer reachability from the bind.
 shape over a registered relay route. Their `locator` and `uri` carry the
 durable key and the rendezvous relay that partners dial.
 
-A shared host makes handoff transparent across several sessions. The less
+With one Host shared across sessions, a handoff needs no extra code. The less
 common `send_redeeming` call returns both the answer and `via`, the direct
 exporter session. Host a reply capability on `via`. A local reference is valid
 only in the session where it was exported.
@@ -99,7 +99,7 @@ a relay holds inbound connections for it under its key.
   through the relay provider.
 - For a bare locator, use `relay.connector(config)`. The route comes from the
   locator's hint or from the connector's configuration, as in every binding.
-  You choose the connector. It is not an automatic fallback.
+  Connections go through the connector only when your code creates one.
 - The connector's client is the one optional dependency: install
   `glowcap[rendezvous]`. Repository checks install that extra
   from the committed lock with

@@ -66,7 +66,7 @@ test "one stream stack dials noise-tcp and inproc through one backend" {
     var exchange = net.inproc_completion.Exchange.init(allocator);
     defer exchange.deinit();
 
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5a)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x5a)));
     var sealed_server = try listenOne(allocator, io, &exchange, .noise_tcp, "127.0.0.1:0", .{ .keyed = secret });
     defer sealed_server.deinit();
     var inproc_server = try listenOne(allocator, io, &exchange, .inproc, "stack", .ephemeral);

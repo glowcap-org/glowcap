@@ -164,7 +164,7 @@ fn mintService(gpa: std.mem.Allocator, io: std.Io, daemon: *const Tor) !struct {
     errdefer gpa.free(service_key);
     if ((try first.restorationState(service_key)) != key_len) return error.MissingServiceKey;
 
-    if (first.close()) |failure| return failure.cause;
+    if (first.close()) |failure| return failure.chain.cause;
     return .{ service_id, service_key };
 }
 

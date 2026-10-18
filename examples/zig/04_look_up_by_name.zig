@@ -47,7 +47,7 @@ pub fn main() !void {
     const match = try engine.fetch.tryMatchFetchOutcome(
         allocator,
         prepared.resolver_export,
-        prepared.answer_position,
+        prepared.answer.position,
         owned,
     );
     switch (match) {

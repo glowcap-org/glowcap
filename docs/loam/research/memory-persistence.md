@@ -7,10 +7,13 @@ The [Loam architecture](../architecture.md) and
 [ADR-0161](../../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
 own the accepted layer boundaries. The [API contract](../api.md) and
 [sleepy-actor contract](../actors.md) specify the behavior candidates must
-support, and the experiments below test implementations against them. The
-[Zig Loam slice](../../loam.md) implements a local-record baseline with LMDB and
-volatile storage. Backend selection, measured costs, and the comparative
-experiments remain open.
+support, and the experiments below test implementations against them.
+[Loam](../../loam.md) runs on SQLite, LMDB, memory, and the browser's
+IndexedDB, and
+[ADR-0239](../../decisions/adr/ADR-0239-sqlite-is-loams-default-disk-engine.md)
+made SQLite the default disk engine after the
+[engine comparison](../../../bench/loam/results.md).
+[Where the experiments stand](#where-the-experiments-stand) lists what remains.
 
 Sources were reviewed on 2026-09-14, and candidate behavior is attributed to
 primary documentation and papers. The [persistence reuse review](persistence-reuse.md)
@@ -413,10 +416,8 @@ complexity.
 
 These experiments support the [implementation
 stages](../architecture.md#order-of-work), and the
-architecture owns build order. The implemented LMDB path is the baseline. SQLite
-is an optional comparison when measurements locate a physical-engine constraint.
-Another backend is not a prerequisite for Rooms integration. Region layouts
-remain an experiment until their whole-system costs justify adoption.
+architecture owns build order. Region layouts remain an experiment until their
+whole-system costs justify adoption.
 
 1. **Specify the observable model.** Define store incarnations, identity reuse,
    roots/edges, local and foreign reference restoration, commit visibility, and
@@ -456,18 +457,28 @@ remain an experiment until their whole-system costs justify adoption.
    the measured decision in an ADR and update the owning contracts. Each
    implementation stage removes the prerelease representations it replaces.
 
+### Where the experiments stand
+
+| Step | Where it stands |
+| --- | --- |
+| 1. Observable model | Store incarnations and the record contract are written down ([ADR-0162](../../decisions/adr/ADR-0162-loam-record-transactions-and-lmdb.md), [store](../store.md)). No model checker runs short interleavings. |
+| 2. Two consumers | Done. Plain actor graphs, managed access, and ordinary records share one store, and the Tasks app is a second application on it. |
+| 3. Application workload | Done for the Tasks workload on both disk engines ([Loam benchmarks](../../../bench/loam/README.md)). The remaining access workloads are on the [roadmap](../../roadmap.md#durable-applications). |
+| 4. Recovery and custody | Process kills and injected I/O faults run on both disk engines ([stability](../../stability.md)). Power loss, old-backup restoration, and stale writer custody have no tests. |
+| 5. CapTP and bindings | Done for the fixed-resource C, Rust, and browser API. The broader foreign API is on the roadmap. |
+| 6. Production profile | SQLite is the default disk engine. Region layouts, PMDK, and NVM are tried only once a measurement locates a limit in SQLite ([roadmap](../../roadmap.md#durable-applications)). |
+
 The baseline platform is a normal operating system and SSD. The browser is a
 separate required persistence profile. PMDK, NVM, and hardware compartments are
 additional experiments with their assumptions stated. No single implementation
 is assumed to achieve their costs on every platform.
 
-Full recoverable actor execution follows the graph, reference, and sleepy-actor
-proof. The initial integration defines commit visibility and limits
-pending-call survival. The stronger execution contract must define which calls
-were durably accepted, how duplicate local operations return the same result,
-and how outbound intentions are retried. A durable local receipt cannot promise
-exactly-once effects at an arbitrary remote service. Execution reuses the Vat
-and Host, and no second scheduler hides that unsolved protocol.
+Loam does not recover an actor's execution after a crash. Sleepy actors define commit visibility and limit which
+pending calls survive a restart. Recoverable execution would also have to
+define which calls were durably accepted, how duplicate local operations
+return the same result, and how outbound intentions are retried. A durable
+local receipt cannot promise exactly-once effects at an arbitrary remote
+service. Such a design would reuse the Vat and Host, with no second scheduler.
 
 The proposed contribution is the combination of Zig ownership, automatic
 reference-aware persistence, bounded lazy residency, and current capability

@@ -9,7 +9,7 @@ const fixture = @import("engine_fixture");
 const mebibyte = 1024 * 1024;
 
 fn create(path: [:0]const u8, capacity: usize) !Sqlite {
-    return Sqlite.open(path, .{ .capacity_bytes = capacity, .mode = .{ .create = f.id } });
+    return Sqlite.open(path, .{ .capacity_bytes = capacity, .opening = .{ .id = f.id, .mode = .create } });
 }
 
 fn putOne(db: *Sqlite, key: []const u8, value: []const u8) !void {

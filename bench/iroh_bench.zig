@@ -34,6 +34,7 @@ const glowcap = @import("glowcap");
 const iroh = @import("iroh");
 
 const affinity = @import("support/affinity.zig");
+const profile = @import("support/profile.zig");
 
 const model = glowcap.ocapn.model;
 const crypto = glowcap.foundation.crypto;
@@ -177,6 +178,7 @@ fn clientMeasure(
     allocator: std.mem.Allocator,
     transports: driver.Transports,
     locator: model.PeerLocator,
+    name: []const u8,
     call: Call,
     warmup: usize,
     samples: []u64,
@@ -195,7 +197,11 @@ fn clientMeasure(
     }
 
     // The reply's fields are read inside the window and compared after it,
-    // the same shape as the Cap'n Proto harnesses under `bench/capnp/`.
+    // the same shape as the Cap'n Proto harnesses under `bench/capnp/`. The
+    // profile phase is the timed loop, named like the report row.
+    var phase_buf: [32]u8 = undefined;
+    const phase = try std.fmt.bufPrintSentinel(&phase_buf, "{s}-{s}", .{ name, @tagName(call) }, 0);
+    profile.begin();
     for (samples) |*sample| {
         _ = arena_state.reset(.retain_capacity);
         const t0 = nowNs(io);
@@ -204,6 +210,7 @@ fn clientMeasure(
         if (!expected(call, read)) return error.WrongReply;
         sample.* = @intCast(t1 - t0);
     }
+    profile.end(phase);
 }
 
 /// What the client reads from a reply: the greeting, or the report's count
@@ -242,10 +249,14 @@ fn openMeasure(
     allocator: std.mem.Allocator,
     transports: driver.Transports,
     locator: model.PeerLocator,
+    name: []const u8,
     warmup: usize,
     samples: []u64,
 ) !void {
+    var phase_buf: [32]u8 = undefined;
+    const phase = try std.fmt.bufPrintSentinel(&phase_buf, "{s}-session-open", .{name}, 0);
     for (0..warmup + samples.len) |i| {
+        if (i == warmup) profile.begin();
         const t0 = nowNs(io);
         const session = try driver.connect(allocator, io, transports, locator, .ephemeral, opts);
         _ = session.fetch("greeter") catch |err| {
@@ -256,6 +267,7 @@ fn openMeasure(
         const t1 = nowNs(io);
         if (i >= warmup) samples[i - warmup] = @intCast(t1 - t0);
     }
+    profile.end(phase);
 }
 
 /// One call of the named shape, returning the fulfilled value. A broken
@@ -297,7 +309,7 @@ fn report(transport: []const u8, call: []const u8, warmup: usize, samples: []u64
 fn callRows(io: std.Io, allocator: std.mem.Allocator, server: *driver.Server, transports: driver.Transports, locator: model.PeerLocator, name: []const u8, warmup: usize, samples: []u64) !void {
     inline for (.{ Call.greet, Call.report }) |call| {
         if (rowWanted(call)) {
-            try withServer(io, server, clientMeasure, .{ io, allocator, transports, locator, call, warmup, samples });
+            try withServer(io, server, clientMeasure, .{ io, allocator, transports, locator, name, call, warmup, samples });
             report(name, @tagName(call), warmup, samples);
         }
     }
@@ -336,7 +348,7 @@ fn benchTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []
     defer model.freePeerLocator(allocator, locator);
     try callRows(io, allocator, server, transports, locator, "tcp", warmup, samples);
     if (row == .all or row == .@"session-open") {
-        try withChurnServer(io, server, openMeasure, .{ io, allocator, transports, locator, warmup, samples });
+        try withChurnServer(io, server, openMeasure, .{ io, allocator, transports, locator, "tcp", warmup, samples });
         report("tcp", "session-open", warmup, samples);
     }
 }
@@ -361,7 +373,7 @@ fn benchNoiseTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, sample
     };
     try callRows(io, allocator, server, transports, locator, "noise-tcp", warmup, samples);
     if (row == .all or row == .@"session-open") {
-        try withChurnServer(io, server, openMeasure, .{ io, allocator, transports, locator, warmup, samples });
+        try withChurnServer(io, server, openMeasure, .{ io, allocator, transports, locator, "noise-tcp", warmup, samples });
         report("noise-tcp", "session-open", warmup, samples);
     }
 }

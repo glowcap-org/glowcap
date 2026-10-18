@@ -1,124 +1,11 @@
-//! The imported-promise store: a third-party import installs atomically and
-//! owns its host, listeners, and relayed resolution until an outbound release
-//! drops the row, and promise shortening rewrites through chains, refuses a
-//! cycle, and spends only the retains its stable edges own.
+//! The imported-promise rows: promise shortening rewrites through chains,
+//! refuses a cycle, and spends only the retains its stable edges own.
 
 const std = @import("std");
 const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
 const session = glowcap.ocapn.session;
-
-test "imported-promise substrate owns host, listeners, and relayed resolution" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-
-    // Root import 5 at a third-party host; idempotent for the same host.
-    try s.installThirdPartyImport(.from(5), "host-a");
-    try std.testing.expect(s.isThirdPartyImport(.from(5)));
-    try std.testing.expect(!s.isThirdPartyImport(.from(6)));
-    try s.installThirdPartyImport(.from(5), "host-a");
-
-    // Re-rooting at a different host is a loud error.
-    try std.testing.expectError(error.HostMismatch, s.installThirdPartyImport(.from(5), "host-b"));
-
-    // A listener (POD far listener cap) and a stored relayed resolution.
-    try s.retainImportForSession(.from(9));
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
-    try std.testing.expect(try s.recordRelayedResolution(.from(5), s.importedPromiseRowId(.from(5)).?, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } }));
-    const peeked = s.importedPromiseResolution(.from(5)) orelse return error.TestUnexpectedResult;
-    try std.testing.expectEqualStrings("v", peeked.fulfill.bytes);
-
-    // A second relayed resolution is refused, a promise resolves once,
-    // mirroring the answer-side rule, the refused value is freed (no leak),
-    // and the stored value is untouched.
-    try std.testing.expectError(error.UnexpectedMessage, s.recordRelayedResolution(
-        .from(5),
-        s.importedPromiseRowId(.from(5)).?,
-        .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "w") } },
-    ));
-    try std.testing.expectEqualStrings("v", s.importedPromiseResolution(.from(5)).?.fulfill.bytes);
-
-    // Recording on an unknown import frees the resolution and errors.
-    try std.testing.expectError(error.InvalidReference, s.recordRelayedResolution(
-        .from(99),
-        0,
-        .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "z") } },
-    ));
-
-    // Drain empties the list (entries are POD; only the slice is owned); a
-    // second drain is empty.
-    const listeners = try s.takeImportedPromiseListeners(.from(5));
-    defer allocator.free(listeners);
-    try std.testing.expectEqual(@as(usize, 1), listeners.len);
-    try std.testing.expectEqual(@as(usize, 0), (try s.takeImportedPromiseListeners(.from(5))).len);
-}
-
-test "third-party import installation is atomic across allocation failure" {
-    var reached_success = false;
-    for (0..16) |fail_index| {
-        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{
-            .fail_index = fail_index,
-        });
-        var s = session.Session.init(failing.allocator());
-        defer {
-            failing.fail_index = std.math.maxInt(usize);
-            s.deinit();
-        }
-
-        s.installThirdPartyImport(.from(5), "home") catch |err| {
-            try std.testing.expectEqual(error.OutOfMemory, err);
-            try std.testing.expectEqual(@as(u64, 0), s.importRefcount(.from(5)));
-            try std.testing.expect(!s.isThirdPartyImport(.from(5)));
-            continue;
-        };
-        reached_success = true;
-        try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(5)));
-        try std.testing.expect(s.isThirdPartyImport(.from(5)));
-        break;
-    }
-    try std.testing.expect(reached_success);
-}
-
-test "imported-promise listener cap fails loud" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.initWith(allocator, .{
-        .limits = .{ .max_listeners_per_target = 1 },
-    });
-    defer s.deinit();
-
-    try s.installThirdPartyImport(.from(5), "h");
-    try s.retainImportForSession(.from(9));
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
-    try std.testing.expectError(error.ListenerCapExceeded, s.installImportedPromiseListener(
-        .from(5),
-        .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only },
-    ));
-    // A listener on an unknown (non-third-party) import errors.
-    try std.testing.expectError(error.InvalidReference, s.installImportedPromiseListener(
-        .from(99),
-        .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only },
-    ));
-}
-
-test "outbound gc-export releasing a third-party import drops its imported-promise row" {
-    const allocator = std.testing.allocator;
-    var s = session.Session.init(allocator);
-    defer s.deinit();
-
-    try s.installThirdPartyImport(.from(5), "h");
-    try s.retainImportForSession(.from(9));
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .mode = .settling_only });
-    try std.testing.expect(try s.recordRelayedResolution(.from(5), s.importedPromiseRowId(.from(5)).?, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } }));
-    try std.testing.expect(s.isThirdPartyImport(.from(5)));
-
-    // Outbound op:gc-exports releasing import 5 (count 1 → 0) evicts the row,
-    // freeing the host designator, the listener cap, and the stored resolution.
-    try s.recordSend(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
-    try std.testing.expect(!s.isThirdPartyImport(.from(5)));
-    try std.testing.expect(s.importedPromiseResolution(.from(5)) == null);
-}
 
 test "promise shortening rewrites through chains and refuses a cycle" {
     const allocator = std.testing.allocator;
@@ -198,8 +85,23 @@ test "an edge completed after its source was released owns no retain and adds no
     };
     defer allocator.free(release.positions);
     defer allocator.free(release.deltas);
-    try std.testing.expectEqual(@as(usize, 0), try s.expandShorteningGcExportReleases(allocator, &release));
+    var no_allocation = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+    try std.testing.expectEqual(@as(usize, 0), try s.expandShorteningGcExportReleases(no_allocation.allocator(), &release));
     try s.recordSend(.{ .gc_export = release });
     try std.testing.expect(!s.holdsImport(.from(5)));
     try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(6)));
+}
+
+test "a release naming no shortening source allocates nothing on either profile" {
+    const allocator = std.testing.allocator;
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        var s = session.Session.initWith(allocator, .{ .captp_version = profile });
+        defer s.deinit();
+        try s.registerImport(.from(5));
+        var release: model.GcExport = .{ .positions = &.{5}, .deltas = &.{1} };
+        var no_allocation = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
+        try std.testing.expectEqual(@as(usize, 0), try s.expandShorteningGcExportReleases(no_allocation.allocator(), &release));
+        try s.recordSend(.{ .gc_export = release });
+        try std.testing.expect(!s.holdsImport(.from(5)));
+    }
 }

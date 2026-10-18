@@ -5,6 +5,7 @@ const records = @import("loam_access_records");
 const Load = @import("load.zig").Load;
 const Read = @import("read.zig").Read;
 const record = @import("record.zig");
+const Step = @import("read.zig").Step;
 
 const State = struct {
     store: *loam.Store,
@@ -13,7 +14,8 @@ const State = struct {
     expected: u64,
     snapshot: u64,
     retention: loam.Retention,
-    read: ?Read = null,
+    read: Read = undefined,
+    loaded: bool = false,
     load: Load = .{},
     index: records.ObservationIndexRecord = .{},
     index_expected: ?u64 = null,
@@ -21,17 +23,20 @@ const State = struct {
     staged: bool = false,
     cancelled: bool = false,
 
-    fn advance(self: *State) !@import("read.zig").Step {
+    fn advance(self: *State) !Step {
         try self.current();
         if (self.ready) return .ready;
         if (self.context.descriptor == null) {
             self.ready = true;
             return .ready;
         }
-        if (self.read == null) self.read = try Read.init(self.store.allocator, self.store, self.context.owner, 1);
-        const step = try self.read.?.advance();
+        if (!self.loaded) {
+            try self.read.init(self.store.allocator, self.store, self.context.owner, 1, null);
+            self.loaded = true;
+        }
+        const step = try self.read.advance();
         if (step != .ready) return step;
-        const root = self.read.?.header.observations orelse return error.InvalidRecord;
+        const root = self.read.header.observations orelse return error.InvalidRecord;
         const row = switch (try self.load.resolve(self.store, root)) {
             .read => |request| return .{ .read = request },
             .waiting => return .waiting,
@@ -59,7 +64,7 @@ pub const Cancellation = opaque {
         /// stages their retirement through the existing owning hosting seam.
         /// Implementors are unknown at this declaration, so `stage` keeps an
         /// `anyerror` return set.
-        stage: *const fn (*anyopaque, [2]?loam.ObjectId) anyerror!void,
+        stage: *const fn (*anyopaque, records.ObservationRecord.Publications) anyerror!void,
     };
 
     pub fn init(store: *loam.Store, lease: loam.Lease) !*Cancellation {
@@ -71,10 +76,10 @@ pub const Cancellation = opaque {
         return @ptrCast(value);
     }
 
-    pub fn advance(self: *Cancellation) !@import("read.zig").Step {
+    pub fn advance(self: *Cancellation) !Step {
         return backing(self).advance();
     }
-    pub fn publications(self: *Cancellation) ![2]?loam.ObjectId {
+    pub fn publications(self: *Cancellation) !records.ObservationRecord.Publications {
         const value = backing(self);
         try value.current();
         return value.context.publications;
@@ -94,7 +99,7 @@ pub const Cancellation = opaque {
         for (value.context.publications) |publication| if (publication != null and retirement == null) return error.RetirementRequired;
         const store = value.store;
         var index = value.index;
-        const read = &value.read.?;
+        const read = &value.read;
         const root = read.header.observations.?;
         var expected = value.index_expected;
         if (try store.proposed(root)) |proposal| {
@@ -106,14 +111,14 @@ pub const Cancellation = opaque {
         read.transaction = store.ticket;
         if (retirement) |transition| try transition.stage(transition.context, value.context.publications);
         var contexts: [records.ObservationIndexRecord.capacity]loam.Edge = undefined;
-        try record.putEncoded(store, root, records.profile.observation_index, index, try index.edges(&contexts), expected, false);
+        try record.putEncoded(store, root, records.profile.observation_index, index, try index.edges(&contexts), expected, .reachable);
         var closed = value.context;
         closed.descriptor = null;
         closed.publications = @splat(null);
         closed.key = @splat(0);
         closed.lifetime = null;
         var edges: [records.ObservationRecord.max_edges]loam.Edge = undefined;
-        try record.putEncoded(store, value.object, records.profile.observation, closed, closed.edges(&edges), value.expected, false);
+        try record.putEncoded(store, value.object, records.profile.observation, closed, closed.edges(&edges), value.expected, .reachable);
         value.staged = true;
         return true;
     }
@@ -121,20 +126,20 @@ pub const Cancellation = opaque {
     pub fn completeRead(self: *Cancellation, ticket: loam.Ticket, completion: loam.ReadResult) !void {
         const value = backing(self);
         if (value.load.pending != null) return value.load.complete(value.store, ticket, completion);
-        if (value.read) |*read| return read.completeRead(ticket, completion);
+        if (value.loaded) return value.read.completeRead(ticket, completion);
         return error.StaleCompletion;
     }
     pub fn cancel(self: *Cancellation) !void {
         const value = backing(self);
         try value.load.cancel(value.store);
-        if (value.read) |*read| try read.cancel();
+        if (value.loaded) try value.read.cancel();
         value.cancelled = true;
     }
     pub fn deinit(self: *Cancellation) !void {
         const value = backing(self);
         const store = value.store;
         if (value.load.pending != null) return error.Busy;
-        if (value.read) |*read| try read.deinit();
+        if (value.loaded) try value.read.deinit();
         try store.releaseRetention(value.retention);
         store.allocator.destroy(value);
     }

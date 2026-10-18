@@ -96,9 +96,8 @@ fn dependentRequirement(ctx: ?*anyopaque, arena: std.mem.Allocator, invocation: 
 fn requirementWith(registration: *Content, callback: c.GlowcapLoamRequirementFn, arena: std.mem.Allocator, invocation: access.hosting.ContentInvocation) !access.core.Policy.Requirement {
     const call = try input(arena, invocation, registration.graph != null);
     var out: c.GlowcapLoamRequirement = std.mem.zeroes(c.GlowcapLoamRequirement);
-    const was_in_callback = registration.host.in_callback;
-    registration.host.in_callback = true;
-    defer registration.host.in_callback = was_in_callback;
+    const hold = registration.host.callback_latch.hold();
+    defer hold.release();
     if (callback(registration.declaration.context, &call, &out) != shared.GLOWCAP_OK) return error.ApplicationRefused;
     if (out.permission_count > access.core.Policy.max_permissions or out.fact_count > access.core.Policy.max_constraints) return error.PolicyLimit;
     const permissions = try arena.alloc(access.core.Policy.Key, out.permission_count);
@@ -123,15 +122,21 @@ pub const Call = struct {
     refused: bool = false,
     active: bool = true,
 };
+
+/// The call behind a C handle while it is still in its callback phase.
+pub fn active(raw: ?*c.GlowcapLoamCall) !*Call {
+    const call: *Call = @ptrCast(@alignCast(raw orelse return error.NullPointer));
+    if (!call.active) return error.WrongPhase;
+    return call;
+}
 fn invoke(ctx: ?*anyopaque, content_call: *access.hosting.ContentCall, invocation: access.hosting.ContentInvocation) !driver.Value {
     const registration = content(ctx);
     const call_input = try input(content_call.allocator(), invocation, registration.graph != null);
     // The synchronous callback token is borrowed only during this invocation.
     // Replacement and reply setters copy into the retained arena before return.
     var call: Call = .{ .content_call = content_call, .host = registration.host, .attachment = registration.attachment };
-    const was_in_callback = registration.host.in_callback;
-    registration.host.in_callback = true;
-    defer registration.host.in_callback = was_in_callback;
+    const hold = registration.host.callback_latch.hold();
+    defer hold.release();
     defer call.active = false;
     if (registration.declaration.invoke.?(registration.declaration.context, @ptrCast(&call), &call_input) != shared.GLOWCAP_OK) return error.ApplicationRefused;
     if (call.refused) return error.ApplicationRefused;
@@ -141,9 +146,8 @@ fn invoke(ctx: ?*anyopaque, content_call: *access.hosting.ContentCall, invocatio
 fn admitForward(ctx: ?*anyopaque, content_call: *access.hosting.ContentCall, work: access.hosting.ForwardWork) !void {
     const registration = content(ctx);
     var call: Call = .{ .content_call = content_call, .host = registration.host, .attachment = registration.attachment };
-    const was_in_callback = registration.host.in_callback;
-    registration.host.in_callback = true;
-    defer registration.host.in_callback = was_in_callback;
+    const hold = registration.host.callback_latch.hold();
+    defer hold.release();
     defer call.active = false;
     if (registration.declaration.admit_forward.?(registration.declaration.context, @ptrCast(&call), work.selector.ptr, work.selector.len, work.method.ptr, work.method.len, work.material_bytes) != shared.GLOWCAP_OK or call.refused) return error.ApplicationRefused;
     if (call.reply != null) return error.InvalidForwarding;

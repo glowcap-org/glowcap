@@ -8,13 +8,6 @@ const net = @import("net");
 const shared = @import("c_abi_shared");
 const provider_failure = @import("../provider_failure.zig");
 
-pub fn append(target: *?foundation.FailureChain, later: foundation.FailureChain) void {
-    if (target.*) |*first|
-        first.noteChain(later)
-    else
-        target.* = later;
-}
-
 pub fn failure(
     code: i32,
     report: shared.GlowcapProviderFailure,

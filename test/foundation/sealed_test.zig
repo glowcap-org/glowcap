@@ -191,3 +191,21 @@ test "the wipe before the next open covers the previous plaintext exactly" {
     try std.testing.expectEqual(@as(u32, 4), responder.plain_used);
     for (responder.plain[4..long_len]) |byte| try std.testing.expectEqual(@as(u8, 0), byte);
 }
+
+test "a transport symbol past the prologue bound is refused before any key work" {
+    const identity = crypto.SecretKey.fromSeed(@splat(5));
+    const long_symbol: [sealed.max_transport_bytes + 1]u8 = @splat('x');
+    try std.testing.expectError(error.TransportTooLong, sealed.SealedChannel.initResponder(
+        &identity,
+        @splat(6),
+        &long_symbol,
+    ));
+    try std.testing.expectError(error.TransportTooLong, sealed.SealedChannel.initInitiator(
+        &identity,
+        crypto.SecretKey.fromSeed(@splat(7)).publicKey(),
+        @splat(8),
+        &long_symbol,
+    ));
+    var at_bound = try sealed.SealedChannel.initResponder(&identity, @splat(9), long_symbol[1..]);
+    at_bound.deinit(std.testing.allocator);
+}

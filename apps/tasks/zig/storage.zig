@@ -82,7 +82,7 @@ pub fn Storage(comptime Engine: type) type {
         /// address until `close`.
         pub fn open(self: *Self, allocator: std.mem.Allocator, io: std.Io, host: *driver.Host, path: [:0]const u8) !void {
             self.io = io;
-            self.db = try Engine.open(path, .{ .mode = .{ .bootstrap = store_id } });
+            self.db = try Engine.open(path, .{ .opening = .{ .id = store_id, .mode = .bootstrap } });
             errdefer self.db.close() catch {}; // tolerant: the open already failed.
             self.store = try core.Store.init(allocator, self.db.metadata, &schemas, limits);
             errdefer self.store.deinit() catch {}; // tolerant: the open already failed.
@@ -130,7 +130,7 @@ pub fn Storage(comptime Engine: type) type {
             for (0..64) |_| {
                 var progressed = try self.attached.host.vat.driveIngressBudgeted(.local, 64) == .more_pending;
                 progressed = (try self.attached.advanceProgress()) or progressed;
-                while (try self.worker.next(self.attached, false)) |slot| {
+                while (try self.worker.next(self.attached, .when_uncertain)) |slot| {
                     progressed = true;
                     hosting.Worker.run(slot, &self.db) catch unreachable; // `next` just filled this slot.
                     switch (slot.request) {

@@ -30,22 +30,22 @@ test "vat id exhaustion refuses before publishing local actor or queued vow" {
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
 
-    vat.next_actor = std.math.maxInt(u64);
+    vat.actor_ids.next = std.math.maxInt(u64);
     try std.testing.expectError(
         actors.Error.ResourceExhausted,
         vat.spawn(Counter, .{ .n = 0 }),
     );
     try std.testing.expectEqual(@as(usize, 0), vat.actors.count());
 
-    vat.next_actor = 1;
+    vat.actor_ids.next = 1;
     const counter = try vat.spawn(Counter, .{ .n = 0 });
-    vat.next_vow = std.math.maxInt(u64);
+    vat.vow_ids.next = std.math.maxInt(u64);
     try std.testing.expectError(
         actors.Error.ResourceExhausted,
         vat.send(counter, .{ .verb = "increment" }),
     );
     try std.testing.expectEqual(@as(usize, 0), vat.pending_local_vows.count());
-    try std.testing.expectEqual(std.math.maxInt(u64), vat.next_vow);
+    try std.testing.expectEqual(std.math.maxInt(u64), vat.vow_ids.next);
 }
 
 test "driveBudgeted runs at most N queued turns then yields the rest to the next call" {
@@ -107,30 +107,6 @@ test "ingress scheduling rotates fairly and preserves FIFO within each ingress" 
     try std.testing.expectEqual(actors.Vat.DriveProgress.drained, try vat.driveBudgeted(6));
     const order = (try vat.near(recorder, .{ .verb = "order" })).bytes;
     try std.testing.expectEqualSlices(u8, &.{ 1, 10, 2, 11, 3, 12 }, order);
-}
-
-test "a Port cannot attribute work to a sibling ingress" {
-    const allocator = std.testing.allocator;
-    var pair = try glowcap.ocapn.engine.pairing.paired(allocator);
-    defer pair.deinit();
-    var vat = actors.Vat.init(allocator);
-    defer vat.deinit();
-    const own = try vat.openIngress();
-    const sibling = try vat.openIngress();
-    defer vat.closeIngress(own) catch unreachable;
-    defer vat.closeIngress(sibling) catch unreachable;
-    var port = actors.Port.init(allocator, &pair.p1);
-    defer port.deinit(&vat);
-    port.ingress = own;
-    const counter = try vat.spawn(Counter, .{ .n = 0 });
-
-    try std.testing.expectError(
-        actors.Error.UnknownIngress,
-        port.tellFromIngress(&vat, sibling, counter, .{ .verb = "increment" }),
-    );
-    try port.tellFromIngress(&vat, own, counter, .{ .verb = "increment" });
-    try vat.drive();
-    try std.testing.expectEqual(@as(i64, 1), (try vat.near(counter, .{ .verb = "get" })).integer);
 }
 
 test "ingress turn and byte admission refuse atomically" {

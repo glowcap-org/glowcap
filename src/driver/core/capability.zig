@@ -350,15 +350,21 @@ pub const Registry = struct {
         return self.by_target.count();
     }
 
-    fn acquireSlot(self: *Registry, allocator: std.mem.Allocator) Error!struct { index: u32, slot: *Slot } {
-        if (self.free_head) |index| {
-            const slot = &self.slots.items[index];
-            self.free_head = switch (slot.state) {
-                .free => |next| next,
-                else => unreachable,
-            };
-            return .{ .index = index, .slot = slot };
-        }
+    const AcquiredSlot = struct { index: u32, slot: *Slot };
+
+    /// The slot at the free-list head, unlinked from the list.
+    fn popFreeSlot(self: *Registry) ?AcquiredSlot {
+        const index = self.free_head orelse return null;
+        const slot = &self.slots.items[index];
+        self.free_head = switch (slot.state) {
+            .free => |next| next,
+            else => unreachable,
+        };
+        return .{ .index = index, .slot = slot };
+    }
+
+    fn acquireSlot(self: *Registry, allocator: std.mem.Allocator) Error!AcquiredSlot {
+        if (self.popFreeSlot()) |acquired| return acquired;
         // `len` is the next index. The maximum u32 itself is still one valid
         // slot; only the following length is outside the encoded slot field.
         if (self.slots.items.len > std.math.maxInt(u32)) return error.CapabilitySpaceExhausted;
@@ -367,15 +373,8 @@ pub const Registry = struct {
         return .{ .index = index, .slot = &self.slots.items[index] };
     }
 
-    fn acquireSlotAssumeCapacity(self: *Registry) struct { index: u32, slot: *Slot } {
-        if (self.free_head) |index| {
-            const slot = &self.slots.items[index];
-            self.free_head = switch (slot.state) {
-                .free => |next| next,
-                else => unreachable,
-            };
-            return .{ .index = index, .slot = slot };
-        }
+    fn acquireSlotAssumeCapacity(self: *Registry) AcquiredSlot {
+        if (self.popFreeSlot()) |acquired| return acquired;
         std.debug.assert(self.slots.items.len <= std.math.maxInt(u32));
         const index: u32 = @intCast(self.slots.items.len);
         self.slots.appendAssumeCapacity(.{ .state = .{ .free = null } });

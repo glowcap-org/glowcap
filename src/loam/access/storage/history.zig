@@ -5,6 +5,7 @@ const core = @import("loam_access_core");
 const records = @import("loam_access_records");
 const Read = @import("read.zig").Read;
 const record = @import("record.zig");
+const read = @import("read.zig");
 const Batch = records.ChangeBatchRecord;
 
 /// The first effect allocates a batch. Later effects reuse that batch's
@@ -29,7 +30,7 @@ pub fn append(view: *Read, effect: Batch.Effect) !void {
     const store = view.store;
     const revision = std.math.add(u64, store.metadata.revision, 1) catch return error.RevisionExhausted;
     var retained = view.history;
-    var previous: ?Batch.Owned = null;
+    var previous: ?Batch = null;
     defer if (previous) |*owned| owned.deinit(store.allocator);
     var effects: [Batch.max_effects]Batch.Effect = undefined;
     var count: usize = 0;
@@ -38,14 +39,16 @@ pub fn append(view: *Read, effect: Batch.Effect) !void {
     if (retained.count != 0) {
         const latest = retained.batches[retained.count - 1];
         if (try store.proposed(latest)) |proposal| {
-            previous = try Batch.decodeOwned(store.allocator, proposal.view);
-            if (previous.?.value.owner != view.header.owner or previous.?.value.commit_revision != revision) return error.InvalidRecord;
-            const prior = previous.?.value.effects;
+            var decoded: Batch = undefined;
+            try decoded.decodeOwned(store.allocator, proposal.view);
+            previous = decoded;
+            if (previous.?.owner != view.header.owner or previous.?.commit_revision != revision) return error.InvalidRecord;
+            const prior = previous.?.effects;
             if (prior.len == effects.len) return error.ChangeCapacity;
             @memcpy(effects[0..prior.len], prior);
             count = prior.len;
             object = latest;
-            if (previous.?.value.sequence != sequence) return error.InvalidRecord;
+            if (previous.?.sequence != sequence) return error.InvalidRecord;
         }
     }
     if (object == null) {
@@ -54,10 +57,10 @@ pub fn append(view: *Read, effect: Batch.Effect) !void {
     }
     effects[count] = effect;
     count += 1;
-    try record.putEncoded(store, object.?, records.profile.change_batch, Batch{ .owner = view.header.owner, .commit_revision = revision, .sequence = sequence, .effects = effects[0..count] }, &.{}, null, false);
+    try record.putEncoded(store, object.?, records.profile.change_batch, Batch{ .owner = view.header.owner, .commit_revision = revision, .sequence = sequence, .effects = effects[0..count] }, &.{}, null, .reachable);
     const root = view.header.history orelse try store.allocateId();
     var edges: [records.ChangeHistoryRecord.capacity]loam.Edge = undefined;
-    try record.putEncoded(store, root, records.profile.change_history, retained, try retained.edges(&edges), view.history_expected, false);
+    try record.putEncoded(store, root, records.profile.change_history, retained, try retained.edges(&edges), view.history_expected, .reachable);
     view.header.history = root;
     view.history = retained;
 }
@@ -87,14 +90,19 @@ pub fn resourcePath(view: *Read, target: core.ResourceId) !ResourcePath {
     return path;
 }
 
-pub fn row(view: *Read, target: @import("read.zig").Target) !Read.Row {
+pub fn row(view: *Read, target: read.Target) !Read.Row {
     try view.current();
-    for (view.bindings[0..view.count]) |binding| if (std.meta.eql(binding.target, target))
+    for (view.bindings[0..view.count]) |*binding| if (binding.target.eql(target))
         return (try Read.rowFor(view.store, binding)) orelse return error.Gone;
     return error.RecordUnloaded;
 }
 
-pub fn touchResources(view: *Read, path: []const core.ResourceId, content: bool) !void {
+/// What a touch along a resource path restamps: every subtree on the path, or
+/// the first resource's content as well.
+pub const Touch = enum { subtree, content };
+
+pub fn touchResources(view: *Read, path: []const core.ResourceId, touch: Touch) !void {
+    const content = touch == .content;
     for (path, 0..) |id, index| {
         const found = try row(view, .{ .resource = id });
         var value = try records.ResourceRecord.decode(found.view);
@@ -112,19 +120,14 @@ pub fn touchResources(view: *Read, path: []const core.ResourceId, content: bool)
 pub fn touchGrants(view: *Read, path: []const core.GrantId) !void {
     for (path) |id| {
         const found = try row(view, .{ .grant = id });
-        var value = try records.GrantRecord.decodeOwned(view.allocator, found.view.payload);
+        var value: records.GrantRecord = undefined;
+        try value.decodeOwned(view.allocator, found.view.payload);
         defer value.deinit(view.allocator);
-        if (value.value.inventory.revision == @backingInt(view.header.version.grants)) continue;
-        value.value.grant.revision = view.header.version.grants;
-        value.value.inventory = try stamp(view, @backingInt(view.header.version.grants));
+        if (value.inventory.revision == @backingInt(view.header.version.grants)) continue;
+        value.grant.revision = view.header.version.grants;
+        value.inventory = try stamp(view, @backingInt(view.header.version.grants));
         var edges: [records.GrantRecord.max_edges]loam.Edge = undefined;
-        var iterator = found.view.edges();
-        var count: usize = 0;
-        while (iterator.next()) |edge| {
-            if (count == edges.len) return error.InvalidRecord;
-            edges[count] = edge;
-            count += 1;
-        }
-        try record.putEncoded(view.store, found.view.id, records.profile.grant, value.value, edges[0..count], found.expected, false);
+        const count = try record.copyEdges(found.view, &edges);
+        try record.putEncoded(view.store, found.view.id, records.profile.grant, value, edges[0..count], found.expected, .reachable);
     }
 }

@@ -139,18 +139,8 @@ fn connRemoteKey(ctx: ?*anyopaque, conn: u64, out_key: ?[*]u8) callconv(.c) i32 
     if (!peer.provider_claimed) return 0;
     peer.peer.checkOpen() catch return 0;
     const key = peer.peer.authorized_remote orelse return 0;
-    @memcpy(dest[0..crypto.PEER_KEY_BYTES], key.asBytes());
+    @memcpy(dest[0..crypto.peer_key_bytes], key.asBytes());
     return 1;
-}
-
-fn retain(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx orelse {
-        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-        return GLOWCAP_ERR_NULL_POINTER;
-    }));
-    if (ownership.retainNetlayer(payload)) return GLOWCAP_OK;
-    c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
-    return GLOWCAP_ERR_CLOSED;
 }
 
 fn release(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
@@ -221,7 +211,7 @@ pub fn fill(payload: *NetlayerPayload, slot: *c.GlowcapTransportProvider) void {
         .entry_count = 1,
         .lease_ctx = payload,
         .same_configuration = sameConfiguration,
-        .retain = retain,
+        .retain = c.transport_provider.retainCallback(NetlayerPayload),
         .release = release,
     };
 }

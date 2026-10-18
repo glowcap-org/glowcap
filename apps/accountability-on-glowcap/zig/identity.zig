@@ -30,7 +30,7 @@ const kel_mod = @import("kel.zig");
 
 const Key = said_mod.Key;
 const SAID_LEN = said_mod.SAID_LEN;
-const SEED_BYTES = said_mod.SEED_BYTES;
+const seed_bytes = said_mod.seed_bytes;
 const blank = said_mod.blank;
 const encodeSaid = said_mod.encodeSaid;
 const saidOf = said_mod.saidOf;
@@ -171,7 +171,7 @@ pub const Identity = struct {
 const testing = std.testing;
 
 fn seededKey(seed_byte: u8) !Key {
-    return Key.fromSeed(@as([SEED_BYTES]u8, @splat(seed_byte)));
+    return Key.fromSeed(@as([seed_bytes]u8, @splat(seed_byte)));
 }
 
 fn codedVerkey(key: Key) [SAID_LEN]u8 {

@@ -44,7 +44,7 @@ pub fn borrowPreparedAdvertisedLocator(
 ) !model.PeerLocator {
     try admission.admitConfigurationMutation(self);
     if ((try self.transportProfile(locator.transport)).dial_shape == .route_bundle)
-        return HostError.UnknownTransport;
+        return error.UnknownTransport;
     if (try designatorScheme(self, locator.transport) == .key)
         try sessions.refuseUnheldIdentity(self, locator.designator);
     return hint_storage.extend(self.allocator, locator, .{
@@ -88,7 +88,7 @@ pub fn setAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
 pub fn ensureAdvertisedLocator(self: *Host, transport: []const u8) !void {
     try admission.admitConfigurationMutation(self);
     if ((try self.transportProfile(transport)).dial_shape == .route_bundle)
-        return HostError.UnknownTransport;
+        return error.UnknownTransport;
     var key_designator: [crypto.PeerKey.designator_len]u8 = undefined;
     const designator = switch (try designatorScheme(self, transport)) {
         .key => blk: {
@@ -99,11 +99,7 @@ pub fn ensureAdvertisedLocator(self: *Host, transport: []const u8) !void {
     };
     var hint_storage: engine.Peer.HelloHints = .{};
     defer hint_storage.deinit(self.allocator);
-    const complete = try hint_storage.extend(self.allocator, .{
-        .transport = transport,
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    }, .{
+    const complete = try hint_storage.extend(self.allocator, .hintless(transport, designator), .{
         .captp_version = self.opts.captp_version,
         .codec = self.opts.codec,
         .features = self.opts.features,
@@ -174,6 +170,8 @@ pub fn defineTransports(
 
     for (profiles) |profile| {
         model.transport.validateSymbol(profile.symbol) catch return error.InvalidTransportName;
+        if (profile.sealed_channel and profile.symbol.len > foundation.sealed.max_transport_bytes)
+            return error.InvalidTransportName;
         if (model.transport.parseKnown(profile.symbol)) |known| {
             const known_profile = known.metadata();
             if (!known_profile.eql(profile)) return error.TransportSemanticsConflict;
@@ -220,7 +218,7 @@ pub fn defineTransports(
 pub fn transportProfile(self: *const Host, transport: []const u8) HostError!model.transport.Metadata {
     if (self.transport_profiles.get(transport)) |profile| return profile;
     if (model.transport.parseKnown(transport)) |known| return known.metadata();
-    return HostError.UnknownTransport;
+    return error.UnknownTransport;
 }
 
 pub fn designatorScheme(self: *const Host, transport: []const u8) HostError!model.transport.DesignatorScheme {

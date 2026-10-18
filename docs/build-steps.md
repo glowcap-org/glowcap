@@ -66,7 +66,7 @@ zig build test -Dtest-layer=engine,driver # compile and run only these test laye
 zig build test-memcheck        # the protocol core and actors tests once more under valgrind, built for the baseline CPU; -Dtest-filter narrows it
 zig build arch-check           # the layer boundaries: module edges, the no-I/O core, and file coverage
 zig build source-check         # static cross-file source, documentation, generated-mirror, and scaffolding contracts
-zig build infrastructure-check # devcontainer, worktree integration, and agent edit-hook behavior in temporary fixtures
+zig build infrastructure-check # devcontainer, worktree and publication integration, agent edit hooks, and CI event selection
 zig build toolchain-check      # every program and toolchain target `check` declares is installed here, and no member uses an undeclared program
 zig build loam-core-wasm-check # compile portable Loam calls for 32-bit Wasm without LMDB; part of check
 zig build loam-abi-test        # C resource creation, ownership, portable transaction evaluation and uncertain storage recovery; part of check
@@ -109,7 +109,7 @@ zig build site                 # build the documentation site (Zine + autodoc) u
 zig build site-render-check    # render every built site page at phone width in the pinned Chromium; fails on console errors or horizontal overflow (needs deno + the image-baked browser)
 zig build site-tabs-check      # press the code-tabs on every built site page in the pinned Chromium; fails when a tab does not open its own panel (needs deno + the image-baked browser)
 zig build docs-serve           # serve the documentation site and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes)
-zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)
+zig build release-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)
 zig build rooms-build # complete the installation under zig-out and stage zig-out/product for packaging/deployment (needs cargo + deno + wasm-bindgen)
 zig build rooms-release # prepare the same complete host product with fixed ReleaseSafe and baseline CPU settings (needs cargo + deno + wasm-bindgen)
 zig build glowcap-install-test # prove the checkout launcher, installed assets, skills, sessions and completion; part of runtime-check
@@ -157,11 +157,14 @@ zig build gen-binding-loam-layout        # regenerate Rust Loam layouts and fing
 zig build gen-binding-loam-layout-check  # verify Rust Loam layouts and fingerprints; part of check
 zig build gen-header-host        # regenerate include/glowcap_host.h from src/c_abi/host
 zig build gen-header-host-check  # verify include/glowcap_host.h matches src/c_abi/host (fails if stale), part of check
+zig build gen-own-wire                        # regenerate src/ocapn/model/own_wire.zig, the fingerprint of glowcap's own wire (ADR-0252)
+zig build gen-own-wire-check                  # verify the own-wire fingerprint (fails if stale), part of check
 zig build gen-header-transport-provider       # regenerate include/glowcap_transport_provider.h from the shared provider ABI
 zig build gen-header-transport-provider-check # verify the standalone provider ABI header (fails if stale), part of check
 zig build gen-header-driver      # regenerate include/glowcap_driver.h from src/c_abi/driver
 zig build gen-header-driver-check # verify include/glowcap_driver.h matches src/c_abi/driver (fails if stale), part of check
 zig build iroh-driver-provider     # live ADR-0112 seam proof: the driver archive dials a real iroh endpoint through the common provider ABI (needs cargo)
+zig build iroh-managed             # Zig Session and Server over real iroh: identity, fetch, call, and accepted-session lifetime, also run by iroh-driver-provider (needs cargo)
 ```
 
 The transport archives each carry their own header.
@@ -232,7 +235,7 @@ zig build doc-impact                    # list the docs whose header sources nam
 ```
 
 The project's mark is defined once, as the WebGPU shader in
-`apps/rooms/web/ui/mark_gpu_field.ts`, and `tools/gen/mark/` traces every still
+`apps/rooms/web/ui/mark/field.ts`, and `tools/gen/mark/` traces every still
 picture of it from a render of that shader. These two steps run the pinned
 headless Chromium. `zig build source-check` covers the half that needs no
 browser: it holds the committed files to one geometry, so a hand edit to any of
@@ -590,8 +593,9 @@ zig build relay-scaling          # the reference relay's per-connection footprin
 zig build bench-iroh             # OCapN round-trip latency and throughput over encrypted iroh QUIC against a same-machine cleartext TCP baseline (needs cargo); `-- --smoke`, `-- --row=greet|report|session-open`, `-- --codec=syrup|capnp`, `-- --readings=N --frame-cap=N`, and `-- --transport=tcp|noise-tcp|inproc|iroh|iroh-loop` forwarded
 zig build bench-goblins          # cross-implementation benchmark: glowcap's Racket binding and Spritely Goblins on one shared app (needs racket + goblins); `-- --smoke`/`--suite=<name>` forwarded
 zig build bench-capnp            # Cap'n Proto RPC echo round trip in Rust (capnp-rpc) and C++ (reference library) on one loopback socket, for the benchmarks page comparison (needs capnp, cargo, g++); `-- --smoke`/`--pin=A,B` forwarded
-zig build bench-langs            # per-language consumer cost: one fixed Zig host, the client language swapped per row, driven by a Zig orchestrator; `-- --smoke`/`--client=<name>` forwarded
+zig build bench-langs            # per-language consumer cost: one fixed Zig host, the client language swapped per row, driven by a Zig orchestrator; `-- --smoke`/`--client=<name>`/`--pin=A,B` (clients on core A, the host on B) forwarded
 zig build bench-site-report      # regenerate the performance pages' charts and tables from live ReleaseFast runs (needs racket + goblins + cargo, plus capnp and g++ for `bench-capnp`)
+zig build bench-ab -- --base=<rev> <bench-step> [args] # the bench alternately on the archived base revision and this tree, ReleaseFast, `--pairs=N` (default 3); each row's medians side by side with their ratio
 ```
 
 A `profile-*` step runs a bench under callgrind, built ReleaseFast for the
@@ -603,5 +607,7 @@ beside the callgrind parts, and `bench/README.md` says how to read it.
 zig build profile-loam           # bench-loam's marked phases: the Tasks app's add, read, move, share and watch, the hot and cold reads, and the cold reads at scale; bench-loam's filters after -- (needs valgrind)
 zig build profile-outbound       # bench-outbound's answered send and clone-only phases (needs valgrind)
 zig build profile-dispatch-scaling # bench-dispatch-scaling's sequential and shuffled batches at each peer count (needs valgrind)
+zig build profile-iroh           # bench-iroh's timed loops over the driver wire path, one phase per transport and row; `-- --transport=tcp --row=greet` attributes one row (needs cargo + valgrind)
 zig build profile-report-test    # the callgrind part reader behind the profile-* reports (part of check)
+zig build bench-ab-test          # the row reader behind bench-ab (part of check)
 ```

@@ -7,11 +7,13 @@ const driver = @import("driver_core");
 const h = @import("attachment.zig");
 const Recipe = @import("reference_recipe.zig").Recipe;
 pub const max_uri_bytes = @import("reference_recipe.zig").max_uri_bytes;
+const call_memory = @import("call_memory.zig");
+const reference_scope = @import("reference_scope.zig");
 
-pub fn allocationBound(count: usize, uri_bytes: usize) !@import("call_memory.zig").AllocationBound {
-    var bound: @import("call_memory.zig").AllocationBound = .{};
+pub fn allocationBound(count: usize, uri_bytes: usize) !call_memory.AllocationBound {
+    var bound: call_memory.AllocationBound = .{};
     try bound.include(@sizeOf(State), @alignOf(State), count);
-    try bound.include(@max(try Save.canonicalUriBytesBound(uri_bytes), @import("reference_scope.zig").Scope.max_name_bytes), 1, count);
+    try bound.include(@max(try Save.canonicalUriBytesBound(uri_bytes), reference_scope.Scope.max_name_bytes), 1, count);
     try bound.include(@sizeOf(driver.Host.Enliven), @alignOf(driver.Host.Enliven), count);
     return bound;
 }
@@ -135,7 +137,7 @@ pub fn beginPrepared(owner: *h.Attachment, allocator: std.mem.Allocator, scratch
 /// A URI cannot give a pending promise a supported field representation.
 pub fn validateForeignObject(host: *driver.Host, capability: driver.Capability) !void {
     const home = host.capabilitySession(capability) orelse return error.NotDurable;
-    _ = host.routeCapability(home, capability, true) catch |err| switch (err) {
+    _ = host.routeCapability(home, capability, .object_only) catch |err| switch (err) {
         error.UncallableTarget => return error.NotDurable,
         else => return err,
     };

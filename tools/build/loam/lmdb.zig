@@ -6,10 +6,10 @@ const Gates = @import("../gates.zig").Registered;
 const Engine = @import("crash.zig").Engine;
 
 /// Registers the LMDB module with its tests and replacement probe.
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, owner_lock: *std.Build.Module, support: *std.Build.Module, temp: *std.Build.Module, gates: Gates) Engine {
-    const lmdb = create(b, target, optimize, core, owner_lock, true);
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, custody: *std.Build.Module, support: *std.Build.Module, temp: *std.Build.Module, gates: Gates) Engine {
+    const lmdb = create(b, target, optimize, core, custody, true);
     const tested = b.createModule(moduleOptions(b, target, optimize));
-    wire(b, tested, core, owner_lock, true);
+    wire(b, tested, core, custody, true);
     const tests = b.createModule(.{ .root_source_file = b.path("test/loam_lmdb_test.zig"), .target = target, .optimize = optimize, .link_libc = true });
     tests.addImport("loam_test_support", support);
     tests.addImport("loam_core", core);
@@ -44,10 +44,10 @@ fn fixture(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
 
 /// One LMDB module for a target, wired to `core`. The profiled bench graph
 /// builds its own through this, unregistered.
-pub fn create(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, owner_lock: *std.Build.Module, registered: bool) *std.Build.Module {
+pub fn create(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, custody: *std.Build.Module, registered: bool) *std.Build.Module {
     const options = moduleOptions(b, target, optimize);
     const lmdb = if (registered) b.addModule("glowcap_loam_lmdb", options) else b.createModule(options);
-    wire(b, lmdb, core, owner_lock, false);
+    wire(b, lmdb, core, custody, false);
     return lmdb;
 }
 
@@ -63,9 +63,9 @@ fn moduleOptions(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.
     };
 }
 
-fn wire(b: *std.Build, lmdb: *std.Build.Module, core: *std.Build.Module, owner_lock: *std.Build.Module, inject: bool) void {
+fn wire(b: *std.Build, lmdb: *std.Build.Module, core: *std.Build.Module, custody: *std.Build.Module, inject: bool) void {
     lmdb.addImport("loam_core", core);
-    lmdb.addImport("loam_owner_lock", owner_lock);
+    lmdb.addImport("loam_custody", custody);
     const lmdb_source = b.dependency("lmdb", .{}).path("libraries/liblmdb");
     lmdb.addIncludePath(lmdb_source);
     const generator = b.addExecutable(.{ .name = "checked-lmdb", .root_module = b.createModule(.{

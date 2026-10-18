@@ -25,13 +25,8 @@ const HostSession = session_wire.HostSession;
 /// typed `op:abort` onto the outbound queue. The flush action is still queued
 /// so the embedder writes it before closing the transport.
 pub fn feed(self: *Host, session: *HostSession, frame: foundation.FrameView) !void {
-    try self.checkSession(session);
-    // A sealed session's wire is the sealed byte stream; a whole plaintext
-    // frame fed around the channel would bypass what the channel proves, so it
-    // is refused rather than admitted unsealed.
-    if (session.sealed != null) return HostError.SealedSessionBytesOnly;
-    try self.checkOutboundAdmission(session);
-    host_pump.dispatchUnderLatch(self, session, struct {
+    try admitFeed(self, session);
+    try dispatchFed(self, session, struct {
         c: *HostSession,
         f: foundation.FrameView,
         pub fn call(s: @This()) !void {
@@ -45,20 +40,38 @@ pub fn feed(self: *Host, session: *HostSession, frame: foundation.FrameView) !vo
                 return err;
             };
         }
-    }{ .c = session, .f = frame }) catch |err| {
-        if (err == error.EventServeOutOfMemory) {
-            // `Served` already removed the event. Retrying this frame would
-            // replay protocol authority while the original event is gone.
-            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
-            return;
-        }
-        // The preflight above is the only retryable refusal. Once dispatch
-        // starts, the frame may have committed before its resulting work
-        // crosses the waterline; report it consumed and let the next verb
-        // observe backpressure rather than inviting a replay.
-        if (err == error.OutboundBackpressure) return;
-        return err;
-    };
+    }{ .c = session, .f = frame });
+}
+
+/// The preflight every fed frame passes, and the only retryable refusal.
+fn admitFeed(self: *Host, session: *HostSession) !void {
+    try self.checkSession(session);
+    // A sealed session's wire is the sealed byte stream; a whole plaintext
+    // frame fed around the channel would bypass what the channel proves, so it
+    // is refused rather than admitted unsealed.
+    if (session.sealed != null) return error.SealedSessionBytesOnly;
+    try self.checkOutboundAdmission(session);
+}
+
+/// Dispatch one admitted frame under the latch and settle what dispatch can
+/// refuse once it has started.
+fn dispatchFed(self: *Host, session: *HostSession, body: anytype) !void {
+    host_pump.dispatchUnderLatch(self, session, body) catch |err| return settleStartedDispatch(self, session, err);
+}
+
+/// Settle what a dispatch can refuse once it has started. A serve that lost
+/// its event under memory pressure condemns the session: `Served` already
+/// removed the event, so retrying the frame would replay protocol authority.
+/// Backpressure mid-dispatch is a consumed frame: its bytes dispatched or
+/// stayed owned in the tail, so the next verb observes the pressure instead
+/// of inviting a replay. Every other refusal is the caller's.
+fn settleStartedDispatch(self: *Host, session: *HostSession, err: anytype) @TypeOf(err)!void {
+    if (err == error.EventServeOutOfMemory) {
+        host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
+        return;
+    }
+    if (err == error.OutboundBackpressure) return;
+    return err;
 }
 
 /// Feed raw bytes from a byte-stream transport. Each bare codec frame must be
@@ -83,17 +96,8 @@ pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
         pub fn call(s: @This()) !void {
             try session_wire.feedStreamChunk(s.gpa, s.c, s.bytes, s.was_open);
         }
-    }{ .gpa = self.allocator, .c = session, .bytes = bytes, .was_open = was_open }) catch |err| {
-        if (err == error.EventServeOutOfMemory) {
-            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
-            return;
-        }
-        // `call` either dispatched bytes or retained their suffix in the
-        // tail. Mid-dispatch pressure is therefore a successful ownership
-        // transfer; only the next call may return retryable backpressure.
-        if (err == error.OutboundBackpressure) return;
-        return err;
-    };
+    }{ .gpa = self.allocator, .c = session, .bytes = bytes, .was_open = was_open }) catch |err|
+        return settleStartedDispatch(self, session, err);
 }
 
 /// Feed one packet from the transport shape this session was minted with.
@@ -108,23 +112,14 @@ pub fn feedTransportPacket(self: *Host, session: *HostSession, packet: []const u
 }
 
 fn feedMessagePacket(self: *Host, session: *HostSession, packet: []const u8) !void {
-    try self.checkSession(session);
-    if (session.sealed != null) return HostError.SealedSessionBytesOnly;
-    try self.checkOutboundAdmission(session);
-    host_pump.dispatchUnderLatch(self, session, struct {
+    try admitFeed(self, session);
+    try dispatchFed(self, session, struct {
         c: *HostSession,
         packet: []const u8,
         pub fn call(s: @This()) !void {
             try s.c.served.port.peer.recvPacket(s.packet);
         }
-    }{ .c = session, .packet = packet }) catch |err| {
-        if (err == error.EventServeOutOfMemory) {
-            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
-            return;
-        }
-        if (err == error.OutboundBackpressure) return;
-        return err;
-    };
+    }{ .c = session, .packet = packet });
 }
 
 /// The sealed arm of `feedBytes` (ADR-0107): stage the wire bytes on the
@@ -195,14 +190,8 @@ fn feedSealedBytes(self: *Host, session: *HostSession, channel: *foundation.seal
             }
             if (s.channel.hasPendingWire()) host_pump.markDirty(s.host, s.c.peer_handle);
         }
-    }{ .host = self, .c = session, .channel = channel, .bytes = bytes, .was_open = was_open }) catch |err| {
-        if (err == error.EventServeOutOfMemory) {
-            host_pump.condemnAndClose(self, session, .resource_exhausted, "event serve failed under memory pressure");
-            return;
-        }
-        if (err == error.OutboundBackpressure) return;
-        return err;
-    };
+    }{ .host = self, .c = session, .channel = channel, .bytes = bytes, .was_open = was_open }) catch |err|
+        return settleStartedDispatch(self, session, err);
 }
 
 /// Serve one already-polled event under the host. This is the per-event verb

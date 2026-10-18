@@ -273,14 +273,16 @@ fn verify(server: *Server, client: *h.driver.Host, pair: pairs.Pair, use: model.
     const store = server.caps.store;
     const parent = try endpoint(server, use_entropy);
     const descriptor_lease = try h.c.load(store, server.db, parent.descriptor);
-    var descriptor = try records.CapabilityRecord.decodeOwned(store.allocator, try store.currentView(descriptor_lease));
+    var descriptor: records.CapabilityRecord = undefined;
+    try descriptor.decodeOwned(store.allocator, try store.currentView(descriptor_lease));
     defer descriptor.deinit(store.allocator);
     try store.release(descriptor_lease);
-    var read = try h.c.storage.Read.init(store.allocator, store, descriptor.value.owner, 8);
+    var read: h.c.storage.Read = undefined;
+    try read.init(store.allocator, store, descriptor.owner, 8, null);
     defer read.deinit() catch unreachable;
     _ = try h.f.pump(&read, server.db);
     if (scenario == .observe or scenario == .cancel) {
-        try observation.verify(server, client, pair, use, descriptor.value.owner, scenario == .cancel, committed);
+        try observation.verify(server, client, pair, use, descriptor.owner, scenario == .cancel, committed);
         return;
     }
     const derived = (scenario == .derive or scenario == .managed) and committed;
@@ -288,11 +290,12 @@ fn verify(server: *Server, client: *h.driver.Host, pair: pairs.Pair, use: model.
     const event = try h.f.latestGrant(&read, server.db);
     const latest = read.history.batches[read.history.count - 1];
     const retained_lease = try h.c.load(store, server.db, latest);
-    var retained = try records.ChangeBatchRecord.decodeOwned(store.allocator, try store.currentView(retained_lease));
+    var retained: records.ChangeBatchRecord = undefined;
+    try retained.decodeOwned(store.allocator, try store.currentView(retained_lease));
     defer retained.deinit(store.allocator);
     try store.release(retained_lease);
-    const effects = retained.value.effects;
-    if (retained.value.sequence != read.history.next_sequence - 1 or retained.value.commit_revision > store.metadata.revision) return error.NonAtomicHistory;
+    const effects = retained.effects;
+    if (retained.sequence != read.history.next_sequence - 1 or retained.commit_revision > store.metadata.revision) return error.NonAtomicHistory;
     if (committed) switch (scenario) {
         .derive, .managed, .revoke => if (effects.len != 1 or effects[0] != .grant) return error.WrongRetainedEffect,
         .attenuate => if (effects.len != 1 or effects[0] != .control) return error.WrongRetainedEffect,
@@ -309,7 +312,7 @@ fn verify(server: *Server, client: *h.driver.Host, pair: pairs.Pair, use: model.
     if (scenario == .revoke and committed) {
         if (event.kind != .status_changed or event.kind.status_changed.before != .active or event.kind.status_changed.after != .revoked) return error.WrongEvent;
     } else if (event.kind != .issued) return error.WrongEvent;
-    if (event.grant.owner != descriptor.value.grant.owner or event.grant.slot != descriptor.value.grant.slot + @intFromBool(derived)) return error.WrongEventTarget;
+    if (event.grant.owner != descriptor.grant.owner or event.grant.slot != descriptor.grant.slot + @intFromBool(derived)) return error.WrongEventTarget;
     const content_lease = try h.c.load(store, server.db, parent.content.?.object);
     const content = try store.currentView(content_lease);
     const expected_content: i64 = if (committed and scenario == .add) 5 else if (committed and (scenario == .move or scenario == .delete)) 1 else 0;

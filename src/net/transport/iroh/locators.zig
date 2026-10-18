@@ -66,11 +66,7 @@ pub const node_id_len = crypto.PeerKey.designator_len;
 /// configured reachability services. The designator is borrowed and the
 /// discovery form carries no direct-address hint.
 pub fn locator(designator: []const u8) model.PeerLocator {
-    return .{
-        .transport = transport_name,
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    };
+    return .hintless(transport_name, designator);
 }
 
 /// Build an iroh locator with caller-provided direct socket addresses. The

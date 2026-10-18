@@ -6,7 +6,8 @@ const a = std.testing.allocator;
 const spec: graph.Spec = .{ .schemas = &.{.{ .id = 7 }}, .max_pages = 7, .max_payload_bytes = 1024, .max_edges = 32 };
 
 fn resourceObject(store: *h.loam.core.Store, backend: anytype, data: h.Data) !h.loam.core.ObjectId {
-    var read = try h.c.storage.Read.init(a, store, data.owner, 1);
+    var read: h.c.storage.Read = undefined;
+    try read.init(a, store, data.owner, 1, null);
     defer read.deinit() catch unreachable;
     _ = try h.f.pump(&read, backend);
     for (0..128) |_| {

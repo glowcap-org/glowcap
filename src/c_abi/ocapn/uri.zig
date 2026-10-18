@@ -165,11 +165,6 @@ fn requiredSlice(ptr: ?[*]const u8, len: usize) ![]const u8 {
     return (ptr orelse return error.NullPointer)[0..len];
 }
 
-fn optionalSlice(ptr: ?[*]const u8, len: usize) ![]const u8 {
-    if (len == 0) return &.{};
-    return (ptr orelse return error.NullPointer)[0..len];
-}
-
 fn locatorErrToCode(err: anyerror) i32 {
     return switch (err) {
         error.NullPointer => GLOWCAP_ERR_NULL_POINTER,
@@ -292,7 +287,7 @@ pub export fn glowcap_locator_borrow_view(
     out_view: ?*?*const shared.GlowcapLocatorView,
 ) i32 {
     shared.lastErrorClear();
-    const payload = locFromOpaque(@constCast(loc)) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const payload = locFromOpaque(loc) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_view orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = &payload.view;
     return GLOWCAP_OK;
@@ -305,7 +300,7 @@ pub export fn glowcap_sturdyref_borrow_locator(
     out_view: ?*?*const shared.GlowcapLocatorView,
 ) i32 {
     shared.lastErrorClear();
-    const payload = sturdyFromOpaque(@constCast(sturdyref)) orelse return GLOWCAP_ERR_NULL_POINTER;
+    const payload = sturdyFromOpaque(sturdyref) orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_view orelse return GLOWCAP_ERR_NULL_POINTER;
     slot.* = &payload.locator.view;
     return GLOWCAP_OK;
@@ -342,7 +337,7 @@ fn addBytesHint(
 ) i32 {
     const payload = locFromOpaque(loc) orelse return GLOWCAP_ERR_NULL_POINTER;
     const n = requiredSlice(name, name_len) catch |err| return locatorErrToCode(err);
-    const bytes = optionalSlice(value, value_len) catch |err| return locatorErrToCode(err);
+    const bytes = shared.sliceFromC(value, value_len) catch |err| return locatorErrToCode(err);
     const hint_value: model.HintValue = switch (kind) {
         .string => .{ .string = bytes },
         .bytes => .{ .bytes = bytes },

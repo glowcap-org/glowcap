@@ -79,8 +79,7 @@ Zig gives glowcap control of memory. An allocator is an argument, so nothing all
 without one being passed in, and no collector decides when to run.
 [Performance]($link.page('performance')) publishes what glowcap costs.
 
-The compiler does not prove memory safety in exchange, so glowcap covers it with
-tests: leak checks, allocation budgets, and fuzzing of input from peers.
+Zig does not prove memory safety, so glowcap covers it with tests: leak checks, allocation budgets, and fuzzing of input from peers.
 
 # Public entry points
 

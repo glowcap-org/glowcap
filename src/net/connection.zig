@@ -44,7 +44,19 @@ const poll = @import("poll.zig");
 const clock = @import("clock.zig");
 
 pub const CloseProgress = enum { complete, wait_read, wait_write, failed };
-pub const WaitInterest = enum { read, write };
+pub const WaitInterest = enum {
+    read,
+    write,
+
+    fn events(self: WaitInterest) PollEvents {
+        return switch (self) {
+            .read => std.posix.POLL.IN,
+            .write => std.posix.POLL.OUT,
+        };
+    }
+};
+
+const PollEvents = @FieldType(std.posix.pollfd, "events");
 
 /// One unit of forward progress reported by `pumpOver` / `Connection.pump`.
 pub const Progress = union(enum) {
@@ -272,10 +284,7 @@ pub const Connection = struct {
     pub fn waitReadable(self: *Connection, timeout_ms: i32) error{ConnectionLost}!bool {
         if (self.hasBufferedInbound()) return true;
         const handle = self.socketHandle() orelse return true;
-        var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 }};
-        const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
-        if (fds[0].revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
-        return ready != 0;
+        return try pollHandle(handle, .read, timeout_ms) != 0;
     }
 
     /// Whether a write would make progress within `timeout_ms` for an
@@ -285,10 +294,17 @@ pub const Connection = struct {
     /// blocking-stream fallback.
     pub fn waitWritable(self: *Connection, timeout_ms: i32) error{ConnectionLost}!bool {
         const handle = self.socketHandle() orelse return true;
-        var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = std.posix.POLL.OUT, .revents = 0 }};
+        const revents = try pollHandle(handle, .write, timeout_ms);
+        return revents & (std.posix.POLL.OUT | std.posix.POLL.HUP | std.posix.POLL.ERR) != 0;
+    }
+
+    /// Poll one descriptor for `interest`: its returned events, zero on
+    /// timeout. An invalid descriptor is a lost connection.
+    fn pollHandle(handle: std.Io.net.Socket.Handle, interest: WaitInterest, timeout_ms: i32) error{ConnectionLost}!PollEvents {
+        var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = interest.events(), .revents = 0 }};
         const ready = poll.wait(&fds, timeout_ms) catch return error.ConnectionLost;
         if (fds[0].revents & std.posix.POLL.NVAL != 0) return error.ConnectionLost;
-        return ready != 0 and (fds[0].revents & (std.posix.POLL.OUT | std.posix.POLL.HUP | std.posix.POLL.ERR)) != 0;
+        return if (ready == 0) 0 else fds[0].revents;
     }
 
     /// Whether a raw read on this connection's reader would make progress
@@ -390,7 +406,7 @@ pub fn waitAny(
         const handle = conn.socketHandle() orelse unreachable;
         pollfds[i] = .{
             .fd = handle,
-            .events = if (interest == .read) std.posix.POLL.IN else std.posix.POLL.OUT,
+            .events = interest.events(),
             .revents = 0,
         };
     }
@@ -401,7 +417,7 @@ pub fn waitAny(
         const interest = if (extra_interests.len == 0) WaitInterest.read else extra_interests[i];
         pollfds[conns.len + i] = .{
             .fd = fd,
-            .events = if (interest == .read) std.posix.POLL.IN else std.posix.POLL.OUT,
+            .events = interest.events(),
             .revents = 0,
         };
     }

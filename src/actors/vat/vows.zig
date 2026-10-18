@@ -11,7 +11,9 @@ const Resolution = vat_mod.Resolution;
 const Listener = vat_mod.Listener;
 const ResolverPair = vat_mod.ResolverPair;
 const ResolverPairReservation = vat_mod.ResolverPairReservation;
+const Outcome = vat_mod.Outcome;
 const Error = vat_mod.Error;
+const Queued = @import("behavior.zig").Queued;
 const steady_settle_arena_bytes = vat_mod.steady_settle_arena_bytes;
 
 /// A local vow name in this Vat's monotonic, never-reused epoch. Keeping the
@@ -36,25 +38,22 @@ pub fn spawnVow(self: *Vat) Error!ResolverPair {
 
 pub fn reserveResolverPair(self: *Vat) Error!ResolverPairReservation {
     try self.admitMutation();
-    try vat_mod.ensureFreshId(self.next_vow);
-    try vat_mod.ensureFreshId(self.next_resolver);
+    const vow = try vat_mod.peekId(self.vow_ids);
+    const resolver = try vat_mod.peekId(self.resolver_ids);
     try self.pending_local_vows.ensureUnusedCapacity(self.allocator, 1);
     try self.resolver_vows.ensureUnusedCapacity(self.allocator, 1);
-    return .{};
+    return .{ .vow = vow, .resolver = resolver };
 }
 
+/// Nothing spends an id between the reservation and this commit, which each
+/// issuer asserts.
 pub fn spawnReservedVow(self: *Vat, reservation: ResolverPairReservation) ResolverPair {
     self.admitMutation() catch unreachable;
-    _ = reservation;
-    vat_mod.ensureFreshId(self.next_vow) catch unreachable;
-    vat_mod.ensureFreshId(self.next_resolver) catch unreachable;
-    const vow = self.next_vow;
-    self.next_vow += 1;
-    self.pending_local_vows.putAssumeCapacity(.{ .id = vow }, {});
-    const resolver = self.next_resolver;
-    self.next_resolver += 1;
-    self.resolver_vows.putAssumeCapacity(resolver, vow);
-    return .{ .vow = .{ .local = vow }, .resolver = resolver };
+    self.vow_ids.commit(reservation.vow);
+    self.pending_local_vows.putAssumeCapacity(.{ .id = reservation.vow }, {});
+    self.resolver_ids.commit(reservation.resolver);
+    self.resolver_vows.putAssumeCapacity(reservation.resolver, reservation.vow);
+    return .{ .vow = .{ .local = reservation.vow }, .resolver = reservation.resolver };
 }
 
 /// Settle a resolver vow fulfilled (ADR-0102). Top-level like `drive`,
@@ -75,30 +74,34 @@ pub fn breakVow(self: *Vat, resolver: u64, reason: []const u8) Error!void {
     try settleResolver(self, resolver, .{ .broken = reason });
 }
 
-fn settleResolver(self: *Vat, resolver: u64, resolution: Resolution) Error!void {
+fn settleResolver(self: *Vat, resolver: u64, outcome: Outcome) Error!void {
     try self.admitMutation();
-    if (self.turn_depth != 0) return Error.SettleInTurn;
-    if (resolver == 0 or resolver >= self.next_resolver) return Error.NoSuchResolver;
-    const vow = self.resolver_vows.get(resolver) orelse return Error.AlreadySettled;
-    // The settle runs listeners under the drive discipline `settleLocal`
-    // requires: a listener may open a nested drive or far settle, and the
-    // settle arena's depth guard covers both.
-    self.drive_depth += 1;
-    defer self.drive_depth -= 1;
-    if (self.listeners.contains(vow)) {
-        const arena = beginSettle(self);
-        defer endSettle(self);
-        const owned: Resolution = switch (resolution) {
-            .fulfilled => |value| .{ .fulfilled = try model.cloneArgument(arena, value) },
-            .broken => |reason| .{ .broken = try arena.dupe(u8, reason) },
-            .give => unreachable,
-        };
+    if (self.turn_depth != 0) return error.SettleInTurn;
+    if (!self.resolver_ids.issued(resolver)) return error.NoSuchResolver;
+    const vow = self.resolver_vows.get(resolver) orelse return error.AlreadySettled;
+    if (!self.listeners.contains(vow)) {
         std.debug.assert(self.resolver_vows.remove(resolver));
-        settleLocalPrepared(self, vow, owned);
+        std.debug.assert(self.pending_local_vows.remove(.{ .id = vow }));
         return;
     }
+    // The listener runs under the drive discipline: it may open a nested
+    // drive or far settle, and the settle arena's depth guard covers both.
+    self.drive_depth += 1;
+    defer self.drive_depth -= 1;
+    const arena = beginSettle(self);
+    defer endSettle(self);
+    const owned = try ownOutcome(arena, outcome);
     std.debug.assert(self.resolver_vows.remove(resolver));
-    try settleLocal(self, vow, resolution);
+    settleLocalPrepared(self, vow, owned.resolution());
+}
+
+/// `outcome` with its payload cloned into `arena`, the settlement scope a
+/// listener may reenter.
+fn ownOutcome(arena: std.mem.Allocator, outcome: Outcome) !Outcome {
+    return switch (outcome) {
+        .fulfilled => |value| .{ .fulfilled = try model.cloneArgument(arena, value) },
+        .broken => |reason| .{ .broken = try arena.dupe(u8, reason) },
+    };
 }
 
 /// Terminal cleanup of an exclusively held resolver. The static diagnostic
@@ -159,13 +162,13 @@ pub fn on(self: *Vat, vow: Vow, listener: Listener) Error!void {
             // A local vow settles exactly once, during `drive`; a
             // listener registered after that settlement would never fire,
             // so refuse it loud.
-            if (id == 0 or id >= self.next_vow) return Error.NoSuchVow;
-            if (!self.pending_local_vows.contains(.{ .id = id })) return Error.AlreadySettled;
+            if (!self.vow_ids.issued(id)) return error.NoSuchVow;
+            if (!self.pending_local_vows.contains(.{ .id = id })) return error.AlreadySettled;
             const gop = try self.listeners.getOrPut(self.allocator, id);
-            if (gop.found_existing) return Error.AlreadyListening;
+            if (gop.found_existing) return error.AlreadyListening;
             gop.value_ptr.* = listener;
         },
-        .far => return Error.NotConnected,
+        .far => return error.NotConnected,
     }
 }
 
@@ -180,13 +183,14 @@ pub fn takeListener(self: *Vat, vow: Vow) ?Listener {
     };
 }
 
-/// Enter one nested settlement borrow scope.
-fn beginSettle(self: *Vat) std.mem.Allocator {
+/// Enter one nested settlement borrow scope: the settle arena a listener's
+/// value lives in, reset when the outermost scope closes.
+pub fn beginSettle(self: *Vat) std.mem.Allocator {
     self.settle_depth += 1;
     return self.settle_arena.allocator();
 }
 
-fn endSettle(self: *Vat) void {
+pub fn endSettle(self: *Vat) void {
     self.settle_depth -= 1;
     if (self.settle_depth == 0) {
         _ = self.settle_arena.reset(.{ .retain_with_limit = steady_settle_arena_bytes });
@@ -214,32 +218,21 @@ fn endSettle(self: *Vat) void {
 /// listener parked on a refusal instead. That is open to them only because
 /// their producer survives it: a Host action stays parked for a retry, and a
 /// refused frame retires the session, whose release runs `breakFarVows`.
-pub fn settleLocal(self: *Vat, vow_id: u64, resolution: Resolution) Error!void {
-    return settleLocalWithRetirement(self, vow_id, resolution, null);
-}
-
-/// Protect the outcome before releasing external input custody. Retirement
-/// can reenter just like a listener, so both borrow the same settlement scope.
-pub fn settleLocalWithRetirement(self: *Vat, vow_id: u64, resolution: Resolution, retirement: ?*@import("behavior.zig").Queued) Error!void {
+/// The outcome is protected before `retirement` releases the queued
+/// message's custody, because retirement can reenter just like a listener,
+/// so both borrow the same settlement scope.
+pub fn settleLocal(self: *Vat, vow_id: u64, outcome: Outcome, retirement: ?*Queued) Error!void {
     std.debug.assert(self.drive_depth >= 1);
     std.debug.assert(self.pending_local_vows.remove(.{ .id = vow_id }));
     const listener: ?Listener = if (self.listeners.fetchRemove(vow_id)) |entry| entry.value else null;
     if (listener == null and retirement == null) return;
     const arena = beginSettle(self);
     defer endSettle(self);
-    const owned: Resolution = switch (resolution) {
-        .fulfilled => |value| .{ .fulfilled = model.cloneArgument(arena, value) catch |err| {
-            if (retirement) |delivery| delivery.retire(@errorName(err));
-            if (listener) |observer| fireLocalListener(self, observer, .{ .broken = @errorName(err) });
-            return err;
-        } },
-        .broken => |reason| .{ .broken = arena.dupe(u8, reason) catch |err| {
-            if (retirement) |delivery| delivery.retire(@errorName(err));
-            if (listener) |observer| fireLocalListener(self, observer, .{ .broken = @errorName(err) });
-            return err;
-        } },
-        .give => unreachable,
+    const owned = ownOutcome(arena, outcome) catch |err| {
+        if (retirement) |delivery| delivery.retire(@errorName(err));
+        if (listener) |observer| fireLocalListener(self, observer, .{ .broken = @errorName(err) });
+        return err;
     };
     if (retirement) |delivery| delivery.retire(if (owned == .broken) owned.broken else null);
-    if (listener) |observer| fireLocalListener(self, observer, owned);
+    if (listener) |observer| fireLocalListener(self, observer, owned.resolution());
 }

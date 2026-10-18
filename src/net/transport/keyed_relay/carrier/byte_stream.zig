@@ -87,7 +87,7 @@ const Clear = struct {
     }
 
     fn note(self: *Clear, cause: anyerror) void {
-        if (self.failure) |*failure| failure.note(cause) else self.failure = .init(cause);
+        foundation.latchFailure(&self.failure, .init(cause));
     }
 
     fn socketHandle(raw: *anyopaque) Io.net.Socket.Handle {

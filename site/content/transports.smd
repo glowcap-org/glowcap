@@ -8,7 +8,7 @@
 
 A transport, or *netlayer*, is the byte path under a CapTP session. Fetch,
 call, promises, and handoffs stay the same no matter which one you pick.
-What changes is how you name a peer and how the bytes get there: encrypted
+The transport decides how you name a peer and how the bytes get there: encrypted
 QUIC, a sealed TCP stream, a Tor circuit, a browser DataChannel, or a
 cleartext testing socket.
 

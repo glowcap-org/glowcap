@@ -14,7 +14,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
     defer gpa.free(path);
     try std.Io.Dir.cwd().createDir(io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(io, path) catch unreachable;
-    var db = try w.Lmdb.open(path, .{ .mode = .{ .create = @fromBackingInt(73) } });
+    var db = try w.Lmdb.open(path, .{ .opening = .{ .id = @fromBackingInt(73), .mode = .create } });
     defer db.close() catch unreachable;
     var bytes: metrics.LiveBytesAllocator = .{ .backing = gpa };
     var allocations: metrics.CountingAllocator = .{ .backing = bytes.allocator() };
@@ -42,7 +42,8 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
             try row(gpa, report, &workload, phase, depth, count, reads, writes, allocs, &allocations, &bytes, r.elapsed(io, start), &timings);
         }
         {
-            var read = try access.storage.Read.init(workload.allocator, &workload.store, workload.owner, 1);
+            var read: access.storage.Read = undefined;
+            try read.init(workload.allocator, &workload.store, workload.owner, 1, null);
             defer read.deinit() catch unreachable;
             read.history_requested = true;
             try @import("managed_setup.zig").pump(&workload, &read);

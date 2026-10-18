@@ -31,7 +31,8 @@ pub fn pump(operation: anytype, backend: anytype) !usize {
 }
 
 pub fn change(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectId, target: core.ResourceId, action: storage.ResourceChange.Action) !bool {
-    var read = try storage.Read.init(store.allocator, store, owner, @min(6, store.limits.max_leases -| 1));
+    var read: storage.Read = undefined;
+    try read.init(store.allocator, store, owner, @min(6, store.limits.max_leases -| 1), null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     var edit = try prepare(&read, backend, target, action);
@@ -91,9 +92,10 @@ pub fn seed(store: *h.loam.core.Store, backend: anytype) !struct { data: h.Data,
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 2) })).?.grant;
     var caps = try storage.Capabilities.init(store.allocator, store, .{});
     defer caps.deinit() catch unreachable;
-    const use_descriptor = try h.c.descriptor(&caps, backend, owner, grant, null, false);
-    const control_descriptor = try h.c.descriptor(&caps, backend, owner, grant, .{ .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, false);
-    var endpoint_owner = try storage.Read.init(store.allocator, store, owner, 1);
+    const use_descriptor = try h.c.descriptor(&caps, backend, owner, grant, null, .reachable);
+    const control_descriptor = try h.c.descriptor(&caps, backend, owner, grant, .{ .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, .reachable);
+    var endpoint_owner: storage.Read = undefined;
+    try endpoint_owner.init(store.allocator, store, owner, 1, null);
     defer endpoint_owner.deinit() catch unreachable;
     try h.prepareEndpointOwner(&endpoint_owner, backend, 2);
     const use_lease = try h.c.load(store, backend, use_descriptor);
@@ -103,8 +105,8 @@ pub fn seed(store: *h.loam.core.Store, backend: anytype) !struct { data: h.Data,
     try store.begin();
     const content = try store.allocateId();
     try store.putCopying(.{ .id = content, .revision = 0, .schema = 7, .payload = &@as([8]u8, @splat(0)) }, null);
-    const use = try h.access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = use_descriptor, .content = .{ .resource = leaf, .object = content } }, true);
-    const control = try h.access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = control_descriptor }, true);
+    const use = try h.access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = use_descriptor, .content = .{ .resource = leaf, .object = content } }, .rooted);
+    const control = try h.access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = control_descriptor }, .rooted);
     try f.commit(store, backend);
     return .{ .data = .{ .owner = owner, .resource = leaf, .grant = grant, .content = content, .use = use, .control = control }, .root = root, .other = other, .leaf = leaf };
 }

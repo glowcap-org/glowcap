@@ -136,7 +136,7 @@ fn benchPeer(allocator: std.mem.Allocator) !engine.Peer {
 /// across messages, exactly as a long-lived session's does.
 fn sendOneAnswered(peer: *engine.Peer) !void {
     const answer = try peer.allocateAnswer();
-    try peer.sendBorrowed(benchMessage(answer));
+    try peer.sendBorrowed(benchMessage(answer.position.int()));
     _ = try peer.step();
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -210,8 +210,8 @@ fn measureGcStorm(io: std.Io, allocator: std.mem.Allocator, q: usize, samples: u
         errdefer if (positions_owned_here) allocator.free(positions);
         for (positions) |*pos| {
             const answer = try peer.allocateAnswer();
-            pos.* = answer;
-            try peer.sendBorrowed(benchMessage(answer));
+            pos.* = answer.position.int();
+            try peer.sendBorrowed(benchMessage(answer.position.int()));
             _ = try peer.step();
             while (peer.takeOutbound()) |frame_in| {
                 var frame = frame_in;

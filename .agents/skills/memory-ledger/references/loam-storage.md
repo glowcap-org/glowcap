@@ -48,3 +48,22 @@ holds engine caches, staged records, and record residency costs.
   allocation or copy. SQLite instead keeps the source statement alive
   through the write. Its `Connection.next` preserves a borrowed prefix in a
   fixed `max_key_bytes` stack buffer before resetting the source statement.
+- **Loam committed residency**: `Store.retainOnCommit` transfers prepared
+  record buffers to eligible cache slots during installation, without another
+  allocation or copy. Admission establishes the checked envelope once. Views
+  reuse it. Pinned snapshots cannot be displaced. A full cache leaves
+  the buffer with its transaction owner for release.
+- **Loam collection custody**: `Store.captureCollectionCustody` creates one
+  bounded `Custody` journal and record-sized worker scratch per cycle.
+  - Root capacity grows only within `max_collection_roots`. New custody reserves
+    before publication. A resident portrait reports its strong edges once per
+    cycle, and its marker fits the existing slot.
+  - `Store.prepareCollection` borrows pending obligations and reuses scratch.
+    Backend tracing copies the current row there before writes invalidate mapped
+    borrows. Allocations survive batch abort and commit-outcome recovery, and are
+    freed at completed idle or Store teardown.
+  - `Store.retain` uses the fixed registry allocated at Store initialization.
+    Marks and pending trace entries occupy backend storage, not actor residency.
+  - Confirmed collection receipts alone acknowledge submitted roots. The
+    collection-cost smoke profile holds one submission per unchanged root and
+    one scratch allocation per cycle.

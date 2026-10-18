@@ -8,6 +8,7 @@ const Load = @import("load.zig").Load;
 const record = @import("record.zig");
 const snapshot = @import("observation_snapshot.zig");
 const Cancellation = @import("observation_cancellation.zig").Cancellation;
+const Step = @import("read.zig").Step;
 const Lifetime = records.ObservationRecord.Lifetime;
 
 const State = struct {
@@ -29,7 +30,7 @@ const State = struct {
         const state = op.state(operation);
         try state.opened();
         try state.unprepared();
-        try state.read.?.prepareHistory();
+        try state.read.prepareHistory();
         const current = try snapshot.prepare(operation, target);
         if (current.snapshot == .use and current.snapshot.use.access == .revoked) return error.Revoked;
         if (current.snapshot == .control and !current.snapshot.control.available) return error.ControlRevoked;
@@ -37,14 +38,14 @@ const State = struct {
         return .{ .operation = operation, .target = target, .key = key };
     }
 
-    pub fn advance(self: *State) !@import("read.zig").Step {
+    pub fn advance(self: *State) !Step {
         if (self.cancelled) return error.Cancelled;
         if (self.staged) return error.WrongPhase;
         const state = op.state(self.operation);
         try state.opened();
         if (self.ready) return .ready;
         if (!self.index_loaded) {
-            if (state.read.?.header.observations) |id| {
+            if (state.read.header.observations) |id| {
                 const row = switch (try self.load.resolve(state.binding.owner.store, id)) {
                     .read => |request| return .{ .read = request },
                     .waiting => return .waiting,
@@ -94,7 +95,7 @@ const State = struct {
 
     /// Trusted publication composition supplies the already-allocated recipes.
     /// The returned context becomes observation authority only after commit.
-    pub fn stage(self: *State, publications: [2]?loam.ObjectId, retirement: ?Cancellation.Retirement) !loam.ObjectId {
+    pub fn stage(self: *State, publications: records.ObservationRecord.Publications, retirement: ?Cancellation.Retirement) !loam.ObjectId {
         const state = op.state(self.operation);
         try state.opened();
         if (!self.ready or self.staged or self.cancelled) return error.WrongPhase;
@@ -102,13 +103,9 @@ const State = struct {
         if (store.phase != .staging) return error.WrongPhase;
         errdefer store.abort() catch unreachable;
         if (self.expired) |expired| _ = try expired.stage(retirement);
-        const read = &state.read.?;
+        const read = &state.read;
         var header = read.header;
-        var expected = read.header_revision;
-        if (try store.proposed(read.owner_object)) |proposal| {
-            header = try records.OwnerRecord.decode(proposal.view);
-            expected = proposal.expected;
-        }
+        if (try store.proposed(read.owner_object)) |proposal| header = try records.OwnerRecord.decode(proposal.view);
         var index = self.index;
         var index_expected = self.index_expected;
         if (header.observations) |id| if (try store.proposed(id)) |proposal| {
@@ -118,17 +115,15 @@ const State = struct {
         if (index.count == records.ObservationIndexRecord.capacity) return error.ObservationCapacity;
         read.transaction = store.ticket;
         const context = try store.allocateId();
-        const value: records.ObservationRecord = .{ .owner = read.owner_object, .descriptor = state.binding.object, .target = self.target, .key = self.key, .started = state.read.?.history.next_sequence - 1, .publications = publications, .lifetime = self.lifetime };
+        const value: records.ObservationRecord = .{ .owner = read.owner_object, .descriptor = state.binding.object, .target = self.target, .key = self.key, .started = state.read.history.next_sequence - 1, .publications = publications, .lifetime = self.lifetime };
         var edges: [records.ObservationRecord.max_edges]loam.Edge = undefined;
-        try record.putEncoded(store, context, records.profile.observation, value, value.edges(&edges), null, false);
+        try record.putEncoded(store, context, records.profile.observation, value, value.edges(&edges), null, .reachable);
         try index.append(context);
         const root = header.observations orelse try store.allocateId();
         var contexts: [records.ObservationIndexRecord.capacity]loam.Edge = undefined;
-        try record.putEncoded(store, root, records.profile.observation_index, index, try index.edges(&contexts), index_expected, false);
+        try record.putEncoded(store, root, records.profile.observation_index, index, try index.edges(&contexts), index_expected, .reachable);
         header.observations = root;
-        var roots: [records.OwnerRecord.max_edges]loam.Edge = undefined;
-        try record.putEncoded(store, read.owner_object, records.profile.owner, header, header.edges(&roots), expected, true);
-        read.header = header;
+        try record.putOwner(read, &header);
         self.staged = true;
         return context;
     }
@@ -155,13 +150,13 @@ pub const Registration = opaque {
         value.* = try State.init(operation, target, key);
         return @ptrCast(value);
     }
-    pub fn advance(self: *Registration) !@import("read.zig").Step {
+    pub fn advance(self: *Registration) !Step {
         return backing(self).advance();
     }
     pub fn completeRead(self: *Registration, ticket: loam.Ticket, result: loam.ReadResult) !void {
         return backing(self).completeRead(ticket, result);
     }
-    pub fn stage(self: *Registration, publications: [2]?loam.ObjectId) !loam.ObjectId {
+    pub fn stage(self: *Registration, publications: records.ObservationRecord.Publications) !loam.ObjectId {
         return backing(self).stage(publications, null);
     }
     /// Runtime observations borrow an explicitly supplied trusted marker. One
@@ -174,10 +169,10 @@ pub const Registration = opaque {
         backing(result).lifetime = lifetime;
         return result;
     }
-    pub fn expiredPublications(self: *Registration) ![2]?loam.ObjectId {
+    pub fn expiredPublications(self: *Registration) !records.ObservationRecord.Publications {
         return if (backing(self).expired) |expired| expired.publications() else @splat(null);
     }
-    pub fn stageWithRetirement(self: *Registration, publications: [2]?loam.ObjectId, retirement: Cancellation.Retirement) !loam.ObjectId {
+    pub fn stageWithRetirement(self: *Registration, publications: records.ObservationRecord.Publications, retirement: Cancellation.Retirement) !loam.ObjectId {
         return backing(self).stage(publications, retirement);
     }
     pub fn cancel(self: *Registration) !void {

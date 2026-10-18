@@ -11,7 +11,7 @@ const observation = @import("observation.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 
-const Key = struct { peer: engine.PeerHandle, answer: model.AnswerPosition };
+const Key = struct { peer: engine.PeerHandle, answer: engine.OutboundAnswerTarget };
 pub const Map = std.AutoHashMapUnmanaged(Key, *Group);
 
 const Member = struct {
@@ -43,7 +43,7 @@ const Group = struct {
         var retained: ?@import("../capability.zig").Ref = null;
         if (host.sessions.get(self.key.peer)) |session| {
             const peer = session.served.port.peer;
-            if (peer.session_state.pendingEnlivenSwissnum(self.key.answer)) |swissnum| {
+            if (peer.session_state.pendingEnlivenSwissnum(self.key.answer.position)) |swissnum| {
                 if (if (resolution == .fulfilled) capability_identity.asFarRef(resolution.fulfilled) else null) |far|
                     peer.session_state.settlePendingEnlivenIntoCache(swissnum, far)
                 else
@@ -90,28 +90,31 @@ pub fn reserve(host: *Host, session: *HostSession, id: u64, recipient: observati
     errdefer host.allocator.destroy(spare);
     const member = try host.allocator.create(Member);
     errdefer host.allocator.destroy(member);
-    const vow = try host.reserveVowAt(session, .far, .plain, .shared_peer_visible, id);
-    errdefer host.cancelVowReservation(vow);
+    var vow = try vows.reserveVowAt(host, session, .far, .plain, .shared_peer_visible, id);
+    errdefer vow.deinit();
     const release = try session.served.port.peer.reserveAnswerRelease();
     errdefer session.served.port.peer.cancelPendingReservation(release);
     try host.enliven_groups.ensureUnusedCapacity(host.allocator, 1);
-    try recipient.observe(host, session, vow.row, provenance);
+    try recipient.observe(host, session, vow.getRow(), provenance);
     spare.* = .{ .host = host, .key = undefined, .release = release, .listener = .{ .ctx = spare, .func = Group.fire } };
     return .{ .vow = vow, .member = member, .spare = spare };
 }
 
 pub fn cancel(host: *Host, session: *HostSession, reservation: Reservation) void {
     session.served.port.peer.cancelPendingReservation(reservation.spare.release);
-    host.cancelVowReservation(reservation.vow);
+    var vow = reservation.vow;
+    vow.deinit();
     host.allocator.destroy(reservation.member);
     host.allocator.destroy(reservation.spare);
 }
 
-pub fn hasProducer(host: *const Host, session: *const HostSession, answer: model.AnswerPosition) bool {
+pub fn hasProducer(host: *const Host, session: *const HostSession, answer: engine.OutboundAnswerTarget) bool {
     return host.enliven_groups.contains(.{ .peer = session.peer_handle, .answer = answer });
 }
 
-pub fn commit(host: *Host, session: *HostSession, answer: model.AnswerPosition, reservation: Reservation) u64 {
+pub fn commit(host: *Host, session: *HostSession, answer: engine.OutboundAnswerTarget, reservation: Reservation) u64 {
+    var vow = reservation.vow;
+    const transferred = vow.take();
     const key: Key = .{ .peer = session.peer_handle, .answer = answer };
     const group = if (host.enliven_groups.get(key)) |existing| blk: {
         session.served.port.peer.cancelPendingReservation(reservation.spare.release);
@@ -122,10 +125,10 @@ pub fn commit(host: *Host, session: *HostSession, answer: model.AnswerPosition, 
         fresh.key = key;
         std.debug.assert(session.served.port.peer.session_state.claimOutboundAnswerRelease(answer));
         host.enliven_groups.putAssumeCapacity(key, fresh);
-        session.served.port.onReserved(&host.vat, reservation.vow.listener, .{ .far = answer }, fresh.listener);
+        session.served.port.onReserved(&host.vat, transferred.listener, .{ .far = answer }, fresh.listener);
         break :blk fresh;
     };
-    const row = reservation.vow.row;
+    const row = transferred.row;
     const member = reservation.member;
     member.* = .{ .group = group, .id = row.id, .next = group.head };
     if (group.head) |head| head.previous = member;
@@ -154,12 +157,9 @@ fn releaseMember(host: *Host, id: u64, owner: u64) void {
         const installed = session.served.port.takeListener(&host.vat, .{ .far = group.key.answer }) orelse unreachable;
         std.debug.assert(installed.func == group.listener.func and installed.ctx == group.listener.ctx);
         std.debug.assert(host.enliven_groups.remove(group.key));
-        if (peer.session_state.pendingEnlivenSwissnum(group.key.answer)) |swissnum| peer.finishPendingEnliven(swissnum);
+        if (peer.session_state.pendingEnlivenSwissnum(group.key.answer.position)) |swissnum| peer.finishPendingEnliven(swissnum);
     }
-    if (peer.session_state.outboundAnswer(group.key.answer) != null and session.sessionOpen() and switch (session.lifecyclePhase()) {
-        .active, .finishing => true,
-        .cancel_pending, .terminating => false,
-    }) {
+    if (peer.session_state.hasLiveOutboundAnswer(group.key.answer) and session.wireLive()) {
         peer.publishAnswerRelease(group.release, group.key.answer);
         pump.markDirty(host, session.peer_handle);
     } else {

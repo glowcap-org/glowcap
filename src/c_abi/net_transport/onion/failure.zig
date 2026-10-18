@@ -1,58 +1,44 @@
-//! Stable C result projection for onion lifecycle failures.
+//! The onion archive's last-error text for each lifecycle failure. The C
+//! result is the shared netlayer table's (`c.netlayerFailureCode`), so this
+//! file owns only the words an embedder reads back.
 
 const net = @import("net");
 const c = @import("c_abi_shared");
 
-pub fn providerDial(err: net.netlayer.DialError) i32 {
-    return c.dialFailureCode(err);
-}
-
-pub fn providerListen(err: anyerror) i32 {
-    return switch (err) {
-        error.InvalidAddress, error.InvalidOptions => c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
-        else => c.GLOWCAP_ERR_IO,
-    };
-}
-
 pub fn dial(err: net.netlayer.DialError) i32 {
-    return switch (err) {
-        error.InvalidAddress => result(c.GLOWCAP_ERR_INVALID_ARGUMENT, "connect: not a well-formed version 3 onion service id, or an unusable socks endpoint"),
-        error.ConnectionRefused => result(c.GLOWCAP_ERR_IO, "connect: nothing is listening at the configured tor socks endpoint"),
-        error.NetworkUnreachable => result(c.GLOWCAP_ERR_IO, "connect: tor could not reach that onion service"),
-        error.TimedOut => result(c.GLOWCAP_ERR_TIMEOUT, "connect: timed out reaching tor"),
-        error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
-        else => blk: {
-            c.setLastError("connect: onion dial failed: {s}", .{@errorName(err)});
-            break :blk c.GLOWCAP_ERR_IO;
-        },
-    };
+    return describe("connect", err, switch (err) {
+        error.InvalidAddress => "connect: not a well-formed version 3 onion service id, or an unusable socks endpoint",
+        error.ConnectionRefused => "connect: nothing is listening at the configured tor socks endpoint",
+        error.NetworkUnreachable => "connect: tor could not reach that onion service",
+        error.TimedOut => "connect: timed out reaching tor",
+        else => null,
+    });
 }
 
 pub fn listen(err: anyerror) i32 {
-    return switch (err) {
-        error.InvalidAddress => result(c.GLOWCAP_ERR_INVALID_ARGUMENT, "listen: no control endpoint configured, so this netlayer can dial but not host"),
-        error.InvalidOptions => c.GLOWCAP_ERR_INVALID_ARGUMENT,
-        error.BindFailed => result(c.GLOWCAP_ERR_IO, "listen: tor refused the service, or the local forward endpoint could not be bound"),
-        error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
-        else => blk: {
-            c.setLastError("listen: onion listener failed: {s}", .{@errorName(err)});
-            break :blk c.GLOWCAP_ERR_IO;
-        },
-    };
+    return describe("listen", err, switch (err) {
+        error.InvalidAddress => "listen: no control endpoint configured, so this netlayer can dial but not host",
+        error.BindFailed => "listen: tor refused the service, or the local forward endpoint could not be bound",
+        else => null,
+    });
 }
 
 pub fn accept(err: net.netlayer.AcceptError) i32 {
-    return switch (err) {
-        error.ConnectionLost => result(c.GLOWCAP_ERR_IO, "accept: onion listener closed"),
-        error.SocketConfigurationFailed => result(c.GLOWCAP_ERR_IO, "accept: transport socket configuration failed"),
-        error.WakeNudgeFailed => result(c.GLOWCAP_ERR_IO, "accept: onion listener wake failed"),
-        error.WakeDrainFailed => result(c.GLOWCAP_ERR_IO, "accept: onion listener wake drain failed"),
-        error.OutOfMemory => c.GLOWCAP_ERR_INTERNAL,
-    };
+    return describe("accept", err, switch (err) {
+        error.ConnectionLost => "accept: onion listener closed",
+        error.SocketConfigurationFailed => "accept: transport socket configuration failed",
+        error.WakeNudgeFailed => "accept: onion listener wake failed",
+        error.WakeDrainFailed => "accept: onion listener wake drain failed",
+        else => null,
+    });
 }
 
-fn result(code: i32, message: []const u8) i32 {
-    c.setLastError("{s}", .{message});
-    return code;
+/// Record `message`, or the classification by name when the verb has no
+/// words for it, and return the shared code.
+fn describe(comptime verb: []const u8, err: anyerror, message: ?[]const u8) i32 {
+    if (message) |text|
+        c.setLastError("{s}", .{text})
+    else
+        c.setLastError(verb ++ ": onion " ++ verb ++ " failed: {s}", .{@errorName(err)});
+    return c.netlayerFailureCode(err);
 }

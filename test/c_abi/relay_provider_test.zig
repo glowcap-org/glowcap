@@ -235,7 +235,7 @@ test "relay C provider preserves the final tail until explicit connection releas
     );
     const table = keyedTable(provider);
     const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x63)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x63)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
@@ -379,7 +379,7 @@ test "relay C dial cancellation retires an unclaimed connection through its requ
     try std.testing.expectEqual(c.GLOWCAP_OK, relay_archive.glowcap_relay_transport_provider(runtime, &provider));
     const table = keyedTable(provider);
     const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x64)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x64)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";
@@ -466,7 +466,7 @@ test "relay C listener cancellation and stop each settle through the route id" {
     try std.testing.expectEqual(c.GLOWCAP_OK, relay_archive.glowcap_relay_transport_provider(runtime, &provider));
     const table = keyedTable(provider);
     const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x65)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x65)),
     );
     const designator = identity.publicKey().toDesignator();
     const transport = "keyed-relay";

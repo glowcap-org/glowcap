@@ -39,6 +39,7 @@ const model = @import("model");
 const session = @import("session");
 const engine = @import("mod.zig");
 const id_route = session.id_route;
+const wire_hash = @import("node/wire_hash.zig");
 const export_ranges = @import("export_ranges.zig");
 const fifo = @import("fifo.zig");
 const node_actions = @import("node/actions.zig");
@@ -82,21 +83,19 @@ pub const SessionSecretResolver = struct {
     resolve: *const fn (ctx: ?*anyopaque, peer_handle: PeerHandle) ?crypto.SecretKey,
 };
 
-/// Resolve Host-owned runtime transport facts without adding them to every
-/// protocol Peer. A standalone Node uses built-in designator semantics and has
-/// no physical-session carrier knowledge.
-pub const TransportResolver = struct {
-    ctx: ?*anyopaque,
-    vtable: *const VTable,
-
-    pub const VTable = struct {
-        designator_scheme: *const fn (ctx: ?*anyopaque, transport: []const u8) ?model.transport.DesignatorScheme,
-        session_transport: *const fn (ctx: ?*anyopaque, peer_handle: PeerHandle) ?[]const u8,
-    };
-};
-
 pub const Node = struct {
-    pub const RuntimeTransportResolver = TransportResolver;
+    /// Resolve Host-owned runtime transport facts without adding them to every
+    /// protocol Peer. A standalone Node uses built-in designator semantics and
+    /// has no physical-session carrier knowledge.
+    pub const TransportResolver = struct {
+        ctx: ?*anyopaque,
+        vtable: *const VTable,
+
+        pub const VTable = struct {
+            designator_scheme: *const fn (ctx: ?*anyopaque, transport: []const u8) ?model.transport.DesignatorScheme,
+            session_transport: *const fn (ctx: ?*anyopaque, peer_handle: PeerHandle) ?[]const u8,
+        };
+    };
 
     /// Max third parties one introducing-session proxy row will introduce to a
     /// single home promise (ADR-0009).
@@ -114,11 +113,6 @@ pub const Node = struct {
     /// node ever reads.
     pub const max_proxy_recipients = proxy_topology.max_recipients;
 
-    /// Bounds the recipient's work when an exporter supplies alternative
-    /// locator advice. These are Node-owned limits because the hint is consumed
-    /// while staging a cross-session redeem, before any one CapTP session's
-    /// `SessionLimits` exists on the dial path. The count includes only
-    /// alternatives. The primary locator is always one additional path.
     allocator: std.mem.Allocator,
     /// The node's durable identity, expanded once at construction. Hosts draw
     /// fresh keys for their sessions. A standalone Node may use this key as its
@@ -212,8 +206,8 @@ pub const Node = struct {
     /// and stays true thereafter. It is the gate each registered peer reads before
     /// walking an outbound message to lower routes (`Peer.node_services`): a node that
     /// never fetches a foreign capability leaves it false, so every send skips the
-    /// walk for one bool load. The peer holds a `*const bool` into this field, so
-    /// the node must not move once a session is registered.
+    /// walk for one bool load. Each registered peer's link holds this node's
+    /// address, so the node must not move once a session is registered.
     route_lowering_active: bool = false,
     /// One stack-bound Host lowering transaction, present only while the
     /// caller is synchronously entering `Peer.send`/`tell`. The Node claims
@@ -258,12 +252,12 @@ pub const Node = struct {
     /// A node bound to a caller-supplied durable identity `seed`, with empty
     /// tables. Draw it at the embedder's I/O boundary because the sans-io core
     /// never generates entropy.
-    pub fn init(allocator: std.mem.Allocator, seed: [crypto.SEED_BYTES]u8) Node {
+    pub fn init(allocator: std.mem.Allocator, seed: [crypto.seed_bytes]u8) Node {
         const base = initialExportBase(seed);
         return .{
             .allocator = allocator,
             .secret = crypto.SecretKey.fromSeed(seed),
-            .wire_hash_secret = export_ranges.wireHashSecret(seed),
+            .wire_hash_secret = wire_hash.secret(seed),
             .next_export_base = base,
             .export_base_end = exportBaseEndFor(base),
         };
@@ -297,12 +291,7 @@ pub const Node = struct {
         handoff_waiters.deinit(self);
         self.freed_export_bases.deinit(self.allocator);
 
-        var route_it = self.redeemed.valueIterator();
-        while (route_it.next()) |entry| model.freeReference(self.allocator, entry.reference);
         self.redeemed.deinit(self.allocator);
-
-        var foreign_it = self.foreign_imports.valueIterator();
-        while (foreign_it.next()) |entry| model.freeReference(self.allocator, entry.reference);
         self.foreign_imports.deinit(self.allocator);
 
         self.locators.deinit(self.allocator);
@@ -389,11 +378,6 @@ pub const Node = struct {
     pub const redeemedRouteId = peer_routes.redeemedRouteId;
 
     pub const peer = peer_membership.peer;
-    const peerAt = peer_membership.peerAt;
-
-    const enrollRedeemed = peer_routes.enrollRedeemed;
-
-    const route = peer_routes.route;
 
     const foreignRoute = peer_routes.foreignRoute;
 
@@ -422,12 +406,16 @@ pub const Node = struct {
     fn prepareV1HandoffCount(self: *Node) engine.node_services.HandoffCountError!engine.bootstrap.gifts.PreparedHandoffCount {
         const handoff_count = self.next_v1_emitted_handoff_count;
         if (handoff_count == std.math.maxInt(u64)) return error.HandoffCountExhausted;
-        return engine.bootstrap.gifts.PreparedHandoffCount.bind(self, handoff_count, commitV1HandoffCount);
+        return engine.bootstrap.gifts.PreparedHandoffCount.bind(self, handoff_count, checkV1HandoffCount, applyV1HandoffCount);
     }
 
-    fn commitV1HandoffCount(self: *Node, prepared: u64) engine.bootstrap.gifts.HandoffCountCommitError!void {
+    fn checkV1HandoffCount(self: *Node, prepared: u64) engine.bootstrap.gifts.HandoffCountCheckError!void {
         if (self.next_v1_emitted_handoff_count != prepared or prepared == std.math.maxInt(u64))
             return error.StaleHandoffCountPreparation;
+    }
+
+    fn applyV1HandoffCount(self: *Node, prepared: u64) void {
+        std.debug.assert(self.next_v1_emitted_handoff_count == prepared);
         self.next_v1_emitted_handoff_count = prepared + 1;
     }
 
@@ -490,17 +478,11 @@ pub const Node = struct {
     pub const Action = node_actions.Action;
 
     pub const pendingDial = redeem_dials.pendingDial;
-    pub fn parseIdSturdyrefLocator(
-        self: *const Node,
-        allocator: std.mem.Allocator,
-        locator: model.PeerLocator,
-    ) !model.RouteBundle {
-        _ = self;
-        return id_route.parseSturdyrefLocator(allocator, locator);
-    }
+    pub const parseIdSturdyrefLocator = id_route.parseSturdyrefLocator;
 
-    pub fn validateIdRouteLocator(self: *const Node, locator: model.PeerLocator) !crypto.PeerKey {
-        _ = self;
+    /// The durable key an `id` locator designates, refusing one that
+    /// designates none.
+    pub fn validateIdRouteLocator(locator: model.PeerLocator) !crypto.PeerKey {
         return (try id_route.validateLocator(locator)) orelse error.UnparseableId;
     }
     pub const beginDialEffect = redeem_dials.beginEffect;
@@ -590,7 +572,7 @@ pub const Node = struct {
 /// modules preserve teardown order and callback identity without a forwarding
 /// call layer or a second state owner.
 pub const Internal = struct {
-    pub const peerAt = Node.peerAt;
+    pub const peerAt = Node.peer;
     pub const retireInlinePassableRecipientBatchesForPeer = passable_batches.retireRecipient;
     pub const markGifterHandoffsChanged = handoff_waiters.markGifterClosed;
     pub const evictExporterCache = redeem_dials.evictExporterCache;
@@ -601,14 +583,13 @@ pub const Internal = struct {
     pub const stagedWithdrawn = passable_batches.stagedWithdrawn;
     pub const provisionalClosed = passable_batches.provisionalClosed;
     pub const stageInlinePassable = passable_staging.stage;
+    pub const InlinePassableOutbound = passable.Outbound;
     pub const claimOutboundStagingLease = passable_leases.claim;
     pub const unclaimOutboundStagingLease = passable_leases.unclaim;
     pub const sessionSecret = Node.sessionSecret;
     pub const sessionTransport = Node.sessionTransport;
     pub const foreignRoute = Node.foreignRoute;
     pub const homeOf = Node.homeOf;
-    pub const InlinePassablePayload = passable.Payload;
-    pub const InlinePassableDestination = passable_batches.Destination;
     pub const addHandoffWaiter = handoff_waiters.add;
     pub const removeHandoffWaiter = handoff_waiters.remove;
     pub const markHandoffChanged = handoff_waiters.markChanged;

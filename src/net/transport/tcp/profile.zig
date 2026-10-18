@@ -57,7 +57,7 @@ pub fn Profile(comptime transport: model.transport.Known) type {
             }
         } else struct {
             pub fn locator(designator: []const u8) model.PeerLocator {
-                return .{ .transport = transport_name, .designator = designator, .hints = model.Hints.emptyFalse() };
+                return .hintless(transport_name, designator);
             }
         };
 

@@ -9,6 +9,7 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 const capability = @import("capability.zig");
 
@@ -50,28 +51,34 @@ pub const Value = union(enum) {
         value: Value,
     };
 
+    /// The nesting every value walk admits. A deeper value is `ValueTooDeep`.
+    pub const max_depth = 64;
+
     /// Visit every capability in this value without allocation. Composite
     /// values are bounded to the same depth as owning-tier copy and retention.
-    /// The visitor keeps an `anyerror` return set: implementors are unknown at
-    /// this declaration.
+    /// The walk returns exactly the visitor's errors and `ValueTooDeep`.
     pub fn forEachCapability(
         self: *const Value,
         ctx: anytype,
-        comptime visit: *const fn (@TypeOf(ctx), Capability) anyerror!void,
-    ) !void {
+        comptime visit: anytype,
+    ) VisitError(visit)!void {
         return self.forEachCapabilityAt(ctx, visit, 0);
+    }
+
+    pub fn VisitError(comptime visit: anytype) type {
+        return error{ValueTooDeep} || foundation.error_sets.Of(visit);
     }
 
     fn forEachCapabilityAt(
         self: *const Value,
         ctx: anytype,
-        comptime visit: *const fn (@TypeOf(ctx), Capability) anyerror!void,
+        comptime visit: anytype,
         depth: usize,
-    ) !void {
-        if (depth > 64) return error.ValueTooDeep;
+    ) VisitError(visit)!void {
+        if (depth > max_depth) return error.ValueTooDeep;
         switch (self.*) {
             .capability => |ref| try visit(ctx, ref),
-            .integers => |words| if (words.len != 0 and depth == 64) return error.ValueTooDeep,
+            .integers => |words| if (words.len != 0 and depth == max_depth) return error.ValueTooDeep,
             .list, .set => |items| for (items) |*item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
             .tagged => |tag| for (tag.value) |*item| try item.forEachCapabilityAt(ctx, visit, depth + 1),
             .@"struct" => |items| for (items) |*item| try item.value.forEachCapabilityAt(ctx, visit, depth + 1),

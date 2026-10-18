@@ -1,6 +1,7 @@
 //! Relay endpoint acquisition: DNS/IP resolution and TCP connection.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 const address_race = @import("address_race.zig");
 const netlayer = @import("../../netlayer.zig");
@@ -107,10 +108,5 @@ fn connectHost(io: std.Io, host: std.Io.net.HostName, port: u16) ConnectOutcome 
 }
 
 fn noteAttempt(attempts: *?DialFailure, phase: carrier_failure.Phase, err: anyerror) void {
-    const next = failure(phase, err);
-    if (attempts.*) |*first| {
-        first.chain.noteChain(next.chain);
-    } else {
-        attempts.* = next;
-    }
+    foundation.latchFailure(attempts, failure(phase, err));
 }

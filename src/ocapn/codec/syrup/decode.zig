@@ -16,23 +16,12 @@ const foundation = @import("foundation");
 const model = @import("model");
 
 const shared = @import("shared.zig");
+const scalar = @import("scalar.zig");
 const syntax = @import("decode/syntax.zig");
 const locator = @import("decode/locator.zig");
 const values = @import("decode/values.zig");
 
 const Error = shared.Error;
-
-const DecodePosture = enum {
-    v1_0,
-    next,
-
-    fn forProfile(profile: model.CaptpVersion) DecodePosture {
-        return switch (profile) {
-            .v1_0 => .v1_0,
-            .next => .next,
-        };
-    }
-};
 
 pub const max_decode_nesting = syntax.max_decode_nesting;
 pub const SignatureView = syntax.SignatureView;
@@ -58,41 +47,38 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
 
 pub fn decodeBodyForProfile(profile: model.CaptpVersion, frame: foundation.FrameView) Error!model.view.Body {
     var slab = model.view.ValueSlab.empty;
-    return decodeBodyInto(profile, frame, &slab);
-}
-
-/// `decodeBodyForProfile` with room for the message's top-level argument
-/// list, so the list is parsed once (`values.readArgumentList`). The views
-/// written to `slab` borrow `frame` and the body returned borrows them.
-pub fn decodeBodyInto(profile: model.CaptpVersion, frame: foundation.FrameView, slab: *model.view.ValueSlab) Error!model.view.Body {
-    return decodeBodyWithPosture(.{ .posture = .forProfile(profile), .slab = slab }, frame);
-}
-
-/// What every message decoder reads under: the profile's posture and the
-/// room lent for the argument list.
-const Decode = struct {
-    posture: DecodePosture,
-    slab: *model.view.ValueSlab,
-};
-
-fn decodeBodyWithPosture(d: Decode, frame: foundation.FrameView) Error!model.view.Body {
-    if (frame.shape != .byte) return Error.InvalidFrameShape;
-
-    var cursor: usize = 0;
-    const body = decodeBodyAt(d, frame.bytes, &cursor) catch |err| switch (err) {
-        Error.Incomplete => return Error.MalformedFrame,
-        else => |other| return other,
-    };
-    try syntax.expectEnd(frame.bytes, cursor);
+    var body: model.view.Body = undefined;
+    try decodeBodyInto(profile, frame, &slab, &body);
     return body;
 }
 
-/// Decode exactly one message starting at `cursor.*`, advancing `cursor` to the
-/// byte just past it and leaving any trailing bytes untouched. The cursor it
-/// leaves *is* the frame boundary. `Error.Incomplete` means the buffer ends
-/// mid-message (read more). Every other error means the bytes are structurally
-/// invalid regardless of how many more arrive.
-fn decodeBodyAt(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+/// `decodeBodyForProfile` writing the body where it will live, with room
+/// for the message's top-level argument list, so the list is parsed once
+/// (`values.readArgumentList`) and the body is written once. The views
+/// written to `slab` borrow `frame` and the body written to `body` borrows
+/// them. On a refusal `body` is undefined.
+pub fn decodeBodyInto(profile: model.CaptpVersion, frame: foundation.FrameView, slab: *model.view.ValueSlab, body: *model.view.Body) Error!void {
+    return decodeBodyUnder(.{ .profile = profile, .slab = slab }, frame, body);
+}
+
+/// What every message decoder reads under: the profile and the room lent for
+/// the argument list.
+const Decode = struct {
+    profile: model.CaptpVersion,
+    slab: *model.view.ValueSlab,
+};
+
+fn decodeBodyUnder(d: Decode, frame: foundation.FrameView, body: *model.view.Body) Error!void {
+    if (frame.shape != .byte) return Error.InvalidFrameShape;
+
+    var cursor: usize = 0;
+    try decodeBodyAt(d, frame.bytes, &cursor, body);
+    try syntax.expectEnd(frame.bytes, cursor);
+}
+
+/// Decode exactly one message starting at `cursor.*` into `body`, advancing
+/// `cursor` to the byte just past it. The caller holds the frame to end there.
+fn decodeBodyAt(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     try syntax.readByte(bytes, cursor, '<');
     // Each op has one canonical label, so dispatch is one comparison per
     // kind in `message_op_order`, with no digit scan. Exhaustiveness rides on
@@ -100,16 +86,17 @@ fn decodeBodyAt(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.B
     // `std.meta.Tag(model.Message)` and on the order naming every kind: a new
     // kind cannot compile without a wire op, a decoder, and a place in line.
     if (syntax.readKnownLabel(bytes, cursor, "op:deliver-only")) {
-        if (d.posture != .next) return Error.UnsupportedMessage;
+        if (d.profile != .next) return Error.UnsupportedMessage;
         const target = try values.readReference(bytes, cursor);
         const args = try values.readArgumentList(d.slab, bytes, cursor);
         try syntax.readByte(bytes, cursor, '>');
-        return .{ .deliver = .{ .target = values.neutralReference(target), .args = args } };
+        body.* = .{ .deliver = .{ .target = values.neutralReference(target), .args = args } };
+        return;
     }
     inline for (message_op_order) |kind| {
         if (syntax.readKnownLabel(bytes, cursor, comptime shared.messageOp(kind))) {
-            if (d.posture == .next and (kind == .get or kind == .index or kind == .untag)) return Error.UnsupportedMessage;
-            return decoderFor(kind)(d, bytes, cursor);
+            if (!d.profile.carries(kind)) return Error.UnsupportedMessage;
+            return decoderFor(kind)(d, bytes, cursor, body);
         }
     }
     // Not a message glowcap models: read the label in full for its verdict,
@@ -140,9 +127,9 @@ comptime {
     }
 }
 
-/// One decoder reads one message body from just past its op symbol, advancing
-/// `cursor` to the byte after the closing `>`.
-const OpDecoder = *const fn (Decode, []const u8, *usize) Error!model.view.Body;
+/// One decoder reads one message body from just past its op symbol into
+/// `body`, advancing `cursor` to the byte after the closing `>`.
+const OpDecoder = *const fn (Decode, []const u8, *usize, *model.view.Body) Error!void;
 
 fn decoderFor(comptime kind: std.meta.Tag(model.Message)) OpDecoder {
     return switch (kind) {
@@ -159,29 +146,29 @@ fn decoderFor(comptime kind: std.meta.Tag(model.Message)) OpDecoder {
     };
 }
 
-fn decodeAbortBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeAbortBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     _ = d;
     const message = try syntax.readString(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
-    const abort = parseAbortWireString(message);
-    return .{ .abort = .{ .kind = abort.kind, .message = abort.message } };
+    const abort = scalar.abortReasonFromWireString(message);
+    body.* = .{ .abort = .{ .kind = abort.kind, .message = abort.message } };
 }
 
-fn decodeDeliverBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeDeliverBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     const target = try values.readReference(bytes, cursor);
     const args = try values.readArgumentList(d.slab, bytes, cursor);
     const answer = try syntax.readOptionalPositiveInt(bytes, cursor);
-    const resolve_me_desc = switch (d.posture) {
+    const resolve_me_desc = switch (d.profile) {
         .v1_0 => try values.readOptionalReference(bytes, cursor),
         .next => try values.readReference(bytes, cursor),
     };
-    const mode: model.ListenMode = if (d.posture == .next)
+    const mode: model.ListenMode = if (d.profile == .next)
         model.ListenMode.fromInt(try syntax.readPositiveInt(bytes, cursor)) orelse return Error.MalformedFrame
     else
         .shortening_or_settling;
-    if (d.posture == .next and (mode == .settling_only or values.neutralReference(resolve_me_desc.?) != .far)) return Error.MalformedFrame;
+    if (d.profile == .next and (mode == .settling_only or values.neutralReference(resolve_me_desc.?) != .far)) return Error.MalformedFrame;
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .deliver = .{
+    body.* = .{ .deliver = .{
         .target = values.neutralReference(target),
         .args = args,
         .answer = if (answer) |a| model.AnswerPosition.from(a) else null,
@@ -190,65 +177,65 @@ fn decodeDeliverBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.v
     } };
 }
 
-fn decodeResolveBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
-    if (d.posture == .next) return Error.UnsupportedMessage;
+fn decodeResolveBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
+    if (d.profile == .next) return Error.UnsupportedMessage;
     const answer = try syntax.readPositiveInt(bytes, cursor);
     const resolution = try values.readNeutralResolution(d.slab, bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .resolve = .{ .answer = model.AnswerPosition.from(answer), .resolution = resolution } };
+    body.* = .{ .resolve = .{ .answer = model.AnswerPosition.from(answer), .resolution = resolution } };
 }
 
-fn decodeGcExportBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeGcExportBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     _ = d;
     const positions = try syntax.readPositionList(bytes, cursor);
     const deltas = try syntax.readPositionList(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .gc_export = .{
+    body.* = .{ .gc_export = .{
         .positions = values.neutralPositions(positions),
         .deltas = values.neutralPositions(deltas),
     } };
 }
 
-fn decodeGcAnswerBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeGcAnswerBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     _ = d;
     const positions = try syntax.readPositionList(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .gc_answer = .{ .positions = values.neutralPositions(positions) } };
+    body.* = .{ .gc_answer = .{ .positions = values.neutralPositions(positions) } };
 }
 
-fn decodeGetBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeGetBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     _ = d;
     const receiver = try values.readReference(bytes, cursor);
     // A String per the spec (and what Goblins sends); see the encoder.
     const field = try syntax.readString(bytes, cursor);
     const answer = try syntax.readPositiveInt(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .get = .{ .receiver = values.neutralReference(receiver), .field = field, .answer = model.AnswerPosition.from(answer) } };
+    body.* = .{ .get = .{ .receiver = values.neutralReference(receiver), .field = field, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeIndexBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeIndexBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     _ = d;
     const receiver = try values.readReference(bytes, cursor);
     const index = try syntax.readIntegerValue(bytes, cursor);
     const answer = try syntax.readPositiveInt(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .index = .{ .receiver = values.neutralReference(receiver), .index = index, .answer = model.AnswerPosition.from(answer) } };
+    body.* = .{ .index = .{ .receiver = values.neutralReference(receiver), .index = index, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeUntagBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeUntagBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     _ = d;
     const receiver = try values.readReference(bytes, cursor);
     // A String per the spec; see the encoder.
     const tag = try syntax.readString(bytes, cursor);
     const answer = try syntax.readPositiveInt(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .untag = .{ .receiver = values.neutralReference(receiver), .tag = tag, .answer = model.AnswerPosition.from(answer) } };
+    body.* = .{ .untag = .{ .receiver = values.neutralReference(receiver), .tag = tag, .answer = model.AnswerPosition.from(answer) } };
 }
 
-fn decodeListenBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeListenBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     const target = try values.readReference(bytes, cursor);
     const listener = try values.readReference(bytes, cursor);
-    const mode: model.ListenMode = switch (d.posture) {
+    const mode: model.ListenMode = switch (d.profile) {
         .v1_0 => model.ListenMode.fromV1_0WantsPartial(if (cursor.* < bytes.len and bytes[cursor.*] != '>')
             try syntax.readBool(bytes, cursor)
         else
@@ -256,14 +243,14 @@ fn decodeListenBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.vi
         .next => model.ListenMode.fromInt(try syntax.readPositiveInt(bytes, cursor)) orelse return Error.MalformedFrame,
     };
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .listen = .{
+    body.* = .{ .listen = .{
         .target = values.neutralReference(target),
         .listener = values.neutralReference(listener),
         .mode = mode,
     } };
 }
 
-fn decodeStartSessionBody(d: Decode, bytes: []const u8, cursor: *usize) Error!model.view.Body {
+fn decodeStartSessionBody(d: Decode, bytes: []const u8, cursor: *usize, body: *model.view.Body) Error!void {
     _ = d;
     const version_wire = try syntax.readString(bytes, cursor);
     // A token this build does not know decodes as null; `session.validate` is
@@ -277,7 +264,7 @@ fn decodeStartSessionBody(d: Decode, bytes: []const u8, cursor: *usize) Error!mo
     const location_raw = bytes[location_start..cursor.*];
     const acceptable_location_sig = try syntax.readSignatureView(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
-    return .{ .start_session = .{
+    body.* = .{ .start_session = .{
         .captp_version = captp_version,
         .session_pubkey = session_pubkey,
         .acceptable_location = acceptable_location,
@@ -286,28 +273,13 @@ fn decodeStartSessionBody(d: Decode, bytes: []const u8, cursor: *usize) Error!mo
     } };
 }
 
-/// Turn a V1.0 abort wire string back into a typed reason. V1.0 writes aborts
-/// as `"<Label>: <message>"`. If the label is one the model recognizes, that
-/// kind is recovered. Otherwise the whole string is kept as an `.other` reason.
-/// The inverse lives beside this in `encode`: `writeAbortWireString` builds
-/// the `"<label>: <message>"` form from `kind.wireName()`, the codec owns the
-/// wire string format in both directions, the model only the typed reason.
-fn parseAbortWireString(wire: []const u8) model.AbortReason {
-    if (std.mem.indexOf(u8, wire, ": ")) |split| {
-        if (model.AbortKind.fromWireName(wire[0..split])) |kind| {
-            return .{ .kind = kind, .message = wire[split + 2 ..] };
-        }
-    }
-    return .{ .kind = .other, .message = wire };
-}
-
 // Public decode index: callers share the leaf implementations directly.
 pub const readSymbol = syntax.readSymbol;
 pub const readLabel = syntax.readLabel;
-pub const readBalanced = syntax.readBalanced;
 pub const readSignatureView = syntax.readSignatureView;
 pub const readByte = syntax.readByte;
 pub const expectEnd = syntax.expectEnd;
 pub const readLocatorOwned = locator.readLocatorOwned;
 pub const readLocatorView = locator.readLocatorView;
 pub const decodeSignedHandoffGiveOwned = values.decodeSignedHandoffGiveOwned;
+pub const signedGivePayload = values.signedGivePayload;

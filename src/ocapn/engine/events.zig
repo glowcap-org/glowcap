@@ -37,18 +37,15 @@ comptime {
 /// codec parse failure or a lazy-sequence projection failure.
 pub const DecodeError = codec.dispatch.Error || model.view.ProjectError;
 
-/// An application-visible event.
-///
-/// The event owns the originating wire frame in the session's negotiated codec.
-/// Typed access is a borrowed projection over that frame (`view`). Owned
-/// materialization (`decodeOwned`) happens only when the caller asks.
 pub const AnswerOverride = union(enum) {
     none,
-    /// A deliver to one of our resolver exports, surfaced as a semantic
-    /// resolve on the answer that export settles (`Event.tag == .resolve`).
-    /// Either mint reaches it: a V1.0 resolver callback (ADR-0010) or the
-    /// listener export an outbound `op:listen` nominated (ADR-0095).
-    resolver_callback: model.AnswerPosition,
+    /// The outbound answer a `.resolve` event settles, by identity, so a
+    /// position the session reuses after release never settles the new
+    /// question. A wire `op:resolve` names it directly. A deliver to one of
+    /// our resolver exports reaches it through the export: a V1.0 resolver
+    /// callback (ADR-0010) or the listener export an outbound `op:listen`
+    /// nominated (ADR-0095).
+    resolve: session.OutboundAnswerTarget,
     /// Resolver-only deliver carrying its virtual inbound answer
     /// (`Event.tag == .deliver`).
     virtual_deliver: model.VirtualAnswer,
@@ -60,9 +57,9 @@ pub const AnswerOverride = union(enum) {
 /// (`Frame.initHeaded`), the same allocation as the bytes it borrows, so the
 /// row carries two words naming it (`Parse`) and a warmed session parks
 /// nothing for it. The ceiling keeps the row from growing unnoticed: the
-/// reference-slot count a deliver carries for its handler took the last
-/// eight bytes.
-pub const queued_event_struct_budget_bytes = 200;
+/// reference-slot count a deliver carries for its handler took eight bytes,
+/// and the identity of the question a resolve settles took the last eight.
+pub const event_struct_budget_bytes = 208;
 
 /// The fewest argument views an inbound frame's head lends the decoder.
 /// Four covers a method symbol and three arguments, the common call.
@@ -90,9 +87,17 @@ pub const head_view_bytes = 4;
 /// as a kept block would, so no peer keeps one (ADR-0238).
 pub const small_block_bytes = 1024;
 
-/// The longest frame whose block fits `small_block_bytes` with the floor of
-/// views in front of it.
-pub const small_frame_bytes = small_block_bytes - inbound_head_budget_bytes - head_argument_views * model.view.argument_view_budget_bytes;
+/// The longest frame whose block fits `small_block_bytes` with the budgeted
+/// head and floor of views. Keep the budget slack: shrinking a type must not
+/// delay the larger slab that typed argument batches need.
+pub const small_frame_bytes = small_block_bytes - (foundation.Frame.headedBlockLen(
+    Head,
+    model.view.Argument,
+    head_argument_views,
+    0,
+    .byte,
+) catch unreachable) - (inbound_head_budget_bytes - @sizeOf(Head)) -
+    head_argument_views * (model.view.argument_view_budget_bytes - @sizeOf(model.view.Argument));
 
 /// How many argument views the head of an owned inbound frame of `wire_len`
 /// bytes lends: `head_argument_views` up to `small_frame_bytes`, then one
@@ -111,8 +116,8 @@ pub fn headViewsFor(wire_len: usize) usize {
 pub const inbound_head_budget_bytes = 544;
 
 /// What an owned inbound frame carries in front of its bytes
-/// (`Frame.initHeaded`): the slot `Parse.store` fills, followed by the views
-/// `Head.slabOf` lends the decoder.
+/// (`Frame.initHeaded`): the slot `Parse.decode` fills, followed by the
+/// views its decoder's slab lends (`Head.slabOf` is that room).
 pub const Head = struct {
     body: model.view.Body,
 
@@ -132,114 +137,92 @@ pub const Head = struct {
 /// bytes it borrows. A frame that arrives owned from outside (`Peer.feedOwned`,
 /// external storage, a pipelined rewrite the codec encoded) has no head, so
 /// its parse is boxed once at admission and released with the row or event.
-pub const Parse = union(enum) {
-    head: *const model.view.Body,
-    boxed: *model.view.Body,
-    /// A V1.0 resolver callback: the deliver as it arrived beside the resolve
-    /// it means (ADR-0010). Both borrow the frame's bytes. One allocation on
-    /// a path only V1.0 sessions take.
-    translated: *Translated,
+pub const Parse = struct {
+    /// The body the application acts on.
+    semantic: *model.view.Body,
+    owner: Owner,
+
+    /// What holds the body. A V1.0 resolver callback is a translation: the
+    /// deliver as it arrived beside the resolve it means (ADR-0010). Both
+    /// borrow the frame's bytes. One allocation on a path only V1.0
+    /// sessions take.
+    pub const Owner = enum { head, boxed, translated };
 
     pub const Translated = struct {
         wire: model.view.Body,
         semantic: model.view.Body,
     };
 
-    /// Keep `decoded`, the parse of `frame`'s own bytes, where `frame` can
-    /// carry it.
-    pub fn store(allocator: std.mem.Allocator, frame: *foundation.Frame, decoded: model.view.Body) !Parse {
-        // The frame was allocated with a slot ahead of its bytes, in the same
-        // memory block, so the parse lives and dies with the frame. An event
-        // then carries the frame and its parse as one allocation and one
-        // pointer. A frame whose bytes belong to someone else has no slot, so
-        // its parse is boxed on its own below.
-        if (frame.head(Head)) |slot| {
-            slot.body = decoded;
-            return .{ .head = &slot.body };
+    /// Decode `frame`'s own bytes once, where the parse will live. The
+    /// engine's frames are allocated with a slot ahead of their bytes, in
+    /// the same memory block, so the decoder writes the body there, its
+    /// argument list into the views behind it, and the parse
+    /// lives and dies with the frame: an event carries both as one
+    /// allocation and one pointer. A frame whose bytes belong to someone
+    /// else has no slot. It is decoded on the stack, so a refused frame
+    /// allocates nothing, and only an admitted parse is boxed.
+    pub fn decode(
+        allocator: std.mem.Allocator,
+        frame: *const foundation.Frame,
+        codec_id: model.CodecId,
+        profile: model.CaptpVersion,
+    ) !Parse {
+        if (frame.headed(Head, model.view.Argument)) |slot| {
+            var slab: model.view.ValueSlab = .init(std.mem.sliceAsBytes(slot.tail));
+            try codec.dispatch.decodeBodyInto(codec_id, profile, frame.view(), &slab, &slot.head.body);
+            return .{ .semantic = &slot.head.body, .owner = .head };
         }
+        var slab: model.view.ValueSlab = .init(&.{});
+        var decoded: model.view.Body = undefined;
+        try codec.dispatch.decodeBodyInto(codec_id, profile, frame.view(), &slab, &decoded);
         const boxed = try allocator.create(model.view.Body);
         boxed.* = decoded;
-        return .{ .boxed = boxed };
+        return .{ .semantic = boxed, .owner = .boxed };
     }
 
-    /// Keep `wire` beside the `semantic` body admission translated it to.
-    pub fn storeTranslated(allocator: std.mem.Allocator, wire: model.view.Body, semantic: model.view.Body) !Parse {
+    /// Keep a copy of `wire` beside the `semantic` body admission translated
+    /// it to.
+    pub fn storeTranslated(allocator: std.mem.Allocator, wire: *const model.view.Body, semantic: model.view.Body) !Parse {
         const translated = try allocator.create(Translated);
-        translated.* = .{ .wire = wire, .semantic = semantic };
-        return .{ .translated = translated };
+        translated.* = .{ .wire = wire.*, .semantic = semantic };
+        return .{ .semantic = &translated.semantic, .owner = .translated };
     }
 
     /// The body the application acts on.
     pub fn body(self: Parse) *const model.view.Body {
-        return switch (self) {
-            .head => |slot| slot,
-            .boxed => |slot| slot,
-            .translated => |slot| &slot.semantic,
-        };
+        return self.semantic;
     }
 
     /// The body as it arrived, before any translation.
     pub fn wireBody(self: Parse) *const model.view.Body {
-        return switch (self) {
-            .head => |slot| slot,
-            .boxed => |slot| slot,
-            .translated => |slot| &slot.wire,
+        return switch (self.owner) {
+            .head, .boxed => self.semantic,
+            .translated => &self.translation().wire,
         };
+    }
+
+    fn translation(self: Parse) *Translated {
+        return @fieldParentPtr("semantic", self.semantic);
     }
 
     /// Release what the parse owns. A head parse goes with its frame.
     pub fn deinit(self: Parse, allocator: std.mem.Allocator) void {
-        switch (self) {
+        switch (self.owner) {
             .head => {},
-            .boxed => |slot| allocator.destroy(slot),
-            .translated => |slot| allocator.destroy(slot),
+            .boxed => allocator.destroy(self.semantic),
+            .translated => allocator.destroy(self.translation()),
         }
     }
 };
 
-pub const Queued = struct {
-    frame: foundation.Frame,
-    parse: Parse,
-    tag: EventKind,
-    codec: model.CodecId,
-    captp_version: model.CaptpVersion,
-    answer_override: AnswerOverride = .none,
-    deliver_answer_target: ?session.AnswerTarget = null,
-    allocator: std.mem.Allocator,
-    introduced_far_imports: ?[]model.ImportPosition = null,
-    reference_slots: ?u32 = null,
-    resolve_aliases: std.ArrayListUnmanaged(model.AnswerPosition) = .empty,
-
-    /// Surface the row for every reader that drains it.
-    pub fn surface(self: Queued) Event {
-        return .{
-            .frame = self.frame,
-            .parse = self.parse,
-            .tag = self.tag,
-            .codec = self.codec,
-            .captp_version = self.captp_version,
-            .answer_override = self.answer_override,
-            .deliver_answer_target = self.deliver_answer_target,
-            .allocator = self.allocator,
-            .introduced_far_imports = self.introduced_far_imports,
-            .reference_slots = self.reference_slots,
-            .resolve_aliases = self.resolve_aliases,
-        };
-    }
-
-    pub fn deinit(self: *Queued) void {
-        self.parse.deinit(self.allocator);
-        self.frame.deinit();
-        if (self.introduced_far_imports) |positions| self.allocator.free(positions);
-        self.resolve_aliases.deinit(self.allocator);
-    }
-};
-
-/// A surfaced inbound event: the queued row with the parse admission made.
-/// Every reader that drains it (the driver, the vat, the GC walk) projects
-/// from `parse`, so one message costs one parse in its life. `frame` never
-/// moves its heap bytes, so the borrow stays valid for the event's life.
-/// Transient: it lives on the drain's stack, not in a queue.
+/// An application-visible inbound event: the queued row, with its parse
+/// admission made. It owns the originating wire frame in the session's
+/// negotiated codec. Typed access is a borrowed projection over that frame
+/// (`view`), and owned materialization (`decodeOwned`) happens only when the
+/// caller asks. Every reader that drains it (the driver, the vat, the GC
+/// walk) projects from `parse`, so one message costs one parse in its life.
+/// `frame` never moves its heap bytes, so the borrow stays valid for the
+/// event's life.
 pub const Event = struct {
     frame: foundation.Frame,
     parse: Parse,
@@ -285,7 +268,7 @@ pub const Event = struct {
     /// Additional local answers sharing this resolve's one next-profile wire
     /// callback. The originating frame remains single-owner. Consumers project
     /// the same borrowed resolution once per answer.
-    resolve_aliases: std.ArrayListUnmanaged(model.AnswerPosition) = .empty,
+    resolve_aliases: std.ArrayListUnmanaged(session.OutboundAnswerTarget) = .empty,
 
     pub fn kind(self: Event) EventKind {
         return self.tag;
@@ -295,9 +278,15 @@ pub const Event = struct {
         return self.frame.bytes();
     }
 
-    /// Additional local answers this resolve settles. The primary is available
-    /// from `view().resolve.answer`. This slice carries the rest.
-    pub fn resolveAliases(self: *const Event) []const model.AnswerPosition {
+    /// The question a `.resolve` event settles, by identity.
+    pub fn resolveTarget(self: *const Event) session.OutboundAnswerTarget {
+        std.debug.assert(self.tag == .resolve);
+        return self.answer_override.resolve;
+    }
+
+    /// Outbound answers settled by the same resolution as `resolveTarget`:
+    /// local aliases converged onto one partner promise (ADR-0095).
+    pub fn resolveAliases(self: *const Event) []const session.OutboundAnswerTarget {
         return self.resolve_aliases.items;
     }
 
@@ -345,7 +334,9 @@ pub const Event = struct {
         return self.view().toOwned(event_allocator);
     }
 
-    pub fn deinit(self: *Event) void {
+    /// Inline, because a drain loop frees the row it just popped and the
+    /// call site knows which optional members that row holds.
+    pub inline fn deinit(self: *Event) void {
         self.resolve_aliases.deinit(self.allocator);
         if (self.introduced_far_imports) |imports| self.allocator.free(imports);
         self.parse.deinit(self.allocator);
@@ -394,5 +385,5 @@ pub fn breakReasonFromPayload(payload: anytype) ?[]const u8 {
 }
 
 comptime {
-    std.debug.assert(@sizeOf(Queued) <= queued_event_struct_budget_bytes);
+    std.debug.assert(@sizeOf(Event) <= event_struct_budget_bytes);
 }

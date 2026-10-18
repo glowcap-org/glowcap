@@ -69,26 +69,20 @@ pub fn project(arena: std.mem.Allocator, snapshot: ?graph.Snapshot) ![]const c.G
     return pages;
 }
 
-fn active(raw: ?*c.GlowcapLoamCall) !*callbacks.Call {
-    const call: *callbacks.Call = @ptrCast(@alignCast(raw orelse return error.NullPointer));
-    if (!call.active) return error.WrongPhase;
-    return call;
-}
-
 pub fn reference(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize, out: ?*common.shared.GlowcapReference) !void {
-    const call = try active(raw);
+    const call = try callbacks.active(raw);
     const target = out orelse return error.NullPointer;
     const held = try call.content_call.pageReference(@ptrCast(page orelse return error.NullPointer), index);
     target.* = .{ .id = held.raw() };
 }
 
 pub fn savedUri(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize) !?[]const u8 {
-    const call = try active(raw);
+    const call = try callbacks.active(raw);
     return call.content_call.pageSavedUri(@ptrCast(page orelse return error.NullPointer), index);
 }
 
 pub fn disclose(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle, index: usize, dependent: bool, out: ?*common.shared.GlowcapArgument) !void {
-    const call = try active(raw);
+    const call = try callbacks.active(raw);
     const target = out orelse return error.NullPointer;
     const value = try call.content_call.disclosePage(@ptrCast(page orelse return error.NullPointer), index, dependent);
     target.* = try common.host.embedding.valueToC(call.content_call.allocator(), value);
@@ -99,7 +93,7 @@ pub fn disclose(raw: ?*c.GlowcapLoamCall, page: ?*const c.GlowcapLoamPageHandle,
 /// shape validation and capture remain the authority. No second heap owner or
 /// transaction engine is introduced at the ABI boundary.
 pub fn replaceCopying(raw: ?*c.GlowcapLoamCall, bytes: ?[*]const u8, len: usize, input: ?[*]const c.GlowcapLoamPageReplacement, count: usize) !void {
-    const call = try active(raw);
+    const call = try callbacks.active(raw);
     const limits = call.content_call.graphLimits() orelse return error.NotContentGraph;
     if (count > limits.max_pages or len > limits.max_payload_bytes) return error.GraphCapacity;
     const source = try common.slice(c.GlowcapLoamPageReplacement, input, count);

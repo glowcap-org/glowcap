@@ -55,7 +55,7 @@ pub const Spill = struct {
     /// bounds the growth.
     pub fn absorbBytes(self: *Spill, allocator: std.mem.Allocator, incoming: []const u8) std.mem.Allocator.Error!void {
         if (incoming.len == 0) return;
-        const needed = self.len + incoming.len;
+        const needed = std.math.add(usize, self.len, incoming.len) catch return error.OutOfMemory;
         if (self.buf.len < needed) {
             // Double, or take exactly what is asked when that is larger. No
             // fixed floor: the tiers arrive with very different first absorbs.
@@ -64,10 +64,9 @@ pub const Spill = struct {
             // boundary by a handful of bytes and would otherwise pay a
             // kilobyte-scale floor on every connection that ever straddled,
             // which is most of them, on that tier.
-            self.buf = try allocator.realloc(self.buf, @max(self.buf.len * 2, needed));
+            self.buf = try allocator.realloc(self.buf, @max(self.buf.len *| 2, needed));
         }
-        @memcpy(self.buf[self.len..][0..incoming.len], incoming);
-        self.len += incoming.len;
+        self.absorbBytesAssumeCapacity(incoming);
     }
 
     /// The exact-growth sibling for a caller whose retained bytes are a hard
@@ -75,10 +74,8 @@ pub const Spill = struct {
     /// silently exceeding the logical ceiling through geometric doubling.
     pub fn absorbBytesPrecise(self: *Spill, allocator: std.mem.Allocator, incoming: []const u8) std.mem.Allocator.Error!void {
         if (incoming.len == 0) return;
-        const needed = self.len + incoming.len;
-        if (self.buf.len < needed) self.buf = try allocator.realloc(self.buf, needed);
-        @memcpy(self.buf[self.len..][0..incoming.len], incoming);
-        self.len += incoming.len;
+        try self.ensureUnusedCapacityPrecise(allocator, incoming.len);
+        self.absorbBytesAssumeCapacity(incoming);
     }
 
     /// Reserve exact room for one borrowed append without committing any of
@@ -86,7 +83,7 @@ pub const Spill = struct {
     /// resources first, then use `absorbBytesAssumeCapacity` as one atomic
     /// ownership transfer.
     pub fn ensureUnusedCapacityPrecise(self: *Spill, allocator: std.mem.Allocator, incoming_len: usize) std.mem.Allocator.Error!void {
-        const needed = self.len + incoming_len;
+        const needed = std.math.add(usize, self.len, incoming_len) catch return error.OutOfMemory;
         if (self.buf.len < needed) self.buf = try allocator.realloc(self.buf, needed);
     }
 

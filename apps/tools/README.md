@@ -1,7 +1,7 @@
 # Tools
 
-This demo passes tools to an agent as capabilities. It shows three patterns:
-granting a tool, wrapping it as read-only, and switching a grant off.
+This demo hands an AI agent its tools as capabilities. The coordinator grants
+a tool, wraps one as read-only, and switches a grant off.
 
 ```sh
 zig build demo-tools
@@ -26,9 +26,8 @@ const clock = await session.send(tools, "grant", ["clock"]);
 const now = await session.send(clock, "now");
 ```
 
-Permission travels with the reference. The agent does not need a URL, token, or
-second lookup when it calls the returned clock. The coordinator's named
-`grant("clock")` request is the policy lookup in this demo.
+The agent calls the returned clock with no URL, token, or second lookup. The
+coordinator decides what to hand out when it answers `grant("clock")`.
 
 ## Attenuation
 
@@ -65,7 +64,6 @@ function revocable(tool) {
 ```
 
 After the coordinator calls `revoke`, later calls through that reference break.
-No global permission table is involved.
 
 glowcap also provides these common wrappers as
 `session.attenuate(capability, methods)` and `session.caretaker(capability)`.
@@ -79,8 +77,8 @@ narrowed, and revoked once the coordinator decides to grant it. It has no policy
 engine and is not a complete harness for confining an agent.
 
 A real harness must decide which grants a task may request, keep unapproved
-tools unreachable, and treat model output as untrusted. Capabilities enforce those
-limits but do not choose them.
+tools unreachable, and treat model output as untrusted. Capabilities then
+enforce what it decided.
 
 The coordinator and Deno agent live under [`deno/`](deno/). The Python, Racket,
 Rust, and Zig directories contain agents that exercise the same three patterns.

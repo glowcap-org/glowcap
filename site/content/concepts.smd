@@ -26,13 +26,14 @@ only some methods, hand out the wrapper, and you have attenuated. Cut the
 wrapper and you have revoked.
 [Why OCapN]($link.page('why')) walks all three with pictures.
 
-[A capability is a reference. Pass it as an argument and the partner can call it. Without it there is nothing else to reach for.]($image.siteAsset('diagram-capability.svg'))
+[A capability is a reference. Pass it as an argument and the partner can call it. Without it, the partner cannot reach the object at all.]($image.siteAsset('diagram-capability.svg'))
 
-A call takes two messages. Your side sends a `deliver` message, and you
-immediately hold a promise for the answer. Later, the partner sends back a
-`resolve` message, which settles that promise into a result.
+A call is a `deliver` message, and you immediately hold a promise for the
+answer. When the partner has the answer, it sends a message back that settles
+the promise. [How a promise settles]($link.page('protocol').ref('how-a-promise-settles'))
+shows that message on the wire.
 
-[A single call, start to finish: you deliver it and immediately hold a promise, and the partner's resolve settles that promise to a result.]($image.siteAsset('diagram-call.svg'))
+[A single call, start to finish: you deliver it and immediately hold a promise, and the partner's answer settles that promise to a result.]($image.siteAsset('diagram-call.svg'))
 
 # Getting the first reference: locators and sturdyrefs
 
@@ -51,7 +52,8 @@ give no access of their own.
 
 Dialing a locator opens a session. The **bootstrap object** is the one
 capability available at first. You fetch a published name from it and get
-back a live reference, and from there references come from references.
+back a live reference. From there, new references come from the ones you
+already hold.
 
 A **sturdyref** is a locator with a **swiss number** on the end, and it names
 one object. It is a reference you can write down, for example in a config
@@ -96,8 +98,8 @@ transports under one key.
 
 A remote call hands back a **promise** before any bytes return, and you can
 call methods on that promise right away. Those calls travel to the peer and
-queue against the pending answer, so they run the moment it settles, over
-there, without another round trip from you.
+queue against the pending answer, so they run on the peer as soon as it
+settles, with no extra round trip.
 
 Ask a task board for a column, then ask that column for a card, and both
 questions cross the network in one flight. Chapter 06,
@@ -109,8 +111,8 @@ diagrams draw it.
 # Three-party handoff
 
 Alice holds a reference to Carol's object and wants Bob to have it. Alice
-could pass Bob's calls along to Carol herself, but then she would sit in the
-middle of their relationship forever. Instead, CapTP lets her write an
+could pass Bob's calls along to Carol herself, but then every call between
+them would have to go through her. Instead, CapTP lets her write an
 introduction that Bob presents to Carol himself. After that, Bob and Carol
 talk directly.
 
@@ -119,7 +121,7 @@ The handoff runs in four stages:
 1. Alice **deposits** a gift with Carol and builds a signed **give**.
 2. Alice's answer to Bob carries that give (the introduction).
 3. Bob **redeems** with Carol and gets a live reference.
-4. Alice is off the path.
+4. Bob and Carol talk directly, without Alice.
 
 In glowcap you never handle the gift bytes. When a call's answer is an
 introduction, glowcap redeems it for you, and the call you were already
@@ -139,8 +141,8 @@ Two peers have to agree on a CapTP **version** and a **codec** first. Together
 those are the session's **dialect**. Each side
 has a ranked menu, both apply the same rule to the two menus, and the most
 preferred shared entry wins. If the menus share nothing, no session opens. The
-menus never cross the wire: each side sends a signed hello naming the version
-it chose and the optional features it offers.
+hello itself always names the 1.0 baseline, and each side's menu rides along
+as hints on the location it signs.
 
 [Syrup](https://github.com/ocapn/syrup) and Cap'n Proto are codecs, two ways
 of writing the same message down. Session logic never changes with the codec.

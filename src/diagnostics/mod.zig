@@ -36,11 +36,11 @@ pub const ScopeKind = enum(u32) {
     operation = 6,
 };
 
-pub const truncated_operation: u32 = 1 << 0;
-pub const truncated_primary_name: u32 = 1 << 1;
-pub const truncated_primary_message: u32 = 1 << 2;
-pub const truncated_secondary_name: u32 = 1 << 3;
-pub const truncated_secondary_message: u32 = 1 << 4;
+pub const truncated_operation: u32 = flagFor(.operation);
+pub const truncated_primary_name: u32 = flagFor(.primary_name);
+pub const truncated_primary_message: u32 = flagFor(.primary_message);
+pub const truncated_secondary_name: u32 = flagFor(.secondary_name);
+pub const truncated_secondary_message: u32 = flagFor(.secondary_message);
 
 /// Borrowed input at the failure boundary. `primary_result` and
 /// `secondary_result` use the stable C result family when the cause has one,
@@ -83,6 +83,11 @@ pub const Claim = struct {
 
 const Field = enum { operation, primary_name, primary_message, secondary_name, secondary_message };
 const field_count = @typeInfo(Field).@"enum".field_names.len;
+
+/// The truncation flag of `field`: one bit per field, in declaration order.
+fn flagFor(field: Field) u32 {
+    return @as(u32, 1) << @backingInt(field);
+}
 
 const Slot = struct {
     sequence: u64 = 0,
@@ -133,16 +138,6 @@ pub const Journal = struct {
     fn window(self: *Journal, index: usize) []u8 {
         const start = index * self.payload_cap;
         return self.payload[start .. start + self.payload_cap];
-    }
-
-    fn flagFor(field: Field) u32 {
-        return switch (field) {
-            .operation => truncated_operation,
-            .primary_name => truncated_primary_name,
-            .primary_message => truncated_primary_message,
-            .secondary_name => truncated_secondary_name,
-            .secondary_message => truncated_secondary_message,
-        };
     }
 
     fn boundedUtf8Len(source: []const u8, room: usize) usize {
@@ -202,13 +197,6 @@ pub const Journal = struct {
         }
         self.slots[index] = slot;
         self.len += 1;
-    }
-
-    pub fn nextPayloadLen(self: *Journal) ?usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        if (self.len == 0) return null;
-        return self.slots[self.head].payload_len;
     }
 
     /// Claim the oldest record into `out`. Returns `false` without consuming

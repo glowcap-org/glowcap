@@ -16,8 +16,8 @@ interop.
 
 The toolchains these need (Racket with Goblins, Python, `cargo` for the iroh
 sidecar, the binding runtimes) come from [`../.devcontainer/`](../.devcontainer/).
-No step here is part of the self-contained `zig build check`, and each runs only
-when its runtime is on PATH.
+`zig build check` compiles these drivers but runs none of them. Each live step
+needs its outside runtime on PATH.
 
 Helpers the per-language interop clients share live in [`_common/`](_common/),
 one directory per language. The Zig drivers' shared harness is

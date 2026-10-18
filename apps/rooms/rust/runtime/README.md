@@ -58,7 +58,6 @@ hold what happened and how to recover. Shutdown drains callbacks and releases
 the names and seats this session holds upstream. A subscription in an unknown
 state is never treated as gone.
 
-Storage adapters also keep admitted work alive when nobody is waiting on it.
 A storage write with an unknown outcome is settled before protected work
 resumes. Failures keep their concrete storage or transport cause in the typed
 error. The crate does no filesystem, socket, or browser I/O of its own.

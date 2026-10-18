@@ -7,7 +7,7 @@ const session = @import("session");
 const passable = @import("../passable.zig");
 const Custody = session.Session.LocalPromiseCustody;
 
-pub fn acquire(owner: *session.Session, payload: *passable.Payload, inventory: session.Inventory) error{QueueCapExceeded}!void {
+pub fn acquire(owner: *session.Session, payload: *passable.Outbound, inventory: session.Inventory) error{QueueCapExceeded}!void {
     const resolver = resolverReference(payload);
     if (resolver) |reference| try Custody.retain(owner, reference);
     errdefer if (resolver) |reference| Custody.release(owner, reference);
@@ -25,40 +25,34 @@ pub fn acquire(owner: *session.Session, payload: *passable.Payload, inventory: s
     }
 }
 
-pub fn release(owner: *session.Session, payload: *passable.Payload) void {
+pub fn release(owner: *session.Session, payload: *passable.Outbound) void {
     visitPayload(owner, payload, false);
 }
 
 /// Restore counts just returned in the same synchronous collection pause.
 /// The original tree has been restored, and no competing owner can overflow
 /// these exact counts. No allocation belongs on an error rollback edge.
-pub fn restore(owner: *session.Session, payload: *passable.Payload) void {
+pub fn restore(owner: *session.Session, payload: *passable.Outbound) void {
     visitPayload(owner, payload, true);
 }
 
-fn visitPayload(owner: *session.Session, payload: *passable.Payload, comptime retaining: bool) void {
+fn visitPayload(owner: *session.Session, payload: *passable.Outbound, comptime retaining: bool) void {
     switch (payload.*) {
-        .outbound => |value| switch (value) {
-            .message => |message| switch (message) {
-                .deliver => |deliver| {
-                    if (deliver.resolve_me_desc) |reference| visitArgument(owner, .{ .reference = reference }, retaining);
-                    for (deliver.args) |arg| visitArgument(owner, arg, retaining);
-                },
-                else => {},
+        .message => |message| switch (message) {
+            .deliver => |deliver| {
+                if (deliver.resolve_me_desc) |reference| visitArgument(owner, .{ .reference = reference }, retaining);
+                for (deliver.args) |arg| visitArgument(owner, arg, retaining);
             },
-            .answer_settlement => |settlement| visitResolution(owner, settlement.resolution, retaining),
+            else => {},
         },
-        .relayed_resolution => |resolution| visitResolution(owner, resolution, retaining),
+        .answer_settlement => |settlement| visitResolution(owner, settlement.resolution, retaining),
     }
 }
 
-fn resolverReference(payload: *passable.Payload) ?model.Reference {
+fn resolverReference(payload: *passable.Outbound) ?model.Reference {
     return switch (payload.*) {
-        .outbound => |value| switch (value) {
-            .message => |message| if (message == .deliver) message.deliver.resolve_me_desc else null,
-            .answer_settlement => null,
-        },
-        .relayed_resolution => null,
+        .message => |message| if (message == .deliver) message.deliver.resolve_me_desc else null,
+        .answer_settlement => null,
     };
 }
 

@@ -149,7 +149,7 @@ Only the whole-archive root of a service can issue shares.
 
 ## Recording in a session
 
-`runtime::session_archive` owns what a durable session records: the
+`runtime::archive::session` owns what a durable session records: the
 selected archive (the browser store, the session's own archive, or a chosen
 peer), ordered local recording, shares, and erasure. Its queue admits
 <!-- value runtime/src/archive/session/mod.rs MAX_PENDING -->64<!-- /value --> requests holding at most

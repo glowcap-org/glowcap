@@ -5,14 +5,19 @@ const core = @import("loam_access_core");
 const records = @import("loam_access_records");
 const Descriptor = records.CapabilityRecord;
 const op = @import("capability_operation.zig");
+const record = @import("record.zig");
 const create = @import("capability_stage.zig");
 const staging = @import("stage.zig");
 const Read = @import("read.zig").Read;
+const OwnerIndex = @import("owner_index.zig").OwnerIndex;
 
 pub const Capabilities = struct {
     allocator: std.mem.Allocator,
     store: *loam.Store,
     limits: Limits,
+    /// Resident owner headers and directory resolutions every operation's
+    /// Read consults, heap-held because it is a few decoded headers wide.
+    index: *OwnerIndex,
     references: usize = 0,
     operations: usize = 0,
     observations: usize = 0,
@@ -22,24 +27,28 @@ pub const Capabilities = struct {
     /// Store and this owner stay at stable addresses until deinit succeeds.
     pub fn init(allocator: std.mem.Allocator, store: *loam.Store, limits: Limits) !Capabilities {
         if (limits.max_references == 0 or limits.max_operations == 0) return error.InvalidLimits;
-        return .{ .allocator = allocator, .store = store, .limits = limits };
+        const index = try allocator.create(OwnerIndex);
+        index.* = .{ .allocator = allocator };
+        return .{ .allocator = allocator, .store = store, .limits = limits, .index = index };
     }
 
     pub fn deinit(self: *Capabilities) !void {
         if (self.references != 0 or self.operations != 0 or self.observations != 0) return error.Busy;
+        self.index.deinit();
+        self.allocator.destroy(self.index);
         self.* = undefined;
     }
 
     /// Privileged creation persists a descriptor. No reference escapes
     /// before commit. The caller roots it or retains it through content edges.
-    pub fn stageUse(self: *Capabilities, read: *Read, grant: core.GrantId, rooted: bool) !loam.ObjectId {
+    pub fn stageUse(self: *Capabilities, read: *Read, grant: core.GrantId, rooting: record.Rooting) !loam.ObjectId {
         if (read.store != self.store) return error.ForeignStore;
-        return create.create(read, grant, null, rooted);
+        return create.create(read, grant, null, rooting);
     }
 
-    pub fn stageControl(self: *Capabilities, read: *Read, grant: core.GrantId, powers: core.Control.Powers, rooted: bool) !loam.ObjectId {
+    pub fn stageControl(self: *Capabilities, read: *Read, grant: core.GrantId, powers: core.Control.Powers, rooting: record.Rooting) !loam.ObjectId {
         if (read.store != self.store) return error.ForeignStore;
-        return create.create(read, grant, powers, rooted);
+        return create.create(read, grant, powers, rooting);
     }
 
     pub fn restoreUse(self: *Capabilities, lease: loam.Lease) !*Use {
@@ -58,8 +67,9 @@ pub const Capabilities = struct {
         }
         var scratch: [records.CapabilityRecord.selection_bytes]u8 align(@alignOf(core.ResourceId)) = undefined;
         var fixed = std.heap.FixedBufferAllocator.init(&scratch);
-        const decoded = try Descriptor.decodeOwned(fixed.allocator(), row);
-        if (decoded.value.role != role) return error.WrongRole;
+        var decoded: Descriptor = undefined;
+        try decoded.decodeOwned(fixed.allocator(), row);
+        if (decoded.role != role) return error.WrongRole;
         if (self.references == self.limits.max_references) return error.CapabilityCapacity;
         const retention = try self.store.retain(row.id);
         errdefer self.store.releaseRetention(retention) catch unreachable;
@@ -71,41 +81,50 @@ pub const Capabilities = struct {
 
     /// Owner-only staging. The operation's role and bound grant admitted its
     /// plan. Derivation creates its use descriptor in the same content batch.
-    pub fn stage(self: *Capabilities, operation: *Operation, root_derived: bool) !Staged {
+    pub fn stage(self: *Capabilities, operation: *Operation, rooting: record.Rooting) !Staged {
         const state = op.state(operation);
         if (state.binding.owner != self) return error.ForeignOperation;
         try state.opened();
         if (state.staged) return error.WrongPhase;
         const prepared = if (state.prepared == .grant) &state.prepared.grant else return error.NoPreparedChange;
         const plan = &prepared.plan;
-        const result = try staging.grant(&state.read.?, plan, prepared.append);
+        const result = try staging.grant(&state.read, plan, prepared.append);
         errdefer if (self.store.phase == .staging) self.store.abort() catch unreachable;
         var derived: ?loam.ObjectId = null;
-        if (plan.delta == .issue) derived = try create.descriptor(&state.read.?, .{
-            .owner = state.read.?.owner_object,
+        if (plan.delta == .issue) derived = try create.descriptor(&state.read, .{
+            .owner = state.read.owner_object,
             .grant_object = result.object,
             .grant = result.change.grant,
             .role = .use,
-        }, root_derived);
+        }, rooting);
         var control: ?loam.ObjectId = null;
-        if (prepared.powers) |powers| control = try create.descriptor(&state.read.?, .{
-            .owner = state.read.?.owner_object,
+        if (prepared.powers) |powers| control = try create.descriptor(&state.read, .{
+            .owner = state.read.owner_object,
             .grant_object = result.object,
             .grant = result.change.grant,
             .role = .control,
             .powers = powers.powers,
-        }, root_derived);
+        }, rooting);
         state.staged = true;
         return .{ .change = result.change, .derived_use = derived, .derived_control = control };
     }
     /// Stage the control prepared by `prepareAttenuationCopying`. The new
     /// descriptor retains its parent control and the same exact grant.
-    pub fn stageAttenuatedControl(self: *Capabilities, operation: *Operation, rooted: bool) !loam.ObjectId {
+    pub fn stageAttenuatedControl(self: *Capabilities, operation: *Operation, rooting: record.Rooting) !loam.ObjectId {
         const state = op.state(operation);
         if (state.binding.owner != self) return error.ForeignOperation;
-        return op.stageAttenuatedControl(state, rooted);
+        return op.stageAttenuatedControl(state, rooting);
     }
 };
+
+/// The heap allocation each held reference makes. Raise it with the bytes named.
+pub const binding_budget_bytes = 96;
+comptime {
+    if (@sizeOf(Binding) > binding_budget_bytes) @compileError(std.fmt.comptimePrint(
+        "access.storage Binding is {d} bytes, over its {d}-byte budget. Raise the constant deliberately, with the bytes justified.",
+        .{ @sizeOf(Binding), binding_budget_bytes },
+    ));
+}
 
 pub const Binding = struct {
     owner: *Capabilities,

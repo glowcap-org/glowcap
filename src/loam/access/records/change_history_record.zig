@@ -15,6 +15,9 @@ pub const ChangeHistoryRecord = struct {
 
     pub const capacity = 32;
     pub const max_encoded_bytes = 128;
+    pub const format_version: u64 = 1;
+    pub const max_edges = capacity;
+    const label = "access:change-history";
 
     pub fn encodeAlloc(self: ChangeHistoryRecord, allocator: std.mem.Allocator) ![]u8 {
         try self.validate();
@@ -28,12 +31,12 @@ pub const ChangeHistoryRecord = struct {
     }
 
     pub fn decode(view: loam.View) !ChangeHistoryRecord {
-        if (view.schema != profile.change_history or view.schema_version != 1 or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
+        if (view.schema != profile.change_history or view.schema_version != format_version or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
         const bytes = view.payload;
         var cursor: usize = 0;
         try s.readByte(bytes, &cursor, '<');
-        if (!std.mem.eql(u8, try s.readSymbol(bytes, &cursor), "access:change-history")) return error.InvalidRecord;
-        if (try s.readPositiveInt(bytes, &cursor) != 1) return error.UnsupportedVersion;
+        if (!std.mem.eql(u8, try s.readSymbol(bytes, &cursor), label)) return error.InvalidRecord;
+        if (try s.readPositiveInt(bytes, &cursor) != format_version) return error.UnsupportedVersion;
         var result: ChangeHistoryRecord = .{
             .owner = @fromBackingInt(try fields.readWide(bytes, &cursor)),
             .next_sequence = try s.readPositiveInt(bytes, &cursor),
@@ -42,10 +45,9 @@ pub const ChangeHistoryRecord = struct {
         try result.validate();
         var retained = view.edges();
         for (result.batches[0..result.count], 0..) |*batch, index| {
-            const edge = retained.next() orelse return error.InvalidRecord;
-            if (edge.strength != .strong or edge.target.store != view.id.store) return error.InvalidRecord;
-            for (result.batches[0..index]) |prior| if (prior.eql(edge.target)) return error.InvalidRecord;
-            batch.* = edge.target;
+            const target = try fields.readEdge(&retained, view.id.store);
+            for (result.batches[0..index]) |prior| if (prior.eql(target)) return error.InvalidRecord;
+            batch.* = target;
         }
         if (retained.next() != null) return error.InvalidRecord;
         try s.readByte(bytes, &cursor, '>');
@@ -78,8 +80,8 @@ pub const ChangeHistoryRecord = struct {
 
     fn write(sink: anytype, self: ChangeHistoryRecord) !void {
         try s.beginRecord(sink);
-        try s.writeSymbol(sink, "access:change-history");
-        try s.writePositiveInt(sink, 1);
+        try s.writeSymbol(sink, label);
+        try s.writePositiveInt(sink, format_version);
         try fields.writeWide(sink, @backingInt(self.owner));
         try s.writePositiveInt(sink, self.next_sequence);
         try s.writePositiveInt(sink, self.count);

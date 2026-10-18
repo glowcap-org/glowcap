@@ -60,7 +60,7 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
 
     // p1 calls the partner bootstrap with an answer, minting a resolver export.
     try pair.p1.sendBorrowed(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+        .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(42),
         .resolve_me_desc = null,

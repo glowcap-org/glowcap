@@ -13,9 +13,10 @@ const Cancellation = @import("observation_cancellation.zig").Cancellation;
 const record = @import("record.zig");
 const Position = records.MaintenancePosition;
 const grant_retirement = @import("grant_retirement.zig");
+const history = @import("history.zig");
 
 const State = struct {
-    read: Read,
+    read: Read = undefined,
     command: Position.Command,
     sequence: u64,
     load: Load = .{},
@@ -28,7 +29,7 @@ const State = struct {
     terminal: ?records.TerminalRecord = null,
     grant_path: ?grant_retirement.Path = null,
     grant_child_edit: ?Edit = null,
-    publication_ids: [2]?loam.ObjectId = @splat(null),
+    publication_ids: records.ObservationRecord.Publications = @splat(null),
     observation_index: ?records.ObservationIndexRecord = null,
     remove: bool = false,
     missing: bool = false,
@@ -44,15 +45,9 @@ const State = struct {
         for (0..256) |_| {
             const read_step = try self.read.advance();
             if (read_step != .ready) return read_step;
-            self.prepare() catch |err| {
-                if (err == error.RecordUnloaded) continue;
-                return err;
-            };
+            try loam.reload(self.prepare()) orelse continue;
             if (self.ready) return .ready;
-            const step = (if (self.read.header.maintenance.phase == .observations) self.observation() else self.indexed()) catch |err| {
-                if (err == error.RecordUnloaded) continue;
-                return err;
-            };
+            const step = try loam.reload((if (self.read.header.maintenance.phase == .observations) self.observation() else self.indexed())) orelse continue;
             if (step != .ready) return step;
             if (self.phase_done) self.ready = true;
             if (self.ready) return .ready;
@@ -155,11 +150,7 @@ const State = struct {
             .resources => .resource,
             else => return error.InvalidRecord,
         };
-        const root = switch (family) {
-            .identity => self.read.header.identities,
-            .grant => self.read.header.grants,
-            .resource => self.read.header.resources,
-        };
+        const root = self.read.header.root(family);
         if (self.query == null) self.query = Query.initAt(&self.read, root, family, position.cursor);
         if (self.entry == null) {
             const step = try self.query.?.advance();
@@ -180,10 +171,11 @@ const State = struct {
         if (self.remove) {
             if (self.grant_path) |path| if (path.count > 1) {
                 if (self.grant_child_edit == null) {
-                    const row = try @import("history.zig").row(&self.read, .{ .grant = path.ids[1] });
-                    var parent = try records.GrantRecord.decodeOwned(self.read.allocator, row.view.payload);
+                    const row = try history.row(&self.read, .{ .grant = path.ids[1] });
+                    var parent: records.GrantRecord = undefined;
+                    try parent.decodeOwned(self.read.allocator, row.view.payload);
                     defer parent.deinit(self.read.allocator);
-                    self.grant_child_edit = Edit.init(&self.read, .grant, parent.value.children, entry.slot);
+                    self.grant_child_edit = Edit.init(&self.read, .grant, parent.children, entry.slot);
                 }
                 const child_step = try self.grant_child_edit.?.advance();
                 if (child_step != .ready) return child_step;
@@ -244,18 +236,19 @@ const State = struct {
             self.remove = !value.live or self.read.header.lifecycle != .active;
             self.terminal = .{ .kind = .resource };
         } else {
-            var value = try records.GrantRecord.decodeOwned(self.read.allocator, view.payload);
+            var value: records.GrantRecord = undefined;
+            try value.decodeOwned(self.read.allocator, view.payload);
             defer value.deinit(self.read.allocator);
-            if (value.value.grant.id.slot != self.entry.?.slot or value.value.grant.id.owner != self.read.header.owner) return error.InvalidRecord;
+            if (value.grant.id.slot != self.entry.?.slot or value.grant.id.owner != self.read.header.owner) return error.InvalidRecord;
             self.remove = self.read.header.lifecycle != .active;
             if (!self.remove) {
                 var grants = try self.read.grantView();
-                const status = grants.effectiveStatus(value.value.grant.id) catch |err| switch (err) {
+                const status = grants.effectiveStatus(value.grant.id) catch |err| switch (err) {
                     error.Gone => .revoked,
                     else => return err,
                 };
                 self.remove = status == .revoked;
-                if (self.remove) self.grant_path = try grant_retirement.prepare(&self.read, value.value.grant.id, value.value.grant.parent);
+                if (self.remove) self.grant_path = try grant_retirement.prepare(&self.read, value.grant.id, value.grant.parent);
             }
             self.terminal = .{ .kind = .grant };
         }
@@ -273,13 +266,14 @@ pub const Maintenance = opaque {
     pub fn init(allocator: std.mem.Allocator, store: *loam.Store, owner: loam.ObjectId, command: Command, sequence: u64, capacity: usize) !*Maintenance {
         const value = try allocator.create(State);
         errdefer allocator.destroy(value);
-        value.* = .{ .read = try Read.init(allocator, store, owner, capacity), .command = command, .sequence = sequence };
+        value.* = .{ .command = command, .sequence = sequence };
+        try value.read.init(allocator, store, owner, capacity, null);
         return @ptrCast(value);
     }
     pub fn advance(self: *Maintenance) !Step {
         return backing(self).advance();
     }
-    pub fn publications(self: *Maintenance) ![2]?loam.ObjectId {
+    pub fn publications(self: *Maintenance) !records.ObservationRecord.Publications {
         const value = backing(self);
         try value.read.current();
         if (!value.ready) return error.NotPrepared;
@@ -293,13 +287,7 @@ pub const Maintenance = opaque {
         var phase = header.maintenance.phase;
         var retired = header.lifecycle == .retired;
         if (!value.replay and !value.staged) {
-            if (value.command == .sweep or value.command == .retire) phase = .observations else if (value.phase_done) phase = switch (phase) {
-                .observations => .identities,
-                .identities => .grants,
-                .grants => .resources,
-                .resources => .idle,
-                .idle => unreachable,
-            };
+            if (value.command == .sweep or value.command == .retire) phase = .observations else if (value.phase_done) phase = phase.next();
             retired = phase == .idle and header.lifecycle == .retiring;
         }
         return .{ .sequence = header.maintenance.sequence + @as(u64, @intFromBool(!value.replay and !value.staged)), .phase = phase, .retired = retired, .replay = value.replay };
@@ -313,11 +301,7 @@ pub const Maintenance = opaque {
         try value.read.opened();
         if (value.read.header.maintenance.sequence != value.sequence) return error.RevisionConflict;
         if (value.lease) |lease| if (try store.proposed((try store.currentView(lease)).id) != null) return error.RevisionConflict;
-        if (value.edit) |*edit| try edit.rebaseProposed(switch (edit.family) {
-            .identity => value.read.header.identities,
-            .grant => value.read.header.grants,
-            .resource => value.read.header.resources,
-        });
+        if (value.edit) |*edit| try edit.rebaseProposed(value.read.header.root(edit.family));
         for (value.publication_ids) |id| if (id != null and retirement == null) return error.RetirementRequired;
         errdefer if (store.phase == .staging) store.abort() catch unreachable;
         value.read.transaction = store.ticket;
@@ -327,7 +311,7 @@ pub const Maintenance = opaque {
         } else if (value.remove and value.lease != null and value.terminal != null) {
             if (retirement) |transition| try transition.stage(transition.context, value.publication_ids);
             const view = try store.currentView(value.lease.?);
-            try record.putEncoded(store, view.id, records.profile.terminal, value.terminal.?, &.{}, view.revision, false);
+            try record.putEncoded(store, view.id, records.profile.terminal, value.terminal.?, &.{}, view.revision, .reachable);
         }
         var header = value.read.header;
         if (value.command == .retire) {
@@ -339,13 +323,7 @@ pub const Maintenance = opaque {
             header.maintenance.cursor = 0;
         } else if (value.phase_done) {
             header.maintenance.cursor = 0;
-            header.maintenance.phase = switch (header.maintenance.phase) {
-                .observations => .identities,
-                .identities => .grants,
-                .grants => .resources,
-                .resources => .idle,
-                .idle => unreachable,
-            };
+            header.maintenance.phase = header.maintenance.phase.next();
             if (header.maintenance.phase == .idle and header.lifecycle == .retiring) {
                 header.lifecycle = .retired;
                 header.resources = null;
@@ -358,21 +336,13 @@ pub const Maintenance = opaque {
         } else if (value.entry) |entry| {
             header.maintenance.cursor = @as(u64, entry.slot) + 1;
             if (value.remove) {
-                const root = try value.edit.?.stage(null);
-                switch (value.edit.?.family) {
-                    .identity => header.identities = root,
-                    .grant => header.grants = root,
-                    .resource => header.resources = root,
-                }
+                header.setRoot(value.edit.?.family, try value.edit.?.stage(null));
             }
         } else if (!value.remove) header.maintenance.cursor += 1;
         header.maintenance.sequence += 1;
         header.maintenance.last = value.command;
         if (value.command == .retire) header.control_revision = std.math.add(u64, header.control_revision, 1) catch return error.RevisionExhausted;
-        const expected = if (try store.proposed(value.read.owner_object)) |proposal| proposal.expected else value.read.header_revision;
-        var edges: [records.OwnerRecord.max_edges]loam.Edge = undefined;
-        try record.putEncoded(store, value.read.owner_object, records.profile.owner, header, header.edges(&edges), expected, true);
-        value.read.header = header;
+        try record.putOwner(&value.read, &header);
         value.staged = true;
         return true;
     }

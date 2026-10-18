@@ -19,6 +19,7 @@ const ListenerObserver = HostRuntime.ListenerObserver;
 const ListenerStopOutcome = HostRuntime.ListenerStopOutcome;
 const TransportListener = HostRuntime.TransportListener;
 const ListenerObservation = pending_state.ListenerObservation;
+const Provider = @import("provider_package.zig").Selected;
 const PendingListener = pending_state.Listener;
 
 /// Begin one listener construction through the generic runtime seam.
@@ -41,23 +42,29 @@ pub fn startListener(
     if (self.residents.items[provider.resident].resident.acceptor() == null)
         return Error.UnknownTransport;
     try observer.reserve(observer.ctx, tag);
-    var observation_owned = true;
-    errdefer if (observation_owned) observer.release(observer.ctx, tag);
+    errdefer observer.release(observer.ctx, tag);
     try Internal.reserveListenerProfile(self, provider.transport);
-    var profile_owned = true;
-    errdefer if (profile_owned) Internal.releaseListenerProfile(self, provider.transport);
     const observation = ListenerObservation{ .observer = observer, .tag = tag };
+    listen(self, provider, requested_designator, options, observation) catch |err| {
+        Internal.releaseListenerProfile(self, provider.transport);
+        Internal.reportObservedFailure(self, observer, tag, err);
+    };
+}
 
+/// Issue the listen with its observation and profile reserved. An error is
+/// a refusal before the provider owned anything, and the caller reports it;
+/// every other outcome reaches the observer from here.
+fn listen(
+    self: *HostRuntime,
+    provider: Provider,
+    requested_designator: []const u8,
+    options: net.OperationOptions,
+    observation: ListenerObservation,
+) !void {
     const index = provider.resident;
     const runtime = &self.residents.items[index];
     const acceptor = runtime.resident.acceptor().?;
-    const route_id = Internal.mintRuntimeId(&runtime.next_listener_route) catch |err| {
-        Internal.releaseListenerProfile(self, provider.transport);
-        profile_owned = false;
-        observation_owned = false;
-        Internal.reportObservedFailure(self, observer, tag, err);
-        return;
-    };
+    const route_id = try Internal.mintRuntimeId(&runtime.next_listener_route);
     var result = switch (acceptor.listen(route_id, provider.transport, .{
         .designator = requested_designator,
         .identity = self.core.node.publicKey(),
@@ -66,40 +73,22 @@ pub fn startListener(
         .admitted => |admitted| admitted,
         .failed => |failure| {
             Internal.releaseListenerProfile(self, provider.transport);
-            profile_owned = false;
-            observation_owned = false;
-            Internal.reportObservedFailureChain(self, observer, tag, failure);
+            Internal.reportObservedFailureChain(self, observation.observer, observation.tag, failure);
             return;
         },
     };
     switch (result) {
-        .ready => |listener| {
-            profile_owned = false;
-            observation_owned = false;
-            observer.ready(observer.ctx, tag, .{
-                .transport = provider.transport,
-                .designator_scheme = provider.designator_scheme,
-                .resident = index,
-                .listener = listener,
-            });
-        },
+        .ready => |listener| observation.observer.ready(observation.observer.ctx, observation.tag, .{
+            .transport = provider.transport,
+            .designator_scheme = provider.designator_scheme,
+            .resident = index,
+            .listener = listener,
+        }),
         .pending => |*pending| {
             defer if (pending.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
-            const row = self.allocator.create(PendingListener) catch |err| {
-                Internal.releaseListenerProfile(self, provider.transport);
-                profile_owned = false;
-                observation_owned = false;
-                Internal.reportObservedFailure(self, observer, tag, err);
-                return;
-            };
-            self.pending_listeners.ensureUnusedCapacity(self.allocator, 1) catch |err| {
-                self.allocator.destroy(row);
-                Internal.releaseListenerProfile(self, provider.transport);
-                profile_owned = false;
-                observation_owned = false;
-                Internal.reportObservedFailure(self, observer, tag, err);
-                return;
-            };
+            const row = try self.allocator.create(PendingListener);
+            errdefer self.allocator.destroy(row);
+            try self.pending_listeners.ensureUnusedCapacity(self.allocator, 1);
             row.* = .{
                 .attempt = pending.*,
                 .resident = index,
@@ -110,8 +99,6 @@ pub fn startListener(
             };
             pending.route_id = null;
             self.pending_listeners.appendAssumeCapacity(row);
-            profile_owned = false;
-            observation_owned = false;
         },
     }
 }
@@ -135,7 +122,7 @@ pub fn bindListener(
 
         fn failed(ctx: *anyopaque, _: u64, failure: OperationFailure) void {
             const capture: *@This() = @ptrCast(@alignCast(ctx));
-            capture.failure = failure.cause;
+            capture.failure = failure.chain.cause;
         }
     };
     var capture: Capture = .{};
@@ -176,8 +163,7 @@ pub fn cancelListener(self: *HostRuntime, tag: u64) ListenerStopOutcome {
         std.debug.assert(self.pending_listeners.swapRemove(i) == row);
         const failure: ?OperationFailure = if (row.attempt.deinit()) |cleanup| .fromChain(cleanup) else null;
         const observation = row.observation;
-        Internal.releaseListenerProfile(self, row.transport);
-        self.allocator.destroy(row);
+        retirePendingListener(self, row);
         observation.observer.abandoned(observation.observer.ctx, tag);
         return .{ .found = true, .failure = failure };
     }
@@ -185,15 +171,14 @@ pub fn cancelListener(self: *HostRuntime, tag: u64) ListenerStopOutcome {
 }
 
 pub fn finishPendingListener(self: *HostRuntime, row: *PendingListener) void {
-    removePendingListener(self, row);
+    pending_state.remove(&self.pending_listeners, row);
     const transport = row.transport;
     const designator_scheme = row.designator_scheme;
     const observation = row.observation;
     const resident_listener = switch (row.attempt.finish()) {
         .ready => |listener| listener,
         .failed => |failure| {
-            Internal.releaseListenerProfile(self, transport);
-            self.allocator.destroy(row);
+            retirePendingListener(self, row);
             Internal.reportObservedFailureChain(self, observation.observer, observation.tag, failure);
             return;
         },
@@ -209,12 +194,11 @@ pub fn finishPendingListener(self: *HostRuntime, row: *PendingListener) void {
 }
 
 pub fn failPendingListener(self: *HostRuntime, row: *PendingListener, err: anyerror) void {
-    removePendingListener(self, row);
+    pending_state.remove(&self.pending_listeners, row);
     var failure = net.netlayer.ListenFailure.init(err);
     if (row.attempt.deinit()) |cleanup| failure.noteChain(cleanup);
     const observation = row.observation;
-    Internal.releaseListenerProfile(self, row.transport);
-    self.allocator.destroy(row);
+    retirePendingListener(self, row);
     Internal.reportObservedFailureChain(self, observation.observer, observation.tag, failure);
 }
 
@@ -229,13 +213,11 @@ pub fn pendingResidentListener(
     return null;
 }
 
-fn removePendingListener(self: *HostRuntime, row: *PendingListener) void {
-    for (self.pending_listeners.items, 0..) |candidate, i| {
-        if (candidate != row) continue;
-        std.debug.assert(self.pending_listeners.swapRemove(i) == row);
-        return;
-    }
-    unreachable;
+/// Free a pending listener row whose attempt has retired, returning its
+/// transport's listener profile.
+fn retirePendingListener(self: *HostRuntime, row: *PendingListener) void {
+    Internal.releaseListenerProfile(self, row.transport);
+    self.allocator.destroy(row);
 }
 
 pub fn advancePendingListeners(self: *HostRuntime) void {

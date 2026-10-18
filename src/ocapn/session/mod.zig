@@ -12,8 +12,10 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const answers = @import("answers/store.zig");
+const resolution_store = @import("answers/resolution_store.zig");
 const answer_notifications = @import("answers/notifications.zig");
-const slot_table = @import("slot_table.zig");
+const export_table = @import("export_table.zig");
+const import_table = @import("import_table.zig");
 pub const slot = @import("slot.zig");
 const sturdyref_cache = @import("sturdyref_cache.zig");
 const imported_promise = @import("promises/imported.zig");
@@ -40,16 +42,18 @@ const lifecycle = @import("lifecycle.zig");
 pub const validate = @import("validate.zig");
 pub const inventory = @import("inventory.zig");
 pub const Inventory = inventory.Inventory;
+pub const Freight = @import("validate/freight.zig").Freight;
 pub const id_route = @import("id_route.zig");
 pub const parsePreferenceHints = validate.parsePreferenceHints;
 
-/// Position-keyed wire-delta refcount tables. Exports and imports share one
-/// integer-keyed hash core (`slot_table` explains why partner-controlled
-/// positions cannot use a raw index vector) but wrap it in distinct types so the
+/// Position-keyed wire-delta refcount tables, one per allocator: a slab over
+/// the positions we mint (`export_table`) and a hashed table over the
+/// partner's (`import_table` explains why partner-controlled positions
+/// cannot use a raw index vector), in distinct types so the
 /// cap that bounds partner-driven imports is a property of `ImportTable`, not a
 /// rule each call site must restate.
-const ExportTable = slot_table.ExportTable;
-const ImportTable = slot_table.ImportTable;
+const ExportTable = export_table.ExportTable;
+const ImportTable = import_table.ImportTable;
 
 /// Error set for the borrowed-view recv walkers: session authority errors plus
 /// the lazy projection errors a codec-backed `model.view.Args` can raise while
@@ -71,46 +75,16 @@ pub const Error = @import("errors.zig").Error;
 /// `applyGcExportDecrement`), and an outbound one is refused
 /// (`validateSend`). The bootstrap export therefore lives as long as
 /// the session.
-pub const BOOTSTRAP_POSITION: u64 = 0;
+pub const bootstrap_position: u64 = 0;
 
-/// Resolver-link bookkeeping: the two position-keyed maps that say which of our
-/// outbound answers a local export settles, and which resolver import the
-/// partner gave us for each of its inbound answers.
-///
-/// The outbound half is version-neutral (`resolver_export.zig`): both profiles
-/// receive answer and listener notifications through resolver callbacks. The
-/// inbound half is V1.0's alone because only V1.0 advertises a resolver in an
-/// answered `op:deliver`. Next follows every answered operation with
-/// `op:listen` instead.
-///
-/// These are not folded onto the answer rows: the inbound resolver is installed
-/// while classifying an inbound deliver, *before* `recordRecv` installs the
-/// answer row, so binding it to the row would break the all-or-nothing apply.
-/// Keeping them as O(1) integer-keyed maps preserves that lifecycle.
-///
-/// A resolver export is an ordinary export minted by the session's own
-/// allocator (`allocateExport`). It shares the one export namespace with the
-/// actor and bootstrap exports, and collision is impossible because the
-/// session is the single minter.
-///
-/// Both links are bijections held in `BiMap`s so each direction stays in
-/// lockstep by construction rather than by comment. The outbound link binds a
-/// resolver-export position to the answer-pos it settles: the hot lookup
-/// (`answerForResolverExport`, run per inbound deliver) reads it forward, and
-/// the `op:gc-answers` retirement reads it by its answer side, both O(1). A
-/// retired purpose keeps an in-flight callback from becoming an ordinary
-/// deliver until the partner releases the resolver's wire mention. The inbound
-/// link binds an answer-pos to the partner's
-/// resolver import (`resolverForInboundAnswer` forward, `answerForResolverImport`
-/// reverse). Keying each on its position newtype makes the direction a property
-/// of the type. Neither owns heap beyond its two map backings.
 pub const PromiseIncarnation = promise_types.PromiseIncarnation;
 pub const RetiredResolverState = promise_types.RetiredResolverState;
 pub const RetiredResolver = promise_types.RetiredResolver;
 pub const ResolverPurpose = promise_types.ResolverPurpose;
 pub const ShorteningNomination = shortening.Nomination;
 pub const SettlingMovePlan = imported_promise.SettlingMovePlan;
-const OutboundResolverLink = promise_types.OutboundResolverLink;
+/// `promise_types` documents the inbound resolver link and the purposes an
+/// export row carries.
 const InboundResolverLink = promise_types.InboundResolverLink;
 
 pub const State = enum {
@@ -127,8 +101,6 @@ pub const SessionLimits = limits.SessionLimits;
 /// consequences share `SessionLimits.max_inbound_answers`. Outbound rows are
 /// positions we allocate ourselves, bounded by our own sends, so they carry no
 /// cap.
-pub const AnswerDirection = answer_lifecycle.Direction;
-
 pub const AnswerStatus = answers.AnswerStatus;
 pub const pendingInboundSlot = answers.pendingInboundSlot;
 pub const answerSlot = answers.answerSlot;
@@ -136,6 +108,8 @@ pub const AnswerCell = answers.AnswerCell;
 pub const QueuedCall = answers.QueuedCall;
 pub const AnswerPayload = answers.AnswerPayload;
 pub const AnswerTarget = answers.AnswerTarget;
+pub const OutboundAnswerTarget = answers.OutboundAnswerTarget;
+pub const PositionSlab = @import("position_slab.zig").PositionSlab;
 pub const StoredResolution = answers.StoredResolution;
 pub const ListenerEntry = answers.ListenerEntry;
 pub const Projection = answers.Projection;
@@ -151,7 +125,6 @@ pub const ExportView = inspect.ExportView;
 pub const ImportView = inspect.ImportView;
 pub const AnswerRowView = inspect.AnswerRowView;
 
-pub const PromiseListenCell = promise_types.PromiseListenCell;
 pub const ImportedPromise = promise_types.ImportedPromise;
 
 /// Supported alias for the row owned by `sturdyref_cache.zig`.
@@ -201,27 +174,6 @@ pub const Session = struct {
     partner_known_glowcap: bool = false,
     features: model.FeatureSet,
     limits: SessionLimits,
-    next_export_position: u64,
-    /// The first export position this session may hand out. Paired with
-    /// `export_position_end`: together they are the range that says which
-    /// export numbers are *this* session's to name.
-    ///
-    /// A host gives each session a disjoint range so a capability offered to
-    /// the wrong session is absent there rather than ambiguous.
-    export_base: u64 = BOOTSTRAP_POSITION + 1,
-    /// One past the last export position this session may hand out.
-    ///
-    /// The range only protects the session while it stays inside: the
-    /// allocator is monotonic and counts positions ever minted, not live ones,
-    /// so a long-lived session that mints and releases would otherwise walk
-    /// into its neighbour's range and silently start naming another session's
-    /// objects. Running out is a loud refusal instead. `maxInt` when no range
-    /// was imposed.
-    export_position_end: u64 = std.math.maxInt(u64),
-    /// Monotonic allocator for the answer-pos we put on outbound `op:deliver`s
-    /// (bootstrap-fetch, pipeline decomposition). Per-direction namespace: our
-    /// outbound answers are independent of the partner's inbound answer positions.
-    next_outbound_answer: u64 = 0,
     /// Virtual answers allocated by V1.0 resolver-only fetches (the partner sent
     /// `resolve_me_desc` with no `answer_position`). This counter belongs to a
     /// typed namespace disjoint from every partner-selected wire answer.
@@ -258,7 +210,7 @@ pub const Session = struct {
     wire_hash_multiplier: u64,
     /// Session-wide monotonic source for every store-row identity stamp a
     /// queued fire carrier checks at encode: `AnswerCell.row_id` and
-    /// `PromiseListenCell.row_id`. One counter for all (not per-row seeds) so no
+    /// `ImportedPromise.row_id`. One counter for all (not per-row seeds) so no
     /// two row instances ever share a value, a carrier stamped against a row
     /// since released and re-registered at the same position must miss, never
     /// false-match.
@@ -294,16 +246,6 @@ pub const Session = struct {
     /// (ADR-0009). Empty until the partner's handshake half arrives with raw
     /// bytes (owned-message apply has none). Lives in `key_arena`.
     partner_acceptable_location_raw: []const u8 = &.{},
-    /// The resolver-export link (ADR-0010, ADR-0095): a resolver-export
-    /// position bound to the outbound answer-pos it settles. An inbound
-    /// deliver to that export is the partner settling the answer
-    /// (`answerForResolverExport`, forward, per inbound deliver). A
-    /// fully-released answer retires that purpose on the `op:gc-answers` path
-    /// by its answer side. The tombstone remains until any racing callback and
-    /// the partner's export mention are concluded. One `BiMap` holds both
-    /// directions, so no half-installed link can survive. Version-neutral
-    /// (`resolver_export.zig`).
-    outbound_resolver_link: OutboundResolverLink,
     /// V1.0 inbound resolver link (ADR-0010): an answer-pos bound to the
     /// resolver import position we target when we send our resolution
     /// (`resolverForInboundAnswer` forward, `answerForResolverImport` reverse).
@@ -355,13 +297,16 @@ pub const Session = struct {
     pub const abandonMentionedResolverExport = resolver_export.abandonMentionedResolverExport;
     pub const abandonResolverExport = resolver_export.abandonResolverExport;
     pub const abandonResolverNomination = resolver_export.abandonResolverNomination;
+    pub const bindFreshResolverExport = resolver_export.bindFreshResolverExport;
     pub const installOutboundResolver = resolver_export.installOutboundResolver;
+    pub const resolverPurpose = resolver_export.resolverPurpose;
+    pub const resolverExportForAnswer = resolver_export.resolverExportForAnswer;
+    pub const replaceResolverPurpose = resolver_export.replaceResolverPurpose;
     pub const removeOutboundResolver = resolver_export.removeOutboundResolver;
     pub const answerForResolverExport = resolver_export.answerForResolverExport;
     pub const retireApplicationResolver = resolver_export.retireApplicationResolver;
     pub const retiredResolverState = resolver_export.retiredResolverState;
     pub const completeRetiredResolverCallback = resolver_export.completeRetiredResolverCallback;
-    pub const isNodeSettlingResolver = resolver_export.isNodeSettlingResolver;
     pub const installNodeSettlingResolver = resolver_export.installNodeSettlingResolver;
     pub const completeNodeSettlingResolverCallback = resolver_export.completeNodeSettlingResolverCallback;
     pub const retireNodeSettlingResolver = resolver_export.retireNodeSettlingResolver;
@@ -413,6 +358,13 @@ pub const Session = struct {
     pub const clearAnswerPayloadResolver = answer_notifications.clearResolver;
     pub const retireDetachedAnswer = answer_notifications.retireDetached;
     pub const retireVirtualAnswer = answer_notifications.retireVirtual;
+    pub const releaseAnswerCarrier = answer_notifications.releaseCarrier;
+
+    /// Whether a stored-result import release is waiting to leave.
+    pub fn hasImportRelease(self: *const Session) bool {
+        const outbox = self.import_release_outbox orelse return false;
+        return outbox.head != null;
+    }
     pub const prepareAnswerGc = answer_notifications.prepareGc;
     pub const commitFinalAnswerGc = answer_notifications.commitFinalGc;
 
@@ -435,7 +387,6 @@ pub const Session = struct {
 
     /// Import/export namespace operations live together in `positions.zig`.
     /// These aliases preserve Session as the deliberate public method index.
-    pub const admitExportPositionForMarshal = positions.admitExportPositionForMarshal;
     pub const validateExportPositionForMarshal = positions.validateExportPositionForMarshal;
     pub const registerExport = positions.registerExport;
     pub const reserveExport = positions.reserveExport;
@@ -449,7 +400,7 @@ pub const Session = struct {
     pub const installInboundAnswerNamed = apply.installInboundAnswerNamed;
     pub const prepareFreshInboundAnswerNamed = answer_lifecycle.prepareFreshInboundNamed;
     pub const commitFreshInboundAnswerNamed = answer_lifecycle.commitFreshInboundNamed;
-    pub const installOutboundAnswer = answer_lifecycle.installOutbound;
+    pub const installOutboundAnswer = apply.installOutboundAnswer;
 
     pub const admits = protocol.admits;
 
@@ -471,7 +422,7 @@ pub const Session = struct {
     pub const recordRecvView = protocol.recordRecvView;
 
     pub const validateInboundDeliverView = protocol.validateInboundDeliverView;
-    pub const prepareValidatedInboundDeliverView = protocol.prepareValidatedInboundDeliverView;
+    pub const prepareValidatedInboundDeliver = protocol.prepareValidatedInboundDeliver;
     pub const prepareIntroducedImports = protocol.prepareIntroducedImports;
     pub const applyValidatedInboundDeliverView = protocol.applyValidatedInboundDeliverView;
     pub const recordResolverCallbackResolve = protocol.recordResolverCallbackResolve;
@@ -488,13 +439,9 @@ pub const Session = struct {
     /// Validate an inbound `op:listen` before the engine installs its
     /// listener. Engine caller: `engine.pipeline.maybeInstallInboundListener`.
     pub const validateInboundListen = validate.validateInboundListen;
-    /// Pre-commit rule for a locally supplied resolution bound for a store
-    /// (the relayed-resolution seam). Engine caller:
-    /// `engine.Peer.applyRelayedResolution`.
-    pub const validateStoredResolution = validate.validateStoredResolution;
     pub const validateListenerFireTarget = validate.validateListenerFireTarget;
-    /// Retain the wire mention of a sent export reference that bypasses
-    /// `recordSend`. Engine caller: `engine.outbound.encoded.admit`.
+    /// Retain the wire mention of one sent export reference, the step
+    /// `recordSend` takes per reference.
     pub const retainSentExportRef = apply.retainSentExportRef;
     pub const ensureSentResolutionExportCapacity = apply.ensureSentResolutionExportCapacity;
 
@@ -512,6 +459,8 @@ pub const Session = struct {
     pub const inboundAnswerRowId = inspect.inboundAnswerRowId;
     pub const inboundAnswerRowIdNamed = inspect.inboundAnswerRowIdNamed;
     pub const outboundAnswer = inspect.outboundAnswer;
+    pub const outboundAnswerTarget = inspect.outboundAnswerTarget;
+    pub const hasLiveOutboundAnswer = inspect.hasLiveOutboundAnswer;
     pub const outboundAnswerReleaseClaimed = inspect.outboundAnswerReleaseClaimed;
     pub const outboundAnswerSlot = inspect.outboundAnswerSlot;
 
@@ -519,16 +468,22 @@ pub const Session = struct {
     pub const hasImport = positions.hasImport;
     pub const holdsImport = positions.holdsImport;
     pub const exportSlot = positions.exportSlot;
+    pub const exportReference = positions.exportReference;
     pub const exportRefcount = positions.exportRefcount;
     pub const importRefcount = positions.importRefcount;
     pub const importReleasable = positions.importReleasable;
     pub const allocateExport = positions.allocateExport;
     pub const allocatePromiseExport = positions.allocatePromiseExport;
+    pub const allocateExportMentioned = positions.allocateExportMentioned;
 
+    pub const LocalPromiseProjection = local_promise.Projection;
     pub const allocateLocalPromiseProjection = local_promise.allocate;
     pub const answerForLocalPromiseExport = local_promise.answerForExport;
     pub const LocalPromiseCustody = local_promise.Custody;
     pub const abandonLocalPromiseProjection = local_promise.abandon;
+    pub const deferLocalPromiseSettlement = local_promise.deferSettlement;
+    pub const deferredLocalPromiseSettlement = local_promise.deferredSettlement;
+    pub const clearDeferredLocalPromiseSettlement = local_promise.clearDeferredSettlement;
     pub const collectLocalPromiseProjections = local_promise.collect;
     pub const releaseUnsharedExport = positions.releaseUnsharedExport;
     pub const releaseImportRetain = positions.releaseImportRetain;
@@ -578,30 +533,18 @@ pub const Session = struct {
     pub const installProjectionTarget = pipeline.installProjectionTarget;
     pub const takeAnswerPayloadProjections = pipeline.takePayloadProjections;
 
-    pub const storeResolution = answers.storeResolution;
-    pub const storeResolutionNamed = answers.storeResolutionNamed;
-    pub const retainedSentAnswerBytes = answers.retainedSentAnswerBytes;
-    pub const peekResolution = answers.peekResolution;
-    pub const peekResolutionNamed = answers.peekResolutionNamed;
-    pub const peekStoredResolutionNamed = answers.peekStoredResolutionNamed;
+    pub const storeResolution = resolution_store.storeResolution;
+    pub const storeResolutionNamed = resolution_store.storeResolutionNamed;
+    pub const retainedSentAnswerBytes = resolution_store.retainedSentAnswerBytes;
+    pub const peekResolution = resolution_store.peekResolution;
+    pub const peekResolutionNamed = resolution_store.peekResolutionNamed;
+    pub const peekStoredResolutionNamed = resolution_store.peekStoredResolutionNamed;
     pub const promiseTargetForResolution = local_promise.targetForResolution;
-    pub const answerResolved = answers.answerResolved;
-    pub const answerResolvedNamed = answers.answerResolvedNamed;
+    pub const answerResolved = resolution_store.answerResolved;
+    pub const answerResolvedNamed = resolution_store.answerResolvedNamed;
 
-    // Imported-promise metadata: third-party relay state from ADR-0009 plus the
-    // next profile's shortening and settling claims. Bodies live in
-    // `promises/imported.zig` and are aliased here.
-    pub const installThirdPartyImport = imported_promise.installThirdPartyImport;
-    pub const abandonUnsharedThirdPartyImport = imported_promise.abandonUnsharedThirdPartyImport;
-    pub const isThirdPartyImport = imported_promise.isThirdPartyImport;
-    pub const installImportedPromiseListener = imported_promise.installImportedPromiseListener;
-    pub const recordRelayedResolution = imported_promise.recordRelayedResolution;
-    pub const takeImportedPromiseListeners = imported_promise.takeImportedPromiseListeners;
-    pub const restoreImportedPromiseListeners = imported_promise.restoreImportedPromiseListeners;
-    pub const importedPromiseResolution = imported_promise.importedPromiseResolution;
-    pub const importedPromiseStoredResolution = imported_promise.importedPromiseStoredResolution;
-    pub const pendingImportedPromiseFire = imported_promise.pendingImportedPromiseFire;
-    pub const importedPromiseRowId = imported_promise.importedPromiseRowId;
+    // Imported-promise metadata: the next profile's shortening and settling
+    // claims. Bodies live in `promises/imported.zig` and are aliased here.
     pub const findImportedPromise = imported_promise.findImportedPromise;
     pub const claimPromiseSettlingListener = imported_promise.claimSettlingListener;
     pub const abandonPromiseSettlingListener = imported_promise.abandonSettlingListener;
@@ -619,6 +562,12 @@ pub const Session = struct {
     pub const preparePromiseSettlingMove = imported_promise.prepareSettlingMove;
     pub const commitPromiseSettlingMove = imported_promise.commitSettlingMove;
     pub const shortenedPromiseTarget = imported_promise.shortenedTarget;
+
+    /// The position the partner keys a promise by: on next the shortened
+    /// target of the import, otherwise the import itself.
+    pub fn promiseWirePosition(self: *Session, import_position: model.ImportPosition) model.ImportPosition {
+        return if (self.captp_version == .next) self.shortenedPromiseTarget(import_position) else import_position;
+    }
 
     // Sturdyref-enliven dedup (ADR-0012): the resolved-enlivenment cache and the
     // in-flight enliven set. Bodies live in `sturdyref_cache.zig`; aliased here
@@ -643,8 +592,7 @@ pub const checkGcAnswerDecrement = gc.checkGcAnswerDecrement;
 pub const validateGcExport = gc.validateGcExport;
 pub const validateHandoffWellFormed = gc.validateHandoffWellFormed;
 
-/// Release the listen cell an `ImportedPromise` holds (host is `key_arena`-interned).
-/// Body in `promises/imported.zig`.
+/// Release what an `ImportedPromise` row owns. Body in `promises/imported.zig`.
 pub const deinitImportedPromise = imported_promise.deinitImportedPromise;
 pub const ForwardedReply = @import("forwarding.zig").ForwardedReply;
 pub const ImportRelease = @import("import_release_outbox.zig").Batch;

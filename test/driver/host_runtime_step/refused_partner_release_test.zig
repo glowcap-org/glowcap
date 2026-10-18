@@ -27,7 +27,7 @@ fn serveOne(server: *driver.Server, cause: *?anyerror) anyerror!void {
     // best-effort: a refused frame ends the serve with its cause, which the status below records.
     session.serve() catch {};
     const status = try session.closeStatus();
-    cause.* = if (status.cause) |failure| failure.cause else null;
+    cause.* = if (status.cause) |failure| failure.chain.cause else null;
 }
 
 test "host runtime: releasing the session a partner's over-cap frame ended leaves the listener serving the next partner" {

@@ -276,7 +276,7 @@ pub export fn glowcap_driver_release(
         // consumed the loop; classify a provider's invalid-argument cleanup
         // report as internal at this boundary while preserving its exact cause
         // in last_error, so consumers can distinguish retry from consumption.
-        const code = driver_error.code(failure.kind);
+        const code = driver_error.code(failure.kind());
         const consumed_code = if (code == GLOWCAP_ERR_INVALID_ARGUMENT) shared.GLOWCAP_ERR_INTERNAL else code;
         failure_output.project(failure_slot, consumed_code, failure);
         return consumed_code;

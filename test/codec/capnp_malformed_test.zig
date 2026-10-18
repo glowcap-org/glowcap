@@ -430,7 +430,8 @@ test "an aliasing composite DAG exhausts the traversal budget instead of amplify
     // budget bounds both halves, so the frame is refused the same way.
     var views: [128]model.view.Argument = undefined;
     var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    try std.testing.expectError(error.MalformedFrame, capnp.decodeBodyInto(.v1_0, frame.view(), &slab));
+    var refused: model.view.Body = undefined;
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeBodyInto(.v1_0, frame.view(), &slab, &refused));
 }
 
 test "an aliasing hint list is charged against the traversal budget" {
@@ -581,7 +582,7 @@ test "a Cap'n Proto locator cannot carry false and non-empty hints" {
     const message_view = try capnp.decodeMessageView(mutable_view);
     const locator = (try message_view.reader.followStruct(message_view.body, 2)) orelse
         return error.TestUnexpectedResult;
-    const data_word = bytes[(locator.data_idx + 1) * wire.WORD_BYTES ..][0..wire.WORD_BYTES];
+    const data_word = bytes[(locator.data_idx + 1) * wire.word_bytes ..][0..wire.word_bytes];
     std.mem.writeInt(u64, data_word, std.mem.readInt(u64, data_word, .little) | 1, .little);
 
     const body = try capnp.decodeBody(mutable_view);
@@ -611,7 +612,7 @@ test "a composite tag wearing a non-struct pointer kind is refused" {
     // struct-pointer-shaped tag word this test corrupts.
     const clist = (try capnp.shared.compositeList(message_view.reader, message_view.body, 1)) orelse
         return error.TestUnexpectedResult;
-    const tag_bytes = bytes[(clist.tag_idx + 1) * wire.WORD_BYTES ..][0..wire.WORD_BYTES];
+    const tag_bytes = bytes[(clist.tag_idx + 1) * wire.word_bytes ..][0..wire.word_bytes];
     const tag_word = std.mem.readInt(u64, tag_bytes, .little);
     std.mem.writeInt(u64, tag_bytes, tag_word | @backingInt(wire.PointerKind.capability), .little);
 

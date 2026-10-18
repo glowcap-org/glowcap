@@ -91,7 +91,7 @@ const ClientCtx = struct {
         const self: *ClientCtx = @ptrCast(@alignCast(conn_ctx.?));
         if (!self.fetch_sent and peer.sessionIsOpen()) {
             const prepared = try engine.fetch.prepareFetchSwissnum(self.allocator, &peer.session_state, "thermostat");
-            self.answer_position = prepared.answer_position;
+            self.answer_position = prepared.answer.position;
             self.resolver_export = prepared.resolver_export;
             self.fetch_sent = true;
             try peer.send(prepared.message);

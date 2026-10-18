@@ -26,11 +26,11 @@ fn requirePhysicalRoute(
 ) HostError!void {
     const locator = view.locator;
     if (!std.mem.eql(u8, session.transport, locator.transport))
-        return HostError.PeerIdentityMismatch;
+        return error.PeerIdentityMismatch;
     switch (session.role) {
         .dialed => |target| if (!std.mem.eql(u8, target, locator.designator))
-            return HostError.PeerIdentityMismatch,
-        .accepted => return HostError.PeerIdentityMismatch,
+            return error.PeerIdentityMismatch,
+        .accepted => return error.PeerIdentityMismatch,
     }
 }
 
@@ -45,7 +45,7 @@ fn provenanceForView(
         if (session.served.port.peer.partnerDurableProvenance(designator[0..]) == .authenticated_transport)
             return .verified;
         if (view.authenticated_partner_required)
-            return HostError.PeerIdentityUnverified;
+            return error.PeerIdentityUnverified;
     }
 
     if (!physical_route_required) try requirePhysicalRoute(view, session);

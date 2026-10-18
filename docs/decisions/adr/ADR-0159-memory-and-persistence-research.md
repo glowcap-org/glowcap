@@ -7,7 +7,7 @@ decision: "Place generic persistence below managed access, integrate sleepy acto
 supersedes: []
 superseded_by: []
 amends: [ADR-0157]
-amended_by: [ADR-0161, ADR-0165]
+amended_by: [ADR-0161, ADR-0165, ADR-0228]
 ---
 
 # ADR-0159 Memory and persistence research

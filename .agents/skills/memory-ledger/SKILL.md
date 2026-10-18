@@ -78,7 +78,7 @@ declaration under `src/`.
     falling back to the wire. The head budget and allocation count stay fixed.
   - The block comes from the peer's allocator on every frame: keeping one
     per peer measured no gain (ADR-0238).
-- **Boxed parse**: `events.Parse.store`. A frame that reaches admission
+- **Boxed parse**: the boxed arm of `events.Parse.decode`. A frame that reaches admission
   without the engine's head (`Peer.feedOwned` from a caller's own storage,
   an external frame, a pipelined rewrite the codec encoded) gets its parse
   boxed once, so the row and the drain stay one shape. The engine's own
@@ -90,10 +90,11 @@ declaration under `src/`.
   - The common inbound kinds validate and apply straight from the borrowed
     `model.view.Body` with zero materialization. Handoff is an argument arm on
     the borrowed walk, and `get`/`index`/`untag` stay borrowed.
-  - Only the two paths that _retain_ (a pipelined deliver queued on its answer,
-    and the substructure-heavy `gc_*` kinds) build an owned `Message`. It is
-    turn scratch that dies in the `retain_with_limit` reset every recv entry
-    point runs.
+  - A pipelined deliver queued on its answer builds an owned `Message` on the
+    peer's allocator, because the queued call outlives the turn: it is freed
+    when it drains or its answer retires, and the pipelined queue cap bounds
+    it. The substructure-heavy `gc_*` kinds build theirs as turn scratch that
+    dies in the `retain_with_limit` reset every recv entry point runs.
   - Apply dupes anything session-lived onto the gpa, so the reset never
     dangles a table row. Send-side folds stay on the gpa, because no recv turn
     brackets a send.
@@ -109,7 +110,7 @@ declaration under `src/`.
   allocates nothing and an adversarial vector of many distinct ids still
   validates in one pass.
 - **Introduced-import event patch**: `Event.introduced_far_imports`
-  (`engine/inbound.zig`). One gpa dupe per reference-introducing deliver, because
+  (`engine/inbound/deliver.zig`). One gpa dupe per reference-introducing deliver, because
   the event outlives the turn record. The dupe is acquired before authority
   applies, so OOM refuses the transaction instead of changing the event's
   bookkeeping shape after commit.
@@ -166,8 +167,8 @@ declaration under `src/`.
 - **Local promise registry**: `local_promise.Registry`. One cold box per
   session with local promise projections, plus one export position per
   projection, freed with the last projection or at teardown. Collection checks
-  each projection's own roots there first and scans the answer and
-  imported-promise tables only when some projection could be garbage, so a
+  each projection's own roots there first and scans the answer tables only
+  when some projection could be garbage, so a
   pending or wire-held projection never makes every partner release pay a
   partner-sized trace. One nullable pointer adds eight bytes to a 64-bit
   safe-mode Peer, four million bytes at 500,000 sessions.
@@ -189,14 +190,14 @@ declaration under `src/`.
   so a byte-fed host's backpressure check is O(1) and re-walks no queued
   frame. At 500,000 sessions the fixed charge is about 4 MiB. The peer struct
   and warmed-state checks hold it.
-- **Relayed resolution**: `Peer.applyRelayedResolution`,
-  `Session.recordRelayedResolution`. Lower in place (this path bypasses `send`'s
-  chokepoint), move into the store, fire from the store.
-  - Written exactly once, so a second relay is refused. No clone on the
+- **Guaranteed projection settlement**: `Peer.settleAnswerTargetGuaranteed`.
+  Lower in place (this path bypasses `send`'s chokepoint), move into the
+  answer store, fire from the store.
+  - Written exactly once, so a second settlement is refused. No clone on the
     single-store path.
-  - A terminal Node relay that cannot prepare listener carriers commits the
-    store and increments one `u32` retry count on the Peer. Only while nonzero
-    does `step` scan imported-promise rows for stored values with listeners.
+  - A settlement whose carrier allocator or outbound pressure refuses commits
+    the store and increments one `u32` deferred count on the Peer. Only while
+    nonzero does `step` scan local promise projections for a deferred row.
   - Held by behavior tests, not a budget test.
 - **Proxy fan-out**: `proxy_admission.foreignPromiseFulfill`,
   `passable_batches.stage`. One home `op:listen` is shared across recipients,
@@ -213,7 +214,7 @@ declaration under `src/`.
     under `steady_proxy_recipient_arena_bytes`, so a full fan-out pays one
     backing allocation, not one per recipient.
 - **Inline Passable projection staging**: `Node.stageOutbound`,
-  `Peer.reserveInlinePassableStaging`. One owned message waits for gift ids,
+  `budget.reserveInline`. One owned message waits for gift ids,
   shared promise listeners and recipient escrows.
   - No partial rewrite, deposit, proxy listener or recipient import is visible.
     Staged bytes and occurrences stay under the recipient's outbound waterline
@@ -223,10 +224,10 @@ declaration under `src/`.
     staging completes. A release flag keeps `Peer` within its struct budget.
     Success transfers it to Session, and failure drops it. Public release copies
     no position array.
-- **Projection anchors**: `Peer.respondToProjection`. One dupe of the field name
+- **Projection anchors**: `pipeline.respondToProjection`. One dupe of the field name
   or tag, because the projection outlives the view that carried it. `op:index`
   dupes nothing. Bounded per answer by `max_listeners_per_target` (ADR-0050).
-- **Local-delivery frame synthesis**: `Peer.deliverDrainedCallLocally`. One
+- **Local-delivery frame synthesis**: `pipeline.deliverDrainedCallLocally`. One
   synthesized frame, which the frame-based event model requires: a borrowed frame
   cannot carry a message that never arrived on the wire. Bounded by
   `max_local_deliveries`. Named, not measured.
@@ -244,10 +245,25 @@ declaration under `src/`.
 - **Sturdyref FIFO topology**: `sturdyref_cache.Entry` retains two inline row
   indexes per admitted cache row. No additional allocation or idle Session
   footprint. Dense removal repairs only relocated rows, bounded by the cache cap.
-- **Resolver-export link**: `Session.outbound_resolver_link`. One POD row per
-  live listen (ADR-0095), no owned bytes. A purpose that serves an answer or a
-  promise adds a 32-byte reverse row of its words, and a retired or
-  node-settling purpose adds none (ADR-0224).
+- **Own-side position slabs**: `session.PositionSlab` under `ExportTable`
+  and `OutboundAnswerTable` (ADR-0254). One vector per table over the
+  positions this session mints, growing by half plus one slot as `reserve`
+  needs and to the exact index on an explicit install. A freed slot is the
+  next minted, and no row is hashed. Each slab keeps a free-list head and a
+  live count, sixteen bytes on `Peer` for the two. `OutboundAnswerTarget`
+  carries the row stamp beside the position, eight bytes more than the
+  position in every reader that outlives a turn: the queued resolve event
+  (208), the vat's far listener key, and the Host's vow row (160). Pinned by
+  `test/engine/footprint_budget_test.zig` and
+  `test/session/position_slab_test.zig`.
+- **Resolver purpose on the export row**: `ExportRow.purpose` (ADR-0254).
+  Every export row is 48 bytes, pinned in `export_table.zig`: the count, the
+  32-byte purpose union (`.none` on an ordinary export), and the cell's
+  binding, with the cell rebuilt from the index. A resolver export adds no
+  row to any table, and its answer row holds the export back. The
+  purpose leaves with the row, so a retired resolver's tombstone lasts
+  exactly as long as the partner's mention. Shortening dedup is one bool on
+  the imported promise entry (`shortening_subscribed`), not a reverse row.
 - **Shortening GC closure**: `expandGcExportReleases`. Rare outbound-GC
   scratch plus replacement position/delta slices keep edge-owned import retains
   in the same wire operation as the caller's release. They are recorded as the

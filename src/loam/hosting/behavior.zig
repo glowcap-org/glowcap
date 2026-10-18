@@ -4,6 +4,8 @@ const core = @import("loam_core");
 const driver = @import("driver_core");
 const hosting = @import("attachment.zig");
 pub const Preparation = @import("preparation.zig").Preparation;
+const call_memory = @import("call_memory.zig");
+const references = @import("references.zig");
 
 /// The schema/version selects both structural limits and behavior. Invocation
 /// is deterministic for the supplied inputs: no I/O or external effects. State
@@ -32,8 +34,8 @@ pub const Call = struct {
     pub const max_refusal_bytes = 1024;
     /// Each acquisition may grow held custody and allocate a one-element Host
     /// retain spine, even when it acquires the same capability again.
-    pub fn heldAllocationBound(occurrences: usize) !@import("call_memory.zig").AllocationBound {
-        var bound: @import("call_memory.zig").AllocationBound = .{};
+    pub fn heldAllocationBound(occurrences: usize) !call_memory.AllocationBound {
+        var bound: call_memory.AllocationBound = .{};
         try bound.includeArrayGrowth(driver.Capability, occurrences);
         try bound.include(@sizeOf(driver.Capability), @alignOf(driver.Capability), occurrences);
         return bound;
@@ -48,7 +50,7 @@ pub const Call = struct {
     view: core.RecordView,
     context: ?*anyopaque = null,
     preparation: ?Preparation = null,
-    references: ?*@import("references.zig").Set = null,
+    references: ?*references.Set = null,
     transaction: ?Transaction = null,
     /// Materialize at the top-level Host boundary after staging, before write
     /// submission. Reserve custody here. Expose no externally usable authority.
@@ -141,7 +143,7 @@ pub const Call = struct {
         if (target.strength != .strong) return error.NotDurable;
         if (target.restoration == .recipe) {
             const working = self.references orelse return error.ReferenceUnprepared;
-            return @import("references.zig").hold(self, try working.restored(view, index));
+            return references.hold(self, try working.restored(view, index));
         }
         try self.held.ensureUnusedCapacity(self.arena(), 1);
         const ref = try hosting.restoreEdge(self.attachment, target.target);
@@ -249,6 +251,6 @@ pub const Call = struct {
         }
         if (context.custody == .validate_only) return;
         for (self.held.items) |held| if (held.eql(ref)) return;
-        _ = try @import("references.zig").hold(self, ref);
+        _ = try references.hold(self, ref);
     }
 };

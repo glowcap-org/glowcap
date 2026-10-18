@@ -36,7 +36,8 @@ test "struct slab: mixed containers preserve values at every capacity" {
             const storage_bytes = std.mem.sliceAsBytes(&storage);
             for (0..storage_bytes.len + 1) |capacity| {
                 var slab = view.ValueSlab.init(storage_bytes[0..capacity]);
-                const body = try dispatch.decodeBodyInto(codec, profile, frame.view(), &slab);
+                var body: view.Body = undefined;
+                try dispatch.decodeBodyInto(codec, profile, frame.view(), &slab, &body);
                 try std.testing.expectEqual(capacity - capacity % @alignOf(view.Argument), slab.open);
                 try std.testing.expect(slab.used <= slab.open);
                 if (capacity == storage_bytes.len)
@@ -67,7 +68,8 @@ test "struct slab: malformed singleton key is refused with and without storage" 
             for (0..storage.len + 1) |capacity| {
                 var slab = view.ValueSlab.init(std.mem.sliceAsBytes(storage[0..capacity]));
                 const malformed: glowcap.foundation.FrameView = .{ .bytes = bytes, .shape = frame.view().shape };
-                try std.testing.expectError(error.MalformedFrame, dispatch.decodeBodyInto(codec, profile, malformed, &slab));
+                var refused: view.Body = undefined;
+                try std.testing.expectError(error.MalformedFrame, dispatch.decodeBodyInto(codec, profile, malformed, &slab, &refused));
             }
         }
     }

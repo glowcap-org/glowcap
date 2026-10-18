@@ -41,10 +41,10 @@ Each suite uses the same application source on both backends:
 
 | Suite | Conversation |
 | --- | --- |
-| `echo` (S0) | One request and reply. No capability passing |
-| `registry` (S1) | Look up a cell capability, then call `get` on it |
-| `mint` (S2) | Create a purse capability and deposit into it |
-| `taskboard` (S3) | Create a task, assign it, complete it, then read status |
+| `echo` | One request and reply, with no capability passing |
+| `registry` | Look up a cell capability, then call `get` on it |
+| `mint` | Create a purse capability and deposit into it |
+| `taskboard` | Create a task, assign it, complete it, then read its status |
 
 Calls are sequential, so the benchmark measures neither concurrent load nor
 promise pipelining.
@@ -74,15 +74,16 @@ racket bench/goblins/snapshot.rkt
 
 Both commands sweep actor count and bytes per actor. The observed scaling
 matches an O(objects) snapshot with no payload-byte copying, though timing
-alone does not prove the mechanism. glowcap snapshots are opt-in per actor and
-use copy-on-write after a snapshot. Goblins shares immutable behaviors through
-its runtime.
+alone does not prove the mechanism. glowcap snapshots are opt-in per actor. A
+mutable actor copies its state before its first turn after a snapshot, and a
+persistent actor copies only the path it changes. Goblins shares immutable
+behaviors through its runtime.
 
 ## Files
 
 | Path | Role |
 | --- | --- |
-| `apps/` | Shared S0–S3 applications |
+| `apps/` | The four shared applications |
 | `dispatch.rkt` | Substrate-independent method tables |
 | `backend-goblins.rkt` | Goblins backend and TCP netlayer |
 | `backend-glowcap.rkt` | glowcap Racket-binding backend |

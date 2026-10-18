@@ -6,10 +6,10 @@
 .draft = false,
 ---
 
-Rooms is one app with two homes. In a browser it runs as a full glowcap peer
-in WebAssembly. On a server the same Rust code runs over sockets, files, and
-a database. Neither gets its own idea of what joining, sending, recovering,
-or failing means.
+Rooms runs in two places from the same Rust code. In a browser it is a full
+glowcap peer compiled to WebAssembly. On a server it runs over sockets, files,
+and a database. Joining, sending, recovery, and errors work the same way in
+both.
 
 # A room is something you hold
 
@@ -28,12 +28,12 @@ one narrow thing without adding roles to every message on the wire.
 
 A direct conversation starts with an introduction between three parties.
 The server hands you an inbox the other member made just for you, and using
-it opens a connection between the two of you. The server made the
-introduction and then steps aside. It never carries the conversation.
+it opens a connection between the two of you. After the introduction, the
+server carries none of the conversation.
 [The Rooms protocol]($link.page('rooms/protocol')) names every one of these
 objects and the calls they answer.
 
-# What a click promises
+# What happens after a click
 
 A click first becomes a note of what you asked for. Rooms then does the work,
 on disk or over the network, and records either what happened or the
@@ -59,9 +59,8 @@ registration, or announcement is still unknown.
 
 # Why Rust
 
-Rooms is a working chat application built from Rust on glowcap's C ABI, so
-the ABI carries a real product and not only examples. Zig could have done
-everything Rooms does directly. Writing it in Rust tests the C ABI and the
+Rooms is a working chat application built from Rust on glowcap's C ABI. Zig
+could have done everything Rooms does directly, but Rust tests the C ABI and the
 WebAssembly build the way an outside user would.
 
 The [application boundary](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
@@ -83,7 +82,7 @@ page meets WebAssembly.
 | `rooms-runtime` | The order work runs in, what gets accepted, recovery, cleanup, and turning saved state into what the screen shows. |
 | `rooms-platform` | Tokio, clocks, randomness, files, listening sockets, TLS, and WebSocket connections. |
 | `rooms-services` | The server programs: the room server, the session service, the archive, the web server, and the IRC bridge and IRC server. |
-| `rooms-browser` | Browser storage, WebRTC, the JavaScript side, the WebAssembly entry points, and the screen. |
+| `rooms-browser` | Browser storage, WebRTC, the JavaScript side, and the WebAssembly entry points. |
 
 Checks in the build keep each crate's imports going one way. The shared crates
 cannot import the platform, the services, or the browser. The browser cannot
@@ -113,8 +112,8 @@ fails, the second failure is kept beside the first.
 
 Rust and TypeScript share that shape, so the screen tells a taken name from an
 unreachable route, an expired invitation, a denied reference, a storage
-failure, or an unconfirmed request by its code, not its wording. A code it has
-never seen is shown as unknown, never mistaken for success.
+failure, or an unconfirmed request by its code, not its wording. A code it
+does not recognize shows as unknown instead of passing for success.
 
 # What is stored where
 

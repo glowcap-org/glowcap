@@ -89,7 +89,7 @@ pub const AdmissionPlatform = struct {
     pub fn listenerPort(_: ListenerAddress) ?u16 {
         return null;
     }
-    pub fn verifiedChannelKey(_: *AdmissionPlatform, _: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
+    pub fn verifiedChannelKey(_: *AdmissionPlatform, _: Fd) ?[crypto.peer_key_bytes]u8 {
         return null;
     }
     pub fn closeFd(self: *AdmissionPlatform, _: Fd) void {

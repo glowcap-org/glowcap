@@ -41,7 +41,7 @@ pub fn checkDeclared(state: *const session.Session) !void {
     try std.testing.expect(session.inspect.inboundAnswerCount(state) <= caps.max_inbound_answers);
 
     // Not the outbound answer count. Those positions are ones we allocate for
-    // our own sends, and `AnswerDirection` says plainly they carry no cap; only
+    // our own sends, and `installOutboundAnswer` holds them to no cap; only
     // the inbound table is partner-named and capped. Holding our own sends to a
     // cap meant for the partner's is not a security property, and it fails on
     // perfectly legitimate traffic once a program sends enough delivers.

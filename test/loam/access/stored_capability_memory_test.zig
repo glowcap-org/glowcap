@@ -15,7 +15,7 @@ fn allocationFailure(allocator: std.mem.Allocator) !void {
     const resource = try f.resource(store, backend, owner, null);
     const terms = try f.vocabulary.terms(.{ .objects = &.{resource} }, &.{f.vocabulary.read}, null);
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 1) })).?.grant;
-    const id = try c.descriptor(&caps, backend, owner, grant, null, true);
+    const id = try c.descriptor(&caps, backend, owner, grant, null, .rooted);
     const use = try c.use(&caps, backend, id);
     defer use.release();
     store.evict();
@@ -24,7 +24,7 @@ fn allocationFailure(allocator: std.mem.Allocator) !void {
     try c.derive(op, backend, f.vocabulary.issue(terms, 0));
     try store.begin();
     errdefer if (store.phase == .staging) store.abort() catch unreachable;
-    _ = try caps.stage(op, true);
+    _ = try caps.stage(op, .rooted);
     try f.commit(store, backend);
 }
 
@@ -44,7 +44,7 @@ test "access stored loaded checks allocate nothing and operation quotas recover"
     const resource = try f.resource(store, backend, owner, null);
     const terms = try f.vocabulary.terms(.{ .objects = &.{resource} }, &.{f.vocabulary.read}, null);
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?.grant;
-    const id = try c.descriptor(&caps, backend, owner, grant, null, true);
+    const id = try c.descriptor(&caps, backend, owner, grant, null, .rooted);
     const reference_bytes = failing.allocated_bytes;
     const use = try c.use(&caps, backend, id);
     defer use.release();

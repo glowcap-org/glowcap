@@ -8,7 +8,7 @@ const Descriptor = records.CapabilityRecord;
 const object: f.loam.core.ObjectId = .{ .store = f.store_id, .incarnation = 1, .sequence = 1 };
 
 fn encode(payload: []const u8, edges: []const f.loam.core.Edge) ![]u8 {
-    const row: f.loam.core.Record = .{ .id = object, .revision = 1, .schema = records.profile.capability, .schema_version = Descriptor.version, .payload = payload, .edges = edges };
+    const row: f.loam.core.Record = .{ .id = object, .revision = 1, .schema = records.profile.capability, .schema_version = Descriptor.format_version, .payload = payload, .edges = edges };
     return row.encodeAlloc(a, f.limits.records, &f.schemas);
 }
 fn view(bytes: []const u8) !f.loam.core.RecordView {
@@ -16,6 +16,7 @@ fn view(bytes: []const u8) !f.loam.core.RecordView {
 }
 
 test "access capability descriptors bound selected controls and refuse malformed records" {
+    var scratch: Descriptor = undefined;
     var selected: [c.core.max_scope_objects]c.core.ResourceId = undefined;
     for (&selected, 0..) |*id, i| id.* = .{ .owner = @fromBackingInt(71), .slot = @intCast(i), .generation = 1 };
     const ceiling = try f.vocabulary.terms(.{ .objects = &selected }, &.{f.vocabulary.read}, 100);
@@ -26,20 +27,21 @@ test "access capability descriptors bound selected controls and refuse malformed
     const bytes = try encode(payload, descriptor.edges(&descriptor_edges));
     defer a.free(bytes);
     var failing = std.testing.FailingAllocator.init(a, .{});
-    var decoded = try Descriptor.decodeOwned(failing.allocator(), try view(bytes));
+    var decoded: Descriptor = undefined;
+    try decoded.decodeOwned(failing.allocator(), try view(bytes));
     defer decoded.deinit(failing.allocator());
     try std.testing.expectEqual(@as(usize, 2), failing.alloc_index);
-    try std.testing.expectEqualDeep(descriptor, decoded.value);
+    try std.testing.expectEqualDeep(descriptor, decoded);
     descriptor.role = .use;
     try std.testing.expectError(error.InvalidRecord, descriptor.encodeAlloc(a));
     var weak_edges = descriptor_edges;
     weak_edges[1].strength = .weak;
     const weak = try encode(payload, weak_edges[0..2]);
     defer a.free(weak);
-    try std.testing.expectError(error.InvalidRecord, Descriptor.decodeOwned(a, try view(weak)));
+    try std.testing.expectError(error.InvalidRecord, scratch.decodeOwned(a, try view(weak)));
     const missing = try encode(payload, weak_edges[0..1]);
     defer a.free(missing);
-    try std.testing.expectError(error.InvalidRecord, Descriptor.decodeOwned(a, try view(missing)));
+    try std.testing.expectError(error.InvalidRecord, scratch.decodeOwned(a, try view(missing)));
     // Scalar descriptor truncation exercises every grammar boundary cheaply.
     descriptor.powers = .{};
     const scalar = try descriptor.encodeAlloc(a);
@@ -47,9 +49,8 @@ test "access capability descriptors bound selected controls and refuse malformed
     for (0..scalar.len) |length| {
         const truncated = try encode(scalar[0..length], descriptor.edges(&descriptor_edges));
         defer a.free(truncated);
-        if (Descriptor.decodeOwned(a, try view(truncated))) |value| {
-            var owned = value;
-            owned.deinit(a);
+        if (scratch.decodeOwned(a, try view(truncated))) {
+            scratch.deinit(a);
             return error.AcceptedTruncation;
         } else |_| {}
     }
@@ -66,15 +67,16 @@ test "access stored capability refuses a substituted grant retention edge" {
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?.grant;
     var caps = try c.storage.Capabilities.init(a, store, .{});
     defer caps.deinit() catch unreachable;
-    const id = try c.descriptor(&caps, backend, owner, grant, null, true);
+    const id = try c.descriptor(&caps, backend, owner, grant, null, .rooted);
     const lease = try c.load(store, backend, id);
     const row = try store.currentView(lease);
-    var descriptor = try Descriptor.decodeOwned(a, row);
+    var descriptor: Descriptor = undefined;
+    try descriptor.decodeOwned(a, row);
     defer descriptor.deinit(a);
-    descriptor.value.grant_object = owner;
+    descriptor.grant_object = owner;
     try store.begin();
     var descriptor_edges: [3]f.loam.core.Edge = undefined;
-    try store.putCopying(.{ .id = id, .revision = 0, .schema = row.schema, .schema_version = row.schema_version, .payload = row.payload, .edges = descriptor.value.edges(&descriptor_edges), .rooted = true }, row.revision);
+    try store.putCopying(.{ .id = id, .revision = 0, .schema = row.schema, .schema_version = row.schema_version, .payload = row.payload, .edges = descriptor.edges(&descriptor_edges), .rooted = true }, row.revision);
     try store.release(lease);
     try f.commit(store, backend);
     const held = try c.use(&caps, backend, id);

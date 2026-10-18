@@ -46,7 +46,7 @@ fn client(io: std.Io, allocator: std.mem.Allocator, peer_key: []const u8, addres
         .{ .symbols = &.{.noise_tcp} },
         partner,
         .ephemeral,
-        // Never leave a network wait unbounded.
+        // Time limits for opening the session and for each answer.
         .{
             .handshake = glowcap.driver.default_handshake_budget,
             .settle = glowcap.driver.default_settle_budget,

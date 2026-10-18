@@ -11,8 +11,7 @@ const hosting = @import("loam_hosting");
 const driver = @import("driver_core");
 const service = @import("service.zig");
 const ContentDelta = @import("content_delta.zig").ContentDelta;
-
-pub const Step = union(enum) { ready, read: loam.Read, waiting, more };
+const Step = @import("step.zig").Step;
 
 /// The grants one call carries: the invoking endpoint's, and a dependent
 /// call's target.
@@ -77,7 +76,7 @@ pub const Participants = struct {
     /// `.more` asks the caller to drain its operations and call again.
     pub fn advance(self: *Participants, arena: std.mem.Allocator, store: *loam.Store, owner: core.OwnerId, bound: core.ResourceId, grants: [grant_slots]?*storage.Operation, staging: *storage.Operation) !Step {
         for (self.entries) |*entry| {
-            if (entry.endpoint_lease == null) entry.endpoint_lease = switch (try acquire(store, entry.endpoint_object)) {
+            if (entry.endpoint_lease == null) entry.endpoint_lease = switch (try hosting.Preparation.acquire(store, entry.endpoint_object)) {
                 .ready => |lease| lease,
                 .read => |read| return .{ .read = read },
                 .waiting => return .waiting,
@@ -93,17 +92,11 @@ pub const Participants = struct {
                 entry.binding = content;
             }
             for (grants, &entry.admitted) |grant, *admitted| if (grant) |operation| if (!admitted.*) {
-                operation.require(entry.binding.?.resource, entry.declared.requirement) catch |err| {
-                    if (err == error.RecordUnloaded) return .more;
-                    return err;
-                };
+                try loam.reload(operation.require(entry.binding.?.resource, entry.declared.requirement)) orelse return .more;
                 admitted.* = true;
             };
-            if (entry.resource == null) entry.resource = staging.boundResource(entry.binding.?.resource) catch |err| {
-                if (err == error.RecordUnloaded) return .more;
-                return err;
-            };
-            if (entry.content_lease == null) entry.content_lease = switch (try acquire(store, entry.binding.?.object)) {
+            if (entry.resource == null) entry.resource = try loam.reload(staging.boundResource(entry.binding.?.resource)) orelse return .more;
+            if (entry.content_lease == null) entry.content_lease = switch (try hosting.Preparation.acquire(store, entry.binding.?.object)) {
                 .ready => |lease| lease,
                 .read => |read| return .{ .read = read },
                 .waiting => return .waiting,
@@ -120,10 +113,7 @@ pub const Participants = struct {
     /// caller to drain its operations and call again.
     pub fn prepareContent(self: *Participants, staging: *storage.Operation) !enum { ready, more } {
         for (self.entries) |*entry| if (!entry.prepared) {
-            storage.stage.prepareContent(staging, entry.binding.?.resource) catch |err| {
-                if (err == error.RecordUnloaded) return .more;
-                return err;
-            };
+            try loam.reload(storage.stage.prepareContent(staging, entry.binding.?.resource)) orelse return .more;
             entry.prepared = true;
         };
         return .ready;
@@ -158,8 +148,7 @@ pub const Participants = struct {
     /// Put each changed content row. History follows through `stageHistory`.
     pub fn stageRows(self: *const Participants, store: *loam.Store, arena: std.mem.Allocator) !void {
         for (self.entries) |entry| if (entry.delta) |delta| {
-            const view = try store.currentView(entry.content_lease.?);
-            try store.putCopying(.{ .id = view.id, .revision = 0, .schema = view.schema, .schema_version = view.schema_version, .rooted = view.rooted, .payload = delta.payload, .edges = try delta.stageEdges(store, arena) }, view.revision);
+            try delta.put(store, arena, try store.currentView(entry.content_lease.?));
         };
     }
 
@@ -196,15 +185,4 @@ fn fieldNaming(content: loam.RecordView, endpoint: loam.ObjectId) ?usize {
         if (edge.strength == .strong and edge.restoration == .object and edge.target.eql(endpoint)) return index;
     }
     return null;
-}
-
-fn acquire(store: *loam.Store, id: loam.ObjectId) !union(enum) { ready: loam.Lease, read: loam.Read, waiting } {
-    const result = store.acquire(id) catch |err| {
-        if (err == error.PendingRead) return .waiting;
-        return err;
-    };
-    return switch (result) {
-        .ready => |lease| .{ .ready = lease },
-        .read => |read| .{ .read = read },
-    };
 }

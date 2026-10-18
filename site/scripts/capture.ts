@@ -26,8 +26,8 @@ export async function settle(page: Page, theme: "dark" | "light" = "dark"): Prom
 			canvas.style.filter = `opacity(${ground})`;
 		}
 	}, [theme, GROUND[theme]] as const);
-	// An endless animation, such as the mycelium breathing, never finishes, so
-	// only the ones that end are waited for.
+	// An endless animation never finishes, so only the ones that end are
+	// waited for.
 	await page.evaluate(() =>
 		Promise.all(
 			document.getAnimations()

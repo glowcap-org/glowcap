@@ -7,9 +7,8 @@ sources:
 
 # Benchmark methodology
 
-The Goblins, glowcap, and glowcap-with-time-travel series share an application
-and conversation shape. The harness holds some things constant and cannot hold
-others, and the sections below list both.
+The Goblins, glowcap, and glowcap-with-time-travel series run the same
+applications with the same conversation shape.
 
 ## Shared application
 
@@ -17,16 +16,18 @@ The four applications in `apps/` import neither substrate. `dispatch.rkt`
 builds their method tables. Each backend provides the same five operations:
 run a server, connect a client, fetch a capability, call it, and close.
 
-When an application returns a new capability, Goblins uses `spawn`. glowcap
-uses `session-spawn` to export it. That difference belongs to each substrate.
+When an application returns a new capability, Goblins uses `spawn` and glowcap
+uses `session-spawn` to export it.
 
 One measured unit is one synchronous send-and-settle cycle. glowcap pumps its
 sans-I/O peer through `session-send`. Goblins awaits an eventual send on its
 vat. The Goblins driver reuses its settlement channel, so the harness adds no
 per-call allocation on only one side.
 
-Both backends use loopback TCP in separate processes through Racket's default
-socket settings. Neither changes Nagle or buffer options.
+Both backends use loopback TCP in separate processes. The Goblins backend
+keeps Racket's default socket settings. The glowcap backend goes through
+glowcap's TCP transport, which turns off Nagle's algorithm. Neither changes
+buffer sizes.
 
 ## Warmup and collection
 

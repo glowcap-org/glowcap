@@ -120,25 +120,26 @@ pub fn enlivenAdmitted(self: *Host, allocator: std.mem.Allocator, sturdyref: mod
 fn selectOrDial(self: *Host, sturdyref: model.SturdyRef, recipient: Recipient, admission: WorkAdmission) !u64 {
     try self.refuseReentry();
     try admission.check(self);
-    try vows_mod.ensureFreshVowId(self);
+    // Refuse an exhausted id space before staging a dial.
+    _ = try vows_mod.peekVowId(self);
     const own_key = self.node.publicKey();
     var prepared = if (std.mem.eql(u8, sturdyref.peer.transport, model.transport.id)) id_route: {
-        if (!hostAcceptsRouteVocabulary(self)) return HostError.PeerIdentityMismatch;
-        const demanded = self.node.validateIdRouteLocator(sturdyref.peer) catch
-            return HostError.PeerIdentityMismatch;
+        if (!hostAcceptsRouteVocabulary(self)) return error.PeerIdentityMismatch;
+        const demanded = engine.Node.validateIdRouteLocator(sturdyref.peer) catch
+            return error.PeerIdentityMismatch;
         if (std.mem.eql(u8, &demanded.bytes, &own_key.bytes))
             return @import("publication_lookup.zig").resolveLocal(self, sturdyref.swissnum, recipient, admission);
         if (authenticatedSessionForKey(self, demanded)) |session|
             return (try withRecipient(self, session, sturdyref, .checked, recipient, admission)).vow_id;
-        var bundle = self.node.parseIdSturdyrefLocator(self.allocator, sturdyref.peer) catch |err| switch (err) {
+        var bundle = engine.Node.parseIdSturdyrefLocator(self.allocator, sturdyref.peer) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            else => return HostError.PeerIdentityMismatch,
+            else => return error.PeerIdentityMismatch,
         };
         var bundle_owned = true;
         defer if (bundle_owned) bundle.deinit(self.allocator);
         bundle_owned = false;
         break :id_route self.node.prepareIdRouteBundle(bundle) catch |err| switch (err) {
-            error.ConflictingDialPlan => return HostError.PeerIdentityMismatch,
+            error.ConflictingDialPlan => return error.PeerIdentityMismatch,
             else => return err,
         };
     } else concrete: {
@@ -150,7 +151,7 @@ fn selectOrDial(self: *Host, sturdyref: model.SturdyRef, recipient: Recipient, a
         if (self.dialedSessionFor(sturdyref.peer.transport, sturdyref.peer.designator)) |session|
             return (try withRecipient(self, session, sturdyref, .checked, recipient, admission)).vow_id;
         break :concrete self.node.prepareDialLocator(sturdyref.peer) catch |err| switch (err) {
-            error.ConflictingDialPlan => return HostError.PeerIdentityMismatch,
+            error.ConflictingDialPlan => return error.PeerIdentityMismatch,
             else => return err,
         };
     };
@@ -171,6 +172,7 @@ fn selectOrDial(self: *Host, sturdyref: model.SturdyRef, recipient: Recipient, a
             } else {
                 try self.pending_enlivens.ensureUnusedCapacity(self.allocator, 1);
             }
+            const id = try vows_mod.peekVowId(self);
             // One completion slot per parked enliven, reserved now, so the
             // continuation's settle can never fail to land.
             // This parked enliven's own settle, plus the dial action.
@@ -178,8 +180,7 @@ fn selectOrDial(self: *Host, sturdyref: model.SturdyRef, recipient: Recipient, a
             const peer = try model.clonePeerLocator(self.allocator, sturdyref.peer);
             errdefer model.freePeerLocator(self.allocator, peer);
             const swissnum = try self.allocator.dupe(u8, sturdyref.swissnum);
-            const id = self.next_vow;
-            self.next_vow += 1;
+            self.vow_ids.commit(id);
             const parked: PendingEnliven = .{
                 .vow_id = id,
                 .recipient = recipient,
@@ -229,6 +230,28 @@ pub fn enlivenUriForVersion(
 
 pub const authenticatedSessionForKey = identity.authenticatedSessionForKey;
 const hostAcceptsRouteVocabulary = identity.hostAcceptsRouteVocabulary;
+
+/// Remove one observer's parked row without canceling its Host-owned dial.
+pub fn cancelParkedObservation(host: *Host, observer: *Enliven, id: u64, ticket: engine.Node.PendingId) void {
+    const group = host.pending_enlivens.getPtr(ticket) orelse unreachable;
+    const parked = if (group.first.vow_id == id) blk: {
+        const found = group.first;
+        if (group.rest.pop()) |next| {
+            group.first = next;
+        } else {
+            group.rest.deinit(host.allocator);
+            std.debug.assert(host.pending_enlivens.remove(ticket));
+        }
+        break :blk found;
+    } else blk: {
+        for (group.rest.items, 0..) |item, index| if (item.vow_id == id)
+            break :blk group.rest.orderedRemove(index);
+        unreachable;
+    };
+    std.debug.assert(parked.recipient == .observed and parked.recipient.observed == observer);
+    host.pending_enliven_count -= 1;
+    model.uri.freeSturdyref(host.allocator, parked.sturdyref);
+}
 
 pub fn freeParkedEnliven(self: *Host, parked: PendingEnliven) void {
     model.uri.freeSturdyref(self.allocator, parked.sturdyref);
@@ -283,38 +306,11 @@ pub fn continueParkedEnliven(
         failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(err));
         return;
     };
-    const err: anyerror = blk: {
-        const peer = session.served.port.peer;
-        const reservation = fetch_groups.reserve(self, session, parked.vow_id, parked.recipient, provenance) catch |e| break :blk e;
-        var reservation_live = true;
-        defer if (reservation_live) fetch_groups.cancel(self, session, reservation);
-        const start = engine.sturdyref.prepareEnliven(peer.allocator, &peer.session_state, parked.sturdyref.swissnum) catch |e| break :blk e;
-        switch (start) {
-            .cached => |reference| {
-                fetch_groups.cancel(self, session, reservation);
-                reservation_live = false;
-                parked.recipient.cached(self, session, parked.vow_id, reference, provenance);
-                return;
-            },
-            .in_flight => |answer| {
-                if (!fetch_groups.hasProducer(self, session, answer)) break :blk actors.Error.AlreadyListening;
-                _ = fetch_groups.commit(self, session, answer, reservation);
-                reservation_live = false;
-                return;
-            },
-            .fresh => |prepared| {
-                peer.sendPreparedFetch(prepared) catch |e| {
-                    peer.finishPendingEnliven(parked.sturdyref.swissnum);
-                    break :blk e;
-                };
-                _ = fetch_groups.commit(self, session, prepared.answer_position, reservation);
-                reservation_live = false;
-                host_pump.markDirty(self, session.peer_handle);
-                return;
-            },
-        }
+    const progress = admitRemoteFetch(self, session, parked.sturdyref.swissnum, parked.vow_id, parked.recipient, provenance) catch |err| {
+        failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(err));
+        return;
     };
-    failParkedEnliven(self, parked, session.peer_handle, .broken, @errorName(err));
+    if (progress == .sent) host_pump.markDirty(self, session.peer_handle);
 }
 
 /// Continue every enliven parked on `ticket`: run each against the opened
@@ -401,7 +397,6 @@ fn withRecipient(self: *Host, session: *HostSession, sturdyref: model.SturdyRef,
     // second RPC and parser pass.
     try self.node.replaceDiscoveredExporterLocation(session.peer_handle, sturdyref.peer);
     const swissnum = sturdyref.swissnum;
-    const peer = session.served.port.peer;
     // Admission precedes `prepareEnliven`: its fresh arm records the in-flight
     // marker and retains bootstrap authority, so refusing afterward would need
     // a protocol rollback. Cache hits are cheap but remain retryable under the
@@ -410,46 +405,49 @@ fn withRecipient(self: *Host, session: *HostSession, sturdyref: model.SturdyRef,
     try self.checkOutboundAdmission(session);
     // The peer check above fixes the namespace before this session-local
     // swiss cache is consulted or any bootstrap fetch can be emitted.
-    try vows_mod.ensureFreshVowId(self);
-    const reservation = try fetch_groups.reserve(self, session, self.next_vow, recipient, provenance);
+    const id = try vows_mod.peekVowId(self);
+    const progress = try admitRemoteFetch(self, session, swissnum, id, recipient, provenance);
+    self.vow_ids.commit(id);
+    self.node.exporterApplicationOwned(session.peer_handle);
+    switch (progress) {
+        .cached => host_pump.finishCommittedWork(self, session),
+        .following, .sent => host_pump.finishCommittedVow(self, session),
+    }
+    return .{ .vow_id = id, .provenance = provenance };
+}
+
+/// The caller owns public ID advancement and progress. This boundary owns all
+/// remote fetch admission, including rollback of an unsent fresh swissnum.
+/// Following an existing producer emits nothing, unlike a fresh send.
+const RemoteFetchProgress = enum { cached, following, sent };
+
+fn admitRemoteFetch(self: *Host, session: *HostSession, swissnum: []const u8, id: u64, recipient: Recipient, provenance: PeerProvenance) !RemoteFetchProgress {
+    const peer = session.served.port.peer;
+    const reservation = try fetch_groups.reserve(self, session, id, recipient, provenance);
     var reservation_live = true;
-    errdefer if (reservation_live) fetch_groups.cancel(self, session, reservation);
+    defer if (reservation_live) fetch_groups.cancel(self, session, reservation);
     const start = try engine.sturdyref.prepareEnliven(peer.allocator, &peer.session_state, swissnum);
     switch (start) {
         .cached => |reference| {
-            // No pending producer remains. Retire the unused reservation
-            // before delivering the cache observation to its recipient.
-            const id = self.next_vow;
             fetch_groups.cancel(self, session, reservation);
             reservation_live = false;
             recipient.cached(self, session, id, reference, provenance);
-            self.next_vow += 1;
-            self.node.exporterApplicationOwned(session.peer_handle);
-            host_pump.finishCommittedWork(self, session);
-            return .{ .vow_id = id, .provenance = provenance };
+            return .cached;
         },
         .in_flight => |answer| {
-            if (!fetch_groups.hasProducer(self, session, answer)) return actors.Error.AlreadyListening;
-            const id = fetch_groups.commit(self, session, answer, reservation);
+            if (!fetch_groups.hasProducer(self, session, answer)) return error.AlreadyListening;
+            _ = fetch_groups.commit(self, session, answer, reservation);
             reservation_live = false;
-            self.next_vow += 1;
-            self.node.exporterApplicationOwned(session.peer_handle);
-            host_pump.finishCommittedVow(self, session);
-            return .{ .vow_id = id, .provenance = provenance };
+            return .following;
         },
         .fresh => |prepared| {
             peer.sendPreparedFetch(prepared) catch |err| {
-                // The fresh enliven recorded an in-flight marker; clear it
-                // so a failed send does not strand the swissnum.
                 peer.finishPendingEnliven(swissnum);
                 return err;
             };
-            const id = fetch_groups.commit(self, session, prepared.answer_position, reservation);
+            _ = fetch_groups.commit(self, session, prepared.answer, reservation);
             reservation_live = false;
-            self.next_vow += 1;
-            self.node.exporterApplicationOwned(session.peer_handle);
-            host_pump.finishCommittedVow(self, session);
-            return .{ .vow_id = id, .provenance = provenance };
+            return .sent;
         },
     }
 }

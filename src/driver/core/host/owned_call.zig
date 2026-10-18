@@ -244,7 +244,7 @@ const ReplyAllocator = struct {
     fn allocator(self: *ReplyAllocator) std.mem.Allocator {
         return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
     }
-    fn refusal(self: *const ReplyAllocator, err: anyerror) anyerror {
+    fn refusal(self: *const ReplyAllocator, err: anytype) (@TypeOf(err) || error{ReplyCapacity}) {
         return if (err == error.OutOfMemory and self.refused) error.ReplyCapacity else err;
     }
     fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, address: usize) ?[*]u8 {

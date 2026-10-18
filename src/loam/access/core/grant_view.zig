@@ -72,9 +72,7 @@ pub const GrantView = struct {
             },
             .present => |record| {
                 if (!record.id.eql(id) or @backingInt(record.revision) > @backingInt(self.version.revisions.grants)) return error.InvalidRecord;
-                if (record.parent) |parent| {
-                    if (parent.owner != id.owner or parent.generation == 0 or parent.eql(id)) return error.InvalidRecord;
-                }
+                if (record.parent) |parent| if (!identity.validParent(id, parent)) return error.InvalidRecord;
                 return record;
             },
         }

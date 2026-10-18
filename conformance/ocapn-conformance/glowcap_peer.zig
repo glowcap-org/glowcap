@@ -136,7 +136,7 @@ const PromiseResolver = struct {
 
     pub fn handle(self: *PromiseResolver, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = msg;
-        const peer = (turn.port orelse return error.NotConnected).peer;
+        const peer = (turn.port() orelse return error.NotConnected).peer;
         // This value crosses as desc:import-promise, so its authoritative
         // export slot must be unresolved from allocation onward. The paired
         // inbound answer stores the value that settles that promise.
@@ -177,9 +177,9 @@ const InterceptedSturdyrefEnlivener = struct {
 };
 
 fn publishLocal(turn: *actors.Turn, ref: actors.Ref) !u64 {
-    const peer = (turn.port orelse return error.NotConnected).peer;
+    const peer = (turn.port() orelse return error.NotConnected).peer;
     const export_position = try peer.session_state.allocateExport();
-    try (turn.port orelse return error.NotConnected).bindExport(turn.vat, ref, export_position.int());
+    try (turn.port() orelse return error.NotConnected).bindExport(turn.vat, ref, export_position.int());
     return export_position.int();
 }
 
@@ -263,7 +263,7 @@ fn settleStep(shared: *Shared) void {
 /// Decorate the Host's per-event policy with the suite-only protocol actors.
 /// Claimed events never enter the Vat. Top-level effects are retained for
 /// `settleStep`, after the enclosing step unwinds.
-fn confBeforeServe(ctx: ?*anyopaque, served: *driver.core.Served, event: *engine.Event) anyerror!bool {
+fn confBeforeServe(ctx: ?*anyopaque, served: *driver.core.Served, event: *engine.Event) driver.core.BeforeServeError!bool {
     const conf: *ConfCtx = @ptrCast(@alignCast(ctx.?));
     const host_options = conf.host_serve_options;
     if (host_options.before_serve) |host_hook| {
@@ -288,7 +288,7 @@ const AcceptQueue = struct {
     }
 
     fn failed(_: *anyopaque, _: u64, failure: driver.OperationFailure) void {
-        std.debug.print("glowcap-ocapn-peer: listener failed: {s}\n", .{failure.primaryName()});
+        std.debug.print("glowcap-ocapn-peer: listener failed: {s}\n", .{failure.chain.primaryName()});
     }
 
     fn observer(shared: *Shared) driver.HostRuntime.SessionAcceptObserver {
@@ -370,9 +370,9 @@ pub fn main(init: std.process.Init) !void {
     conf_state.g_addrs = &addrs;
     defer conf_state.g_addrs = null;
 
-    var seed: [crypto.SEED_BYTES]u8 = undefined;
+    var seed: [crypto.seed_bytes]u8 = undefined;
     try io.randomSecure(&seed);
-    var session_root: [crypto.SEED_BYTES]u8 = undefined;
+    var session_root: [crypto.seed_bytes]u8 = undefined;
     try io.randomSecure(&session_root);
 
     var host = try Host.init(allocator, seed, session_root, blk: {

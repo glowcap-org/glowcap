@@ -31,7 +31,7 @@ pub const StoreTarget = listener_fire.StoreTarget;
 pub const FireTarget = listener_fire.FireTarget;
 pub const Encoded = encoded.Encoded;
 
-const SettledAnswer = struct {
+pub const SettledAnswer = struct {
     target: session.AnswerTarget,
     payload: *session.AnswerPayload,
     /// Charge represented by this carrier at its current admission phase.
@@ -58,21 +58,18 @@ const SettledAnswer = struct {
 /// A listener fire rides the same store-borrow pattern: when a promise with N
 /// listeners resolves, each fire queues a POD `listener_fire` carrier instead
 /// of N payload clones, and `step` borrows the stored resolution back to encode
-/// (`pipeline.borrowedListenerFire`). Answer-backed fires retain the exact
-/// payload box, so releasing/reusing its former wire name neither cancels nor
-/// redirects the notification. Imported-promise fires still validate their
-/// row stamp because that store does not have detached notification ownership.
-/// A stored payload cannot change under a queued carrier: an answer resolves once (`validateInboundResolve` /
-/// `applySentResolve`) and a relayed resolution records once
-/// (`recordRelayedResolution` refuses a second relay), so a matching identity
-/// stamp proves the payload too.
+/// (`pipeline.borrowedListenerFire`). A fire retains the exact payload box,
+/// so releasing and reusing its former wire name neither cancels nor
+/// redirects the notification. A stored payload cannot change under a queued
+/// carrier: an answer resolves once (`validateInboundResolve` /
+/// `applySentResolve`), so the retained box proves the payload too.
 pub const Outbound = union(enum) {
     message: model.Message,
     /// One relinquished application answer, including a send still being
     /// prepared. The position is POD. Recording the decrement waits
     /// until the release frame is encoded, so deferred V1.0 answer setup runs
     /// first and allocator/backpressure refusal remains retryable.
-    answer_release: model.AnswerPosition,
+    answer_release: session.OutboundAnswerTarget,
     /// A deliver encoded with its inline subscription. The frame and the
     /// authority a retracted turn gives back are admitted together. `step`
     /// publishes the single frame without another argument-tree walk.
@@ -114,10 +111,7 @@ pub const Outbound = union(enum) {
         switch (self) {
             .answer_release, .staged => {},
             .settled_answer => |settled| {
-                peer.session_state.retireVirtualAnswer(settled.target);
-                peer.session_state.retireDetachedAnswer(settled.target, settled.payload);
-                peer.session_state.releaseAnswerPayload(settled.payload);
-                peer.session_state.collectLocalPromiseProjections();
+                peer.session_state.releaseAnswerCarrier(settled.target, settled.payload);
             },
             .listener_fire => |fire| listener_fire.deinit(fire, peer),
             .encoded => |sent| sent.deinit(peer),
@@ -145,7 +139,7 @@ pub fn enqueueRecorded(self: *Peer, message: model.Message) !void {
     // One walk certifies the tree's shape and lists what every later pass
     // returns to (ADR-0234). A refused shape frees the message here, before
     // any authority or queue seat is touched.
-    const inventory = self.session_state.inventoryMessage(message) catch |err| {
+    const inventory = self.inventoryMessage(message) catch |err| {
         freeMessage(self.allocator, message);
         return err;
     };
@@ -166,13 +160,13 @@ pub fn enqueueRecorded(self: *Peer, message: model.Message) !void {
 pub fn enqueueBorrowed(self: *Peer, message: model.Message) !void {
     switch (message) {
         .deliver => |deliver| {
-            const inventory = try self.session_state.inventoryMessage(message);
+            const inventory = try self.inventoryMessage(message);
             defer inventory.deinit(self.allocator);
             if (inventory.slots.len != 0)
                 return enqueueRecorded(self, try model.cloneMessage(self.allocator, message));
             var envelope: model.Message = .{ .deliver = deliver };
             if (self.node_services) |services| {
-                if (services.lowering_active.*) try lower.lowerMessage(services, &envelope, inventory);
+                if (services.loweringActive()) try lower.lowerMessage(services, &envelope, inventory);
             }
             self.session_state.rewriteShortenedMessage(&envelope, inventory);
             return encoded.admit(self, envelope, inventory, null);
@@ -196,7 +190,7 @@ pub fn enqueueBorrowed(self: *Peer, message: model.Message) !void {
 pub fn enqueueFreight(self: *Peer, target: model.Reference, args: model.view.Args, answer: ?model.AnswerPosition) !void {
     var envelope: model.Message = .{ .deliver = .{ .target = target, .args = &.{}, .answer = answer } };
     if (self.node_services) |services| {
-        if (services.lowering_active.*) try lower.lowerMessage(services, &envelope, .none);
+        if (services.loweringActive()) try lower.lowerMessage(services, &envelope, .none);
     }
     self.session_state.rewriteShortenedMessage(&envelope, .none);
     return encoded.admit(self, envelope, .none, args);
@@ -218,7 +212,7 @@ pub fn enqueueInventoried(self: *Peer, message_in: model.Message, inventory: ses
     std.debug.assert(message != .resolve);
 
     if (self.node_services) |services| {
-        if (services.lowering_active.*) {
+        if (services.loweringActive()) {
             var semantic: passable.Outbound = .{ .message = message };
             const staged = services.stageOutbound(&semantic, inventory) catch |err| {
                 semantic.deinit(&self.session_state);
@@ -285,6 +279,29 @@ pub fn enqueueInventoried(self: *Peer, message_in: model.Message, inventory: ses
     appended = false;
 }
 
+/// Inventory an outbound tree with the session's codec metering its values,
+/// so admission sizes the frame from the one walk (`outbound/encoded.zig`).
+pub fn inventoryMessage(self: *Peer, message: model.Message) !session.Inventory {
+    inline for (codec.registry.active) |spec| if (self.session_state.codec == spec.id)
+        return self.session_state.inventoryMessage(message, spec.module.meter orelse session.inventory.NoMeter);
+    return error.UnknownCodec;
+}
+
+/// `inventoryMessage` for a resolution held outside a message.
+pub fn inventoryResolution(self: *Peer, resolution: model.Resolution) !session.Inventory {
+    inline for (codec.registry.active) |spec| if (self.session_state.codec == spec.id)
+        return self.session_state.inventoryResolution(resolution, spec.module.meter orelse session.inventory.NoMeter);
+    return error.UnknownCodec;
+}
+
+/// Certify a lent argument tree with the session's codec metering its
+/// values (ADR-0246).
+pub fn certifyFreight(self: *Peer, args: model.view.Args) !session.Freight {
+    inline for (codec.registry.active) |spec| if (self.session_state.codec == spec.id)
+        return self.session_state.certifyFreight(args, spec.module.meter orelse session.inventory.NoMeter);
+    return error.UnknownCodec;
+}
+
 /// A queued tree's admission charge: its envelope plus the bytes the
 /// inventory measured.
 pub fn messageCharge(message: model.Message, inventory: session.Inventory) !usize {
@@ -316,6 +333,41 @@ pub fn enqueueAnswerTargetResolutionOwned(
     target: session.AnswerTarget,
     resolution: model.Resolution,
 ) !void {
+    return enqueueAnswerTargetResolutionAdmitted(self, target, resolution, .fresh);
+}
+
+/// Settle a local promise projection the Node owns, keeping the settlement
+/// when allocator or outbound pressure refuses its carrier: the resolution is
+/// recorded in the answer store, the projection is marked deferred, and
+/// `step` queues the carrier once pressure clears. The Node's recipient has
+/// no retry of its own, so the settlement commits here or reports a refusal
+/// that committed nothing. `target` must name a live local promise
+/// projection.
+pub fn settleAnswerTargetGuaranteed(
+    self: *Peer,
+    target: session.AnswerTarget,
+    resolution: model.Resolution,
+) !void {
+    return enqueueAnswerTargetResolutionAdmitted(self, target, resolution, .guaranteed);
+}
+
+/// Break a local promise projection the Node owns with an owned `reason`,
+/// consumed on every outcome. A target nobody holds any more makes the
+/// break moot; any other refusal is this peer's failure to surface.
+pub fn breakAnswerTargetGuaranteed(self: *Peer, target: session.AnswerTarget, reason: []const u8) void {
+    settleAnswerTargetGuaranteed(self, target, .{ .@"break" = .{ .message = reason } }) catch |err| switch (err) {
+        // tolerant: the projection was collected, settled, or its session closed.
+        error.InvalidReference, error.UnexpectedMessage, error.SessionClosed => {},
+        else => self.emitFailure(err),
+    };
+}
+
+fn enqueueAnswerTargetResolutionAdmitted(
+    self: *Peer,
+    target: session.AnswerTarget,
+    resolution: model.Resolution,
+    admission: AnswerSettlementAdmission,
+) !void {
     const settlement = self.session_state.beginAnswerSettlement(target) catch |err| {
         model.freeResolution(self.allocator, resolution);
         return err;
@@ -324,7 +376,35 @@ pub fn enqueueAnswerTargetResolutionOwned(
         .target = settlement.target,
         .payload = settlement.payload,
         .resolution = resolution,
-    }, .fresh);
+    }, admission);
+}
+
+/// Queue the carrier of one deferred projection settlement. True when a
+/// carrier was queued; `OutboundBackpressure` leaves the row deferred.
+pub fn retryDeferredSettlement(self: *Peer) !bool {
+    if (self.deferred_settlements == 0) return false;
+    const projection = self.session_state.deferredLocalPromiseSettlement() orelse {
+        // tolerant: a closed session retired its rows ahead of this count.
+        self.deferred_settlements = 0;
+        return false;
+    };
+    const payload = self.session_state.answerPayloadForTarget(projection.answer_target) orelse unreachable;
+    const item: Outbound = .{ .settled_answer = .{
+        .target = projection.answer_target,
+        .payload = payload,
+        .reservation_charge = @sizeOf(Outbound),
+    } };
+    // The carrier holds the payload from here to its drain, as a settlement
+    // queued without pressure would.
+    try self.session_state.retainAnswerPayload(payload);
+    const reservation = self.reservePending(item) catch |err| {
+        self.session_state.releaseAnswerPayload(payload);
+        return err;
+    };
+    self.session_state.clearDeferredLocalPromiseSettlement(projection.export_position);
+    self.deferred_settlements -= 1;
+    self.pushPendingAssume(reservation, item);
+    return true;
 }
 
 /// Complete a Node-owned settlement whose answer incarnation was stamped
@@ -351,7 +431,7 @@ fn enqueueAnswerSettlementOwned(
     // A fresh settlement is inventoried here, once; a staged one arrives with
     // the inventory its batch took to validate it.
     const fresh_inventory: ?session.Inventory = switch (admission) {
-        .fresh => self.session_state.inventoryResolution(settlement_in.resolution) catch |err| {
+        .fresh, .guaranteed => self.inventoryResolution(settlement_in.resolution) catch |err| {
             semantic.deinit(&self.session_state);
             return err;
         },
@@ -359,13 +439,15 @@ fn enqueueAnswerSettlementOwned(
     };
     defer if (fresh_inventory) |inventory| inventory.deinit(self.allocator);
     const inventory = fresh_inventory orelse admission.staged.inventory;
-    if (admission == .fresh) {
-        if (self.node_services) |services| if (services.lowering_active.*) {
-            const staged = services.stageOutbound(&semantic, inventory) catch |err| {
-                semantic.deinit(&self.session_state);
-                return err;
-            };
-            if (staged) return;
+    if (admission != .staged) {
+        if (self.node_services) |services| if (services.loweringActive()) {
+            if (admission == .fresh) {
+                const staged = services.stageOutbound(&semantic, inventory) catch |err| {
+                    semantic.deinit(&self.session_state);
+                    return err;
+                };
+                if (staged) return;
+            }
             lower.lowerResolution(
                 services,
                 &semantic.answer_settlement.resolution,
@@ -376,6 +458,9 @@ fn enqueueAnswerSettlementOwned(
             };
         };
     }
+    // Shorten in place after lowering, so a lowered far promise still takes
+    // its shortened edge. Every settlement admission shares this one rewrite.
+    self.session_state.rewriteShortenedResolution(&semantic.answer_settlement.resolution, inventory);
     const settlement = semantic.answer_settlement;
     const charge = outbound_budget.answerSettlementCharge(
         Outbound,
@@ -391,6 +476,13 @@ fn enqueueAnswerSettlementOwned(
     } };
     var reservation = switch (admission) {
         .fresh => self.reservePending(item),
+        .guaranteed => self.reservePending(item) catch |err| switch (err) {
+            error.OutOfMemory, error.OutboundBackpressure => return deferAnswerSettlement(self, settlement, inventory),
+            else => {
+                semantic.deinit(&self.session_state);
+                return err;
+            },
+        },
         .staged => |staged| transferAnswerStaging(self, staged.owner, item),
     } catch |err| {
         semantic.deinit(&self.session_state);
@@ -415,8 +507,34 @@ fn enqueueAnswerSettlementOwned(
     } });
 }
 
+/// Record a guaranteed settlement whose carrier pressure refused. The store
+/// holds the resolution under the session's retained-answer cap. The deferred
+/// row roots itself, so the `beginAnswerSettlement` retain returns here and
+/// the carrier takes its own on retry.
+fn deferAnswerSettlement(
+    self: *Peer,
+    settlement: passable.AnswerSettlement,
+    inventory: session.Inventory,
+) !void {
+    defer self.session_state.releaseAnswerPayload(settlement.payload);
+    try self.session_state.recordSentResolutionTarget(
+        settlement.target,
+        settlement.payload,
+        settlement.resolution,
+        inventory,
+    );
+    self.session_state.deferLocalPromiseSettlement(settlement.target);
+    self.deferred_settlements += 1;
+}
+
 const AnswerSettlementAdmission = union(enum) {
+    /// An application settlement: inventoried here and, while routes are
+    /// lowering, offered to the Node's staging before it is lowered.
     fresh,
+    /// A Node-owned projection settlement the staging already refused:
+    /// inventoried and lowered here, and stored without its carrier under
+    /// outbound pressure (`deferAnswerSettlement`) instead of refused.
+    guaranteed,
     staged: struct {
         owner: *?Peer.InlinePassableStagingReservation,
         inventory: session.Inventory,

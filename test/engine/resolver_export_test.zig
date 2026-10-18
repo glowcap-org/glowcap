@@ -56,8 +56,8 @@ test "a deliver to a resolver export re-tags as a resolve on every profile" {
         const resolver: u64 = 41;
         const answer = model.AnswerPosition.from(7);
         try grantExport(&pair.p1, &pair.p2, resolver);
-        try pair.p1.session_state.installOutboundResolver(answer, .from(resolver));
         try pair.p1.session_state.installOutboundAnswer(answer);
+        pair.p1.session_state.installOutboundResolver(answer, .from(resolver));
 
         try fireAt(&pair.p2, &pair.p1, resolver, &.{ .{ .symbol = "fulfill" }, .{ .bytes = "relayed" } });
         try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
@@ -80,8 +80,8 @@ test "a resolver callback cannot open another answer" {
         const resolver: u64 = 41;
         const answer = model.AnswerPosition.from(7);
         try grantExport(&pair.p1, &pair.p2, resolver);
-        try pair.p1.session_state.installOutboundResolver(answer, .from(resolver));
         try pair.p1.session_state.installOutboundAnswer(answer);
+        pair.p1.session_state.installOutboundResolver(answer, .from(resolver));
 
         try pair.p2.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = model.FarRef.object(resolver) },
@@ -109,8 +109,8 @@ test "a deliver to an ordinary export is still a deliver" {
         const plain: u64 = 42;
         try grantExport(&pair.p1, &pair.p2, resolver);
         try grantExport(&pair.p1, &pair.p2, plain);
-        try pair.p1.session_state.installOutboundResolver(.from(7), .from(resolver));
         try pair.p1.session_state.installOutboundAnswer(.from(7));
+        pair.p1.session_state.installOutboundResolver(.from(7), .from(resolver));
 
         try fireAt(&pair.p2, &pair.p1, plain, &.{ .{ .symbol = "fulfill" }, .{ .bytes = "relayed" } });
         try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
@@ -132,8 +132,8 @@ test "a second fire on the same answer is refused" {
         const resolver: u64 = 41;
         const answer = model.AnswerPosition.from(7);
         try grantExport(&pair.p1, &pair.p2, resolver);
-        try pair.p1.session_state.installOutboundResolver(answer, .from(resolver));
         try pair.p1.session_state.installOutboundAnswer(answer);
+        pair.p1.session_state.installOutboundResolver(answer, .from(resolver));
 
         const args = [_]model.Argument{ .{ .symbol = "fulfill" }, .{ .bytes = "once" } };
         try fireAt(&pair.p2, &pair.p1, resolver, &args);

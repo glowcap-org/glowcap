@@ -32,7 +32,7 @@ pub const HostTurn = struct {
 
     /// Recover the same owning context for wire and trusted local deliveries.
     pub fn fromActorTurn(turn: *actors.Turn) !HostTurn {
-        if (turn.port) |port| {
+        if (turn.port()) |port| {
             const served: *Served = @fieldParentPtr("port", port);
             const session: *HostSession = @alignCast(@fieldParentPtr("served", served));
             return .{ .host = session.host, .session = session, .turn = turn };
@@ -160,9 +160,9 @@ pub fn Hosting(comptime B: type) type {
         inner: B,
 
         pub fn handle(self: *@This(), turn: *actors.Turn, msg: actors.Delivery) !actors.HostedActor.Result {
-            const port = turn.port orelse {
+            const port = turn.port() orelse {
                 if (@hasDecl(B, "handleLocal")) return .{ .returned = try self.inner.handleLocal(turn, msg) };
-                return actors.Error.NotConnected;
+                return error.NotConnected;
             };
             const served: *Served = @fieldParentPtr("port", port);
             const session: *HostSession = @alignCast(@fieldParentPtr("served", served));

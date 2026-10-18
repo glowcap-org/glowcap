@@ -48,7 +48,7 @@
                                  out #:match-select values)])
       (list (list-ref m 1) (list-ref m 2) (n (list-ref m 3)) (n (list-ref m 4)) (n (list-ref m 5)))))
   (define disp (regexp-match #px"dispatch turns=\\d+ ns_per_turn=[0-9.]+ turns_per_sec=(\\d+)" out))
-  (define sparse (regexp-match #px"sparse_export_table inserts=\\d+ ns_per_insert=([0-9.]+)" out))
+  (define sparse (regexp-match #px"sparse_import_table inserts=\\d+ ns_per_insert=([0-9.]+)" out))
   (hash 'rows rows
         'dispatch_tps (and disp (n (list-ref disp 1)))
         'sparse_ns (and sparse (n (list-ref sparse 1)))))
@@ -260,7 +260,7 @@
                       (row "encode MB/s" "encode" 'mbps commas)
                       (row "decode MB/s" "decode" 'mbps commas)
                       (row "frame bytes" "encode" 'frame commas))))
-   (format "\n<p class=\"bench-note\">The protocol engine alone, with no sockets, handles ~a inbound messages a second, and adds an entry to a sparse export table in ~a ns.</p>"
+   (format "\n<p class=\"bench-note\">The protocol engine alone, with no sockets, handles ~a inbound messages a second, and adds an entry to a sparse import table in ~a ns.</p>"
            (commas (hash-ref c 'dispatch_tps)) (r1 (hash-ref c 'sparse_ns)))))
 
 (define (peer-region rows)
@@ -571,7 +571,9 @@
   (printf "running benches in ReleaseFast (this takes a few minutes)...\n") (flush-output)
   ;; Goblins first: fail fast on the CapTP step before burning ReleaseFast
   ;; minutes on the Zig benches. Retries for CapTP flakes are inside bench-goblins.
-  (run "zig build bench-goblins 2>&1")
+  ;; Child builds do not inherit the report step's optimize mode. Name it on
+  ;; every Zig command, including those that install the binding's archives.
+  (run "zig build bench-goblins -Doptimize=ReleaseFast 2>&1")
   (define goblins (parse-goblins-md (latest-goblins-md)))
   (define codec (parse-codec (run "zig build bench-codec -Doptimize=ReleaseFast 2>&1")))
   (define fv (parse-frameview (run "zig build bench-frame-view -Doptimize=ReleaseFast 2>&1")))
@@ -580,16 +582,17 @@
   (define snap-g (parse-goblins-snapshot (run "racket bench/goblins/snapshot.rkt 2>&1")))
   (define iroh (parse-iroh (run "zig build bench-iroh -Doptimize=ReleaseFast 2>&1")))
   (define loam (parse-loam (run "zig build bench-loam -Doptimize=ReleaseFast -- --ordinary-only 2>&1")))
+  (define cores (fast-cores))
   (define capnp
-    (let* ([cores (fast-cores)] [a (car cores)] [b (cadr cores)])
+    (let* ([a (car cores)] [b (cadr cores)])
       (for/list ([pin (list (format "~a,~a" a a) (format "~a,~a" a b))])
         (parse-iroh (string-append
-                     (run (format "zig build bench-capnp -- --pin=~a 2>&1" pin))
+                     (run (format "zig build bench-capnp -Doptimize=ReleaseFast -- --pin=~a 2>&1" pin))
                      (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=greet --pin=~a 2>&1" pin))
                      (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=report --pin=~a 2>&1" pin))
                      (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=greet --codec=capnp --pin=~a 2>&1" pin))
                      (run (format "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=report --codec=capnp --pin=~a 2>&1" pin)))))))
-  (run "zig build bench-langs -Doptimize=ReleaseFast 2>&1")
+  (run (format "zig build bench-langs -Doptimize=ReleaseFast -- --pin=~a,~a 2>&1" (car cores) (cadr cores)))
   (define langs (parse-langs-md (latest-langs-md)))
   (printf "rendering + splicing into ~a and ~a...\n" PERF COMPARED) (flush-output)
   (define stamp (stamp-region))

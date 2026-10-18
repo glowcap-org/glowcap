@@ -195,8 +195,7 @@ messages, handing each one over, and closes with an explicit `ChannelClose`.
 The core frames packets through `feed_packet` and `take_packet`. Rust keeps
 each received message whole and lends outgoing frames to the write instead of
 copying them. An accepted channel carries the provider's reading of its
-address and key, and can carry proof that the channel was verified. The pump
-never depends on a particular transport.
+address and key, and can carry proof that the channel was verified.
 
 Once the Host takes a channel, it closes as part of the Host's task:
 
@@ -246,8 +245,8 @@ between that SDP and the expected key before supplying Session identity proof.
   connection closes.
 - The Host's task keeps owning that preparation, including complete SDP
   transitions whose observers are dropped.
-- Browser events record state and wake that task. They spawn no Tokio work from
-  a DOM callback.
+- Browser events record state and wake that task, and a DOM callback spawns no
+  Tokio work.
 - Host shutdown cancels browser promise observations and waits for their
   callbacks to retire, even when the browser leaves the original WebRTC
   operation unfinished.

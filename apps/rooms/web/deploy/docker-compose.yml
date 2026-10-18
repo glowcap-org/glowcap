@@ -85,7 +85,7 @@ services:
       GLOWCAP_ROOMS_TRACE_PUBLISH: ${GLOWCAP_ROOMS_TRACE_PUBLISH:-}
       # Same as --irc: mint the IRC gateway capability.
       GLOWCAP_ROOMS_IRC: "1"
-      # Same as --history: listed rooms keep their last lines and serve them
+      # Same as --history: rooms keep their last lines and serve them
       # to members who join later.
       GLOWCAP_ROOMS_HISTORY: "1"
     volumes:

@@ -139,8 +139,7 @@ calls.
 
 Every row verifies exact survivors and reclaimed records, one trace per reachable
 record, one submission per unchanged held root, one scratch allocation per cycle
-and the block on new work while a batch is outstanding. These are cost and
-correctness budgets. Volatile commits provide no durability and its hash-table
+and the block on new work while a batch is outstanding. Volatile commits provide no durability and its hash-table
 cursors cost differently from LMDB's, so the profile measures no timing, fsync
 throughput or power-loss behavior. The collection tests cover restart
 clearing, late holds and recovery.
@@ -337,8 +336,8 @@ The mixed phase edits every eighth header and reads the others. Reports include
 backend operations, allocations, per-call p50/p99 latency, throughput, maximum
 occupied workers, turns at worker capacity and peak pending bytes.
 
-This is a closed-loop load: offered traffic slows when the eight-call window
-fills. It measures this bounded working set, not an open-loop arrival rate or
+This is a closed-loop load: offered traffic slows when the attachment's
+64-call window fills. It measures this bounded working set, not an open-loop arrival rate or
 maximum throughput. Concurrent commits can invalidate an in-flight read
 snapshot, and retries appear in the backend read counts. The owner polls worker
 completions, and idle polling cost is part of these measurements.
@@ -365,8 +364,8 @@ measurements have no acceptance threshold.
 
 ## Managed workers and foreign restoration
 
-A separate managed population uses the same <!-- value worker_pool.zig capacity -->4<!-- /value -->-worker pool and <!-- value managed.zig max_calls -->8<!-- /value -->-call
-window as ordinary actors. Only pool workers perform reads and commits.
+A separate managed population uses the same <!-- value worker_pool.zig capacity -->4<!-- /value -->-worker pool as ordinary actors, with its own
+<!-- value managed.zig max_calls -->8<!-- /value -->-call window. Only pool workers perform reads and commits.
 Host/Vat installs completions on its owner thread.
 
 Each read and mixed phase admits 1,024 calls across the population, with edits every eighth admission.

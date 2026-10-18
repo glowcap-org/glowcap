@@ -114,10 +114,10 @@ test "parse once: a small frame keeps the floor of views, so five arguments stay
 }
 
 test "parse once: a frame past the small class earns room for its whole tree" {
-    const padding: [200]u8 = @splat('a');
-    const wide = "<10'op:deliver<11'desc:export7+>[5:hello200:" ++ padding ++ "2+3+4+]ff>";
+    const padding: [engine.events.small_frame_bytes]u8 = @splat('a');
+    const wide = "<10'op:deliver<11'desc:export7+>[5:hello" ++ std.fmt.comptimePrint("{d}:", .{padding.len}) ++ padding ++ "2+3+4+]ff>";
     try std.testing.expect(wide.len > engine.events.small_frame_bytes);
-    try std.testing.expectEqual(wide.len / engine.events.head_view_bytes, engine.events.headViewsFor(wide.len));
+    try std.testing.expectEqual(@min(wide.len / engine.events.head_view_bytes, engine.events.head_views_cap), engine.events.headViewsFor(wide.len));
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));

@@ -215,19 +215,21 @@ async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) -> Result<(), ()> {
 			let succeeded = outcome.as_ref().is_some_and(|result| result.is_ok());
 			let clean_close = matches!(
 				outcome,
-				Some(Err(iroh::endpoint::WriteError::ConnectionLost(
-					ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed
-				)))
+				Some(Err(iroh::endpoint::WriteError::Stopped(_)
+					| iroh::endpoint::WriteError::ConnectionLost(
+						ConnectionError::ApplicationClosed(_) | ConnectionError::LocallyClosed
+					)))
 			);
 			let closed_before_completion = nb.outbound.lock().unwrap().finish_batch(chunk, succeeded);
 			if !succeeded {
 				nb.readiness.signal(nb.id, EV_CLOSED);
 				// Match the reader's connection-close classification. The writer
-				// can observe the peer's close before the application observes
-				// EV_CLOSED and closes its handle. That scheduling order must not
-				// turn a normal departure into a later endpoint release failure.
-				// Other live-write failures still fail the drain barrier; a local
-				// close retains its bounded best-effort farewell behavior.
+				// can observe the peer's close, or its stop of this stream (its
+				// reader abort at connection release), before the application
+				// observes EV_CLOSED and closes its handle. That scheduling order
+				// must not turn a normal departure into a later endpoint release
+				// failure. Other live-write failures still fail the drain barrier;
+				// a local close retains its bounded best-effort farewell behavior.
 				return if clean_close || closed_before_completion {
 					Ok(())
 				} else {

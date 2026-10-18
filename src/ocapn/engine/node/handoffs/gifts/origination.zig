@@ -44,11 +44,8 @@ pub fn interceptFulfilledRouteNamed(
 }
 
 fn routeNeedsGift(self: *Node, peer_handle: PeerHandle, route_id: model.CapabilityRouteId) bool {
-    const home = routes.homeOf(self, route_id) orelse return false;
-    if (home == peer_handle) return false;
-    if (routes.foreignRoute(self, route_id)) |enrolled|
-        if (enrolled.reference == .far and enrolled.reference.far.kind == .promise) return false;
-    return true;
+    const enrolled = routes.foreignRoute(self, route_id) orelse return false;
+    return enrolled.peer_handle != peer_handle and enrolled.far.kind != .promise;
 }
 
 /// Complete a live entropy request by depositing on the exporter and resolving
@@ -59,7 +56,7 @@ fn routeNeedsGift(self: *Node, peer_handle: PeerHandle, route_id: model.Capabili
 /// row, so the host can retry it.
 pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
     if (!tickets.contains(self, ticket)) return;
-    if (gift_id.len != model.HANDOFF_GIFT_ID_BYTES) return error.InvalidArgument;
+    if (gift_id.len != model.handoff_gift_id_bytes) return error.InvalidArgument;
     // Reserve the largest consequence before consuming the ticket. From this
     // commit point the handoff either queues both flushes or settles broken.
     try actions.reserve(self, 2);
@@ -77,7 +74,7 @@ pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
             return;
         },
         .answer => |answer| {
-            const routed = routes.route(self, .{ .routed = .{ .id = pending.route_id } }) orelse {
+            const routed = routes.routeById(self, pending.route_id) orelse {
                 failAnswerReserved(self, pending.recipient_peer, answer, "handoff origination failed: home connection is gone");
                 return;
             };
@@ -85,7 +82,7 @@ pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
                 self,
                 pending.recipient_peer,
                 routed.peer_handle,
-                routed.reference,
+                .{ .far = routed.far },
                 gift_id,
                 answer,
                 recipe.get(self, routed.peer_handle),
@@ -151,26 +148,11 @@ fn originateGive(
     answer: session_mod.AnswerTarget,
     exporter_location: []const u8,
 ) !void {
-    const recipient = membership.peerAt(self, recipient_peer) orelse
+    const recipient = membership.peer(self, recipient_peer) orelse
         return error.UnknownConnection;
-    const exporter = membership.peerAt(self, exporter_peer) orelse
+    const exporter = membership.peer(self, exporter_peer) orelse
         return error.UnknownConnection;
-    const recipient_key = recipient.session_state.partnerSessionKey() orelse
-        return error.NoRecipientKey;
-    const exporter_key = exporter.session_state.partnerSessionKey() orelse
-        return error.NoExporterKey;
-    const claimed = exporter.session_state.partnerLocatorRaw() orelse
-        return error.NoExporterLocator;
-    const give = try recipe.mint(
-        self,
-        recipient,
-        recipient_peer,
-        exporter_peer,
-        gift_id,
-        recipient_key,
-        exporter_key,
-        if (exporter_location.len != 0) exporter_location else claimed,
-    );
+    const give = try recipe.mint(self, recipient, recipient_peer, exporter, exporter_peer, gift_id, exporter_location);
     defer self.allocator.free(give);
     try engine.handoff_gifter.queueOriginatedGive(
         exporter,
@@ -178,6 +160,6 @@ fn originateGive(
         gift_id,
         gifted,
         give,
-        .{ .answer = answer },
+        answer,
     );
 }

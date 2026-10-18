@@ -7,7 +7,7 @@ decision: "A failed outermost turn retracts the far sends it made. The Vat owns 
 supersedes: []
 superseded_by: []
 amends: [ADR-0191]
-amended_by: [ADR-0201, ADR-0236]
+amended_by: [ADR-0201, ADR-0236, ADR-0255]
 ---
 
 # ADR-0194 Far sends retract with a failed turn
@@ -77,7 +77,7 @@ the leases and receipts were gone by commit time.
    A send that projects only promises has no gift id to wait for, so its batch
    finishes while it stages and commits the promise proxy at once: the home
    session's queued `op:listen`, its listener export and resolver, and the
-   recipient's promise export and third-party import. The Node keeps a receipt
+   recipient's promise projection. The Node keeps a receipt
    for each recipient a send inside the window commits. When the Peer closes
    the window (`NodeServices.provisionalClosed`), after it has retracted its
    own rows, commit keeps them, and retraction withdraws them newest first. A

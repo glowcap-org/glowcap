@@ -3,6 +3,7 @@
 const std = @import("std");
 const common = @import("common.zig");
 const execution = @import("execution.zig");
+const profile_build = @import("profile.zig");
 const addRootedSystemCommand = common.addRootedSystemCommand;
 const addInstalledSystemRun = common.addInstalledSystemRun;
 const irohDriverModule = common.irohDriverModule;
@@ -83,6 +84,7 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
 
     const install = b.addInstallArtifact(shared, .{});
     common.checkArchiveTls(b, shared, &install.step);
+    common.checkArchiveResident(b, shared, &install.step);
     const header = b.addInstallHeaderFile(
         b.path("include/glowcap_net_transport_iroh.h"),
         "glowcap_net_transport_iroh.h",
@@ -118,6 +120,7 @@ pub const StepsContext = struct {
     interop_harness_mod: *std.Build.Module,
     check_step: *std.Build.Step,
     site_zig_examples_check: *std.Build.Step,
+    profiles: profile_build.Profiles,
 };
 
 pub const StepsRegistration = struct {
@@ -128,6 +131,14 @@ pub const StepsRegistration = struct {
     abi_step: *std.Build.Step,
     abi_test_step: *std.Build.Step,
 };
+
+/// The iroh resident (`src/net/transport/iroh.zig`) over one layer graph:
+/// the host graph for every gate, the profiled graph for `profile-iroh`.
+fn residentModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mods: []*std.Build.Module) *std.Build.Module {
+    const mod = b.createModule(.{ .root_source_file = b.path("src/net/transport/iroh.zig"), .target = target, .optimize = optimize });
+    inline for (.{ "foundation", "model", "engine", "net" }) |layer| mod.addImport(layer, mods[layerIndex(layer)]);
+    return mod;
+}
 
 pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const b = ctx.b;
@@ -184,15 +195,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     // only when the staticlib links, and the api-surface test references every
     // exported `glowcap` declaration recursively, exporting it would drag the
     // Rust sidecar into every gate.
-    const iroh_resident_mod = b.createModule(.{
-        .root_source_file = b.path("src/net/transport/iroh.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    iroh_resident_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
-    iroh_resident_mod.addImport("model", host_mods[layerIndex("model")]);
-    iroh_resident_mod.addImport("engine", host_mods[layerIndex("engine")]);
-    iroh_resident_mod.addImport("net", host_mods[layerIndex("net")]);
+    const iroh_resident_mod = residentModule(b, target, optimize, host_mods);
     // CapTP serving is `driver.HostRuntime` over `iroh.MultiplexedAdapter`;
     // the resident only supplies the netlayer and the completion `Backend`.
 
@@ -300,6 +303,19 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         if (drv.forwards_args) run.addPassthruArgs();
         live_step.dependOn(&run.step);
     }
+
+    // bench-iroh under callgrind: the driver wire path over the profiled
+    // graph, with the iroh resident built for the same baseline target so the
+    // one executable links. Each timed loop is a phase named like its report
+    // row, so `-- --transport=tcp --row=greet` attributes one row alone.
+    const profiles = ctx.profiles;
+    const profiled_resident = residentModule(b, profiles.target, profile_build.Profiles.optimize, profiles.mods);
+    const profiled_mod = b.createModule(profiles.moduleOptions(b, "bench/iroh_bench.zig"));
+    profiled_mod.addImport("glowcap", profiles.module("glowcap"));
+    profiled_mod.addImport("iroh", profiled_resident);
+    linkIrohSidecar(b, profiled_mod, profiles.target, sidecar_archive);
+    const profiled = b.addExecutable(.{ .name = "glowcap-iroh-bench-profile", .root_module = profiled_mod });
+    b.step("profile-iroh", "Profile bench-iroh under callgrind: self cost per file and function for each marked phase, taking bench-iroh's filters after -- (needs cargo + valgrind)").dependOn(profile_build.addRun(b, profiles, profiled));
 
     // ── ADR-0112 seam proof: the driver archive drives iroh through the C
     // multiplexed-transport table. Bespoke wiring rather than an `iroh_drivers` row,

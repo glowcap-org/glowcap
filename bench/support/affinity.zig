@@ -21,9 +21,30 @@ pub fn parsePair(text: []const u8) !Pair {
 /// Pin the calling thread to `cpu`. Linux only, since the benches that use
 /// it measure a Linux kernel's wakes and rings.
 pub fn pinThread(cpu: u16) !void {
-    var set: std.os.linux.cpu_set_t = @splat(0);
+    try apply(try mask(&.{cpu}));
+}
+
+/// A thread's mask as the kernel holds it.
+pub const Set = std.os.linux.cpu_set_t;
+
+/// The mask that admits exactly `cpus`.
+pub fn mask(cpus: []const u16) !Set {
+    var set: Set = @splat(0);
     const bits = @bitSizeOf(usize);
-    if (cpu / bits >= set.len) return error.CpuOutOfRange;
-    set[cpu / bits] |= @as(usize, 1) << @intCast(cpu % bits);
+    for (cpus) |cpu| {
+        if (cpu / bits >= set.len) return error.CpuOutOfRange;
+        set[cpu / bits] |= @as(usize, 1) << @intCast(cpu % bits);
+    }
+    return set;
+}
+
+/// Put `set` on the calling thread.
+pub fn apply(set: Set) !void {
     try std.os.linux.sched_setaffinity(0, &set);
+}
+
+/// Read the calling thread's mask, so a pinned spawn can put it back: a child
+/// inherits the mask it is spawned under, and the spawner keeps its own.
+pub fn current() !Set {
+    return std.posix.sched_getaffinity(0);
 }

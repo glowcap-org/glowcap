@@ -11,8 +11,7 @@ sources:
 # Loam: durable capability applications
 
 Loam is glowcap's storage layer, and its access module manages who can use
-which resources. This page shows how the parts fit and which part owns each
-job. [ADR-0161](../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
+which resources. [ADR-0161](../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
 records the design, the [Loam guide](../loam.md) covers the Zig API, and the
 [API page](api.md) covers operations and lifetimes.
 
@@ -80,8 +79,9 @@ capability operations, and transaction staging. The C API lives in
 `src/c_abi/loam/`, and the Rust binding in `bindings/rust/src/loam/`.
 
 `libglowcap_loam` exports the `glowcap_loam_` functions for shared storage and
-the single-resource lifecycle. The optional `libglowcap_loam_sqlite` and
-`libglowcap_loam_lmdb` archives run blocking storage work, and Rust enables
+the single-resource lifecycle. The optional `libglowcap_loam_sqlite`,
+`libglowcap_loam_lmdb`, and `libglowcap_loam_volatile` archives run storage
+work for their engines, and Rust enables
 the `loam` feature. The [C and Rust guide](c-and-rust.md) covers that API and
 its limits, and the [browser guide](browser.md) covers running the same
 archive over IndexedDB.
@@ -250,6 +250,6 @@ A Loam feature lands first in Zig and its storage engines, with its lifetimes,
 costs, and failure tests written down. C and Rust then expose it without
 deciding any permissions themselves. The
 [access storage guide](access-storage.md) and [actor guide](actors.md) hold
-the detailed cases, and the
-[research plan](research/memory-persistence.md#experiment-sequence-and-decision-points)
-holds the measurements and fault injection.
+the detailed cases. [Stability](../stability.md) lists the fault tests, and
+the [research plan](research/memory-persistence.md#where-the-experiments-stand)
+lists the open experiments.

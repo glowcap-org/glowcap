@@ -64,10 +64,16 @@ pub const State = struct {
         return true;
     }
 
-    pub fn rollback(self: *State, index: usize) void {
+    pub fn inFlight(self: State, index: usize) bool {
+        return self.in_flight & bit(index) != 0;
+    }
+
+    /// Clear one in-flight route. True when it was the last one out.
+    pub fn clearFlight(self: *State, index: usize) bool {
         const route = bit(index);
         std.debug.assert(self.in_flight & route != 0);
         self.in_flight &= ~route;
+        return self.in_flight == 0;
     }
 
     pub fn losingFlights(self: State, winner: usize) u8 {
@@ -119,7 +125,7 @@ pub const State = struct {
     }
 };
 
-fn bit(index: usize) u8 {
+pub fn bit(index: usize) u8 {
     std.debug.assert(index < model.route_bundle.max_route_list_count);
     return @as(u8, 1) << @intCast(index);
 }

@@ -62,7 +62,7 @@ pub fn attenuation(caps: *c.storage.Capabilities, backend: anytype, control: *c.
         break;
     } else return error.NoProgress;
     try caps.store.begin();
-    const result = try caps.stageAttenuatedControl(op, true);
+    const result = try caps.stageAttenuatedControl(op, .rooted);
     try f.commit(caps.store, backend);
     return result;
 }

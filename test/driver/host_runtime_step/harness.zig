@@ -192,7 +192,7 @@ pub const DialRecorder = struct {
     pub fn failed(ctx: *anyopaque, tag: u64, failure: driver.OperationFailure) void {
         const self: *DialRecorder = @ptrCast(@alignCast(ctx));
         self.failed_tag = tag;
-        self.failed_err = failure.cause;
+        self.failed_err = failure.chain.cause;
         self.failure = failure;
     }
 };

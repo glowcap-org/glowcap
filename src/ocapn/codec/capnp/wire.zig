@@ -17,7 +17,7 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 
-pub const WORD_BYTES: usize = 8;
+pub const word_bytes: usize = 8;
 
 /// Pointer kind, taken from the low two bits of a pointer word.
 pub const PointerKind = enum(u2) {
@@ -60,7 +60,7 @@ pub fn pointerKind(word: u64) PointerKind {
 
 /// Number of words needed to hold `len` bytes (text/data lists).
 pub fn wordsForBytes(len: usize) usize {
-    return (len + WORD_BYTES - 1) / WORD_BYTES;
+    return (len + word_bytes - 1) / word_bytes;
 }
 
 pub const CompositeTag = struct {
@@ -198,11 +198,11 @@ pub const Builder = struct {
     /// Pack `bytes` little-endian into the words starting at `start_idx`. The
     /// caller must have allocated `wordsForBytes(bytes.len)` words there.
     pub fn setBytes(self: *Builder, start_idx: usize, bytes: []const u8) void {
-        const whole = bytes.len / WORD_BYTES;
+        const whole = bytes.len / word_bytes;
         for (self.words.items[start_idx..][0..whole], 0..) |*word, i| {
-            word.* |= std.mem.readInt(u64, bytes[i * WORD_BYTES ..][0..WORD_BYTES], .little);
+            word.* |= std.mem.readInt(u64, bytes[i * word_bytes ..][0..word_bytes], .little);
         }
-        const tail = bytes[whole * WORD_BYTES ..];
+        const tail = bytes[whole * word_bytes ..];
         if (tail.len != 0) {
             var last: u64 = 0;
             for (tail, 0..) |byte, i| last |= @as(u64, byte) << @intCast(i * 8);
@@ -254,6 +254,6 @@ pub const Builder = struct {
             word.* = std.mem.nativeToLittle(u64, word.*);
         }
         const storage = std.mem.sliceAsBytes(frame_words);
-        return foundation.Frame.initOwned(allocator, storage, .word, .fromByteUnits(WORD_BYTES));
+        return foundation.Frame.initOwned(allocator, storage, .word, .fromByteUnits(word_bytes));
     }
 };

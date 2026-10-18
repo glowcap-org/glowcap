@@ -13,9 +13,11 @@
 
 const std = @import("std");
 const model = @import("model");
+const session = @import("session");
 
 const engine = @import("../mod.zig");
 const semantic = @import("../outbound.zig");
+const peer_outbound = @import("outbound.zig");
 
 const Peer = engine.Peer;
 
@@ -38,7 +40,7 @@ pub fn commit(self: *Peer) void {
     std.debug.assert(self.provisional);
     self.provisional = false;
     for (self.pending_send.pending()) |*row| row.provisional = false;
-    if (self.node_services) |services| services.provisionalClosed(false);
+    if (self.node_services) |services| services.provisionalClosed(.keep);
 }
 
 /// Retract every marked row and close the window. `retracted` learns the
@@ -47,7 +49,7 @@ pub fn commit(self: *Peer) void {
 pub fn retract(
     self: *Peer,
     ctx: *anyopaque,
-    retracted: *const fn (ctx: *anyopaque, answer: model.AnswerPosition) void,
+    retracted: *const fn (ctx: *anyopaque, answer: session.OutboundAnswerTarget) void,
 ) void {
     std.debug.assert(self.provisional);
     self.provisional = false;
@@ -71,15 +73,17 @@ pub fn retract(
         };
         // The resolver link names the answer, so it goes first.
         if (sent.resolver) |resolver| self.session_state.abandonMentionedResolverExport(resolver);
+        const answer: ?session.OutboundAnswerTarget = if (sent.answer) |position|
+            self.session_state.outboundAnswerTarget(position) orelse unreachable
+        else
+            null;
         self.session_state.retractSend(sent.exports, sent.answer);
-        const answer = sent.answer;
         self.pending_send.removePending(i);
         std.debug.assert(self.pending_send_bytes >= row.charge);
         self.pending_send_bytes -= row.charge;
         row.item.deinit(self);
-        if (answer) |position| retracted(ctx, position);
+        if (answer) |target| retracted(ctx, target);
     }
-    if (self.pending_send_reservations == 0 and self.pending_send.isEmpty())
-        self.pending_send.trimDrained(self.allocator);
-    if (self.node_services) |services| services.provisionalClosed(true);
+    peer_outbound.trimPendingIfIdle(self);
+    if (self.node_services) |services| services.provisionalClosed(.retract);
 }

@@ -80,17 +80,19 @@ pub const Latest = struct {
 };
 
 pub fn latest(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectId) !Latest {
-    var read = try c.storage.Read.init(store.allocator, store, owner, 4);
+    var read: c.storage.Read = undefined;
+    try read.init(store.allocator, store, owner, 4, null);
     defer read.deinit() catch unreachable;
     read.history_requested = true;
     _ = try f.pump(&read, backend);
     if (read.history.count == 0) return error.MissingHistory;
     const lease = try c.load(store, backend, read.history.batches[read.history.count - 1]);
     defer store.release(lease) catch unreachable;
-    var batch = try h.loam.access.records.ChangeBatchRecord.decodeOwned(store.allocator, try store.currentView(lease));
+    var batch: h.loam.access.records.ChangeBatchRecord = undefined;
+    try batch.decodeOwned(store.allocator, try store.currentView(lease));
     defer batch.deinit(store.allocator);
     var result: Latest = .{};
-    for (batch.value.effects) |effect| switch (effect) {
+    for (batch.effects) |effect| switch (effect) {
         .resource => |change| switch (change.kind) {
             .moved => result.moved += 1,
             .created => result.created += 1,

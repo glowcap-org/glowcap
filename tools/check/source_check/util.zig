@@ -6,6 +6,7 @@
 //! sink, lives here, so a module never reaches back into the driver.
 
 const std = @import("std");
+const model = @import("model");
 
 /// Record one violation. The driver prints the collected list and fails the
 /// step when it is non-empty. A check never fails the step directly, so one
@@ -393,89 +394,18 @@ pub fn sectionBody(contents: []const u8, heading: []const u8) ?[]const u8 {
     return after[0..end];
 }
 
-/// One arm of `model.CaptpVersion.wireString`: the Zig enum tag, and the word
-/// that version puts on the wire. Both are slices into the source.
-pub const CaptpWireArm = struct { tag: []const u8, wire: []const u8 };
+/// A CapTP version's Zig enum tag and the word it puts on the wire.
+pub const CaptpWireWord = struct { tag: []const u8, wire: []const u8 };
 
-/// Reads the arms of `CaptpVersion.wireString` out of the text of
-/// `src/ocapn/model/negotiated.zig`.
-///
-/// Text rather than reflection because the build runner compiles the source gate
-/// from `tools/check/`, which no `src/` path is importable from. It lives here
-/// because two checks read the same switch and a second parser would be the
-/// duplication they exist to refuse: `c_abi.checkTraceVocabulary` holds the
-/// four producers to these words, and `binding_spine/viewer.zig`
-/// holds the viewer that reads them.
-///
-/// An empty result means the switch's shape moved. Every caller reports that as
-/// a violation rather than passing quietly, because a parser that silently
-/// matches nothing turns its check into a green light.
-pub fn collectCaptpWireArms(
-    gpa: std.mem.Allocator,
-    source: []const u8,
-    out: *std.ArrayList(CaptpWireArm),
-) !void {
-    const fn_at = std.mem.indexOf(u8, source, "pub fn wireString(") orelse return;
-    // `name` returns diagnostic labels rather than wire tokens, so the scan
-    // must stop at this function's own closing brace.
-    const body_end = std.mem.indexOfPos(u8, source, fn_at, "\n    }") orelse source.len;
-
-    var cursor = fn_at;
-    while (std.mem.indexOfPos(u8, source, cursor, "            .")) |at| {
-        if (at >= body_end) break;
-        const line_end = std.mem.indexOfScalarPos(u8, source, at, '\n') orelse body_end;
-        cursor = line_end;
-        const line = source[at..line_end];
-        const arrow = std.mem.indexOf(u8, line, " => \"") orelse continue;
-        const tag = std.mem.trim(u8, line[1..arrow], " .");
-        const rest = line[arrow + 5 ..];
-        const close = std.mem.indexOfScalar(u8, rest, '"') orelse continue;
-        if (tag.len == 0 or close == 0) continue;
-        try out.append(gpa, .{ .tag = tag, .wire = rest[0..close] });
-    }
-}
-
-test "collectCaptpWireArms reads wireString and stops before name" {
-    const gpa = std.testing.allocator;
-    const source =
-        \\pub const CaptpVersion = enum {
-        \\    v1_0,
-        \\    next,
-        \\
-        \\    pub fn wireString(self: CaptpVersion) []const u8 {
-        \\        return switch (self) {
-        \\            .v1_0 => "1.0",
-        \\            .next => "glowcap-next",
-        \\        };
-        \\    }
-        \\
-        \\    pub fn name(self: CaptpVersion) []const u8 {
-        \\        return switch (self) {
-        \\            .v1_0 => "ocapn-v1.0",
-        \\            .next => "glowcap-next",
-        \\        };
-        \\    }
-        \\};
-    ;
-    var arms: std.ArrayList(CaptpWireArm) = .empty;
-    defer arms.deinit(gpa);
-    try collectCaptpWireArms(gpa, source, &arms);
-    // `ocapn-v1.0` is a log label. A producer that said it would be stating a
-    // spelling no peer ever sends, so it must not be read as a wire word.
-    try std.testing.expectEqual(@as(usize, 2), arms.items.len);
-    try std.testing.expectEqualStrings("v1_0", arms.items[0].tag);
-    try std.testing.expectEqualStrings("1.0", arms.items[0].wire);
-    try std.testing.expectEqualStrings("next", arms.items[1].tag);
-    try std.testing.expectEqualStrings("glowcap-next", arms.items[1].wire);
-}
-
-test "collectCaptpWireArms gives up nothing when wireString is gone" {
-    const gpa = std.testing.allocator;
-    var arms: std.ArrayList(CaptpWireArm) = .empty;
-    defer arms.deinit(gpa);
-    try collectCaptpWireArms(gpa, "pub fn spelling(self: X) []const u8 { return \"1.0\"; }", &arms);
-    try std.testing.expectEqual(@as(usize, 0), arms.items.len);
-}
+/// Every `model.CaptpVersion` with its `wireString`. Two checks hold their
+/// files to these words: `c_abi.checkTraceVocabulary` the four producers, and
+/// `binding_spine/viewer.zig` the viewer that reads them.
+pub const captp_wire_words = blk: {
+    const versions = std.enums.values(model.CaptpVersion);
+    var words: [versions.len]CaptpWireWord = undefined;
+    for (versions, &words) |version, *word| word.* = .{ .tag = @tagName(version), .wire = version.wireString() };
+    break :blk words;
+};
 
 /// Collects the first backtick span of every `- \`...\`` bullet line in
 /// `section`. Spans are slices into `section`, so they share its lifetime.

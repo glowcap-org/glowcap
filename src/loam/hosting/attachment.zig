@@ -9,6 +9,10 @@ const behavior = @import("behavior.zig");
 const calls = @import("calls.zig");
 const drive = @import("drive.zig");
 const storage = @import("storage.zig");
+const reference_scope = @import("reference_scope.zig");
+const live_scope = @import("live_scope.zig");
+const execution = @import("execution.zig");
+const Discovery = @import("discovery.zig").Discovery;
 pub const Behavior = behavior.Behavior;
 pub const Call = behavior.Call;
 pub const Work = union(enum) { read: core.Read, write: core.Batch, lookup: core.NameLookup };
@@ -32,8 +36,8 @@ pub const Options = struct {
     max_retirements: usize = 16,
     max_reference_saves: usize = 64,
     forward_reply_bytes: usize = 16 * 1024,
-    reference_scope: ?*@import("reference_scope.zig").Scope = null,
-    live_scope: ?*@import("live_scope.zig").Scope = null,
+    reference_scope: ?*reference_scope.Scope = null,
+    live_scope: ?*live_scope.Scope = null,
     /// Stable embedding-owned attachment name. Borrowed until this attachment closes.
     attachment_name: ?[]const u8 = null,
     sleep_policy: enum { lru, every_turn } = .lru,
@@ -42,7 +46,7 @@ pub const Options = struct {
     pub fn validate(self: Options, default_ingress_bytes: usize) !void {
         if (self.max_endpoints == 0 or self.max_calls == 0 or self.call_bytes == 0 or self.pending_bytes < self.call_bytes) return error.InvalidLimits;
         if ((self.ingress_bytes orelse default_ingress_bytes) < self.call_bytes) return error.InvalidLimits;
-        _ = try @import("execution.zig").Execution.sizeBound(self.forward_reply_bytes);
+        _ = try execution.Execution.sizeBound(self.forward_reply_bytes);
     }
 };
 pub const Stats = struct { loads: u64 = 0, invocations: u64 = 0, sleeps: u64 = 0 };
@@ -92,7 +96,7 @@ pub const Attachment = struct {
     operations: []Operation,
     reads: []?Loading,
     retirements: []?Retirement,
-    discovery: ?*@import("discovery.zig").Discovery = null,
+    discovery: ?*Discovery = null,
     writing: ?Writing = null,
     runner: actors.Ref,
     sequence: u64 = 0,
@@ -309,7 +313,7 @@ pub const Attachment = struct {
     pub fn topLevel(self: *Attachment) !void {
         if (self.closing) return error.AttachmentClosed;
         self.host.assertOwner();
-        if (self.advancing or self.host.vat.turn_depth != 0 or self.host.in_callback) return error.ReenteredAttachment;
+        if (self.advancing or self.host.vat.turn_depth != 0 or self.host.callback_latch.isHeld()) return error.ReenteredAttachment;
     }
 };
 

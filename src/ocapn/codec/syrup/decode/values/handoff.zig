@@ -13,8 +13,7 @@ const Error = shared.Error;
 fn readBorrowedSignedHandoff(bytes: []const u8, cursor: *usize) Error!model.view.Handoff {
     const envelope_start = cursor.*;
     try syntax.readByte(bytes, cursor, '<');
-    const envelope_tag = try syntax.readLabel(bytes, cursor);
-    if (!std.mem.eql(u8, envelope_tag, "desc:sig-envelope")) return Error.MalformedFrame;
+    try syntax.expectSymbol(bytes, cursor, "desc:sig-envelope");
     return finishSignedHandoff(bytes, cursor, envelope_start);
 }
 
@@ -31,9 +30,7 @@ pub fn projectSignedHandoff(ctx: model.view.LazyHandoff.Ctx) model.view.ProjectE
 /// consumed. `envelope_start` lets a give borrow its whole signed byte span.
 fn finishSignedHandoff(bytes: []const u8, cursor: *usize, envelope_start: usize) Error!model.view.Handoff {
     try syntax.readByte(bytes, cursor, '<');
-    const payload_tag = try syntax.readLabel(bytes, cursor);
-
-    if (std.mem.eql(u8, payload_tag, "desc:handoff-give")) {
+    if (syntax.readKnownLabel(bytes, cursor, "desc:handoff-give")) {
         var give = try readBorrowedGivePayload(bytes, cursor);
         try syntax.readByte(bytes, cursor, '>');
         const sig = try syntax.readSignatureView(bytes, cursor);
@@ -43,7 +40,7 @@ fn finishSignedHandoff(bytes: []const u8, cursor: *usize, envelope_start: usize)
         return .{ .give = give };
     }
 
-    if (std.mem.eql(u8, payload_tag, "desc:handoff-receive")) {
+    if (syntax.readKnownLabel(bytes, cursor, "desc:handoff-receive")) {
         var receive = try readBorrowedReceivePayload(bytes, cursor);
         try syntax.readByte(bytes, cursor, '>');
         const sig = try syntax.readSignatureView(bytes, cursor);
@@ -52,6 +49,9 @@ fn finishSignedHandoff(bytes: []const u8, cursor: *usize, envelope_start: usize)
         return .{ .receive = receive };
     }
 
+    // Not a payload glowcap models: read the label in full for its verdict,
+    // malformed before unsupported.
+    _ = try syntax.readLabel(bytes, cursor);
     return Error.UnsupportedMessage;
 }
 
@@ -87,6 +87,25 @@ fn readBorrowedReceivePayload(bytes: []const u8, cursor: *usize) Error!model.vie
         .signed_give = signed_give,
         .signature = .{ .raw = &.{} },
     };
+}
+
+/// The inner `<desc:handoff-give …>` span of a verbatim signed envelope, the
+/// byte domain the gifter signed, read with the give grammar itself so a
+/// forwarded envelope is re-verified over exactly what a decoder admits.
+pub fn signedGivePayload(raw_signed: []const u8) Error![]const u8 {
+    var cursor: usize = 0;
+    try syntax.readByte(raw_signed, &cursor, '<');
+    try syntax.expectSymbol(raw_signed, &cursor, "desc:sig-envelope");
+    const payload_start = cursor;
+    try syntax.readByte(raw_signed, &cursor, '<');
+    try syntax.expectSymbol(raw_signed, &cursor, "desc:handoff-give");
+    _ = try readBorrowedGivePayload(raw_signed, &cursor);
+    try syntax.readByte(raw_signed, &cursor, '>');
+    const payload_end = cursor;
+    _ = try syntax.readSignatureView(raw_signed, &cursor);
+    try syntax.readByte(raw_signed, &cursor, '>');
+    try syntax.expectEnd(raw_signed, cursor);
+    return raw_signed[payload_start..payload_end];
 }
 
 /// Decode a standalone signed handoff-give into an owned codec-neutral value.

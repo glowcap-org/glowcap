@@ -2,6 +2,7 @@
 const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
+const engine = @import("engine");
 const host_mod = @import("../host.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -27,33 +28,33 @@ pub fn matchSturdyrefPeer(
     try self.checkSession(session);
     const locator = sturdyref.peer;
     if (std.mem.eql(u8, locator.transport, model.transport.id)) {
-        if (!hostAcceptsRouteVocabulary(self)) return HostError.PeerIdentityMismatch;
-        const demanded = self.node.validateIdRouteLocator(locator) catch
-            return HostError.PeerIdentityMismatch;
+        if (!hostAcceptsRouteVocabulary(self)) return error.PeerIdentityMismatch;
+        const demanded = engine.Node.validateIdRouteLocator(locator) catch
+            return error.PeerIdentityMismatch;
         return matchIdSturdyrefPeer(session, demanded);
     }
-    if (!std.mem.eql(u8, locator.transport, session.transport)) return HostError.PeerIdentityMismatch;
+    if (!std.mem.eql(u8, locator.transport, session.transport)) return error.PeerIdentityMismatch;
 
     if (try self.designatorScheme(session.transport) == .key) {
         const identity = try self.partnerIdentity(session);
-        if (!std.mem.eql(u8, locator.designator, identity.designator)) return HostError.PeerIdentityMismatch;
+        if (!std.mem.eql(u8, locator.designator, identity.designator)) return error.PeerIdentityMismatch;
         // The provenance-bearing predicate, not key equality (ADR-0097): this
         // needs a proved durable peer. The fresh session key verifies the hello;
         // only authenticated channel evidence proves the durable designator.
-        if (!identity.durableIdentityAuthenticated()) return HostError.PeerIdentityUnverified;
+        if (!identity.durableIdentityAuthenticated()) return error.PeerIdentityUnverified;
         return .verified;
     }
 
     switch (session.role) {
         .dialed => |target| {
-            if (!std.mem.eql(u8, locator.designator, target)) return HostError.PeerIdentityMismatch;
+            if (!std.mem.eql(u8, locator.designator, target)) return error.PeerIdentityMismatch;
             return .dial_target;
         },
         .accepted => {
             const claimed = session.served.port.peer.session_state.partnerDesignator() orelse
-                return HostError.HandshakeIncomplete;
-            if (!std.mem.eql(u8, locator.designator, claimed)) return HostError.PeerIdentityMismatch;
-            if (policy != .assertion_only) return HostError.PeerIdentityUnverified;
+                return error.HandshakeIncomplete;
+            if (!std.mem.eql(u8, locator.designator, claimed)) return error.PeerIdentityMismatch;
+            if (policy != .assertion_only) return error.PeerIdentityUnverified;
             return .assertion_only;
         },
     }
@@ -62,7 +63,7 @@ pub fn matchSturdyrefPeer(
 fn matchIdSturdyrefPeer(session: *HostSession, key: crypto.PeerKey) !PeerProvenance {
     const designator = key.toDesignator();
     if (session.served.port.peer.partnerDurableProvenance(designator[0..]) != .authenticated_transport)
-        return HostError.PeerIdentityUnverified;
+        return error.PeerIdentityUnverified;
     return .verified;
 }
 

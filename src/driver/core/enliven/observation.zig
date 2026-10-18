@@ -73,35 +73,13 @@ pub const Enliven = struct {
                 const lookup = self.host.publication_lookup orelse unreachable;
                 lookup.cancel(lookup.context, .{ .origin = .{ .local = id } });
             },
-            .dialing => |dialing| self.cancelDialing(dialing.id, dialing.ticket),
+            .dialing => |dialing| @import("../enliven.zig").cancelParkedObservation(self.host, self, dialing.id, dialing.ticket),
             .fetching => |fetching| release.cancelObserved(self.host, fetching.id, fetching.observer),
             .ready => |ready| self.host.releaseCapabilityTerminal(ready.capability, null),
             .failed, .taken => {},
             .starting => unreachable,
         }
         self.allocator.destroy(self);
-    }
-
-    fn cancelDialing(self: *Enliven, id: u64, ticket: engine.Node.PendingId) void {
-        const host = self.host;
-        const group = host.pending_enlivens.getPtr(ticket) orelse unreachable;
-        const parked = if (group.first.vow_id == id) blk: {
-            const found = group.first;
-            if (group.rest.pop()) |next| {
-                group.first = next;
-            } else {
-                group.rest.deinit(host.allocator);
-                std.debug.assert(host.pending_enlivens.remove(ticket));
-            }
-            break :blk found;
-        } else blk: {
-            for (group.rest.items, 0..) |item, index| if (item.vow_id == id)
-                break :blk group.rest.orderedRemove(index);
-            unreachable;
-        };
-        std.debug.assert(parked.recipient == .observed and parked.recipient.observed == self);
-        host.pending_enliven_count -= 1;
-        model.uri.freeSturdyref(host.allocator, parked.sturdyref);
     }
 
     pub fn fail(self: *Enliven, kind: action.VowFailure, reason: []const u8) void {

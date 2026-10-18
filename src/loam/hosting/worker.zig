@@ -42,15 +42,18 @@ pub const Worker = struct {
         return .{ .slots = slots, .readers = readers };
     }
 
+    /// Whether `next` takes recovery regardless of what the attachment reports.
+    pub const Recovery = enum { when_uncertain, forced };
+
     /// Take the next request into a free slot, or return null when the
     /// attachment has none. Recovery is taken when forced or when the
     /// attachment's own write is uncertain, and only while no other slot is
     /// active. Until recovery resolves, every request is the recovery batch,
     /// so ordinary work waits. A full worker is `error.Busy`, and so is one
     /// holding `readers` reads when the attachment has no write to offer.
-    pub fn next(self: *Worker, attachment: *Attachment, force_recovery: bool) !?*Slot {
+    pub fn next(self: *Worker, attachment: *Attachment, recover: Recovery) !?*Slot {
         try attachment.topLevel();
-        const recovery = force_recovery or attachment.awaitsRecovery();
+        const recovery = recover == .forced or attachment.awaitsRecovery();
         if (recovery and self.active != 0) return error.Busy;
         const slot = for (self.slots) |*slot| {
             if (!slot.active) break slot;
@@ -115,7 +118,7 @@ pub const Worker = struct {
     /// Run every request the attachment has on this thread until `next`
     /// returns null.
     pub fn drive(self: *Worker, attachment: *Attachment, backend: anytype) !void {
-        while (try self.next(attachment, false)) |slot| {
+        while (try self.next(attachment, .when_uncertain)) |slot| {
             run(slot, backend) catch unreachable; // `next` just filled this slot.
             const installed = self.complete(slot, attachment);
             // `next` passed the top-level check on this stack, so `complete` consumed the slot.

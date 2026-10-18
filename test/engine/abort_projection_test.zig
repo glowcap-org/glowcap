@@ -54,7 +54,6 @@ test "generic protocol violations project to protocol-error and close" {
         session.Error.GcUnderflow,
         session.Error.UnexpectedMessage,
         session.Error.DuplicateStartSession,
-        session.Error.HostMismatch,
     }) |err| {
         const a = abort_projection.abortForError(err).?;
         try std.testing.expectEqual(model.AbortKind.protocol_error, a.kind);

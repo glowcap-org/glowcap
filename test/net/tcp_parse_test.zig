@@ -43,7 +43,7 @@ test "DialResolver.resolve: tcp uses the designator; keyed-tcp uses the hint" {
     const plain = try resolve("tcp", "127.0.0.1:8080", "");
     try std.testing.expectEqual(@as(u16, 8080), plain.getPort());
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5d))).publicKey();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x5d))).publicKey();
     const designator = key.toDesignator();
     const keyed = try resolve("keyed-tcp", &designator, "127.0.0.1:9000");
     try std.testing.expectEqual(@as(u16, 9000), keyed.getPort());
@@ -57,7 +57,7 @@ test "profile resolution needs no transport-name dispatch" {
     );
     try std.testing.expectEqual(@as(u16, 8081), plain.getPort());
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5f))).publicKey();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x5f))).publicKey();
     const designator = key.toDesignator();
     const sealed = try tcp.resolveProfile(
         glowcap.ocapn.model.transport.Known.noise_tcp.metadata(),
@@ -68,7 +68,7 @@ test "profile resolution needs no transport-name dispatch" {
 }
 
 test "DialResolver.resolve: keyed-tcp multi-address hint dials the first entry, trimmed" {
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5e))).publicKey();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x5e))).publicKey();
     const designator = key.toDesignator();
     const keyed = try resolve(
         "keyed-tcp",

@@ -11,8 +11,7 @@ sources:
 
 A sleepy actor can drop its state from memory while its identity and the
 references to it keep working. An eventual call wakes it first. Ordinary
-actors still work without a store. This guide covers how actors wake, how
-their calls are ordered, and how they leave memory. The [API page](api.md)
+actors still work without a store. The [API page](api.md)
 covers store and attachment lifetimes.
 
 Like the
@@ -59,12 +58,10 @@ covers grant issue, revocation, content changes, and removing references over
 CapTP, with the process killed around the commit, around the Store taking it
 in, and before the reply is sent.
 
-Not supported: general narrowing of returned capabilities, durable outgoing
-events, and borrow APIs in other languages. Timers, subscriptions, OS
-handles, and unresolved promises cannot be saved, and waiting calls live only
-in memory. The [browser guide](browser.md) covers the single-resource model
-in the browser. Functional tests do not show that the scale target is met, so
-workload and tail-latency measurements are still needed.
+Not supported: general narrowing of returned capabilities and durable outgoing
+events. Timers, subscriptions, OS handles, and unresolved promises cannot be
+saved, and waiting calls live only in memory. The [browser guide](browser.md)
+covers the single-resource model in the browser.
 
 ## Identity, waking, and what stays alive
 

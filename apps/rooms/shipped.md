@@ -6,7 +6,7 @@ sources: []
 
 # What Rooms ships
 
-Rooms is a chat application built on glowcap. This page lists what each part does. The [Rooms page](README.md) is
+Rooms is a chat application built on glowcap. The [Rooms page](README.md) is
 the way in, and [operating Rooms](operating.md) covers its grants, services, and limits.
 
 - *One implementation.* A single Rust implementation owns room and directory policy, durable authority, the session
@@ -56,7 +56,7 @@ the way in, and [operating Rooms](operating.md) covers its grants, services, and
   - Correlated room echoes preserve optimistic bubble identity.
 
   The [UI contract](web/ui/README.md#failures-and-pending-work) names timing, budgets and recovery behavior.
-- *History.* Listed rooms keep their last lines in files under the state directory, behind one index that applies the limits before a write.
+- *History.* Rooms keep their last lines in files under the state directory, behind one index that applies the limits before a write.
 - *Failure reporting.* Operations credentials follow the retry class of their failure, and IRC numerics follow stable
   failure codes. Direct-message cleanup tells a departed registration apart from a partner whose close stalled.
   A room change whose acknowledgment cannot be read stays unknown, because only a refused send proves the change

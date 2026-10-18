@@ -114,8 +114,7 @@ pub fn attachment(raw: ?*c.GlowcapLoamAttachment) !*Attachment {
 fn fillEntropy(ctx: ?*anyopaque, entropy: *driver.Host.DurableSwiss.Entropy) !void {
     const self: *Attachment = @ptrCast(@alignCast(ctx.?));
     const host = self.host_borrow.core();
-    const previous = host.in_callback;
-    host.in_callback = true;
-    defer host.in_callback = previous;
+    const hold = host.callback_latch.hold();
+    defer hold.release();
     if (self.entropy(self.context, entropy, entropy.len) != shared.GLOWCAP_OK) return error.EntropyFailed;
 }

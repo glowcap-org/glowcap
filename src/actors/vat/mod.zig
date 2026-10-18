@@ -101,11 +101,13 @@
 const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
+const engine = @import("engine");
 const reply_interceptor = @import("interceptor.zig");
 
 const boxed = @import("boxed.zig");
 const errors = @import("errors.zig");
 const ingress_mod = @import("ingress.zig");
+const frame = @import("frame.zig");
 const port_mod = @import("port.zig");
 const turn_mod = @import("turn.zig");
 const turn_commit = @import("turn_commit.zig");
@@ -119,9 +121,9 @@ pub const Turn = turn_mod.Turn;
 // queue chunk globally, never one per ingress; its payload
 // arena keeps at most the bound below so ordinary traffic stays allocation-free
 // after warming while burst chunks reclaim incrementally. Recorded in
-// .agents/rules/memory.md's footprint budget. File-level (not `Vat` decls) so
-// sibling vat modules share them without widening the public surface.
-/// Turn-arena bound, applied at the outermost-turn reset in `turn.beginTurn`.
+// .agents/rules/memory.md's footprint budget. File-level so the sibling vat
+// modules and the footprint tests share them.
+/// Turn-arena bound, applied at the outermost-turn reset in `frame.beginTurn`.
 pub const steady_turn_arena_bytes = 4096;
 /// Payload-arena bound for the Vat-wide spare queue chunk.
 pub const steady_spare_arena_bytes = 4096;
@@ -133,23 +135,6 @@ pub const steady_list_bytes = 4096;
 const Cell = boxed.Cell;
 const StateBox = boxed.StateBox;
 const releaseBox = boxed.releaseBox;
-
-/// Reserve the retired-box slots already-committed lifetime operations will
-/// consume without allocation: one for every live actor, plus any actor rows
-/// and staged becomes the caller is about to add. `releaseActor`, Port teardown,
-/// and frame unwind are infallible. Their capacity is escrowed at
-/// the earlier fallible spawn/become seam instead of losing reclamation to OOM.
-pub fn reserveRetirementCapacity(
-    self: *Vat,
-    additional_actors: usize,
-    possible_becomes: usize,
-) Error!void {
-    var owed = std.math.add(usize, self.actors.count(), additional_actors) catch
-        return error.OutOfMemory;
-    owed = std.math.add(usize, owed, possible_becomes) catch
-        return error.OutOfMemory;
-    try self.retired_boxes.ensureUnusedCapacity(self.allocator, owed);
-}
 
 /// A captured local actor heap (see `boxed.Snapshot`).
 pub const Snapshot = boxed.Snapshot;
@@ -171,8 +156,10 @@ pub const Vow = union(enum) {
     /// (`Vat.spawnVow`, ADR-0102) shares this arm and namespace and is
     /// settled by `Vat.fulfillVow` / `Vat.breakVow` instead.
     local: u64,
-    /// Result of a far send. The outbound answer position the partner resolves.
-    far: model.AnswerPosition,
+    /// Result of a far send: the question the partner resolves, by identity.
+    /// The session reuses a released answer position, so the vow carries the
+    /// stamp of the row it names and a stale vow observes nothing.
+    far: engine.OutboundAnswerTarget,
 };
 
 /// Which settlement namespace a freshly minted vow will occupy. Exposed so
@@ -195,10 +182,11 @@ pub const ResolverPair = struct {
     resolver: u64,
 };
 
-/// Capacity for one resolver pair in both Vat indexes. The pair does not exist
-/// until `spawnReservedVow` consumes this reservation, so an adapter can reserve
-/// its own rows first and make the cross-layer commit allocation-free.
-pub const ResolverPairReservation = struct {};
+/// Capacity for one resolver pair in both Vat indexes, and the ids the pair
+/// will take. The pair does not exist until `spawnReservedVow` consumes this
+/// reservation, so an adapter can reserve its own rows first and make the
+/// cross-layer commit allocation-free.
+pub const ResolverPairReservation = struct { vow: u64, resolver: u64 };
 
 pub const Message = @import("behavior.zig").Message;
 pub const Delivery = @import("behavior.zig").Delivery;
@@ -225,14 +213,22 @@ pub const Resolution = union(enum) {
     give: Give,
 };
 
-/// A settlement a host tier feeds `Vat.settleFar`: the two arms a redeemed
-/// world can carry. It is `Resolution` minus `give`, the executor above the
-/// vat redeems every give before the vat sees one, and this type holds that
-/// contract structurally. The payload is borrowed for the listener call,
-/// exactly as `Resolution`'s is.
-pub const FarOutcome = union(enum) {
+/// How a vow settled with no introduction: `Resolution` minus `give`. A
+/// resolver settle, a queued turn's completion, and the settlement a host
+/// tier feeds `Port.settleFar` all carry one, because the executor above the
+/// vat redeems every give before the vat sees it, and only the wire resolve
+/// arm of `Port.serve` widens it. The payload is borrowed for the listener
+/// call, exactly as `Resolution`'s is.
+pub const Outcome = union(enum) {
     fulfilled: model.Argument,
     broken: []const u8,
+
+    pub fn resolution(self: Outcome) Resolution {
+        return switch (self) {
+            .fulfilled => |value| .{ .fulfilled = value },
+            .broken => |reason| .{ .broken = reason },
+        };
+    }
 };
 
 /// A projected three-party introduction, built where the wire event is still
@@ -265,8 +261,9 @@ pub const HostedActor = @import("behavior.zig").HostedActor;
 pub const Error = errors.Error;
 pub const IngressCancellationError = errors.IngressCancellationError;
 
-pub fn ensureFreshId(next: u64) Error!void {
-    if (next == std.math.maxInt(u64)) return Error.ResourceExhausted;
+/// The id `ids` spends next, refused once its space is spent.
+pub fn peekId(ids: foundation.id_issuer.IdIssuer) Error!u64 {
+    return ids.peek() orelse error.ResourceExhausted;
 }
 
 /// One CapTP session's projection of this Vat.
@@ -284,7 +281,7 @@ pub const TurnParticipant = struct {
     abort_notify: ?*const fn (ctx: *anyopaque, vat: *Vat, reason: []const u8) void = null,
 };
 
-pub const TurnBreak = struct { port: *Port, answer: model.AnswerPosition };
+pub const TurnBreak = struct { port: *Port, answer: engine.OutboundAnswerTarget };
 
 /// One single-threaded container of local objects, the Goblins-shaped layer
 /// above the engine. Spawn objects, near-call them with `near` (`$`),
@@ -329,7 +326,7 @@ pub const Vat = struct {
     /// authorities. Freed with the vat. Ids start at 1 so 0 stays unminted
     /// for adapter tiers that want a null sentinel.
     resolver_vows: std.AutoHashMapUnmanaged(u64, u64) = .{},
-    next_resolver: u64 = 1,
+    resolver_ids: foundation.id_issuer.IdIssuer = .{},
     // The turn and settle arenas below, plus the Vat-wide spare chunk's payload
     // arena, retain backing storage across a reset. A safety build does not
     // poison that retained region.
@@ -373,8 +370,8 @@ pub const Vat = struct {
     /// and the nested settle must not reset the arena the outer listener's
     /// value still lives in. Only the return to depth 0 resets it.
     settle_depth: u32 = 0,
-    next_actor: u64 = 1,
-    next_vow: u64 = 1,
+    actor_ids: foundation.id_issuer.IdIssuer = .{},
+    vow_ids: foundation.id_issuer.IdIssuer = .{},
     /// Reply bytes handlers moved to the vat via `Turn.moveOut`, awaiting free.
     /// They share the turn arena's lifetime: the vat frees them when its next
     /// outermost turn begins, so a moved reply stays valid for the caller until
@@ -446,9 +443,9 @@ pub const Vat = struct {
         self.listeners.deinit(self.allocator);
         self.pending_local_vows.deinit(self.allocator);
         self.resolver_vows.deinit(self.allocator);
-        turn_mod.drainMovedReplies(self);
+        frame.drainMovedReplies(self);
         self.moved_replies.deinit(self.allocator);
-        turn_mod.releaseRetiredBoxes(self);
+        frame.releaseRetiredBoxes(self);
         self.retired_boxes.deinit(self.allocator);
         self.turn_arena.deinit();
         self.settle_arena.deinit();
@@ -465,14 +462,13 @@ pub const Vat = struct {
     fn registerBox(self: *Vat, box: *StateBox) Error!Ref {
         errdefer releaseBox(self.allocator, box);
         try self.admitMutation();
-        try ensureFreshId(self.next_actor);
-        const id = self.next_actor;
+        const id = try peekId(self.actor_ids);
         // Actor registration is the fallible seam that escrows its eventual
         // retirement. Preserve room for every become an open frame may already
         // have staged as well; registration must not spend their reservations.
-        try reserveRetirementCapacity(self, 1, self.turn_depth);
+        try frame.reserveRetirementCapacity(self, 1, self.turn_depth);
         try self.actors.put(self.allocator, id, .{ .box = box });
-        self.next_actor += 1;
+        self.actor_ids.commit(id);
         return .{ .local = id };
     }
 
@@ -515,9 +511,6 @@ pub const Vat = struct {
         return self.actors.contains(id);
     }
 
-    /// A turn or queue drive owns execution, including retired-state cleanup.
-    /// Adapters may enqueue effects here, but defer an independent drive until
-    /// the outer boundary returns.
     /// Enroll `participant` in the running outermost turn, once per `ctx`. It
     /// receives `commit` inside the frame before the reply leaves, or `abort`
     /// after the frame closes, exactly once. Observer callbacks belong in
@@ -536,11 +529,14 @@ pub const Vat = struct {
         if (self.queue_copy_active) return error.ReenteredAdmission;
     }
 
+    /// A turn or queue drive owns execution, including retired-state cleanup.
+    /// Adapters may enqueue effects here, but defer an independent drive until
+    /// the outer boundary returns.
     pub fn isExecuting(self: *const Vat) bool {
         return self.queue_copy_active or self.turn_depth != 0 or self.drive_depth != 0;
     }
 
-    pub const hasRetiredState = turn_mod.hasRetiredState;
+    pub const hasRetiredState = frame.hasRetiredState;
 
     /// Add one explicit root to a live actor row (ADR-0101). Tolerant of an
     /// absent row: a rooting relationship can outlive a row `restore` removed,
@@ -559,7 +555,7 @@ pub const Vat = struct {
         const cell = self.actors.getPtr(id) orelse return;
         std.debug.assert(cell.roots > 0);
         cell.roots -= 1;
-        if (cell.roots == 0 and cell.running == 0) turn_mod.retireActorRow(self, id);
+        if (cell.roots == 0 and cell.running == 0) frame.retireActorRow(self, id);
     }
 
     /// The synchronous near-call (`$`): run `target`'s handler now and return its
@@ -572,23 +568,25 @@ pub const Vat = struct {
         return self.nearFromIngress(.local, target, msg);
     }
 
+    /// `near` on one causal ingress.
     pub fn nearFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message) anyerror!model.Argument {
-        return self.nearFromPort(null, ingress, target, msg);
+        return self.nearDelivery(.{ .ingress = ingress }, target, msg.delivery());
     }
 
-    pub fn nearFromPort(self: *Vat, port: ?*Port, ingress: IngressId, target: Ref, msg: Message) anyerror!model.Argument {
-        return self.nearDelivery(port, ingress, target, msg.delivery());
+    /// `near` with a session Port's authority, on that Port's ingress.
+    pub fn nearFromPort(self: *Vat, port: *Port, target: Ref, msg: Message) anyerror!model.Argument {
+        return self.nearDelivery(.{ .port = port }, target, msg.delivery());
     }
 
     /// The near call a forwarding handler makes with the delivery it holds:
     /// the target reads the same views, and nothing is copied on the hop.
-    pub fn nearDelivery(self: *Vat, port: ?*Port, ingress: IngressId, target: Ref, msg: Delivery) anyerror!model.Argument {
+    pub fn nearDelivery(self: *Vat, source: Turn.Source, target: Ref, msg: Delivery) anyerror!model.Argument {
         try self.admitMutation();
-        const state = try ingress_mod.ingressState(self, ingress);
+        const state = try ingress_mod.ingressState(self, source.ingressId());
         state.active_turns += 1;
         defer state.active_turns -= 1;
         return switch (target) {
-            .local => |id| turn_mod.callLocal(self, port, ingress, id, msg),
+            .local => |id| frame.callLocal(self, source, id, msg),
             .far => Error.NotNearCallable,
         };
     }

@@ -12,10 +12,11 @@ claims the replacement kept and which it dropped. Source comments and tests cite
 records by number, so files are never renumbered. A gap in the numbering is a
 record that no longer exists.
 
-Copy [`adr/template.md`](adr/template.md) for a new record. Changes to codec or
-netlayer boundaries, session state, negotiation, wire semantics, protocol
-vocabulary, or layer ownership need one. Accept the record before building code
-against it. [`CONTRIBUTING.md`](../../CONTRIBUTING.md) has the review rules.
+Copy [`adr/template.md`](adr/template.md) for a new or revised architectural
+decision about codec or netlayer boundaries, session state, negotiation, wire
+semantics, protocol vocabulary, or layer ownership. Accept the record before
+building code against it. Fixes that restore documented behavior, tests, and
+local refactoring within existing contracts need no new record.
 
 A record states its standing in frontmatter and nowhere else. `status` is one of
 `proposed`, `accepted`, or `superseded`, and `source-check` refuses any other

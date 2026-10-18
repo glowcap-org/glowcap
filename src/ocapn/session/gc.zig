@@ -15,7 +15,7 @@ const model = @import("model");
 const session = @import("mod.zig");
 
 const Error = session.Error;
-const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const bootstrap_position = session.bootstrap_position;
 
 /// Scratch that folds repeated positions in one message. Real releases are
 /// almost always one or a few positions, which stay inside the record. The
@@ -30,7 +30,7 @@ const PendingFold = foundation.inline_rows.Table(u64, u64, 8, .wire);
 fn foldDelta(pending: *PendingFold, allocator: std.mem.Allocator, pos: u64, delta: u64) (Error || std.mem.Allocator.Error)!u64 {
     const row = try pending.getOrPut(allocator, pos);
     if (!row.found_existing) row.value_ptr.* = 0;
-    row.value_ptr.* = std.math.add(u64, row.value_ptr.*, delta) catch return Error.GcUnderflow;
+    row.value_ptr.* = std.math.add(u64, row.value_ptr.*, delta) catch return error.GcUnderflow;
     return row.value_ptr.*;
 }
 
@@ -76,9 +76,9 @@ pub fn checkGcExportDecrement(
         // releasing its bootstrap import, Goblins' import-0 will handler
         // emits exactly that, is a no-op, never an underflow and never the
         // death of the bootstrap export.
-        if (pos == BOOTSTRAP_POSITION) continue;
+        if (pos == bootstrap_position) continue;
         const total = try foldDelta(&pending, allocator, pos, delta);
-        if (total > table.releasable(Id.from(pos))) return Error.GcUnderflow;
+        if (total > table.releasable(Id.from(pos))) return error.GcUnderflow;
     }
 }
 
@@ -86,7 +86,7 @@ pub fn applyGcExportDecrement(table: anytype, gc_export: model.GcExport) Error!v
     const Id = @TypeOf(table.*).Id;
     for (gc_export.positions, gc_export.deltas) |pos, delta| {
         // Pinned bootstrap position: skipped in validation, skipped here.
-        if (pos == BOOTSTRAP_POSITION) continue;
+        if (pos == bootstrap_position) continue;
         try table.decrement(Id.from(pos), delta);
     }
 }
@@ -111,7 +111,7 @@ pub fn checkGcAnswerDecrement(
             .fromWire(.from(pos))
         else
             .from(pos);
-        if (total > table.count(id)) return Error.GcUnderflow;
+        if (total > table.count(id)) return error.GcUnderflow;
     }
 }
 
@@ -119,10 +119,10 @@ pub fn checkGcAnswerDecrement(
 /// consulted or mutated: the lists are parallel and every wire delta is positive.
 pub fn validateGcExport(gc_export: model.GcExport) Error!void {
     if (gc_export.positions.len != gc_export.deltas.len) {
-        return Error.MalformedMessage;
+        return error.MalformedMessage;
     }
     for (gc_export.deltas) |delta| {
-        if (delta == 0) return Error.MalformedMessage;
+        if (delta == 0) return error.MalformedMessage;
     }
 }
 
@@ -130,13 +130,13 @@ pub fn validateHandoffWellFormed(handoff: anytype) Error!void {
     switch (handoff) {
         .give => |give| {
             if (give.gift_id.len == 0 or give.recipient_key.len == 0) {
-                return Error.MalformedMessage;
+                return error.MalformedMessage;
             }
         },
         .receive => |receive| {
-            if (receive.receiving_session.len == 0) return Error.MalformedMessage;
+            if (receive.receiving_session.len == 0) return error.MalformedMessage;
             if (receive.signed_give.gift_id.len == 0 or receive.signed_give.recipient_key.len == 0) {
-                return Error.MalformedMessage;
+                return error.MalformedMessage;
             }
         },
     }

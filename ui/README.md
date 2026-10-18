@@ -43,11 +43,13 @@ readable accent text on both surfaces.
   - a stylesheet that never closes a comment, string, or brace
   - a stylesheet that hides a `--token:` declaration inside a comment, because
     the browser would drop everything after a dropped `*/`
-  - a surface that restates `--accent-ink` or `--on-accent`, or never uses them,
-    `--page-bg`, `--frost`, or `--radius-card`
+  - a surface that restates `--accent-ink`, `--on-accent`, or `--page-bg`
+  - a surface that never uses `--accent-ink`, `--on-accent`, `--page-bg`,
+    `--frost`, or `--radius-card`
   - a rooms sheet that never uses `--type-ui`
-- **Mycelium:** `apps/rooms/web/ui/mycelium.ts` grows the network of threads
-  behind every page of both surfaces, and both call its `startMycelium()`. A
+- **Mycelium:** `apps/rooms/web/ui/mycelium/` grows the network of threads
+  behind every page of both surfaces, and both call its `startMycelium()`. It
+  draws with WebGPU, and a browser without it shows the plain ground. A
   surface that paints its own full-page ground hides it, so a page shows the
   body's `--page-bg` instead of repainting it.
 - **Mark lockup:** `mark.css` owns where the still mushroom sits in its box,
@@ -87,7 +89,7 @@ local stylesheet.
 ## The mark
 
 There is one mushroom, and it comes from the WebGPU shader in the
-`apps/rooms/web/ui/mark_gpu*.ts` modules. Each place that shows it uses one of
+`apps/rooms/web/ui/mark/*.ts` modules. Each place that shows it uses one of
 three forms, chosen by what the mark is doing there:
 
 - **The live shader**, where the mark is an event. It runs only where it is
@@ -145,7 +147,7 @@ inside it rather than a halo around it.
 **Four masks.** `--mark-silhouette`, `--mark-flesh`, `--mark-shade`, and
 `--mark-windows` each cover the same frame. `.icon-mark` stacks four
 `.mark-piece` children in one box and paints each with its own tone. Using
-masks keeps the drawing as one geometry, so a theme is just four colors and
+masks keeps the drawing as one geometry, so a theme is four colors and
 there are never two whole drawings to keep in step.
 
 The tones are measured from the shader in each theme. The shader keeps one
@@ -179,7 +181,7 @@ canvas is too. The four percentages on `.mark-piece` in `mark.css` keep a
 lockup from shifting when the shader replaces the still mark.
 
 The still mark's only motion is a bloom under the pointer. Light and its timing
-belong to the shader. The artwork's tones are measured from the render, so they
+belong to the shader. The SVG artwork's tones are measured from the render, so they
 are literal values with no theme variants. The mushroom is seen at night, and
 its flesh and rim keep their night colors in both themes.
 
@@ -209,7 +211,7 @@ later fails.
 ## Making a change
 
 - **The mark itself:** edit the shader in the
-  `apps/rooms/web/ui/mark_gpu*.ts` modules, then run `zig build gen-mark` to
+  `apps/rooms/web/ui/mark/*.ts` modules, then run `zig build gen-mark` to
   regenerate the artwork, the favicon, the square icon, and the mark tokens.
 - **A shared color or typeface:** edit `tokens.css`.
 - **Where the still mark sits in its box, its bloom, or the wordmark:** edit

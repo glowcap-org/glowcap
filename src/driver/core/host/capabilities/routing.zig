@@ -68,13 +68,16 @@ pub fn routeSend(
     return routeTarget(self, session, target, args, .host);
 }
 
+/// Which far targets a verb may address: a send or tell reaches objects only,
+/// while a listen may address a promise.
+pub const Gate = enum { object_only, any_target };
+
 /// Resolve one opaque Host capability to the actor/session that owns it.
-/// `object_only` is the send/tell target gate. Listen callers pass false.
 pub fn routeCapability(
     self: *Host,
     session: *HostSession,
     ref: capability.Ref,
-    object_only: bool,
+    gate: Gate,
 ) !RoutedSend {
     self.assertOwner();
     try self.admitSessionOperation(session);
@@ -82,11 +85,11 @@ pub fn routeCapability(
     const target = self.capabilities.resolve(ref) orelse return error.UnknownCapability;
     return switch (target) {
         .local => |actor_id| blk: {
-            if (!self.vat.hasActor(actor_id)) return actors.Error.NoSuchActor;
+            if (!self.vat.hasActor(actor_id)) return error.NoSuchActor;
             break :blk .{ .session = session, .target = .{ .local = actor_id } };
         },
         .remote => |remote| blk: {
-            if (object_only and remote.far.kind != .object) return vocab.Error.UncallableTarget;
+            if (gate == .object_only and remote.far.kind != .object) return error.UncallableTarget;
             const home = self.sessions.get(remote.peer_handle) orelse return error.UnknownCapability;
             if (home != session) try self.admitSessionOperation(home);
             try self.checkSession(home);
@@ -99,7 +102,7 @@ pub fn routeCapability(
             self,
             session,
             try capability_promise.resolvedRef(self, id),
-            object_only,
+            gate,
         ),
     };
 }
@@ -140,8 +143,8 @@ pub fn routeTurnCapability(
     target: capability.Ref,
     args: []const model.Argument,
 ) !actors.Ref {
-    const routed = try routeCapability(self, session, target, true);
-    if (routed.session != session) return HostError.ForeignArgument;
+    const routed = try routeCapability(self, session, target, .object_only);
+    if (routed.session != session) return error.ForeignArgument;
     try validateRoutedArguments(self, session, args);
     return routed.target;
 }
@@ -159,17 +162,17 @@ fn routeTarget(
     switch (target) {
         .near => |near| {
             const ref = session.served.refForExport(near.export_position.int()) orelse
-                return actors.Error.NoSuchActor;
+                return error.NoSuchActor;
             try validateRoutedArguments(self, session, args);
             return .{ .session = session, .target = ref };
         },
         .far, .routed => {
             const routed = self.node.routeReference(session.peer_handle, target) orelse
-                return HostError.CapabilityRouteUnavailable;
+                return error.CapabilityRouteUnavailable;
             if (scope == .session and routed.peer_handle != session.peer_handle)
-                return HostError.ForeignArgument;
+                return error.ForeignArgument;
             const routed_session = self.sessions.get(routed.peer_handle) orelse
-                return HostError.CapabilityRouteUnavailable;
+                return error.CapabilityRouteUnavailable;
             if (routed_session != session) {
                 try self.admitSessionOperation(routed_session);
                 try self.checkSession(routed_session);
@@ -177,7 +180,7 @@ fn routeTarget(
             try validateRoutedArguments(self, routed_session, args);
             return .{ .session = routed_session, .target = .{ .far = routed.target.far } };
         },
-        else => return vocab.Error.UncallableTarget,
+        else => return error.UncallableTarget,
     }
 }
 

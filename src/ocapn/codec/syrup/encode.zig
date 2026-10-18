@@ -65,27 +65,36 @@ pub fn encodeMessageForProfile(
     message: model.Message,
 ) EncodeError!foundation.Frame {
     const body = view.Body.fromOwned(&message);
-    return encodeBodyForProfile(allocator, profile, &body);
+    return encodeBodyForProfile(allocator, profile, &body, null);
 }
 
 /// Encode a borrowed body with the `1.0` profile's spellings.
 pub fn encodeBody(allocator: std.mem.Allocator, body: *const view.Body) EncodeError!foundation.Frame {
-    return renderBody(allocator, null, body);
+    return renderBody(allocator, .v1_0, body, null);
 }
 
 /// Encode a borrowed body for a CapTP version. The body is read, never
 /// materialized: a lazy record is projected where it is written, and a
 /// malformed one refuses the encode as `MalformedView`.
+///
+/// `values` is what the body's value tree encodes to when the caller walked
+/// it with this codec's meter (`meter.zig`): a deliver's argument elements
+/// with every lowered mention, or a resolve's fulfillment. With it the tree
+/// is read once, by the fill. Without it the encode measures the tree first.
 pub fn encodeBodyForProfile(
     allocator: std.mem.Allocator,
     profile: model.CaptpVersion,
     body: *const view.Body,
+    values: ?usize,
 ) EncodeError!foundation.Frame {
-    return renderBody(allocator, profile, body);
+    return renderBody(allocator, profile, body, values);
 }
 
-fn renderBody(allocator: std.mem.Allocator, profile: ?model.CaptpVersion, body: *const view.Body) EncodeError!foundation.Frame {
-    const storage = try render.renderRecordExact(allocator, writeMessage, .{ allocator, profile, body });
+fn renderBody(allocator: std.mem.Allocator, profile: model.CaptpVersion, body: *const view.Body, values: ?usize) EncodeError!foundation.Frame {
+    const storage = if (values) |measured|
+        try render.renderRecordExactSized(allocator, measured, writeMessage, .{ allocator, profile, body })
+    else
+        try render.renderRecordExact(allocator, writeMessage, .{ allocator, profile, body });
     return try foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
 }
 
@@ -95,13 +104,10 @@ fn renderBody(allocator: std.mem.Allocator, profile: ?model.CaptpVersion, body: 
 fn writeMessage(
     sink: anytype,
     allocator: std.mem.Allocator,
-    profile: ?model.CaptpVersion,
+    profile: model.CaptpVersion,
     body: *const view.Body,
 ) WalkError!void {
-    if (profile == .next) switch (body.*) {
-        .get, .index, .untag => return Error.UnsupportedMessage,
-        else => {},
-    };
+    if (!profile.carries(body.*)) return Error.UnsupportedMessage;
     switch (body.*) {
         .abort => |*abort| {
             try openRecord(sink, shared.messageOp(.abort));
@@ -112,8 +118,8 @@ fn writeMessage(
             const next = profile == .next;
             const only = next and deliver.answer == null and deliver.resolve_me_desc == null;
             if (only) try openRecord(sink, "op:deliver-only") else try openRecord(sink, shared.messageOp(.deliver));
-            try writeTargetReference(allocator, sink, deliver.target);
-            try writeArgumentList(allocator, sink, deliver.args);
+            try writeTargetReference(allocator, sink, &deliver.target);
+            try writeDeliverArguments(allocator, sink, deliver.args);
             if (only) {
                 try endRecord(sink);
                 return;
@@ -123,14 +129,14 @@ fn writeMessage(
             } else {
                 try writeBool(sink, false);
             }
-            switch (profile orelse .v1_0) {
-                .v1_0 => if (deliver.resolve_me_desc) |resolver|
+            switch (profile) {
+                .v1_0 => if (deliver.resolve_me_desc) |*resolver|
                     try writePayloadReference(allocator, sink, resolver)
                 else
                     try writeBool(sink, false),
                 .next => {
-                    const resolver = deliver.resolve_me_desc orelse return Error.UnsupportedMessage;
-                    if (resolver != .near or deliver.listen_mode == .settling_only) return Error.UnsupportedMessage;
+                    const resolver = if (deliver.resolve_me_desc) |*resolver| resolver else return Error.UnsupportedMessage;
+                    if (resolver.* != .near or deliver.listen_mode == .settling_only) return Error.UnsupportedMessage;
                     try writePayloadReference(allocator, sink, resolver);
                     try writePositiveInt(sink, @backingInt(deliver.listen_mode));
                 },
@@ -144,7 +150,7 @@ fn writeMessage(
             switch (resolve.resolution) {
                 .fulfill => |*arg| {
                     try openRecord(sink, "resolve:fulfill");
-                    try writeArgument(allocator, sink, arg);
+                    try writeFulfillment(allocator, sink, arg);
                     try endRecord(sink);
                 },
                 .@"break" => |err| {
@@ -168,7 +174,7 @@ fn writeMessage(
         },
         .get => |*get| {
             try openRecord(sink, shared.messageOp(.get));
-            try writeTargetReference(allocator, sink, get.receiver);
+            try writeTargetReference(allocator, sink, &get.receiver);
             // The field name is a String on the wire (CapTP § op:get; Goblins
             // guards `string?` on receipt), not a Symbol.
             try writeString(sink, get.field);
@@ -177,14 +183,14 @@ fn writeMessage(
         },
         .index => |*index| {
             try openRecord(sink, shared.messageOp(.index));
-            try writeTargetReference(allocator, sink, index.receiver);
+            try writeTargetReference(allocator, sink, &index.receiver);
             try writeIntegerValue(sink, index.index);
             try writePositiveInt(sink, index.answer.int());
             try endRecord(sink);
         },
         .untag => |*untag| {
             try openRecord(sink, shared.messageOp(.untag));
-            try writeTargetReference(allocator, sink, untag.receiver);
+            try writeTargetReference(allocator, sink, &untag.receiver);
             // The expected tag is a String on the wire (CapTP § op:untag),
             // matching op:get's field-name choice.
             try writeString(sink, untag.tag);
@@ -193,9 +199,9 @@ fn writeMessage(
         },
         .listen => |*listen| {
             try openRecord(sink, shared.messageOp(.listen));
-            try writePayloadReference(allocator, sink, listen.target);
-            try writePayloadReference(allocator, sink, listen.listener);
-            switch (profile orelse .v1_0) {
+            try writePayloadReference(allocator, sink, &listen.target);
+            try writePayloadReference(allocator, sink, &listen.listener);
+            switch (profile) {
                 .v1_0 => try writeBool(sink, listen.mode.toV1_0WantsPartial() orelse return Error.UnsupportedMessage),
                 .next => try writePositiveInt(sink, @backingInt(listen.mode)),
             }
@@ -217,6 +223,25 @@ fn writeMessage(
             try endRecord(sink);
         },
     }
+}
+
+/// A deliver's arguments, or in the count pass of a sized encode the bytes
+/// the caller's meter measured for them (`render.renderRecordExactSized`):
+/// the list's brackets are the writer's and its elements the meter's.
+fn writeDeliverArguments(allocator: std.mem.Allocator, sink: anytype, items: anytype) WalkError!void {
+    if (comptime render.sinkCounts(@TypeOf(sink))) if (sink.takeMeasured()) {
+        try beginList(sink);
+        try endList(sink);
+        return;
+    };
+    try writeArgumentList(allocator, sink, items);
+}
+
+/// A fulfillment, or in the count pass of a sized encode the bytes the
+/// caller's meter measured for it.
+fn writeFulfillment(allocator: std.mem.Allocator, sink: anytype, arg: anytype) WalkError!void {
+    if (comptime render.sinkCounts(@TypeOf(sink))) if (sink.takeMeasured()) return;
+    try writeArgument(allocator, sink, arg);
 }
 
 fn writePositionList(sink: anytype, positions: view.PositionList) WalkError!void {
@@ -263,22 +288,39 @@ fn writeArgumentList(allocator: std.mem.Allocator, sink: anytype, items: anytype
 }
 
 /// Write one argument, owned (`*const model.Argument`) or borrowed
-/// (`*const view.Argument`).
-fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: anytype) WalkError!void {
+/// (`*const view.Argument`). The scalar arms inline into the caller's loop,
+/// so a leaf item is a tag load and its writer with no call. A list descends
+/// through `writeArgumentList`, and every other kind through
+/// `writeArgumentOutOfLine`, which keeps the handoff view's frame off the
+/// leaf path.
+inline fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: anytype) WalkError!void {
     switch (arg.*) {
         .bytes => |bytes| try writeBytes(sink, bytes),
         .symbol => |symbol| try writeSymbol(sink, symbol),
-        .reference => |reference| try writePayloadReference(allocator, sink, reference),
         .string => |string| try writeString(sink, string),
-        .handoff => |handoff| try writeHandoff(allocator, sink, try view.borrowHandoff(handoff)),
         .integer => |integer| try writeInteger(sink, integer),
         .float64 => |value| try writeFloat64(sink, value),
         .boolean => |value| try writeBool(sink, value),
-        .list => |items| try writeArgumentList(allocator, sink, items),
         .void => {
             try openRecord(sink, "void");
             try endRecord(sink);
         },
+        .keyword => |keyword| {
+            try openRecord(sink, "kw");
+            try writeSymbol(sink, keyword);
+            try endRecord(sink);
+        },
+        .list => |items| try writeArgumentList(allocator, sink, items),
+        .reference, .handoff, .set, .@"struct", .tagged, .@"error", .big_integer => try writeArgumentOutOfLine(allocator, sink, arg),
+    }
+}
+
+/// The arms of `writeArgument` that borrow a view, sort, or recurse, each
+/// of which needs a frame the leaf path never pays.
+fn writeArgumentOutOfLine(allocator: std.mem.Allocator, sink: anytype, arg: anytype) WalkError!void {
+    switch (arg.*) {
+        .reference => |*reference| try writePayloadReference(allocator, sink, reference),
+        .handoff => |*handoff| try writeHandoff(allocator, sink, try view.borrowHandoff(handoff.*)),
         .set => |items| {
             try sink.append('#');
             try writeCanonicalSet(allocator, sink, items);
@@ -295,17 +337,14 @@ fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: anytype) Walk
             try writeArgumentList(allocator, sink, tagged.value);
             try endRecord(sink);
         },
-        .keyword => |keyword| {
-            try openRecord(sink, "kw");
-            try writeSymbol(sink, keyword);
-            try endRecord(sink);
-        },
         // An `<error message>` in argument position, symmetric with the decoder,
         // which reads this record back into `.@"error"` (`readNeutralArgument`).
         // The main case is a V1.0 resolver-callback `break`
         // resolution, which ships its `model.BreakReason` as a deliver argument.
         .@"error" => |err| try writeError(sink, .{ .message = err.message }),
         .big_integer => |big| try writeBigInteger(sink, big),
+        // The leaf kinds and a list write at the caller (`writeArgument`).
+        .bytes, .symbol, .string, .integer, .float64, .boolean, .void, .keyword, .list => unreachable,
     }
 }
 
@@ -342,7 +381,8 @@ fn writeCanonicalStruct(allocator: std.mem.Allocator, sink: anytype, entries: an
     try canonical_collection.writeKeyed(allocator, sink, sequence, true, structKey, writeStructEntry);
 }
 
-fn writeHandoff(allocator: std.mem.Allocator, sink: anytype, handoff: view.Handoff) WalkError!void {
+/// Public for the meter, which sizes a lowered handoff with its writer.
+pub fn writeHandoff(allocator: std.mem.Allocator, sink: anytype, handoff: view.Handoff) WalkError!void {
     switch (handoff) {
         .give => |give| try signing.writeSignedGive(allocator, sink, give),
         .receive => |receive| try signing.writeSignedReceive(allocator, sink, receive),
@@ -354,13 +394,16 @@ fn writeTargetReference(allocator: std.mem.Allocator, sink: anytype, reference: 
     // and never a sturdyref: you enliven a sturdyref (a bootstrap fetch), you do
     // not deliver to one. Cap'n Proto carries a sturdy target; Syrup
     // refuses it (the ADR-0003 dialect boundary the codec-equivalence test names).
-    if (reference == .near or reference == .sturdy) return Error.UnsupportedReference;
+    if (reference.* == .near or reference.* == .sturdy) return Error.UnsupportedReference;
     return writePayloadReference(allocator, sink, reference);
 }
 
-/// Write a reference in payload position, owned or borrowed.
-fn writePayloadReference(allocator: std.mem.Allocator, sink: anytype, reference: anytype) WalkError!void {
-    switch (reference) {
+/// Write a reference in payload position, owned (`*const model.Reference`) or
+/// borrowed (`*const view.Reference`), read where it lies: the borrowed one
+/// carries its lazy sturdyref arm inline. Public for the meter, which sizes
+/// a lowered reference with its writer.
+pub fn writePayloadReference(allocator: std.mem.Allocator, sink: anytype, reference: anytype) WalkError!void {
+    switch (reference.*) {
         .near => |near| {
             try beginRecord(sink);
             switch (near.kind) {

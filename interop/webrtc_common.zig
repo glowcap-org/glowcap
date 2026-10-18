@@ -29,8 +29,8 @@ pub const stdio = @import("webrtc_common/stdio.zig");
 
 pub const signaling_frame_bytes: usize = webrtc.max_signal_bytes;
 
-pub fn hostFromSeed(allocator: std.mem.Allocator, durable_seed: [crypto.SEED_BYTES]u8, frame_cap: usize) !Host {
-    var root: [crypto.SEED_BYTES]u8 = undefined;
+pub fn hostFromSeed(allocator: std.mem.Allocator, durable_seed: [crypto.seed_bytes]u8, frame_cap: usize) !Host {
+    var root: [crypto.seed_bytes]u8 = undefined;
     var hasher = std.crypto.hash.Blake3.initKdf("glowcap webrtc interop session root v1", .{});
     hasher.update(&durable_seed);
     hasher.final(&root);

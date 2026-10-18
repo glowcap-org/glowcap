@@ -61,7 +61,7 @@ test "keyed-relay completion listener accepts a dialer through its registration"
     const relay_url = try std.fmt.bufPrint(&relay_url_buf, "ws://127.0.0.1:{d}/relay", .{port});
     var register_url_buf: [64]u8 = undefined;
     const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
-    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x72))).publicKey();
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x72))).publicKey();
 
     var relay_future = try io.concurrent(ws_relay.bridgeOneRendezvous, .{ io, &relay_server, allocator });
     errdefer relay_future.cancel(io) catch {};
@@ -153,7 +153,7 @@ test "keyed-relay completion listener registers again after the relay drops it" 
     const port = relay_server.socket.address.getPort();
     var url_buf: [64]u8 = undefined;
     const register_url = try std.fmt.bufPrint(&url_buf, "ws://127.0.0.1:{d}/register", .{port});
-    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x73))).publicKey();
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x73))).publicKey();
 
     var done = std.atomic.Value(bool).init(false);
     var relay_future = try io.concurrent(dropThenExpectRegistration, .{ io, &relay_server, &done });

@@ -1,9 +1,9 @@
 # @glowcap/web
 
-The browser entry for the glowcap runtime. A browser tab becomes an OCapN peer: the same I/O-free
+The browser entry for the glowcap runtime. It runs a browser tab as an OCapN peer: the same I/O-free
 protocol core the Zig archives link, compiled to `wasm32`, with the byte channel on a WebSocket.
 It offers the same `@glowcap/runtime` API that Deno and Bun use, through a browser adapter, and
-reimplements no protocol in JavaScript ([ADR-0070]). The build check covers
+the protocol stays in Wasm ([ADR-0070]). The build check covers
 the keyed handshake, fetch and call, a call back into a wasm-hosted object, both wire grammars
 (Syrup and Cap'n Proto), and a non-browser peer cold-dialing a Chromium-hosted object over
 `noise-relay`. `zig build rooms-web-dm-noise` also has one browser redeem a room introduction by
@@ -31,7 +31,7 @@ default `Runtime`, so [`@glowcap/runtime`'s README](../runtime/README.md) applie
 ## The adapter
 
 [`adapter.ts`](adapter.ts) connects the shared runtime to the browser. It
-supplies four things Deno and Bun get from the operating system:
+supplies what Deno and Bun get from the operating system:
 
 - **FFI over linear memory.** The Wasm module exports the same `glowcap_*` C
   ABI that Deno and Bun load. JavaScript cannot lend Wasm a view of its

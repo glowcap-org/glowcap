@@ -90,7 +90,7 @@ fn exporterHalf(
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    seed: [crypto.SEED_BYTES]u8,
+    seed: [crypto.seed_bytes]u8,
 ) anyerror!void {
     // 1. Signaling over CapTP: accept the recipient and route offer/candidate/poll
     //    to the sidecar peer until the recipient closes the session.
@@ -135,7 +135,7 @@ fn recipientHalf(
     resident: *webrtc.Resident,
     offerer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    seed: [crypto.SEED_BYTES]u8,
+    seed: [crypto.seed_bytes]u8,
     expect_designator: []const u8,
 ) anyerror!void {
     // 1. Signaling over CapTP: dial the exporter's inbox and drive the channel up.
@@ -183,8 +183,8 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    const exporter_seed = @as([crypto.SEED_BYTES]u8, @splat(0x63));
-    const recipient_seed = @as([crypto.SEED_BYTES]u8, @splat(0x64));
+    const exporter_seed = @as([crypto.seed_bytes]u8, @splat(0x63));
+    const recipient_seed = @as([crypto.seed_bytes]u8, @splat(0x64));
     const exporter_secret = crypto.SecretKey.fromSeed(exporter_seed);
     const exporter_designator = exporter_secret.publicKey().toDesignator();
 

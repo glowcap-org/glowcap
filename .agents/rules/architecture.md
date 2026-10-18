@@ -63,7 +63,8 @@ continuity, never durable identity.
   ADR-0107), `iroh` (QUIC node id),
   `webrtc` (signaling-authorized identity), and `onion`.
 - `onion` is the one symbol the draft standardizes and Goblins ships. Wire
-  onion locators stay bare (ADR-0108, ADR-0118).
+  onion locators stay bare except toward a peer known to be glowcap
+  (ADR-0108, ADR-0118).
 - `tcp`, `keyed-tcp`, and `keyed-relay` are cleartext with no peer proof.
   `inproc` is tests only. Never make `tcp` a default, example, or demo: use
   `iroh`. Choose `tcp` only to reach a peer that speaks nothing else, and say

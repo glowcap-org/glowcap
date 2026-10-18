@@ -26,6 +26,7 @@ const ArgKind = shared.ArgKind;
 const StructLoc = shared.StructLoc;
 const ListContent = layout.ListContent;
 const allocStruct = layout.allocStruct;
+const allocComposite = layout.allocComposite;
 const ptrIndex = layout.ptrIndex;
 const setStructPtr = layout.setStructPtr;
 const setListPtr = layout.setListPtr;
@@ -149,9 +150,6 @@ fn encodeStructEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: 
     if (comptime @TypeOf(entries) == view.StructEntries) {
         if (entries.ownedSlice()) |owned| return encodeStructEntries(b, allocator, owned);
     }
-    const data_words: u16 = 0;
-    const ptr_words: u16 = 2;
-    const stride: usize = data_words + ptr_words;
     const sequence = view.sequenceOf(entries);
     const Entry = @TypeOf(sequence).Elem;
     var room: [8]Entry = undefined;
@@ -162,15 +160,13 @@ fn encodeStructEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: 
             return entry.key;
         }
     }.key, true);
-    const tag_idx = try b.allocWords(allocator, 1 + ordered.len * stride);
-    b.set(tag_idx, wire.Builder.compositeTag(@intCast(ordered.len), data_words, ptr_words));
-    const block = tag_idx + 1;
+    const list = try allocComposite(b, allocator, ordered.len, 0, 2);
     for (ordered, 0..) |*entry, i| {
-        const loc = StructLoc{ .data_idx = block + i * stride, .data_words = data_words, .ptr_words = ptr_words };
+        const loc = list.elem(i);
         try setText(b, allocator, loc, 0, entry.key);
         setStructPtr(b, ptrIndex(loc, 1), try encodeArgument(b, allocator, &entry.value));
     }
-    return .{ .data_idx = tag_idx, .elem = .composite, .count = ordered.len * stride };
+    return list.content();
 }
 
 /// Whether a list takes the word-run form (ADR-0243): at least one element,
@@ -194,7 +190,7 @@ fn isIntegerRun(items: anytype) EncodeError!bool {
 fn encodeIntegerRun(b: *wire.Builder, allocator: std.mem.Allocator, items: anytype) EncodeError!ListContent {
     if (comptime @TypeOf(items) == view.Args) {
         if (items.wordRun()) |run| {
-            const count = run.len / wire.WORD_BYTES;
+            const count = run.len / wire.word_bytes;
             const start = try b.allocWords(allocator, count);
             b.setBytes(start, run);
             return .{ .data_idx = start, .elem = .eight_bytes, .count = count };
@@ -222,17 +218,15 @@ pub fn encodeArgumentList(b: *wire.Builder, allocator: std.mem.Allocator, items:
     }
     const sequence = view.sequenceOf(items);
     const count = try sequence.len();
-    const tag_idx = try b.allocWords(allocator, 1 + count * argument_stride);
-    b.set(tag_idx, wire.Builder.compositeTag(@intCast(count), argument_data_words, argument_ptr_words));
-    const block = tag_idx + 1;
+    const list = try allocComposite(b, allocator, count, argument_data_words, argument_ptr_words);
     var it = sequence.iterator();
     var filled: usize = 0;
     while (try it.nextRef()) |arg| : (filled += 1) {
         if (filled == count) return error.MalformedView;
-        try encodeArgumentInto(b, allocator, arg, .{ .data_idx = block + filled * argument_stride, .data_words = argument_data_words, .ptr_words = argument_ptr_words });
+        try encodeArgumentInto(b, allocator, arg, list.elem(filled));
     }
     if (filled != count) return error.MalformedView;
-    return .{ .data_idx = tag_idx, .elem = .composite, .count = count * argument_stride };
+    return list.content();
 }
 
 const EncodedSetElement = struct {
@@ -242,6 +236,10 @@ const EncodedSetElement = struct {
     key_frame: foundation.Frame,
     builder: wire.Builder,
     loc: StructLoc,
+
+    fn key(self: EncodedSetElement) []const u8 {
+        return self.key_frame.bytes();
+    }
 };
 
 fn deinitEncodedSetElements(allocator: std.mem.Allocator, encoded: []EncodedSetElement) void {
@@ -292,31 +290,21 @@ fn encodeArgumentSetList(b: *wire.Builder, allocator: std.mem.Allocator, items: 
     }
     if (built != count) return error.MalformedView;
 
-    const order = try allocator.alloc(usize, count);
-    defer allocator.free(order);
-    for (order, 0..) |*o, i| o.* = i;
-    const keys = try allocator.alloc([]const u8, count);
-    defer allocator.free(keys);
-    for (encoded[0..built], 0..) |enc, i| keys[i] = enc.key_frame.bytes();
     // Symmetric refusal (ADR-0003): a set's elements are unique, so a duplicate
     // element (equal canonical key, adjacent after the sort) is refused here
     // rather than emitted, matching the Syrup codec and the duplicate-key struct.
-    try codec_order.sortIndicesByKeys(EncodeError, order, keys, true);
+    try codec_order.orderByKey(EncodedSetElement, EncodeError, encoded, EncodedSetElement.key, true);
 
-    const tag_idx = try b.allocWords(allocator, 1 + count * argument_stride);
-    b.set(tag_idx, wire.Builder.compositeTag(@intCast(count), argument_data_words, argument_ptr_words));
-    const block = tag_idx + 1;
-    for (order, 0..) |src, i| {
-        const enc = encoded[src];
+    const list = try allocComposite(b, allocator, count, argument_data_words, argument_ptr_words);
+    for (encoded, 0..) |enc, i| {
         const copy_start: usize = wire.Builder.frame_header_words + 1;
         const src_tail = enc.builder.words.items[copy_start..];
         const base = try b.allocWords(allocator, src_tail.len);
         for (src_tail, 0..) |word, j| b.set(base + j, word);
         const struct_main = base + enc.loc.data_idx - copy_start;
-        const list_slot = block + i * argument_stride;
-        installArgumentSlot(b, struct_main, enc.loc, list_slot);
+        installArgumentSlot(b, struct_main, enc.loc, list.elem(i).data_idx);
     }
-    return .{ .data_idx = tag_idx, .elem = .composite, .count = count * argument_stride };
+    return list.content();
 }
 
 /// Copy an encoded Argument struct from `src_struct_idx` into composite-list

@@ -303,6 +303,9 @@ pub const all: []const Ban =
     surfaces.rooms_env_namespace ++
     failure.binding_failure_surface ++
     authority.sturdyref_profile_authority ++
+    authority.callback_latch_owner ++
+    authority.id_issuer_owner ++
+    authority.vow_row_retirement ++
     failure.nonfatal_release_paths;
 
 // ─── Tests ──────────────────────────────────────────────────────────────────

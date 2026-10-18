@@ -60,11 +60,7 @@ pub const transport_name = known_transport.metadata().symbol;
 /// Build an in-process locator without parsing or allocating. The designator is
 /// an opaque switchboard name borrowed until the dial path retains it.
 pub fn locator(designator: []const u8) model.PeerLocator {
-    return .{
-        .transport = transport_name,
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    };
+    return .hintless(transport_name, designator);
 }
 
 /// An adapter-owned edge notification for a listener arrival, in addition to

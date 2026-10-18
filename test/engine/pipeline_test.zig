@@ -49,9 +49,9 @@ test "borrowedListenerFire builds the break resolver-method call" {
     // The break reason rides as a bare Symbol, NOT an `<error>` record. The
     // upstream OCapN suite (test_op_listen_to_promise_and_break) asserts exactly
     // `[Symbol("break"), Symbol(reason)]` for the listen notification, do not
-    // "align" this with the `<error>` shape `v1_0.encodeResolveAsCallback` uses for
-    // op:resolve; the two wire paths legitimately differ and the suite is the
-    // authority here.
+    // "align" this with an `<error>` record: the V1.0 resolver callback
+    // (`v1_0.encodeResolutionAsCallback`) carries the same bare Symbol, and
+    // the suite is the authority here.
     try std.testing.expectEqualStrings("break", fire.deliver.args[0].symbol);
     try std.testing.expect(fire.deliver.args[1] == .symbol);
     try std.testing.expectEqualStrings("boom", fire.deliver.args[1].symbol);
@@ -62,28 +62,6 @@ test "classifyListenerDrain fires once on a non-promise fulfillment" {
     const action = pipeline.classifyListenerDrain(entry, .{ .fulfill = .{ .bytes = "v" } }, .next);
     try std.testing.expect(action == .fire);
     try std.testing.expectEqual(@as(u64, 2), action.fire);
-}
-
-test "classifyListenerDrain keeps a settling listener on a same-peer promise" {
-    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .mode = .settling_only };
-    const action = pipeline.classifyListenerDrain(
-        entry,
-        .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(8) } } } },
-        .next,
-    );
-    try std.testing.expect(action == .reinstall);
-    try std.testing.expectEqual(@as(u64, 8), action.reinstall.next_answer.int());
-}
-
-test "classifyListenerDrain keeps a combined listener on a same-peer promise" {
-    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .mode = .shortening_or_settling };
-    const action = pipeline.classifyListenerDrain(
-        entry,
-        .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(8) } } } },
-        .next,
-    );
-    try std.testing.expect(action == .reinstall);
-    try std.testing.expectEqual(@as(u64, 8), action.reinstall.next_answer.int());
 }
 
 test "classifyListenerDrain concludes listeners on a far promise by profile" {

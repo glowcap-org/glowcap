@@ -300,7 +300,7 @@ pub const Ctx = struct {
 
     pub fn reportUnhandledFailure(raw: *anyopaque, failure: OperationFailure) void {
         const self: *Ctx = @ptrCast(@alignCast(raw));
-        self.retainCleanup(&self.callerless, failure.toChain());
+        self.retainCleanup(&self.callerless, failure.chain);
     }
 
     pub fn logCloseFailure(self: *Ctx, comptime what: []const u8, failure: FailureChain) void {

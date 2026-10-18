@@ -7,6 +7,8 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
+
 const model = @import("model");
 const engine = @import("engine");
 const actors = @import("actors");
@@ -76,9 +78,20 @@ pub fn interceptFulfilledReference(
     return interceptFulfilled(&self.node, session.peer_handle, answer, .{ .reference = model.view.Reference.fromOwned(&reference) });
 }
 
-/// The before-serve hook on every Host CapTP session. Cross-file `pub` is
-/// implementation visibility. The supported surface remains the Host alias.
-pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) anyerror!bool {
+/// Everything the Host's before-serve hook can refuse, spelled from its steps
+/// because `Served` names the hook's type before the hook exists.
+pub const BeforeServeError = error{MissingAdvertisedLocator} ||
+    model.view.ProjectError ||
+    crossed_hellos.TiebreakError ||
+    sessions.DuplicatePartnerError ||
+    foundation.error_sets.Of(engine.Peer.answerDeferredHello) ||
+    ProxyFireClaimError ||
+    foundation.error_sets.Of(engine.handoff_recipient.projectGiveForRedeem) ||
+    foundation.error_sets.Of(engine.Node.acceptGive) ||
+    foundation.error_sets.Of(engine.Node.claimResolve);
+
+/// The before-serve hook `sessions.zig` installs on every Host CapTP session.
+pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) BeforeServeError!bool {
     _ = served;
     const session: *HostSession = @ptrCast(@alignCast(ctx.?));
     const host = session.host;
@@ -104,7 +117,7 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
             !session.served.port.peer.session_state.handshake_local_sent)
         {
             const advertised = host.node.acceptableLocator() orelse
-                return HostError.MissingAdvertisedLocator;
+                return error.MissingAdvertisedLocator;
             var secret = session.sessionSecret();
             defer std.crypto.secureZero(u8, std.mem.asBytes(&secret));
             try session.served.port.peer.answerDeferredHello(body.start_session, advertised, secret);
@@ -142,7 +155,7 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
             };
             try host.node.acceptGive(
                 session.peer_handle,
-                resolve.answer.int(),
+                event.resolveTarget(),
                 projected.bytes() orelse "",
                 locator,
             );
@@ -151,13 +164,14 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
     }
     const claimed = try host.node.claimResolve(
         session.peer_handle,
-        resolve.answer.int(),
+        event.resolveTarget(),
         redeemOutcome(resolve),
     );
     if (!claimed) host.node.exporterApplicationOwned(session.peer_handle);
     return claimed;
 }
 
+/// The reply interceptor `sessions.zig` installs on every Host CapTP session.
 pub fn hostResolveInterceptor(
     ctx: ?*anyopaque,
     answer: engine.AnswerTarget,
@@ -170,7 +184,12 @@ pub fn hostResolveInterceptor(
 /// Claim a proxy home-listener delivery. The ordinary miss path only peeks.
 /// Materialization and application projection happen after the exact export has
 /// been identified.
-fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *const engine.Event) !bool {
+const ProxyFireClaimError = error{ UnexpectedMessage, UnknownConnection } ||
+    std.mem.Allocator.Error ||
+    foundation.error_sets.Of(engine.Node.claimProjectedProxyListenerFire) ||
+    foundation.error_sets.Of(model.view.Resolution.toOwned);
+
+fn claimProxyListenerFire(host: *Host, peer_handle: engine.PeerHandle, event: *const engine.Event) ProxyFireClaimError!bool {
     const body = event.wireView();
     if (body.* != .deliver) return false;
     const deliver = body.deliver;

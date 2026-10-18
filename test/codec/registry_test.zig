@@ -13,8 +13,8 @@ const registry = glowcap.ocapn.codec.registry;
 const FixtureCodec = struct {
     pub const Error = error{Unused};
 
-    pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
-        _ = frame;
+    pub fn decodeBodyInto(profile: model.CaptpVersion, frame: foundation.FrameView, slab: *model.view.ValueSlab, body: *model.view.Body) Error!void {
+        _ = .{ profile, frame, slab, body };
         // Answer with the fixture's own typed error, so a test can prove the
         // body decode dispatched to *this* codec and not a built-in.
         return Error.Unused;

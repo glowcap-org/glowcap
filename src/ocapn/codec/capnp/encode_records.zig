@@ -20,6 +20,7 @@ const HandoffKind = shared.HandoffKind;
 const StructLoc = shared.StructLoc;
 const ListContent = layout.ListContent;
 const allocStruct = layout.allocStruct;
+const allocComposite = layout.allocComposite;
 const ptrIndex = layout.ptrIndex;
 const setStructPtr = layout.setStructPtr;
 const setListPtr = layout.setListPtr;
@@ -120,14 +121,9 @@ fn setHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLoc
 /// 1 for the `string`/`bytes` value kinds. Model order is preserved. The peer
 /// locator validation above owns the dictionary invariants.
 fn encodeHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: []const model.HintEntry) EncodeError!ListContent {
-    const data_words: u16 = 2;
-    const ptr_words: u16 = 2;
-    const stride: usize = data_words + ptr_words;
-    const tag_idx = try b.allocWords(allocator, 1 + entries.len * stride);
-    b.set(tag_idx, wire.Builder.compositeTag(@intCast(entries.len), data_words, ptr_words));
-    const block = tag_idx + 1;
+    const list = try allocComposite(b, allocator, entries.len, 2, 2);
     for (entries, 0..) |entry, i| {
-        const loc = StructLoc{ .data_idx = block + i * stride, .data_words = data_words, .ptr_words = ptr_words };
+        const loc = list.elem(i);
         try setText(b, allocator, loc, 0, entry.name);
         switch (entry.value) {
             .string => |s| {
@@ -147,7 +143,7 @@ fn encodeHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: []
             },
         }
     }
-    return .{ .data_idx = tag_idx, .elem = .composite, .count = entries.len * stride };
+    return list.content();
 }
 
 pub fn encodeHandoff(b: *wire.Builder, allocator: std.mem.Allocator, handoff: view.Handoff) EncodeError!StructLoc {

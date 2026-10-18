@@ -5,6 +5,9 @@ const loam = @import("loam_core");
 const hosting = @import("loam_hosting");
 const driver = @import("driver_core");
 const description = @import("description.zig");
+const core = @import("loam_access_core");
+const records = @import("loam_access_records");
+const Step = @import("step.zig").Step;
 
 pub const Page = struct {
     call: *hosting.Call,
@@ -15,20 +18,35 @@ pub const Page = struct {
     count: usize = 0,
     byte_bound: usize = 256,
     result: ?driver.Value = null,
-    pub const Step = union(enum) { ready, more, read: loam.Read, waiting };
-    const cursor_bytes = 49;
     pub const max_rows = 32;
+
+    /// The next page's position, handed back by the caller: this endpoint's
+    /// key, the Store revision the page read, and the floor it continues from.
+    const Cursor = struct {
+        const key_end = loam.ObjectId.key_bytes;
+        const revision_end = key_end + @sizeOf(u64);
+        const size = revision_end + @sizeOf(u64);
+
+        fn floorOf(bytes: *const [size]u8, call: *const hosting.Call) !u64 {
+            if (!std.mem.eql(u8, bytes[0..key_end], &call.view.id.key())) return error.OutOfScope;
+            if (std.mem.readInt(u64, bytes[key_end..revision_end], .big) != call.attachment.store.metadata.revision) return error.RevisionConflict;
+            return std.mem.readInt(u64, bytes[revision_end..size], .big);
+        }
+
+        fn write(bytes: *[size]u8, call: *const hosting.Call, floor: u64) void {
+            bytes[0..key_end].* = call.view.id.key();
+            std.mem.writeInt(u64, bytes[key_end..revision_end], call.attachment.store.metadata.revision, .big);
+            std.mem.writeInt(u64, bytes[revision_end..size], floor, .big);
+        }
+    };
     pub const max_page_bytes = 64 * 1024;
 
     pub fn init(call: *hosting.Call, args: []const driver.Value) !Page {
         if (args.len != 2 or args[1] != .integer or args[1].integer < 1 or args[1].integer > max_rows) return error.InvalidArguments;
         var floor: u64 = 0;
         if (args[0] != .void) {
-            if (args[0] != .bytes or args[0].bytes.len != cursor_bytes) return error.InvalidArguments;
-            const bytes = args[0].bytes;
-            if (!std.mem.eql(u8, bytes[0..33], &call.view.id.key())) return error.OutOfScope;
-            if (std.mem.readInt(u64, bytes[33..41], .big) != call.attachment.store.metadata.revision) return error.RevisionConflict;
-            floor = std.mem.readInt(u64, bytes[41..49], .big);
+            if (args[0] != .bytes or args[0].bytes.len != Cursor.size) return error.InvalidArguments;
+            floor = try Cursor.floorOf(args[0].bytes[0..Cursor.size], call);
         }
         const limit: usize = @intCast(args[1].integer);
         return .{ .call = call, .floor = floor, .limit = limit, .rows = try call.arena().alloc(driver.Value, limit) };
@@ -36,10 +54,7 @@ pub const Page = struct {
 
     pub fn advance(self: *Page, operation: *storage.Operation) !Step {
         if (self.result != null) return .ready;
-        if (self.cursor == null) self.cursor = storage.GrantInventory.init(operation, self.floor) catch |err| {
-            if (err == error.RecordUnloaded) return .more;
-            return err;
-        };
+        if (self.cursor == null) self.cursor = try loam.reload(storage.GrantInventory.init(operation, self.floor)) orelse return .more;
         for (0..32) |_| {
             switch (try self.cursor.?.advance()) {
                 .read => |read| return .{ .read = read },
@@ -67,10 +82,8 @@ pub const Page = struct {
                 values[0] = .{ .list = self.rows[0..self.count] };
                 values[1] = .{ .void = {} };
                 if (!self.cursor.?.done) {
-                    const bytes = try self.call.arena().alloc(u8, cursor_bytes);
-                    @memcpy(bytes[0..33], &self.call.view.id.key());
-                    std.mem.writeInt(u64, bytes[33..41], self.call.attachment.store.metadata.revision, .big);
-                    std.mem.writeInt(u64, bytes[41..49], self.cursor.?.floor, .big);
+                    const bytes = try self.call.arena().create([Cursor.size]u8);
+                    Cursor.write(bytes, self.call, self.cursor.?.floor);
                     values[1] = .{ .bytes = bytes };
                 }
                 self.result = .{ .tagged = .{ .tag = "access:inventory", .value = values } };
@@ -96,21 +109,21 @@ pub const Page = struct {
 fn rowSizeBound(item: storage.GrantInventory.Item) !usize {
     var values: usize = 10;
     var bytes: usize = item.label.len + 2 * 39 + "access:grant".len + 2 * "revoked".len;
-    for ([_]@import("loam_access_core").Policy.Value{ item.ceiling, item.configured }) |policy| {
+    for ([_]core.Policy.Value{ item.ceiling, item.configured }) |policy| {
         values += 5 + @popCount(policy.permissions);
         bytes += "access:policy".len;
         const bounded: usize = @popCount(policy.bound_mask);
         values += 4 * bounded;
         bytes += ("access:bound".len + "upper".len + 39) * bounded;
     }
-    return @import("loam_access_records").ValueRecord.encodedSizeBound(driver.Value, values, 0, bytes, 0);
+    return records.ValueRecord.encodedSizeBound(driver.Value, values, 0, bytes, 0);
 }
 
 /// One retained-call allocation per projected spine and copied descriptive
 /// leaf. Rows outlive disk reads and their decoded source leases, so borrowing
 /// those labels would dangle. Page limits bound this owner. No grant mirror or
 /// capability retain is created, and all storage retires with the call arena.
-pub fn encode(arena: std.mem.Allocator, schema: *const @import("loam_access_core").Policy, item: storage.GrantInventory.Item) !driver.Value {
+pub fn encode(arena: std.mem.Allocator, schema: *const core.Policy, item: storage.GrantInventory.Item) !driver.Value {
     const values = try arena.alloc(driver.Value, 9);
     values[0] = .{ .integer = item.id.slot };
     values[1] = try description.unsigned(arena, item.id.generation);

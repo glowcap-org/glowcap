@@ -48,9 +48,9 @@ pub const ResourceChange = struct {
         const changed = switch (action) {
             .move => |parent| value: {
                 try view.header.policy.validatePlacement(canonical.kind, if (parent) |id| (try resources.get(id)).kind else null);
-                const changed = try resources.checkReparent(target, parent, 0);
+                try resources.checkReparent(target, parent, 0);
                 if (parent) |id| new_parent = try row(view, id);
-                break :value changed;
+                break :value !std.meta.eql(canonical.parent, parent);
             },
             .delete_leaf => value: {
                 if (original.children != null) return error.HasChildren;
@@ -125,9 +125,7 @@ pub const ResourceChange = struct {
             };
             defer loaded.release(self.view.store);
             const stored = loaded.view;
-            if (stored.schema != records.profile.resource or stored.schema_version != 1) return error.InvalidRecord;
-            const child = try records.ResourceRecord.decode(stored);
-            if (!child.live or child.resource.id.owner != frame.id.owner or child.resource.id.slot != entry.slot or child.resource.parent == null or !child.resource.parent.?.eql(frame.id)) return error.InvalidRecord;
+            const child = try records.ResourceRecord.decodeChildOf(stored, frame.id, entry.slot);
             frame.entry = null;
             if (self.count == self.frames.len) return error.DepthLimit;
             self.height = @max(self.height, @as(u32, @intCast(self.count)));
@@ -137,7 +135,7 @@ pub const ResourceChange = struct {
         if (self.count != 0) return .waiting; // Yield bounded CPU work to the attachment.
         if (self.action == .move) {
             var resources = try self.view.resourceView();
-            _ = try resources.checkReparent(self.original.resource.id, self.action.move, self.height);
+            try resources.checkReparent(self.original.resource.id, self.action.move, self.height);
         }
         const old = try self.old_index.advance();
         if (old != .ready) return old;
@@ -185,7 +183,7 @@ pub const ResourceChange = struct {
         self.staged = true;
         if (!self.changed) return false;
         var header = self.view.header;
-        header.version.resources = @fromBackingInt(std.math.add(u64, @backingInt(self.base), 1) catch return error.RevisionExhausted);
+        header.version.resources = self.base.next() orelse return error.RevisionExhausted;
         const store = self.view.store;
         errdefer store.abort() catch unreachable;
         self.view.transaction = store.ticket;
@@ -213,15 +211,12 @@ pub const ResourceChange = struct {
             },
         }
         try record.putResource(store, self.source.view.id, updated, parent_object, self.source.expected);
-        const expected = if (try store.proposed(self.view.owner_object)) |proposal| proposal.expected else self.view.header_revision.?;
-        var roots: [records.OwnerRecord.max_edges]loam.Edge = undefined;
         self.view.header = header;
-        try history.touchResources(self.view, self.before.slice()[1..], false);
-        try history.touchResources(self.view, self.after.slice()[@min(1, self.after.count)..], false);
+        try history.touchResources(self.view, self.before.slice()[1..], .subtree);
+        try history.touchResources(self.view, self.after.slice()[@min(1, self.after.count)..], .subtree);
         try history.append(self.view, .{ .resource = .{ .id = self.original.resource.id, .kind = if (self.action == .move) .moved else .deleted, .before = self.before.slice(), .after = self.after.slice() } });
         if (self.content_changed) try history.append(self.view, .{ .content = .{ .id = self.original.resource.id, .path = if (self.action == .move) self.after.slice() else self.before.slice() } });
-        try record.putEncoded(store, self.view.owner_object, records.profile.owner, self.view.header, self.view.header.edges(&roots), expected, true);
-        self.view.transaction = store.ticket;
+        try record.putOwner(self.view, &self.view.header);
         return true;
     }
 

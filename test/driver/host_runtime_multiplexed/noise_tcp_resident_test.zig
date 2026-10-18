@@ -53,7 +53,7 @@ test "noise-tcp listens and dials on completion residents, sealed by the Host" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    const server_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x4e)));
+    const server_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x4e)));
     const server_designator = server_secret.publicKey().toDesignator();
     var server_resident = try TcpResident.init(allocator, try net.Backend.init(allocator, 64, 16, frame_cap), .{});
     defer retire(&server_resident);

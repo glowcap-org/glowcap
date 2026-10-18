@@ -12,22 +12,26 @@ pub const PeerLocator = struct {
     transport: []const u8,
     designator: []const u8,
     hints: hints.Hints = .{},
+
+    /// A locator with no hints, spelled `#f` on the wire as Goblins spells an
+    /// absent hint map (`Hints.emptyFalse`). Both slices are borrowed.
+    pub fn hintless(transport_name: []const u8, designator: []const u8) PeerLocator {
+        return .{ .transport = transport_name, .designator = designator, .hints = .emptyFalse() };
+    }
+
+    /// This locator with its hints stripped.
+    pub fn bare(self: PeerLocator) PeerLocator {
+        return hintless(self.transport, self.designator);
+    }
 };
 
 pub const TransportDesignatorError = transport.SymbolError || error{EmptyDesignator};
 pub const ValidationError = TransportDesignatorError || hints.ValidationError;
 
-pub const HintAdditionError = error{
-    EmptyHintName,
-    DuplicateHintName,
-    InvalidFalseHints,
-    TooManyHints,
-};
-
 /// Validate adding one named hint to an already-valid locator. Storage owners
 /// perform their own transactional allocation, but model invariants have one
 /// authority here.
-pub fn validateHintAddition(locator: PeerLocator, name: []const u8) HintAdditionError!void {
+pub fn validateHintAddition(locator: PeerLocator, name: []const u8) hints.ValidationError!void {
     if (locator.hints.wire_form == .boolean_false) return error.InvalidFalseHints;
     if (locator.hints.entries.len >= hints.max_count) return error.TooManyHints;
     try hints.validateName(name);

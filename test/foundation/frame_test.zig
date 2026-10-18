@@ -202,3 +202,110 @@ test "a headed frame hands its head only to the type it was built for" {
     try std.testing.expect(frame.head(Built) != null);
     try std.testing.expect(frame.head(Other) == null);
 }
+
+test "headed frame refuses an overflowing tail before allocation" {
+    var refusing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 0 });
+    inline for (.{ foundation.FrameShape.byte, foundation.FrameShape.word }) |shape| {
+        try std.testing.expectError(
+            error.OutOfMemory,
+            foundation.Frame.initHeaded(refusing.allocator(), u64, u64, std.math.maxInt(usize), "", shape),
+        );
+    }
+    try std.testing.expect(!refusing.has_induced_failure);
+}
+
+test "headed frame sizing refuses addition overflow and unrepresentable metadata" {
+    const Frame = foundation.Frame;
+    inline for (.{ foundation.FrameShape.byte, foundation.FrameShape.word }) |shape| {
+        // The tail product fits, but adding the head does not.
+        try std.testing.expectError(error.OutOfMemory, Frame.headedBlockLen(u64, u8, std.math.maxInt(usize), 0, shape));
+        // The head fits its metadata, but adding the wire bytes does not.
+        try std.testing.expectError(error.OutOfMemory, Frame.headedBlockLen(u64, u64, 0, std.math.maxInt(usize), shape));
+        try std.testing.expectError(error.OutOfMemory, Frame.headedBlockLen(u64, u8, std.math.maxInt(u16), 0, shape));
+    }
+    // Byte heads can fill all sixteen bits. Word heads must leave room for
+    // alignment, including when only the padding would cross the limit.
+    try std.testing.expectEqual(@as(usize, 65535), try Frame.headedBlockLen(u8, u8, 65534 - @sizeOf(usize), 0, .byte));
+    try std.testing.expectEqual(@as(usize, 65528), try Frame.headedBlockLen(u8, u8, 65527 - @sizeOf(usize), 0, .word));
+    try std.testing.expectError(error.OutOfMemory, Frame.headedBlockLen(u8, u8, 65528 - @sizeOf(usize), 0, .word));
+}
+
+test "headed frame sizing matches aligned storage and its writable tail" {
+    const Head = struct { value: u8 };
+    inline for (.{ foundation.FrameShape.byte, foundation.FrameShape.word }) |shape| {
+        var counter = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+        var frame = try foundation.Frame.initHeaded(counter.allocator(), Head, u64, 3, "abcdefgh", shape);
+        defer frame.deinit();
+        frame.head(Head).?.value = 7;
+        const tail = frame.headTail(Head, u64);
+        try std.testing.expectEqual(@as(usize, 3), tail.len);
+        @memset(tail, 9);
+        try std.testing.expectEqual(try foundation.Frame.headedBlockLen(Head, u64, 3, 8, shape), counter.allocated_bytes);
+        try std.testing.expectEqual(@as(u8, 7), frame.head(Head).?.value);
+        try std.testing.expectEqualStrings("abcdefgh", frame.bytes());
+    }
+}
+
+fn CollisionHead(comptime identity: usize) type {
+    return struct {
+        value: u64,
+        const id = identity;
+    };
+}
+
+test "headed frames distinguish types with colliding short name hashes" {
+    const Built = CollisionHead(139);
+    const Other = CollisionHead(2304);
+    // Keep this fixture adversarial: equal truncated hashes must not make
+    // these distinct types interchangeable.
+    try std.testing.expectEqual(
+        @as(u16, @truncate(std.hash.Fnv1a_32.hash(@typeName(Built)))),
+        @as(u16, @truncate(std.hash.Fnv1a_32.hash(@typeName(Other)))),
+    );
+    var frame = try foundation.Frame.initHeaded(std.testing.allocator, Built, u64, 0, "", .byte);
+    defer frame.deinit();
+    try std.testing.expect(frame.head(Built) != null);
+    try std.testing.expect(frame.head(Other) == null);
+}
+
+test "headed frames align an over-aligned head independently of wire shape" {
+    const Head = struct { value: u8 align(32) };
+    inline for (.{ foundation.FrameShape.byte, foundation.FrameShape.word }) |shape| {
+        var frame = try foundation.Frame.initHeaded(std.testing.allocator, Head, u64, 1, "abcdefgh", shape);
+        defer frame.deinit();
+        const head = frame.head(Head).?;
+        try std.testing.expect(std.mem.Alignment.of(Head).check(@intFromPtr(head)));
+        head.value = 7;
+        frame.headTail(Head, u64)[0] = 9;
+        try std.testing.expectEqual(@as(u8, 7), head.value);
+        try std.testing.expectEqualStrings("abcdefgh", frame.bytes());
+    }
+}
+
+test "headed frames with zero-sized heads and empty wire retain type identity" {
+    var frame = try foundation.Frame.initHeaded(std.testing.allocator, void, u64, 0, "", .byte);
+    defer frame.deinit();
+    try std.testing.expect(frame.head(void) != null);
+    try std.testing.expect(frame.head(u8) == null);
+    try std.testing.expectEqual(@as(usize, 0), frame.headTail(void, u64).len);
+    try std.testing.expectEqual(@as(usize, 0), frame.bytes().len);
+}
+
+test "headed frames refuse a tail type other than the one allocated" {
+    const Head = struct { value: u8 };
+    var frame = try foundation.Frame.initHeaded(std.testing.allocator, Head, u64, 3, "", .byte);
+    defer frame.deinit();
+    try std.testing.expectEqual(@as(usize, 3), frame.headTail(Head, u64).len);
+    try std.testing.expectEqual(@as(usize, 0), frame.headTail(Head, u128).len);
+}
+
+test "headed frames distinguish separate modules with equal type names" {
+    const Built = @import("frame_identity_left").Head;
+    const Other = @import("frame_identity_right").Head;
+    try std.testing.expect(Built != Other);
+    try std.testing.expectEqualStrings(@typeName(Built), @typeName(Other));
+    var frame = try foundation.Frame.initHeaded(std.testing.allocator, Built, u64, 0, "", .byte);
+    defer frame.deinit();
+    try std.testing.expect(frame.head(Built) != null);
+    try std.testing.expect(frame.head(Other) == null);
+}

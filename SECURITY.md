@@ -6,9 +6,9 @@ affect every product built on top of it, so security reports take precedence
 over other work here.
 
 glowcap has had no independent security review. It is prerelease software that
-has not been hardened or run in production, and the conformance and
-interoperability checks measure protocol behavior, which is not the same
-thing.
+has not been hardened or run in production. The conformance and
+interoperability checks test protocol behavior and say nothing about
+hardening.
 
 The core bounds inbound frames, nesting, and partner-driven session tables.
 The [threat model](docs/threat-model.md) names each untrusted input with the
@@ -36,26 +36,16 @@ days. Reports of broken protocol invariants take priority.
 
 ## What counts as a security issue
 
-Each item below is an invariant. A report showing any of them broken is a
-security issue, not a feature request, even if it needs an unusual configuration
-to trigger:
+A report showing any of these rules broken is a security issue, even if it
+needs an unusual configuration to trigger:
 
-- **Semantics are codec-neutral.** A codec decodes a frame into a reference
-  carrying authority the session never exported, or encodes one carrying
-  authority it never imported.
-- **Codecs do not own authority.** A path lets a codec mint a valid reference
-  outside the session's export and import tables.
-- **Session state is authoritative.** A path bypasses the export, import,
-  answer, or release tables, by reading a codec's internal state or through a
-  side channel.
-- **A codec must preserve which session row a reference names.** Re-encoding a
-  reference under the other codec must not change its validated descriptor,
-  including its variant, table position, kind, or pipeline path. Otherwise one
-  table row could be read as two references, or two rows as one.
-- **Inbound frames are untrusted.** A frame gets past the resource caps and
-  exhausts memory or CPU, or overflows the stack, instead of failing loudly
-  with a typed abort. The caps cover frame size, table counts, retained bytes,
-  nesting depth, and the comparison work done during validation.
+| Rule | What breaking it looks like |
+| --- | --- |
+| Codecs carry no authority of their own. | A codec decodes a frame into a reference carrying authority the session never exported, or encodes one carrying authority it never imported. |
+| Only the session tables make references. | A path lets a codec mint a valid reference outside the session's export and import tables. |
+| Session state decides. | A path bypasses the export, import, answer, or release tables, by reading a codec's internal state or through a side channel. |
+| A reference names the same row under either codec. | Re-encoding a reference under the other codec changes its validated descriptor (its variant, table position, kind, or pipeline path), so one table row reads as two references, or two rows as one. |
+| Inbound frames are untrusted. | A frame gets past the caps on frame size, table counts, retained bytes, nesting depth, or validation work, and exhausts memory or CPU or overflows the stack instead of failing with a typed abort. |
 
 If a target is reached both directly and through a three-party handoff, glowcap
 proves the two references compare equal when both paths lead to the same live
@@ -76,9 +66,10 @@ upstream.
 The engine router verifies three-party handoff certificates with
 `foundation.crypto` on the production path. Test support exposes
 `testOnlyAcceptingVerifier` for in-process substrates and trusted fixtures
-only. That stub is never a production default on an untrusted network. A
-deployment that swaps it in for live traffic accepts unverified handoff
-certificates, so a report about that belongs to the deployment.
+only. The engine's own router never takes it. An embedder that routes
+handoffs itself through the `SignatureVerifier` hook and installs the stub
+accepts unverified certificates, so a report about that belongs to the
+embedder.
 
 ## Relay TLS maintenance
 
@@ -106,8 +97,9 @@ verifies its authority and fails when the leaf nears expiry.
 Renew the entire root and leaf together into a new directory with
 `tools/check/generate-relay-tls-fixture.sh`, inspect the subjects, SAN,
 validity, and private-key diff, then replace the three files under
-`test/net/fixtures/` in one reviewed commit. Do not preserve the old root key,
-reuse these keys outside tests, or weaken the expiry check to buy time.
+`test/net/fixtures/` in one reviewed commit. Generate a fresh root key each
+time, and use these keys only in tests. Never weaken the expiry check to buy
+time.
 
 ## Acknowledgements
 

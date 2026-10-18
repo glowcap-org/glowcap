@@ -6,6 +6,8 @@ const driver = @import("driver_core");
 const h = @import("attachment.zig");
 const Epoch = @import("live_epoch.zig").Epoch;
 const Recipe = @import("reference_recipe.zig").Recipe;
+const live_start = @import("live_start.zig");
+const storage = @import("storage.zig");
 
 pub const Scope = struct {
     allocator: std.mem.Allocator,
@@ -20,7 +22,7 @@ pub const Scope = struct {
     remaining: usize = 0,
     revision: u64 = 0,
     pending: ?struct { entry: *Reservation, ticket: core.Ticket } = null,
-    startup: ?@import("live_start.zig").Start = null,
+    startup: ?live_start.Start = null,
 
     /// Allocate the complete bounded runtime inventory and hash index before
     /// startup stages anything. A reservation owns one exact Host retain. Its
@@ -218,7 +220,7 @@ pub const Scope = struct {
                 .ready => |lease| try self.store.release(lease),
                 .read => |read| {
                     self.pending = .{ .entry = entry, .ticket = read.ticket };
-                    @import("storage.zig").retainRead(owner, read, .store);
+                    storage.retainRead(owner, read, .store);
                 },
             }
         }

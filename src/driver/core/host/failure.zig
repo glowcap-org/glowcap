@@ -25,18 +25,70 @@ pub const HostFailure = struct {
         return .{ .kind = classify(cause), .cause = cause };
     }
 
+    /// The category for any failure a Host verb returns. Errors the Host
+    /// does not name take the engine's protocol classification, and anything
+    /// left is a library fault.
     pub fn classify(cause: anyerror) Kind {
+        return named(cause) orelse switch (engine.abort_projection.classify(cause).domain) {
+            .codec => .codec,
+            .session => .session,
+            .foreign => .internal,
+        };
+    }
+
+    /// The category the Host names for `cause`, or null when the engine owns
+    /// it. `test/driver/core_host/failure_taxonomy_test.zig` holds every error
+    /// a public Host verb returns to one owner or the other.
+    pub fn named(cause: anyerror) ?Kind {
         return switch (cause) {
-            error.OutOfMemory => .internal,
+            error.OutOfMemory,
+            error.NoSpaceLeft,
+            error.CapabilitySpaceExhausted,
+            error.ResourceExhausted,
+            error.RetainOverflow,
+            error.EventServeOutOfMemory,
+            error.PreparedSettlementConsumed,
+            => .internal,
 
             error.CapabilityRouteUnavailable,
             error.NoSuchVow,
             error.NoSuchResolver,
             error.UnknownCapability,
             error.UnknownPublication,
+            error.UnknownConnection,
+            error.UnknownImport,
+            error.UnknownIngress,
+            error.UnknownPeer,
+            error.RouteNotLowerable,
             => .not_found,
 
             error.InvalidArgument,
+            error.ReleaseExceedsRetains,
+            error.AlreadyForwarded,
+            error.ReenteredAdmission,
+            error.ForeignWork,
+            error.NoPendingWork,
+            error.ForeignPublicationLookup,
+            error.PublicationLookupInstalled,
+            error.NotSnapshottable,
+            error.UnsupportedDelivery,
+            error.OpaqueHandlerRefused,
+            error.ForeignHandlerRefused,
+            error.ReservedHintName,
+            error.UnknownCodec,
+            error.UnparseableId,
+            error.UnparseableExporterLocator,
+            error.UnsupportedId,
+            error.UnsupportedValue,
+            error.InvalidLimits,
+            error.Overflow,
+            error.ReplyCapacity,
+            error.OwningReplyRequired,
+            error.ValueTooDeep,
+            error.BufferTooSmall,
+            error.OutboundOverflow,
+            error.InvalidAddress,
+            error.NoPendingAction,
             error.InvalidHostWorkQuantum,
             error.ReservedDurableNamespace,
             error.NotDurableName,
@@ -101,7 +153,22 @@ pub const HostFailure = struct {
             error.SessionClosing,
             error.HostClosing,
             error.SealedChannelFailed,
+            error.DecryptFailed,
+            error.MessageTooShort,
+            error.PayloadTooLong,
+            error.NonceExhausted,
+            error.IdentityElement,
+            error.IdentityMismatch,
+            error.HandshakeOutOfOrder,
+            error.HandshakeNotComplete,
+            error.InboundOverflow,
             error.PromiseBroken,
+            error.PromiseNotPending,
+            error.CapabilityClosed,
+            error.EnlivenmentBroke,
+            error.PeerGone,
+            error.SessionNotOpen,
+            error.VatReleased,
             => .closed,
 
             error.HandshakeIncomplete,
@@ -109,22 +176,31 @@ pub const HostFailure = struct {
             error.OutboundBackpressure,
             error.SessionOperationLimitReached,
             error.PromisePending,
+            error.AnswerAlreadyPending,
+            error.NotResolved,
+            error.FetchCapacity,
+            error.LookupCapacity,
+            error.ConflictingDialPlan,
+            error.Busy,
+            error.IngressBusy,
+            error.NotQuiescent,
+            error.PublicationPending,
+            error.ProxyRecipientCapExceeded,
             => .would_block,
 
             error.PartnerUnverified,
             error.PeerIdentityUnverified,
             error.HandshakeAlreadyApplied,
             error.SendRejected,
-            error.OutboundAnswerSpaceExhausted,
+            error.SturdyrefsNotNegotiated,
+            error.MalformedKey,
+            error.MalformedSignature,
+            error.InvalidSignature,
             => .session,
 
             error.FrameTooLarge => .frame_too_large,
 
-            else => switch (engine.abort_projection.classify(cause).domain) {
-                .codec => .codec,
-                .session => .session,
-                .foreign => .internal,
-            },
+            else => null,
         };
     }
 };

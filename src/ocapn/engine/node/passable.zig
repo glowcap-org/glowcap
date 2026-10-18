@@ -21,7 +21,7 @@ pub const AnswerSettlement = struct {
 /// answer is a question it owes the partner. Tells carry no target and retire
 /// without turning one unreachable argument into a session failure.
 pub const FailureTarget = union(enum) {
-    outbound_answer: model.AnswerPosition,
+    outbound_answer: session.OutboundAnswerTarget,
     inbound_answer: session.AnswerTarget,
 };
 
@@ -36,11 +36,14 @@ pub const Outbound = union(enum) {
         };
     }
 
-    pub fn failureTarget(self: Outbound) ?FailureTarget {
+    /// The answer a failed publication must break, by identity. A send whose
+    /// answer position was never reserved has no observer to break, because
+    /// a listener installs only on a reserved or live question.
+    pub fn failureTarget(self: Outbound, state: *const session.Session) ?FailureTarget {
         return switch (self) {
             .answer_settlement => |settlement| .{ .inbound_answer = settlement.target },
             .message => if (self.answerProduced()) |answer|
-                .{ .outbound_answer = answer }
+                if (state.outbound_answers.targetOf(answer)) |target| .{ .outbound_answer = target } else null
             else
                 null,
         };
@@ -65,6 +68,16 @@ pub const Outbound = union(enum) {
         };
         return std.math.add(usize, envelope, inventory.owned_bytes) catch error.MalformedView;
     }
+
+    /// The by-value root an inventory's `root` slot names: a settlement's
+    /// fulfillment. A deliver's roots are heap slots, so it has none.
+    pub fn resolutionRoot(self: *Outbound) ?*model.Argument {
+        const resolution: *model.Resolution = switch (self.*) {
+            .message => return null,
+            .answer_settlement => |*settlement| &settlement.resolution,
+        };
+        return if (resolution.* == .fulfill) &resolution.fulfill else null;
+    }
 };
 
 pub fn answerProducedBy(message: model.Message) ?model.AnswerPosition {
@@ -79,38 +92,6 @@ pub fn answerProducedBy(message: model.Message) ?model.AnswerPosition {
 
 pub const BatchId = enum(u64) { _ };
 
-pub const Payload = union(enum) {
-    outbound: Outbound,
-    relayed_resolution: model.Resolution,
-
-    pub fn deinit(self: Payload, allocator: std.mem.Allocator, owner: *session.Session) void {
-        switch (self) {
-            .outbound => |value| value.deinit(owner),
-            .relayed_resolution => |resolution| model.freeResolution(allocator, resolution),
-        }
-    }
-
-    pub fn retainedBytes(self: Payload, inventory: session.Inventory) model.view.ProjectError!usize {
-        return switch (self) {
-            .outbound => |value| value.retainedBytes(inventory),
-            .relayed_resolution => inventory.owned_bytes,
-        };
-    }
-
-    /// The by-value root an inventory's `root` slot names: a settlement's
-    /// fulfillment. A deliver's roots are heap slots, so it has none.
-    pub fn resolutionRoot(self: *Payload) ?*model.Argument {
-        const resolution: *model.Resolution = switch (self.*) {
-            .outbound => |*value| switch (value.*) {
-                .message => return null,
-                .answer_settlement => |*settlement| &settlement.resolution,
-            },
-            .relayed_resolution => |*resolution| resolution,
-        };
-        return if (resolution.* == .fulfill) &resolution.fulfill else null;
-    }
-};
-
 pub const Gift = struct {
     route_id: model.CapabilityRouteId,
     home: PeerHandle,
@@ -120,9 +101,9 @@ pub const Gift = struct {
     /// same numeric position.
     slot: session.inventory.Slot,
     original: model.Reference,
-    gifted: model.Reference,
+    gifted: model.FarRef,
     capability_lease: ?u64 = null,
-    gift_id: [model.HANDOFF_GIFT_ID_BYTES]u8 = undefined,
+    gift_id: [model.handoff_gift_id_bytes]u8 = undefined,
     handoff: ?*model.Handoff = null,
     inserted_handoff: ?*model.Handoff = null,
 };

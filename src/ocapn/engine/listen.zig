@@ -37,27 +37,24 @@ const Peer = engine.Peer;
 /// otherwise at session teardown. A failed send rolls all three back. The send
 /// itself adds no per-message heap: the listen's two references are
 /// position-only and move through `send`.
-pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
+pub fn listenOnFar(peer: *Peer, target: model.Reference) !session.OutboundAnswerTarget {
     const far = switch (target) {
         .far => |far| far,
-        .near, .routed, .promise, .sturdy, .broken => return session.Error.InvalidReference,
+        .near, .routed, .promise, .sturdy, .broken => return error.InvalidReference,
     };
-    if (!peer.session_state.holdsImport(far.import_position)) return session.Error.InvalidReference;
+    if (!peer.session_state.holdsImport(far.import_position)) return error.InvalidReference;
     const is_next_promise = peer.session_state.captp_version == .next;
-    if (is_next_promise and far.kind != .promise) return session.Error.InvalidReference;
+    if (is_next_promise and far.kind != .promise) return error.InvalidReference;
 
     const nomination = try peer.session_state.nominateResolverExport();
     errdefer peer.session_state.abandonResolverNomination(nomination);
-    const settling_target = if (is_next_promise)
-        peer.session_state.shortenedPromiseTarget(far.import_position)
-    else
-        far.import_position;
-    if (is_next_promise and !(try peer.session_state.claimPromiseSettlingListener(
+    const settling_target = peer.session_state.promiseWirePosition(far.import_position);
+    if (is_next_promise and !peer.session_state.claimPromiseSettlingListener(
         settling_target,
         nomination.resolver_export,
         nomination.answer,
-    )))
-        return session.Error.UnexpectedMessage;
+    ))
+        return error.UnexpectedMessage;
     errdefer if (is_next_promise)
         peer.session_state.abandonPromiseSettlingListener(settling_target);
 
@@ -70,14 +67,14 @@ pub fn listenOnFar(peer: *Peer, target: model.Reference) !model.AnswerPosition {
             // Project the mention from the authoritative slot rather than
             // hand-typing the kind (ADR-0080): the nomination reserved an object
             // row, and the render path reads that row.
-            .listener = session.slot.toReference(peer.session_state.exportSlot(nomination.resolver_export).?).?,
+            .listener = peer.session_state.exportReference(nomination.resolver_export).?,
             // Next already installed the one protocol-required shortening
             // listener when this remote promise arrived. This application
             // question adds only the one settling listener PR 282 permits.
             .mode = .settling_only,
         },
     });
-    return nomination.answer;
+    return peer.session_state.outboundAnswerTarget(nomination.answer) orelse unreachable;
 }
 
 /// Install the protocol-required shortening-only listener for one imported
@@ -93,7 +90,7 @@ pub fn ensureShorteningListener(peer: *Peer, source: model.ImportPosition) !void
 
     try peer.send(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(source.int()) },
-        .listener = session.slot.toReference(peer.session_state.exportSlot(nomination.resolver_export).?).?,
+        .listener = peer.session_state.exportReference(nomination.resolver_export).?,
         .mode = .shortening_only,
     } });
 }

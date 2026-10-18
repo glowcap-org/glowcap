@@ -6,10 +6,6 @@ sources: []
 
 # Community review
 
-Review glowcap's interop with OCapN and Spritely Goblins here: the target, the
-checks that run, and the known differences from the draft text or a live
-peer.
-
 glowcap pins the OCapN suite and Goblins source and checks both through
 [`ci/gates.sh`](../ci/gates.sh) on `main` and `dev` pushes. glowcap has not
 asked to be listed as an OCapN implementation. Because the work is AI-assisted,
@@ -20,9 +16,9 @@ forbid them. The policy is in [`PROVENANCE.md`](../PROVENANCE.md).
 
 | Goblins / CapTP / OCapN | glowcap |
 | --- | --- |
-| `mycapn` | Two roles: the product is a `Host`. The I/O-free handoff router is `engine.Node`. Goblins combines those jobs in one type. glowcap keeps them apart. |
+| `mycapn` | Two roles: the product is a `Host`. The I/O-free handoff router is `engine.Node`. Goblins combines those jobs in one type. |
 | CapTP session with one partner | Application-facing `Session`. The Host ABI's registered shell is `GlowcapHostSession`. A byte stream is a `Connection` / transport `*Conn`, never the CapTP partner. |
-| Goblins vow / OCapN promise / answer position | A Goblins vow is a passable eventual reference. glowcap's `Vow` is a local host/actor observation and send-result handle over an OCapN promise. `desc:answer` names the sender-chosen session slot used for pipelining. These are related, but they are not one type. |
+| Goblins vow / OCapN promise / answer position | A Goblins vow is a passable eventual reference. glowcap's `Vow` is a local host/actor observation and send-result handle over an OCapN promise. `desc:answer` names the sender-chosen session slot used for pipelining. |
 | CapTP value-level sealer / unsealer | Not implemented as a glowcap type. The unrelated `SealedChannel` is glowcap's Noise-encrypted transport byte channel (ADR-0107). |
 
 Two findings may be useful upstream. The pinned draft, suite, and Goblins
@@ -35,8 +31,9 @@ checkout.
 
 ## Interop target
 
-The Goblins-facing path is signed CapTP 1.0 over Syrup. The recurring Goblins
-checks and upstream suite use cleartext TCP through glowcap's testing adapter.
+The Goblins-facing path is signed CapTP 1.0 over Syrup. The upstream suite and
+most recurring Goblins checks use cleartext TCP through glowcap's testing
+adapter, and `goblins-handoff-iroh` runs over iroh.
 The C ABI and `driver.connect` support the transport an application selects.
 Goblins ships onion (and an in-process `fake`). `zig build goblins-onion` meets
 Goblins on that netlayer in both directions. It needs Tor and runs on demand.
@@ -57,23 +54,23 @@ handoff that a Goblins vat redeems.
 
 ## Known gaps
 
-- **Handoff coverage is split across transports.** Over TCP, live Goblins
+- Handoff coverage is split across transports. Over TCP, live Goblins
   covers glowcap as gifter, recipient, and exporter. Over iroh and onion, the
-  separate checks in the table below cover different role sets. No single
+  separate checks in the evidence table cover different role sets. No single
   check covers every role on every transport.
-- **Goblins indexes an exporter session by the complete locator.** glowcap
+- Goblins indexes an exporter session by the complete locator. glowcap
   sends the peer's own advertised locator unchanged. That is stable for
   Goblins onion. An iroh endpoint can change its `direct-addresses`, and the
   new locator then applies to later sessions and gifts.
-- **Pinned Goblins can reject a valid receive certificate from an independent
-  receiver.** It keeps `handoff-count` on the Gifter-Exporter session, though
+- Pinned Goblins can reject a valid receive certificate from an independent
+  receiver. It keeps `handoff-count` on the Gifter-Exporter session, though
   the signed count belongs to the Receiver-Exporter session.
   `goblins-rooms-matrix-iroh` reproduces it, and
   [upstream watch](upstream-watch.md#handoff-count-across-independent-receiver-sessions)
   has the source analysis.
-- **Goblins has no public API for sending `op:get` or `op:index`.** A netlayer
+- Goblins has no public API for sending `op:get` or `op:index`. A netlayer
   probe puts them on the wire instead.
-- **No outside peer sends `op:untag`.** glowcap accepts it from any 1.0 peer
+- No outside peer sends `op:untag`. glowcap accepts it from any 1.0 peer
   and sends it only to a partner that advertises the feature.
 
 [Known limitations](boundaries.md) explains the effect on users. Open OCapN
@@ -96,7 +93,7 @@ a recurring check.
 | `zig build check` (includes `oracle-check`) | yes | In-tree protocol scenarios, message-arm coverage, committed Syrup fixtures, Cap'n Proto goldens, resource budgets, and a complete six-peer handoff scenario. | A live outside peer or a fresh upstream Syrup run. |
 | `zig build ocapn-conformance` | no | The upstream modules against the production Host/Node wire and authority paths, composed with canonical conformance actors and three suite-only interceptors that drive those library entry points. Plus handshake refusal and a portable pre-setup abort check. | An application with no conformance interceptors, future suite netlayers, or transport recovery after abort. The raw upstream `tests.op_abort` rejects Linux TCP reset. |
 | `zig build ocapn-conformance-next` | yes | Baseline conformance, manifest-selected upstream assertions on negotiated next, draft wire cases, and fixture failure tests. | Deferred crypto transition, next onion execution, and arbitrary future suite changes without fixture review. |
-| `zig build ocapn-findings-check` | yes | The pinned sources still disagree on `op:listen` arity and locator-hints typing. | Which form upstream should choose. |
+| `zig build ocapn-findings-check` | yes | The pinned sources still disagree on each recorded finding, among them the `op:listen` operand type and locator-hints typing. | Which form upstream should choose. |
 | `zig build goblins-interop` | yes | A live Goblins session in both directions over Syrup/TCP. Covers handshake, bootstrap, calls, promise settlement, bignums, enlivenment, pipelining, answerless delivers, actor calls, and Goblins-written `op:get` / `op:index` requests that settle through resolver-callback fulfillments. | A public Goblins application API for outbound projections, live `op:untag`, onion, or iroh. |
 | `zig build goblins-rooms` | yes | A real Goblins vat and a glowcap member exchange room traffic while the same server records the Goblins session on Syrup/v1.0 and the glowcap session on Cap'n Proto/next. | Direct messages, browser behavior, or a secure transport. Those have separate on-demand rows. |
 | `zig build goblins-rooms-peering` | no | A real Goblins vat enters a foreign room through a glowcap directory publication over Syrup/v1.0, continues using the handed room after its publication is revoked, and lets the source reclaim and reuse the public name. | Recurring CI, browser behavior, a secure transport, or revocation of authority already handed to a member. |
@@ -125,45 +122,20 @@ For a quick manual call over Syrup/TCP, use the [CLI walkthrough](cli.md).
 
 ## Divergences and watch items
 
-- **Null.** glowcap has no OCapN Null value. Unknown Syrup records remain
-  tagged values until upstream encoding and Goblins marshalling agree.
-- **Set and Keyword.** The draft model lists neither. Goblins marshals both,
-  so glowcap follows the Goblins wire, including canonical set order and
-  duplicate refusal.
-- **Projections.** `op:get`, `op:index`, and `op:untag` remain on `1.0`.
-  Next refuses all three, following the merged draft. Promise pipelining
-  through `desc:answer` stays on both profiles.
-- **Cap'n Proto.** This codec runs between glowcap peers only. Handoff values
-  carry the same structural locators, but their signatures still use the Syrup
-  domain.
-- **Start-session hints.** The suite requires non-empty locator hints to be
-  consumed rather than rejected. Both codecs preserve them. Syrup also retains
-  the original signed location record.
-- **`op:listen`.** V1.0 follows the suite and Goblins Boolean
-  `wants_partial` form. Next uses integer modes and mandatory shortening
-  subscriptions. Its five-operand deliver carries its resolver and mode inline.
-  A live object export settles immediately. A bare unresolved promise export
-  is refused. Third-party promise relay and `listenTo` use the ordinary listen
-  and settlement path.
-- **Handshake refusal.** An invalid signature, pinned-key mismatch, or version
-  mismatch sends a typed abort and closes the CapTP session, matching the draft
-  and Goblins. A corrected hello requires a new session.
-- **Settlement.** Goblins CapTP 1.0 and the merged draft use an inline
-  resolver callback. Next receives the same fulfill or break callback through
-  its inline subscription or an explicit listen, using `op:deliver-only`.
-  It sends no wire `op:resolve`.
-- **Negotiation.** `op:start-session` carries the baseline version string.
-  Codec, version, and feature preferences travel in its signed locator hints.
-  Peers settle those offers after both verified hellos arrive.
-- **Suite TCP.** Goblins interop uses the `tcp` transport symbol. The upstream
-  suite uses its own `tcp-testing-only` URLs.
-- **Target equality.** A remote target reached directly and through handoff
-  on the same live exporter session canonicalizes to one Host identity, and
-  repeated sturdyref enlivenment on a session deduplicates. Two parallel
-  sessions to the same peer are not claimed to converge. ADR-0097's fresh-key
-  peer selection owns that.
-- **Signature verification.** Production uses `foundation.crypto`. The
-  accepting verifier in test support is available only to in-process tests.
+| Area | What glowcap does |
+| --- | --- |
+| Null | glowcap has no OCapN Null value. Unknown Syrup records remain tagged values until upstream encoding and Goblins marshalling agree. |
+| Set and Keyword | The draft model lists neither. Goblins marshals both, so glowcap follows the Goblins wire, including canonical set order and duplicate refusal. |
+| Projections | `op:get`, `op:index`, and `op:untag` remain on `1.0`. Next refuses all three, following the merged draft. Promise pipelining through `desc:answer` stays on both profiles. |
+| Cap'n Proto | This codec runs between glowcap peers only. Handoff values carry the same structural locators, but their signatures still use the Syrup domain. |
+| Start-session hints | The suite requires non-empty locator hints to be consumed rather than rejected. Both codecs preserve them. Syrup also retains the original signed location record. |
+| `op:listen` | V1.0 follows the suite and Goblins Boolean `wants_partial` form. Next uses integer modes and mandatory shortening subscriptions. Its five-operand deliver carries its resolver and mode inline. A live object export settles immediately. A bare unresolved promise export is refused. Third-party promise relay and `listenTo` use the ordinary listen and settlement path. |
+| Handshake refusal | An invalid signature, pinned-key mismatch, or version mismatch sends a typed abort and closes the CapTP session, matching the draft and Goblins. A corrected hello requires a new session. |
+| Settlement | Goblins CapTP 1.0 and the merged draft use an inline resolver callback. Next receives the same fulfill or break callback through its inline subscription or an explicit listen, using `op:deliver-only`. It sends no wire `op:resolve`. |
+| Negotiation | `op:start-session` carries the baseline version string. Codec, version, and feature preferences travel in its signed locator hints. Peers settle those offers after both verified hellos arrive. |
+| Suite TCP | Goblins interop uses the `tcp` transport symbol. The upstream suite uses its own `tcp-testing-only` URLs. |
+| Target equality | A remote target reached directly and through handoff on the same live exporter session canonicalizes to one Host identity, and repeated sturdyref enlivenment on a session deduplicates. Two parallel sessions to the same peer are not claimed to converge. ADR-0097's fresh-key peer selection owns that. |
+| Signature verification | Production uses `foundation.crypto`. The accepting verifier in test support is available only to in-process tests. |
 
 ## Reproduce
 

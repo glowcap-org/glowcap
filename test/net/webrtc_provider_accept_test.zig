@@ -178,7 +178,7 @@ test "an inbound offer is answered under a minted id and becomes the listener's 
     try expectLastErrorContains("no exchange");
 
     // The connection's authenticated remote is the offerer's key.
-    var remote: [foundation.crypto.PEER_KEY_BYTES]u8 = undefined;
+    var remote: [foundation.crypto.peer_key_bytes]u8 = undefined;
     try std.testing.expectEqual(@as(i32, 1), t.conn_remote_key.?(t.ctx, conn, &remote));
     try std.testing.expectEqualSlices(u8, foundation.crypto.PeerKey.fromDesignator(&fx.designator).?.asBytes(), &remote);
 

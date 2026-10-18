@@ -5,9 +5,10 @@ First-party applications live here. They use the same public
 call no private `libglowcap_*` functions.
 
 - [`rooms/`](rooms/): capability-secure chat. A server hands clients room and
-  inbox capabilities. The browser UI (`zig build rooms-web`) rides encrypted
-  iroh. `zig build demo-rooms` puts Zig, Rust, TypeScript, Python, and Racket
-  clients in one room without a browser.
+  inbox capabilities. The browser UI (`zig build rooms-web`) runs over
+  encrypted iroh. `zig build demo-rooms` puts Zig and Deno clients in one room
+  without a browser, plus Rust, Python, and Racket clients when those runtimes
+  are installed.
 - [`tasks/`](tasks/): a shared task board saved in Loam, whose lists and tasks
   are each a capability and survive a restart (`zig build demo-tasks`).
 - [`tools/`](tools/): a coordinator grants AI agents tool capabilities,
@@ -44,7 +45,7 @@ Rooms, Tasks, and Tools share one convention:
 These demos are not part of `zig build check` because they depend on external
 runtimes. Individual app guides list their exceptions and extra requirements.
 
-## Nearby, but different
+## Related directories
 
 | Path | Role |
 |------|------|

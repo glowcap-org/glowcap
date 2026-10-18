@@ -69,7 +69,7 @@ pub fn hostNewIn(
     // host recreating a prior session's handoff names. A durable-only 32-byte
     // seed is refused here so CapTP session keys cannot silently reuse the
     // identity seed (ADR-0100 names that footgun on the bare Zig Host).
-    const session_root_len = crypto.SEED_BYTES * 2;
+    const session_root_len = crypto.seed_bytes * 2;
     if (seed_len != session_root_len) {
         shared.setLastError(
             "host: seed must be {d} bytes (durable identity followed by a fresh session-key root)",
@@ -101,11 +101,11 @@ pub fn hostNewIn(
         else => local_turn_budget,
     };
     opts.release_on_drop = release_on_drop != 0;
-    opts.capability_id_issuer = capability_ids.issuer(seed_nn[0..crypto.SEED_BYTES].*);
+    opts.capability_id_issuer = capability_ids.issuer(seed_nn[0..crypto.seed_bytes].*);
     const core = Host.init(
         alloc,
-        seed_nn[0..crypto.SEED_BYTES].*,
-        seed_nn[crypto.SEED_BYTES..session_root_len].*,
+        seed_nn[0..crypto.seed_bytes].*,
+        seed_nn[crypto.seed_bytes..session_root_len].*,
         opts,
     ) catch |err| {
         alloc.destroy(inst);

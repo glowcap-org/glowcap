@@ -294,11 +294,11 @@ pub const Adapter = struct {
             var cleanup_chain: ?foundation.FailureChain = null;
             if (result.listener) |listener| if (self.stopListenRollback(listener)) |cleanup| {
                 failure.noteChain(cleanup);
-                teardown.append(&cleanup_chain, cleanup);
+                foundation.latchFailure(&cleanup_chain, cleanup);
             };
             if (self.table.cancel_listen) |cancel| if (self.callSubjectTeardown(cancel, route_id, "cancel_listen")) |cleanup| {
                 failure.noteChain(cleanup);
-                teardown.append(&cleanup_chain, cleanup);
+                foundation.latchFailure(&cleanup_chain, cleanup);
             };
             self.owner.retainContradictoryReport(report, cleanup_chain);
             return .{ .failed = failure };

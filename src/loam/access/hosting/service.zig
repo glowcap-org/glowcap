@@ -8,6 +8,15 @@ const hosting = @import("loam_hosting");
 const driver = @import("driver_core");
 const working = @import("working.zig");
 pub const graph = @import("content_graph.zig");
+const commit = @import("commit.zig");
+const observation = @import("observation.zig");
+const maintenance = @import("maintenance.zig");
+const vocabulary = @import("vocabulary.zig");
+
+comptime {
+    // The receipt codec and the Host's value walk admit one nesting.
+    std.debug.assert(records.ValueRecord.max_depth == driver.Value.max_depth);
+}
 
 pub const ContentCall = opaque {
     /// A failed application invocation may carry a bounded UTF-8 explanation.
@@ -353,9 +362,7 @@ fn state(call: *ContentCall) *ContentCallState {
 /// Refuse a field append, including a created child's field, that would
 /// exceed the bound content's schema edge limit.
 fn reserveEdge(value: *const ContentCallState) !void {
-    const schema = for (value.call.attachment.store.cache.schemas) |candidate| {
-        if (candidate.id == value.view.schema and candidate.version == value.view.schema_version) break candidate;
-    } else return error.UnsupportedSchema;
+    const schema = try graph.registered(value.call.attachment.store, .{ .id = value.view.schema, .version = value.view.schema_version });
     var removed: usize = 0;
     for (value.edits.items) |edit| if (edit.replacement == null) {
         removed += 1;
@@ -402,7 +409,7 @@ pub const ForwardWork = struct {
         return .{ .selector = selector, .method = intent.verb, .material_bytes = try bytes(intent.args, 0) };
     }
     fn bytes(args: []const driver.Value, depth: usize) !usize {
-        if (depth > 64) return error.ValueTooDeep;
+        if (depth > driver.Value.max_depth) return error.ValueTooDeep;
         var total: usize = 0;
         for (args) |arg| {
             const size = switch (arg) {
@@ -529,6 +536,13 @@ pub const Service = struct {
         /// `anyerror` return set.
         context: ?*anyopaque,
         fill: *const fn (?*anyopaque, *driver.Host.DurableSwiss.Entropy) anyerror!void,
+
+        /// Fresh bytes from the embedding.
+        pub fn draw(self: EntropySource) !driver.Host.DurableSwiss.Entropy {
+            var bytes: driver.Host.DurableSwiss.Entropy = undefined;
+            try self.fill(self.context, &bytes);
+            return bytes;
+        }
     };
 
     pub const ManagedIssue = struct { request: core.GrantLedger.Issue, powers: core.Control.Powers };
@@ -541,10 +555,10 @@ pub const Service = struct {
     pub const behavior_count = 4;
     pub fn behaviors(self: *Service) [behavior_count]hosting.Behavior {
         return .{
-            .{ .schema = records.profile.endpoint, .version = records.EndpointRecord.version, .context = self, .prepare = working.prepare, .invoke = @import("commit.zig").invoke },
-            @import("observation.zig").behavior(self),
-            @import("maintenance.zig").behavior(self),
-            @import("maintenance.zig").terminalBehavior(),
+            .{ .schema = records.profile.endpoint, .version = records.EndpointRecord.format_version, .context = self, .prepare = working.prepare, .invoke = commit.invoke },
+            observation.behavior(self),
+            maintenance.behavior(self),
+            maintenance.terminalBehavior(),
         };
     }
 
@@ -559,22 +573,18 @@ pub const Service = struct {
 };
 
 fn lifecycle(_: ?*anyopaque, _: std.mem.Allocator, _: core.Control.Powers, verb: []const u8, args: []const driver.Value) !core.Control.Edit {
-    if (args.len != 0) return error.InvalidArguments;
-    if (std.mem.eql(u8, verb, "pause")) return .pause;
-    if (std.mem.eql(u8, verb, "resume")) return .resume_access;
-    if (std.mem.eql(u8, verb, "revoke")) return .revoke;
-    return error.NoSuchMethod;
+    return vocabulary.lifecycle(verb, args);
 }
 
 /// Privileged binding of content to its managed resource, within an open Store
 /// batch. The embedding owns this correspondence. The endpoint becomes callable
 /// only after commit and restoration through the ordinary hosting attachment.
-pub fn stageEndpoint(read: *storage.Read, allocator: std.mem.Allocator, endpoint: records.EndpointRecord, rooted: bool) !loam.ObjectId {
-    return storage.stage.endpoint(read, allocator, endpoint, rooted);
+pub fn stageEndpoint(read: *storage.Read, allocator: std.mem.Allocator, endpoint: records.EndpointRecord, rooting: storage.Rooting) !loam.ObjectId {
+    return storage.stage.endpoint(read, allocator, endpoint, rooting);
 }
 
-pub fn stageDerivedEndpoint(operation: *storage.Operation, allocator: std.mem.Allocator, endpoint: records.EndpointRecord, rooted: bool) !loam.ObjectId {
-    return storage.stage.endpointFromOperation(operation, allocator, endpoint, rooted);
+pub fn stageDerivedEndpoint(operation: *storage.Operation, allocator: std.mem.Allocator, endpoint: records.EndpointRecord, rooting: storage.Rooting) !loam.ObjectId {
+    return storage.stage.endpointFromOperation(operation, allocator, endpoint, rooting);
 }
 
 /// Give a committed managed endpoint its one durable name in the current
@@ -590,11 +600,11 @@ pub fn stagePublication(store: *loam.Store, lease: loam.Lease, entropy: hosting.
     errdefer if (store.phase == .staging) store.abort() catch unreachable;
     const publication = try hosting.publication.stageTarget(store, entropy, view.id);
     endpoint.publication = publication;
-    try putEndpoint(store, store.allocator, view.id, endpoint, view.rooted, if (proposal) |row| row.expected else committed.revision);
+    try putEndpoint(store, store.allocator, view.id, endpoint, storage.Rooting.ofStored(view.rooted), if (proposal) |row| row.expected else committed.revision);
     return publication;
 }
 
-pub fn putEndpoint(store: *loam.Store, allocator: std.mem.Allocator, id: loam.ObjectId, endpoint: records.EndpointRecord, rooted: bool, expected: ?u64) !void {
+pub fn putEndpoint(store: *loam.Store, allocator: std.mem.Allocator, id: loam.ObjectId, endpoint: records.EndpointRecord, rooting: storage.Rooting, expected: ?u64) !void {
     // Fresh endpoints belong to the registration factory. This seam only
     // updates a committed endpoint and cannot bypass weak owner membership.
     if (expected == null) return error.InvalidRecord;
@@ -607,5 +617,5 @@ pub fn putEndpoint(store: *loam.Store, allocator: std.mem.Allocator, id: loam.Ob
     const payload = try endpoint.encodeAlloc(allocator);
     defer allocator.free(payload);
     var edges: [records.EndpointRecord.max_edges]loam.Edge = undefined;
-    try store.putCopying(.{ .id = id, .revision = 0, .schema = records.profile.endpoint, .schema_version = records.EndpointRecord.version, .rooted = rooted, .payload = payload, .edges = endpoint.edges(&edges) }, expected);
+    try store.putCopying(.{ .id = id, .revision = 0, .schema = records.profile.endpoint, .schema_version = records.EndpointRecord.format_version, .rooted = rooting == .rooted, .payload = payload, .edges = endpoint.edges(&edges) }, expected);
 }

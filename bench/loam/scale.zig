@@ -53,7 +53,7 @@ fn population(init: std.process.Init, report: *std.ArrayList(u8), profile: Profi
     try std.Io.Dir.cwd().createDir(io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(io, path) catch unreachable;
     const map_bytes = 512 * 1024 * 1024 + count * 4096;
-    var db = try w.Lmdb.open(path, .{ .map_bytes = map_bytes, .mode = .{ .create = @fromBackingInt(74) } });
+    var db = try w.Lmdb.open(path, .{ .map_bytes = map_bytes, .opening = .{ .id = @fromBackingInt(74), .mode = .create } });
     defer db.close() catch unreachable;
     var bytes: metrics.LiveBytesAllocator = .{ .backing = gpa };
     var allocations: metrics.CountingAllocator = .{ .backing = bytes.allocator() };
@@ -184,7 +184,8 @@ fn populate(self: *m.Managed, count: usize, picks: []const usize) !void {
     var created: usize = 0;
     var next: usize = 0;
     while (created < count) {
-        var read = try g.loam.access.storage.Read.init(self.allocator, &self.store, self.owner, m.record_capacity);
+        var read: g.loam.access.storage.Read = undefined;
+        try read.init(self.allocator, &self.store, self.owner, m.record_capacity, null);
         defer read.deinit() catch unreachable;
         try setup.pump(self, &read);
         try self.store.begin();

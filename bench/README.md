@@ -18,6 +18,17 @@ Link to that environment when several studies share it. Measure
 code that matches `dev`, on a host with nothing else running: another build on
 the same cores moves every figure.
 
+## Against a base revision
+
+`zig build bench-ab -- --base=<rev> <bench-step> [args]` runs one bench
+alternately on the archived base revision and on this tree, ReleaseFast on
+both sides, three pairs by default (`--pairs=N`), and prints each row of the
+bench's `key=number` output with the median of each side, their ratio, and
+every pair's values. Both sides see the same minutes of the same host, so a
+drift during the run lands on both. Read the ratio beside the pairs: a ratio
+inside the spread of the pairs is noise, and a ratio outside it is the claim.
+The base is extracted once under `zig-out/scratch/ab/<rev>` and reused.
+
 ## Profiles
 
 A `profile-<bench>` step runs the bench under callgrind and writes
@@ -79,7 +90,7 @@ draft operation or application.
 Idle protocol state grows from 1,064 to 1,080 bytes per connection. The
 additional nullable pointers own the local-promise registry and the
 forwarded-result import-release outbox. Their heap state stays absent when
-unused. The larger footprint is a measured cost of the new ownership paths.
+unused.
 
 The local comparison report and samples are
 `zig-out/bench-reports/ocapn-performance-comparison.md` and
@@ -94,7 +105,7 @@ around it. A product path is then judged against the floors it pays, and not
 only against its own last run. A path whose work is the protocol itself has
 no primitive floor and answers to the `perf-check` ceilings instead.
 
-Measured 2026-10-13 on the machine the scale run below names. Each floor is a
+Measured 2026-10-13 on the machine named under OCapN adoption comparison. Each floor is a
 mean over its iteration count: 2,000 for the crypto rows (sign, verify, and the
 handshake), 200,000 for the record and copy rows, and 20,000 for the thread
 wake and the loopback rows. The product rows are p50 over 3,000 calls, so the
@@ -192,8 +203,7 @@ the grouping was taken at:
 
 The rows sum past the total by about two thousand, because a function the
 shorter run spent more on than the longer one counts for nothing here. Each
-row names the mechanism that stays rather than a loop to tune: a further cut
-is a seam, such as fewer tables on the path or fewer owned values per
+row names a mechanism that stays. A further cut is a seam, such as fewer tables on the path or fewer owned values per
 message, and each of those is a design decision with an ADR.
 
 ## Against Cap'n Proto
@@ -251,7 +261,7 @@ words directly from the frame. These round trips also include allocation,
 transport, scheduling, and the handler's sum, so the table does not isolate
 codec throughput.
 
-Measured 2026-10-15 at commit `afea6a826` on the machine named below, all
+Measured 2026-10-15 at commit `afea6a826` on the machine named under OCapN adoption comparison, all
 four columns in one sitting. Each row pins the threads the same way
 (`--pin=5,5` puts both on one core, `--pin=5,6` gives each its own). glowcap
 runs each call twice, once under its Syrup codec and once under its Cap'n
@@ -273,8 +283,9 @@ between runs of one row is 0.36 µs, and glowcap's is at most 0.31 µs.
 | `report`, both threads on one core | 10.9 µs | 10.5 µs | 10.0 µs | 19.4 µs |
 | `report`, one core each | 15.1 µs | 14.4 µs | 14.0 µs | 19.0 µs |
 
-The per-value work is complete. Its original target of at most 1 µs extra
-for `report` over `greet` on both codecs was not achieved. The work retains
+The per-value work is complete. Its target of at most 1 µs extra
+for `report` over `greet` holds on the Cap'n Proto codec, and Syrup misses it
+by 0.2 to 0.4 µs. The work retains
 borrowed sends, typed integer runs, cached collection views, and bounded
 stream assembly. The growth sweep above records how those paths scale.
 
@@ -299,7 +310,7 @@ What differs is the work each library does on the bytes. glowcap validates
 the whole reply at admission, and the two Cap'n Proto readers bounds-check
 the one field the client reads.
 
-Both sides park in every row, which is the comparison on equal terms. Under
+Both sides park in every row. Under
 `strace`, one C++ round
 trip makes eight syscalls (two `epoll_pwait`, two `writev`, and four `read`,
 two of which return nothing) and one glowcap round trip makes four ring
@@ -314,7 +325,7 @@ the C++ reference, 44,000 in glowcap with Syrup, and 42,000 with Cap'n Proto.
 binding over the C ABI. The client and the server are separate Racket
 processes on one machine over loopback TCP, and the client sends one call at
 a time. Both sides run Racket in both rows, so the gap is the CapTP engine
-and not the language. Measured 2026-10-14 on the machine named below, 2,000
+and not the language. Measured 2026-10-14 on the machine named under OCapN adoption comparison, 2,000
 samples per suite, two runs. The echo suite is one call round trip. The other
 suites (a registry fetch and get, a purse deposit, a task board update) are
 several round trips per sample and their Goblins figures moved by a quarter or

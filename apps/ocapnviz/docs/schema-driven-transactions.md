@@ -10,7 +10,7 @@ sources:
 
 Delete, rename, paste, and duplicate must find every reference to an entity before they touch it. The reference graph is
 declared once in the schema, and every cascade operation consumes it through one set of discovery primitives. A new event
-kind, entity field, or id list is then one declaration, not an edit to every walker.
+kind, entity field, or id list is then one declaration.
 
 The code is the authority: `src/engine/schema/` holds `refs.ts`, `edges.ts`, `doc-index.ts`, `walk.ts`, `cascade.ts`,
 `clipboard.ts`, `extract.ts`, and `paste.ts`. Transactions live on `EditSession` in `src/engine/edit-session.ts`. The
@@ -26,7 +26,7 @@ Engine is the public door.
 4. **`seekTo(t)` is a pure function of the document.** Cascade walkers may not stash state on the engine that would
    change a later replay. Scratch state, such as paste's remap table, rides in the intent payload.
 5. **Subscribers observe committed state**, never a half-applied transaction.
-6. **Every reference is discoverable from the schema**, and the compiler enforces it rather than a test.
+6. **Every reference is discoverable from the schema.** The compiler enforces event and entity edges, and a straggler check backs the document-index registry.
 
 ## Three classes of reference
 
@@ -48,13 +48,13 @@ type SessionId = string & { readonly __brand: "SessionId" };
 type MessageId = string & { readonly __brand: "MessageId" };
 ```
 
-Brands and the edge map solve different halves of one problem. The edge map says which fields hold references. Brands
+The edge map says which fields hold references. Brands
 make the id types nominal: without them a `SessionId` passed where a `PeerId` belongs compiles fine. Strings are cast to
 brands where they enter, at JSON parse, DOM keys, and sprite keys, and internal code is branded throughout.
 
 ## Edge maps
 
-The graph is encoded as TypeScript mapped types, so coverage is a compile error rather than a test failure.
+The graph is encoded as TypeScript mapped types, so a missing entry is a compile error.
 
 ```ts
 type EventEdges = {
@@ -78,7 +78,7 @@ straggler check below.
 
 ## Cascade behaviors
 
-The functions in `cascade.ts` and `paste.ts` implement the operations directly, each with the control flow that fits.
+`cascade.ts` and `paste.ts` implement these behaviors.
 
 | Behavior       | Used by                            | What it does at the edge                                 |
 | -------------- | ---------------------------------- | -------------------------------------------------------- |
@@ -87,9 +87,8 @@ The functions in `cascade.ts` and `paste.ts` implement the operations directly, 
 | remap          | `cascadePaste`, `engine.duplicate` | Replace via a lookup table. Absent entries pass through. |
 | clone-target   | `engine.duplicate`, through paste  | Deep-copy the dependent with fresh ids, and recurse.     |
 
-There is no generic policy union. Dangling external references are rejected by `cascadePaste` before mutation, because
-that is a validity condition on the whole incoming payload rather than behavior for one edge. There is no `nullify`:
-every current reference is required, so a valid operation must rewrite its target or remove its dependent.
+`cascadePaste` rejects dangling external references before mutation, because that is a validity condition on the whole
+incoming payload. Every reference is required, so a valid operation must rewrite its target or remove its dependent.
 
 ## Discovery, then per-operation walks
 
@@ -127,6 +126,5 @@ state. It covers rename collisions and an `add-peer` carrying a user-supplied id
 show the error inline. Paste validates its payload inside `cascadePaste` before mutation. Duplicate extracts a payload
 and reaches the same path.
 
-The straggler checks at the end of rewrite and paste catch a missing edge declaration at the operation boundary.
 Whole-document parsing validates content when it enters from JSON. Hot intents do not pay for a redundant full-document
 walk after every pointer move.

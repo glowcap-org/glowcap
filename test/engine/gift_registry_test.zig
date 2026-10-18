@@ -218,7 +218,7 @@ test "registry deposits a gift and accepts a matching withdrawal" {
 
 test "the generic inbound path moves no gift-withdrawal authority" {
     const allocator = std.testing.allocator;
-    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x41));
+    const gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x41));
     var exporter = engine.Peer.init(allocator);
     defer exporter.deinit();
 
@@ -417,12 +417,14 @@ test "each session registry commits one monotonic emitted handoff count" {
     const duplicate = try registry.prepareEmittedCount();
     try std.testing.expectEqual(@as(u64, 0), first.count);
     try std.testing.expectEqual(@as(u64, 0), duplicate.count);
-    try first.commit();
-    try std.testing.expectError(error.StaleHandoffCountPreparation, duplicate.commit());
+    try first.check();
+    first.apply();
+    try std.testing.expectError(error.StaleHandoffCountPreparation, duplicate.check());
 
     const second = try registry.prepareEmittedCount();
     try std.testing.expectEqual(@as(u64, 1), second.count);
-    try second.commit();
+    try second.check();
+    second.apply();
     try std.testing.expectEqual(@as(u64, 2), (try registry.prepareEmittedCount()).count);
 }
 
@@ -433,7 +435,7 @@ test "an issuer-bound handoff count refuses a tampered preparation" {
 
     var fabricated = try registry.prepareEmittedCount();
     fabricated.count = 9;
-    try std.testing.expectError(error.StaleHandoffCountPreparation, fabricated.commit());
+    try std.testing.expectError(error.StaleHandoffCountPreparation, fabricated.check());
     try std.testing.expectEqual(@as(u64, 0), (try registry.prepareEmittedCount()).count);
 }
 
@@ -502,9 +504,9 @@ test "the exporter derives the receiver names the recipient signs" {
     const recipient = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x11))).publicKey();
     const exporter = crypto.SecretKey.fromSeed(@as([32]u8, @splat(0x22))).publicKey();
 
-    const recipient_side_name = try engine.handoff_recipient.sideName(recipient.asBytes());
-    const exporter_side_name = try engine.handoff_recipient.sideName(exporter.asBytes());
-    const as_recipient_builds_it = engine.handoff_recipient.sessionName(recipient_side_name, exporter_side_name);
+    const recipient_side_name = try engine.handoff_names.sideName(recipient.asBytes());
+    const exporter_side_name = try engine.handoff_names.sideName(exporter.asBytes());
+    const as_recipient_builds_it = engine.handoff_names.sessionName(recipient_side_name, exporter_side_name);
 
     const as_exporter_checks_it = try engine.handoff_names.ExpectedReceiver.derive(
         recipient.asBytes(),
@@ -551,7 +553,7 @@ test "a gifted near with no published name is refused at deposit" {
     // allocator past the end of its own range.
     // The gifter holds the exporter's object as an import; the exporter reads
     // that same reference back as one of its own exports.
-    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x71));
+    const gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x71));
     try exporter.session_state.registerExport(.from(9));
     try gifter.session_state.registerImport(.from(9));
     try gifter.sendDepositGift(&gift_id, .{ .far = model.FarRef.object(9) });
@@ -578,7 +580,7 @@ test "a gifted far is refused at deposit rather than at the recipient's expense"
     // an object the gifter hosts, which this exporter cannot serve to anybody.
     // Handed back verbatim on the recipient's session it would name an export
     // that session never made.
-    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x72));
+    const gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x72));
     try gifter.session_state.registerExport(.from(9));
     try gifter.sendDepositGift(&gift_id, .{ .near = model.NearRef.object(9) });
     try std.testing.expectError(error.InvalidGift, cross_peer.pumpAll(&gifter, &exporter));

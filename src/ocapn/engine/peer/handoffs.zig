@@ -47,36 +47,41 @@ pub fn sendWithdrawSettled(self: *Peer, prepared_in: bootstrap.PreparedWithdraw)
     prepared.apply(self.allocator, self.localObjectProjection(), self.giftRegistry());
 }
 
-/// Admit one verified early withdrawal without half-installing replay
-/// authority or a Node scheduler row on OOM. A new group reserves both seats
-/// before the replay count moves. Everything after acceptance is infallible.
+/// The peer handle a Host composition scopes this session's handoffs under,
+/// or null for a standalone peer.
+pub fn peerHandleScope(self: *const Peer) ?engine.PeerHandle {
+    return if (self.node_services) |services| services.peer_handle else null;
+}
+
+/// Admit one verified early withdrawal, held to the session's pending-withdraw
+/// count and byte caps, without half-installing replay authority or a Node
+/// scheduler row on OOM. A new group reserves its row, its map seat, and its
+/// scheduler row before anything moves, so the tail after acceptance is
+/// infallible.
 pub fn parkPendingWithdraw(
     self: *Peer,
     receive: bootstrap.PendingReceive,
     answer: model.AnswerName,
     gifter_peer_handle: engine.PeerHandle,
 ) !void {
+    if (self.pending_withdraw_count >= self.session_state.limits.max_pending_withdraws)
+        return error.PendingWithdrawCapExceeded;
     if (receive.retainedBytes() > self.session_state.limits.max_frame_bytes -| self.pending_withdraw_bytes)
-        return session.Error.PendingWithdrawCapExceeded;
+        return error.PendingWithdrawCapExceeded;
     const dependency = node_services.HandoffDependency.init(gifter_peer_handle, receive.gift_id);
     if (self.pending_withdraws.getPtr(dependency)) |group| {
         try group.rows.ensureUnusedCapacity(self.allocator, 1);
-        self.giftRegistry().acceptValidatedPendingWithdraw(receive.handoff_count);
-        group.rows.appendAssumeCapacity(.{ .receive = receive, .answer = answer });
-        self.pending_withdraw_count += 1;
-        self.pending_withdraw_bytes += receive.retainedBytes();
-        return;
+    } else {
+        var group: PendingWithdrawGroup = .{};
+        errdefer group.rows.deinit(self.allocator);
+        try group.rows.ensureUnusedCapacity(self.allocator, 1);
+        try self.pending_withdraws.ensureUnusedCapacity(self.allocator, 1);
+        if (self.node_services) |services| try services.pendingWithdrawAdded(dependency);
+        self.pending_withdraws.putAssumeCapacity(dependency, group);
     }
-
-    var group: PendingWithdrawGroup = .{};
-    errdefer group.rows.deinit(self.allocator);
-    try group.rows.ensureUnusedCapacity(self.allocator, 1);
-    try self.pending_withdraws.ensureUnusedCapacity(self.allocator, 1);
-    if (self.node_services) |services| try services.pendingWithdrawAdded(dependency);
-    self.pending_withdraws.putAssumeCapacity(dependency, group);
-    const installed = self.pending_withdraws.getPtr(dependency).?;
+    const group = self.pending_withdraws.getPtr(dependency).?;
     self.giftRegistry().acceptValidatedPendingWithdraw(receive.handoff_count);
-    installed.rows.appendAssumeCapacity(.{ .receive = receive, .answer = answer });
+    group.rows.appendAssumeCapacity(.{ .receive = receive, .answer = answer });
     self.pending_withdraw_count += 1;
     self.pending_withdraw_bytes += receive.retainedBytes();
 }
@@ -116,16 +121,6 @@ pub fn sendResolveHandoffGive(
     return handoff_gifter.sendResolveHandoffGive(self, answer, give_bytes);
 }
 
-/// Store a signed `desc:handoff-give` as a relayed resolution.
-pub fn applyRelayedHandoffGive(
-    self: *Peer,
-    import_position: model.ImportPosition,
-    row_id: u64,
-    give_bytes: []const u8,
-) !void {
-    return handoff_gifter.applyRelayedHandoffGive(self, import_position, row_id, give_bytes);
-}
-
 /// Retry the exact parked group whose gift changed. A standalone Peer with a
 /// custom resolver has no Node scheduler, so it retains the explicit-drive
 /// fallback and scans groups. Production Node compositions never pay it.
@@ -156,7 +151,7 @@ fn settlePendingWithdrawGroup(
     var index: usize = 0;
     while (index < group.rows.items.len) {
         const entry = &group.rows.items[index];
-        const scope = if (self.node_services) |services| services.peer_handle else null;
+        const scope = self.peerHandleScope();
         const settled_withdraw = (try bootstrap.resolvePendingWithdraw(
             self.allocator,
             self.gifterSessionResolver(),

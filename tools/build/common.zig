@@ -264,6 +264,7 @@ pub fn installArchive(
     });
     const dynamic_install = b.addInstallArtifact(shared_lib, .{});
     checkArchiveTls(b, shared_lib, &dynamic_install.step);
+    checkArchiveResident(b, shared_lib, &dynamic_install.step);
     checkArchiveSymbols(b, shared_lib, &dynamic_install.step, name);
     b.getInstallStep().dependOn(&dynamic_install.step);
     return .{
@@ -290,6 +291,20 @@ fn checkArchiveSymbols(b: *std.Build, artifact: *std.Build.Step.Compile, install
 pub fn checkArchiveTls(b: *std.Build, artifact: *std.Build.Step.Compile, install: *std.Build.Step) void {
     if (artifact.root_module.resolved_target.?.result.ofmt != .elf) return;
     const check = addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/abi_tls.py" });
+    check.addFileArg(artifact.getEmittedBin());
+    install.dependOn(&check.step);
+}
+
+/// A libc-linked shared archive declares itself resident for the process
+/// lifetime (`src/c_abi/shared/archive_pin.zig`). Hold the installed artifact
+/// to it where the build host can load it: load, close, and ask the loader
+/// whether it is still mapped.
+pub fn checkArchiveResident(b: *std.Build, artifact: *std.Build.Step.Compile, install: *std.Build.Step) void {
+    if (artifact.root_module.link_libc != true) return;
+    const target = artifact.root_module.resolved_target.?.result;
+    const host = b.graph.host.result;
+    if (target.ofmt != .elf or target.os.tag != host.os.tag or target.cpu.arch != host.cpu.arch) return;
+    const check = addRootedSystemCommand(b, .{ .deterministic = 15 }, &.{ "python3", "tools/check/archive_resident.py" });
     check.addFileArg(artifact.getEmittedBin());
     install.dependOn(&check.step);
 }

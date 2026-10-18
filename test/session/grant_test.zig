@@ -29,11 +29,11 @@ test "releaseUnsharedExport rolls back a freshly allocated export" {
     try std.testing.expect(s.hasExport(first));
     try std.testing.expect(!s.hasExport(second));
 
-    // Ids are monotonic and never reused: the next allocation moves past the
-    // released id rather than handing it out again.
+    // The partner never saw the rolled-back position, so it is the next one
+    // minted: the slab hands a freed slot out before growing.
     const third = try s.allocateExport();
-    try std.testing.expect(third != second);
-    try std.testing.expect(third.int() > second.int());
+    try std.testing.expectEqual(second, third);
+    try std.testing.expect(s.hasExport(third));
 }
 
 test "a reserved export is unaddressable until its first marshal grants it (ADR-0074)" {
@@ -331,7 +331,7 @@ test "an export position from outside this session's range is refused at every d
 
     // The allocator is untouched by every refusal, which is the damage the
     // range exists to prevent.
-    try std.testing.expect(s.next_export_position <= 1061);
+    try std.testing.expect(s.exports.nextPosition().int() <= 1061);
     const fresh = try s.allocateExport();
     try std.testing.expect(fresh.int() >= 1000 and fresh.int() < 1100);
 }

@@ -2,7 +2,7 @@
 
 const std = @import("std");
 const model = @import("model");
-const turn_mod = @import("turn.zig");
+const frame = @import("frame.zig");
 const vat_mod = @import("mod.zig");
 const vows_mod = @import("vows.zig");
 
@@ -105,7 +105,7 @@ fn findStaged(self: *Vat, state: *const IngressState) ?*StagedIngress {
 
 pub fn ingressState(self: *Vat, ingress: IngressId) Error!*IngressState {
     if (ingress == .local) return &self.local_ingress;
-    return self.ingresses.get(ingress) orelse Error.UnknownIngress;
+    return self.ingresses.get(ingress) orelse error.UnknownIngress;
 }
 
 /// Retained preparations must observe cancellation even when no turn is ready.
@@ -172,10 +172,18 @@ pub fn commitStaged(self: *Vat, entry: StagedIngress) void {
 
 /// Discard one ingress's staged sends and break their vows with `reason`.
 pub fn dropStaged(self: *Vat, entry: StagedIngress, reason: []const u8) void {
-    var maybe_chunk = entry.first;
+    breakChunks(self, entry.first, reason);
+}
+
+/// Retire every message queued from `head` on, break its vow with `reason`,
+/// and release the chunks. The chain is already detached from its queue, so
+/// a listener that enqueues onto the same ingress starts a fresh one.
+fn breakChunks(self: *Vat, head: ?*QueueChunk, reason: []const u8) void {
+    var maybe_chunk = head;
     while (maybe_chunk) |chunk| {
         maybe_chunk = chunk.next;
         chunk.next = null;
+        std.debug.assert(chunk.active_turns == 0);
         for (chunk.items[chunk.head..chunk.len]) |*queued| {
             queued.msg.retire(reason);
             vows_mod.settleLocalPrepared(self, queued.vow, .{ .broken = reason });
@@ -229,7 +237,7 @@ fn finishQueueTurn(self: *Vat, chunk: *QueueChunk) void {
 /// caller may use several to isolate admission and scheduling.
 pub fn openIngress(self: *Vat) Error!IngressId {
     try self.admitMutation();
-    if (self.ingresses.full()) return Error.ResourceExhausted;
+    if (self.ingresses.full()) return error.ResourceExhausted;
     const state = try self.allocator.create(IngressState);
     errdefer self.allocator.destroy(state);
     state.* = .{ .id = .local };
@@ -241,9 +249,9 @@ pub fn openIngress(self: *Vat) Error!IngressId {
 /// authority: closing it early would erase accounting and reorder turns.
 pub fn closeIngress(self: *Vat, ingress: IngressId) Error!void {
     try self.admitMutation();
-    if (ingress == .local) return Error.IngressBusy;
-    const state = self.ingresses.get(ingress) orelse return Error.UnknownIngress;
-    if (state.pending_turns != 0 or state.active_turns != 0 or state.runnable) return Error.IngressBusy;
+    if (ingress == .local) return error.IngressBusy;
+    const state = self.ingresses.get(ingress) orelse return error.UnknownIngress;
+    if (state.pending_turns != 0 or state.active_turns != 0 or state.runnable) return error.IngressBusy;
     std.debug.assert(state.first == null and state.last == null);
     std.debug.assert(self.ingresses.remove(ingress));
     self.allocator.destroy(state);
@@ -303,17 +311,7 @@ fn cancelQueued(self: *Vat, state: *IngressState, reason: []const u8) void {
     state.last = null;
     state.pending_turns = 0;
     state.pending_bytes = 0;
-    var maybe_chunk = cancelled;
-    while (maybe_chunk) |chunk| : (maybe_chunk = chunk.next) {
-        std.debug.assert(chunk.active_turns == 0);
-        for (chunk.items[chunk.head..chunk.len]) |*queued| {
-            queued.msg.retire(reason);
-            std.debug.assert(self.pending_local_vows.remove(.{ .id = queued.vow }));
-            if (self.listeners.fetchRemove(queued.vow)) |entry|
-                entry.value.func(entry.value.ctx, .{ .broken = reason });
-        }
-    }
-    freeChunks(self, cancelled, reason);
+    breakChunks(self, cancelled, reason);
 }
 
 /// Local eventual send (`<-`). A local target queues a turn for `drive`.
@@ -335,10 +333,9 @@ pub fn sendObservedFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg:
 }
 
 pub fn sendFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!Vow {
-    _ = try ingressState(self, ingress);
     switch (target) {
-        .local => |id| return .{ .local = try enqueueLocal(self, ingress, null, id, msg, true) },
-        .far => return Error.NotConnected,
+        .local => |id| return .{ .local = try enqueueLocal(self, ingress, null, id, msg, .answered) },
+        .far => return error.NotConnected,
     }
 }
 
@@ -353,19 +350,21 @@ pub fn tell(self: *Vat, target: Ref, msg: Message) Error!void {
 }
 
 pub fn tellFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!void {
-    _ = try ingressState(self, ingress);
     switch (target) {
         // Queue a turn like `send`, but discard the vow id: it keeps the
         // queue entry uniform and `drive` settles it into no listener.
-        .local => |id| _ = try enqueueLocal(self, ingress, null, id, msg, false),
-        .far => return Error.NotConnected,
+        .local => |id| _ = try enqueueLocal(self, ingress, null, id, msg, .unanswered),
+        .far => return error.NotConnected,
     }
 }
+
+/// Whether the delivery holds an answer vow the sender will settle on.
+pub const Answer = enum { answered, unanswered };
 
 /// The one local-enqueue spine `send` and `tell` share. Admission computes
 /// the whole logical ownership charge before cloning. Every mutation after
 /// a successful clone is infallible, so refusal never partially enqueues.
-pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Message, answered: bool) Error!u64 {
+pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Message, answered: Answer) Error!u64 {
     return enqueue(self, ingress, port, id, .{ .message = msg }, answered);
 }
 
@@ -374,10 +373,10 @@ pub fn enqueueLocal(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: 
 pub fn sendOpaqueFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: vat_mod.OpaqueMessage, listener: vat_mod.Listener) Error!Vow {
     const id = switch (target) {
         .local => |id| id,
-        .far => return Error.NotConnected,
+        .far => return error.NotConnected,
     };
     try vows_mod.reserveLocalListener(self);
-    const vow = try enqueueOpaque(self, ingress, id, msg, true);
+    const vow = try enqueueOpaque(self, ingress, id, msg, .answered);
     vows_mod.onReservedLocal(self, vow, listener);
     return .{ .local = vow };
 }
@@ -387,30 +386,30 @@ pub fn sendOpaqueFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: v
 pub fn tellOpaqueFromIngress(self: *Vat, ingress: IngressId, target: Ref, msg: vat_mod.OpaqueMessage) Error!void {
     const id = switch (target) {
         .local => |id| id,
-        .far => return Error.NotConnected,
+        .far => return error.NotConnected,
     };
-    _ = try enqueueOpaque(self, ingress, id, msg, false);
+    _ = try enqueueOpaque(self, ingress, id, msg, .unanswered);
 }
 
 /// Queue custody is independent of whether a caller observes an answer.
-pub fn enqueueOpaque(self: *Vat, ingress: IngressId, id: u64, msg: vat_mod.OpaqueMessage, answered: bool) Error!u64 {
+pub fn enqueueOpaque(self: *Vat, ingress: IngressId, id: u64, msg: vat_mod.OpaqueMessage, answered: Answer) Error!u64 {
     return enqueue(self, ingress, null, id, .{ .owned = msg }, answered);
 }
 
-fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, answered: bool) Error!u64 {
+fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, answered: Answer) Error!u64 {
     try self.admitMutation();
     const state = try ingressState(self, ingress);
-    try vat_mod.ensureFreshId(self.next_vow);
+    const vow = try vat_mod.peekId(self.vow_ids);
     const payload_bytes = switch (msg) {
         .message => |message| bytes: {
-            const args = model.measureArgumentSliceOwnedBytes(message.args) catch return Error.MalformedView;
-            break :bytes std.math.add(usize, message.verb.len, args) catch return Error.ResourceExhausted;
+            const args = model.measureArgumentSliceOwnedBytes(message.args) catch return error.MalformedView;
+            break :bytes std.math.add(usize, message.verb.len, args) catch return error.ResourceExhausted;
         },
         .owned => |body| body.owned_bytes,
     };
-    const charge = std.math.add(usize, @sizeOf(QueuedTurn), payload_bytes) catch return Error.ResourceExhausted;
+    const charge = std.math.add(usize, @sizeOf(QueuedTurn), payload_bytes) catch return error.ResourceExhausted;
     const limits = self.queue_limits;
-    if (charge > limits.max_chunk_bytes or charge > std.math.maxInt(u32)) return Error.ResourceExhausted;
+    if (charge > limits.max_chunk_bytes or charge > std.math.maxInt(u32)) return error.ResourceExhausted;
     const charge32: u32 = @intCast(charge);
     // Inside a turn the send waits for the turn to commit (ADR-0191). Staged
     // sends count against the same limits, so committing them can never
@@ -419,9 +418,9 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
     var slot: ?*StagedIngress = if (staging) findStaged(self, state) else null;
     const held_turns = state.pending_turns + if (slot) |entry| entry.turns else 0;
     const held_bytes = state.pending_bytes + if (slot) |entry| entry.bytes else 0;
-    if (held_turns >= limits.max_pending_turns) return Error.ResourceExhausted;
+    if (held_turns >= limits.max_pending_turns) return error.ResourceExhausted;
     if (held_bytes > limits.max_pending_bytes or charge32 > limits.max_pending_bytes - held_bytes)
-        return Error.ResourceExhausted;
+        return error.ResourceExhausted;
     try self.pending_local_vows.ensureUnusedCapacity(self.allocator, 1);
     if (staging and slot == null) try self.staged.ensureUnusedCapacity(self.allocator, 1);
 
@@ -437,7 +436,6 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
         if (acquired) releaseQueueChunk(self, chunk.?);
         return err;
     };
-    const vow = self.next_vow;
     if (staging and slot == null) {
         self.staged.appendAssumeCapacity(.{ .state = state });
         slot = &self.staged.items[self.staged.items.len - 1];
@@ -452,7 +450,7 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
             state.last = chunk;
         }
     }
-    chunk.?.items[chunk.?.len] = .{ .target = id, .msg = owned, .vow = vow, .charged_bytes = charge32, .answered = answered, .port = port };
+    chunk.?.items[chunk.?.len] = .{ .target = id, .msg = owned, .vow = vow, .charged_bytes = charge32, .answered = answered == .answered, .port = port };
     chunk.?.len += 1;
     chunk.?.owned_bytes += charge32;
     if (staging) {
@@ -464,7 +462,7 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
     }
     self.pending_local_vows.putAssumeCapacity(.{ .id = vow }, {});
     if (!staging) makeRunnable(self, state);
-    self.next_vow += 1;
+    self.vow_ids.commit(vow);
     return vow;
 }
 
@@ -573,10 +571,11 @@ fn runQueuedTurn(self: *Vat, state: *IngressState) Error!void {
     makeRunnable(self, state);
     state.active_turns += 1;
     chunk.active_turns += 1;
-    const resolution = turn_mod.callQueued(self, queued.port, state.id, queued.target, queued.msg, if (queued.answered) queued.vow else null);
-    if (resolution) |settled| {
+    const source: vat_mod.Turn.Source = if (queued.port) |port| .{ .port = port } else .{ .ingress = state.id };
+    const outcome = frame.callQueued(self, source, queued.target, queued.msg, if (queued.answered) queued.vow else null);
+    if (outcome) |settled| {
         const retirement = if (queued.msg == .owned) &queued.msg else null;
-        vows_mod.settleLocalWithRetirement(self, queued.vow, settled, retirement) catch |err| {
+        vows_mod.settleLocal(self, queued.vow, settled, retirement) catch |err| {
             state.active_turns -= 1;
             finishQueueTurn(self, chunk);
             return err;

@@ -13,6 +13,7 @@ const agent_index_build = @import("agent_index.zig");
 const dependencies_build = @import("dependencies.zig");
 const doc_values_build = @import("doc_values.zig");
 const doc_impact_build = @import("doc_impact.zig");
+const frame_identity = @import("frame_identity.zig");
 
 const transportAbiModule = common.transportAbiModule;
 const layer_table = root.layer_table;
@@ -213,6 +214,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = optimize,
     });
     tests_mod.addImport("glowcap", lib_mod);
+    frame_identity.addFixtures(b, tests_mod, target, optimize);
     // Completion deadline arithmetic is implementation authority, not a
     // supported `net` namespace. Focused tests import that leaf directly so
     // evidence never forces a consumer-root re-export.
@@ -312,6 +314,7 @@ pub fn register(ctx: Context) Registered {
         .optimize = .Debug,
     });
     memcheck_mod.addImport("glowcap", memcheck_mods[layerIndex("glowcap")]);
+    frame_identity.addFixtures(b, memcheck_mod, memcheck_target, .Debug);
     memcheck_mod.addImport("syrup", memcheck_mods[layerIndex("syrup")]);
     const memcheck_layers = b.addOptions();
     memcheck_layers.addOption([]const []const u8, "layers", &.{ "foundation", "model", "codec", "session", "engine", "actors" });
@@ -433,6 +436,7 @@ pub fn register(ctx: Context) Registered {
         .root_source_file = b.path("tools/check/source_check.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{.{ .name = "model", .module = source_check.modelModule(b, target, optimize) }},
     });
     const source_check_tests = b.addTest(.{ .root_module = source_check_tests_mod });
     const run_source_check_tests = execution.addZigTest(b, source_check_tests, .unit_test);
@@ -470,6 +474,12 @@ pub fn register(ctx: Context) Registered {
     const agent_hooks_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/agent_hooks_test.py" });
     agent_hooks_test.has_side_effects = true;
     infrastructure_check_step.dependOn(&agent_hooks_test.step);
+    const publication_workflow_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/publication_workflow_test.py" });
+    publication_workflow_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&publication_workflow_contracts.step);
+    const publication_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/publication-integration-test.sh" });
+    publication_integration_contracts.has_side_effects = true;
+    infrastructure_check_step.dependOn(&publication_integration_contracts.step);
     check_step.dependOn(source_check_step);
 
     // The deadline wrapper every CI gate runs under, held by its behaviour

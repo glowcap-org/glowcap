@@ -83,10 +83,11 @@ pub fn checkHostActionArmLockstep(
     }
 }
 
-/// ADR-0009 introducing-session promise proxy: production callers stay wired
-/// on Node/Host. One settlement spine: Node enters through the escrow-backed
-/// `applyRelayedResolutionGuaranteed`. The deleted Peer queue
-/// (`relayResolution` / `drainRelayedResolutions`) must not return under src/.
+/// Introducing-session promise proxy (ADR-0255): production callers stay
+/// wired on Node/Host. One settlement spine: Node settles a recipient's
+/// projection through the escrow-backed `settleAnswerTargetGuaranteed`. The
+/// deleted Peer queue (`relayResolution` / `drainRelayedResolutions`) must not
+/// return under src/.
 pub fn checkUnwiredHostPluginApis(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -94,8 +95,7 @@ pub fn checkUnwiredHostPluginApis(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const rows = [_]struct { call_needle: []const u8, def_path: []const u8 }{
-        .{ .call_needle = ".applyRelayedResolutionGuaranteed(", .def_path = "src/ocapn/engine/peer/settlement.zig" },
-        .{ .call_needle = ".installThirdPartyImport(", .def_path = "src/ocapn/session/promises/imported.zig" },
+        .{ .call_needle = ".settleAnswerTargetGuaranteed(", .def_path = "src/ocapn/engine/outbound.zig" },
     };
     for (rows) |row| {
         if (!try srcHasCallOutsideDef(io, gpa, root, violations, row.call_needle, row.def_path)) {
@@ -105,10 +105,10 @@ pub fn checkUnwiredHostPluginApis(
 
     // Deleted queue spine must not reappear under production src/.
     if (try srcHasCallOutsideDef(io, gpa, root, violations, ".relayResolution(", "src/ocapn/engine/mod.zig")) {
-        try appendViolation(gpa, violations, "deleted Peer.relayResolution reappeared under src/ — settle via applyRelayedResolutionGuaranteed only", .{});
+        try appendViolation(gpa, violations, "deleted Peer.relayResolution reappeared under src/ — settle via settleAnswerTargetGuaranteed only", .{});
     }
     if (try srcHasCallOutsideDef(io, gpa, root, violations, "drainRelayedResolutions(", "src/ocapn/engine/cross_peer.zig")) {
-        try appendViolation(gpa, violations, "deleted drainRelayedResolutions reappeared under src/ — settle via applyRelayedResolution only", .{});
+        try appendViolation(gpa, violations, "deleted drainRelayedResolutions reappeared under src/ — settle via settleAnswerTargetGuaranteed only", .{});
     }
     // Relayed path moves; a public/production resolution deep-clone must not return.
     const clone_ban_paths = [_]struct { path: []const u8, why: []const u8 }{
@@ -158,12 +158,12 @@ pub fn checkUnwiredHostPluginApis(
     });
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/proxies/admission.zig", &.{
         "foreignPromiseFulfill",
-        "installThirdPartyImport",
-        "session_not_open",
+        "allocateLocalPromiseProjection",
+        "SessionNotOpen",
     });
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/proxies/settlement.zig", &.{
         "materializeResolutionForStore",
-        "applyRelayedResolution",
+        "settleAnswerTargetGuaranteed",
     });
     // Ticket-only dial state: dial parts live on the pending row alone.
     if (try fileContains(io, gpa, root, "src/ocapn/engine/node/redeem/dials.zig", "allocator.dupe(u8, exporter_locator)")) {
@@ -214,8 +214,8 @@ pub fn checkUnwiredHostPluginApis(
         "pendingEnlivenSwissnum",
     });
     try expectFileContains(io, gpa, root, violations, "test/engine/relay_resolution_test.zig", &.{
-        "applyRelayedResolution",
-        "installThirdPartyImport",
+        "settleAnswerTargetGuaranteed",
+        "allocateLocalPromiseProjection",
         "desc:export",
     });
     try expectFileContains(io, gpa, root, violations, "test/all_test.zig", &.{
@@ -228,7 +228,7 @@ pub fn checkUnwiredHostPluginApis(
     try expectFileContains(io, gpa, root, violations, "test/engine/node/proxy_test.zig", &.{
         "proxyForeignPromiseFulfill",
         "consumeProjectedProxyListenerFire",
-        "session_not_open",
+        "SessionNotOpen",
         "multi-introduce",
     });
     // Route-exact HostAction.dial: the pending row owns the complete locator;
@@ -280,8 +280,7 @@ pub fn checkUnwiredHostPluginApis(
     // Pending dial paths own typed hints as well as transport and designator;
     // one teardown spine must release the complete shape.
     try expectFileContains(io, gpa, root, violations, "src/ocapn/model/route_bundle.zig", &.{
-        "fn deinitPath(allocator: std.mem.Allocator, path: Path) void",
-        "model.freeHints(allocator, path.hints);",
+        "for (self.paths) |path| model.freePeerLocator(allocator, path);",
         "self.deinitPaths(allocator);",
     });
     try expectFileContains(io, gpa, root, violations, "src/ocapn/engine/node/redeem/dials.zig", &.{
@@ -469,9 +468,6 @@ fn srcHasCallOutsideDef(
         const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
         defer gpa.free(path);
         if (std.mem.eql(u8, path, def_path)) continue;
-        if (std.mem.eql(u8, path, "src/ocapn/session/mod.zig") and
-            std.mem.eql(u8, call_needle, ".installThirdPartyImport("))
-            continue;
         const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: cannot be read for the C-ABI wiring check ({s})", .{ path, @errorName(err) });
             continue;

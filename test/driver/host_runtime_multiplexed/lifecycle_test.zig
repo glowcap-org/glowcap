@@ -54,7 +54,7 @@ const ListenerCapture = struct {
     fn failed(ctx: *anyopaque, tag: u64, failure: driver.OperationFailure) void {
         const self = of(ctx);
         release(ctx, tag);
-        self.failure = failure.cause;
+        self.failure = failure.chain.cause;
         self.failure_detail = failure;
     }
 
@@ -183,7 +183,7 @@ const ObservedOpen = struct {
     fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
         const self = of(ctx);
         release(ctx, 0);
-        self.failure = failure.cause;
+        self.failure = failure.chain.cause;
         self.failure_detail = failure;
     }
 
@@ -344,9 +344,9 @@ test "resident dial cancellation attaches exact teardown consequences to its own
     _ = try runtime.stepAny(0);
 
     const failure = observed.failure_detail.?;
-    try std.testing.expectEqual(error.Canceled, failure.cause);
-    try std.testing.expectEqualStrings("ResidentCancelFailed", failure.secondaryName().?);
-    try std.testing.expectEqual(@as(u16, 2), failure.secondary_count);
+    try std.testing.expectEqual(error.Canceled, failure.chain.cause);
+    try std.testing.expectEqualStrings("ResidentCancelFailed", failure.chain.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 2), failure.chain.secondary_count);
     try std.testing.expectEqual(@as(usize, 0), observed.reservations);
 }
 
@@ -399,8 +399,8 @@ test "external adoption commits its pending-open owner before immediate EOF" {
     _ = try runtime.stepAny(0);
     try std.testing.expectEqual(@as(usize, 0), observed.reservations);
     try std.testing.expectEqual(error.ResidentCloseFailed, observed.failure.?);
-    try std.testing.expectEqualStrings("ResidentCloseCleanupFailed", observed.failure_detail.?.secondaryName().?);
-    try std.testing.expectEqual(@as(u16, 1), observed.failure_detail.?.secondary_count);
+    try std.testing.expectEqualStrings("ResidentCloseCleanupFailed", observed.failure_detail.?.chain.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 1), observed.failure_detail.?.chain.secondary_count);
     try std.testing.expectEqual(@as(usize, 0), observed.close_events);
     try std.testing.expectEqual(@as(usize, 2), resident.close_calls);
 }

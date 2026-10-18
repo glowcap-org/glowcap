@@ -21,6 +21,10 @@ const names = @import("names.zig");
 /// same way, so a later commit can never apply part of a batch.
 pub const Commit = enum { committed, unknown };
 
+/// The smallest capacity an engine opens with. A map or file this small
+/// holds the metadata row and a store's first records.
+pub const min_capacity_bytes: usize = 1024 * 1024;
+
 const read_operations = [_][]const u8{ "get", "next", "end" };
 const write_operations = [_][]const u8{ "get", "next", "put", "remove", "commit", "abort" };
 const backend_operations = [_][]const u8{ "read", "commit", "lookup", "recover" };

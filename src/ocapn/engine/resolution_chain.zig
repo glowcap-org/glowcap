@@ -12,12 +12,11 @@ const session = @import("session");
 const engine = @import("mod.zig");
 const Peer = engine.Peer;
 
-pub const StoreTarget = union(enum) {
-    answer: struct {
-        target: session.AnswerTarget,
-        payload: *session.AnswerPayload,
-    },
-    import: struct { position: model.ImportPosition, row_id: u64 },
+/// A stored resolution's exact answer incarnation: the stamped target and the
+/// retained payload box it resolved into.
+pub const StoreTarget = struct {
+    target: session.AnswerTarget,
+    payload: *session.AnswerPayload,
 };
 
 pub const Source = struct {
@@ -50,8 +49,7 @@ fn step(peer: *Peer, current: Source) Step {
         // A wire answer must have captured its incarnation at admission. Other
         // terminal values have no chain target. Local promise exports carry
         // the same stamp through their Session-owned export/answer pairing.
-        if (resolution == .fulfill and resolution.fulfill == .reference and
-            resolution.fulfill.reference == .promise)
+        if (resolution.promiseAnswer() != null)
             return .{ .terminal = .{ .terminal_break = missing_target_message } };
         return .{ .terminal = .{ .terminal = .{
             .target = current.target,
@@ -68,16 +66,13 @@ fn step(peer: *Peer, current: Source) Step {
     const stored = peer.session_state.answerPayloadStoredResolution(payload) orelse
         return .{ .terminal = .{ .pending = target } };
     return .{ .next = .{
-        .target = .{ .answer = .{ .target = target, .payload = payload } },
+        .target = .{ .target = target, .payload = payload },
         .stored = stored,
     } };
 }
 
 fn isPromise(source: Source) bool {
-    const resolution = source.stored.value;
-    return source.stored.promise_target != null or
-        (resolution == .fulfill and resolution.fulfill == .reference and
-            resolution.fulfill.reference == .promise);
+    return source.stored.promise_target != null or source.stored.value.promiseAnswer() != null;
 }
 
 fn advanceCycleProbe(peer: *Peer, source: *Source) bool {
@@ -111,6 +106,7 @@ pub fn follow(peer: *Peer, first: Source) Outcome {
     }
 }
 
+/// Walk the chain from an answer that holds its resolution.
 pub fn followAnswer(
     peer: *Peer,
     target: session.AnswerTarget,
@@ -119,7 +115,20 @@ pub fn followAnswer(
     const stored = peer.session_state.answerPayloadStoredResolution(payload) orelse
         return .{ .terminal_break = missing_target_message };
     return follow(peer, .{
-        .target = .{ .answer = .{ .target = target, .payload = payload } },
+        .target = .{ .target = target, .payload = payload },
+        .stored = stored,
+    });
+}
+
+/// The chain outcome for an answer that already holds its resolution, or
+/// null while it is still pending. Peeking the stored value rather than the
+/// status flag is what lets work that arrives while the answer's own resolve
+/// is still a queued outbound message see the real value.
+pub fn settledOutcome(peer: *Peer, target: session.AnswerTarget) ?Outcome {
+    const payload = peer.session_state.answerPayloadForTarget(target) orelse return null;
+    const stored = peer.session_state.answerPayloadStoredResolution(payload) orelse return null;
+    return follow(peer, .{
+        .target = .{ .target = target, .payload = payload },
         .stored = stored,
     });
 }

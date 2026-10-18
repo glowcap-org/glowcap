@@ -19,7 +19,7 @@ test "loam engine resource lifecycle recovers moves, child indexes, content and 
         const seed = try r.seed(&store, &db);
         const destination = try h.f.resource(&store, &db, seed.data.owner, seed.root);
         var caps = try r.storage.Capabilities.init(h.a, &store, .{});
-        const descriptor = try h.c.descriptor(&caps, &db, seed.data.owner, seed.data.grant, null, false);
+        const descriptor = try h.c.descriptor(&caps, &db, seed.data.owner, seed.data.grant, null, .reachable);
         try caps.deinit();
         {
             var server: h.Hosted = undefined;
@@ -115,7 +115,7 @@ test "loam engine resource lifecycle reopens moves out of and into subtree scope
         if (refusal) |reason| try std.testing.expectEqualStrings(reason, answer.reason()) else try std.testing.expectEqual(@as(?i64, 0), answer.number);
         var caps = try r.storage.Capabilities.init(h.a, &store, .{});
         defer caps.deinit() catch unreachable;
-        const use = try h.c.descriptor(&caps, &db, seed.data.owner, seed.data.grant, null, false);
+        const use = try h.c.descriptor(&caps, &db, seed.data.owner, seed.data.grant, null, .reachable);
         try r.children(&caps, &db, use, seed.root, if (action == .move and action.move.?.eql(seed.root)) &.{seed.leaf} else &.{});
         const content = try h.c.load(&store, &db, seed.data.content);
         try std.testing.expectEqual(@as(usize, 8), (try store.currentView(content)).payload.len);

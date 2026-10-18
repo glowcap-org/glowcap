@@ -253,7 +253,7 @@ test "truncated and oversized handshake messages are refused by shape" {
     );
     try std.testing.expectError(
         noise.NoiseError.PayloadTooLong,
-        answerer.readMessage(scratch[0 .. noise.MAX_MESSAGE_BYTES + 1], scratch[0..0]),
+        answerer.readMessage(scratch[0 .. noise.max_message_bytes + 1], scratch[0..0]),
     );
     answerer.deinit();
 }
@@ -336,14 +336,14 @@ test "record framing round-trips and holds its bounds" {
     var open_buf: [512]u8 = undefined;
 
     const record = try noise.sealRecord(&sender, "one captp frame", &record_buf);
-    const body_len = noise.recordBodyLen(record[0..noise.RECORD_HEADER_BYTES].*);
-    try std.testing.expectEqual(record.len - noise.RECORD_HEADER_BYTES, body_len);
-    const opened = try noise.openRecord(&receiver, record[noise.RECORD_HEADER_BYTES..], &open_buf);
+    const body_len = noise.recordBodyLen(record[0..noise.record_header_bytes].*);
+    try std.testing.expectEqual(record.len - noise.record_header_bytes, body_len);
+    const opened = try noise.openRecord(&receiver, record[noise.record_header_bytes..], &open_buf);
     try std.testing.expectEqualStrings("one captp frame", opened);
 
-    var big: [noise.MAX_RECORD_PLAINTEXT_BYTES + 1]u8 = undefined;
+    var big: [noise.max_record_plaintext_bytes + 1]u8 = undefined;
     @memset(&big, 0);
-    var big_out: [noise.MAX_RECORD_BYTES + noise.RECORD_HEADER_BYTES + 1]u8 = undefined;
+    var big_out: [noise.max_record_bytes + noise.record_header_bytes + 1]u8 = undefined;
     try std.testing.expectError(
         noise.NoiseError.PayloadTooLong,
         noise.sealRecord(&sender, &big, &big_out),

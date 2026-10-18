@@ -58,7 +58,7 @@ pub fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type, comptime 
             backed: Backed,
         };
 
-        const word_bytes = @sizeOf(u64);
+        const word_bytes = model.run_word_bytes;
         /// What a word of a run reads as, or `void` for a shape with no run.
         pub const RunElem = if (Run) |R| R.Elem else void;
         /// What `nextRef` lends, the element type a walk over any sequence

@@ -41,8 +41,8 @@ const Desk = struct {
         // proxy is an ordinary actor whose handler forwards `play` and breaks
         // everything else, so the reply grants exactly one verb of authority.
         const record = try turn.spawn(Record, .{ .title = "Blue Train" });
-        const guarded = try actors.attenuate(turn.vat, record, &.{"play"});
-        const port = turn.port orelse return error.NotConnected;
+        const guarded = try actors.ocap.attenuate(turn.vat, record, &.{"play"});
+        const port = turn.port() orelse return error.NotConnected;
         return .{ .reference = .{ .near = try port.projectActor(turn.vat, guarded) } };
     }
 };

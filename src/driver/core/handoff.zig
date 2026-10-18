@@ -48,10 +48,10 @@ fn releaseGiftTarget(ctx: ?*anyopaque, target: u64) void {
     host.vat.releaseActor(target);
 }
 
-fn projectGiftTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, target: u64) !engine.bootstrap.gifts.ProjectedLocalTarget {
+fn projectGiftTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, target: u64) engine.bootstrap.gifts.LocalObjectProjection.Error!engine.bootstrap.gifts.ProjectedLocalTarget {
     const host: *Host = @ptrCast(@alignCast(ctx.?));
     const session = host.sessions.get(scope) orelse return error.UnknownCapability;
-    if (!session.host.vat.hasActor(target)) return actors.Error.NoSuchActor;
+    if (!session.host.vat.hasActor(target)) return error.NoSuchActor;
     const projection = try session.served.port.prepareProjection(&host.vat, .{ .local = target });
     return .{
         .export_position = projection.near.export_position,
@@ -95,10 +95,7 @@ pub fn wireNodeServices(self: *Host) void {
 /// Borrow the in-flight pending dial for `ticket`, or null if settled.
 /// Same contract as `Node.pendingDial`.
 pub fn pendingDial(self: *const Host, ticket: engine.Node.PendingId, route_index: usize) ?engine.Node.PendingDialView {
-    switch (self.lifecyclePhase()) {
-        .active, .finishing => {},
-        .terminating, .closed => return null,
-    }
+    if (!self.lifecyclePhase().serving()) return null;
     return self.node.pendingDial(ticket, route_index);
 }
 
@@ -202,17 +199,21 @@ pub fn giftIdFailed(self: *Host, ticket: u64) !void {
     finishCommittedEffect(self);
 }
 
-/// Redeem a signed give that must settle the partner-owned wire `answer`.
-/// Embedders use this when their protocol has already installed that answer. An
-/// application-delivered inline give uses `acceptInlineGive` instead. Running
-/// this as a Host verb moves a queued exporter dial onto the action queue.
-/// Top-level: refused from inside a callback.
+/// Redeem a signed give that must settle the question this session asked at
+/// wire position `answer`. Embedders use this when their protocol has already
+/// installed that answer. A position naming no pending question is refused as
+/// `InvalidArgument`. An application-delivered inline give uses
+/// `acceptInlineGive` instead. Running this as a Host verb moves a queued
+/// exporter dial onto the action queue. Top-level: refused from inside a
+/// callback.
 pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const u8, exporter_locator: []const u8) !void {
     try self.refuseReentry();
     try self.admitApplicationOperation();
     try self.admitSessionOperation(session);
     try self.checkSession(session);
-    try self.node.acceptGive(session.peer_handle, answer, give, exporter_locator);
+    const target = session.served.port.peer.session_state.outboundAnswerTarget(.from(answer)) orelse
+        return error.InvalidArgument;
+    try self.node.acceptGive(session.peer_handle, target, give, exporter_locator);
     finishCommittedEffect(self);
 }
 

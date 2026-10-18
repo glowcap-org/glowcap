@@ -42,8 +42,12 @@ interface ProbeGlobals {
 	__verdict: Promise<{ ok: boolean; reason?: string }>;
 }
 
-const ROOT = new URL("../../../", import.meta.url).pathname;
-const PROBE = `${ROOT}transports/webrtc/target/release/glowcap-webrtc-datachannel-probe`;
+// The build passes the probe it built, from the cargo step's target directory.
+const PROBE = Deno.args[0];
+if (PROBE == null) {
+	console.error("usage: datachannel_roundtrip_test.ts <probe-binary>");
+	Deno.exit(2);
+}
 
 const PING = "ping-from-browser";
 const EXPECTED_REPLY = `pong-from-probe:${PING}`;

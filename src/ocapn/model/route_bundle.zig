@@ -56,26 +56,7 @@ pub fn validateCombinedListBytes(first: []const u8, second: []const u8) ViewErro
     if (total > max_route_list_bytes) return error.UnparseableLocator;
 }
 
-/// One decoded byte at `at`, advancing past it. Every span that reaches here
-/// came through `uri_shape.inspect`, which refuses a `%` without two hex
-/// digits behind it, so the escape branch is the only one a validated span
-/// takes. The decoder still checks the two digits itself: a span that
-/// skipped that gate reads a bad or truncated escape as the literal `%`
-/// instead of slicing past the end, so this function is total and no caller
-/// has to remember the gate.
-fn decodedByte(bytes: []const u8, at: *usize) u8 {
-    const byte = bytes[at.*];
-    if (byte == '%' and at.* + 2 < bytes.len) {
-        const high = std.fmt.charToDigit(bytes[at.* + 1], 16) catch null;
-        const low = std.fmt.charToDigit(bytes[at.* + 2], 16) catch null;
-        if (high != null and low != null) {
-            at.* += 3;
-            return (high.? << 4) | low.?;
-        }
-    }
-    at.* += 1;
-    return byte;
-}
+const decodedByte = uri_shape.decodedByte;
 
 fn decodedEqual(left: []const u8, right: []const u8) bool {
     var left_at: usize = 0;
@@ -163,15 +144,6 @@ fn inspectRouteUri(uri_text: []const u8) ViewError!RouteUriView {
     };
 }
 
-/// One parsed dial path. Every field is owned by the enclosing bundle. `hints`
-/// stays complete because transport-specific residents may consume entries the
-/// generic dial planner does not know.
-pub const Path = struct {
-    transport: []const u8,
-    designator: []const u8,
-    hints: model.Hints,
-};
-
 pub const Source = enum {
     peer_locator,
     id,
@@ -183,19 +155,16 @@ pub const Owned = struct {
     identity: []u8,
     /// Stable source order. The index is the route's default dial rank and is
     /// preserved through Node actions and every binding-facing completion.
-    paths: []Path,
+    /// Each path keeps its complete hints, because a transport resident may
+    /// consume entries the generic dial planner does not know.
+    paths: []model.PeerLocator,
     /// Prefix of `paths` whose authenticated channel must prove the outer `id`
     /// designator. Remaining paths are weak handoff fallbacks: they may redeem
     /// the gift that authorized their dial, but never establish this identity.
     identity_path_count: usize = 0,
 
     pub fn view(self: Owned, index: usize) model.PeerLocator {
-        const path = self.paths[index];
-        return .{
-            .transport = path.transport,
-            .designator = path.designator,
-            .hints = path.hints,
-        };
+        return self.paths[index];
     }
 
     pub fn pathRequiresIdentity(self: Owned, index: usize) bool {
@@ -204,7 +173,7 @@ pub const Owned = struct {
 
     /// Release only the paths when another owner adopts `identity`.
     pub fn deinitPaths(self: *const Owned, allocator: std.mem.Allocator) void {
-        for (self.paths) |path| deinitPath(allocator, path);
+        for (self.paths) |path| model.freePeerLocator(allocator, path);
         allocator.free(self.paths);
     }
 
@@ -214,29 +183,14 @@ pub const Owned = struct {
     }
 };
 
-pub fn deinitPath(allocator: std.mem.Allocator, path: Path) void {
-    allocator.free(path.transport);
-    allocator.free(path.designator);
-    model.freeHints(allocator, path.hints);
-}
-
-fn hintValuesEqual(left: model.HintValue, right: model.HintValue) bool {
-    if (std.meta.activeTag(left) != std.meta.activeTag(right)) return false;
-    return switch (left) {
-        .string => |value| std.mem.eql(u8, value, right.string),
-        .bytes => |value| std.mem.eql(u8, value, right.bytes),
-        .boolean => |value| value == right.boolean,
-        .integer => |value| value == right.integer,
-    };
-}
-
-fn hintsEqual(left: model.Hints, right: model.Hints) bool {
+/// The same hints in any order, without the wire form: equal route advice.
+fn hintSetsEqual(left: model.Hints, right: model.Hints) bool {
     if (left.entries.len != right.entries.len) return false;
     for (left.entries) |left_entry| {
         var found = false;
         for (right.entries) |right_entry| {
             if (std.mem.eql(u8, left_entry.name, right_entry.name) and
-                hintValuesEqual(left_entry.value, right_entry.value))
+                left_entry.value.eql(right_entry.value))
             {
                 found = true;
                 break;
@@ -247,14 +201,14 @@ fn hintsEqual(left: model.Hints, right: model.Hints) bool {
     return true;
 }
 
-fn pathHintsEqual(left: Path, right: Path) bool {
+fn pathHintsEqual(left: model.PeerLocator, right: model.PeerLocator) bool {
     const known = model.transport.parseKnown(left.transport) orelse
-        return hintsEqual(left.hints, right.hints);
+        return hintSetsEqual(left.hints, right.hints);
     // An address-designator transport dials from the designator alone. Its
     // URI hints remain advisory metadata, while any top-level alt-locators
     // have already become explicit paths in this bundle.
     if (known.metadata().address_source == .designator) return true;
-    return hintsEqual(left.hints, right.hints);
+    return hintSetsEqual(left.hints, right.hints);
 }
 
 /// Whether two bundles would execute the same ordered physical dial plan.
@@ -294,7 +248,7 @@ fn hintValue(hints: model.Hints, name: []const u8) ?[]const u8 {
     return null;
 }
 
-fn parsePath(allocator: std.mem.Allocator, route: RouteUriView) Error!Path {
+fn parsePath(allocator: std.mem.Allocator, route: RouteUriView) Error!model.PeerLocator {
     const parsed = model.uri.Internal.materializeInspectedPeer(
         allocator,
         route.transport_encoded,
@@ -310,11 +264,7 @@ fn parsePath(allocator: std.mem.Allocator, route: RouteUriView) Error!Path {
         model.freePeerLocator(allocator, parsed);
         return error.UnparseableLocator;
     }
-    return .{
-        .transport = parsed.transport,
-        .designator = parsed.designator,
-        .hints = parsed.hints,
-    };
+    return parsed;
 }
 
 const AcceptRoute = struct {
@@ -323,7 +273,7 @@ const AcceptRoute = struct {
 
 fn appendUriList(
     allocator: std.mem.Allocator,
-    paths: *std.ArrayListUnmanaged(Path),
+    paths: *std.ArrayListUnmanaged(model.PeerLocator),
     value: []const u8,
     validator: anytype,
 ) !void {
@@ -334,18 +284,14 @@ fn appendUriList(
         try validator.validate(route);
         const path = try parsePath(allocator, route);
         var path_owned = true;
-        errdefer if (path_owned) deinitPath(allocator, path);
+        errdefer if (path_owned) model.freePeerLocator(allocator, path);
         try paths.append(allocator, path);
         path_owned = false;
     }
 }
 
 fn identityForLocator(allocator: std.mem.Allocator, locator: model.PeerLocator) Error![]u8 {
-    return model.uri.writePeer(allocator, .{
-        .transport = locator.transport,
-        .designator = locator.designator,
-        .hints = model.Hints.emptyFalse(),
-    }) catch |err| switch (err) {
+    return model.uri.writePeer(allocator, locator.bare()) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.UnparseableLocator,
     };
@@ -359,17 +305,13 @@ fn fromOwnedPrimary(
     var primary_owned = true;
     errdefer if (primary_owned) model.freePeerLocator(allocator, primary);
 
-    var paths: std.ArrayListUnmanaged(Path) = .empty;
+    var paths: std.ArrayListUnmanaged(model.PeerLocator) = .empty;
     errdefer {
-        for (paths.items) |path| deinitPath(allocator, path);
+        for (paths.items) |path| model.freePeerLocator(allocator, path);
         paths.deinit(allocator);
     }
 
-    try paths.append(allocator, .{
-        .transport = primary.transport,
-        .designator = primary.designator,
-        .hints = primary.hints,
-    });
+    try paths.append(allocator, primary);
     primary_owned = false;
 
     if (locatorHasHint(primary, extra_hint_name)) {
@@ -479,9 +421,9 @@ fn fromIdLocatorWithPathSet(
         null;
     if (alternatives) |weak| try validateCombinedListBytes(routes, weak);
 
-    var paths: std.ArrayListUnmanaged(Path) = .empty;
+    var paths: std.ArrayListUnmanaged(model.PeerLocator) = .empty;
     errdefer {
-        for (paths.items) |path| deinitPath(allocator, path);
+        for (paths.items) |path| model.freePeerLocator(allocator, path);
         paths.deinit(allocator);
     }
     try appendUriList(allocator, &paths, routes, validator);
@@ -499,11 +441,7 @@ fn fromIdLocatorWithPathSet(
     };
     if (paths.items.len > max_route_list_count) return error.UnparseableLocator;
 
-    const identity = try identityForLocator(allocator, .{
-        .transport = locator.transport,
-        .designator = locator.designator,
-        .hints = model.Hints.emptyFalse(),
-    });
+    const identity = try identityForLocator(allocator, locator.bare());
     errdefer allocator.free(identity);
     return .{
         .source = .id,

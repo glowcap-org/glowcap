@@ -2,9 +2,8 @@
 //! `engine.Peer`, the serve loop, and the byte-fed drive. It is socket-free: the
 //! `driver_core` layer's I/O ban keeps it that way. The byte-fed `Host` holds
 //! one per session, and `driver.HostRuntime` (in the `driver` layer) feeds
-//! those from its wires (ADR-0072). The callback types keep `anyerror` return
-//! sets: their implementors are application code unknown at these
-//! declarations.
+//! those from its wires (ADR-0072). `Publish` keeps an `anyerror` return set:
+//! its implementors are application code unknown at this declaration.
 
 const std = @import("std");
 
@@ -22,7 +21,11 @@ const Exported = vocab.Exported;
 /// A hook run before the vat serves each drained event. Return true to claim
 /// the event and skip the vat's serve dispatch. A hook error propagates out of
 /// the driver surface that drove the serve loop.
-pub const BeforeServeHook = *const fn (ctx: ?*anyopaque, served: *Served, event: *engine.Event) anyerror!bool;
+pub const BeforeServeHook = *const fn (ctx: ?*anyopaque, served: *Served, event: *engine.Event) BeforeServeError!bool;
+
+/// A hook's errors leave through the Host's feed verbs, so every hook answers
+/// within the set of the hook the Host installs and each one stays classified.
+pub const BeforeServeError = @import("host/interception.zig").BeforeServeError;
 
 /// A drive polled an event and then could not serve it. The event is
 /// already owned by (and deinitialized with) the drive, so retrying the drive
@@ -180,14 +183,7 @@ pub const Served = struct {
             if (self.port.peer.pollEvent()) |event_value| {
                 self.budgeted_local_turns = 0;
                 var event = event_value;
-                defer event.deinit();
-                self.serveEvent(vat, &event) catch |err| switch (err) {
-                    // `pollEvent` transferred ownership above. There is no
-                    // replay-safe queue operation after a serve hook or Port
-                    // may have committed part of the event's effects.
-                    error.OutOfMemory => return DriveError.EventServeOutOfMemory,
-                    else => return err,
-                };
+                try self.serveTransferred(vat, &event);
             }
         }
         // A zero local-turn budget is a probe, not an implicit one-turn
@@ -276,6 +272,18 @@ pub const Served = struct {
         }
     }
 
+    /// Serve one event `pollEvent` transferred, then release it. There is
+    /// no replay-safe queue operation after a serve hook or Port may have
+    /// committed part of the event's effects, so allocation pressure during
+    /// the serve is terminal for the session rather than retryable.
+    fn serveTransferred(self: *Served, vat: *actors.Vat, event: *engine.Event) !void {
+        defer event.deinit();
+        self.serveEvent(vat, event) catch |err| switch (err) {
+            error.OutOfMemory => return error.EventServeOutOfMemory,
+            else => return err,
+        };
+    }
+
     /// The blocking serve loop: serve every event the peer surfaced, then drive
     /// queued local turns to quiescence (or to `local_turn_budget`, when one is
     /// configured). Transport-free: a socket `step` and a byte-fed
@@ -285,14 +293,7 @@ pub const Served = struct {
     pub fn drainEvents(self: *Served, vat: *actors.Vat) !void {
         while (self.port.peer.pollEvent()) |event_value| {
             var event = event_value;
-            defer event.deinit();
-            self.serveEvent(vat, &event) catch |err| switch (err) {
-                // `pollEvent` transferred ownership above. There is no
-                // replay-safe queue operation after a serve hook or Port may
-                // have committed part of the event's effects.
-                error.OutOfMemory => return DriveError.EventServeOutOfMemory,
-                else => return err,
-            };
+            try self.serveTransferred(vat, &event);
         }
         // Run any queued local turns so a local-target `send` settles through the
         // same drive that settles far sends. Nothing else calls `drive`, so a
@@ -344,42 +345,51 @@ pub const Served = struct {
     /// Returns the capability at its allocated export position, carrying the
     /// vat-local `ref` so the publisher can keep talking to its own actor.
     pub fn publish(self: *Served, vat: *actors.Vat, name: []const u8, comptime Behavior: type, initial: Behavior) !Exported {
-        const prior = self.port.peer.session_state.bootstrapLookup(name);
-        const position = try self.port.peer.registerBootstrapCap(name);
-        errdefer {
-            self.port.peer.session_state.restoreBootstrapMapping(name, prior);
-            self.port.peer.session_state.releaseUnsharedExport(.from(position));
-        }
-        const ref = try vat.spawn(Behavior, initial);
-        errdefer vat.discardFreshActor(ref);
-        try self.port.bindExport(vat, ref, position);
-        // The export binding roots the actor; the spawn root transfers to it
-        // (ADR-0101), so a session-published object lives exactly as long as
-        // some relationship (this binding, a lift, a gift) holds it.
-        vat.releaseActor(switch (ref) {
-            .local => |id| id,
-            .far => unreachable,
-        });
-        return .{ .position = position, .ref = ref };
+        return self.publishSpawned(vat, name, struct {
+            initial: Behavior,
+            fn spawn(s: @This(), v: *actors.Vat) !actors.Ref {
+                return v.spawn(Behavior, s.initial);
+            }
+            fn abandon(_: @This()) void {}
+        }{ .initial = initial });
     }
 
     /// Foreign-callback twin of `publish`. The HostedActor transfers into this
     /// operation on every outcome, including a name-registration failure before
     /// the Vat sees it.
     pub fn publishHosted(self: *Served, vat: *actors.Vat, name: []const u8, hosted: actors.HostedActor) !Exported {
-        var hosted_pending = true;
-        defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
+        return self.publishSpawned(vat, name, struct {
+            hosted: actors.HostedActor,
+            fn spawn(s: @This(), v: *actors.Vat) !actors.Ref {
+                return v.spawnHosted(s.hosted);
+            }
+            /// A hosted object never handed to the Vat is freed here, on the
+            /// contract `spawnHosted` keeps once it has it.
+            fn abandon(s: @This()) void {
+                if (s.hosted.free) |free| free(s.hosted.ctx);
+            }
+        }{ .hosted = hosted });
+    }
 
+    /// Register `name`, spawn through `spawner` once the name holds, and bind
+    /// the export. `spawner.spawn` runs at most once; when registration
+    /// refuses first, `spawner.abandon` runs instead.
+    fn publishSpawned(self: *Served, vat: *actors.Vat, name: []const u8, spawner: anytype) !Exported {
         const prior = self.port.peer.session_state.bootstrapLookup(name);
-        const position = try self.port.peer.registerBootstrapCap(name);
+        const position = self.port.peer.registerBootstrapCap(name) catch |err| {
+            spawner.abandon();
+            return err;
+        };
         errdefer {
             self.port.peer.session_state.restoreBootstrapMapping(name, prior);
             self.port.peer.session_state.releaseUnsharedExport(.from(position));
         }
-        hosted_pending = false;
-        const ref = try vat.spawnHosted(hosted);
+        const ref = try spawner.spawn(vat);
         errdefer vat.discardFreshActor(ref);
         try self.port.bindExport(vat, ref, position);
+        // The export binding roots the actor; the spawn root transfers to it
+        // (ADR-0101), so a session-published object lives exactly as long as
+        // some relationship (this binding, a lift, a gift) holds it.
         vat.releaseActor(switch (ref) {
             .local => |id| id,
             .far => unreachable,
@@ -402,7 +412,7 @@ pub const Served = struct {
     pub fn sendBootstrapFetch(self: *Served, vat: *actors.Vat, name: []const u8) !actors.Vow {
         return self.port.send(
             vat,
-            .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
+            .{ .far = model.FarRef.object(engine.bootstrap_position) },
             .{ .verb = "fetch", .args = &.{.{ .bytes = name }} },
         );
     }
@@ -431,7 +441,7 @@ pub const Served = struct {
     pub fn sendToAnswer(self: *Served, vat: *actors.Vat, vow: actors.Vow, msg: actors.Message) !actors.Vow {
         return switch (vow) {
             .far => |answer_pos| self.port.sendToAnswer(vat, answer_pos, msg),
-            .local => Error.NotPipelineable,
+            .local => error.NotPipelineable,
         };
     }
 
@@ -440,7 +450,7 @@ pub const Served = struct {
     pub fn tellToAnswer(self: *Served, vat: *actors.Vat, vow: actors.Vow, msg: actors.Message) !void {
         return switch (vow) {
             .far => |answer_pos| self.port.tellToAnswer(vat, answer_pos, msg),
-            .local => Error.NotPipelineable,
+            .local => error.NotPipelineable,
         };
     }
 

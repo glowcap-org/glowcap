@@ -11,27 +11,29 @@ const settlement = @import("settlement.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const VowRow = settlement.VowRow;
+const PendingCancel = settlement.PendingCancel;
 
-fn cancelPending(self: *Host, row: *VowRow, session: *HostSession) !void {
-    std.debug.assert(!row.settled);
-    switch (row.pending_cancel) {
-        .unpublished => unreachable,
-        .row_listener => |installed| {
-            const listener = session.served.port.takeListener(&self.vat, row.vow) orelse
-                unreachable;
-            std.debug.assert(listener.func == installed.func and listener.ctx == installed.ctx);
-        },
-        .infallible, .shared_answer => |owned| owned.func(self, row.id, owned.owner),
-        .fallible_no_answer => |owned| {
-            std.debug.assert(row.answer_release == .none);
-            try owned.func(self, row.id, owned.owner);
-        },
-    }
-    self.finishSessionOperation(session);
-    settlement.markRowSettled(self, row);
+fn cancelPending(self: *Host, row: *VowRow, session: *HostSession) PendingCancel.CancelError!void {
+    return cancelPendingWith(self, row, session, .fallible);
 }
 
 fn cancelPendingTerminal(self: *Host, row: *VowRow, session: *HostSession) void {
+    cancelPendingWith(self, row, session, .terminal);
+}
+
+/// Whether a cancel may refuse. A terminal cancel runs where no refusal has
+/// a receiver (teardown, a failed admission's unwind), so the fallible half
+/// takes its terminal callback there.
+const CancelMode = enum { fallible, terminal };
+
+fn CancelResult(comptime mode: CancelMode) type {
+    return switch (mode) {
+        .fallible => PendingCancel.CancelError!void,
+        .terminal => void,
+    };
+}
+
+fn cancelPendingWith(self: *Host, row: *VowRow, session: *HostSession, comptime mode: CancelMode) CancelResult(mode) {
     std.debug.assert(!row.settled);
     switch (row.pending_cancel) {
         .unpublished => unreachable,
@@ -41,7 +43,13 @@ fn cancelPendingTerminal(self: *Host, row: *VowRow, session: *HostSession) void 
             std.debug.assert(listener.func == installed.func and listener.ctx == installed.ctx);
         },
         .infallible, .shared_answer => |owned| owned.func(self, row.id, owned.owner),
-        .fallible_no_answer => |owned| owned.terminal_func(self, row.id, owned.owner),
+        .fallible_no_answer => |owned| switch (mode) {
+            .fallible => {
+                std.debug.assert(row.answer_release == .none);
+                try owned.func(self, row.id, owned.owner);
+            },
+            .terminal => owned.terminal_func(self, row.id, owned.owner),
+        },
     }
     self.finishSessionOperation(session);
     settlement.markRowSettled(self, row);
@@ -58,8 +66,7 @@ pub fn cancelObserved(self: *Host, vow_id: u64, listener: actors.Listener) void 
     const session = self.sessions.get(row.peer().?) orelse unreachable;
     cancelPendingTerminal(self, row, session);
     settlement.settleObservedAnswer(self, row, session);
-    std.debug.assert(self.vows.remove(vow_id));
-    self.allocator.destroy(row);
+    settlement.retireRow(self, row);
 }
 
 /// Release one public Host vow. A peer-visible answer emits `op:gc-answer`. A
@@ -67,10 +74,16 @@ pub fn cancelObserved(self: *Host, vow_id: u64, listener: actors.Listener) void 
 /// answer. Every fallible no-answer cancellation completes before another
 /// effect, and peer-visible release is queued before infallible producer teardown,
 /// so an error always leaves one retryable public handle.
+///
+/// Cancelling a producer can publish wire GC for its retained arguments. A pump
+/// at that point could run the producer's own settlement, such as a promise
+/// break parked behind outbound pressure, while this release still holds the
+/// row and the operation. The callback latch holds until the row is retired,
+/// and the committed work drains once afterward, including after a refusal.
 pub fn release(self: *Host, vow_id: u64) !void {
     try self.refuseReentry();
     const row = self.vows.get(vow_id) orelse return;
-    if (row.inner != null) return actors.Error.AlreadyListening;
+    if (row.inner != null) return error.AlreadyListening;
     if (row.owner == .owning) {
         if (row.owner.owning.destination != .public) return error.SessionlessVow;
         @import("../host/local_completion.zig").releasePending(self, row);
@@ -78,20 +91,20 @@ pub fn release(self: *Host, vow_id: u64) !void {
     }
     const peer_handle = row.peer() orelse {
         std.debug.assert(row.settled);
-        std.debug.assert(self.vows.remove(vow_id));
-        self.allocator.destroy(row);
+        settlement.retireRow(self, row);
         return;
     };
     const session = self.sessions.get(peer_handle) orelse {
         std.debug.assert(row.settled);
-        std.debug.assert(self.vows.remove(vow_id));
-        self.allocator.destroy(row);
+        settlement.retireRow(self, row);
         return;
     };
-    const wire_dead = switch (session.lifecyclePhase()) {
-        .cancel_pending, .terminating => true,
-        .active, .finishing => !session.sessionOpen(),
-    };
+    const hold = self.callback_latch.hold();
+    defer {
+        hold.release();
+        host_pump.finishCommittedWork(self, session);
+    }
+    const wire_dead = !session.wireLive();
     if (row.answer_release == .shared_peer_visible) {
         const owned = row.pending_cancel.shared_answer;
         if (!row.settled) {
@@ -99,17 +112,14 @@ pub fn release(self: *Host, vow_id: u64) !void {
         } else {
             owned.func(self, row.id, owned.owner);
         }
-        std.debug.assert(self.vows.remove(vow_id));
-        self.allocator.destroy(row);
-        host_pump.finishCommittedWork(self, session);
+        settlement.retireRow(self, row);
         return;
     }
     if (wire_dead) {
         if (!row.settled) cancelPendingTerminal(self, row, session);
         settlement.cancelObserverRelease(row, session);
         settlement.retireAnswerInSession(row, session);
-        std.debug.assert(self.vows.remove(vow_id));
-        self.allocator.destroy(row);
+        settlement.retireRow(self, row);
         return;
     }
     try self.checkSession(session);
@@ -117,7 +127,6 @@ pub fn release(self: *Host, vow_id: u64) !void {
     if (!row.settled and row.pending_cancel == .fallible_no_answer)
         try cancelPending(self, row, session);
 
-    var flush = false;
     if (row.answer_release == .peer_visible) {
         const answer = switch (row.vow) {
             .far => |answer| answer,
@@ -126,18 +135,12 @@ pub fn release(self: *Host, vow_id: u64) !void {
         const peer = session.served.port.peer;
         const reservation = try peer.reserveAnswerRelease();
         peer.publishAnswerRelease(reservation, answer);
-        flush = true;
+        host_pump.markDirty(self, session.peer_handle);
     }
 
     if (!row.settled) try cancelPending(self, row, session);
     if (row.answer_release == .session_private) settlement.retireAnswerInSession(row, session);
-    std.debug.assert(self.vows.remove(vow_id));
-    self.allocator.destroy(row);
-
-    if (flush) {
-        host_pump.markDirty(self, session.peer_handle);
-        host_pump.finishCommittedWork(self, session);
-    }
+    settlement.retireRow(self, row);
 }
 
 /// Retire every vow edge owned by `session` before its Port is freed. Resolver
@@ -165,9 +168,8 @@ pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) v
             self.vat.breakVow(entry.vat_resolver, reason) catch unreachable;
             settlement.markRowSettled(self, row);
             std.debug.assert(self.resolver_index.remove(resolver_id));
-            std.debug.assert(self.vows.remove(entry.vow_id));
+            settlement.retireRow(self, row);
             self.finishSessionOperation(session);
-            self.allocator.destroy(row);
         }
     }
 
@@ -191,8 +193,7 @@ pub fn dropSessionRows(self: *Host, session: *HostSession, reason: []const u8) v
                 const owned = row.pending_cancel.shared_answer;
                 owned.func(self, row.id, owned.owner);
             }
-            std.debug.assert(self.vows.remove(id));
-            self.allocator.destroy(row);
+            settlement.retireRow(self, row);
         }
     }
 }

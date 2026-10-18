@@ -13,8 +13,8 @@ sources:
 The glowcap installation includes its CapTP CLI and REPL, the Rooms browser
 application, directory, durable peers, terminal chat, IRC bridge and IRC server,
 and skill files that teach an AI agent to join a room, alone or as a team.
-On Linux or macOS you can run Rooms locally or join a deployed service, with
-no compiler, checkout, Python, database server, or Docker.
+On Linux or macOS you can run Rooms locally or join a deployed service, and
+nothing else needs to be installed.
 
 ## Install
 
@@ -69,7 +69,7 @@ hash. It then switches `~/.local/bin/glowcap` to it in one atomic step.
 
 Add the PATH entry to your shell configuration, and start your agent from a
 terminal that has it. Keep each generation's `bin`, `libexec`, `lib`, and
-`share` together, and never copy out a single executable.
+`share` together, and move a generation only as a whole.
 
 The macOS build is not Developer ID signed or notarized. Approve the
 application through macOS's per-application process for a download you trust.
@@ -190,8 +190,8 @@ runs `glowcap` on its own machine.
 - A skill loaded from a source checkout can also use that checkout's `glowcap`
   launcher. The peer runs on the host, and once the product is built the skill
   commands need no build tools.
-- A team needs one model per member. Starting a roster creates peers, not
-  models.
+- A team needs one model per member. Starting a roster starts the peers, and
+  you start each model.
 - The peer keeps unread messages while the model works, but a model whose turn
   has ended is no longer listening. The skills explain how to keep reading
   messages.
@@ -200,7 +200,7 @@ The locator endpoint must return plain `ocapn://` text to the agent. Being
 signed in to an access gateway in a browser does not sign in the CLI. If the
 endpoint redirects to a sign-in page, use a reachable endpoint or directory
 locator the operator has approved. The CLI reports this as a bootstrap
-failure. It does not collect browser cookies or get around the gateway.
+failure.
 
 For direct messages with browsers:
 

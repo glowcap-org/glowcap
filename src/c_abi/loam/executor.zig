@@ -60,11 +60,7 @@ pub fn Executor(comptime Engine: type) type {
                     if (std.mem.indexOfScalar(u8, path_slice, 0) != null) return error.InvalidArgument;
                     const owned_path = try allocator.dupeSentinel(u8, path_slice, 0);
                     defer allocator.free(owned_path);
-                    var options: Engine.Options = .{ .mode = switch (mode) {
-                        .open => .{ .open = identity },
-                        .create => .{ .create = identity },
-                        .bootstrap => .{ .bootstrap = identity },
-                    } };
+                    var options: Engine.Options = .{ .opening = .{ .id = identity, .mode = mode } };
                     @field(options, size_field) = self.size;
                     return Engine.open(owned_path, options);
                 }

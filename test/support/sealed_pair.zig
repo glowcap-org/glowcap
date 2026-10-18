@@ -26,14 +26,14 @@ pub fn keyedDesignator(seed: [32]u8) [crypto.PeerKey.designator_len]u8 {
 /// rooted at `root_byte` so two hosts never share one.
 pub fn sealedHost(
     allocator: std.mem.Allocator,
-    durable_seed: [crypto.SEED_BYTES]u8,
+    durable_seed: [crypto.seed_bytes]u8,
     root_byte: u8,
     options: Host.Options,
 ) Host {
     return test_host.initWithRoot(
         allocator,
         durable_seed,
-        @as([crypto.SEED_BYTES]u8, @splat(root_byte)),
+        @as([crypto.seed_bytes]u8, @splat(root_byte)),
         options,
     );
 }

@@ -113,7 +113,8 @@ test "access applicability refuses unknown and incompatible placements atomicall
 
 fn append(store: *@import("owner_fixture.zig").loam.core.Store, backend: anytype, owner: @import("owner_fixture.zig").loam.core.ObjectId, kind: core.KindId, parent: ?core.ResourceId) !core.ResourceId {
     const stored = @import("owner_fixture.zig");
-    var read = try stored.storage.Read.init(a, store, owner, 6);
+    var read: stored.storage.Read = undefined;
+    try read.init(a, store, owner, 6, null);
     defer read.deinit() catch unreachable;
     _ = try stored.pump(&read, backend);
     var pending = try stored.storage.Append.init(&read, .resource);
@@ -154,7 +155,8 @@ test "access applicability preserves persisted placement rules after cold reload
     _ = try append(store, backend, owner, message, destination);
     try std.testing.expect(try resource.change(store, backend, owner, child, .{ .move = destination }));
     store.evict();
-    var read = try stored.storage.Read.init(a, store, owner, 6);
+    var read: stored.storage.Read = undefined;
+    try read.init(a, store, owner, 6, null);
     defer read.deinit() catch unreachable;
     _ = try stored.pump(&read, backend);
     for (0..128) |_| {

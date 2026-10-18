@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Fetch and safely extract the pinned official Mbed TLS release source.
+#
+# dep Mbed TLS: TLS for the relay transport's `wss://` connections from Zig and
+#   its C archive, built from the official release source.
 
 set -euo pipefail
 

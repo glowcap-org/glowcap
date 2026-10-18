@@ -206,7 +206,7 @@ test "loam cold discovery shares managed durable-name preparation read and its t
         var worker: Worker = .init(&slot, backend.readerCapacity());
         const descriptor = waiting: for (0..64) |_| {
             try server.attached.advance();
-            while (try worker.next(server.attached, false)) |work| {
+            while (try worker.next(server.attached, .when_uncertain)) |work| {
                 try Worker.run(work, &backend);
                 const read = work.request.read;
                 const view = try h.loam.core.RecordView.decode(read.buffer[0..work.result.?.read.found.length], store.limits.records, &h.schemas);

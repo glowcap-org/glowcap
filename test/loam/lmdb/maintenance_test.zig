@@ -11,7 +11,7 @@ test "loam LMDB maintenance reopens every bounded retirement phase without resur
     defer h.a.free(path);
     const terminated = try h.a.dupeSentinel(u8, path, 0);
     defer h.a.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = h.f.store_id } });
+    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -22,7 +22,7 @@ test "loam LMDB maintenance reopens every bounded retirement phase without resur
         try store.deinit();
         try db.compact();
         try db.close();
-        db = try Lmdb.open(terminated, .{ .mode = .{ .open = h.f.store_id } });
+        db = try Lmdb.open(terminated, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
         store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
         try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
         result = try maintenance.change(&store, &db, data.owner, .step, result.sequence);
@@ -66,7 +66,7 @@ test "loam LMDB maintenance preserves expired and retired receipt refusal throug
     defer h.a.free(path);
     const terminated = try h.a.dupeSentinel(u8, path, 0);
     defer h.a.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = h.f.store_id } });
+    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
     defer db.close() catch unreachable;
     var store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     defer store.deinit() catch unreachable;
@@ -110,7 +110,7 @@ test "loam LMDB maintenance preserves expired and retired receipt refusal throug
     try store.deinit();
     try db.compact();
     try db.close();
-    db = try Lmdb.open(terminated, .{ .mode = .{ .open = h.f.store_id } });
+    db = try Lmdb.open(terminated, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
     store = try h.loam.core.Store.init(h.a, db.metadata, &h.schemas, h.limits);
     try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
     var server: h.Hosted = undefined;

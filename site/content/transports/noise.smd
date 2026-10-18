@@ -7,8 +7,10 @@
 ---
 
 `noise-tcp` seals a CapTP session between two glowcap peers over ordinary TCP.
-Before any CapTP byte moves, the peers run a [Noise_XK](https://noiseprotocol.org/noise.html) handshake, and after that they exchange only encrypted records. Completing the handshake proves the far end holds
-the dialed durable key. A replayed handshake is refused.
+Before any CapTP byte moves, the peers run a
+[Noise_XK](https://noiseprotocol.org/noise.html) handshake, and after that
+they exchange only encrypted records. Completing the handshake proves the far
+end holds the dialed durable key. A replayed handshake is refused.
 `keyed-tcp` uses the same designator but leaves CapTP frames in the clear.
 [ADR-0107](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0107-sealed-byte-channel.md)
 explains the design.
@@ -21,8 +23,7 @@ netlayer, so these transports connect glowcap to glowcap. To meet Goblins, use
 with this repository's Goblins adapter, or cleartext `tcp` for testing. Prefer
 `noise-tcp` when two glowcap peers already share a TCP route and only need the
 stream sealed, and iroh when they also need discovery or NAT traversal.
-[Choosing a transport]($link.page('transports/choosing')) has the full decision
-table.
+[Choosing a transport]($link.page('transports/choosing')) compares them all.
 
 # Dial
 
@@ -422,6 +423,6 @@ still handshake with each other, and the relay only moves opaque records.
 
 The Rust, Python, TypeScript, and Racket bindings dial and register through the
 relay provider package. A browser peer speaks the same `noise-relay` through
-its WebSocket connector. Rooms uses it for direct messages through the room's own relay,
-beside the default WebRTC channel.
+its WebSocket connector. Rooms can carry direct messages over it through the room's own
+relay instead of the default WebRTC channel.
 [What you can depend on]($link.page('stability')) lists the checks.

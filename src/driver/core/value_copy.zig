@@ -1,6 +1,7 @@
 //! One bounded boundary copy for owning Values and plain model data.
 //! Capabilities preserve opaque identity. Conversion to model data refuses them.
 const std = @import("std");
+const Value = @import("value.zig").Value;
 
 /// The copy walk's error set is explicit because `copyAt`, `copySequence`,
 /// and `copyItem` are mutually recursive, which the compiler refuses to
@@ -12,7 +13,7 @@ pub fn copy(comptime To: type, allocator: std.mem.Allocator, value: anytype) Err
 }
 
 fn copyAt(comptime To: type, allocator: std.mem.Allocator, value: anytype, depth: usize) Error!To {
-    if (depth > 64) return error.ValueTooDeep;
+    if (depth > Value.max_depth) return error.ValueTooDeep;
     switch (value) {
         inline else => |payload, tag| {
             const name = @tagName(tag);
@@ -28,7 +29,7 @@ fn copyAt(comptime To: type, allocator: std.mem.Allocator, value: anytype, depth
             } else if (comptime std.mem.eql(u8, name, "struct")) {
                 return .{ .@"struct" = try copySequence(std.meta.Elem(@FieldType(To, name)), allocator, payload, depth) };
             } else if (comptime std.mem.eql(u8, name, "integers")) {
-                if (payload.len != 0 and depth == 64) return error.ValueTooDeep;
+                if (payload.len != 0 and depth == Value.max_depth) return error.ValueTooDeep;
                 // A run of integers copies as its words where the owner has
                 // the arm, and as the list it means where it does not.
                 if (comptime @hasField(To, "integers")) return .{ .integers = try allocator.dupe(i64, payload) };
@@ -58,8 +59,8 @@ pub fn measureSlice(values: []const @import("value.zig").Value) !usize {
     return bytes;
 }
 
-fn measureAt(value: @import("value.zig").Value, depth: usize) !usize {
-    if (depth > 64) return error.ValueTooDeep;
+fn measureAt(value: Value, depth: usize) !usize {
+    if (depth > Value.max_depth) return error.ValueTooDeep;
     var bytes: usize = 0;
     switch (value) {
         .bytes, .symbol, .string, .keyword => |leaf| bytes = leaf.len,

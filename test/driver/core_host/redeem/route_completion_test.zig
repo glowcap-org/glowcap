@@ -43,7 +43,7 @@ test "core host: id pending dial requires authenticated channel identity before 
     defer host.deinit();
 
     try host.setAdvertisedLocator(tcpLocator("127.0.0.1:7600"));
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x61))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x61))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
@@ -170,6 +170,7 @@ test "core host: baseline introducing sessions cannot redeem id vocabulary out o
     );
     defer allocator.free(id_locator);
 
+    try introducing_pair.a.served.port.peer.session_state.installOutboundAnswer(.from(47));
     try std.testing.expectError(
         error.FeatureNotNegotiated,
         client.acceptGive(introducing_pair.a, 47, "give-id", id_locator),
@@ -202,6 +203,7 @@ test "core host: a malformed id give cannot retain route advice" {
         .{ exporter_key[0..], exporter_key[0..] },
     );
     defer allocator.free(id_locator);
+    try introducing_pair.a.served.port.peer.session_state.installOutboundAnswer(.from(46));
     try client.acceptGive(introducing_pair.a, 46, "give-id", id_locator);
     const action = (try client.nextAction()).?;
     try std.testing.expect(action == .dial);

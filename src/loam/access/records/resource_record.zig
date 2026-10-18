@@ -22,6 +22,7 @@ pub const ResourceRecord = struct {
     /// Fixed-width identities and bounded integers keep this record below
     /// this cap. Decode checks it before invoking any length-prefixed reader.
     pub const max_encoded_bytes: usize = 384;
+    pub const max_edges = 2;
     pub const Error = error{ MalformedRecord, UnsupportedVersion, InvalidRecord, RecordTooLarge };
     const label = "access:resource";
 
@@ -33,10 +34,19 @@ pub const ResourceRecord = struct {
         return syrup.render.renderRecordExact(allocator, write, .{self});
     }
 
+    /// The live child of `parent` at `slot` that `view` holds.
+    pub fn decodeChildOf(view: loam.View, parent: core.ResourceId, slot: u32) Error!ResourceRecord {
+        const record = try decode(view);
+        const id = record.resource.id;
+        const canonical = record.resource.parent orelse return error.InvalidRecord;
+        if (!record.live or id.owner != parent.owner or id.slot != slot or !canonical.eql(parent)) return error.InvalidRecord;
+        return record;
+    }
+
     /// Returns owned scalar values with zero allocation or retained byte
     /// borrows. The record must be complete, canonical, and within the cap.
     pub fn decode(view: loam.View) Error!ResourceRecord {
-        if (view.schema != profile.resource or view.schema_version != 1) return error.InvalidRecord;
+        if (view.schema != profile.resource or view.schema_version != format_version) return error.InvalidRecord;
         if (view.payload.len > max_encoded_bytes) return error.RecordTooLarge;
         return decodeRecord(view) catch |err| switch (err) {
             error.UnsupportedVersion => error.UnsupportedVersion,
@@ -47,7 +57,7 @@ pub const ResourceRecord = struct {
 
     /// Child identity lives only in its strong edge. Parent model identity is
     /// encoded in the payload. The caller supplies its resolved storage target.
-    pub fn edges(self: ResourceRecord, parent: ?loam.ObjectId, buffer: *[2]loam.Edge) Error![]const loam.Edge {
+    pub fn edges(self: ResourceRecord, parent: ?loam.ObjectId, buffer: *[max_edges]loam.Edge) Error![]const loam.Edge {
         if ((parent != null) != (self.resource.parent != null)) return error.InvalidRecord;
         if (!self.live and (parent != null or self.children != null)) return error.InvalidRecord;
         var count: usize = 0;
@@ -56,12 +66,6 @@ pub const ResourceRecord = struct {
             count += 1;
         };
         return buffer[0..count];
-    }
-
-    fn strongTarget(edges_it: *loam.EdgeIterator, object: loam.ObjectId) Error!loam.ObjectId {
-        const edge = edges_it.next() orelse return error.InvalidRecord;
-        if (edge.strength != .strong or edge.target.store != object.store) return error.InvalidRecord;
-        return edge.target;
     }
 
     fn write(sink: anytype, self: ResourceRecord) !void {
@@ -100,8 +104,8 @@ pub const ResourceRecord = struct {
         const parent = try fields.readParent(core.ResourceId, bytes, &cursor);
         const live = try syntax.readBool(bytes, &cursor);
         var edges_it = view.edges();
-        if (parent != null) _ = try strongTarget(&edges_it, view.id);
-        const children = if (try syntax.readBool(bytes, &cursor)) try strongTarget(&edges_it, view.id) else null;
+        if (parent != null) _ = try fields.readEdge(&edges_it, view.id.store);
+        const children = if (try syntax.readBool(bytes, &cursor)) try fields.readEdge(&edges_it, view.id.store) else null;
         if (edges_it.next() != null) return error.InvalidRecord;
         if (!live and (parent != null or children != null)) return error.InvalidRecord;
         const placement = try Stamp.read(bytes, &cursor);

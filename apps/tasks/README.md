@@ -24,7 +24,7 @@ Use `add buy groceries`, `list`, `done 0`, or `quit`. A new board starts with a
 the second. Stop the server, start it again on the same directory, and the
 same name opens the same board.
 
-## Where the capabilities are
+## The board's capabilities
 
 The server publishes the board under its secret name. Every list and task is
 its own capability, reached from the board:

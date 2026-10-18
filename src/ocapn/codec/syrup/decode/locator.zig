@@ -10,6 +10,7 @@ const codec_order = @import("codec_order");
 
 const shared = @import("../shared.zig");
 const syntax = @import("syntax.zig");
+const values = @import("values.zig");
 
 const Error = shared.Error;
 
@@ -18,10 +19,7 @@ const Error = shared.Error;
 /// domain for start-session.
 pub fn readPeerLocatorView(bytes: []const u8, cursor: *usize) Error!model.view.PeerLocator {
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readLabel(bytes, cursor);
-    if (!std.mem.eql(u8, tag, "ocapn-peer")) {
-        return Error.MalformedFrame;
-    }
+    try syntax.expectSymbol(bytes, cursor, "ocapn-peer");
     const transport = try syntax.readSymbol(bytes, cursor);
     const designator = try syntax.readString(bytes, cursor);
     const hints = try readHintsView(bytes, cursor);
@@ -102,7 +100,7 @@ const HintWalk = struct {
     }
 
     fn next(self: *HintWalk) Error!?Entry {
-        if (self.cursor >= self.bytes.len) return Error.Incomplete;
+        if (self.cursor >= self.bytes.len) return Error.MalformedFrame;
         if (self.bytes[self.cursor] == '}') return null;
         const key_start = self.cursor;
         const name = try syntax.readString(self.bytes, &self.cursor);
@@ -139,13 +137,13 @@ const HintNameSet = struct {
 /// The digits of a length prefix or magnitude are scanned once to choose the
 /// reader.
 fn readHintValue(bytes: []const u8, cursor: *usize) Error!?model.HintValue {
-    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
     switch (bytes[cursor.*]) {
         't', 'f' => return .{ .boolean = try syntax.readBool(bytes, cursor) },
         '0'...'9' => {
             const run = syntax.scanDecimal(bytes[cursor.*..]);
             const marker_index = cursor.* + run.len;
-            if (marker_index >= bytes.len) return Error.Incomplete;
+            if (marker_index >= bytes.len) return Error.MalformedFrame;
             switch (bytes[marker_index]) {
                 '"' => return .{ .string = try syntax.readLeafScanned(bytes, cursor, run, '"') },
                 ':' => return .{ .bytes = try syntax.readLeafScanned(bytes, cursor, run, ':') },
@@ -155,18 +153,21 @@ fn readHintValue(bytes: []const u8, cursor: *usize) Error!?model.HintValue {
         },
         else => {},
     }
-    try syntax.skipSyrupValue(bytes, cursor);
+    // A value the hint grammar does not type is still Syrup: the argument
+    // walk admits exactly the values the body would, so no other grammar
+    // reaches a signed span.
+    _ = try values.readNeutralArgument(null, bytes, cursor, 0);
     return null;
 }
 
 fn readHintsView(bytes: []const u8, cursor: *usize) Error!model.view.BorrowedHints {
-    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
     if (bytes[cursor.*] == 'f') {
         cursor.* += 1;
         return .{ .empty = .boolean_false };
     }
     if (bytes[cursor.*] == '{') {
-        if (cursor.* + 2 > bytes.len) return Error.Incomplete;
+        if (cursor.* + 2 > bytes.len) return Error.MalformedFrame;
         if (bytes[cursor.* + 1] == '}') {
             cursor.* += 2;
             return .{ .empty = .map };
@@ -198,13 +199,13 @@ fn readHintsView(bytes: []const u8, cursor: *usize) Error!model.view.BorrowedHin
 /// Allocation failure propagates as `OutOfMemory`, never as a frame error:
 /// running out of heap is not evidence the partner sent untrusted bytes.
 fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.Hints {
-    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
     if (bytes[cursor.*] == 'f') {
         cursor.* += 1;
         return model.Hints.emptyFalse();
     }
     if (bytes[cursor.*] == '{') {
-        if (cursor.* + 2 > bytes.len) return Error.Incomplete;
+        if (cursor.* + 2 > bytes.len) return Error.MalformedFrame;
         if (bytes[cursor.* + 1] == '}') {
             cursor.* += 2;
             return model.Hints.emptyMap();
@@ -233,25 +234,18 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
     return Error.MalformedFrame;
 }
 
-/// Allocates hint entries. Free the result's hints with `model.freeHints`.
-/// Used for sturdyref arguments where the actor needs the hints (e.g. sturdyref
-/// enlivener extracting host/port).
+/// Read a locator into owned storage: the borrowed view materialized, then
+/// validated as a whole. Free it with `model.freePeerLocator`. Allocation
+/// failure propagates as `OutOfMemory`, never as a frame error.
 pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.PeerLocator {
-    try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readLabel(bytes, cursor);
-    if (!std.mem.eql(u8, tag, "ocapn-peer")) return Error.MalformedFrame;
-    const transport = try syntax.readSymbol(bytes, cursor);
-    const designator = try syntax.readString(bytes, cursor);
-    const hints = try readHintsOwned(allocator, bytes, cursor);
-    errdefer model.freeHints(allocator, hints);
-    try syntax.readByte(bytes, cursor, '>');
-    model.validatePeerLocator(.{
-        .transport = transport,
-        .designator = designator,
-        .hints = hints,
-    }) catch return Error.MalformedFrame;
-    const t = try allocator.dupe(u8, transport);
-    errdefer allocator.free(t);
-    const d = try allocator.dupe(u8, designator);
-    return .{ .transport = t, .designator = d, .hints = hints };
+    const view = try readPeerLocatorView(bytes, cursor);
+    const locator = view.toOwned(allocator) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.MalformedView => return Error.MalformedFrame,
+    };
+    model.validatePeerLocator(locator) catch {
+        model.freePeerLocator(allocator, locator);
+        return Error.MalformedFrame;
+    };
+    return locator;
 }

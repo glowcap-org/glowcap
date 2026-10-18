@@ -2,6 +2,7 @@
 const std = @import("std");
 const loam = @import("loam_records");
 const s = @import("syrup").RecordSyntax;
+const fields = @import("fields.zig");
 
 pub const RetryWindow = struct {
     next: u64 = 1,
@@ -43,15 +44,11 @@ pub const RetryWindow = struct {
         try s.writePositiveInt(sink, self.count);
     }
 
-    pub fn read(bytes: []const u8, cursor: *usize, edges: anytype, store: loam.StoreId) !RetryWindow {
+    pub fn read(bytes: []const u8, cursor: *usize, edges: *loam.EdgeIterator, store: loam.StoreId) !RetryWindow {
         var result: RetryWindow = .{ .next = try s.readPositiveInt(bytes, cursor) };
         result.count = std.math.cast(u8, try s.readPositiveInt(bytes, cursor)) orelse return error.InvalidRecord;
         try result.validate();
-        for (result.receipts[0..result.count]) |*id| {
-            const edge = edges.next() orelse return error.InvalidRecord;
-            if (edge.strength != .strong or edge.target.store != store) return error.InvalidRecord;
-            id.* = edge.target;
-        }
+        for (result.receipts[0..result.count]) |*id| id.* = try fields.readEdge(edges, store);
         return result;
     }
 };

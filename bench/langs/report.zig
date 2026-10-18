@@ -28,7 +28,9 @@ pub fn report(ctx: *Ctx, rows: []const Row, skipped: []const Skip) !void {
     var term: std.ArrayList(u8) = .empty;
     defer term.deinit(ctx.gpa);
     try term.appendSlice(ctx.gpa, "glowcap per-language consumer cost\n");
-    try term.print(ctx.gpa, "mode={s} lat_n={d} tput_n={d} conns={d} cold_samples={d} local_n={d}\n\n", .{ mode_str, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples, ctx.local_n });
+    var pin_buf: [12]u8 = undefined;
+    const pin_text: []const u8 = if (ctx.pin) |p| try std.fmt.bufPrint(&pin_buf, "{d},{d}", .{ p[0], p[1] }) else "no";
+    try term.print(ctx.gpa, "mode={s} lat_n={d} tput_n={d} conns={d} cold_samples={d} local_n={d} pin={s}\n\n", .{ mode_str, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples, ctx.local_n, pin_text });
     for (rows) |r| {
         try term.print(ctx.gpa, "  {s} ({s})  p50={s}ms p99={s}ms p999={s}ms mean={s}ms rps={s} setup={s}ms/conn per_conn={s}kB cold={s}ms local={s}ns local_p99={s}ns via_host={s}ns via_p99={s}ns via/local={s}\n", .{ r.name, r.runtime, r.p50, r.p99, r.p999, r.mean, r.rps, r.conn_ms, r.per_conn_kb, r.cold_ms, r.local_in_ns, r.local_in_p99_ns, r.local_via_ns, r.local_via_p99_ns, r.local_ratio });
     }

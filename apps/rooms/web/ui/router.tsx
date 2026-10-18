@@ -181,6 +181,10 @@ function RoomRoute() {
 	const routed = useLocation();
 	const homeDir = useRoomsState((state) => state.homeDir);
 	const dirs = useRoomsState((state) => state.dirs);
+	const heldRoomKey = useRoomsState((state) =>
+		[...state.convs.values()].find((conv) => conv.type === "room" && conv.held && conv.id === name)?.key
+	);
+	const policyPending = useRoomsState((state) => store.roomPolicyPending(state, name));
 	const arrival = useArrival(routed);
 	const search = new URLSearchParams(routed.search);
 	const dirParam = search.get("dir") ?? "";
@@ -205,14 +209,13 @@ function RoomRoute() {
 			// would create a public room wearing it. So the card that stands in
 			// names no room, and says only the one thing this link does imply,
 			// which is that it was about somewhere on this page's directory.
-			const held = [...routing().projection.get().convs.values()]
-				.find((conv) => conv.type === "room" && conv.held && conv.id === name);
-			if (held !== undefined) {
-				store.showConv(routing().projection, held.key);
+			if (heldRoomKey !== undefined) {
+				store.showConv(routing().projection, heldRoomKey);
 				arrival.mark();
 				return;
 			}
 			if (routing().projection.get().homeDir === null) return; // the effect refires when the directory lands
+			if (policyPending) return; // the effect refires when its policy lands
 			// The card names no room, so neither does its address; what it keeps
 			// is that this was about somewhere on this page's directory, which
 			// an empty `dir=` says. `/join` files the act.
@@ -245,7 +248,7 @@ function RoomRoute() {
 		// because a session was re-established would navigate a reader who is
 		// already where this sent them.
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- runs on the address, reads the session as it stands
-	}, [arrival, name, dirParam, isPrivate, homeDir, dirs]);
+	}, [arrival, name, dirParam, isPrivate, homeDir, dirs, heldRoomKey, policyPending]);
 	return null;
 }
 

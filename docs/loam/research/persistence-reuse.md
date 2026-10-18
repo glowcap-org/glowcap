@@ -2,18 +2,15 @@
 
 This source review, dated 2026-09-14, answers the build-or-adapt question in
 the [memory and persistence plan](memory-persistence.md). It supports building
-on an existing engine, selects no production backend, and measures no
-comparative performance. The [Loam guide](../../loam.md) locates the resulting
-design contracts and the Zig implementation, which exercises this direction
-with local records and LMDB. Capability and actor integration and comparative
-measurement remain open.
+on an existing engine and measures no performance itself. Loam was built that
+way, and the [Loam guide](../../loam.md) covers the result.
+[ADR-0239](../../decisions/adr/ADR-0239-sqlite-is-loams-default-disk-engine.md)
+later made SQLite its default disk engine after measuring it against LMDB.
 
 ## Recommendation for glowcap
 
 Build the shared Zig object-and-capability persistence layer over an existing
-transactional engine. Measure the implemented LMDB path first. Retain SQLite as
-an optional comparison when the workload identifies an engine constraint.
-Loam supplies that foundation with managed access as its resource, grant, and
+transactional engine. Loam supplies that foundation with managed access as its resource, grant, and
 lifecycle extension. The [architecture](../architecture.md) owns placement.
 Durable activation integrates with the actors, Vat, and Host.
 
@@ -225,15 +222,13 @@ costed reachability queries.
 
 ## Implementation decision and falsification
 
-The next experiment carries one small graph through ordinary records, a sleepy
-actor, and a mutable managed access facet. It uses the shared C ABI from Rust as
-well as Zig, and exercises a browser adapter before the execution API freezes.
-This proves the proposed shared layer without starting a new application stack.
+The review called for one small graph carried through ordinary records, a
+sleepy actor, and a mutable managed access facet, from Rust and the browser as
+well as Zig. Loam now ships each of those, tested from all three
+([stability](../../stability.md)).
 
-The first path uses LMDB and glowcap's ownership seams. Measure the shared
-mechanism with Rooms-shaped workloads first. Compare SQLite only when a measured
-constraint warrants a backend experiment, using the same transactions,
-synchronization, data shape, and memory limits. Packed regions remain a layout
+The engine comparison ran on the Tasks workload, and SQLite became the
+default. Packed regions remain a layout
 experiment over a mature commit mechanism. They become a custom engine only if
 measured constraints justify taking ownership of physical recovery.
 

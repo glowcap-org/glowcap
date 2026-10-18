@@ -20,7 +20,9 @@ fn expectSameMessage(bytes: []const u8, slab: *view.ValueSlab) !void {
     const allocator = std.testing.allocator;
     const plain = try (try syrup.decodeBody(.{ .bytes = bytes, .shape = .byte })).toOwned(allocator);
     defer model.freeMessage(allocator, plain);
-    const lent = try (try syrup.decodeBodyInto(.v1_0, .{ .bytes = bytes, .shape = .byte }, slab)).toOwned(allocator);
+    var lent_body: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = bytes, .shape = .byte }, slab, &lent_body);
+    const lent = try lent_body.toOwned(allocator);
     defer model.freeMessage(allocator, lent);
     try std.testing.expect(messagesEqual(plain, lent));
 }
@@ -28,7 +30,8 @@ fn expectSameMessage(bytes: []const u8, slab: *view.ValueSlab) !void {
 test "an argument list that fits the room is parsed once into the views" {
     var views: [4]view.Argument = undefined;
     var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab);
+    var body: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab, &body);
     try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), slab.used);
     try std.testing.expectEqual(@as(usize, 3), try body.deliver.args.len());
     // The views are the list's backing: the first element is the view written
@@ -42,7 +45,8 @@ test "an argument list that fits the room is parsed once into the views" {
 test "an argument list longer than the room stays wire-backed and reads the same" {
     var views: [4]view.Argument = undefined;
     var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = five_args, .shape = .byte }, &slab);
+    var body: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = five_args, .shape = .byte }, &slab, &body);
     try std.testing.expectEqual(@as(usize, 0) * @sizeOf(model.view.Argument), slab.used);
     try std.testing.expectEqual(@as(usize, 5), try body.deliver.args.len());
     try std.testing.expect((try body.deliver.args.at(4)).boolean == false);
@@ -52,10 +56,12 @@ test "an argument list longer than the room stays wire-backed and reads the same
 test "a second list on the same slab takes the room the first left" {
     var views: [4]view.Argument = undefined;
     var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    _ = try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab);
+    var taken: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab, &taken);
     try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), slab.used);
     // Three views are taken, one is left, so a three-element list no longer fits.
-    const again = try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab);
+    var again: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab, &again);
     try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), slab.used);
     try std.testing.expectEqual(@as(usize, 3), try again.deliver.args.len());
     try std.testing.expectEqualStrings("world", (try again.deliver.args.at(1)).string);
@@ -64,7 +70,8 @@ test "a second list on the same slab takes the room the first left" {
 test "nested lists and structs settle into views below their parent" {
     var views: [8]view.Argument = undefined;
     var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = nested_args, .shape = .byte }, &slab);
+    var body: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = nested_args, .shape = .byte }, &slab, &body);
     // Two inner values, one struct entry, and three outer values.
     try std.testing.expectEqual(@as(usize, 5) * @sizeOf(model.view.Argument) + @sizeOf(view.StructEntry), slab.used);
     try std.testing.expectEqual(@as(usize, 8) * @sizeOf(model.view.Argument), slab.open);
@@ -83,7 +90,8 @@ test "a nested list the room cannot hold leaves its parent wire-backed too" {
     // the outer pushes the inner's view, and the struct finds no room.
     var views: [4]view.Argument = undefined;
     var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = nested_args, .shape = .byte }, &slab);
+    var body: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = nested_args, .shape = .byte }, &slab, &body);
     try std.testing.expect(body.deliver.args.backingViews() == null);
     try std.testing.expectEqual(@as(usize, 3), try body.deliver.args.len());
     try std.testing.expect((try (try body.deliver.args.at(1)).list.at(1)).boolean);
@@ -96,7 +104,8 @@ test "a nested list the room cannot hold leaves its parent wire-backed too" {
 test "a list that exactly fills the room settles in push order" {
     var views: [3]view.Argument = undefined;
     var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab);
+    var body: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab, &body);
     try std.testing.expect(body.deliver.args.backingViews() != null);
     try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), slab.used);
     try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), slab.open);
@@ -110,7 +119,8 @@ test "a set and a tagged value settle into views and keep their order check" {
     const set_and_tagged = "<10'op:deliver<11'desc:export7+>[#1+2+$<11'user-record3'tag[1+t]>]11+f>";
     var views: [8]view.Argument = undefined;
     var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = set_and_tagged, .shape = .byte }, &slab);
+    var body: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = set_and_tagged, .shape = .byte }, &slab, &body);
     try std.testing.expectEqual(@as(usize, 6) * @sizeOf(model.view.Argument), slab.used);
     const set = (try body.deliver.args.at(0)).set;
     try std.testing.expect(set.backingViews() != null);
@@ -123,7 +133,8 @@ test "a set and a tagged value settle into views and keep their order check" {
 
     const unordered = "<10'op:deliver<11'desc:export7+>[#2+1+$]11+f>";
     var again = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    try std.testing.expectError(error.MalformedFrame, syrup.decodeBodyInto(.v1_0, .{ .bytes = unordered, .shape = .byte }, &again));
+    var refused: view.Body = undefined;
+    try std.testing.expectError(error.MalformedFrame, syrup.decodeBodyInto(.v1_0, .{ .bytes = unordered, .shape = .byte }, &again, &refused));
 }
 
 test "a malformed element is refused the same way with and without room" {
@@ -133,7 +144,8 @@ test "a malformed element is refused the same way with and without room" {
     var views: [4]view.Argument = undefined;
     var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
     const plain = syrup.decodeBody(.{ .bytes = malformed, .shape = .byte });
-    const lent = syrup.decodeBodyInto(.v1_0, .{ .bytes = malformed, .shape = .byte }, &slab);
+    var lent_body: view.Body = undefined;
+    const lent = syrup.decodeBodyInto(.v1_0, .{ .bytes = malformed, .shape = .byte }, &slab, &lent_body);
     try std.testing.expectError(error.UnsupportedArgument, plain);
     try std.testing.expectError(error.UnsupportedArgument, lent);
     try std.testing.expectEqual(@as(usize, 0) * @sizeOf(model.view.Argument), slab.used);
@@ -141,7 +153,8 @@ test "a malformed element is refused the same way with and without room" {
 
 test "an empty slab lends nothing and every list stays wire-backed" {
     var slab = view.ValueSlab.empty;
-    const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab);
+    var body: view.Body = undefined;
+    try syrup.decodeBodyInto(.v1_0, .{ .bytes = three_args, .shape = .byte }, &slab, &body);
     try std.testing.expectEqual(@as(usize, 0) * @sizeOf(model.view.Argument), slab.used);
     try std.testing.expectEqual(@as(usize, 3), try body.deliver.args.len());
 }
@@ -151,7 +164,8 @@ test "a decoded integer batch lends bounded word storage without changing its va
     for (0..18) |capacity| {
         var views: [17]view.Argument = undefined;
         var slab = view.ValueSlab.init(std.mem.sliceAsBytes(views[0..capacity]));
-        const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = wire, .shape = .byte }, &slab);
+        var body: view.Body = undefined;
+        try syrup.decodeBodyInto(.v1_0, .{ .bytes = wire, .shape = .byte }, &slab, &body);
         const list = (try body.deliver.args.at(0)).list;
         if (capacity >= 3) try std.testing.expect(list.wordRun() != null);
         try std.testing.expectEqual(@as(usize, 12), try list.len());
@@ -169,7 +183,8 @@ test "decoding integers leaves a live parent and a mixed sibling intact" {
     for (0..41) |capacity| {
         var views: [40]view.Argument = undefined;
         var slab = view.ValueSlab.init(std.mem.sliceAsBytes(views[0..capacity]));
-        const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = wire, .shape = .byte }, &slab);
+        var body: view.Body = undefined;
+        try syrup.decodeBodyInto(.v1_0, .{ .bytes = wire, .shape = .byte }, &slab, &body);
         try std.testing.expectEqualStrings("keep", (try body.deliver.args.at(0)).symbol);
         if (capacity == views.len) try std.testing.expect((try body.deliver.args.at(1)).list.wordRun() != null);
         const mixed = (try body.deliver.args.at(2)).list;
@@ -197,7 +212,8 @@ test "an integer run attempt preserves big integers and malformed refusal" {
     for (bad) |wire| {
         var fresh = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
         const plain = syrup.decodeBody(.{ .bytes = wire, .shape = .byte });
-        const lent = syrup.decodeBodyInto(.v1_0, .{ .bytes = wire, .shape = .byte }, &fresh);
+        var lent_body: view.Body = undefined;
+        const lent = syrup.decodeBodyInto(.v1_0, .{ .bytes = wire, .shape = .byte }, &fresh, &lent_body);
         if (plain) |_| return error.TestUnexpectedResult else |err| {
             try std.testing.expectError(err, lent);
         }
@@ -217,7 +233,8 @@ test "short integer lists use the same word storage as larger batches" {
         defer frame.deinit();
         var views: [16]view.Argument = undefined;
         var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-        const body = try syrup.decodeBodyInto(.v1_0, frame.view(), &slab);
+        var body: view.Body = undefined;
+        try syrup.decodeBodyInto(.v1_0, frame.view(), &slab, &body);
         const run = (try body.deliver.args.at(0)).list;
         try std.testing.expect(run.wordRun() != null);
         try std.testing.expectEqual(count, try run.len());
@@ -235,7 +252,8 @@ test "abandoned child storage is reclaimed without touching earlier or later sib
         defer std.testing.allocator.free(wire);
         var storage: [7]view.Argument = undefined;
         var slab = view.ValueSlab.init(std.mem.sliceAsBytes(&storage));
-        const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = wire, .shape = .byte }, &slab);
+        var body: view.Body = undefined;
+        try syrup.decodeBodyInto(.v1_0, .{ .bytes = wire, .shape = .byte }, &slab, &body);
         const args = body.deliver.args;
         try std.testing.expect(args.backingViews() != null);
         const first = (try args.at(0)).list;

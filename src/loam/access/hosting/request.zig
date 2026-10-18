@@ -6,21 +6,27 @@ const Mutation = @import("mutation.zig").Mutation;
 const ObservationRegistration = @import("observation_registration.zig").Registration;
 const Inventory = @import("inventory.zig").Page;
 const Inspection = @import("inspection.zig").Inspection;
+const control_request = @import("control_request.zig");
+const observation_registration = @import("observation_registration.zig");
+const inspection = @import("inspection.zig");
+
+/// The verbs hosting answers itself, which a mutate wrapper cannot carry.
+const unwrapped = std.StaticStringMap(void).initComptime(.{ .{"mutate"}, .{"derive"}, .{"derive-managed"}, .{"describe-control"}, .{"mutation-sequence"}, .{"derivation-sequence"}, .{"describe-access"}, .{"durable-name"} });
 
 pub const Request = union(enum) {
     content,
     forward,
-    control: @import("control_request.zig").Request,
-    derive: *@import("sharing.zig").Sharing,
-    observe: *@import("observation_registration.zig").Registration,
+    control: control_request.Request,
+    derive: *sharing.Sharing,
+    observe: *observation_registration.Registration,
     sequence,
     mutation_sequence,
     durable_name,
     describe: *storage.Operation.Description,
     describe_control: *storage.Operation.ControlDescription,
-    inspect_access: *@import("inspection.zig").Inspection,
+    inspect_access: *inspection.Inspection,
     inspect_fixed: *storage.Operation.Description,
-    inventory: *@import("inventory.zig").Page,
+    inventory: *Inventory,
 
     pub fn prepare(value: anytype) !void {
         const call = value.call;
@@ -31,7 +37,7 @@ pub const Request = union(enum) {
             if (args.len < 2 or args[0] != .integer or args[0].integer < 1 or args[1] != .string) return error.InvalidArguments;
             value.verb = args[1].string;
             value.args = args[2..];
-            if (std.mem.eql(u8, value.verb, "mutate") or std.mem.eql(u8, value.verb, "derive") or std.mem.eql(u8, value.verb, "derive-managed") or std.mem.eql(u8, value.verb, "describe-control") or std.mem.eql(u8, value.verb, "mutation-sequence") or std.mem.eql(u8, value.verb, "derivation-sequence") or std.mem.eql(u8, value.verb, "describe-access") or std.mem.eql(u8, value.verb, "durable-name")) return error.InvalidMutation;
+            if (unwrapped.has(value.verb)) return error.InvalidMutation;
             const mutation = try call.arena().create(Mutation);
             mutation.* = try Mutation.init(call, &value.endpoint, @intCast(args[0].integer), value.verb, value.args, value.dependent_object);
             value.mutation = mutation;

@@ -227,7 +227,7 @@ pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, target: 
     try admission.check(host);
     if (host.localActorFor(target) == null) return error.UnknownCapability;
     const charge = try inputCharge(host, verb, args);
-    try vows.ensureFreshVowId(host);
+    const id = try vows.peekVowId(host);
     const source = try host.allocator.create(Producer);
     source.* = .{ .host = host };
     errdefer source.release();
@@ -237,14 +237,14 @@ pub fn callAdmitted(host: *host_mod.Host, allocator: std.mem.Allocator, target: 
     };
     const call = try owned.createLocal(host, allocator, reply_bytes, source);
     errdefer call.deinit();
-    const row = try vows.reserveRow(host, null, .plain, .none, host.next_vow);
+    const row = try vows.reserveRow(host, null, .plain, .none, id);
     errdefer host.allocator.destroy(row);
     row.owner = .{ .owning = source };
     const installed: actors.Listener = .{ .ctx = row, .func = settlement.VowRow.fire };
     row.vow = try enqueue(host, source, target, verb, args, charge, installed);
     row.pending_cancel = .{ .row_listener = installed };
     vows.publishRow(host, row);
-    host.next_vow += 1;
+    host.vow_ids.commit(id);
     return call;
 }
 

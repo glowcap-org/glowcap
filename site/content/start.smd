@@ -38,14 +38,16 @@ const glowcap = b.dependency("glowcap", .{ .target = target, .optimize = optimiz
 exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
 ```
 
-The `glowcap` module is pure Zig. The iroh and relay tabs below import a
-transport module that links outside code:
+The `glowcap` module is pure Zig. The iroh, relay, and webrtc tabs below
+import a transport module that links outside code:
 
 ```zig
 // iroh: links a Rust library, so the build needs cargo on PATH.
 exe.root_module.addImport("iroh", glowcap.module("glowcap_iroh"));
 // noise-relay and keyed-relay: builds Mbed TLS from source.
 exe.root_module.addImport("relay_tls", glowcap.module("glowcap_relay_tls"));
+// webrtc: links a Rust library, so the build needs cargo on PATH.
+exe.root_module.addImport("webrtc", glowcap.module("glowcap_webrtc"));
 ```
 
 # Dial
@@ -340,7 +342,8 @@ hint. `noise-tcp` uses the same sockets as `keyed-tcp` and seals the stream
 with Noise_XK. The [Noise guide]($link.page('transports/noise')) explains when
 to choose Noise over iroh, and how `noise-relay` seals a path through a relay.
 
-The two timeouts passed to `connect` bound every network wait. `.ephemeral` is
+`handshake` limits each read while the connection opens, and `settle` limits
+each wait for an answer after that. `.ephemeral` is
 a throwaway keypair made for this one connection. The arena owns the memory for
 replies, and freeing it frees them. Chapter 01 on the
 [Examples]($link.page('examples')) page is this same fetch-and-call as a
@@ -618,7 +621,8 @@ Each binding wraps the C ABI in its language's own idiom. The
 top links each one.
 
 For the browser, the TypeScript binding also compiles to WebAssembly as
-`@glowcap/web`. A browser page can dial peers but cannot listen for them. See
+`@glowcap/web`. A page cannot open a listening socket, but it can accept peers
+over WebRTC or through a relay. See
 [In the browser]($link.page('bindings/browser')).
 
 If capabilities, locators, pipelining, or three-party handoff are new to you,

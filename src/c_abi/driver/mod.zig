@@ -281,19 +281,16 @@ pub const FailureProjection = struct {
     pub fn init(failure: driver.OperationFailure) FailureProjection {
         const carrier = carrier_phase.project(failure.carrier_phase, failure.carrier_detail);
         return .{
-            .primary_result = driver_error.code(failure.kind),
-            .primary_name = failure.primaryName(),
-            .secondary_result = if (failure.secondary_cause) |cause|
-                if (failure.secondary_kind) |kind| driver_error.code(kind) else driver_error.fromError(cause)
-            else
-                shared.GLOWCAP_OK,
-            .secondary_count = failure.secondary_count,
+            .primary_result = driver_error.code(failure.kind()),
+            .primary_name = failure.chain.primaryName(),
+            .secondary_result = failure_output.secondaryResult(failure),
+            .secondary_count = failure.chain.secondary_count,
             .carrier_phase = carrier.phase,
             .carrier_detail_flags = carrier.detail_flags,
             .carrier_verification_flags = carrier.verification_flags,
             .carrier_peer_alert = carrier.peer_alert,
             .carrier_engine_code = carrier.engine_code,
-            .secondary_name = failure.secondaryName() orelse "",
+            .secondary_name = failure.chain.secondaryName() orelse "",
         };
     }
 

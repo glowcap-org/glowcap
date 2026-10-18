@@ -1,6 +1,7 @@
 import deno from "@deno/vite-plugin";
 import react from "@vitejs/plugin-react";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin, type ProxyOptions } from "vite";
 
@@ -84,6 +85,22 @@ function externalApplicationWasm(): Plugin {
 	};
 }
 
+let lastBuild: { size: number; mtimeMs: number; name: string } | null = null;
+
+/** The build a development page runs: the Wasm application it loads, named
+ * by its SHA-256 as the published server names the same file. A rebuild that
+ * changes the application changes the name, so an open page reloads into it
+ * as a published page does, and one that writes the same bytes does not. */
+async function developmentBuild(): Promise<string> {
+	// A page with no connection asks every few seconds, so the digest is kept
+	// until the file's size or modification time moves.
+	const { size, mtimeMs } = await stat(applicationWasm);
+	if (lastBuild?.size === size && lastBuild.mtimeMs === mtimeMs) return lastBuild.name;
+	const digest = createHash("sha256").update(await readFile(applicationWasm)).digest("hex");
+	lastBuild = { size, mtimeMs, name: `vite-development-${digest.slice(0, 16)}` };
+	return lastBuild.name;
+}
+
 /** Adapt the Rust page contract to Vite in development. Production output
  * still passes through the Rust generation publisher. */
 function roomsDevelopment(): Plugin {
@@ -92,11 +109,12 @@ function roomsDevelopment(): Plugin {
 		apply: "serve",
 		transformIndexHtml: {
 			order: "pre",
-			handler() {
+			async handler() {
 				return [{
 					tag: "script",
-					children:
-						'document.documentElement.dataset.uiBuild="vite-development";document.documentElement.dataset.roomsWasm="/rooms_browser_bg.wasm";',
+					children: `document.documentElement.dataset.uiBuild=${
+						JSON.stringify(await developmentBuild())
+					};document.documentElement.dataset.roomsWasm="/rooms_browser_bg.wasm";`,
 					injectTo: "head-prepend",
 				}];
 			},
@@ -105,10 +123,12 @@ function roomsDevelopment(): Plugin {
 			server.middlewares.use((request, response, next) => {
 				const pathname = new URL(request.originalUrl ?? request.url ?? "/", "http://rooms.invalid").pathname;
 				if (pathname === "/ui-version") {
-					response.statusCode = 200;
-					response.setHeader("Content-Type", "text/plain; charset=utf-8");
-					response.setHeader("Cache-Control", "no-store");
-					response.end("vite-development\n");
+					developmentBuild().then((build) => {
+						response.statusCode = 200;
+						response.setHeader("Content-Type", "text/plain; charset=utf-8");
+						response.setHeader("Cache-Control", "no-store");
+						response.end(`${build}\n`);
+					}, next);
 					return;
 				}
 				if (pathname === "/rooms_browser_bg.wasm") {

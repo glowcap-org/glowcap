@@ -28,7 +28,7 @@ fn callWithAnswer(peer: *engine.Peer, answer: u64) !void {
 
 fn releaseAnswer(peer: *engine.Peer, answer: u64) !void {
     const release = try peer.reserveAnswerRelease();
-    peer.publishAnswerRelease(release, .from(answer));
+    peer.publishAnswerRelease(release, peer.session_state.outboundAnswerTarget(.from(answer)).?);
 }
 
 fn expectGcAnswers(peer: *engine.Peer, expected: []const u64) !void {

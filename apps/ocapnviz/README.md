@@ -1,9 +1,9 @@
 # ocapnviz: OCapN network topology visualizer
 
 ocapnviz draws CapTP sessions and messages on a timeline so you can watch a
-live Rooms server or replay a recorded run. Peers and sessions animate on a
-playback clock and are drawn with PixiJS, so a timeline always plays the same
-way. Each peer records which implementation it runs (`goblins`, `glowcap`, and so on),
+live Rooms server or replay a recorded run. Peers and sessions move on a
+playback clock, so a timeline plays the same way every time, and PixiJS draws
+them. Each peer records which implementation it runs (`goblins`, `glowcap`, and so on),
 and each session carries its codec, CapTP version, and lifecycle state.
 
 ocapnviz replays timelines that `glowcap griddle run` produces, converted by
@@ -62,8 +62,8 @@ server never carries still appear.
 
 Live connects as soon as you enter it. The badge under the sturdyref says
 **connecting** while it dials, **waiting** until the first observation arrives,
-and **connected** once the feed has spoken. Being connected is not recording.
-Press **Record** to start a capture, and from then on every session and message
+and **connected** once the feed has spoken. Connecting does not start a
+capture. Press **Record** to start one, and from then on every session and message
 the room carries draws as it happens. **Stop** hands the capture to Play, where
 it replays like any other recording.
 
@@ -94,15 +94,15 @@ PixiJS scene graph              ← derived from world each frame
 Canvas
 ```
 
-Three properties hold:
+Three rules keep replay exact:
 
-- **Events are the source of truth.** Snapshots are derived by replay, and authoring
-  is event-by-event in [`src/fixtures/`](src/fixtures/).
-- **Position is a pure function of `t`.** Layout keyframes are computed up front
-  and the runtime interpolates between them, so scrubbing forward and back
-  visits identical numbers.
-- **The renderer only draws.** PixiJS sprites are rebuilt from the world
-  each frame, and nothing else holds simulation state.
+- Events are the source of truth. Snapshots come from replaying them, and the
+  fixtures in [`src/fixtures/`](src/fixtures/) are written event by event.
+- A position depends only on `t`. Layout keyframes are computed up front and
+  the runtime interpolates between them, so scrubbing forward and back lands
+  on identical numbers.
+- The renderer only draws. PixiJS sprites are rebuilt from the world each
+  frame, and nothing else holds simulation state.
 
 Everything draws into one full-viewport canvas behind the React panels. The
 Stage, the Scrubber, and the Overview share that scene graph and ticker. Each

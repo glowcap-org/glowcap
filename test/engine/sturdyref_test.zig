@@ -349,10 +349,10 @@ test "prepareEnliven issues a fresh bootstrap-fetch on a cache miss and marks it
 
     const deliver = start.fresh.message.deliver;
     try std.testing.expect(deliver.target == .far);
-    try std.testing.expectEqual(session.BOOTSTRAP_POSITION, deliver.target.far.import_position.int());
+    try std.testing.expectEqual(session.bootstrap_position, deliver.target.far.import_position.int());
     try std.testing.expectEqualStrings("fetch", deliver.args[0].symbol);
     try std.testing.expectEqualStrings("swiss", deliver.args[1].bytes);
-    try std.testing.expectEqual(@as(?model.AnswerPosition, start.fresh.answer_position), s.pendingEnlivenAnswer("swiss"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, start.fresh.answer.position), s.pendingEnlivenAnswer("swiss"));
 }
 
 test "prepareEnliven short-circuits a cached enlivenment without wire traffic" {
@@ -379,7 +379,7 @@ test "prepareEnliven collapses a concurrent enliven onto the in-flight answer" {
 
     const second = try sturdyref.prepareEnliven(allocator, &s, "swiss");
     try std.testing.expect(second == .in_flight);
-    try std.testing.expectEqual(first.fresh.answer_position, second.in_flight);
+    try std.testing.expectEqual(first.fresh.answer, second.in_flight);
 }
 
 test "recordEnlivenment caches a fulfilled far reference and clears the in-flight marker" {
@@ -425,7 +425,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
 
     // p1 addresses p2's bootstrap (import 0), always reachable on an open
     // session, no explicit import needed; p2 holds it as export 0.
-    try p2.session_state.registerExport(.from(session.BOOTSTRAP_POSITION));
+    try p2.session_state.registerExport(.from(session.bootstrap_position));
     // Register the cap the enliven looks up so the runtime's auto-serve fulfills
     // the inbound bootstrap-fetch. p2 exports it; p1 imports it at the same id.
     const cap_export = try p2.registerBootstrapCap("swiss");
@@ -433,7 +433,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     const ref = "swiss";
     const start = try sturdyref.prepareEnliven(allocator, &p1.session_state, ref);
     try std.testing.expect(start == .fresh);
-    const answer_position = start.fresh.answer_position;
+    const answer_position = start.fresh.answer.position;
     const resolver_export = start.fresh.resolver_export;
     try p1.send(start.fresh.message);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());

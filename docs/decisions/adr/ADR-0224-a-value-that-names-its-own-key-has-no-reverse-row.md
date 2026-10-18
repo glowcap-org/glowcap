@@ -7,7 +7,7 @@ decision: "A two-way link's value may name its own key. Such a value is held in 
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0254]
 ---
 
 # ADR-0224 A value that names its own key has no reverse row

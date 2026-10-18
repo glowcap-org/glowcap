@@ -63,30 +63,12 @@ comptime {
 ///
 /// The `| export_range_span` skips slot zero's zeroth range: a
 /// base of 0 would have the first session mint export position 0, which is
-/// `session.BOOTSTRAP_POSITION`, aliasing the bootstrap export the session
+/// `session.bootstrap_position`, aliasing the bootstrap export the session
 /// installs at open. Every other slot's first range starts above zero
 /// already. Paying one span in every slot keeps the rule uniform.
-pub fn initialExportBase(seed: [crypto.SEED_BYTES]u8) u64 {
+pub fn initialExportBase(seed: [crypto.seed_bytes]u8) u64 {
     const node_slot: u64 = std.hash.Wyhash.hash(0, &seed) % export_node_slots;
     return (node_slot << export_node_shift) | export_range_span;
-}
-
-/// The root of the wire-hash multipliers, derived from the identity seed
-/// under its own domain so neither is recoverable from the other.
-pub fn wireHashSecret(seed: [crypto.SEED_BYTES]u8) u64 {
-    var out: [8]u8 = undefined;
-    var hasher = std.crypto.hash.Blake3.initKdf("glowcap wire hash v1", .{});
-    hasher.update(&seed);
-    hasher.final(&out);
-    return std.mem.readInt(u64, &out, .little);
-}
-
-/// One session's multiplier: the root mixed with the peer handle, so what a
-/// peer could learn about its own tables says nothing about another
-/// session's.
-pub fn wireHashMultiplier(secret: u64, peer_handle: u64) u64 {
-    const root = foundation.identity_hash.multiplierFromSeed(secret);
-    return foundation.identity_hash.multiplierFromSeed(foundation.identity_hash.wireHash(peer_handle, root));
 }
 
 /// Give `peer`'s session the next range, the one door a session's export
@@ -98,13 +80,8 @@ pub fn wireHashMultiplier(secret: u64, peer_handle: u64) u64 {
 /// this makes equal numbering across sessions structurally unlikely, and a
 /// layer above cannot forget to ask.
 pub fn applyExportRange(self: *Node, target: *engine.Peer) !void {
-    const promised = std.math.add(
-        usize,
-        self.freed_export_bases.liveLen(),
-        self.export_base_return_reservations,
-    ) catch return error.OutOfMemory;
-    const required = std.math.add(usize, promised, 1) catch return error.OutOfMemory;
-    try self.freed_export_bases.ensureTotalCapacity(self.allocator, required);
+    const promised = self.freed_export_bases.liveLen() + self.export_base_return_reservations;
+    try self.freed_export_bases.ensureTotalCapacity(self.allocator, promised + 1);
     self.export_base_return_reservations += 1;
     errdefer self.export_base_return_reservations -= 1;
     const base = try takeExportBase(self);
@@ -126,7 +103,7 @@ pub fn exportBaseEndFor(base: u64) u64 {
 /// budget stops first. A node that merely churns connections recycles.
 pub fn takeExportBase(self: *Node) !u64 {
     if (self.freed_export_bases.pop(self.allocator)) |base| return base;
-    if (self.next_export_base >= self.export_base_end) return session_mod.Error.ExportRangeExhausted;
+    if (self.next_export_base >= self.export_base_end) return error.ExportRangeExhausted;
     const base = self.next_export_base;
     self.next_export_base += export_range_span;
     return base;

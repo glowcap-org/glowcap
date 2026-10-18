@@ -16,7 +16,7 @@ const profiles = [_]model.CaptpVersion{ .v1_0, .next };
 
 const Retractions = struct {
     count: usize = 0,
-    fn record(ctx: *anyopaque, _: model.AnswerPosition) void {
+    fn record(ctx: *anyopaque, _: engine.OutboundAnswerTarget) void {
         const self: *@This() = @ptrCast(@alignCast(ctx));
         self.count += 1;
     }
@@ -64,7 +64,7 @@ test "a retracted provisional deliver returns its exports, answer, and resolver"
         try peer.session_state.registerImport(.from(7));
         const near = model.ExportPosition.from(try peer.exportNextObject());
         const before_count = peer.session_state.exportRefcount(near);
-        const before_next = peer.session_state.next_export_position;
+        const before_next = peer.session_state.exports.nextPosition().int();
 
         peer.openProvisional();
         try peer.sendBorrowed(answeredDeliver(&.{
@@ -87,11 +87,12 @@ test "a retracted provisional deliver returns its exports, answer, and resolver"
         try std.testing.expect(peer.session_state.outboundAnswer(.from(42)) == null);
         try std.testing.expectEqual(
             @as(?model.ExportPosition, null),
-            peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = .from(42) }),
+            peer.session_state.resolverExportForAnswer(.from(42)),
         );
         try std.testing.expectEqual(@as(u64, 0), peer.session_state.exportRefcount(sent.resolver.?));
-        // The position is spent, never reused for a later mint.
-        try std.testing.expect(peer.session_state.next_export_position > before_next);
+        // The retracted row returns to its slab, so the next mint takes the
+        // same position the partner never saw.
+        try std.testing.expectEqual(before_next, peer.session_state.exports.nextPosition().int());
         try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
     }
 }
@@ -127,7 +128,7 @@ test "a refused admission commits nothing and the same send retries" {
                 try std.testing.expect(peer.session_state.outboundAnswer(.from(42)) == null);
                 try std.testing.expectEqual(
                     @as(?model.ExportPosition, null),
-                    peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = .from(42) }),
+                    peer.session_state.resolverExportForAnswer(.from(42)),
                 );
                 try peer.sendBorrowed(deliver);
             }

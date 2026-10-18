@@ -62,7 +62,6 @@ const peer_handoffs = @import("peer/handoffs.zig");
 const peer_references = @import("peer/references.zig");
 const peer_send = @import("peer/send.zig");
 const peer_session = @import("peer/session.zig");
-const peer_settlement = @import("peer/settlement.zig");
 /// The sans-io cross-connection handoff router (ADR-0066): a tier above the
 /// per-connection `Peer` that owns the retained node identity, live-session
 /// directory, and redeemed-token / foreign-home routing that makes
@@ -110,6 +109,7 @@ pub const StepOutcome = events.StepOutcome;
 pub const EventKind = events.EventKind;
 pub const Event = events.Event;
 pub const AnswerTarget = session.AnswerTarget;
+pub const OutboundAnswerTarget = session.OutboundAnswerTarget;
 
 /// Encode a verbatim `<ocapn-peer …>` Syrup record carrying hint entries, so a
 /// gifter can name an exporter reachable only by a dial hint (an iroh exporter's
@@ -139,7 +139,7 @@ pub const frameShape = codec.dispatch.frameShape;
 /// The well-known bootstrap export position every OCapN peer answers `fetch` on,
 /// owned by the session and surfaced here so consumers above the engine name the
 /// one authoritative value rather than re-deriving the magic `0`.
-pub const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+pub const bootstrap_position = session.bootstrap_position;
 
 /// Session resource bounds. Re-exported so the driver C ABI can mirror the
 /// default frame cap without a direct `session` import.
@@ -205,7 +205,7 @@ pub const Peer = struct {
     /// Peer is unlimited. Hosts install their explicit high-water
     /// at the negotiating seam.
     outbound_budget: usize = std.math.maxInt(usize),
-    events: Queue(events.Queued, null),
+    events: Queue(events.Event, null),
     /// This session's gift and handoff-count authority. A cross-session
     /// withdrawal reaches a sibling's deposits only through the live-session
     /// resolver. The Vat does not own protocol transcript state.
@@ -247,11 +247,11 @@ pub const Peer = struct {
     verify_partner_handshake: bool = false,
     /// A Vat turn's far sends are being held retractable (ADR-0194).
     provisional: bool = false,
-    /// Stored relayed settlements whose listener carriers could not be
-    /// prepared at the terminal commit. Nonzero makes `step` retry one row.
-    /// The imported-promise table itself is the authority, so row teardown can
-    /// leave this count conservatively high and the next scan repairs it.
-    pending_imported_fire_retries: u32 = 0,
+    /// Guaranteed projection settlements stored without their carrier because
+    /// the queue refused it. Nonzero makes `step` retry one row. The
+    /// projection rows are the authority, so session teardown can leave this
+    /// count high and the next scan repairs it.
+    deferred_settlements: u32 = 0,
     /// What this session knows about durable identity at the other end: the
     /// target a dial named and the byte channel's far end a realizer verified.
     /// Both are installed before any partner byte is fed. Both empty is every
@@ -349,6 +349,7 @@ pub const Peer = struct {
 
     pub const sendWithdrawSettled = peer_handoffs.sendWithdrawSettled;
     pub const parkPendingWithdraw = peer_handoffs.parkPendingWithdraw;
+    pub const peerHandleScope = peer_handoffs.peerHandleScope;
     pub const noteHandoffChange = peer_handoffs.noteHandoffChange;
 
     // ── The keyed hello (`hello.zig`) ────────────────────────────────────────
@@ -369,7 +370,9 @@ pub const Peer = struct {
     pub const sendDepositGift = peer_handoffs.sendDepositGift;
     pub const sendResolveHandoffGive = peer_handoffs.sendResolveHandoffGive;
     pub const settleAnswerOwned = outbound.enqueueAnswerTargetResolutionOwned;
-    pub const applyRelayedHandoffGive = peer_handoffs.applyRelayedHandoffGive;
+    pub const inventoryMessage = outbound.inventoryMessage;
+    pub const inventoryResolution = outbound.inventoryResolution;
+    pub const certifyFreight = outbound.certifyFreight;
 
     pub const sessionIsOpen = peer_session.isOpen;
     pub const sessionIsClosed = peer_session.isClosed;
@@ -390,11 +393,8 @@ pub const Peer = struct {
     pub const allocateAnswer = peer_references.allocateAnswer;
     pub const finishPendingEnliven = peer_references.finishPendingEnliven;
 
-    /// Owned relayed settlement. `peer/settlement.zig` owns store/fire policy.
-    pub const applyRelayedResolution = peer_settlement.applyRelayedResolution;
-
-    /// Terminal-relay variant whose recipient store cannot be deferred.
-    pub const applyRelayedResolutionGuaranteed = peer_settlement.applyRelayedResolutionGuaranteed;
+    pub const settleAnswerTargetGuaranteed = outbound.settleAnswerTargetGuaranteed;
+    pub const breakAnswerTargetGuaranteed = outbound.breakAnswerTargetGuaranteed;
 
     pub const feedOwned = peer_drive.feedOwned;
     pub const step = peer_drive.step;
@@ -463,17 +463,19 @@ pub const Peer = struct {
 /// cache) carries std's one-byte `pointer_stability` lock, padded to a word, in
 /// Debug and ReleaseSafe, the same lock every hash map here already pays.
 /// ReleaseFast and ReleaseSmall make the lock zero-sized and measure smaller.
-/// Fifty-six more are the wire-hash secret (ADR-0218): one word on the
-/// session and one in each of the six tables keyed by positions the peer
-/// chooses, because those tables' verbs run without the session in hand. The
-/// sixth is the purpose side of the outbound resolver link, whose purposes
-/// carry the peer's answer positions (ADR-0223).
+/// Forty-eight more are the wire-hash secret (ADR-0218): one word on the
+/// session and one in each of the five tables keyed by positions the peer
+/// chooses, because those tables' verbs run without the session in hand.
 /// Eight bytes hold the cold result-import release outbox (ADR-0251). Its
 /// stable heap owner lets answer payloads retire their imports without a
 /// fallible finalizer. It stays null until a forwarded result introduces caps.
 /// Eight bytes hold the cold local promise registry. It lets collection visit
 /// projections without scanning partner-sized answer tables on every release.
 /// It stays null until the session projects a local promise.
+/// Sixteen bytes are the two own-side position slabs (exports and outbound
+/// answers): each keeps a free-list head and a live count beside its vector
+/// where the hash map it replaced kept only a header, and the export table
+/// keeps its base and span beside its rows.
 /// Every footprint budget is stated under the safe modes, because every gate runs there and `release-pack` names ReleaseSafe as
 /// the mode to ship.
 ///
@@ -484,7 +486,7 @@ pub const Peer = struct {
 /// `wasm32` (the sans-io core under `zig build cross-check`) makes it smaller,
 /// as does a fast build. So no single number is the measurement on every target
 /// and mode, and an equality here would fail the narrow ones.
-pub const peer_session_struct_budget_bytes = 1232;
+pub const peer_session_struct_budget_bytes = 1176;
 comptime {
     if (@sizeOf(Peer) > peer_session_struct_budget_bytes) @compileError(std.fmt.comptimePrint(
         "engine.Peer is {d} bytes, over the {d}-byte per-session struct budget. " ++

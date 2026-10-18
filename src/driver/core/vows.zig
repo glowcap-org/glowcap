@@ -25,8 +25,9 @@ const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostError = host_mod.HostError;
 
-pub fn ensureFreshVowId(self: *Host) !void {
-    if (self.next_vow == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
+/// The public vow id the next committed operation spends.
+pub fn peekVowId(self: *const Host) error{CapabilitySpaceExhausted}!u64 {
+    return self.vow_ids.peek() orelse error.CapabilitySpaceExhausted;
 }
 
 const VowRow = settlement.VowRow;
@@ -38,12 +39,54 @@ const ResolvedVow = struct { row: *VowRow, session: *HostSession };
 
 const Projection = union(enum) { index: i64, untag: []const u8, get: []const u8 };
 
-/// Every fallible resource needed to publish one Host vow after its semantic
-/// operation commits. The row and both queue capacities are Host-owned. The
-/// typed listener reservation belongs to the Vat/Port settlement namespace.
+/// Owns one unpublished Host vow until its semantic operation commits.
+/// Rollback cancels observer-release capacity before freeing the row. Listener
+/// and map reservations are capacity only and remain available for the retry.
+/// This owner stays on the producer's stack, adding no Host or wire state.
 pub const VowReservation = struct {
-    row: *VowRow,
+    const Transfer = struct { row: *VowRow, listener: actors.ListenerReservation };
+
+    host: *Host,
+    session: *HostSession,
+    unpublished: ?*VowRow,
     listener: actors.ListenerReservation,
+
+    pub fn deinit(self: *VowReservation) void {
+        const row = self.unpublished orelse return;
+        settlement.cancelObserverRelease(row, self.session);
+        self.host.allocator.destroy(row);
+        self.unpublished = null;
+    }
+
+    /// Borrow the row while installing its recipient, before publication.
+    pub fn getRow(self: *const VowReservation) *VowRow {
+        return self.unpublished orelse unreachable;
+    }
+
+    /// Transfer both reservations to a shared-enliven group. The group owns
+    /// publication and uses its own terminal listener rather than VowRow.fire.
+    pub fn take(self: *VowReservation) Transfer {
+        const result: Transfer = .{ .row = self.getRow(), .listener = self.listener };
+        self.unpublished = null;
+        return result;
+    }
+
+    /// Publish using only resources reserved before the operation committed.
+    /// Disarming this owner is part of the infallible ownership transfer.
+    pub fn commit(self: *VowReservation, vow: actors.Vow) u64 {
+        const transferred = self.take();
+        const row_value = transferred.row;
+        const host = self.host;
+        row_value.vow = vow;
+        const installed: actors.Listener = .{ .ctx = row_value, .func = VowRow.fire };
+        row_value.pending_cancel = .{ .row_listener = installed };
+        _ = settlement.claimPeerVisibleAnswer(row_value, self.session);
+        self.session.served.port.onReserved(&host.vat, transferred.listener, vow, installed);
+        publishRow(host, row_value);
+        host.beginSessionOperation(self.session);
+        host.vow_ids.commit(row_value.id);
+        return row_value.id;
+    }
 };
 
 /// Register a one-shot in-process listener on a host vow. The listener hears
@@ -54,8 +97,8 @@ pub const VowReservation = struct {
 /// refused `AlreadySettled` but remains a valid pipeline target until release.
 pub fn vowOn(self: *Host, vow_id: u64, listener: actors.Listener) !void {
     const resolved = try resolveVowSession(self, vow_id);
-    if (resolved.row.settled) return actors.Error.AlreadySettled;
-    if (resolved.row.inner != null) return actors.Error.AlreadyListening;
+    if (resolved.row.settled) return error.AlreadySettled;
+    if (resolved.row.inner != null) return error.AlreadyListening;
     if (resolved.row.answer_release == .peer_visible)
         resolved.row.observer_release = try resolved.session.served.port.peer.reserveAnswerRelease();
     resolved.row.inner = listener;
@@ -144,10 +187,7 @@ pub fn vowTellValues(
     values: []const value_mod.Value,
     arena: std.mem.Allocator,
 ) !void {
-    try self.admitApplicationOperation();
-    const resolved = try resolveVowSession(self, vow_id);
-    try self.admitSessionOperation(resolved.session);
-    try self.checkOutboundAdmission(resolved.session);
+    const resolved = try admitVowVerb(self, vow_id);
     var prepared = try self.prepareValues(resolved.session, arena, values);
     defer prepared.deinit();
     try resolved.session.served.tellToAnswer(
@@ -168,10 +208,7 @@ fn vowSendValuesWithProgress(
     arena: std.mem.Allocator,
     drive_now: bool,
 ) !u64 {
-    try self.admitApplicationOperation();
-    const resolved = try resolveVowSession(self, vow_id);
-    try self.admitSessionOperation(resolved.session);
-    try self.checkOutboundAdmission(resolved.session);
+    const resolved = try admitVowVerb(self, vow_id);
     var prepared = try self.prepareValues(resolved.session, arena, values);
     defer prepared.deinit();
     const id = try commitVowSend(self, resolved, .{ .verb = verb, .args = prepared.values }, drive_now);
@@ -180,10 +217,7 @@ fn vowSendValuesWithProgress(
 }
 
 fn vowSendWithProgress(self: *Host, vow_id: u64, msg: actors.Message, drive_now: bool) !u64 {
-    try self.admitApplicationOperation();
-    const resolved = try resolveVowSession(self, vow_id);
-    try self.admitSessionOperation(resolved.session);
-    try self.checkOutboundAdmission(resolved.session);
+    const resolved = try admitVowVerb(self, vow_id);
     return commitVowSend(self, resolved, msg, drive_now);
 }
 
@@ -194,12 +228,10 @@ fn commitVowSend(
     drive_now: bool,
 ) !u64 {
     const source = try pipelineAnswer(resolved.row);
-    const reservation = try reserveVow(self, resolved.session, .far, .plain, .peer_visible);
-    var reservation_live = true;
-    errdefer if (reservation_live) cancelVowReservation(self, reservation);
+    var reservation = try reserveVow(self, resolved.session, .far, .plain, .peer_visible);
+    defer reservation.deinit();
     const vow = try resolved.session.served.sendToAnswer(&self.vat, .{ .far = source }, msg);
-    const id = commitVow(self, resolved.session, reservation, vow);
-    reservation_live = false;
+    const id = reservation.commit(vow);
     if (drive_now)
         host_pump.finishCommittedVow(self, resolved.session)
     else
@@ -226,8 +258,9 @@ pub fn vowGet(self: *Host, vow_id: u64, field: []const u8) !u64 {
 }
 
 /// Reserve a Host row and the exact Vat/Port listener slot before an operation
-/// that creates a vow becomes visible. Once this succeeds, `commitVow` is
-/// allocation-free and cannot turn a committed send into a retryable OOM.
+/// that creates a vow becomes visible. Once this succeeds,
+/// `VowReservation.commit` is allocation-free and cannot turn a committed send
+/// into a retryable OOM.
 pub fn reserveVow(
     self: *Host,
     session: *HostSession,
@@ -235,8 +268,7 @@ pub fn reserveVow(
     kind: VowRow.Kind,
     answer_release: AnswerRelease,
 ) !VowReservation {
-    try ensureFreshVowId(self);
-    return reserveVowAt(self, session, location, kind, answer_release, self.next_vow);
+    return reserveVowAt(self, session, location, kind, answer_release, try peekVowId(self));
 }
 
 /// Explicit-id reservation for a continuation whose public vow id was minted
@@ -252,13 +284,7 @@ pub fn reserveVowAt(
     const row = try reserveRow(self, session, kind, answer_release, id);
     errdefer self.allocator.destroy(row);
     const listener = try session.served.port.reserveListener(&self.vat, location);
-    return .{ .row = row, .listener = listener };
-}
-
-/// Release the only owned resource in an uncommitted reservation. Reserved
-/// map/FIFO capacity is retained for the next operation.
-pub fn cancelVowReservation(self: *Host, reservation: VowReservation) void {
-    self.allocator.destroy(reservation.row);
+    return .{ .host = self, .session = session, .unpublished = row, .listener = listener };
 }
 
 /// Mint a Host vow whose producing operation is admitted now but cannot be
@@ -271,13 +297,12 @@ pub fn mintDeferredVow(
     session: *HostSession,
     pending_cancel: PendingCancel.Fallible,
 ) !u64 {
-    try ensureFreshVowId(self);
-    const id = self.next_vow;
+    const id = try peekVowId(self);
     const row = try reserveRow(self, session, .plain, .none, id);
     row.vow = .{ .local = id };
     row.pending_cancel = .{ .fallible_no_answer = pending_cancel };
     publishRow(self, row);
-    self.next_vow += 1;
+    self.vow_ids.commit(id);
     self.beginSessionOperation(session);
     return id;
 }
@@ -318,48 +343,6 @@ pub fn attachDeferredVow(
     target.served.port.onReserved(&self.vat, listener, vow, installed);
 }
 
-/// Publish a vow using only resources reserved before its semantic operation.
-pub fn commitVow(
-    self: *Host,
-    session: *HostSession,
-    reservation: VowReservation,
-    vow: actors.Vow,
-) u64 {
-    const installed: actors.Listener = .{ .ctx = reservation.row, .func = VowRow.fire };
-    const id = commitVowWithListener(
-        self,
-        session,
-        reservation,
-        vow,
-        installed,
-        .{ .row_listener = installed },
-    );
-    std.debug.assert(id == self.next_vow);
-    self.next_vow += 1;
-    return id;
-}
-
-/// Explicit-listener commit for Host-core bridges whose terminal callback does
-/// more than retire and queue the raw resolution. The id counter is
-/// unchanged, and the continuation decides whether its id is fresh or pre-minted.
-pub fn commitVowWithListener(
-    self: *Host,
-    session: *HostSession,
-    reservation: VowReservation,
-    vow: actors.Vow,
-    listener: actors.Listener,
-    pending_cancel: PendingCancel,
-) u64 {
-    const row = reservation.row;
-    row.vow = vow;
-    row.pending_cancel = pending_cancel;
-    _ = settlement.claimPeerVisibleAnswer(row, session);
-    session.served.port.onReserved(&self.vat, reservation.listener, vow, listener);
-    publishRow(self, row);
-    self.beginSessionOperation(session);
-    return row.id;
-}
-
 /// Reserve one unpublished row for a Host-core producer.
 pub fn reserveRow(
     self: *Host,
@@ -393,32 +376,30 @@ fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
     try self.admitSessionOperation(resolved.session);
     const source = try pipelineAnswer(resolved.row);
     try self.checkOutboundAdmission(resolved.session);
-    const reservation = try reserveVow(self, resolved.session, .far, .plain, .peer_visible);
-    var reservation_live = true;
-    errdefer if (reservation_live) cancelVowReservation(self, reservation);
+    var reservation = try reserveVow(self, resolved.session, .far, .plain, .peer_visible);
+    defer reservation.deinit();
     const peer = resolved.session.served.port.peer;
-    const answer = model.AnswerPosition.from(try peer.allocateAnswer());
-    const receiver: model.Reference = .{ .promise = .{ .answer_position = source } };
+    const answer = try peer.allocateAnswer();
+    const receiver: model.Reference = .{ .promise = .{ .answer_position = source.position } };
     switch (projection) {
         .index => |index| try peer.sendBorrowed(.{ .index = .{
             .receiver = receiver,
             .index = .{ .integer = index },
-            .answer = answer,
+            .answer = answer.position,
         } }),
-        .untag => |tag| try peer.sendBorrowed(.{ .untag = .{ .receiver = receiver, .tag = tag, .answer = answer } }),
-        .get => |field| try peer.sendBorrowed(.{ .get = .{ .receiver = receiver, .field = field, .answer = answer } }),
+        .untag => |tag| try peer.sendBorrowed(.{ .untag = .{ .receiver = receiver, .tag = tag, .answer = answer.position } }),
+        .get => |field| try peer.sendBorrowed(.{ .get = .{ .receiver = receiver, .field = field, .answer = answer.position } }),
     }
-    const id = commitVow(self, resolved.session, reservation, .{ .far = answer });
-    reservation_live = false;
+    const id = reservation.commit(.{ .far = answer });
     host_pump.finishCommittedVow(self, resolved.session);
     return id;
 }
 
-fn pipelineAnswer(row: *const VowRow) !model.AnswerPosition {
-    if (row.answer_release != .peer_visible and row.answer_release != .shared_peer_visible) return vocab.Error.NotPipelineable;
+fn pipelineAnswer(row: *const VowRow) !engine.OutboundAnswerTarget {
+    if (row.answer_release != .peer_visible and row.answer_release != .shared_peer_visible) return error.NotPipelineable;
     return switch (row.vow) {
         .far => |answer| answer,
-        .local => return vocab.Error.NotPipelineable,
+        .local => return error.NotPipelineable,
     };
 }
 
@@ -428,6 +409,16 @@ fn pipelineAnswer(row: *const VowRow) !model.AnswerPosition {
 /// remain valid pipeline targets until explicit release.
 /// `vowOn`, `vowSend`, and `vowProjection` share this prelude
 /// and differ only in the body that follows.
+/// Admit an application verb addressed through a vow: the Host, the session
+/// the vow resolved through, and that session's outbound.
+fn admitVowVerb(self: *Host, vow_id: u64) !ResolvedVow {
+    try self.admitApplicationOperation();
+    const resolved = try resolveVowSession(self, vow_id);
+    try self.admitSessionOperation(resolved.session);
+    try self.checkOutboundAdmission(resolved.session);
+    return resolved;
+}
+
 fn resolveVowSession(self: *Host, vow_id: u64) HostError!ResolvedVow {
     self.assertOwner();
     const row = self.vows.get(vow_id) orelse return HostError.NoSuchVow;

@@ -23,17 +23,17 @@ and is answerable for what lands. [`PROVENANCE.md`](PROVENANCE.md) records
 how, and why glowcap sends no generated reports or patches to projects that
 refuse them.
 
-It is a library, not a framework. You link it and own its memory, and every
-place a frame is copied, allocated, or borrowed shows in the API. The protocol
+You link glowcap into your program and own its memory, and the Zig API names
+each place a frame is copied, allocated, or borrowed. The protocol
 core is synchronous and does no I/O, so sockets, scheduling, and encryption
 live in the transport adapters. Sessions speak
 [CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/)
 and encode it in [Syrup](https://github.com/ocapn/syrup), OCapN's canonical
 format.
 
-Most peers connect over [iroh](https://www.iroh.computer/), encrypted QUIC
-with peer discovery, or `noise-tcp`, encrypted TCP that proves you reached the
-key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor onion services.
+For an encrypted session, use [iroh](https://www.iroh.computer/), which is
+QUIC with peer discovery, or `noise-tcp`, which is TCP that proves you reached
+the key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor onion services.
 [Choosing a transport](https://jimisaacs.github.io/glowcap/transports/choosing/)
 lists the rest. Plain `tcp` is a testing transport, cleartext with no identity
 proof.
@@ -43,7 +43,7 @@ or LMDB, or in memory. An actor can sleep in a record and wake when a message ar
 and the references peers hold to it stay valid in between. Loam can also track
 who has access to what and revoke it.
 
-There are no releases or compatibility guarantees yet. Pin a commit, and read
+There are no releases or compatibility guarantees. Pin a commit, and read
 [what ships](docs/shipped.md) and the [known limitations](docs/boundaries.md)
 before depending on it.
 
@@ -79,7 +79,7 @@ const session = try glowcap.driver.connect(
     .{ .symbols = &.{.noise_tcp} },
     partner,
     .ephemeral,
-    // Never leave a network wait unbounded.
+    // Time limits for opening the session and for each answer.
     .{
         .handshake = glowcap.driver.default_handshake_budget,
         .settle = glowcap.driver.default_settle_budget,
@@ -115,14 +115,14 @@ Rooms is a chat application built on glowcap, and
 `glowcap apps rooms serve` starts the browser app, and
 `glowcap apps rooms session` joins a room over encrypted iroh.
 
-To install from a checkout, run `./glowcap install`. It builds and checks
-everything, then installs it outside the checkout. `zig build rooms-build` stages the same files under `zig-out/product`
+To install from a checkout, run `./glowcap install`. It builds the product,
+checks its file list, and installs it outside the checkout. `zig build rooms-build` stages the same files under `zig-out/product`
 without installing them.
 
 ### Examples and other languages
 
-[`examples/README.md`](examples/README.md) begins with the Rooms app, and its
-chapter 01 is this fetch-and-call as a complete program. C consumers start at
+[`examples/README.md`](examples/README.md) starts with chapter 01, which is this
+fetch-and-call as a complete program. C consumers start at
 [`docs/consuming-from-c.md`](docs/consuming-from-c.md).
 The Rust, TypeScript, Python, and Racket bindings live in
 [`bindings/`](bindings/README.md).
@@ -132,7 +132,8 @@ The Rust, TypeScript, Python, and Racket bindings live in
 glowcap is tested against the upstream
 [OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and holds live
 sessions with [Spritely Goblins](https://spritely.institute/goblins/) over
-TCP, iroh, and Tor. Both speak CapTP 1.0, encoded in Syrup:
+TCP on every push, and over iroh and Tor on demand. Both speak CapTP 1.0,
+encoded in Syrup:
 
 ```sh
 zig build ocapn-conformance  # the upstream OCapN test suite, against a glowcap peer
@@ -156,8 +157,8 @@ zig build check    # in-process tests, static checks, examples, fixtures, budget
 zig build runtime-check # process, application, and language-workspace checks
 ```
 
-[`CONTRIBUTING.md`](CONTRIBUTING.md#verifying-changes) has the verification
-workflow.
+To contribute, start with [a working checkout](CONTRIBUTING.md#get-a-working-checkout),
+then [make a change](CONTRIBUTING.md#make-a-change) and open a pull request.
 
 ## Documentation
 
@@ -177,8 +178,9 @@ Reference pages:
 - [Capabilities](docs/capabilities.md) is the glossary when the ideas are new.
 - [The roadmap](docs/roadmap.md) lists the work that remains.
 
-The [protocol diagrams](docs/protocol-diagrams/README.md) and
-[decision records](docs/decisions/README.md) carry the deeper detail.
+The [protocol diagrams](docs/protocol-diagrams/README.md) draw each message
+flow, and the [decision records](docs/decisions/README.md) explain why each
+design was chosen.
 [SECURITY.md](SECURITY.md) explains how to report a vulnerability.
 
 ## License

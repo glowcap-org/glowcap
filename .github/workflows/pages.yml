@@ -12,10 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: github-pages
@@ -28,15 +25,30 @@ jobs:
   build:
     if: >-
       (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_repository.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+
+      - name: Read the Python pin
+        id: python
+        run: |
+          source .devcontainer/pins.sh
+          echo "version=$PYTHON_VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ steps.python.outputs.version }}
 
       - name: Verify the exact commit passed check
         env:
@@ -44,13 +56,7 @@ jobs:
         run: |
           current="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
           test "$DEPLOY_SHA" = "$current"
-          # Only a push run carries the full gate sequence; a pull-request run
-          # of the same workflow is the short Zig-only lane and is no evidence.
-          passed="$(gh api --method GET \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/check.yml/runs" \
-            -f head_sha="$DEPLOY_SHA" -f status=completed -f per_page=100 \
-            --jq 'any(.workflow_runs[]; .conclusion == "success" and .event == "push")')"
-          test "$passed" = true
+          python3 tools/check/require-main-check.py "$DEPLOY_SHA"
 
       - name: Install the pinned Zig
         run: |
@@ -69,6 +75,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

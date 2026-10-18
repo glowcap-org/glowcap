@@ -137,8 +137,7 @@ only status. Cancelling one receiver cannot retire another.
 The shared Zig delivery tests check exact arguments and replies, rollback of
 a failed turn, Host retirement, forwarding, deferred refusal and
 cancellation. The C and Rust continuation limits on count, bytes, target
-references and reply capacity come from that same owner. A reservation
-borrows the turn, and confirmation hands it to the executor once.
+references and reply capacity come from that same owner.
 
 The [runtime executor scenarios](../../apps/rooms/rust/proofs/src/session_executor.rs)
 run the same contracts on Linux and Chromium. They cover pause and revoke

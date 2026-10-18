@@ -77,7 +77,7 @@ fn exercise(transport: model.transport.Known, late_relay: bool) !void {
     if (!late_relay) relay_future = try io.concurrent(ws_relay.bridgeOneRendezvousObserved, .{ io, &relay_server, allocator, probe });
     errdefer if (relay_future) |*future| future.cancel(io) catch {};
 
-    const seed: [crypto.SEED_BYTES]u8 = @splat(0x74);
+    const seed: [crypto.seed_bytes]u8 = @splat(0x74);
     const secret = crypto.SecretKey.fromSeed(seed);
     const identity = secret.publicKey();
     const designator = identity.toDesignator();

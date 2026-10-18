@@ -200,3 +200,137 @@ test "core host: shared enliven coalesces equal callers resumed from one parked 
     try std.testing.expectEqual(@as(usize, 0), client.pending_enliven_count);
     try client.vowRelease(public);
 }
+
+// Replay dial completion with each allocation refused in turn. Persistent
+// exhaustion may fail every resumed observer. Once allocation recovers, an
+// immediate retry on the live session must join or restart the same fetch.
+// The replay fails if rollback leaves the pending marker, parked cancellation
+// skips its accounting, or a pre-minted continuation ID advances. It drives
+// byte-fed Host admission, so physical dial and storage failures are out of reach.
+test "core host: enliven dial continuation replay preserves cancellation refusal retry and close" {
+    const model = glowcap.ocapn.model;
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        for ([_]model.CodecId{ .syrup, .capnp }) |codec| {
+            for ([_]bool{ false, true }) |close_first| {
+                var failures: usize = 0;
+                for (0..64) |offset| {
+                    if (!try replayDialContinuation(profile, codec, close_first, offset)) break;
+                    failures += 1;
+                } else return error.AllocationSweepIncomplete;
+                try std.testing.expect(failures != 0);
+            }
+        }
+    }
+}
+
+fn replayDialContinuation(profile: glowcap.ocapn.model.CaptpVersion, codec: glowcap.ocapn.model.CodecId, close_first: bool, offset: usize) !bool {
+    var failing = std.testing.FailingAllocator.init(a, .{});
+    var options = Host.Options.withFrameCap(h.frame_cap);
+    options.captp_version = profile;
+    options.codec = codec;
+    options.features = glowcap.ocapn.model.FeatureSet.full().forCaptpVersion(profile);
+    var client = test_host.init(failing.allocator(), @splat(0x65), options);
+    defer client.deinit();
+    var server = test_host.init(a, @splat(0x66), options);
+    defer server.deinit();
+    var dials: std.ArrayList(h.ParkedDial) = .empty;
+    defer dials.deinit(a);
+    const canceled = try client.enlivenCapability(a, sturdy);
+    const first = try client.enlivenCapability(a, sturdy);
+    defer first.deinit();
+    const second = try client.enlivenCapability(a, sturdy);
+    defer second.deinit();
+    const public = try client.enlivenSelectOrDial(sturdy);
+    const dial = (try client.nextAction()).?.dial;
+    canceled.deinit();
+    try std.testing.expectEqual(@as(usize, 3), client.pending_enliven_count);
+    const accepted = try h.publishAndOpenAccepted(&server, "tcp", sturdy.peer.designator, &.{});
+    _ = try accepted.served.publish(&server.vat, "widget", h.Widget, .{});
+    try client.ensureAdvertisedLocator("tcp");
+    const dialed = (try client.openPendingDial(dial.ticket, dial.route_index)).?;
+    const pair = h.Pair{ .ah = &client, .a = dialed, .bh = &server, .b = accepted };
+    try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+    try std.testing.expectEqual(profile, dialed.served.port.peer.session_state.captp_version);
+    try std.testing.expectEqual(codec, dialed.served.port.peer.session_state.codec);
+    const next_id = client.vow_ids.next;
+    failing.fail_index = failing.alloc_index + offset;
+    const adoption = client.exporterDialed(dial.ticket, dial.route_index, dialed);
+    const induced = failing.has_induced_failure;
+    failing.fail_index = std.math.maxInt(usize);
+    const adopted = adoption catch |err| blk: {
+        try std.testing.expectEqual(error.OutOfMemory, err);
+        try std.testing.expect(induced);
+        break :blk try client.exporterDialed(dial.ticket, dial.route_index, dialed);
+    };
+    try std.testing.expect(adopted);
+    try std.testing.expectEqual(next_id, client.vow_ids.next);
+    try std.testing.expectEqual(@as(usize, 0), client.pending_enliven_count);
+    try std.testing.expectEqual(@as(usize, 0), client.pending_enlivens.count());
+    const retry = try client.enlivenCapability(a, sturdy);
+    defer retry.deinit();
+    if (close_first) {
+        try client.releaseSession(dialed);
+        try server.releaseSession(accepted);
+    }
+    var public_completions: usize = 0;
+    for (0..64) |_| {
+        const moved = if (close_first) false else try h.shuttleAll(&.{pair});
+        var acted = false;
+        for ([_]*Host{ &client, &server }) |host| {
+            while (try host.takeAction()) |action| {
+                defer host.freeAction(action);
+                acted = true;
+                if (host != &client) continue;
+                switch (action) {
+                    .settled => |value| if (value.vow_id == public) {
+                        try std.testing.expect(!close_first);
+                        public_completions += 1;
+                    },
+                    .failed => |value| if (value.vow_id == public) {
+                        if (value.message == .fallback) {
+                            // Public failure detail needs its own retain, so
+                            // exhaustion may replace it with the typed fallback.
+                            try std.testing.expect(induced);
+                            try std.testing.expectEqual(.broken, value.failure);
+                        } else try expectReplayFailure(value.failure, value.message.owned, close_first, induced);
+                        public_completions += 1;
+                    },
+                    else => {},
+                }
+            }
+        }
+        if (!moved and !acted) break;
+    } else return error.PumpDidNotQuiesce;
+    try std.testing.expectEqual(@as(usize, 1), public_completions);
+    for ([_]*Host.Enliven{ first, second }) |owned| {
+        try std.testing.expect(owned.result() != .pending);
+        if (owned.result() == .failed) {
+            const failed = owned.result().failed;
+            try expectReplayFailure(failed.kind, failed.message, close_first, induced);
+        }
+        if (owned.result() == .ready) try std.testing.expect(owned.result().ready.capability.eql(retry.result().ready.capability));
+    }
+    if (close_first) {
+        try std.testing.expect(retry.result() == .failed);
+        try std.testing.expectEqual(.closed, retry.result().failed.kind);
+    } else {
+        try std.testing.expect(retry.result() == .ready);
+        if (client.vows.contains(public)) try client.vowRelease(public);
+        try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+        try std.testing.expectEqual(@as(usize, 0), dialed.served.port.peer.pending_send_reservations);
+    }
+    try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
+    try std.testing.expectEqual(@as(usize, 0), client.enliven_groups.count());
+    try std.testing.expectEqual(@as(usize, 0), client.pending_operations);
+    return induced;
+}
+
+fn expectReplayFailure(kind: glowcap.driver.core.VowFailure, message: []const u8, close_first: bool, induced: bool) !void {
+    if (kind == .closed) {
+        try std.testing.expect(close_first);
+        return;
+    }
+    try std.testing.expect(induced);
+    try std.testing.expectEqual(.broken, kind);
+    try std.testing.expectEqualStrings("OutOfMemory", message);
+}

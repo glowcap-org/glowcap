@@ -227,6 +227,7 @@ function makeConv(projection: PageProjection, input: NewConv): Conv {
 			standingPending: false,
 			bridgeIssue: "",
 			held: roomIdentity?.held === true,
+			policyHeard: false,
 			...(roomIdentity?.reconnect == null ? {} : { reconnect: roomIdentity.reconnect }),
 			...(roomIdentity?.publicationId != null ? { publicationId: roomIdentity.publicationId } : {}),
 			...(roomIdentity?.link == null ? {} : { linkToken: authorityToken(roomIdentity.link) }),

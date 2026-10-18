@@ -14,7 +14,6 @@ const create_runtime = @import("runtime/create.zig");
 const runtime = @import("runtime/state.zig");
 const provider = @import("provider/mod.zig");
 const framed = @import("framed/mod.zig");
-const failure_projection = @import("failure.zig");
 
 pub const GlowcapOnionNetlayer = contract.GlowcapOnionNetlayer;
 pub const GlowcapOnionConn = contract.GlowcapOnionConn;
@@ -102,7 +101,7 @@ fn releaseNetlayer(netlayer: ?*GlowcapOnionNetlayer) i32 {
     const payload = netlayerFromOpaque(netlayer) orelse return c.GLOWCAP_OK;
     if (payload.release()) |failure| {
         c.setLastErrorChain("onion netlayer release", failure);
-        return failure_projection.providerListen(failure.cause);
+        return c.netlayerFailureCode(failure.cause);
     }
     return c.GLOWCAP_OK;
 }

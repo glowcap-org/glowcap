@@ -24,39 +24,28 @@ fn writeErrToCode(err: model.uri.Error) i32 {
 }
 
 pub fn peer(locator: model.PeerLocator, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
-    const l = out_len orelse return GLOWCAP_ERR_NULL_POINTER;
-    const dest = out orelse {
-        if (cap == 0) {
-            const len = model.uri.measurePeer(locator) catch |err| return writeErrToCode(err);
-            l.* = len;
-            return if (len == 0) GLOWCAP_OK else GLOWCAP_ERR_BUFFER_TOO_SMALL;
-        }
-        c.setLastError("uri format: out is null with nonzero capacity", .{});
-        return GLOWCAP_ERR_INVALID_ARGUMENT;
-    };
-    const result = model.uri.writePeerBounded(locator, dest[0..cap]) catch |err| return writeErrToCode(err);
-    l.* = result.len;
-    return if (result.complete) GLOWCAP_OK else GLOWCAP_ERR_BUFFER_TOO_SMALL;
+    return bounded(model.uri.measurePeer, model.uri.writePeerBounded, .{locator}, out, cap, out_len);
 }
 
-pub fn sturdyref(
-    profile: model.CaptpVersion,
-    value: model.SturdyRef,
-    out: ?[*]u8,
-    cap: usize,
-    out_len: ?*usize,
-) i32 {
+pub fn sturdyref(profile: model.CaptpVersion, value: model.SturdyRef, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
+    return bounded(model.uri.measureSturdyrefForProfile, model.uri.writeSturdyrefForProfileBounded, .{ profile, value }, out, cap, out_len);
+}
+
+/// The output-buffer protocol every formatter shares. A null `out` with zero
+/// capacity asks for the length; otherwise `write` fills `out[0..cap]` and
+/// reports whether it fit.
+fn bounded(comptime measure: anytype, comptime write: anytype, args: anytype, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
     const l = out_len orelse return GLOWCAP_ERR_NULL_POINTER;
     const dest = out orelse {
         if (cap == 0) {
-            const len = model.uri.measureSturdyrefForProfile(profile, value) catch |err| return writeErrToCode(err);
+            const len = @call(.auto, measure, args) catch |err| return writeErrToCode(err);
             l.* = len;
             return if (len == 0) GLOWCAP_OK else GLOWCAP_ERR_BUFFER_TOO_SMALL;
         }
         c.setLastError("uri format: out is null with nonzero capacity", .{});
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     };
-    const result = model.uri.writeSturdyrefForProfileBounded(profile, value, dest[0..cap]) catch |err| return writeErrToCode(err);
+    const result = @call(.auto, write, args ++ .{dest[0..cap]}) catch |err| return writeErrToCode(err);
     l.* = result.len;
     return if (result.complete) GLOWCAP_OK else GLOWCAP_ERR_BUFFER_TOO_SMALL;
 }

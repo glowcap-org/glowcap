@@ -31,7 +31,7 @@ const crypto = glowcap.foundation.crypto;
 const frame_cap: usize = 4096;
 
 /// The offerer's fixed key, whose designator the identity line announces.
-const offerer_seed = @as([crypto.SEED_BYTES]u8, @splat(0x73));
+const offerer_seed = @as([crypto.seed_bytes]u8, @splat(0x73));
 
 /// Dial the keyed session over the open channel, pinning the listener's key,
 /// then fetch its greeter and call it.

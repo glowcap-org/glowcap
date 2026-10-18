@@ -4,11 +4,12 @@ const model = @import("model");
 const session = @import("mod.zig");
 const Session = session.Session;
 
-/// One POD purpose row in the existing resolver map, with no reverse row or
-/// payload allocation. The original inline subscription owns the answer's
-/// lifetime and detaches it on GC. Its stamped target survives wire-name reuse.
-/// The row dies on callback, refusal, resolver GC, or session teardown. Without
-/// this identity a forwarded call aliases the opposite direction's question.
+/// A forwarding purpose on the resolver's export row, with no payload
+/// allocation. The original inline subscription owns the answer's lifetime
+/// and detaches it on GC. Its stamped target survives wire-name reuse. The
+/// purpose dies on callback, refusal, resolver GC, or session teardown.
+/// Without this identity a forwarded call aliases the opposite direction's
+/// question.
 pub const ForwardedReply = struct {
     resolver_export: model.ExportPosition,
     target: session.AnswerTarget,
@@ -16,10 +17,7 @@ pub const ForwardedReply = struct {
     pub fn prepare(owner: *Session, target: session.AnswerTarget) !ForwardedReply {
         if (!targetIsLive(owner, target)) return error.InvalidReference;
         const resolver = try owner.allocateExport();
-        errdefer owner.releaseUnsharedExport(resolver);
-        try owner.outbound_resolver_link.put(owner.allocator, resolver, .{
-            .forwarding = .{ .resolver_export = resolver, .target = target },
-        });
+        owner.exports.setPurpose(resolver, .{ .forwarding = target });
         return .{ .resolver_export = resolver, .target = target };
     }
 
@@ -30,9 +28,9 @@ pub const ForwardedReply = struct {
     }
 
     pub fn find(owner: *const Session, resolver: model.ExportPosition) ?ForwardedReply {
-        const purpose = owner.outbound_resolver_link.getByKey(resolver) orelse return null;
+        const purpose = owner.exports.purpose(resolver) orelse return null;
         return switch (purpose) {
-            .forwarding => |forwarding| forwarding,
+            .forwarding => |target| .{ .resolver_export = resolver, .target = target },
             else => null,
         };
     }
@@ -40,7 +38,7 @@ pub const ForwardedReply = struct {
     /// Undo an unmentioned nomination or a withdrawn send whose mention was
     /// returned. No independent retain exists on the original answer payload.
     pub fn abandon(self: ForwardedReply, owner: *Session) void {
-        std.debug.assert(owner.outbound_resolver_link.removeByKey(self.resolver_export));
+        std.debug.assert(owner.exports.clearPurpose(self.resolver_export) != null);
         owner.releaseUnsharedExport(self.resolver_export);
     }
 
@@ -54,10 +52,7 @@ pub const ForwardedReply = struct {
             batch.adopt(owner);
             payload.imported_result = batch;
         }
-        owner.outbound_resolver_link.replaceValueForKey(self.resolver_export, .{ .retired = .{
-            .resolver_export = self.resolver_export,
-            .state = .complete,
-        } });
+        _ = owner.exports.replacePurpose(self.resolver_export, .{ .retired = .{ .state = .complete } });
         owner.releaseRetiredResolverIfUnmentioned(self.resolver_export);
     }
 };

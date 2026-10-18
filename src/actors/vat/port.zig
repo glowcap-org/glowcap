@@ -18,7 +18,7 @@ const Delivery = vat_mod.Delivery;
 const IngressId = vat_mod.IngressId;
 const ResolveInterceptor = vat_mod.ResolveInterceptor;
 const Listener = vat_mod.Listener;
-const FarOutcome = vat_mod.FarOutcome;
+const Outcome = vat_mod.Outcome;
 const Error = vat_mod.Error;
 
 /// One CapTP session's projection of a Vat: wire peer, export positions, and
@@ -33,13 +33,15 @@ pub const Port = struct {
     /// A multi-Port Host assigns one minted ingress per session.
     ingress: IngressId = .local,
     resolve_interceptor: ?ResolveInterceptor = null,
-    /// Listener for a far send's vow, keyed by this Port's outbound answer
-    /// position namespace. Dense storage lets bulk failure pop one listener
-    /// before each callback in O(1), while cancellation still sees the rest.
-    far_listeners: std.AutoArrayHashMapUnmanaged(model.AnswerPosition, Listener) = .{},
-    /// A bulk break consumes every previously minted answer, including sends
-    /// without observers. Fresh sends after the break may still be observed.
-    far_broken_before: u64 = 0,
+    /// Listener for a far send's vow, keyed by the question's identity in
+    /// this Port's outbound answer namespace. Dense storage lets bulk failure
+    /// pop one listener before each callback in O(1), while cancellation
+    /// still sees the rest.
+    far_listeners: std.AutoArrayHashMapUnmanaged(engine.OutboundAnswerTarget, Listener) = .{},
+    /// A bulk break consumes every answer minted before it, including sends
+    /// without observers: a vow whose row stamp is at or below this watermark
+    /// is broken. Fresh sends after the break may still be observed.
+    far_broken_stamp: u64 = 0,
     /// Local actor id for each export position projected on this Port.
     exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
     /// Canonical export position already projecting a local actor.
@@ -67,23 +69,18 @@ pub const Port = struct {
         self.resolve_interceptor = interceptor;
     }
 
-    /// Location-transparent eventual-send through this session projection.
+    /// Location-transparent eventual-send through this session projection,
+    /// on this Port's ingress.
     pub fn send(self: *Port, vat: *Vat, target: Ref, msg: Message) Error!Vow {
-        return self.sendFromIngress(vat, self.ingress, target, msg);
-    }
-
-    pub fn sendFromIngress(self: *Port, vat: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!Vow {
-        if (ingress != self.ingress) return Error.UnknownIngress;
-        _ = try ingress_mod.ingressState(vat, ingress);
         return switch (target) {
-            .local => |id| .{ .local = try ingress_mod.enqueueLocal(vat, ingress, self, id, msg, true) },
+            .local => |id| .{ .local = try ingress_mod.enqueueLocal(vat, self.ingress, self, id, msg, .answered) },
             .far => |far| self.sendFarTo(vat, .{ .far = far }, msg),
         };
     }
 
     fn sendFarTo(self: *Port, vat: *Vat, target: model.Reference, msg: Message) Error!Vow {
-        const answer = try self.allocateAnswer();
-        try farDeliverTo(vat, self, target, msg, answer);
+        const answer = try self.peer.allocateAnswer();
+        try farDeliverTo(vat, self, target, msg, answer.position);
         return .{ .far = answer };
     }
 
@@ -95,18 +92,12 @@ pub const Port = struct {
     /// into the vat's allocator and freed when the queue or the wire has
     /// taken them.
     pub fn sendDelivery(self: *Port, vat: *Vat, target: Ref, delivery: Delivery) Error!Vow {
-        return self.sendDeliveryFromIngress(vat, self.ingress, target, delivery);
-    }
-
-    pub fn sendDeliveryFromIngress(self: *Port, vat: *Vat, ingress: IngressId, target: Ref, delivery: Delivery) Error!Vow {
-        if (delivery.args.ownedSlice()) |args| return self.sendFromIngress(vat, ingress, target, .{ .verb = delivery.verb, .args = args });
-        if (ingress != self.ingress) return Error.UnknownIngress;
-        _ = try ingress_mod.ingressState(vat, ingress);
+        if (delivery.args.ownedSlice()) |args| return self.send(vat, target, .{ .verb = delivery.verb, .args = args });
         switch (target) {
-            .local => |id| return .{ .local = try enqueueLocalDelivery(vat, self, ingress, id, delivery, true) },
+            .local => |id| return .{ .local = try enqueueLocalDelivery(vat, self, id, delivery, .answered) },
             .far => |far| {
-                const answer = try self.allocateAnswer();
-                try farDeliverViews(vat, self, .{ .far = far }, delivery, answer);
+                const answer = try self.peer.allocateAnswer();
+                try farDeliverViews(vat, self, .{ .far = far }, delivery, answer.position);
                 return .{ .far = answer };
             },
         }
@@ -114,44 +105,31 @@ pub const Port = struct {
 
     /// `sendDelivery` with no answer.
     pub fn tellDelivery(self: *Port, vat: *Vat, target: Ref, delivery: Delivery) Error!void {
-        return self.tellDeliveryFromIngress(vat, self.ingress, target, delivery);
-    }
-
-    pub fn tellDeliveryFromIngress(self: *Port, vat: *Vat, ingress: IngressId, target: Ref, delivery: Delivery) Error!void {
-        if (delivery.args.ownedSlice()) |args| return self.tellFromIngress(vat, ingress, target, .{ .verb = delivery.verb, .args = args });
-        if (ingress != self.ingress) return Error.UnknownIngress;
-        _ = try ingress_mod.ingressState(vat, ingress);
+        if (delivery.args.ownedSlice()) |args| return self.tell(vat, target, .{ .verb = delivery.verb, .args = args });
         switch (target) {
-            .local => |id| _ = try enqueueLocalDelivery(vat, self, ingress, id, delivery, false),
+            .local => |id| _ = try enqueueLocalDelivery(vat, self, id, delivery, .unanswered),
             .far => |far| try farDeliverViews(vat, self, .{ .far = far }, delivery, null),
         }
     }
 
-    fn allocateAnswer(self: *Port) Error!model.AnswerPosition {
-        return .from(self.peer.allocateAnswer() catch |err| switch (err) {
-            error.OutboundAnswerSpaceExhausted => return Error.ResourceExhausted,
-        });
-    }
-
     /// Promise-pipelined eventual-send through this Port's answer namespace.
-    pub fn sendToAnswer(self: *Port, vat: *Vat, answer: model.AnswerPosition, msg: Message) Error!Vow {
-        return self.sendFarTo(vat, .{ .promise = .{ .answer_position = answer } }, msg);
+    /// A vow whose question the session no longer holds is settled as far as
+    /// this Port can tell, so pipelining onto it is refused.
+    pub fn sendToAnswer(self: *Port, vat: *Vat, answer: engine.OutboundAnswerTarget, msg: Message) Error!Vow {
+        if (!self.peer.session_state.hasLiveOutboundAnswer(answer)) return error.AlreadySettled;
+        return self.sendFarTo(vat, .{ .promise = .{ .answer_position = answer.position } }, msg);
     }
 
     /// Fire-and-forget eventual-send through this Port's answer namespace.
-    pub fn tellToAnswer(self: *Port, vat: *Vat, answer: model.AnswerPosition, msg: Message) Error!void {
-        return farDeliverTo(vat, self, .{ .promise = .{ .answer_position = answer } }, msg, null);
+    pub fn tellToAnswer(self: *Port, vat: *Vat, answer: engine.OutboundAnswerTarget, msg: Message) Error!void {
+        if (!self.peer.session_state.hasLiveOutboundAnswer(answer)) return error.AlreadySettled;
+        return farDeliverTo(vat, self, .{ .promise = .{ .answer_position = answer.position } }, msg, null);
     }
 
+    /// `send` with no answer.
     pub fn tell(self: *Port, vat: *Vat, target: Ref, msg: Message) Error!void {
-        return self.tellFromIngress(vat, self.ingress, target, msg);
-    }
-
-    pub fn tellFromIngress(self: *Port, vat: *Vat, ingress: IngressId, target: Ref, msg: Message) Error!void {
-        if (ingress != self.ingress) return Error.UnknownIngress;
-        _ = try ingress_mod.ingressState(vat, ingress);
         switch (target) {
-            .local => |id| _ = try ingress_mod.enqueueLocal(vat, ingress, self, id, msg, false),
+            .local => |id| _ = try ingress_mod.enqueueLocal(vat, self.ingress, self, id, msg, .unanswered),
             .far => |far| try farDeliverTo(vat, self, .{ .far = far }, msg, null),
         }
     }
@@ -161,9 +139,9 @@ pub const Port = struct {
         switch (vow) {
             .local => try vat.on(vow, listener),
             .far => |answer| {
-                if (answer.int() < self.far_broken_before or !self.peer.canObserveAnswer(answer)) return Error.AlreadySettled;
+                if (!self.farObservable(answer)) return error.AlreadySettled;
                 const gop = try self.far_listeners.getOrPut(self.allocator, answer);
-                if (gop.found_existing) return Error.AlreadyListening;
+                if (gop.found_existing) return error.AlreadyListening;
                 gop.value_ptr.* = listener;
             },
         }
@@ -182,7 +160,7 @@ pub const Port = struct {
 
     /// Rollback removed the send before this notification. Its observer can
     /// still cancel through takeListener while another failure listener runs.
-    pub fn breakRetracted(self: *Port, answer: model.AnswerPosition, reason: []const u8) void {
+    pub fn breakRetracted(self: *Port, answer: engine.OutboundAnswerTarget, reason: []const u8) void {
         const entry = self.far_listeners.fetchSwapRemove(answer) orelse return;
         entry.value.func(entry.value.ctx, .{ .broken = reason });
     }
@@ -215,27 +193,29 @@ pub const Port = struct {
             },
             .far => |answer| {
                 std.debug.assert(reservation.location == .far);
-                std.debug.assert(answer.int() >= self.far_broken_before and self.peer.canObserveAnswer(answer));
+                std.debug.assert(self.farObservable(answer));
                 std.debug.assert(!self.far_listeners.contains(answer));
                 self.far_listeners.putAssumeCapacity(answer, listener);
             },
         }
     }
 
+    /// Whether a far vow in this Port's answer namespace can still be
+    /// observed: minted after the last bulk break, and neither settled nor
+    /// consumed at the session.
+    fn farObservable(self: *const Port, answer: engine.OutboundAnswerTarget) bool {
+        return answer.row_id > self.far_broken_stamp and self.peer.canObserveAnswer(answer);
+    }
+
     /// Dispatch one inbound event under this Port's causal ingress.
-    pub fn serveFromIngress(self: *Port, vat: *Vat, ingress: IngressId, event: *engine.Event) !bool {
-        if (ingress != self.ingress) return Error.UnknownIngress;
-        const state = try ingress_mod.ingressState(vat, ingress);
+    pub fn serve(self: *Port, vat: *Vat, event: *engine.Event) !bool {
+        const state = try ingress_mod.ingressState(vat, self.ingress);
         state.active_turns += 1;
         defer state.active_turns -= 1;
-        return serve_mod.serveFromIngress(vat, self, ingress, event);
+        return serve_mod.serve(vat, self, event);
     }
 
-    pub fn serve(self: *Port, vat: *Vat, event: *engine.Event) !bool {
-        return self.serveFromIngress(vat, self.ingress, event);
-    }
-
-    pub fn settleFar(self: *Port, vat: *Vat, answer: model.AnswerPosition, outcome: FarOutcome) Error!void {
+    pub fn settleFar(self: *Port, vat: *Vat, answer: engine.OutboundAnswerTarget, outcome: Outcome) Error!void {
         return serve_mod.settleFar(vat, self, answer, outcome);
     }
 
@@ -243,12 +223,50 @@ pub const Port = struct {
         serve_mod.breakFarVows(self, message);
     }
 
+    /// Bind an already-spawned local actor to export `position` so a partner's
+    /// deliveries to that position run the actor (dispatched by `serve`). This
+    /// is the numeric-position primitive. The by-name publish verb one layer
+    /// up (`Served.publish`, `driver.Session.publish`) rides on it. Binding
+    /// *reserves* the position, it does not grant it: the partner can address
+    /// the actor only once its reference first marshals onto the wire, or
+    /// after an explicit `peer.exportObject` grant (ADR-0074). Only a local
+    /// actor can be bound, a far ref already lives elsewhere, so a far ref
+    /// returns `NotLocal`.
     pub fn bindExport(self: *Port, vat: *Vat, actor: Ref, position: u64) !void {
-        return serve_mod.bindExport(self, vat, actor, position);
+        const local_id = switch (actor) {
+            .local => |a| a,
+            .far => return error.NotLocal,
+        };
+        // Reject a collision before touching the peer: the export to actor map is
+        // authority (it decides which local object a partner reaches), so a second
+        // bind to the same position fails loud rather than orphaning the first.
+        try self.reverse_exports.ensureUnusedCapacity(self.allocator, 1);
+        const gop = try self.exports.getOrPut(self.allocator, position);
+        if (gop.found_existing) return error.AlreadyPublished;
+        // getOrPut inserted the key with an undefined value; if registering the
+        // export fails, drop the half-inserted entry so the map never holds a
+        // position the peer doesn't actually export.
+        errdefer std.debug.assert(self.exports.remove(position));
+        try self.peer.reserveExport(position);
+        gop.value_ptr.* = local_id;
+        if (!self.reverse_exports.contains(local_id)) {
+            self.reverse_exports.putAssumeCapacity(local_id, position);
+            // The actor's first binding on this Port is a rooting relationship
+            // (ADR-0101), released by rollback of the last binding or Port
+            // teardown.
+            vat.retainActor(local_id);
+        }
     }
 
+    /// The local `Ref` bound to wire export `position`, or null when no actor
+    /// is exported there, the inverse of `bindExport`'s position-to-actor map.
+    /// A surface that receives a near reference (which names an object by its
+    /// wire export position, not its vat-local actor id) resolves it through
+    /// here so a position is never mistaken for an actor id. `serve` resolves
+    /// an inbound deliver's target the same way.
     pub fn refForExport(self: *const Port, position: u64) ?Ref {
-        return serve_mod.refForExport(self, position);
+        const local_id = self.exports.get(position) orelse return null;
+        return .{ .local = local_id };
     }
 
     pub const Projection = struct {
@@ -291,7 +309,7 @@ pub const Port = struct {
     pub fn prepareProjection(self: *Port, vat: *Vat, actor: Ref) !Projection {
         const actor_id = switch (actor) {
             .local => |id| id,
-            .far => return Error.NotLocal,
+            .far => return error.NotLocal,
         };
         if (self.reverse_exports.get(actor_id)) |position| return .{
             .near = model.NearRef.object(position),
@@ -314,10 +332,10 @@ pub const Port = struct {
 
 /// Views to a local actor are materialized once into the vat's allocator
 /// and freed after the queue copied them.
-fn enqueueLocalDelivery(vat: *Vat, port: *Port, ingress: IngressId, id: u64, delivery: Delivery, answered: bool) Error!u64 {
+fn enqueueLocalDelivery(vat: *Vat, port: *Port, id: u64, delivery: Delivery, answered: ingress_mod.Answer) Error!u64 {
     const message = try materialize(vat, delivery);
     defer model.freeArgumentSlice(vat.allocator, message.args);
-    return ingress_mod.enqueueLocal(vat, ingress, port, id, message, answered);
+    return ingress_mod.enqueueLocal(vat, port.ingress, port, id, message, answered);
 }
 
 fn materialize(vat: *Vat, delivery: Delivery) Error!Message {
@@ -349,7 +367,7 @@ fn releaseBreakReservation(vat: *Vat, answered: bool) void {
 /// allocator, which the caller frees when the spine outgrew `buf`.
 fn verbSpine(comptime Elem: type, vat: *Vat, buf: []Elem, verb: []const u8, count: usize) Error!struct { spine: []Elem, head: usize } {
     const has_verb = verb.len > 0;
-    const total = std.math.add(usize, count, @intFromBool(has_verb)) catch return Error.MalformedView;
+    const total = std.math.add(usize, count, @intFromBool(has_verb)) catch return error.MalformedView;
     const spine = if (total <= buf.len) buf[0..total] else try vat.allocator.alloc(Elem, total);
     if (has_verb) spine[0] = .{ .symbol = verb };
     return .{ .spine = spine, .head = @intFromBool(has_verb) };
@@ -391,16 +409,16 @@ fn farDeliverViews(vat: *Vat, port: *Port, target: model.Reference, delivery: De
     try enrollFarSend(vat, port, answer != null);
     errdefer releaseBreakReservation(vat, answer != null);
     var buf: [8]model.view.Argument = undefined;
-    const count = delivery.args.len() catch return Error.MalformedView;
+    const count = delivery.args.len() catch return error.MalformedView;
     const spine = try verbSpine(model.view.Argument, vat, &buf, delivery.verb, count);
     defer if (spine.spine.len > buf.len) vat.allocator.free(spine.spine);
     var head = spine.head;
     var it = delivery.args.iterator();
-    while (it.next() catch return Error.MalformedView) |argument| : (head += 1) {
-        if (head == spine.spine.len) return Error.MalformedView;
+    while (it.next() catch return error.MalformedView) |argument| : (head += 1) {
+        if (head == spine.spine.len) return error.MalformedView;
         spine.spine[head] = argument;
     }
-    if (head != spine.spine.len) return Error.MalformedView;
+    if (head != spine.spine.len) return error.MalformedView;
     peer.sendFreight(target, .fromViews(spine.spine), answer) catch |err| return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => Error.SendRejected,
@@ -421,7 +439,7 @@ fn abortTurn(ctx: *anyopaque, vat: *Vat, reason: []const u8) void {
     const Breaker = struct {
         port: *Port,
         vat: *Vat,
-        fn retracted(erased: *anyopaque, answer: model.AnswerPosition) void {
+        fn retracted(erased: *anyopaque, answer: engine.OutboundAnswerTarget) void {
             const self: *@This() = @ptrCast(@alignCast(erased));
             if (self.port.far_listeners.contains(answer)) {
                 self.vat.turn_breaks.appendAssumeCapacity(.{ .port = self.port, .answer = answer });

@@ -116,7 +116,7 @@ glowcap --json ocapn call "$LOC" greeter greet world
 {"ok":true,"value":"Hello, world"}
 ```
 
-Change the arg, change the reply:
+A different argument gets a different reply:
 
 ```sh
 glowcap --json ocapn call "$LOC" greeter greet glowcap \
@@ -229,8 +229,8 @@ prepares the product on first use. The configuration lives in
 - Tool results match the command line's `--json` output, including
   `{"ok":false,"error":…}` on failure, and `isError` follows the exit code.
 - MCP state defaults to `.local/glowcap-mcp-state` under the working
-  directory, so an agent never shares an identity with a person using the
-  command line or REPL.
+  directory, so an agent gets its own identity unless `GLOWCAP_STATE` points
+  it somewhere else.
 - `listen` is an MCP tool in the `default` and `full` catalogs.
 - The tool schemas are generated from the CapTP command registry, one flag or
   argument at a time (`--repl` stays command-line only). `call`, `tell`, and

@@ -15,7 +15,7 @@ pub fn main(init: std.process.Init) !void {
     const mode = std.mem.span(args[1]);
     const path = std.mem.span(args[2]);
     if (std.mem.eql(u8, mode, "compete")) {
-        if (Lmdb.open(path, .{ .mode = .{ .open = f.id } })) |opened| {
+        if (Lmdb.open(path, .{ .opening = .{ .id = f.id, .mode = .open } })) |opened| {
             var unexpected = opened;
             try unexpected.close();
             return error.DuplicateOwner;

@@ -232,3 +232,52 @@ test "a reservation on a spilled table counts the rows the heap already holds" {
     try std.testing.expectEqual(@as(usize, 4), table.count());
     try std.testing.expectEqual(@as(u32, 4), table.getPtr(position(4)).?.*);
 }
+
+test "inline list reservation overflow preserves rows and permits retry" {
+    const allocator = std.testing.allocator;
+    inline for (.{ 0, 1, 2 }) |capacity| {
+        var list: inline_rows.List(u64, capacity) = .empty;
+        defer list.deinit(allocator);
+        try list.ensureUnusedCapacity(allocator, 0);
+        try list.append(allocator, 7);
+        const before = list.items().ptr;
+        try std.testing.expectError(error.OutOfMemory, list.ensureUnusedCapacity(allocator, std.math.maxInt(usize)));
+        try std.testing.expectEqualSlices(u64, &.{7}, list.items());
+        try std.testing.expectEqual(before, list.items().ptr);
+        try list.ensureUnusedCapacity(allocator, 1);
+        list.appendAssumeCapacity(9);
+        try std.testing.expectEqualSlices(u64, &.{ 7, 9 }, list.items());
+    }
+}
+
+test "inline table oversized reservations preserve rows and permit retry" {
+    const allocator = std.testing.allocator;
+    inline for (.{ .local, .wire }) |provenance| {
+        inline for (.{ 0, 1, 2 }) |capacity| {
+            var table: inline_rows.Table(u64, u64, capacity, provenance) = if (provenance == .local) .empty else .keyed(identity_hash.default_multiplier);
+            defer table.deinit(allocator);
+            try table.ensureUnusedCapacity(allocator, 0);
+            var it = table.iterator();
+            try std.testing.expect(it.next() == null);
+            try std.testing.expect(!table.contains(1));
+            try std.testing.expectError(error.OutOfMemory, table.ensureUnusedCapacity(allocator, std.math.maxInt(usize)));
+            try std.testing.expect(!table.spilled);
+            (try table.getOrPut(allocator, 1)).value_ptr.* = 7;
+            const before = table.getPtr(1).?;
+            for ([_]usize{ std.math.maxInt(usize), std.math.maxInt(u32), std.math.maxInt(u32) - 1 }) |additional| {
+                try std.testing.expectError(error.OutOfMemory, table.ensureUnusedCapacity(allocator, additional));
+                try std.testing.expectEqual(@as(usize, 1), table.count());
+                try std.testing.expectEqual(@as(u64, 7), table.getPtr(1).?.*);
+                try std.testing.expectEqual(before, table.getPtr(1).?);
+            }
+            try table.ensureUnusedCapacity(allocator, 1);
+            table.getOrPutAssumeCapacity(2).value_ptr.* = 9;
+            try std.testing.expectEqual(@as(usize, 2), table.count());
+            try std.testing.expectEqual(@as(u64, 9), table.getPtr(2).?.*);
+            it = table.iterator();
+            var sum: u64 = 0;
+            while (it.next()) |entry| sum += entry.value_ptr.*;
+            try std.testing.expectEqual(@as(u64, 16), sum);
+        }
+    }
+}

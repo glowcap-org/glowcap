@@ -4,34 +4,32 @@
 //! so every pass here is a loop over the slots that hold references: count the
 //! projections, collect them, rewrite each slot at commit preparation, and
 //! restore it on rollback. A settlement's root is held by value in the batch's
-//! payload, and `Payload.resolutionRoot` resolves that slot.
+//! payload, and `Outbound.resolutionRoot` resolves that slot.
 
 const std = @import("std");
 const model = @import("model");
 const session = @import("session");
 const Error = @import("../../node_services.zig").OutboundStagingError;
+const Node = @import("../../node.zig").Node;
+const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
+const passable = @import("../passable.zig");
+const Batch = @import("batches.zig").Batch;
 const ProjectionRoute = @import("leases.zig").ProjectionRoute;
 
 pub const Counts = struct {
     objects: usize = 0,
     promises: usize = 0,
 
-    pub fn add(self: Counts, other: Counts) Error!Counts {
-        return .{
-            .objects = std.math.add(usize, self.objects, other.objects) catch
-                return error.QueueCapExceeded,
-            .promises = std.math.add(usize, self.promises, other.promises) catch
-                return error.QueueCapExceeded,
-        };
+    pub fn add(self: Counts, other: Counts) Counts {
+        return .{ .objects = self.objects + other.objects, .promises = self.promises + other.promises };
     }
 
-    pub fn total(self: Counts) Error!usize {
-        return std.math.add(usize, self.objects, self.promises) catch
-            return error.QueueCapExceeded;
+    pub fn total(self: Counts) usize {
+        return self.objects + self.promises;
     }
 };
 
-pub fn count(node: anytype, recipient_peer: anytype, payload: anytype, inventory: session.Inventory) Error!Counts {
+pub fn count(node: *Node, recipient_peer: PeerHandle, payload: *passable.Outbound, inventory: session.Inventory) Error!Counts {
     const root = payload.resolutionRoot();
     var counts: Counts = .{};
     for (inventory.slots) |slot| {
@@ -40,7 +38,7 @@ pub fn count(node: anytype, recipient_peer: anytype, payload: anytype, inventory
             else => continue,
         };
         const projection = (try node.inlineProjectionRoute(recipient_peer, reference)) orelse continue;
-        counts = try counts.add(switch (projection.kind) {
+        counts = counts.add(switch (projection.kind) {
             .object => .{ .objects = 1 },
             .promise => .{ .promises = 1 },
         });
@@ -49,12 +47,12 @@ pub fn count(node: anytype, recipient_peer: anytype, payload: anytype, inventory
 }
 
 pub fn collect(
-    node: anytype,
-    recipient_peer: anytype,
-    payload: anytype,
+    node: *Node,
+    recipient_peer: PeerHandle,
+    payload: *passable.Outbound,
     inventory: session.Inventory,
-    gifts: anytype,
-    promises: anytype,
+    gifts: []passable.Gift,
+    promises: []passable.PromiseProjection,
 ) Error!void {
     const root = payload.resolutionRoot();
     var gift_index: usize = 0;
@@ -82,7 +80,7 @@ pub fn collect(
                     .home = projection.home,
                     .slot = slot,
                     .original = reference,
-                    .source = projection.source.far,
+                    .source = projection.source,
                 };
                 promise_index += 1;
             },
@@ -97,7 +95,7 @@ pub fn collect(
 /// refuses the batch instead of publishing a stale projection. A reference
 /// that came to need projection only after collection stays as it is and
 /// fails closed at lowering, which refuses a foreign route it cannot lower.
-pub fn replace(node: anytype, batch: anytype) Error!void {
+pub fn replace(node: *Node, batch: *Batch) Error!void {
     const root = batch.payload.resolutionRoot();
     for (batch.gifts) |*gift| {
         const argument = gift.slot.at(root);
@@ -118,11 +116,11 @@ pub fn replace(node: anytype, batch: anytype) Error!void {
 }
 
 fn projectionAt(
-    node: anytype,
-    recipient_peer: anytype,
+    node: *Node,
+    recipient_peer: PeerHandle,
     argument: *const model.Argument,
     route_id: model.CapabilityRouteId,
-    home: anytype,
+    home: PeerHandle,
     original: model.Reference,
 ) Error!ProjectionRoute {
     const reference = switch (argument.*) {
@@ -137,7 +135,7 @@ fn projectionAt(
 }
 
 /// Put every rewritten slot back to the reference the caller handed over.
-pub fn restore(batch: anytype) void {
+pub fn restore(batch: *Batch) void {
     const root = batch.payload.resolutionRoot();
     for (batch.gifts) |*gift| {
         const handoff = gift.inserted_handoff orelse continue;

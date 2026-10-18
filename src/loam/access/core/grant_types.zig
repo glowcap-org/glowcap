@@ -5,6 +5,9 @@ const Terms = @import("terms.zig").Terms;
 const Revision = identity.Revision;
 const GrantId = identity.GrantId;
 pub const Label = @import("grant_label.zig").Label;
+const grant_view = @import("grant_view.zig");
+const graph = @import("graph.zig");
+const bounds = @import("bounds.zig");
 
 pub const Status = enum {
     active,
@@ -22,7 +25,7 @@ pub const InitialStatus = enum { active, paused };
 pub const Limits = struct {
     /// Includes revoked records. Slots are never reclaimed by this model.
     capacity: u32,
-    max_depth: u16 = 64,
+    max_depth: u16 = bounds.max_depth,
     max_children: u32 = 256,
     /// Live owner-minted use/control objects. Retained aliases share one object.
     max_capabilities: u32 = 256,
@@ -68,7 +71,7 @@ pub const Record = struct {
     delegation_depth: u16,
     child_count: u32,
 };
-pub const Error = @import("grant_view.zig").GrantView.Error || @import("graph.zig").Graph.Error || std.mem.Allocator.Error || error{
+pub const Error = grant_view.GrantView.Error || graph.Graph.Error || std.mem.Allocator.Error || error{
     UnknownGrant,
     InvalidLabel,
     CeilingExceeded,

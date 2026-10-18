@@ -41,7 +41,7 @@ pub const Continuation = opaque {
     /// capability-retain spines and the continuation owner. Host actor/registry
     /// storage and executor buffers are separately bounded by their owners.
     pub fn sizeBound(arguments: values.Bounds, verb_bytes: usize, targets: usize) !usize {
-        var bound = try @import("call_memory.zig").inputAllocationBound(arguments, verb_bytes, false);
+        var bound = try memory.inputAllocationBound(arguments, verb_bytes, false);
         try bound.include(try std.math.mul(usize, targets, @sizeOf(driver.Value)), @alignOf(driver.Value), 1);
         try bound.include(try std.math.mul(usize, targets, @sizeOf(driver.Capability)), @alignOf(driver.Capability), 1);
         return std.math.add(usize, @sizeOf(State), try bound.physicalBytes());

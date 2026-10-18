@@ -3,6 +3,7 @@
 //! instead of wire bytes (ADR-0222, ADR-0231).
 
 const std = @import("std");
+const run_word_bytes = @import("mod.zig").run_word_bytes;
 const Argument = @import("view.zig").Argument;
 const StructEntry = @import("view.zig").StructEntry;
 
@@ -23,7 +24,7 @@ const StructEntry = @import("view.zig").StructEntry;
 /// sequence stays wire-backed.
 pub const ValueSlab = struct {
     comptime {
-        std.debug.assert(@sizeOf(i64) % @alignOf(Argument) == 0);
+        std.debug.assert(run_word_bytes % @alignOf(Argument) == 0);
     }
 
     bytes: []align(@alignOf(Argument)) u8,
@@ -79,6 +80,50 @@ pub const ValueSlab = struct {
         self.open += count * @sizeOf(T);
     }
 
+    /// A sequence whose length is learned at its closing delimiter. Each
+    /// element pushes onto the stack before its children are read, and the
+    /// closed sequence settles at the bottom. When the room runs out, the
+    /// sequence drops what it pushed and what its children settled, and
+    /// stays wire-backed, with `room` null from then on.
+    pub fn OpenSequence(comptime T: type) type {
+        return struct {
+            /// The room the elements and their children read into, or null
+            /// once the sequence is wire-backed.
+            room: ?*ValueSlab,
+            used_before: usize,
+            pushed: usize = 0,
+
+            const Self = @This();
+
+            pub fn begin(slab: ?*ValueSlab) Self {
+                return .{ .room = slab, .used_before = if (slab) |s| s.used else 0 };
+            }
+
+            /// The next element's slot, which the caller fills after reading
+            /// the element's children, or null once the sequence is
+            /// wire-backed.
+            pub fn push(self: *Self) ?*T {
+                const slab = self.room orelse return null;
+                if (slab.reserve(T)) |slot| {
+                    self.pushed += 1;
+                    return slot;
+                }
+                slab.drop(T, self.pushed);
+                slab.used = self.used_before;
+                self.room = null;
+                return null;
+            }
+
+            /// The settled views of a sequence the room held, or null for an
+            /// empty or wire-backed one.
+            pub fn settle(self: *Self) ?[]const T {
+                const slab = self.room orelse return null;
+                if (self.pushed == 0) return null;
+                return slab.settle(T, self.pushed);
+            }
+        };
+    }
+
     /// Lend unused head storage for a decoder's integer-run attempt. Until
     /// `finish`, only unused bytes change: refusal leaves both ends intact.
     /// Bounds exclude both settled children and the open parent stack. The
@@ -94,7 +139,7 @@ pub const ValueSlab = struct {
         count: usize = 0,
 
         pub fn append(self: *IntegerWriter, value: i64) bool {
-            if (self.count == self.bytes.len / @sizeOf(i64)) return false;
+            if (self.count == self.bytes.len / run_word_bytes) return false;
             std.mem.writeInt(i64, self.bytes[self.count * 8 ..][0..8], value, .little);
             self.count += 1;
             return true;
@@ -105,8 +150,8 @@ pub const ValueSlab = struct {
         /// beginning this writer and finishing or discarding it.
         pub fn finish(self: *IntegerWriter) ?[]const u8 {
             if (self.count == 0) return null;
-            self.slab.used += self.count * @sizeOf(i64);
-            return self.bytes[0 .. self.count * @sizeOf(i64)];
+            self.slab.used += self.count * run_word_bytes;
+            return self.bytes[0 .. self.count * run_word_bytes];
         }
     };
 

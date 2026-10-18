@@ -5,12 +5,13 @@ const loam = @import("loam_core");
 const hosting = @import("loam_hosting");
 const driver = @import("driver_core");
 const service = @import("service.zig");
+const storage = @import("loam_access_storage");
 
 pub const Mutation = struct {
     /// The complete inbound argument topology bounds the inner receipt args.
     /// Replay uses the persisted reply topology and borrows its byte leaves.
     pub fn allocationBound(arguments: hosting.ValueBounds, reply: hosting.ValueBounds, dependent: bool) !hosting.references.AllocationBound {
-        const key_bytes = @sizeOf(@typeInfo(@TypeOf(loam.ObjectId.key)).@"fn".return_type.?);
+        const key_bytes = loam.ObjectId.key_bytes;
         var bound: hosting.references.AllocationBound = .{};
         try bound.include(@sizeOf(Mutation), @alignOf(Mutation), 1);
         try bound.include(try std.math.mul(usize, try std.math.add(usize, arguments.values, 2), @sizeOf(driver.Value)), @alignOf(driver.Value), 1);
@@ -41,7 +42,7 @@ pub const Mutation = struct {
     /// The next receipt edge read-ahead may start. Never behind `checked`.
     ahead: usize = 0,
     /// The persisted receipt's facet mask, read with its result.
-    facets: u64 = 0,
+    facets: records.MutationRecord.Facets = 0,
     bindings: std.ArrayList(Binding) = .empty,
     /// What a receipt edge restores. A durable edge restores its own saved
     /// authority. A designated edge names the endpoint a dependent facet
@@ -50,7 +51,6 @@ pub const Mutation = struct {
     /// pointed at, and replay projects that facet again.
     pub const Binding = struct { ref: driver.Capability, edge: loam.Edge, role: Role = .durable };
     pub const Role = enum { durable, designated, facet };
-    pub const Step = union(enum) { ready, read: loam.Read, waiting };
 
     pub fn init(call: *hosting.Call, endpoint: *const records.EndpointRecord, sequence: u64, verb: []const u8, args: []const driver.Value, dependent: ?loam.ObjectId) !Mutation {
         var self: Mutation = .{ .call = call, .endpoint = endpoint, .sequence = sequence };
@@ -64,19 +64,16 @@ pub const Mutation = struct {
         return self;
     }
 
-    pub fn advance(self: *Mutation) !Step {
+    pub fn advance(self: *Mutation) !hosting.Preparation.Step {
         const receipt_id = (try self.endpoint.mutations.lookup(self.sequence)) orelse return .ready;
         if (self.lease == null) {
-            const result = self.call.attachment.store.acquire(receipt_id) catch |err| {
-                if (err == error.PendingRead) return .waiting;
-                return err;
-            };
-            switch (result) {
+            switch (try hosting.Preparation.acquire(self.call.attachment.store, receipt_id)) {
                 .read => |read| {
                     self.pending = read.ticket;
                     return .{ .read = read };
                 },
                 .ready => |lease| self.lease = lease,
+                .waiting => return .waiting,
             }
         }
         const receipt = try records.MutationRecord.decode(try self.call.attachment.store.currentView(self.lease.?));
@@ -88,13 +85,7 @@ pub const Mutation = struct {
         // Edges are fixed width, so a resumed check starts at its own edge.
         while (self.checked < view.edge_count) {
             const edge = try view.edgeAt(self.checked);
-            const acquired = self.call.attachment.store.acquire(edge.target) catch |err| {
-                if (err == error.PendingRead) {
-                    self.readAhead(view);
-                    return .waiting;
-                }
-                return err;
-            };
+            const acquired = try hosting.Preparation.acquire(self.call.attachment.store, edge.target);
             self.readAhead(view);
             const lease = switch (acquired) {
                 .read => |request| {
@@ -102,6 +93,7 @@ pub const Mutation = struct {
                     return .{ .read = request };
                 },
                 .ready => |lease| lease,
+                .waiting => return .waiting,
             };
             defer self.call.attachment.store.release(lease) catch unreachable;
             const field = try self.call.attachment.store.currentView(lease);
@@ -163,16 +155,16 @@ pub const Mutation = struct {
         if (store != self.call.attachment.store) return error.ForeignStore;
         const receipt = try store.allocateId();
         var edges: [records.MutationRecord.max_edges]loam.Edge = undefined;
-        var facets: u64 = 0;
+        var facets: records.MutationRecord.Facets = 0;
         for (self.bindings.items, edges[0..self.bindings.items.len], 0..) |binding, *edge, index| {
             edge.* = binding.edge;
-            if (binding.role == .facet) facets |= @as(u64, 1) << @intCast(index);
+            if (binding.role == .facet) facets |= records.MutationRecord.facetBit(index);
         }
         const bytes = try (records.MutationRecord{ .intent = self.intent, .result = self.result, .facets = facets }).encodeAlloc(self.call.arena());
         try store.putCopying(.{ .id = receipt, .revision = 0, .schema = records.profile.mutation, .payload = bytes, .edges = edges[0..self.bindings.items.len] }, null);
         var endpoint = self.endpoint.*;
         try endpoint.mutations.append(receipt);
-        try service.putEndpoint(store, self.call.arena(), self.call.view.id, endpoint, self.call.view.rooted, self.call.view.revision);
+        try service.putEndpoint(store, self.call.arena(), self.call.view.id, endpoint, storage.Rooting.ofStored(self.call.view.rooted), self.call.view.revision);
     }
 
     pub fn id(self: *const Mutation, ref: driver.Capability) loam.ObjectId {
@@ -186,7 +178,7 @@ pub const Mutation = struct {
         var index: usize = 0;
         while (edges.next()) |edge| : (index += 1) if (edge.target.eql(object)) {
             const stored = try self.call.storedEdge(view, index);
-            const facet = index < 64 and self.facets >> @intCast(index) & 1 != 0;
+            const facet = records.MutationRecord.hasFacet(self.facets, index);
             return self.call.discloseHeld(if (facet) try self.call.projectDependent(stored) else stored);
         };
         return error.InvalidRecord;

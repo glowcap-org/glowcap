@@ -178,7 +178,7 @@ fn answererHalf(
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    seed: [crypto.SEED_BYTES]u8,
+    seed: [crypto.seed_bytes]u8,
 ) anyerror!void {
     var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
     defer host.deinit();
@@ -208,7 +208,7 @@ fn offererHalf(
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    seed: [crypto.SEED_BYTES]u8,
+    seed: [crypto.seed_bytes]u8,
     expect_designator: []const u8,
 ) anyerror!void {
     var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
@@ -245,8 +245,8 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     // Deterministic keys: the designators the two peers sign and pin against.
-    const answerer_seed = @as([crypto.SEED_BYTES]u8, @splat(0x51));
-    const offerer_seed = @as([crypto.SEED_BYTES]u8, @splat(0x52));
+    const answerer_seed = @as([crypto.seed_bytes]u8, @splat(0x51));
+    const offerer_seed = @as([crypto.seed_bytes]u8, @splat(0x52));
     const answerer_secret = crypto.SecretKey.fromSeed(answerer_seed);
     const offerer_secret = crypto.SecretKey.fromSeed(offerer_seed);
     const answerer_designator = answerer_secret.publicKey().toDesignator();

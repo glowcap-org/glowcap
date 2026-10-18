@@ -26,11 +26,11 @@ pub fn openKeyedSession(
     p2_designator: []const u8,
 ) !void {
     try p1.sendKeyedStartSession(
-        .{ .transport = "tcp", .designator = p1_designator, .hints = model.Hints.emptyFalse() },
+        .hintless("tcp", p1_designator),
         p1_secret,
     );
     try p2.sendKeyedStartSession(
-        .{ .transport = "tcp", .designator = p2_designator, .hints = model.Hints.emptyFalse() },
+        .hintless("tcp", p2_designator),
         p2_secret,
     );
     if (try engine.pairing.shuttleUntilQuiescent(p1, p2) != .quiescent)

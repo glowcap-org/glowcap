@@ -6,8 +6,9 @@
 .draft = false,
 ---
 
-The Zig reference and C headers are generated from declarations compiled by
-the library. A build check rejects stale output. To choose an API, start with
+The Zig reference is generated from the library's declarations each time the
+site builds. The C headers are generated too, and a build check rejects a
+stale one. To choose an API, start with
 [Choose an API]($link.page('surfaces')). To build a first client, use [Start
 building]($link.page('start')).
 

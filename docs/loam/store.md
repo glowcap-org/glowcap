@@ -31,8 +31,8 @@ A disk store is one directory, owned by one process at a time. SQLite is the
 default disk engine, and `Lmdb` opens the same way.
 
 To create one, make an empty directory, choose a fresh store identity, and call
-`Sqlite.open(path, .{ .mode = .{ .create = identity } })`. To reopen it, pass
-`.open = identity`. The engine checks that the identity matches. Missing
+`Sqlite.open(path, .{ .opening = .{ .id = identity, .mode = .create } })`. To
+reopen it, pass `.mode = .open`. The engine checks that the identity matches. Missing
 metadata, an existing store on create, an identity mismatch, and another process
 holding the directory are distinct failures. No error falls back to volatile
 storage or resets an existing store.
@@ -124,8 +124,8 @@ instead of issuing another load. Loam keeps no list of callers waiting on
 that load, so your code must.
 
 `Store.view` borrows the validated record bytes until `Store.release`. A held
-lease can keep an older version readable after a later commit. Released,
-A lease token that was released, came from another Store, or is out of date
+lease can keep an older version readable after a later commit. A lease token
+that was released, came from another Store, or is out of date
 is refused. Canceling a read keeps its buffer until the worker finishes, and
 the canceled result never reaches the cache.
 
@@ -226,9 +226,9 @@ mapping names the proof beside each refused code, and the
 [SQLite page](sqlite.md#commits) shows both outcomes.
 
 SQLite, LMDB, and the in-memory `Volatile` are the engines in this library. The
-browser's IndexedDB reaches Loam through the C key-value callback instead, the
-path for any engine that cannot block, which the
-[C and Rust guide](c-and-rust.md#driving-storage-from-c) describes. A C archive
+browser's IndexedDB reaches Loam through the C key-value callback instead
+(`GlowcapLoamKvFn` in `glowcap_loam.h`), the path for any engine that cannot
+block. A C archive
 for a new blocking engine applies `src/c_abi/loam/executor.zig` to the engine,
 the way `src/c_abi/loam_lmdb/mod.zig` does for LMDB. The Rust binding opens an
 engine through an `Engine` value, and that trait is sealed, so a new engine is

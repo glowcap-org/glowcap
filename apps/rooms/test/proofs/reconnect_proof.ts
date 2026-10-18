@@ -26,6 +26,12 @@ import { spawnWeb } from "../support/web_front.ts";
 //      back, so what reconnected is a live capability and not a hopeful button.
 //   5. The directory is repopulated, because a new session replays what it knows
 //      and the page has thrown the earlier answers away.
+//   6. The restart in steps 1 to 5 was on the same build and reloaded
+//      nothing, and a reload on a private room's address keeps the reader in
+//      it.
+//   7. A server that comes back on another build takes the page with it. The
+//      page reloads once into the build `/ui-version` names and remembers it,
+//      so a server whose page and `/ui-version` disagree cannot loop it.
 //
 // `serve.ts` supervises the room server and respawns it. This remains a
 // *reconnect* rather than a restart because the test kills only the room, and
@@ -150,11 +156,15 @@ try {
 		.catch(() => fail("saying you had stepped away did not show in the room"));
 
 	// ── The room goes away ───────────────────────────────────────────────
-	// The page notices, and it comes back by itself within a second or two, so
-	// both signs of noticing are recorded from before the kill rather than
-	// waited for afterward: a wait that starts once the composer has closed can
-	// begin after the page has already reconnected and the row has nothing left
-	// to say.
+	// Hold new relay connections until both signs of the outage appear. The
+	// row deliberately withholds reconnecting text for short blips, so an
+	// immediate restart could recover before it ever owes the reader a caption.
+	// Existing sockets remain live until the real server kill below.
+	let holdReconnect = true;
+	await tab.routeWebSocket(/\/relay/, (socket) => {
+		if (holdReconnect) socket.close();
+		else socket.connectToServer();
+	});
 	await tab.evaluate(() => {
 		const seen = { closed: false, rowSaid: false };
 		(globalThis as unknown as { __roomGone: typeof seen }).__roomGone = seen;
@@ -189,6 +199,10 @@ try {
 			sign,
 			{ timeout: 30_000 },
 		);
+	// Every document load from here on is a reload, and the restart below is
+	// on the same build, so it must cause none.
+	let reloads = 0;
+	tab.on("load", () => reloads += 1);
 	await killRoomServer();
 
 	// The composer closes, which is the page saying it knows: a line typed now
@@ -197,6 +211,7 @@ try {
 		fail("the page kept accepting lines after its session died; it never noticed the room was gone")
 	);
 	await roomGone("rowSaid").catch(() => fail("the room held on a directory that went away never said so on its row"));
+	holdReconnect = false;
 
 	// ── It comes back by itself ──────────────────────────────────────────
 	// Nobody touches the browser here. `serve.ts` respawns the room, the page
@@ -317,11 +332,47 @@ try {
 		{ timeout: 30_000 },
 	).catch(() => fail("the linked private room did not echo over its recovered membership"));
 
+	// ── A same-build restart reloaded nothing ────────────────────────────
+	if (reloads !== 0) fail(`the page reloaded ${reloads} times across a restart on its own build`);
+
+	// ── A reload keeps the reader in their private room ───────────────────
+	// The room restored from the workspace reads as open until its directory
+	// answers, and the private address waits for that answer rather than
+	// sending the reader to the join card.
+	await tab.reload();
+	await tab.waitForSelector("#line:not([disabled])", { timeout: 60_000 })
+		.catch(() => fail(`a reload left the private room for ${tab.url()}`));
+	if (!new URL(tab.url()).pathname.startsWith("/room/retained")) {
+		fail(`a reload left the private room for ${tab.url()}`);
+	}
+
+	// ── A server on another build takes the page with it ─────────────────
+	// `/ui-version` now names another build, as a server restarted from a new
+	// bundle would, and the page reloads into it once the restart drops it.
+	await tab.route(
+		"**/ui-version",
+		(route) => route.fulfill({ status: 200, contentType: "text/plain", body: "a-later-build\n" }),
+	);
+	const reloaded = tab.waitForEvent("load", { timeout: 60_000 });
+	await killRoomServer();
+	await reloaded.catch(() => fail("the page stayed on its build after its server came back on another"));
+	await tab.waitForSelector("#line:not([disabled])", { timeout: 90_000 })
+		.catch(() => fail(`the page reloaded for the new build but never re-entered its room at ${tab.url()}`));
+	// The reloaded page still differs from what `/ui-version` names, because the
+	// route answers for a build that never arrives. What keeps that from looping
+	// is the build the tab remembers across the reload, which only a browser
+	// can prove survives it.
+	const remembered = await tab.evaluate(() => sessionStorage.getItem("rooms:reloaded-for-build"));
+	if (remembered !== "a-later-build") {
+		fail(`the tab remembered ${JSON.stringify(remembered)}, so a server that contradicts itself could loop it`);
+	}
+
 	console.log(
 		"PASS: the rooms page survived losing its room server — it noticed and closed the " +
 			"composer, reconnected and re-entered its named room and durable private room, kept " +
 			"the conversations the dead session had delivered, round-tripped lines over the new " +
-			"memberships, and repopulated the directory",
+			"memberships, repopulated the directory, stayed put across a same-build restart, kept a " +
+			"reloaded private room, and reloaded once into a server's new build",
 	);
 } finally {
 	clearTimeout(deadline);

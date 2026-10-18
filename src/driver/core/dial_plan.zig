@@ -125,9 +125,9 @@ pub const AdmitError = error{
 /// the caller opens the channel, seals it if `sealed_channel` says so, and
 /// demands `demanded_key` of the partner's hello.
 pub fn admitDial(metadata: model.transport.Metadata, designator: []const u8) AdmitError!DialAdmission {
-    if (metadata.dial_shape == .route_bundle) return AdmitError.UnknownTransport;
+    if (metadata.dial_shape == .route_bundle) return error.UnknownTransport;
     const demanded_key: ?crypto.PeerKey = if (metadata.designator_scheme == .key)
-        crypto.PeerKey.fromDesignator(designator) orelse return AdmitError.InvalidAddress
+        crypto.PeerKey.fromDesignator(designator) orelse return error.InvalidAddress
     else
         null;
     return .{ .sealed_channel = metadata.sealed_channel, .demanded_key = demanded_key };
@@ -160,35 +160,35 @@ pub fn planDialProfile(
         .host_port => {
             if (metadata.designator_scheme == .key) {
                 if (crypto.PeerKey.fromDesignator(designator) == null)
-                    return Error.DesignatorNotPeerKey;
+                    return error.DesignatorNotPeerKey;
             }
             const hp = model.uri.connectHostPort(metadata, designator, direct_addresses_hint) catch |err| switch (err) {
-                error.UnknownTransport => return Error.UnknownTransport,
-                error.MissingDirectAddressesHint => return Error.MissingDirectAddressesHint,
-                error.InvalidHostPort => return Error.DesignatorNotHostPort,
+                error.UnknownTransport => return error.UnknownTransport,
+                error.MissingDirectAddressesHint => return error.MissingDirectAddressesHint,
+                error.InvalidHostPort => return error.DesignatorNotHostPort,
                 else => unreachable, // helper only returns the three above
             };
             return .{ .host_port = .{ .host = hp.host, .port = hp.port } };
         },
         .peer_id => {
             if (crypto.PeerKey.fromDesignator(designator) == null)
-                return Error.DesignatorNotPeerKey;
+                return error.DesignatorNotPeerKey;
             // The key designator is the provider's peer id (caller retains it);
             // direct addresses ride the hint verbatim, and reachability follows
             // the caller's policy.
             const reach: Reach = switch (posture) {
                 .redeem => if (direct_addresses_hint.len != 0) .direct else .configured,
                 .explicit => |v| .{ .explicit = v },
-                .explicit_none => return Error.ReachabilityRequired,
+                .explicit_none => return error.ReachabilityRequired,
             };
             return .{ .peer_id = .{ .addresses = direct_addresses_hint, .reach = reach } };
         },
         .signaling, .rendezvous => {
             if (crypto.PeerKey.fromDesignator(designator) == null)
-                return Error.DesignatorNotPeerKey;
+                return error.DesignatorNotPeerKey;
             return if (metadata.dial_shape == .signaling) .signaling else .rendezvous;
         },
-        .route_bundle, .unsupported => return Error.UnknownTransport,
+        .route_bundle, .unsupported => return error.UnknownTransport,
     }
 }
 

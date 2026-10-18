@@ -48,7 +48,7 @@ pub const HostSession = struct {
     /// facts. The Host derives it from a process-fresh, domain-separated root
     /// and monotonic counter, so reconnecting cannot recreate an earlier session's
     /// key or side name.
-    session_seed: [crypto.SEED_BYTES]u8 = undefined,
+    session_seed: [crypto.seed_bytes]u8 = undefined,
     /// The sealed byte channel this session's wire runs through (ADR-0107),
     /// or null for every unsealed session. It is one nullable pointer on the
     /// shell, with the channel itself heap-boxed only when a sealed transport
@@ -63,7 +63,7 @@ pub const HostSession = struct {
     /// Partner session key this shell is indexed under in `Host.partner_by_side`,
     /// set in `indexPartnerKey` (before apply writes `partnerSessionKey`).
     /// Lets `unindexSession` stay O(1) without scanning the map.
-    indexed_partner_key: ?[crypto.PEER_KEY_BYTES]u8 = null,
+    indexed_partner_key: ?[crypto.peer_key_bytes]u8 = null,
 
     /// Encoded outbound bytes this session may leave parked before another
     /// application or inbound producer is refused. Minted with the peer's
@@ -102,7 +102,21 @@ pub const HostSession = struct {
 
     /// Application lifecycle above the peer's negotiating/open/closed protocol
     /// state. A released shell has no observable `closed` phase.
-    pub const LifecyclePhase = enum(u2) { active, finishing, cancel_pending, terminating };
+    pub const LifecyclePhase = enum(u2) {
+        active,
+        finishing,
+        cancel_pending,
+        terminating,
+
+        /// Whether close has moved past finishing, so the session serves
+        /// no further operation.
+        pub fn condemned(self: LifecyclePhase) bool {
+            return switch (self) {
+                .active, .finishing => false,
+                .cancel_pending, .terminating => true,
+            };
+        }
+    };
 
     /// One compact control word per session. The operation ceiling is an
     /// explicit admission boundary: reaching it refuses the next operation
@@ -191,7 +205,7 @@ pub const HostSession = struct {
             self.traceOutboundFrame(&frame);
             return frame;
         };
-        if (channel.takeWire(self.host.allocator) catch return HostError.OutOfMemory) |wire| return wire;
+        if (channel.takeWire(self.host.allocator) catch return error.OutOfMemory) |wire| return wire;
         if (!channel.isOpen()) return null;
         var frame = self.served.takeOutbound() orelse return null;
         self.traceOutboundFrame(&frame);
@@ -199,7 +213,7 @@ pub const HostSession = struct {
         return channel.sealFrame(self.host.allocator, frame.bytes()) catch |err| {
             channel.fail();
             host_pump.retireSealedSession(self.host, self);
-            return if (err == error.OutOfMemory) HostError.OutOfMemory else HostError.SealedChannelFailed;
+            return if (err == error.OutOfMemory) error.OutOfMemory else error.SealedChannelFailed;
         };
     }
 
@@ -296,6 +310,12 @@ pub const HostSession = struct {
         return self.served.port.peer.sessionIsOpen();
     }
 
+    /// Whether the wire still carries protocol: the session is open and not
+    /// condemned, so a release or answer may still be published on it.
+    pub fn wireLive(self: *const HostSession) bool {
+        return self.sessionOpen() and !self.lifecyclePhase().condemned();
+    }
+
     /// Whether the CapTP session is terminal while this byte-fed shell remains
     /// retained for final transport work and explicit release.
     pub fn sessionClosed(self: *const HostSession) bool {
@@ -350,9 +370,9 @@ pub fn flushSession(self: *Host, session: *HostSession) !void {
 pub fn breakFarVows(self: *Host, session: *HostSession, message: []const u8) !void {
     try self.refuseReentry();
     try self.checkSession(session);
-    self.in_callback = true;
+    const hold = self.callback_latch.hold();
     session.served.port.breakFarVows(session.served.closeReason(message));
-    self.in_callback = false;
+    hold.release();
     try host_pump.finishVerb(self);
 }
 
@@ -363,12 +383,13 @@ pub fn breakFarVows(self: *Host, session: *HostSession, message: []const u8) !vo
 pub fn transportClosed(self: *Host, session: *HostSession, message: []const u8) !void {
     try self.refuseReentry();
     try self.checkOwnedSession(session);
-    self.in_callback = true;
-    var first_error: ?anyerror = null;
+    const hold = self.callback_latch.hold();
+    var first_error: ?(foundation.error_sets.Of(host_pump.retireTransportClosed) ||
+        foundation.error_sets.Of(host_pump.finishVerb)) = null;
     host_pump.retireTransportClosed(self, session, session.served.closeReason(message)) catch |err| {
         first_error = err;
     };
-    self.in_callback = false;
+    hold.release();
     host_pump.finishVerb(self) catch |err| {
         if (first_error == null) first_error = err;
     };
@@ -382,9 +403,9 @@ pub fn partnerIdentity(self: *Host, session: *HostSession) !vocab.PartnerIdentit
     self.assertOwner();
     try self.checkSession(session);
     const peer = session.served.port.peer;
-    if (!peer.verify_partner_handshake) return HostError.PartnerUnverified;
+    if (!peer.verify_partner_handshake) return error.PartnerUnverified;
     const key = peer.session_state.partnerSessionKey() orelse
-        return HostError.HandshakeIncomplete;
+        return error.HandshakeIncomplete;
     const designator = peer.session_state.partnerDesignator() orelse "";
     return .{
         .session_key = key,
@@ -401,20 +422,20 @@ pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []
     self.assertOwner();
     try self.checkSession(session);
     const key = crypto.PeerKey.fromDesignator(designator) orelse
-        return HostError.InvalidChannelKey;
+        return error.InvalidChannelKey;
     // A sealed channel already testified during its handshake. An embedder may
     // repeat the same fact, but cannot introduce a second realizer.
     if (session.sealed != null) {
         if (session.served.port.peer.verifiedChannelKey()) |existing| {
             if (existing.eql(key)) return;
         }
-        return HostError.ChannelKeyConflict;
+        return error.ChannelKeyConflict;
     }
     const peer = session.served.port.peer;
     if (peer.session_state.partnerDesignator() != null)
-        return HostError.HandshakeAlreadyApplied;
+        return error.HandshakeAlreadyApplied;
     if (peer.verifiedChannelKey()) |existing| {
-        if (!existing.eql(key)) return HostError.ChannelKeyConflict;
+        if (!existing.eql(key)) return error.ChannelKeyConflict;
         return;
     }
     peer.bindVerifiedChannelKey(key);

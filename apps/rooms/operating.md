@@ -10,9 +10,7 @@ sources:
 
 # Operating Rooms
 
-This guide is for whoever runs a Rooms server: the flags that grant
-capabilities, where state lives, the services that survive a restart,
-moderation, and the Operations page. The [Rooms overview](README.md) runs the
+The [Rooms overview](README.md) runs the
 application, [Developing Rooms](developing.md) covers changing it, and the
 [deployment guide](web/deploy/README.md) runs everything here with Docker
 Compose.
@@ -37,19 +35,21 @@ zig build rooms-server -- --state=.local/rooms --history
 Without `--state`, the server gets a fresh identity on every start and forgets
 everything when it stops. With `--state`, the directory holds:
 
-- `rooms.json`: the server document, including the identity seed and every
-  issued room link
+- `rooms.json`: the server document, including the identity seed and the
+  secret every room link is derived from
 - `operations.json`: listener options, and IRC networks and channels
 - one file per capability swiss number
 - `onion-key`, when the transport is onion
-- `history/`, the kept lines of listed rooms, with `--history`
+- `history/`, the kept lines of each room, with `--history`
+- `.rooms-server.lock`, held while a server runs
 
 One process at a time can hold a state directory. To back it up, stop the
 server, copy the whole directory, and restore it as one unit.
 
 On startup the process prints `ROOMS-SERVER-LISTENING` followed by the
-address members dial. For a loopback TCP room that is just the port.
-Otherwise it is the complete locator.
+address members dial. For a loopback TCP room that is just the port, and with
+`--announce-host` it is `host:port`. Otherwise it is the complete locator.
+`GLOWCAP_ROOMS_READY_FORMAT=json` prints the same announcement as JSON.
 
 Options use `--name=value` and can also come from `GLOWCAP_ROOMS_*`
 environment variables. Unknown or repeated options are refused. Choose the
@@ -92,7 +92,7 @@ itself.
 | `--trace` | `GLOWCAP_ROOMS_TRACE=1` | `ROOMS-TRACE`, `ROOMS-TRACE-LISTENING` | The live timeline endpoint and the capability its sockets present |
 
 Anyone who can read the state directory or the startup log holds these
-capabilities. That is their only access control.
+capabilities, so protect both.
 
 In the browser, each capability is a toggle under **Settings**, **Holdings**.
 
@@ -111,19 +111,19 @@ of them.
 ## History
 
 History is off by default. `--history` (or `GLOWCAP_ROOMS_HISTORY=1`) keeps
-each listed room's recent lines and sends them to any member who asks. The page
+each room's recent lines and sends them to any member who asks. The page
 asks when you enter a room whose log is empty, and shows the answer under a
 divider naming the room as the keeper.
 
-- Private rooms never record.
-- A file line keeps its caption, never the file's bytes.
+- For a file, history keeps only the caption.
 - Direct messages never reach the server. They go to the archive the reader
   chose, which is their browser by default.
 
 **Limits.** One room keeps at most <!-- value rust/application/src/server/history.rs LINES_KEPT -->500<!-- /value --> lines. The whole server keeps at
 most <!-- value rust/application/src/server/history.rs LINES_KEPT_TOTAL -->4,096<!-- /value --> lines across
-<!-- value rust/application/src/server/history.rs ROOMS_KEPT -->256<!-- /value --> rooms. At either limit, the server drops the
-entire history of the least recently active room before writing anything. On
+<!-- value rust/application/src/server/history.rs ROOMS_KEPT -->256<!-- /value --> rooms. A room past its limit loses its oldest line. Past
+either server limit, the server drops the whole history of the least recently
+active room. On
 startup it restores and validates storage before it opens the listener.
 
 **Where history is stored.** Kept lines live in JSONL files, one per room,
@@ -220,7 +220,7 @@ Queue pressure, a full disk, or a failed write stops only this observer, and
 `status` reports `inbox.gap`. To recover, fix the cause, dismiss the events you
 have reviewed, then run
 `glowcap apps rooms session resume --dir <directory> --accept-gap`. That
-accepts the missed events and does not recover them.
+accepts the gap and does not recover the missed events.
 
 ## The archive service
 
@@ -233,8 +233,7 @@ zig build rooms-archive -- --state=.local/member-archive
 The process prints `ROOMS-ARCHIVE-LISTENING` followed by the sturdyref.
 Whoever holds that sturdyref can read and write the whole archive.
 
-- It keeps at most <!-- value rust/application/src/archive.rs MAX_RECORDS -->5,000<!-- /value --> records and bounds its log, so it is not an
-  unlimited backup.
+- It keeps at most <!-- value rust/application/src/archive.rs MAX_RECORDS -->5,000<!-- /value --> records and bounds its log.
 - A second process on the same directory is refused, and a crashed process
   leaves no stale lock.
 - A corrupt complete row stops startup. An unfinished final append is
@@ -245,7 +244,8 @@ sturdyref and sends new history there.
 
 - If the peer cannot be reached, it shows as unavailable and writes are
   refused, never redirected to the browser's own store.
-- **Use this browser** sends later reads and writes back to IndexedDB.
+- **Use session archive** sends later reads and writes back to the session's
+  own archive.
 - Reads come from every archive the member holds at once, with each archive
   named at its own divider.
 - A conversation's card can give another member a read-only view of what the
@@ -294,20 +294,22 @@ network policy a bot must follow, and the bounds.
 
 ## Moderation
 
-Moderation uses capabilities instead of ranks.
+Rooms has no ranks. Ignoring someone stays in your own window, and every
+other moderation power is a capability someone holds.
+
 - **Ignoring.** `/ignore` hides someone in your own window only. No server
   learns of it.
 - **The manager.** Creating a room through managed creation returns a manager
-  capability. Holding it lets you create, recover, and revoke the room's
-  entry link and moderator, and nothing else.
+  capability. Holding it lets you manage only the room's public registration,
+  entry link, and moderator.
 - **The moderator.** The manager issues the moderator explicitly, from room
   details or with `/moderator`. Someone else can take it with
   `/moderator <sturdyref>`, and the page checks that it governs this exact
   room before keeping it.
 - **Kicking.** `/kick`, or the confirmed action on the member card, asks a
   member to leave through the moderator. The member is told directly, and the
-  room sees why they left. No ban is created, because a nickname is not an
-  identity.
+  room sees why they left. Kicking creates no ban, because anyone can take
+  the same nickname later.
 
 Revoking rotates the durable generation. Every old sturdyref and every
 reference restored from one is refused at once, and the next issue creates an
@@ -329,8 +331,8 @@ server's recent failures.
 **The operator's inventories** add the capabilities the server owns, grouped
 by kind, with one search across all of them.
 
-- The directory does the matching, so counts cover everything it holds. A page is <!-- value rust/application/src/server/operations/operator.rs MAX_PAGE -->32<!-- /value --> rows whether the directory holds
-  thirty rooms or three hundred thousand.
+- The directory does the matching, so counts cover everything it holds. A
+  page holds at most <!-- value rust/application/src/server/operations/operator.rs MAX_PAGE -->32<!-- /value --> rows.
 - Every word of a search must appear in a row, in any field and any order.
 - While a search has matches, each inventory that can retire rows offers to
   retire all of them. It asks first, then works in batches, and the operator
@@ -418,12 +420,14 @@ trace to the same endpoint.
   it printed stays readable.
 - By default it uses a private temporary state directory that lasts as long
   as the launcher. Set `GLOWCAP_ROOMS_STATE` when the identity, room links,
-  and operator choices must survive.
-- If a Rooms server already holds the room port, the launcher attaches to it
+  and operator choices must survive. `glowcap apps rooms serve` keeps its
+  state by default.
+- If a TCP Rooms server already holds the room port, the launcher attaches to it
   instead of starting its own. The capabilities it prints are then that
   server's.
 
-The relay's limits are environment variables, listed in the deployment guide:
+The relay's limits are environment variables, also set in the deployment's
+`docker-compose.yml`:
 
 - `GLOWCAP_RELAY_MAX_SESSIONS`, `GLOWCAP_RELAY_MAX_REGISTRATIONS`, and
   `GLOWCAP_RELAY_MAX_REGISTRATIONS_PER_IDENTITY` limit WebSocket sessions and
@@ -432,7 +436,7 @@ The relay's limits are environment variables, listed in the deployment guide:
   `GLOWCAP_RELAY_MAX_IROH_DIALS_PER_MINUTE` (twice the session limit) limit the
   iroh connections, each of which runs its own endpoint runtime.
 
-Raise a limit only for the resource it names.
+Raise each limit only when its own resource runs short.
 
 ## Security posture
 
@@ -450,9 +454,9 @@ Raise a limit only for the resource it names.
   cost of a guess does not follow how many of its leading bytes match a real
   token.
 - Identity and state files are created `0600` under `0700` directories.
-- Each caller has a work allowance that is checked before anything runs.
+- Each caller's work is checked against an allowance before it runs.
 - The browser UI has no `innerHTML`, no `dangerouslySetInnerHTML`, and no
-  `eval`, and every external anchor carries `rel="noopener noreferrer"`.
+  `eval`, and every external anchor carries `rel="noreferrer"`.
 
 ## Known limitations
 
@@ -460,148 +464,167 @@ These are the limits of Rooms itself. The library's limits, including
 transports and browser reachability, are in
 [known limitations](../../docs/boundaries.md).
 
-- **Rooms runs on Linux and macOS hosts and in Chromium-class browsers.** One
-  Rust implementation runs every Rooms service and the browser application,
-  and TypeScript draws the page.
-  - Windows support, file-lock behavior on other filesystems, and public Tor
-    circuit reachability are not established, and no throughput or latency
-    figure is claimed.
-  - The repository defines a workflow for [host product packages](host.md) on
-    matching runners. A workflow definition does not show that a run passed or
-    that an archive was published.
-  - Local Linux evidence does not cover macOS, and a Linux devcontainer does
-    not cross-build the Rust session for macOS.
-  - The macOS packages are not Developer ID signed or notarized, so Gatekeeper
-    acceptance of a downloaded artifact is untested.
+### Platforms
 
-- **A Rooms deployment runs on one host and backs up stopped volumes.**
-  Everything durable lives in the directory and session state volumes, kept
-  lines included. Back each up as one unit while the stack is stopped. A live
-  snapshot of a running store is not built, and nothing places one directory's
-  rooms across hosts.
+Rooms runs on Linux and macOS hosts and in Chromium-class browsers. One Rust
+implementation runs every Rooms service and the browser application, and
+TypeScript draws the page.
 
-- **A Rooms message consumer has a bounded unread queue.** `Room.messages`
-  hands a line directly to a pending read and otherwise retains at most <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGES -->256<!-- /value -->
-  unread messages. A consumer that remains stalled past that bound receives a
-  stream error and must subscribe again. Cancellation, overflow, replacement,
-  and leave release every unread file capability. The browser client keeps a
-  read pending during ordinary use.
+- Windows, file locking on other filesystems, and reaching a public Tor
+  circuit are untested, and no throughput or latency figure is published.
+- The repository has a workflow that builds [host product packages](host.md)
+  on matching runners. Its definition alone does not mean a run passed or an
+  archive was published.
+- Testing on Linux does not cover macOS, and a Linux devcontainer does not
+  cross-build the Rust session for macOS.
+- The macOS packages are not Developer ID signed or notarized, so whether
+  Gatekeeper accepts a downloaded package is untested.
 
-- **Rooms sessions are capabilities, not accounts.** No ambient login or server
-  account owns a durable session. The session sturdyref is the authority
-  to attach, and each delegated part can be revoked independently. Nothing
-  infers an identity from a login string.
+### One host per deployment
 
-- **A durable session does not make everything durable.** Every view attached
-  to a session shares its network identity and workspace: directories,
-  archive choice, capabilities, peering, history, live files, operator
-  actions, listener and IRC administration, and visualizer publication.
-  Browser `File` handles and object URLs stay on the device that made them.
-  A browser tab keeps its workspace in IndexedDB, and a reload restores the
-  saved grants and links. A reference tied to a connection still needs the
-  peer that issued it to be reachable.
+Everything durable, kept lines included, lives in the directory and session
+state volumes. Back each up as one unit while the stack is stopped. Rooms
+cannot snapshot a running store, and one directory's rooms cannot be spread
+across hosts.
 
-- **A durable session's bridge credentials are retained, not encrypted.** The
-  password a member answers a bridge form with lives in the session peer's
-  `bridge-secrets.json`, under the state directory's permissions, beside the
-  identity seed that already grants the whole session. It never enters a
-  managed workspace, snapshot, or export, and it is dropped once no room still names
-  its scope. A browser's local workspace holds none across a reload, and a
-  workspace adopted into a peer carries the bridge settings without the
-  password. Both ask the member to answer the bridge once more (ADR-0141).
-- **Attachments and shares outlast their connection only in part.**
-  - A live transferred attachment remains available only while its room,
-    direct line, and session are still open. A selected member archive may
-    retain the same message's bytes separately and serve them after restart
-    through its own scoped capability. The workspace stores neither copy nor an
-    invented promise that an archive retained one.
-  - Room-link invitations are saved with the workspace. A browser and a
-    durable Rooms session both keep the sturdyref they were handed until the
-    reader accepts or dismisses it.
-  - Received archive-share rows are runtime-only. A live share dies with its
-    session or one read. A durable offer's sturdyref is the Host publication.
-    The reminder on the conversation card is not saved, so a restart forgets
-    the reminder without revoking the share.
+### Unread messages
 
-- **One-shot room invitations are live capabilities.** Rooms and IRC bridges
-  limit how many exist and retire them when the room's live generation ends.
-  If the answer to a claim is lost, its receipt survives, and every retry
-  competes for the same single membership. Invitations do not survive a
-  server restart as separately revocable sturdyrefs.
+`Room.messages` hands a line straight to a pending read and otherwise keeps at
+most <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGES -->256<!-- /value --> unread messages. A consumer stalled past that gets a
+stream error and must subscribe again. Cancelling, overflowing, replacing, or
+leaving releases every unread file capability. The browser client keeps a read
+pending during ordinary use.
 
-- **A session remembers only its recent changes for retries.** It keeps the
-  identities of its last 64 completed changes. The browser never retries an
-  ambiguous send, edit, withdrawal, operator change, listener change, or IRC
-  change on its own. A change replayed by hand after it has left those 64 may
-  happen twice. Private-room and durable-authority changes instead keep a
-  pending result and a recovery key until they resolve.
+### Sessions instead of accounts
 
-- **Delivery receipts depend on what the room keeps.** A room's senders share
-  one budget of <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGES -->256<!-- /value --> messages and
-  <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGE_BYTES bytes -->2 MiB<!-- /value --> across pending text and unread messages.
-  Receipts keep order and match each answer to its send, but they do not make
-  a retry safe. An upload is reused without a second read only when its source
-  cannot change, it was acknowledged, and the media cache took it. A streaming
-  source or a full cache means an ordinary read.
-  [ADR-0160](../../docs/decisions/adr/ADR-0160-rooms-retained-delivery.md)
-  records the contract and its measured costs.
+No login or server account owns a durable session. Holding the session
+sturdyref is what lets you attach, and each part you delegate can be revoked
+on its own.
 
-- **Keeping a room is separate from being in it.** Joining with `open` or
-  `enter`, or holding a room's entrance, gives no right to keep the room.
-  Creating a managed room returns a manager reference you can pass on. It
-  controls the room's registered public name, its entry links, and its
-  moderators.
-  - The live room still disappears when empty. Its registration holds the
-    name, and entering by that name brings the room back. An entry link is
-    not the registration and grants no management.
-  - If every copy of the manager is lost, the directory operator has to
-    recover one. Sharing the manager shares management. It does not hand it
-    over.
-  - Revoking an entry link blocks later admission through every old copy but
-    does not evict a membership that already subscribed.
-  - The current manager can unregister the room. That retires its public
-    entrance and moves it to private access while its room link, moderator,
-    manager, and existing memberships remain. The public name is then
-    available to another room, so registering this room again may meet a name
-    collision.
+### What a durable session keeps
 
-- **Two tabs editing one local workspace do not merge.** Each tab writes the
-  workspace to localStorage on its own. Import and clear tell the other tabs,
-  but ordinary edits made at the same time are not merged. When several
-  browsers or tabs must change the same workspace, attach them all to one
-  durable session.
+Every view attached to a session shares its network identity and workspace:
+directories, archive choice, capabilities, peering, history, live files,
+operator actions, listener and IRC administration, and visualizer
+publication. Browser `File` handles and object URLs stay on the device that
+made them. A browser tab keeps its workspace in IndexedDB, and a reload
+restores the saved grants and links. A reference tied to a connection still
+needs the peer that issued it to be reachable.
 
-- **A subject's link is offered to copy, not opened.** A member can set a
-  room subject that links an object by its sturdyref, and every reader sees
-  the link. The browser and the terminal clients do not redeem it or draw the
-  object, so taking part happens in whatever client that object comes with.
-  The room never attenuates the link, so whoever sets it decides what holding
-  it allows.
+### Bridge passwords
 
-- **Directory discovery is a bounded live view.** A watch baseline carries
-  at most <!-- value rust/application/src/directory.rs MAX_ROWS -->256<!-- /value --> current room publications. Watch clients receive an explicit
-  truncation event and continue receiving later deltas. A one-shot list
-  answers <!-- value rust/application/src/directory.rs MAX_ROWS -->256<!-- /value --> publications a page with a cursor for the page after it. The
-  cursor is the position of the page's last row in listing order, so a room
-  that closes between two pages moves no other row, and a room open for the
-  whole walk is listed exactly once. A room that opens behind the cursor
-  shows up on the next walk or in a watch.
+The password a member gives a bridge form is stored unencrypted in the session
+peer's `bridge-secrets.json`, under the state directory's permissions and
+beside the identity seed that already grants the whole session. It never
+enters a managed workspace, snapshot, or export, and it is dropped once no
+room still names its scope. A browser's local workspace forgets it on reload,
+and a workspace adopted into a peer brings the bridge settings without the
+password. Either way the member answers the bridge once more (ADR-0141).
 
-- **The IRC adapters have IRC representation and delivery limits.** IRC is an
-  application adapter, not a CapTP transport. There is no IRC server link and
-  no CapTP-over-IRC netlayer. IRC carries neither edits nor capability-bearing
-  file and room offers.
-  - The bridge mirrors one channel into an ordinary Rooms directory and is
-    read-only unless the operator selects two-way mode with TLS and SASL
-    credentials. Two-way posts use the bridge's registered nick and a visible
-    `<nick>` prefix. IRC supplies no acknowledgement for a channel message, so
-    an ambiguous TCP failure may repeat or lose the last line even though the
-    bounded queue survives an observed write failure.
-  - The IRC server maps only existing IRC-addressable room names. It fixes a
-    nickname for the connection because Rooms grants names per capability and
-    no atomic rename exists across several memberships. Rooms names outside
-    IRC's alphabet receive disclosed connection-local aliases.
-  - Lines, subjects, and file capabilities that cannot fit IRC are reported
-    rather than silently truncated or discarded. Foreign room publications
-    without a member count, and Rooms room names IRC cannot address, are
-    omitted from `LIST` with a notice instead of invented fields.
+### Attachments and shares
+
+- A live attachment stays available only while its room, direct line, and
+  session are open. A member archive the reader chose may keep the same
+  message's bytes and serve them after a restart through its own scoped
+  capability. The workspace stores neither copy, and it never records that an
+  archive kept one.
+- Room-link invitations are saved with the workspace. A browser and a durable
+  Rooms session both keep the sturdyref until the reader accepts or dismisses
+  it.
+- Received archive shares last only while the session runs. A live share ends
+  with its session or after one read. A durable offer's sturdyref is the Host
+  publication. The reminder on the conversation card is not saved, so a
+  restart forgets the reminder and leaves the share in force.
+
+### One-shot invitations
+
+Room invitations are live capabilities. Rooms and IRC bridges limit how many
+exist and retire them when the room's live generation ends. If the answer to a
+claim is lost, its receipt survives, and every retry competes for the same
+single membership. A server restart does not keep invitations as sturdyrefs
+you can revoke one by one.
+
+### Retries
+
+A session keeps the identities of its last 64 completed changes. The browser
+never retries an uncertain send, edit, withdrawal, operator change, listener
+change, or IRC change on its own. A change replayed by hand after it has left
+those 64 may happen twice. Private-room and durable-authority changes keep a
+pending result and a recovery key until they resolve.
+
+### Delivery receipts
+
+A room's senders share one budget of <!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGES -->256<!-- /value --> messages and
+<!-- value rust/application/src/room/inbox/queue.rs MAX_MESSAGE_BYTES bytes -->2 MiB<!-- /value --> across pending text and unread messages. Receipts keep order and
+match each answer to its send, but a retry is still unsafe. An upload is
+reused without a second read only when its source cannot change, it was
+acknowledged, and the media cache took it. A streaming source or a full cache
+means an ordinary read.
+[ADR-0160](../../docs/decisions/adr/ADR-0160-rooms-retained-delivery.md)
+records the contract and its measured costs.
+
+### Keeping a room
+
+Joining with `open` or `enter`, or holding a room's entrance, gives no right to
+keep the room. Creating a managed room returns a manager reference you can pass
+on. It controls the room's registered public name, its entry links, and its
+moderators.
+
+- The live room still disappears when empty. Its registration holds the name,
+  and entering by that name brings the room back. An entry link grants no
+  management.
+- If every copy of the manager is lost, the directory operator has to recover
+  one. Passing the manager on gives the other holder management too, and you
+  keep yours.
+- Revoking an entry link blocks later admission through every old copy, and
+  members who already subscribed stay.
+- The current manager can unregister the room. That retires its public
+  entrance and moves it to private access while its room link, moderator,
+  manager, and existing memberships remain. Another room can then take the
+  public name, so registering this room again may meet a name collision.
+
+### Two tabs on one local workspace
+
+Each tab writes the workspace to IndexedDB on its own. Import and clear tell
+the other tabs, but edits made at the same time are not merged. When several
+browsers or tabs must change the same workspace, attach them all to one
+durable session.
+
+### Links in a room subject
+
+A member can set a room subject that links an object by its sturdyref, and
+every reader sees the link. The browser and terminal clients offer it to copy
+and do not redeem it or draw the object, so you take part through whatever
+client that object comes with. The room passes the link on unchanged, so
+whoever sets it decides what holding it allows.
+
+### Directory listings
+
+A watch starts from at most <!-- value rust/application/src/directory.rs MAX_ROWS -->256<!-- /value --> current room publications. Past that, the
+client receives a truncation event and keeps receiving later changes. A
+one-shot list answers <!-- value rust/application/src/directory.rs MAX_ROWS -->256<!-- /value --> publications a page, with a cursor for the next
+page. The cursor is the position of the page's last row in listing order, so
+a room that closes between two pages moves no other row, and a room open for
+the whole walk is listed exactly once. A room that opens behind the cursor
+shows up on the next walk or in a watch.
+
+### IRC
+
+IRC is an application adapter. Rooms does not link IRC servers to each other,
+CapTP does not run over IRC, and IRC carries neither edits nor file and room
+offers.
+
+- The bridge mirrors one channel into an ordinary Rooms directory and is
+  read-only unless the operator chooses two-way mode with TLS and SASL
+  credentials. Two-way posts use the bridge's registered nick and a visible
+  `<nick>` prefix. IRC sends no acknowledgement for a channel message, so a
+  TCP failure at the wrong moment may repeat or lose the last line, even
+  though the queue survives a write failure the bridge sees.
+- The IRC server maps only existing room names IRC can address. It fixes a
+  nickname for the connection, because Rooms grants names per capability and
+  cannot rename across several memberships at once. Rooms names outside IRC's
+  alphabet get aliases that hold for the connection, and the server says so.
+- Lines, subjects, and file capabilities that do not fit IRC are reported
+  instead of cut short or dropped. `LIST` leaves out, with a notice, foreign
+  room publications that carry no member count and Rooms names IRC cannot
+  address.

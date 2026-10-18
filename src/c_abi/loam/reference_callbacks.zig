@@ -54,9 +54,8 @@ pub fn declare(ctx: ?*anyopaque, arena: std.mem.Allocator, invocation: common.ac
     // their combined request inventory; the call arena still owns admission.
     const fields = if (registration.graph) |spec| spec.max_edges else common.max_content_fields;
     var declaration: Declaration = .{ .arena = arena, .host = registration.host, .field_count = input.field_count, .graph = invocation.graph, .capacity = try std.math.mul(usize, fields, 2) };
-    const prior = registration.host.in_callback;
-    registration.host.in_callback = true;
-    defer registration.host.in_callback = prior;
+    const hold = registration.host.callback_latch.hold();
+    defer hold.release();
     if (registration.declaration.references.?(registration.declaration.context, @ptrCast(&declaration), &input) != common.shared.GLOWCAP_OK) return error.ApplicationRefused;
     return declaration.requests.items;
 }

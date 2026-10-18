@@ -16,6 +16,15 @@ pub const HintValue = union(enum) {
     bytes: []const u8,
     boolean: bool,
     integer: i64,
+
+    pub fn eql(self: HintValue, other: HintValue) bool {
+        return switch (self) {
+            .string => |value| other == .string and std.mem.eql(u8, value, other.string),
+            .bytes => |value| other == .bytes and std.mem.eql(u8, value, other.bytes),
+            .boolean => |value| other == .boolean and value == other.boolean,
+            .integer => |value| other == .integer and value == other.integer,
+        };
+    }
 };
 
 pub const HintEntry = struct {

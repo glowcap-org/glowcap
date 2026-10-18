@@ -12,11 +12,11 @@ stale, or the page may have moved.
 The sidebar lists every page. The likeliest destinations:
 
 - [Start building]($link.page('start')) is the first call, in every language.
-- [Why OCapN]($link.page('why')) is the ideas, held against the protocols you
-  already run.
+- [Why OCapN]($link.page('why')) compares the ideas with the protocols you
+  already use.
 - [Concepts]($link.page('concepts')) explains the machinery one level down.
-- [Choosing a transport]($link.page('transports/choosing')) is the deployment
-  decision table.
+- [Choosing a transport]($link.page('transports/choosing')) compares the
+  transports side by side.
 
 If a link on this site brought you here, that is a defect worth reporting:
 [open an issue](https://github.com/jimisaacs/glowcap/issues).

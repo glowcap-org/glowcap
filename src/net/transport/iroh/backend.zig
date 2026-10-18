@@ -102,11 +102,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
 
             pub fn reserveSeats(backend: *Self, count: usize) !void {
-                try backend.reserveReady(count);
+                try backend.ready.reserve(backend.allocator, count);
             }
 
             pub fn publish(backend: *Self, item: completion.Completion) void {
-                backend.appendReserved(item);
+                backend.ready.appendReserved(item);
             }
         };
         const TryIo = completion.HintedTryIo(Self, TryIoOps);
@@ -133,7 +133,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// calling ensureUnusedCapacity(1) can claim the same last slot. This
         /// count makes admission cumulative and lets completion stay infallible
         /// after sidecar bytes or an event have been consumed.
-        ready_reserved: usize = 0,
         /// Accepted connections waiting for a `submitAccept` to claim them, edge-
         /// triggered accept can queue several before the loop re-arms.
         accept_stash: std.ArrayList(*CConn) = .empty,
@@ -270,8 +269,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return switch (target) {
                 .platform => |platform_target| self.platform.startDial(user_data, platform_target),
                 .iroh => |iroh_target| blk: {
-                    try self.reserveReady(1);
-                    errdefer self.releaseReady(1);
+                    try self.ready.reserve(self.allocator, 1);
+                    errdefer self.ready.release(1);
                     const fd = try self.reserveFd();
                     try self.pending_dials.put(fd, user_data);
                     errdefer std.debug.assert(self.pending_dials.remove(fd));
@@ -336,27 +335,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
             return Namespace.fdFromId(id);
         }
 
-        fn reserveReady(self: *Self, count: usize) !void {
-            const total = std.math.add(usize, self.ready_reserved, count) catch return error.OutOfMemory;
-            try self.ready.ensureUnusedCapacity(self.allocator, total);
-            self.ready_reserved = total;
-        }
-
-        fn ensureTransientReady(self: *Self, count: usize) !void {
-            const total = std.math.add(usize, self.ready_reserved, count) catch return error.OutOfMemory;
-            try self.ready.ensureUnusedCapacity(self.allocator, total);
-        }
-
-        fn releaseReady(self: *Self, count: usize) void {
-            std.debug.assert(self.ready_reserved >= count);
-            self.ready_reserved -= count;
-        }
-
-        fn appendReserved(self: *Self, item: completion.Completion) void {
-            self.releaseReady(1);
-            self.ready.appendAssumeCapacity(item);
-        }
-
         /// Cancellation publishes a terminal sidecar dial record. Consume it
         /// immediately: the adapter has already turned the cancellation into
         /// the Loop's user completion, so leaving the sidecar record around
@@ -389,11 +367,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const cconn = self.accept_stash.orderedRemove(0);
             const fd = self.allocFd(cconn) catch |err| {
                 sidecar.glowcap_iroh_sidecar_conn_free(cconn);
-                self.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
+                self.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
                 self.accept_ud = null;
                 return;
             };
-            self.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });
+            self.ready.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });
             self.accept_ud = null;
         }
 
@@ -424,7 +402,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// which asserts it to the engine before the connection's first byte feeds
         /// (ADR-0105). Socket backends have no such decl and the loop answers null
         /// for them.
-        pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
+        pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.peer_key_bytes]u8 {
             if (!Namespace.ownsFd(fd)) return self.platform.verifiedChannelKey(fd);
             const entry = self.conns.getPtr(fd) orelse return null;
             const key = connRemoteKey(entry.cconn) orelse return null;
@@ -436,7 +414,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (listen != listen_fd) return error.InvalidListenFd;
             if (!self.accept_enabled) return error.ListenerClosed;
             if (self.accept_ud != null) return error.AlreadyAccepting;
-            try self.reserveReady(1);
+            try self.ready.reserve(self.allocator, 1);
             self.accept_ud = user_data;
             self.stashAccepts();
             self.takeAccept();
@@ -466,37 +444,37 @@ pub fn CompletionBackend(comptime Platform: type) type {
         pub fn submitClose(self: *Self, user_data: u64, fd: Fd) !void {
             if (!Namespace.ownsFd(fd)) return self.platform.submitClose(user_data, fd);
             // Every pending accept, dial, read, or write already owns one seat
-            // in ready_reserved from its admission. Closing publishes those
+            // in the ready queue from its admission. Closing publishes those
             // cancellation records against their existing seats; reserve only
             // the one additional record introduced by this close operation.
-            try self.reserveReady(1);
+            try self.ready.reserve(self.allocator, 1);
             if (fd == listen_fd) {
                 // Cancel a pending accept so Loop.closeAndDrain cannot hang on an
                 // idle acceptor; the listen sentinel is not a real conn entry.
                 self.accept_enabled = false;
                 if (self.accept_ud) |ud| {
-                    self.appendReserved(.{ .user_data = ud, .result = -1 });
+                    self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
                     self.accept_ud = null;
                 }
                 for (self.accept_stash.items) |cconn| sidecar.glowcap_iroh_sidecar_conn_free(cconn);
                 self.accept_stash.clearRetainingCapacity();
                 self.stashAccepts();
-                self.appendReserved(.{ .user_data = user_data, .result = 0 });
+                self.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
                 return;
             }
             if (self.pending_dials.fetchRemove(fd)) |done| {
                 self.cancelDial(Namespace.fdId(fd));
-                self.appendReserved(.{ .user_data = done.value, .result = -1 });
-                self.appendReserved(.{ .user_data = user_data, .result = 0 });
+                self.ready.appendReserved(.{ .user_data = done.value, .result = -1 });
+                self.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
                 return;
             }
             if (self.conns.getPtr(fd)) |entry| {
-                if (entry.pending.read_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
-                if (entry.pending.write_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
+                if (entry.pending.read_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
+                if (entry.pending.write_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
                 entry.pending = .{};
             }
             self.closeFd(fd);
-            self.appendReserved(.{ .user_data = user_data, .result = 0 });
+            self.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
         }
 
         fn dispatchReady(self: *Self, ev: ReadyEvent) void {
@@ -513,16 +491,16 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 const done = self.pending_dials.fetchRemove(fd) orelse return;
                 // Text declined: a chain's name bytes must outlive the loop's copy.
                 const opaque_conn = self.resident.loopFinishConnect(ev.subject, null) catch |err| {
-                    self.appendReserved(.{ .user_data = done.value, .result = -1, .failure = err });
+                    self.ready.appendReserved(.{ .user_data = done.value, .result = -1, .failure = err });
                     return;
                 };
                 const cconn: *CConn = @ptrCast(opaque_conn);
                 self.bindFd(fd, cconn) catch |err| {
                     sidecar.glowcap_iroh_sidecar_conn_free(cconn);
-                    self.appendReserved(.{ .user_data = done.value, .result = -1, .failure = err });
+                    self.ready.appendReserved(.{ .user_data = done.value, .result = -1, .failure = err });
                     return;
                 };
-                self.appendReserved(.{ .user_data = done.value, .result = 0 });
+                self.ready.appendReserved(.{ .user_data = done.value, .result = 0 });
                 return;
             }
             const fd = self.by_id.get(ev.subject) orelse return;
@@ -615,7 +593,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             // Wrapped-platform completions have no iroh admission reservation,
             // so make room for the whole batch without spending the seats each
             // pending iroh operation already owns.
-            try self.ensureTransientReady(platform_completions.len);
+            try self.ready.ensureUnreservedCapacity(self.allocator, platform_completions.len);
             const count = if (wait_ms) |timeout_ms|
                 try self.platform.poll(&platform_completions, if (self.ready.len() > 0) 0 else timeout_ms)
             else

@@ -158,8 +158,8 @@ use and control them. Its modules stack so each lower one works alone:
   attachment.
 
 The [managed access architecture](loam/access-architecture.md) owns the
-contract. [Known limitations](boundaries.md#api-gaps) names the integration
-that remains for applications and foreign bindings.
+contract. [Known limitations](boundaries.md#api-gaps) lists the gaps for
+applications and foreign bindings.
 
 ## Transports and connection loops
 
@@ -249,15 +249,17 @@ no reconnect policy.
 
 ## Session tables
 
-CapTP names imports, exports, and answers with integer positions. glowcap keeps
-each namespace in its own hash table:
-
-- direct lookup stays constant-time
-- a sparse number from an untrusted peer cannot force a giant array
-- garbage collection removes an answer row before its position can be reused
-- locally minted outbound answers fail closed in `session/answers/pipeline.zig`
-  before their cursor can wrap
-- imports retain a separate cap because the remote peer chooses their count
+CapTP names imports, exports, and answers with integer positions. The
+namespaces the partner names (imports and inbound answers) are hash tables,
+so a sparse number from an untrusted peer cannot force a giant array, and
+imports retain a separate cap because the remote peer chooses their count.
+The namespaces this session mints (exports and outbound answers) are dense
+slabs indexed by position
+([ADR-0254](decisions/adr/ADR-0254-an-own-side-position-is-a-row-that-holds-its-facts.md)):
+a lookup is an index, a released position is minted again, and an explicit
+export position costs the slots up to it. Garbage collection removes an
+answer row before its position can be reused, and a stale reader holding a
+row's stamp misses the row that reuses the position.
 
 Once the session sends the answer to an inbound call, it keeps that answer's
 resolution, because later pipelined messages may still refer to it. These rows
@@ -281,11 +283,15 @@ release can never spend a retain the session still needs
 decides which messages are legal while negotiating, open, or closed, and an
 invalid transition is refused before it can mutate a table.
 
-glowcap never reuses positions it allocates itself. A partner may reuse an
-import position after release. The final decrement removes every sturdyref
-cache entry and clears the import row's routing generation. An old host route
-then fails closed even if its map row is reclaimed after the partner reuses the
-position.
+Export and outbound answer positions index a dense slab, and a released
+position is the next one minted
+([ADR-0254](decisions/adr/ADR-0254-an-own-side-position-is-a-row-that-holds-its-facts.md)).
+A reader that outlives a turn holds the question's position with its row
+stamp, so a stale reader misses the row that reuses the position. A partner
+may reuse an import position after release. The final decrement removes
+every sturdyref cache entry and clears the import row's routing generation.
+An old host route then fails closed even if its map row is reclaimed after
+the partner reuses the position.
 
 ## Frame ownership and copies
 
@@ -359,8 +365,7 @@ compilation ([ADR-0059](decisions/adr/ADR-0059-composable-c-abi-archives.md)).
 
 Bindings that load the C library use `libglowcap_host` and `libglowcap_driver`. The driver
 takes an idle Host and runs the loop. The binding waits on one readiness
-descriptor, arms one timer from the host runtime from `glowcap_driver_step_wait_ms`,
-calls `glowcap_driver_step`, and drains one event queue. The driver decides
+descriptor, arms one timer from `glowcap_driver_step_wait_ms`, calls `glowcap_driver_step`, and drains one event queue. The driver decides
 which pending operation owns the nearest deadline, and the binding turns
 that duration into a timer on its scheduler.
 
@@ -409,8 +414,8 @@ generators live under [`tools/`](../tools/README.md).
 
 Rooms' [Rust application boundary](decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
 puts the shared Rooms protocol and application policy above the Zig Host,
-which owns CapTP. Rendering and platform I/O remain in adapters.
-The running presentation is TypeScript.
+which owns CapTP. Rendering and platform I/O stay in adapters, and the
+user interface is written in TypeScript.
 
 CapTP and OCapN claims are checked against the upstream OCapN suite, live Goblins
 peers, and the in-tree reference corpus. [Community review](community-review.md)

@@ -114,7 +114,7 @@ fn drain(attachment: *hosting.Attachment, db: *fixture.Engine, boundary: ?[]cons
     var worker: hosting.Worker = .init(&slot, db.readerCapacity());
     for (0..64) |_| {
         try attachment.advance();
-        while (try worker.next(attachment, false)) |work| {
+        while (try worker.next(attachment, .when_uncertain)) |work| {
             if (work.request == .write) {
                 // The kill boundary sits inside the commit, so this probe
                 // executes the write itself instead of calling `run`.

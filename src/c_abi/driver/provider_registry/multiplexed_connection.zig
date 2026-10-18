@@ -64,7 +64,7 @@ pub fn takeFailure(ctx: *anyopaque, conn: usize) ?foundation.FailureChain {
 
 pub fn remoteKey(ctx: *anyopaque, conn: usize) net.multiplexed_resident.ContractError!?crypto.PeerKey {
     const self = of(ctx);
-    var key: [crypto.PEER_KEY_BYTES]u8 = undefined;
+    var key: [crypto.peer_key_bytes]u8 = undefined;
     const result = self.table.conn_remote_key.?(self.table.ctx, @intCast(conn), &key);
     return switch (result) {
         0 => null,

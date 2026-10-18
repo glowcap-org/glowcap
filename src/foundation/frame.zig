@@ -57,9 +57,6 @@ pub const Frame = struct {
         /// Bytes of private head in front of `storage` in the same block. See
         /// `initHeaded`. Zero for a frame adopted through `initOwned`.
         head_len: u16 = 0,
-        /// The head's type, folded to a tag, so a reader asking for another
-        /// type of the same size gets nothing rather than the wrong head.
-        head_tag: u16 = 0,
     };
 
     const ExternalOwner = struct {
@@ -101,6 +98,10 @@ pub const Frame = struct {
     /// back. The block is aligned for both the head and the shape, and the
     /// wire bytes start at a shape-aligned offset. Ownership is the frame's
     /// from the first byte: a shape refusal frees the block before returning.
+    /// One pointer before the head identifies the head and tail types exactly.
+    /// Keeping it in this block costs one pointer plus alignment padding, rather than
+    /// growing every `Frame`, including frames with no head. It needs no
+    /// separate allocation.
     pub fn initHeaded(
         allocator: std.mem.Allocator,
         comptime Head: type,
@@ -109,17 +110,17 @@ pub const Frame = struct {
         wire: []const u8,
         shape: FrameShape,
     ) (Error || std.mem.Allocator.Error)!Frame {
-        // One block holds the head slot first, then `tail_len` values of
-        // `Tail`, then the wire bytes. A layer that learns something about the
+        // One block holds a type-descriptor pointer, the head slot, then
+        // `tail_len` values of `Tail`, then the wire bytes. A layer that learns something about the
         // bytes, such as the decoded parse and its argument views, stores it
         // there, and it is freed with the bytes. The head is padded so the
         // bytes still start at an aligned offset.
-        comptime std.debug.assert(@sizeOf(Head) <= std.math.maxInt(u16));
-        const head_len = headLen(Head, Tail, tail_len, shape);
-        if (head_len > std.math.maxInt(u16)) return error.OutOfMemory;
+        const block_len = try headedBlockLen(Head, Tail, tail_len, wire.len, shape);
+        const head_len = block_len - wire.len;
         const alignment = headAlignment(Head, Tail, shape);
-        const block = allocator.rawAlloc(headedBlockLen(Head, Tail, tail_len, wire.len, shape), alignment, @returnAddress()) orelse
+        const block = allocator.rawAlloc(block_len, alignment, @returnAddress()) orelse
             return error.OutOfMemory;
+        @as(**const HeadTypes, @ptrCast(@alignCast(block))).* = headTypes(Head, Tail);
         const storage = block[head_len..][0..wire.len];
         @memcpy(storage, wire);
         validateShape(storage, shape) catch |err| {
@@ -134,43 +135,63 @@ pub const Frame = struct {
                     .allocator = allocator,
                     .storage_alignment = alignment,
                     .head_len = @intCast(head_len),
-                    .head_tag = headTag(Head),
                 },
             },
         };
     }
 
-    /// The `Head` this frame was allocated with through `initHeaded`, or null
-    /// for a frame that carries none or one of another size. The pointer is
-    /// good for as long as the frame is.
-    /// The one block `initHeaded` allocates: the head, its tail, the shape
-    /// padding, and the wire bytes.
-    pub fn headedBlockLen(comptime Head: type, comptime Tail: type, tail_len: usize, wire_len: usize, shape: FrameShape) usize {
-        return headLen(Head, Tail, tail_len, shape) + wire_len;
+    /// The one block `initHeaded` allocates: type identity, head, tail, shape
+    /// padding, and the wire bytes. Refuses lengths that overflow or whose
+    /// head and tail do not fit the frame's metadata.
+    pub fn headedBlockLen(comptime Head: type, comptime Tail: type, tail_len: usize, wire_len: usize, shape: FrameShape) std.mem.Allocator.Error!usize {
+        return std.math.add(usize, try headLen(Head, Tail, tail_len, shape), wire_len) catch error.OutOfMemory;
     }
 
+    /// The `Head` this frame was allocated with through `initHeaded`, or null
+    /// for a frame that carries none or was built for another type. The pointer is
+    /// good for as long as the frame is.
     pub fn head(self: *const Frame, comptime Head: type) ?*Head {
+        const types = self.headTypesOf() orelse return null;
+        if (types.head != typeIdentity(Head)) return null;
+        const base = self.storage.ptr - self.owner.allocator.head_len;
+        return @ptrCast(@alignCast(base + headOffset(Head)));
+    }
+
+    /// The tail of `Tail` values behind the head, empty for a frame built
+    /// without one or with different head or tail types. A tail element is at
+    /// least a word, so shape padding is never mistaken for an element.
+    pub fn headTail(self: *const Frame, comptime Head: type, comptime Tail: type) []Tail {
+        return if (self.headed(Head, Tail)) |slot| slot.tail else &.{};
+    }
+
+    /// What `headed` returns: the head and the tail it fronts.
+    pub fn Headed(comptime Head: type, comptime Tail: type) type {
+        return struct { head: *Head, tail: []Tail };
+    }
+
+    /// `head` and `headTail` in one walk, for a reader that fills both.
+    pub fn headed(self: *const Frame, comptime Head: type, comptime Tail: type) ?Headed(Head, Tail) {
+        comptime std.debug.assert(@sizeOf(Tail) >= 8);
+        const types = self.headTypesOf() orelse return null;
+        if (types.head != typeIdentity(Head) or types.tail != typeIdentity(Tail)) return null;
+        const owner = self.owner.allocator;
+        const offset = tailOffset(Head, Tail);
+        const len = (owner.head_len - offset) / @sizeOf(Tail);
+        const base = self.storage.ptr - owner.head_len;
+        return .{
+            .head = @ptrCast(@alignCast(base + headOffset(Head))),
+            .tail = @as([*]Tail, @ptrCast(@alignCast(base + offset)))[0..len],
+        };
+    }
+
+    fn headTypesOf(self: *const Frame) ?*const HeadTypes {
         const owner = switch (self.owner) {
             .allocator => |owner| owner,
             .external => return null,
         };
-        if (owner.head_tag != headTag(Head)) return null;
-        std.debug.assert(owner.head_len >= @sizeOf(Head));
-        return @ptrCast(@alignCast(self.storage.ptr - owner.head_len));
-    }
-
-    /// The tail of `Tail` values behind the head, empty for a frame built
-    /// without one or for another head type. A tail element is at least a
-    /// word, so the shape padding after the tail is never mistaken for one.
-    pub fn headTail(self: *const Frame, comptime Head: type, comptime Tail: type) []Tail {
-        comptime std.debug.assert(@sizeOf(Tail) >= 8);
-        const head_ptr = self.head(Head) orelse return &.{};
-        const owner = self.owner.allocator;
-        const offset = tailOffset(Head, Tail);
-        if (owner.head_len < offset) return &.{};
-        const len = (owner.head_len - offset) / @sizeOf(Tail);
-        const base: [*]u8 = @ptrCast(head_ptr);
-        return @as([*]Tail, @ptrCast(@alignCast(base + offset)))[0..len];
+        if (owner.head_len == 0) return null;
+        const base = self.storage.ptr - owner.head_len;
+        return @as(*const *const HeadTypes, @ptrCast(@alignCast(base))).*;
     }
 
     /// Wrap storage that something else owns, like a host buffer, an mmap, or
@@ -228,25 +249,52 @@ pub const Frame = struct {
     }
 };
 
-/// The head's size padded so the wire bytes behind it keep the shape's
-/// alignment.
+const HeadTypes = struct {
+    head: *const u8,
+    tail: *const u8,
+};
+
+fn headTypes(comptime Head: type, comptime Tail: type) *const HeadTypes {
+    const Types = struct {
+        const value: HeadTypes = .{ .head = typeIdentity(Head), .tail = typeIdentity(Tail) };
+    };
+    return &Types.value;
+}
+
+/// A unique address for each Zig type. A type name is not an identity:
+/// independently imported modules may declare distinct types with equal names.
+fn typeIdentity(comptime T: type) *const u8 {
+    const Identity = struct {
+        // Mutable storage gives each type a distinct address even when a
+        // linker merges equal constants. No code reads or writes its value.
+        var token: u8 = 0;
+        comptime {
+            _ = T;
+        }
+    };
+    return &Identity.token;
+}
+
+fn headOffset(comptime Head: type) usize {
+    return std.mem.alignForward(usize, @sizeOf(*const HeadTypes), @alignOf(Head));
+}
+
 fn tailOffset(comptime Head: type, comptime Tail: type) usize {
-    return std.mem.alignForward(usize, @sizeOf(Head), @alignOf(Tail));
+    return std.mem.alignForward(usize, headOffset(Head) + @sizeOf(Head), @alignOf(Tail));
 }
 
-fn headLen(comptime Head: type, comptime Tail: type, tail_len: usize, shape: FrameShape) usize {
-    return shapeAlignment(shape).forward(tailOffset(Head, Tail) + tail_len * @sizeOf(Tail));
-}
-
-/// The tag a head type carries in its frame: a fold of the type's name,
-/// never zero, which is the no-head mark.
-fn headTag(comptime Head: type) u16 {
-    const folded: u16 = @truncate(std.hash.Fnv1a_32.hash(@typeName(Head)));
-    return if (folded == 0) 1 else folded;
+fn headLen(comptime Head: type, comptime Tail: type, tail_len: usize, shape: FrameShape) std.mem.Allocator.Error!usize {
+    comptime std.debug.assert(@sizeOf(Head) <= std.math.maxInt(u16));
+    const tail_bytes = std.math.mul(usize, tail_len, @sizeOf(Tail)) catch return error.OutOfMemory;
+    const used = std.math.add(usize, tailOffset(Head, Tail), tail_bytes) catch return error.OutOfMemory;
+    const alignment = shapeAlignment(shape);
+    // Bound the padded head before rounding, so alignment cannot overflow.
+    if (used > alignment.backward(std.math.maxInt(u16))) return error.OutOfMemory;
+    return alignment.forward(used);
 }
 
 fn headAlignment(comptime Head: type, comptime Tail: type, shape: FrameShape) std.mem.Alignment {
-    return shapeAlignment(shape).max(.of(Head)).max(.of(Tail));
+    return shapeAlignment(shape).max(.of(*const HeadTypes)).max(.of(Head)).max(.of(Tail));
 }
 
 fn shapeAlignment(shape: FrameShape) std.mem.Alignment {

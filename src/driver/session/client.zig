@@ -334,10 +334,7 @@ pub const Session = struct {
     pub fn fetchSettled(self: *Session, name: []const u8, arena: std.mem.Allocator) !Reply {
         self.enterCall();
         defer self.leaveCall();
-        var capture = driver.SettleCapture{ .arena = arena };
-        const id = try self.runtime.core.fetch(self.hs, name);
-        try self.awaitVowId(id, .{ .ctx = &capture, .func = driver.SettleCapture.fire });
-        return self.replyFromSettled(self.hs, arena, try capture.finish());
+        return self.replyVowId(self.hs, try self.runtime.core.fetch(self.hs, name), arena);
     }
 
     /// Eventual-send to `target` and block until the reply settles,

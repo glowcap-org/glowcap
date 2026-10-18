@@ -71,7 +71,8 @@ test "loam resource lifecycle retires cancelled index reads and partial move all
         try std.testing.expect(answer.broken);
     }
     try std.testing.expect(succeeded);
-    var read = try r.storage.Read.init(r.a, &fixture.store, seed.data.owner, 6);
+    var read: r.storage.Read = undefined;
+    try read.init(r.a, &fixture.store, seed.data.owner, 6, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, &fixture.backend);
     var change = try r.prepare(&read, &fixture.backend, seed.leaf, .{ .move = seed.root });
@@ -94,7 +95,7 @@ test "loam resource lifecycle refuses a second prepared effect on one native ope
     const seed = try r.seed(&fixture.store, &fixture.backend);
     var caps = try r.storage.Capabilities.init(r.a, &fixture.store, .{});
     defer caps.deinit() catch unreachable;
-    const id = try r.h.c.descriptor(&caps, &fixture.backend, seed.data.owner, seed.data.grant, null, false);
+    const id = try r.h.c.descriptor(&caps, &fixture.backend, seed.data.owner, seed.data.grant, null, .reachable);
     const use = try r.h.c.use(&caps, &fixture.backend, id);
     defer use.release();
     const operation = try use.begin(8);
@@ -128,7 +129,7 @@ test "loam resource lifecycle iteration and prepared changes have exclusive leas
     const seed = try r.seed(&fixture.store, &fixture.backend);
     var caps = try r.storage.Capabilities.init(r.a, &fixture.store, .{});
     defer caps.deinit() catch unreachable;
-    const id = try r.h.c.descriptor(&caps, &fixture.backend, seed.data.owner, seed.data.grant, null, false);
+    const id = try r.h.c.descriptor(&caps, &fixture.backend, seed.data.owner, seed.data.grant, null, .reachable);
     const use = try r.h.c.use(&caps, &fixture.backend, id);
     defer use.release();
     const operation = try use.begin(8);

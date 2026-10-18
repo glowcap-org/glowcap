@@ -25,7 +25,7 @@ fn expectArgumentViewRoundTrip(arg: model.Argument) !void {
     defer frame.deinit();
 
     const body = try capnp.decodeBodyForProfile(.v1_0, frame.view());
-    var again = try capnp.encodeBodyForProfile(allocator, .v1_0, &body);
+    var again = try capnp.encodeBodyForProfile(allocator, .v1_0, &body, null);
     defer again.deinit();
     try std.testing.expectEqualSlices(u8, frame.bytes(), again.bytes());
 }
@@ -85,7 +85,7 @@ test "decoded gc and start-session bodies re-encode from their views" {
         var frame = try capnp.encodeMessageForProfile(allocator, .v1_0, message);
         defer frame.deinit();
         const body = try capnp.decodeBodyForProfile(.v1_0, frame.view());
-        var again = try capnp.encodeBodyForProfile(allocator, .v1_0, &body);
+        var again = try capnp.encodeBodyForProfile(allocator, .v1_0, &body, null);
         defer again.deinit();
         try std.testing.expectEqualSlices(u8, frame.bytes(), again.bytes());
     }
@@ -104,7 +104,7 @@ test "a body decoded from Syrup encodes on Cap'n Proto as its owned copy does" {
     defer syrup_frame.deinit();
 
     const body = try syrup.decodeBodyForProfile(.v1_0, syrup_frame.view());
-    var via_view = try capnp.encodeBodyForProfile(allocator, .v1_0, &body);
+    var via_view = try capnp.encodeBodyForProfile(allocator, .v1_0, &body, null);
     defer via_view.deinit();
     const owned = try body.toOwned(allocator);
     defer model.freeMessage(allocator, owned);
@@ -123,7 +123,7 @@ test "malformed text refuses the encode on a borrowed body as on an owned one" {
     } };
     try std.testing.expectError(error.UnsupportedArgument, capnp.encodeMessageForProfile(allocator, .v1_0, message));
     const body = model.view.Body.fromOwned(&message);
-    try std.testing.expectError(error.UnsupportedArgument, capnp.encodeBodyForProfile(allocator, .v1_0, &body));
+    try std.testing.expectError(error.UnsupportedArgument, capnp.encodeBodyForProfile(allocator, .v1_0, &body, null));
 }
 
 test "a list lent as a run of words encodes on both codecs as its owned list does" {
@@ -151,13 +151,13 @@ test "a list lent as a run of words encodes on both codecs as its owned list doe
 
         var capnp_owned = try capnp.encodeMessageForProfile(allocator, .v1_0, message);
         defer capnp_owned.deinit();
-        var capnp_lent = try capnp.encodeBodyForProfile(allocator, .v1_0, &body);
+        var capnp_lent = try capnp.encodeBodyForProfile(allocator, .v1_0, &body, null);
         defer capnp_lent.deinit();
         try std.testing.expectEqualSlices(u8, capnp_owned.bytes(), capnp_lent.bytes());
 
         var syrup_owned = try syrup.encodeMessageForProfile(allocator, .v1_0, message);
         defer syrup_owned.deinit();
-        var syrup_lent = try syrup.encodeBodyForProfile(allocator, .v1_0, &body);
+        var syrup_lent = try syrup.encodeBodyForProfile(allocator, .v1_0, &body, null);
         defer syrup_lent.deinit();
         try std.testing.expectEqualSlices(u8, syrup_owned.bytes(), syrup_lent.bytes());
     }

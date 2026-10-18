@@ -33,7 +33,8 @@ test "a list of integers rides as a word run the view reads in place" {
 
     var views: [16]model.view.Argument = undefined;
     var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    const body = try capnp.decodeBodyInto(.v1_0, frame.view(), &slab);
+    var body: model.view.Body = undefined;
+    try capnp.decodeBodyInto(.v1_0, frame.view(), &slab, &body);
     const run = (try body.deliver.args.at(1)).list;
     try std.testing.expect(run.backingViews() == null);
     try std.testing.expectEqualSlices(i64, &.{ 100, -200, 1 << 40 }, run.typedRun().?);
@@ -77,8 +78,8 @@ fn integerRunFrame(allocator: std.mem.Allocator) !glowcap.foundation.Frame {
 fn findWord(bytes: []const u8, accept: *const fn (u64) bool) !usize {
     var found: ?usize = null;
     var offset: usize = 0;
-    while (offset + wire.WORD_BYTES <= bytes.len) : (offset += wire.WORD_BYTES) {
-        if (accept(std.mem.readInt(u64, bytes[offset..][0..wire.WORD_BYTES], .little))) {
+    while (offset + wire.word_bytes <= bytes.len) : (offset += wire.word_bytes) {
+        if (accept(std.mem.readInt(u64, bytes[offset..][0..wire.word_bytes], .little))) {
             if (found != null) return error.TestUnexpectedResult;
             found = offset;
         }
@@ -102,17 +103,17 @@ test "a word run's count is held to the segment, and an empty run is refused" {
     defer allocator.free(bytes);
     const mutable_view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
     const at = try findWord(bytes, isRunPointer);
-    const pointer = wire.decodeListPointer(std.mem.readInt(u64, bytes[at..][0..wire.WORD_BYTES], .little));
+    const pointer = wire.decodeListPointer(std.mem.readInt(u64, bytes[at..][0..wire.word_bytes], .little));
     try std.testing.expectEqual(@as(u29, 2), pointer.count);
 
     // A count past the segment's end is refused before any word is read.
-    std.mem.writeInt(u64, bytes[at..][0..wire.WORD_BYTES], wire.encodeListPointer(pointer.offset, .eight_bytes, 1000), .little);
+    std.mem.writeInt(u64, bytes[at..][0..wire.word_bytes], wire.encodeListPointer(pointer.offset, .eight_bytes, 1000), .little);
     try std.testing.expectError(error.Truncated, capnp.decodeBody(mutable_view));
     try std.testing.expectError(error.Truncated, capnp.decodeOwned(allocator, mutable_view));
 
     // The encoder writes the empty list as a composite list, so an empty run
     // would be a second form of one value.
-    std.mem.writeInt(u64, bytes[at..][0..wire.WORD_BYTES], wire.encodeListPointer(pointer.offset, .eight_bytes, 0), .little);
+    std.mem.writeInt(u64, bytes[at..][0..wire.word_bytes], wire.encodeListPointer(pointer.offset, .eight_bytes, 0), .little);
     try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(mutable_view));
     try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, mutable_view));
 }
@@ -125,7 +126,7 @@ test "a word run is a list's form only: under a set it is refused" {
     defer allocator.free(bytes);
     const mutable_view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
     const at = try findWord(bytes, isListKindWord);
-    std.mem.writeInt(u64, bytes[at..][0..wire.WORD_BYTES], @backingInt(capnp.shared.ArgKind.set), .little);
+    std.mem.writeInt(u64, bytes[at..][0..wire.word_bytes], @backingInt(capnp.shared.ArgKind.set), .little);
     try std.testing.expectError(error.InvalidPointer, capnp.decodeBody(mutable_view));
     try std.testing.expectError(error.InvalidPointer, capnp.decodeOwned(allocator, mutable_view));
 }

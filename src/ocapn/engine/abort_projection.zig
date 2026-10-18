@@ -56,16 +56,13 @@ pub const Classification = struct {
 pub fn classify(err: anyerror) Classification {
     return switch (err) {
         // ── codec decode / projection failures to malformed_frame ─────
-        // `Incomplete` never escapes `decodeBody` (it is folded to
-        // `MalformedFrame`); classified here defensively as malformed. The
-        // Cap'n Proto structural failures (`Truncated` short/over-claimed
+        // The Cap'n Proto structural failures (`Truncated` short/over-claimed
         // segment, `InvalidPointer` bad pointer word, `UnsupportedSegmentCount`
         // multi-segment frame) are decode malformations exactly like Syrup's
         // `MalformedFrame`, the partner sent bytes that are not a valid frame.
         error.MalformedFrame,
         error.InvalidFrameShape,
         error.MalformedView,
-        error.Incomplete,
         error.Truncated,
         error.InvalidPointer,
         error.UnsupportedSegmentCount,
@@ -135,7 +132,6 @@ pub fn classify(err: anyerror) Classification {
         error.CompareBudgetExhausted,
         error.ExportRangeExhausted,
         error.VirtualAnswerSpaceExhausted,
-        error.OutboundAnswerSpaceExhausted,
         error.FrameTooLarge,
         error.LocalDeliveryCapExceeded,
         error.LocalTurnLimitExceeded,
@@ -154,7 +150,6 @@ pub fn classify(err: anyerror) Classification {
         error.GcUnderflow,
         error.UnexpectedMessage,
         error.DuplicateStartSession,
-        error.HostMismatch,
         => .{ .domain = .session, .abort = .{
             .kind = .protocol_error,
             .message = "inbound message violated the session state machine",

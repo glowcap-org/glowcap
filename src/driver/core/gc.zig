@@ -20,6 +20,7 @@
 const std = @import("std");
 const engine = @import("engine");
 const model = @import("model");
+const foundation = @import("foundation");
 
 const GcEntry = struct { pos: u64, delta: u64 };
 
@@ -40,7 +41,7 @@ const GcExportBatch = struct {
         // The bootstrap import is never accounted, the session's install walk
         // excludes it the same way, and an `op:gc-exports` naming it is refused
         // by send validation, which would strand the whole flush it rode in.
-        if (pos == engine.BOOTSTRAP_POSITION) return;
+        if (pos == engine.bootstrap_position) return;
         for (self.counts[0..self.n]) |*entry| {
             if (entry.pos == pos) {
                 entry.delta += 1;
@@ -100,20 +101,21 @@ fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) !void {
     try batch.flush();
 }
 
+/// Everything the introduced-far walk can refuse. The walk is recursive, so
+/// its set is spelled from the non-recursive steps it takes.
+const IntroducedFarsError = model.view.ProjectError || foundation.error_sets.Of(GcExportBatch.add);
+
 /// One pass over a borrowed argument list, feeding every introduced `far` into
 /// the batch. An iterator decode error propagates rather than silently ending
 /// the walk. Depth past the session's already-validated nesting limit remains a
-/// defensive stop. The three walkers keep `anyerror`: they are mutually
-/// recursive, which this toolchain refuses to resolve as inferred sets, and
-/// their true set mirrors `Peer.sendBorrowed`'s inferred set, whose members have
-/// no nameable authority here.
-fn addIntroducedFarsInArgs(batch: *GcExportBatch, args: model.view.Args, depth: usize, max_depth: usize) anyerror!void {
+/// defensive stop.
+fn addIntroducedFarsInArgs(batch: *GcExportBatch, args: model.view.Args, depth: usize, max_depth: usize) IntroducedFarsError!void {
     if (depth > max_depth) return;
     var it = args.iterator();
     while (try it.next()) |arg| try addIntroducedFars(batch, arg, depth, max_depth);
 }
 
-fn addIntroducedFars(batch: *GcExportBatch, arg: model.view.Argument, depth: usize, max_depth: usize) anyerror!void {
+fn addIntroducedFars(batch: *GcExportBatch, arg: model.view.Argument, depth: usize, max_depth: usize) IntroducedFarsError!void {
     switch (arg) {
         .reference => |ref| switch (ref) {
             .far => |far| try batch.add(far.import_position.int()),
@@ -128,7 +130,7 @@ fn addIntroducedFars(batch: *GcExportBatch, arg: model.view.Argument, depth: usi
     }
 }
 
-fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEntries, depth: usize, max_depth: usize) anyerror!void {
+fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEntries, depth: usize, max_depth: usize) IntroducedFarsError!void {
     if (depth > max_depth) return;
     var it = entries.iterator();
     while (try it.next()) |entry| try addIntroducedFars(batch, entry.value, depth, max_depth);
@@ -137,50 +139,50 @@ fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEn
 /// After a semantic resolve event, emit `op:gc-answers` for the settled answer position.
 fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) !void {
     if (event.kind() != .resolve) return;
-    const answer = switch (event.answer_override) {
-        .resolver_callback => |a| a,
-        else => blk: {
-            const body = event.view();
-            const resolve = switch (body.*) {
-                .resolve => |r| r,
-                else => return,
-            };
-            break :blk resolve.answer;
-        },
-    };
+    // The policy collects the question the event settled, by identity. A
+    // question the session no longer holds cannot be collected, because its
+    // position may already name a new question, and it reports the same
+    // underflow a gc-answers for a missing row reports.
+    const answer = event.resolveTarget();
     const aliases = event.resolveAliases();
     if (aliases.len == 0) {
-        if (peer.session_state.outboundAnswerReleaseClaimed(answer)) return;
-        const positions = [_]u64{answer.int()};
+        if (try releaseClaimed(peer, answer)) return;
+        const positions = [_]u64{answer.position.int()};
         try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &positions } });
         return;
     }
 
     const positions = peer.allocator.alloc(u64, aliases.len + 1) catch {
-        if (!peer.session_state.outboundAnswerReleaseClaimed(answer)) {
-            const primary = [_]u64{answer.int()};
+        if (!try releaseClaimed(peer, answer)) {
+            const primary = [_]u64{answer.position.int()};
             try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &primary } });
         }
         for (aliases) |alias| {
-            if (peer.session_state.outboundAnswerReleaseClaimed(alias)) continue;
-            const one = [_]u64{alias.int()};
+            if (try releaseClaimed(peer, alias)) continue;
+            const one = [_]u64{alias.position.int()};
             try peer.sendBorrowed(.{ .gc_answer = .{ .positions = &one } });
         }
         return;
     };
     defer peer.allocator.free(positions);
     var count: usize = 0;
-    if (!peer.session_state.outboundAnswerReleaseClaimed(answer)) {
-        positions[count] = answer.int();
+    if (!try releaseClaimed(peer, answer)) {
+        positions[count] = answer.position.int();
         count += 1;
     }
     for (aliases) |alias| {
-        if (peer.session_state.outboundAnswerReleaseClaimed(alias)) continue;
-        positions[count] = alias.int();
+        if (try releaseClaimed(peer, alias)) continue;
+        positions[count] = alias.position.int();
         count += 1;
     }
     if (count != 0)
         try peer.sendBorrowed(.{ .gc_answer = .{ .positions = positions[0..count] } });
+}
+
+/// Whether an application release already owns `answer`'s collection.
+fn releaseClaimed(peer: *engine.Peer, answer: engine.OutboundAnswerTarget) error{GcUnderflow}!bool {
+    const row = peer.session_state.outbound_answers.live(answer) orelse return error.GcUnderflow;
+    return row.application_release_claimed;
 }
 
 /// The stateless-GC policy after one served event: a deliver gc-collects the

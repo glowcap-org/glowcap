@@ -17,7 +17,8 @@ pub fn pump(self: anytype, operation: anytype) !void {
 }
 
 pub fn resource(self: anytype, parent: ?core.ResourceId) !core.ResourceId {
-    var read = try storage.Read.init(self.allocator, &self.store, self.owner, 32);
+    var read: storage.Read = undefined;
+    try read.init(self.allocator, &self.store, self.owner, 32, null);
     defer read.deinit() catch unreachable;
     try pump(self, &read);
     try self.store.begin();
@@ -60,7 +61,8 @@ pub fn stageResource(self: anytype, read: *storage.Read, parent: ?core.ResourceI
 }
 
 pub fn issue(self: anytype, command: core.GrantPlan.Command) !core.GrantId {
-    var read = try storage.Read.init(self.allocator, &self.store, self.owner, 32);
+    var read: storage.Read = undefined;
+    try read.init(self.allocator, &self.store, self.owner, 32, null);
     defer read.deinit() catch unreachable;
     try pump(self, &read);
     var plan: ?core.GrantPlan = null;
@@ -99,13 +101,14 @@ pub fn issue(self: anytype, command: core.GrantPlan.Command) !core.GrantId {
 }
 
 pub fn descriptor(self: anytype, grant: core.GrantId, powers: ?core.Control.Powers) !g.loam.core.ObjectId {
-    var read = try storage.Read.init(self.allocator, &self.store, self.owner, 32);
+    var read: storage.Read = undefined;
+    try read.init(self.allocator, &self.store, self.owner, 32, null);
     defer read.deinit() catch unreachable;
     try pump(self, &read);
     try self.store.begin();
     errdefer if (self.store.phase == .staging) self.store.abort() catch unreachable;
     for (0..128) |_| {
-        const id = (if (powers) |value| self.capabilities.stageControl(&read, grant, value, false) else self.capabilities.stageUse(&read, grant, true)) catch |err| {
+        const id = (if (powers) |value| self.capabilities.stageControl(&read, grant, value, .reachable) else self.capabilities.stageUse(&read, grant, .rooted)) catch |err| {
             if (err != error.RecordUnloaded) return err;
             try pump(self, &read);
             continue;

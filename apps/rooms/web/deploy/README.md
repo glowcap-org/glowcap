@@ -44,8 +44,8 @@ for this deployment, and startup reports the effective profile.
   label.
 
 Configuration defaults to `$XDG_STATE_HOME/glowcap/rooms-deployment`, or `$HOME/.local/state/glowcap/rooms-deployment`.
-Every command accepts `--dir <configuration-directory>`, which selects configuration and not another stack: the
-deployment has fixed container, network, and volume names and supports one stack per Docker daemon.
+Every command accepts `--dir <configuration-directory>` to pick the configuration. The deployment has fixed container,
+network, and volume names, so one Docker daemon runs one stack.
 
 The managed `compose.yml` is refreshed from the installed product during `up` and `reset`. Operator settings belong in
 `docker-compose.override.yml`, which is preserved. The example exposes only host loopback. To publish the page, add an
@@ -73,8 +73,8 @@ public host (and port if needed). Then run `glowcap apps rooms deployment up`.
 - Only this exact endpoint is redirected, including scheme, host, port, path and fixed query. Other deployments' relay
   hints keep their routes.
 - Both routes must reach the same registry.
-- The alias gives outside non-browser peers no access to a protected relay and changes no browser login policy, peer identity
-  or Noise encryption.
+- The alias gives outside non-browser peers no access to a protected relay. Browser sign-in, peer identity, and Noise
+  encryption stay as they were.
 - A standalone session accepts the same setting as `--relay-alias-url`, together with `--relay-url` naming the
   internal endpoint.
 - A standalone session dials WebRTC-only browsers when started with `--dial-transports=webrtc`. The Compose session
@@ -175,9 +175,9 @@ docker exec glowcap-rooms-session /runtime/bin/glowcap apps rooms session ready 
 ```
 
 Deployment output prints two independent session capabilities. Paste the workspace capability into **Choose a
-session**, **Shared session**, and **Attach**, or into the same form under **Settings**, **Session**. To issue, pause,
+session**, **Shared session**, and **Attach**, or under **Settings**, **Session**, and **Attach this browser**. To issue, pause,
 or revoke access, open **Session access** and hold the management capability. Neither capability appears in public HTML
-or an unauthenticated endpoint. This is one owner session, not an account system. Keep printed capabilities, logs,
+or an unauthenticated endpoint. Keep printed capabilities, logs,
 secrets, and state private.
 
 ## Data and reset
@@ -212,4 +212,4 @@ volume and restarting. Use `restart` to keep the existing identity and access li
 | `all`     | Both volumes                                                         |
 
 The [host guide](../../host.md) covers joining from skills and terminal peers. [Operating Rooms](../../operating.md)
-covers capabilities, transport choices, relay admission, and TURN settings. Keep machine settings in the override.
+covers capabilities, transport choices, and relay admission, and `docker-compose.yml` lists the TURN and ICE settings. Put settings for this machine in `docker-compose.override.yml`.

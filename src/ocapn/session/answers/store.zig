@@ -8,6 +8,9 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const slot = @import("../slot.zig");
+const session = @import("../mod.zig");
+
+const Session = session.Session;
 
 pub const AnswerStatus = enum {
     pending,
@@ -184,6 +187,20 @@ pub const QueuedCall = struct {
 /// Cold pipelining payload for an answer (ADR-0007), allocated lazily when
 /// an answer acquires a queued call, listener, projection or stored resolution.
 pub const AnswerPayload = struct {
+    /// Whether releasing this answer's wire name would drop work already
+    /// accepted for it: a staged settlement or carrier reference, a V1.0
+    /// resolver callback, queued pipelined calls, listeners, or projections.
+    pub fn hasConsequences(self: *const AnswerPayload) bool {
+        return self.refs > 1 or self.resolver_import != null or self.hasAnchoredWork();
+    }
+
+    /// Whether settlement has local work to drain: queued pipelined calls,
+    /// listeners, or projections anchored while the answer was pending.
+    pub fn hasAnchoredWork(self: *const AnswerPayload) bool {
+        return self.queue.items.len != 0 or self.listeners.len() != 0 or
+            self.projections.items.len != 0;
+    }
+
     /// One reference belongs to the live answer row. A staged settlement and
     /// each queued notification carrier retain another reference so
     /// `op:gc-answers` can release/reuse the pipelining name without cancelling
@@ -270,9 +287,32 @@ pub const AnswerCell = struct {
     settling_target: model.ImportPosition = .from(0),
     settling_index: usize = 0,
     has_settling_target: bool = false,
+    /// The local export whose settlement callback is this answer: on an
+    /// outbound row, the resolver the partner delivers to when it settles
+    /// the answer (ADR-0010, ADR-0095); on a local promise's virtual inbound
+    /// row, the projection export that names it. The export's own row says
+    /// what the export is for (`ExportRow.purpose`), and this is how the
+    /// answer side finds it without a reverse row (ADR-0254).
+    /// `.from(0)` under a clear flag is none, as for `settling_target`.
+    resolver_export: model.ExportPosition = .from(0),
+    has_resolver_export: bool = false,
 
     pub fn initPending(row_id: u64) AnswerCell {
         return .{ .row_id = row_id };
+    }
+
+    pub fn resolverExport(self: *const AnswerCell) ?model.ExportPosition {
+        return if (self.has_resolver_export) self.resolver_export else null;
+    }
+
+    pub fn setResolverExport(self: *AnswerCell, position: model.ExportPosition) void {
+        self.resolver_export = position;
+        self.has_resolver_export = true;
+    }
+
+    pub fn clearResolverExport(self: *AnswerCell) void {
+        self.resolver_export = .from(0);
+        self.has_resolver_export = false;
     }
 
     /// CapTP answer status.
@@ -280,14 +320,14 @@ pub const AnswerCell = struct {
         return self.answer_status;
     }
 
-    pub fn fulfill(self: *AnswerCell) slot.TransitionError!void {
-        if (self.answer_status != .pending) return error.NotUnresolved;
-        self.answer_status = .fulfilled;
-    }
-
-    pub fn breakCell(self: *AnswerCell) slot.TransitionError!void {
-        if (self.answer_status != .pending) return error.NotUnresolved;
-        self.answer_status = .broken;
+    /// Settle a pending cell the way `resolution` says, whichever resolution
+    /// type (owned, view, or its tag) names it. Settling twice is a session bug.
+    pub fn settle(self: *AnswerCell, resolution: anytype) void {
+        std.debug.assert(self.answer_status == .pending);
+        self.answer_status = switch (resolution) {
+            .fulfill => .fulfilled,
+            .@"break" => .broken,
+        };
     }
 };
 
@@ -317,77 +357,67 @@ pub const AnswerView = struct {
     }
 };
 
-/// Typed-name-keyed answer table. Inbound rows preserve wire-versus-virtual
-/// provenance. Outbound rows carry only real wire answer positions.
-pub fn AnswerTable(comptime IdType: type, comptime provenance: foundation.identity_hash.Provenance) type {
-    return struct {
-        rows: foundation.identity_hash.MapOf(provenance, IdType, AnswerCell),
+/// Inbound answers: the questions the partner asked, at positions it chose,
+/// hashed under the session's secret multiplier (ADR-0223).
+pub const InboundAnswerTable = struct {
+    rows: foundation.identity_hash.MapOf(.wire, model.AnswerName, AnswerCell),
 
-        pub const Id = IdType;
-        const Self = @This();
+    pub const Id = model.AnswerName;
 
-        /// A table of positions this side allocates needs no secret. A table of
-        /// positions the peer chooses starts under the public constant this way
-        /// and is keyed before it holds a row (`Session.keyWireTables`).
-        pub const empty: Self = .{ .rows = if (provenance == .local) .empty else .keyed(foundation.identity_hash.default_multiplier) };
+    pub fn keyed(multiplier: u64) InboundAnswerTable {
+        return .{ .rows = .keyed(multiplier) };
+    }
 
-        /// A table of positions the peer chooses hashes them under `multiplier`.
-        /// A table of positions this side allocates has no use for it.
-        pub fn keyed(multiplier: u64) Self {
-            return .{ .rows = if (provenance == .local) .empty else .keyed(multiplier) };
-        }
+    /// Key an empty table under the session's secret.
+    pub fn keyWire(self: *InboundAnswerTable, multiplier: u64) void {
+        self.rows.keyWire(multiplier);
+    }
 
-        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            var it = self.rows.valueIterator();
-            while (it.next()) |cell| _ = deinitAnswerCell(allocator, cell);
-            self.rows.deinit(allocator);
-        }
+    pub fn deinit(self: *InboundAnswerTable, allocator: std.mem.Allocator) void {
+        var it = self.rows.valueIterator();
+        while (it.next()) |cell| _ = deinitAnswerCell(allocator, cell);
+        self.rows.deinit(allocator);
+    }
 
-        /// Mutable borrow of the row for `position`, or null when absent. Valid
-        /// until the next insert into this table (a `put` may rehash and move rows).
-        pub fn getPtr(self: *Self, position: Id) ?*AnswerCell {
-            return self.rows.getPtr(position);
-        }
+    pub fn getPtr(self: *const InboundAnswerTable, position: Id) ?*AnswerCell {
+        return self.rows.getPtr(position);
+    }
 
-        pub fn contains(self: *const Self, position: Id) bool {
-            return self.rows.contains(position);
-        }
+    pub fn contains(self: *const InboundAnswerTable, position: Id) bool {
+        return self.rows.contains(position);
+    }
 
-        /// Refcount of `position`, or 0 if the answer is not held.
-        pub fn count(self: *const Self, position: Id) u64 {
-            if (self.rows.getPtr(position)) |cell| return cell.count;
-            return 0;
-        }
+    pub fn count(self: *const InboundAnswerTable, position: Id) u64 {
+        if (self.rows.getPtr(position)) |cell| return cell.count;
+        return 0;
+    }
 
-        /// Number of live answer rows, the value the inbound-answer cap bounds.
-        pub fn len(self: *const Self) usize {
-            return self.rows.count();
-        }
+    pub fn len(self: *const InboundAnswerTable) usize {
+        return self.rows.count();
+    }
 
-        pub fn put(self: *Self, allocator: std.mem.Allocator, position: Id, cell: AnswerCell) !void {
-            try self.rows.put(allocator, position, cell);
-        }
+    pub fn put(self: *InboundAnswerTable, allocator: std.mem.Allocator, position: Id, cell: AnswerCell) !void {
+        try self.rows.put(allocator, position, cell);
+    }
 
-        pub fn ensureUnusedCapacity(self: *Self, allocator: std.mem.Allocator, additional: u32) !void {
-            try self.rows.ensureUnusedCapacity(allocator, additional);
-        }
+    pub fn ensureUnusedCapacity(self: *InboundAnswerTable, allocator: std.mem.Allocator, additional: u32) !void {
+        try self.rows.ensureUnusedCapacity(allocator, additional);
+    }
 
-        pub fn putAssumeCapacity(self: *Self, position: Id, cell: AnswerCell) void {
-            self.rows.putAssumeCapacity(position, cell);
-        }
+    pub fn putAssumeCapacity(self: *InboundAnswerTable, position: Id, cell: AnswerCell) void {
+        self.rows.putAssumeCapacity(position, cell);
+    }
 
-        pub fn remove(self: *Self, position: Id) void {
-            // idempotent: this wrapper's contract is ensure-gone; callers remove a
-            // position without knowing (or caring) whether a row was present.
-            _ = self.rows.remove(position);
-        }
-    };
-}
+    pub fn remove(self: *InboundAnswerTable, position: Id) void {
+        // idempotent: this wrapper's contract is ensure-gone; callers remove a
+        // position without knowing (or caring) whether a row was present.
+        _ = self.rows.remove(position);
+    }
+};
 
-pub const InboundAnswerTable = AnswerTable(model.AnswerName, .wire);
-pub const OutboundAnswerTable = AnswerTable(model.AnswerPosition, .local);
+pub const OutboundAnswerTable = @import("outbound_table.zig").OutboundAnswerTable;
+pub const OutboundAnswerTarget = @import("outbound_table.zig").OutboundAnswerTarget;
 
-/// Borrow the answer's payload, allocating it on first use.
 pub fn ensureAnswerPayload(allocator: std.mem.Allocator, cell: *AnswerCell) !*AnswerPayload {
     if (cell.payload) |payload| return payload;
     const payload = try allocator.create(AnswerPayload);
@@ -405,7 +435,7 @@ pub const PreparedPendingPayload = struct {
     payload: *AnswerPayload,
     owns_fresh: bool,
 
-    pub fn abandon(self: *PreparedPendingPayload, owner: anytype) void {
+    pub fn abandon(self: *PreparedPendingPayload, owner: *Session) void {
         if (!self.owns_fresh) return;
         const entry = owner.inbound_answers.getPtr(self.target.name) orelse unreachable;
         std.debug.assert(entry.row_id == self.target.row_id and entry.payload == self.payload);
@@ -423,7 +453,7 @@ pub const PreparedPendingPayload = struct {
     }
 };
 
-pub fn preparePendingPayloadTarget(self: anytype, target: AnswerTarget) !PreparedPendingPayload {
+pub fn preparePendingPayloadTarget(self: *Session, target: AnswerTarget) !PreparedPendingPayload {
     if (self.answerPayloadForTarget(target)) |payload| {
         if (payload.resolution != null) return error.UnexpectedMessage;
         return .{ .target = target, .payload = payload, .owns_fresh = false };
@@ -458,172 +488,6 @@ pub fn releaseAnswerPayload(allocator: std.mem.Allocator, payload: *AnswerPayloa
     if (payload.resolution) |resolution| model.freeResolution(allocator, resolution.value);
     allocator.destroy(payload);
     return resolution_charge;
-}
-
-/// Allocation-free admission result for one stored resolution. It takes the
-/// owned tree's measured charge, computes replacement delta and the durable-byte ceiling,
-/// and resolves promise identity before any capacity reservation or authority
-/// mutation. Preparation below only materializes a missing lazy payload.
-pub const ResolutionStorePlan = struct {
-    entry: ?*AnswerCell,
-    payload: ?*AnswerPayload,
-    charge: usize,
-    next_retained: usize,
-    promise_target: ?AnswerTarget,
-};
-
-pub const PreparedResolutionStore = struct {
-    entry: ?*AnswerCell,
-    payload: *AnswerPayload,
-    charge: usize,
-    next_retained: usize,
-    promise_target: ?AnswerTarget,
-};
-
-pub fn planResolutionStoreNamed(
-    self: anytype,
-    answer: model.AnswerName,
-    resolution: model.Resolution,
-    charge: usize,
-) !ResolutionStorePlan {
-    const entry = self.inbound_answers.getPtr(answer) orelse
-        return error.InvalidReference;
-    const prior_charge = if (entry.payload) |payload| payload.resolution_charge else 0;
-    std.debug.assert(self.retained_sent_answer_bytes >= prior_charge);
-    const without_prior = self.retained_sent_answer_bytes - prior_charge;
-    const next_retained = std.math.add(usize, without_prior, charge) catch
-        return error.RetainedAnswerCapExceeded;
-    if (next_retained > @as(usize, self.limits.max_retained_sent_answer_bytes))
-        return error.RetainedAnswerCapExceeded;
-    return .{
-        .entry = entry,
-        .payload = entry.payload,
-        .charge = charge,
-        .next_retained = next_retained,
-        .promise_target = try self.promiseTargetForResolution(resolution),
-    };
-}
-
-pub fn prepareResolutionStore(self: anytype, plan: ResolutionStorePlan) !PreparedResolutionStore {
-    const payload = plan.payload orelse try ensureAnswerPayload(self.allocator, plan.entry.?);
-    return .{
-        .entry = plan.entry,
-        .payload = payload,
-        .charge = plan.charge,
-        .next_retained = plan.next_retained,
-        .promise_target = plan.promise_target,
-    };
-}
-
-pub fn commitPreparedResolutionStore(
-    self: anytype,
-    prepared: PreparedResolutionStore,
-    resolution: model.Resolution,
-) void {
-    if (prepared.payload.resolution) |prior|
-        model.freeResolution(self.allocator, prior.value);
-    self.retained_sent_answer_bytes = prepared.next_retained;
-    prepared.payload.resolution = .{
-        .value = resolution,
-        .promise_target = prepared.promise_target,
-    };
-    prepared.payload.resolution_charge = prepared.charge;
-    if (prepared.entry) |entry| if (entry.status() == .pending) switch (resolution) {
-        .fulfill => entry.fulfill() catch unreachable,
-        .@"break" => entry.breakCell() catch unreachable,
-    };
-}
-
-pub fn planResolutionStoreTarget(
-    self: anytype,
-    target: AnswerTarget,
-    payload: *AnswerPayload,
-    resolution: model.Resolution,
-    charge: usize,
-) !ResolutionStorePlan {
-    const found = self.answerPayloadForTarget(target) orelse return error.InvalidReference;
-    if (found != payload or payload.resolution != null) return error.UnexpectedMessage;
-    std.debug.assert(self.retained_sent_answer_bytes >= payload.resolution_charge);
-    const without_prior = self.retained_sent_answer_bytes - payload.resolution_charge;
-    const next_retained = std.math.add(usize, without_prior, charge) catch
-        return error.RetainedAnswerCapExceeded;
-    if (next_retained > @as(usize, self.limits.max_retained_sent_answer_bytes))
-        return error.RetainedAnswerCapExceeded;
-    const promise_target = try self.promiseTargetForResolution(resolution);
-    const live_entry = if (self.inbound_answers.getPtr(target.name)) |entry|
-        if (entry.row_id == target.row_id) entry else null
-    else
-        null;
-    return .{
-        .entry = live_entry,
-        .payload = payload,
-        .charge = charge,
-        .next_retained = next_retained,
-        .promise_target = promise_target,
-    };
-}
-
-/// Store one owned semantic resolution and move its exact charge into the
-/// Session's retained-answer aggregate. Replacement computes its complete
-/// accounting result before releasing the prior value.
-pub fn storeResolutionNamed(self: anytype, answer: model.AnswerName, resolution: model.Resolution) !void {
-    const charge = model.measureResolutionOwnedBytes(resolution) catch |err| {
-        model.freeResolution(self.allocator, resolution);
-        return err;
-    };
-    const plan = planResolutionStoreNamed(self, answer, resolution, charge) catch |err| {
-        model.freeResolution(self.allocator, resolution);
-        return err;
-    };
-    const prepared = prepareResolutionStore(self, plan) catch |err| {
-        model.freeResolution(self.allocator, resolution);
-        return err;
-    };
-    commitPreparedResolutionStore(self, prepared, resolution);
-}
-
-/// Store `resolution` on the wire-named inbound answer, taking ownership and
-/// marking it resolved. A replacement preserves the prior value if measuring
-/// or accounting for the new resolution fails. Every failure consumes the new
-/// resolution.
-pub fn storeResolution(self: anytype, answer: model.AnswerPosition, resolution: model.Resolution) !void {
-    return storeResolutionNamed(self, .fromWire(answer), resolution);
-}
-
-pub fn retainedSentAnswerBytes(self: anytype) usize {
-    return self.retained_sent_answer_bytes;
-}
-
-/// Borrow the stored resolution for `answer`, if it has resolved. The borrow
-/// remains valid until that answer is replaced or removed.
-pub fn peekResolutionNamed(self: anytype, answer: model.AnswerName) ?*const model.Resolution {
-    const stored = peekStoredResolutionNamed(self, answer) orelse return null;
-    return &stored.value;
-}
-
-pub fn peekStoredResolutionNamed(self: anytype, answer: model.AnswerName) ?*const StoredResolution {
-    const entry = self.inbound_answers.getPtr(answer) orelse return null;
-    const payload = entry.payload orelse {
-        std.debug.assert(entry.status() == .pending);
-        return null;
-    };
-    std.debug.assert((payload.resolution != null) == (entry.status() != .pending));
-    if (payload.resolution) |*resolution| return resolution;
-    return null;
-}
-
-pub fn peekResolution(self: anytype, answer: model.AnswerPosition) ?*const model.Resolution {
-    return peekResolutionNamed(self, .fromWire(answer));
-}
-
-/// Whether `answer` is a known inbound answer that has resolved.
-pub fn answerResolvedNamed(self: anytype, answer: model.AnswerName) bool {
-    const entry = self.inbound_answers.getPtr(answer) orelse return false;
-    return entry.status() != .pending;
-}
-
-pub fn answerResolved(self: anytype, answer: model.AnswerPosition) bool {
-    return answerResolvedNamed(self, .fromWire(answer));
 }
 
 fn freeAnswerPayload(allocator: std.mem.Allocator, payload_ptr: *?*AnswerPayload) usize {

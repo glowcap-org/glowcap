@@ -21,7 +21,6 @@ const GLOWCAP_OK = c.GLOWCAP_OK;
 const GLOWCAP_ERR_NULL_POINTER = c.GLOWCAP_ERR_NULL_POINTER;
 const GLOWCAP_ERR_INVALID_ARGUMENT = c.GLOWCAP_ERR_INVALID_ARGUMENT;
 const GLOWCAP_ERR_INTERNAL = c.GLOWCAP_ERR_INTERNAL;
-const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
 const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 const GLOWCAP_ERR_WOULD_BLOCK = c.GLOWCAP_ERR_WOULD_BLOCK;
 
@@ -73,20 +72,10 @@ pub export fn glowcap_iroh_transport_provider(
         .entry_count = 1,
         .lease_ctx = nl,
         .same_configuration = providerSameConfiguration,
-        .retain = providerRetain,
+        .retain = c.transport_provider.retainCallback(NetlayerPayload),
         .release = providerRelease,
     };
     return GLOWCAP_OK;
-}
-
-fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx orelse {
-        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-        return GLOWCAP_ERR_NULL_POINTER;
-    }));
-    if (payload.retain()) return GLOWCAP_OK;
-    c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
-    return GLOWCAP_ERR_CLOSED;
 }
 
 fn providerRelease(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
@@ -174,7 +163,7 @@ fn dialErrToCode(err: anyerror, detail: []const u8) i32 {
         setLastError("multiplexed_transport dial: {s}: {s}", .{ @errorName(err), detail })
     else
         setLastError("multiplexed_transport dial: {s}", .{@errorName(err)});
-    return c.dialFailureCode(err);
+    return c.netlayerFailureCode(err);
 }
 
 fn multiplexedStartConnect(
@@ -339,7 +328,7 @@ fn multiplexedConnTakeFailure(ctx: ?*anyopaque, conn: u64, out_failure: ?*c.Glow
     const slot = out_failure orelse return;
     slot.* = std.mem.zeroes(c.GlowcapProviderFailure);
     if (MultiplexedAdapter.fromOpaque(ctx).zig.takeFailure(@intCast(conn))) |failure|
-        c.transport_provider.setProviderFailureChain(slot, GLOWCAP_ERR_IO, failure, c.dialFailureCode);
+        c.transport_provider.setProviderFailureChain(slot, GLOWCAP_ERR_IO, failure, c.netlayerFailureCode);
 }
 
 fn multiplexedConnRemoteKey(ctx: ?*anyopaque, conn: u64, out_key: ?[*]u8) callconv(.c) i32 {

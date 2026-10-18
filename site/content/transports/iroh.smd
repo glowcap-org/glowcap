@@ -6,8 +6,7 @@
 .draft = false,
 ---
 
-iroh lets two peers find each other without a fixed address or a server in the
-middle. A session's bytes travel over
+iroh lets two peers find each other without a fixed address. A session's bytes travel over
 [QUIC](https://www.rfc-editor.org/rfc/rfc9000.html) through
 [iroh](https://www.iroh.computer/), and a peer is named by a key that proves
 itself rather than by a `host:port`. Discovery, relays, and NAT traversal (getting through home routers and firewalls) come with the channel. The CapTP session on top is unchanged.
@@ -259,9 +258,8 @@ language keeps it optional:
   Rust library. A program that never imports it never runs cargo.
 - Each binding keeps iroh in its own module: the `@glowcap/iroh` package,
   `glowcap.iroh`, `glowcap-iroh.rkt`, and Rust's opt-in `iroh` feature.
-- `connect` loads that module the first time it sees an `iroh` locator, so a
-  program that only speaks TCP never loads it. Rust compiles it in behind the
-  feature instead.
+- A program loads it only by installing the iroh provider, so one that speaks
+  only TCP never does. Rust compiles it in behind the feature instead.
 
 Otherwise `listen` and `connect` work as they do on TCP. Only the address
 differs.
@@ -281,6 +279,6 @@ A [handoff]($link.page('concepts')) over iroh works as on any session: the
 introducer names the object's host by node id, and the recipient dials that id
 on a fresh encrypted session to collect it.
 
-For a full application, run the [rooms]($link.page('examples')) chat with
+For a full application, run the [Rooms]($link.page('rooms')) chat with
 `zig build demo-rooms-iroh`. [What you can depend on]($link.page('stability'))
 separates deterministic checks from public discovery tests.

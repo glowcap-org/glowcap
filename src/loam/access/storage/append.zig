@@ -4,6 +4,8 @@ const core = @import("loam_access_core");
 const records = @import("loam_access_records");
 const read = @import("read.zig");
 const DirectoryEdit = @import("directory_edit.zig").DirectoryEdit;
+const history = @import("history.zig");
+const std = @import("std");
 
 pub const Append = struct {
     view: *read.Read,
@@ -17,19 +19,11 @@ pub const Append = struct {
         try view.opened();
         if (view.header.lifecycle != .active) return error.OwnerRetired;
         if (view.exclusive != .none) return error.Busy;
-        const next = switch (family) {
-            .resource => view.header.next_resource,
-            .grant => view.header.next_grant,
-            .identity => return error.WrongFamily,
-        };
+        if (family == .identity) return error.WrongFamily;
+        const next = view.header.nextSlot(family);
         if (next >= records.OwnerRecord.max_slots) return error.CapacityExceeded;
         view.exclusive = .append;
-        const root = switch (family) {
-            .resource => view.header.resources,
-            .grant => view.header.grants,
-            .identity => unreachable,
-        };
-        return .{ .view = view, .directory = DirectoryEdit.init(view, family, root, @intCast(next)) };
+        return .{ .view = view, .directory = DirectoryEdit.init(view, family, view.header.root(family), @intCast(next)) };
     }
 
     pub fn deinit(self: *Append) !void {
@@ -78,9 +72,9 @@ pub const Append = struct {
     /// Prepare the child-index path before staging a resource append. A model
     /// miss is driven through Read. Directory faults use this append's completion.
     pub fn prepareResource(self: *Append, parent: ?core.ResourceId) !read.Step {
-        if (self.directory.family != .resource or self.directory.count != 4) return error.WrongPhase;
+        if (self.directory.family != .resource or self.directory.count != records.DirectoryPage.levels) return error.WrongPhase;
         try self.view.prepareHistory();
-        if (parent) |id| _ = try @import("history.zig").resourcePath(self.view, id);
+        if (parent) |id| _ = try history.resourcePath(self.view, id);
         var resources = try self.view.resourceView();
         var root = self.view.header.roots;
         if (parent) |target| {
@@ -96,7 +90,7 @@ pub const Append = struct {
             const child = try self.view.allocator.create(DirectoryEdit);
             child.* = DirectoryEdit.init(self.view, .resource, root, self.directory.slot);
             self.child = child;
-        } else if (!@import("std").meta.eql(self.parent, parent)) return error.WrongPhase;
+        } else if (!std.meta.eql(self.parent, parent)) return error.WrongPhase;
         const step = try self.child.?.advance();
         self.resource_ready = step == .ready;
         return step;

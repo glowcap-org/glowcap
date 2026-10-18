@@ -38,15 +38,15 @@ pub const actors_layer_purity: []const Ban = &.{
 };
 
 /// Outbound answer positions are minted only by the Session answer-consequence
-/// owner. Callers reserve one answer or a contiguous span there. They never
-/// advance the cursor by hand and risk wraparound aliasing.
+/// owner, which stamps each one. A caller that reserved a slot by hand would
+/// hold a position with no stamp to read it back by.
 pub const outbound_answer_cursor_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/ocapn/session/answers/pipeline.zig" },
         .kind = .require,
-        .needles = &.{ "OutboundAnswerSpaceExhausted", "reserveOutboundAnswers" },
+        .needles = &.{"outbound_answers.reserve("},
         .check = "outbound-answer-cursor-owner",
-        .why = "session answer-consequence ownership includes fail-closed outbound-answer allocation and span reservation",
+        .why = "session answer-consequence ownership includes stamped outbound-answer allocation",
     },
     .{
         .where = .{ .tree = .{
@@ -55,9 +55,9 @@ pub const outbound_answer_cursor_rows: []const Ban = &.{
             .exclude = &.{"src/ocapn/session/answers/pipeline.zig"},
         } },
         .kind = .forbid,
-        .needles = &.{"next_outbound_answer +="},
+        .needles = &.{"outbound_answers.reserve("},
         .check = "outbound-answer-cursor-owner",
-        .why = "advance outbound answer positions through Session.allocateOutboundAnswer/reserveOutboundAnswers",
+        .why = "mint outbound answer positions through Session.allocateOutboundAnswer",
     },
 };
 
@@ -401,30 +401,30 @@ pub const uri_format_sizing_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/c_abi/ocapn/uri/format.zig" },
         .kind = .require,
-        .needles = &.{"model.uri.measurePeer(locator)"},
+        .needles = &.{"bounded(model.uri.measurePeer, model.uri.writePeerBounded, .{locator}, out, cap, out_len)"},
+        .check = "uri-format-sizing",
+        .why = "the peer URI C ABI formats through the one bounded-output protocol",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/ocapn/uri/format.zig" },
+        .kind = .require,
+        .needles = &.{"bounded(model.uri.measureSturdyrefForProfile, model.uri.writeSturdyrefForProfileBounded, .{ profile, value }, out, cap, out_len)"},
+        .check = "uri-format-sizing",
+        .why = "the sturdyref URI C ABI formats through the one bounded-output protocol",
+    },
+    .{
+        .where = .{ .file = "src/c_abi/ocapn/uri/format.zig" },
+        .kind = .require,
+        .needles = &.{"@call(.auto, measure, args) catch |err| return writeErrToCode(err)"},
         .check = "uri-format-sizing",
         .why = "the URI C ABI reports rendered length for null/zero sizing probes without materializing the URI",
     },
     .{
         .where = .{ .file = "src/c_abi/ocapn/uri/format.zig" },
         .kind = .require,
-        .needles = &.{"model.uri.measureSturdyrefForProfile(profile, value)"},
-        .check = "uri-format-sizing",
-        .why = "the sturdyref URI C ABI reports rendered length for null/zero sizing probes without materializing the URI",
-    },
-    .{
-        .where = .{ .file = "src/c_abi/ocapn/uri/format.zig" },
-        .kind = .require,
-        .needles = &.{"model.uri.writePeerBounded(locator, dest[0..cap])"},
+        .needles = &.{"@call(.auto, write, args ++ .{dest[0..cap]}) catch |err| return writeErrToCode(err)"},
         .check = "uri-format-sizing",
         .why = "the URI C ABI writes directly into caller storage instead of allocating and copying a rendered URI",
-    },
-    .{
-        .where = .{ .file = "src/c_abi/ocapn/uri/format.zig" },
-        .kind = .require,
-        .needles = &.{"model.uri.writeSturdyrefForProfileBounded(profile, value, dest[0..cap])"},
-        .check = "uri-format-sizing",
-        .why = "the sturdyref URI C ABI writes directly into caller storage instead of allocating and copying a rendered URI",
     },
     .{
         .where = .{ .file = "test/c_abi/uri_test.zig" },

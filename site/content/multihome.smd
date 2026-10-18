@@ -20,11 +20,11 @@ it as hints. Its wire names are not part of OCapN yet, so they live in
 
 An `id` locator puts the peer's durable public key in the designator. `id` is
 not a byte path of its own but a bundle of routes, each a real transport.
-Dialing it tries the routes in order. What makes the answering program the
-right peer is never the route it came in on. It is the channel proving it holds
-the key the locator names.
+Dialing it tries the routes in order. A route does not identify the peer. The
+peer is whoever proves, over the route's channel, that it holds the key the
+locator names.
 
-[Dialing one multi-home peer: the first route is down, so the dial moves on, and the next route's channel proves the key. That proof is what makes whoever answered the peer. The weak fallback can carry a signed gift, never the identity.]($image.siteAsset('diagram-multihome-dial.svg'))
+[Dialing one multi-home peer: the first route is down, so the dial moves on, and the next route's channel proves the key. The peer is whoever proves the key. The weak fallback can carry a signed gift, never the identity.]($image.siteAsset('diagram-multihome-dial.svg'))
 
 The routes are written into two hints on a single `ocapn://` URI. Each route
 is itself a locator, percent-encoded inside the hint and separated by `|`.
@@ -34,8 +34,8 @@ Decoded for reading, the shape is:
 ocapn://<durable key>.id?via=<route>|<route>&alt-locators=<route>
 ```
 
-The `via` hint lists the strong routes. A route is strong when its channel can
-prove a durable key on its own:
+The `via` hint lists the strong routes, the ones where something besides the
+address vouches for the durable key:
 
 - [iroh]($link.page('transports/iroh')) authenticates its node id in the QUIC
   handshake.
@@ -78,8 +78,9 @@ gives the recipient one concrete route on a transport that recipient is known
 to use, with the private fields removed. If no such route exists, glowcap
 refuses the give before sending anything.
 
-glowcap never sends experimental fields hoping the other side ignores them, so
-a Goblins peer sees the same wire whether or not multi-homing is in use.
+glowcap does not send experimental fields to a peer that has not negotiated
+them, so a Goblins peer sees the same wire whether or not multi-homing is in
+use.
 
 # Sturdyrefs that survive a transport change
 

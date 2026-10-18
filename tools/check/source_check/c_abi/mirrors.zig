@@ -3,6 +3,7 @@
 //! mirror cannot drift where only a live conversation would notice.
 
 const std = @import("std");
+const model = @import("model");
 const util = @import("../util.zig");
 const shared = @import("shared.zig");
 
@@ -329,43 +330,9 @@ pub fn checkTraceVocabulary(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const authority = "src/ocapn/model/negotiated.zig";
-    const source = root.readFileAlloc(io, authority, gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read the trace wire-word authority with {s}", .{ authority, @errorName(err) });
-        return;
-    };
-    defer gpa.free(source);
-
-    // `pub fn wireString(self: CaptpVersion) []const u8 {` … `.v1_0 => "1.0",`.
-    // The parse lives in `util` because the viewer-side check reads the same
-    // switch, and one switch deserves one reader.
-    var arms: std.ArrayList(util.CaptpWireArm) = .empty;
-    defer arms.deinit(gpa);
-    try util.collectCaptpWireArms(gpa, source, &arms);
-    if (arms.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: `wireString` gave up no version arms, so the trace-vocabulary check held nothing", .{authority});
-        return;
-    }
-
-    // `pub const CodecId = enum(u16) {` … `capnp = 0,`. The `_` non-exhaustive
-    // member is not a built-in and names no word.
-    var codecs: std.ArrayList([]const u8) = .empty;
-    defer codecs.deinit(gpa);
-    if (std.mem.indexOf(u8, source, "pub const CodecId = enum(u16) {")) |enum_at| {
-        const enum_end = std.mem.indexOfPos(u8, source, enum_at, "\n};") orelse source.len;
-        var lines = std.mem.splitScalar(u8, source[enum_at..enum_end], '\n');
-        _ = lines.next();
-        while (lines.next()) |raw| {
-            const line = std.mem.trim(u8, raw, " \t\r");
-            const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
-            const name = std.mem.trim(u8, line[0..eq], " ");
-            if (name.len == 0 or name[0] == '_' or !std.ascii.isLower(name[0])) continue;
-            try codecs.append(gpa, name);
-        }
-    }
-    if (codecs.items.len == 0) {
-        try appendViolation(gpa, violations, "{s}: `CodecId` gave up no built-in members, so the trace-vocabulary check held nothing for the codec word", .{authority});
-        return;
-    }
+    // The built-in codecs are the enum's named members. A minted id past them
+    // has no word a trace could know.
+    const codecs = @typeInfo(model.CodecId).@"enum".field_names;
 
     // Every binding that turns a `GlowcapTraceEvent` into a JSON record.
     const trace_modules = [_][]const u8{
@@ -382,21 +349,17 @@ pub fn checkTraceVocabulary(
         };
         defer gpa.free(contents);
 
-        for (codecs.items) |codec| {
-            const quoted = try std.mem.concat(gpa, u8, &.{ "\"", codec, "\"" });
-            defer gpa.free(quoted);
-            if (std.mem.indexOf(u8, contents, quoted) != null) continue;
-            try appendViolation(gpa, violations, "{s}: the trace never says {s}, the word `{s}` gives the built-in codec `.{s}`. A session reports the codec it negotiated, so every trace has a word for every one this model ships.", .{ path, quoted, authority, codec });
+        inline for (codecs) |codec| {
+            const quoted = "\"" ++ codec ++ "\"";
+            if (std.mem.indexOf(u8, contents, quoted) == null) try appendViolation(gpa, violations, "{s}: the trace never says {s}, the word `{s}` gives the built-in codec `.{s}`. A session reports the codec it negotiated, so every trace has a word for every one this model ships.", .{ path, quoted, authority, codec });
         }
 
-        for (arms.items) |arm| {
-            const wire_quoted = try std.mem.concat(gpa, u8, &.{ "\"", arm.wire, "\"" });
-            defer gpa.free(wire_quoted);
+        inline for (util.captp_wire_words) |arm| {
+            const wire_quoted = "\"" ++ arm.wire ++ "\"";
             if (std.mem.indexOf(u8, contents, wire_quoted) == null) {
                 try appendViolation(gpa, violations, "{s}: the trace never says {s}, the word `{s}` puts on the wire for `.{s}`. A trace reports on the wire, so it reports the wire's spelling.", .{ path, wire_quoted, authority, arm.tag });
             }
-            const tag_quoted = try std.mem.concat(gpa, u8, &.{ "\"", arm.tag, "\"" });
-            defer gpa.free(tag_quoted);
+            const tag_quoted = "\"" ++ arm.tag ++ "\"";
             if (std.mem.indexOf(u8, contents, tag_quoted) != null) {
                 try appendViolation(gpa, violations, "{s}: the trace says {s}, which is the Zig enum tag for this version and not a word any peer ever sends. Say {s} instead, the spelling `{s}` puts on the wire.", .{ path, tag_quoted, arm.wire, authority });
             }

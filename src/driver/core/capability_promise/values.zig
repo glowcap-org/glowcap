@@ -6,6 +6,7 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 const host_mod = @import("../host.zig");
 const capability = @import("../capability.zig");
@@ -13,16 +14,18 @@ const value_mod = @import("../value.zig");
 
 const Host = host_mod.Host;
 
-/// The clone family keeps `anyerror` because `cloneValuesAt` and
-/// `cloneValue` are mutually recursive, which this toolchain refuses to
-/// resolve as inferred sets. The family's true set mirrors the
-/// capability-retention machinery's inferred sets.
+/// Everything the clone walk can refuse. The walk is recursive, so its set is
+/// spelled from the non-recursive steps it takes.
+pub const CloneError = error{ NestingTooDeep, UnknownCapability } ||
+    std.mem.Allocator.Error ||
+    foundation.error_sets.Of(capability.Registry.retain);
+
 pub fn cloneValues(
     self: *Host,
     allocator: std.mem.Allocator,
     values: []const value_mod.Value,
     retained: *std.ArrayListUnmanaged(capability.Ref),
-) anyerror![]value_mod.Value {
+) CloneError![]value_mod.Value {
     return cloneValuesAt(self, allocator, values, retained, 0);
 }
 
@@ -32,7 +35,7 @@ fn cloneValuesAt(
     values: []const value_mod.Value,
     retained: *std.ArrayListUnmanaged(capability.Ref),
     depth: usize,
-) anyerror![]value_mod.Value {
+) CloneError![]value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     const out = try allocator.alloc(value_mod.Value, values.len);
     for (values, 0..) |value, index|
@@ -46,7 +49,7 @@ fn cloneValue(
     value: value_mod.Value,
     retained: *std.ArrayListUnmanaged(capability.Ref),
     depth: usize,
-) anyerror!value_mod.Value {
+) CloneError!value_mod.Value {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     return switch (value) {
         .bytes => |bytes| .{ .bytes = try allocator.dupe(u8, bytes) },

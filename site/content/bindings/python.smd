@@ -126,11 +126,10 @@ From here, the CapTP workflow is the same for every transport:
 <!-- /site-examples:dial:python -->
 ```
 
-The CapTP verbs stay the same across tabs. What changes is the locator helper
-and whether CapTP rides cleartext or Noise. The iroh tab needs the optional
+The iroh tab needs the optional
 transport library and a discovery-reachable node id.
 
-# Hosting the other half
+# Listen
 
 `tcp.listen` binds a port and accepts sessions that publish and serve.
 `tcp.keyed.listen` and `tcp.noise.listen` take a 32-byte seed so the advertised
@@ -219,7 +218,7 @@ From here, the CapTP workflow is the same for every transport:
 
 # Async
 
-Everything rides plain
+The binding uses
 [`asyncio`](https://docs.python.org/3/library/asyncio.html).
 `await session.send(...)` returns the reply, and `session.serve()` runs
 the inbound loop as a background task until the session closes.

@@ -26,8 +26,6 @@ const reactor = @import("../reactor/mod.zig");
 const runtime_lifecycle = @import("lifecycle.zig");
 
 const GLOWCAP_OK = c.GLOWCAP_OK;
-const GLOWCAP_ERR_NULL_POINTER = c.GLOWCAP_ERR_NULL_POINTER;
-const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
 
 const multiplexed = c.multiplexed_transport;
 
@@ -79,19 +77,13 @@ pub const Payload = struct {
             .entry_count = self.entries.len,
             .lease_ctx = self,
             .same_configuration = providerSameConfiguration,
-            .retain = providerRetain,
+            .retain = c.transport_provider.retainCallback(Payload),
             .release = providerRelease,
         };
     }
 
-    fn retain(self: *Payload) bool {
-        var current = self.references.load(.acquire);
-        while (current != 0) {
-            if (self.references.cmpxchgWeak(current, current + 1, .acq_rel, .acquire)) |observed| {
-                current = observed;
-            } else return true;
-        }
-        return false;
+    pub fn retain(self: *Payload) bool {
+        return c.transport_provider.retainLive(&self.references);
     }
 
     pub fn release(self: *Payload) ?foundation.FailureChain {
@@ -476,16 +468,6 @@ const MultiplexedProjection = multiplexed_projection.Projection(
     ConnState,
     Reactor.failRuntime,
 );
-
-fn providerRetain(ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
-    const payload: *Payload = @ptrCast(@alignCast(ctx orelse {
-        c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-        return GLOWCAP_ERR_NULL_POINTER;
-    }));
-    if (payload.retain()) return GLOWCAP_OK;
-    c.transport_provider.setProviderFailure(out_failure, GLOWCAP_ERR_CLOSED, error.Closed);
-    return GLOWCAP_ERR_CLOSED;
-}
 
 fn providerSameConfiguration(ctx: ?*anyopaque, other_ctx: ?*anyopaque) callconv(.c) u8 {
     const left: *Payload = @ptrCast(@alignCast(ctx orelse return 0));

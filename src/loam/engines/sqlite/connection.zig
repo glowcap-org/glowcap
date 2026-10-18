@@ -172,7 +172,7 @@ pub fn Connection(comptime role: Role) type {
         /// Step COMMIT and return its primary code, `c.done` on success.
         pub fn commitTransaction(self: *Self) c_int {
             self.settle();
-            const rc = c.sqlite3_step(self.commit) & 0xff;
+            const rc = primary(c.sqlite3_step(self.commit));
             _ = c.sqlite3_reset(self.commit); // idempotent: reset repeats the step code returned here
             return rc;
         }
@@ -234,7 +234,7 @@ fn prepare(db: *c.Db, text: [*:0]const u8) Error!*c.Stmt {
 /// reset, and the mapped failure after a reset otherwise.
 fn step(stmt: *c.Stmt) Error!bool {
     const rc = c.sqlite3_step(stmt);
-    switch (rc & 0xff) {
+    switch (primary(rc)) {
         c.row => return true,
         c.done => {},
         else => {
@@ -269,11 +269,16 @@ fn column(stmt: *c.Stmt, index: c_int) Error![]const u8 {
 }
 
 pub fn check(rc: c_int) Error!void {
-    if (rc & 0xff != c.ok) return failure(rc);
+    if (primary(rc) != c.ok) return failure(rc);
+}
+
+/// The primary result code below the extended bits `open_exrescode` adds.
+fn primary(rc: c_int) c_int {
+    return rc & 0xff;
 }
 
 fn failure(rc: c_int) Error {
-    return switch (rc & 0xff) {
+    return switch (primary(rc)) {
         c.full => error.StorageCapacity,
         c.toobig => error.ValueTooLarge,
         c.nomem => error.OutOfMemory,

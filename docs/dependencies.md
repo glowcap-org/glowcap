@@ -53,6 +53,14 @@ From [`site/build.zig.zon`](../site/build.zig.zon):
 
 - **zine**: The static site generator for the documentation site.
 
+## Downloaded source
+
+A fetch script under `tools/deps/` downloads each of these at a pinned version
+and checks its SHA-256 digest before a build uses it. None of their source is
+committed.
+
+- **Mbed TLS**: TLS for the relay transport's `wss://` connections from Zig and its C archive, built from the official release source.
+
 ## Rust crates
 
 Each `Cargo.toml` pins its crates, and the committed `Cargo.lock` files hold

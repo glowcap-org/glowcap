@@ -9,7 +9,7 @@ sources: []
 These are open questions in OCapN and Spritely Goblins that glowcap cannot
 settle alone, so they are not on [the roadmap](roadmap.md). Each section names
 the proposal deciding it, because `glowcap-next` follows current direction as
-well as merged text. Each number below was open on October 13, 2026.
+well as merged text. Each number below was checked on October 13, 2026.
 
 Which draft sections each profile has adopted, deferred, or left pending is
 the [conformance manifest](ocapn-conformance.md). Implementation work is
@@ -120,9 +120,8 @@ Syrup encoding, and neither is decided.
 ## Sturdyrefs and tagged values in the model
 
 PR 227 would add sturdy references to the model document, and PR 247 proposes a
-Syrup representation for Tagged. glowcap ships both today, following Goblins.
-What to watch for is a chosen representation that differs from the one on the
-wire now.
+Syrup representation for Tagged. glowcap ships both, following Goblins.
+Watch for a chosen representation that differs from the one on the wire.
 
 ## Deposit-gift descriptor direction
 

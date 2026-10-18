@@ -149,7 +149,7 @@ test "a bootstrap listener fires without import accounting or wire release" {
         var event = event_in;
         event.deinit();
     }
-    try std.testing.expect(!peer.session_state.hasImport(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expect(!peer.session_state.hasImport(.from(session.bootstrap_position)));
 
     try peer.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
@@ -165,11 +165,11 @@ test "a bootstrap listener fires without import accounting or wire release" {
         callback.view(),
     );
     try std.testing.expectEqual(
-        @as(u64, session.BOOTSTRAP_POSITION),
+        @as(u64, session.bootstrap_position),
         body.deliver.target.near.export_position.int(),
     );
     try std.testing.expect(peer.takeOutbound() == null);
-    try std.testing.expect(!peer.session_state.hasImport(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expect(!peer.session_state.hasImport(.from(session.bootstrap_position)));
 }
 
 test "answer listener preparation restores after OOM and retries from the settlement carrier" {

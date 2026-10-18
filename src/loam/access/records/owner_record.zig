@@ -6,10 +6,12 @@ const syrup = @import("syrup");
 const s = syrup.RecordSyntax;
 const fields = @import("fields.zig");
 const profile = @import("profile.zig");
+const maintenance_position = @import("maintenance_position.zig");
+const directory_page = @import("directory_page.zig");
 
 pub const OwnerRecord = struct {
-    lifecycle: enum { active, retiring, retired } = .active,
-    maintenance: @import("maintenance_position.zig").MaintenancePosition = .{},
+    lifecycle: Lifecycle = .active,
+    maintenance: maintenance_position.MaintenancePosition = .{},
     owner: core.OwnerId,
     policy: core.Policy,
     version: core.GrantLedger.Version = .{ .resources = @fromBackingInt(0), .grants = @fromBackingInt(0) },
@@ -17,8 +19,8 @@ pub const OwnerRecord = struct {
     next_resource: u64 = 0,
     next_grant: u64 = 0,
     next_identity: u64 = 0,
-    max_resource_depth: u32 = 64,
-    max_grant_depth: u16 = 64,
+    max_resource_depth: u32 = core.max_depth,
+    max_grant_depth: u16 = core.max_depth,
     max_grant_children: u32 = 256,
     resources: ?loam.ObjectId = null,
     grants: ?loam.ObjectId = null,
@@ -26,9 +28,14 @@ pub const OwnerRecord = struct {
     roots: ?loam.ObjectId = null,
     observations: ?loam.ObjectId = null,
     identities: ?loam.ObjectId = null,
-    pub const max_edges = 6;
+    pub const max_edges = root_fields.len;
+    pub const Lifecycle = enum { active, retiring, retired };
     pub const max_encoded_bytes = 4096;
+    pub const format_version: u64 = 1;
+    const label = "access:owner";
 
+    /// The directory roots, in edge order.
+    const root_fields = [_][]const u8{ "resources", "grants", "history", "roots", "observations", "identities" };
     pub const max_slots: u64 = @as(u64, 1) << 32;
 
     pub fn encodeAlloc(self: OwnerRecord, allocator: std.mem.Allocator) ![]u8 {
@@ -38,7 +45,7 @@ pub const OwnerRecord = struct {
 
     pub fn edges(self: OwnerRecord, buffer: *[max_edges]loam.Edge) []const loam.Edge {
         var count: usize = 0;
-        for ([_]?loam.ObjectId{ self.resources, self.grants, self.history, self.roots, self.observations, self.identities }) |root| if (root) |id| {
+        inline for (root_fields) |name| if (@field(self, name)) |id| {
             buffer[count] = .{ .target = id };
             count += 1;
         };
@@ -46,12 +53,12 @@ pub const OwnerRecord = struct {
     }
 
     pub fn decode(view: loam.View) !OwnerRecord {
-        if (view.schema != profile.owner or view.schema_version != 1 or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
+        if (view.schema != profile.owner or view.schema_version != format_version or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
         const b = view.payload;
         var c: usize = 0;
         try s.readByte(b, &c, '<');
-        if (!std.mem.eql(u8, try s.readSymbol(b, &c), "access:owner")) return error.InvalidRecord;
-        if (try s.readPositiveInt(b, &c) != 1) return error.UnsupportedVersion;
+        if (!std.mem.eql(u8, try s.readSymbol(b, &c), label)) return error.InvalidRecord;
+        if (try s.readPositiveInt(b, &c) != format_version) return error.UnsupportedVersion;
         const owner: core.OwnerId = @fromBackingInt(try fields.readWide(b, &c));
         const schema: core.Policy.Id = @fromBackingInt(try fields.readWide(b, &c));
         var keys: [core.Policy.max_permissions]core.Policy.Key = undefined;
@@ -96,11 +103,11 @@ pub const OwnerRecord = struct {
             .next_resource = try s.readPositiveInt(b, &c),
             .next_grant = try s.readPositiveInt(b, &c),
             .next_identity = try s.readPositiveInt(b, &c),
-            .lifecycle = std.meta.stringToEnum(@FieldType(OwnerRecord, "lifecycle"), try s.readSymbol(b, &c)) orelse return error.InvalidRecord,
+            .lifecycle = std.meta.stringToEnum(Lifecycle, try s.readSymbol(b, &c)) orelse return error.InvalidRecord,
             .maintenance = .{
                 .sequence = try s.readPositiveInt(b, &c),
-                .last = std.meta.stringToEnum(@import("maintenance_position.zig").MaintenancePosition.Command, try s.readSymbol(b, &c)) orelse return error.InvalidRecord,
-                .phase = std.meta.stringToEnum(@import("maintenance_position.zig").MaintenancePosition.Phase, try s.readSymbol(b, &c)) orelse return error.InvalidRecord,
+                .last = std.meta.stringToEnum(maintenance_position.MaintenancePosition.Command, try s.readSymbol(b, &c)) orelse return error.InvalidRecord,
+                .phase = std.meta.stringToEnum(maintenance_position.MaintenancePosition.Phase, try s.readSymbol(b, &c)) orelse return error.InvalidRecord,
                 .cursor = try s.readPositiveInt(b, &c),
             },
             .max_resource_depth = std.math.cast(u32, try s.readPositiveInt(b, &c)) orelse return error.InvalidRecord,
@@ -108,12 +115,8 @@ pub const OwnerRecord = struct {
             .max_grant_children = std.math.cast(u32, try s.readPositiveInt(b, &c)) orelse return error.InvalidRecord,
         };
         var roots = view.edges();
-        for ([_]*?loam.ObjectId{ &result.resources, &result.grants, &result.history, &result.roots, &result.observations, &result.identities }) |root| {
-            if (try s.readBool(b, &c)) {
-                const edge = roots.next() orelse return error.InvalidRecord;
-                if (edge.strength != .strong) return error.InvalidRecord;
-                root.* = edge.target;
-            }
+        inline for (root_fields) |name| {
+            if (try s.readBool(b, &c)) @field(result, name) = try fields.readEdge(&roots, view.id.store);
         }
         if (roots.next() != null) return error.InvalidRecord;
         try s.readByte(b, &c, '>');
@@ -124,11 +127,42 @@ pub const OwnerRecord = struct {
         return result;
     }
 
+    /// The directory root a family's slots index.
+    pub fn root(self: *const OwnerRecord, family: directory_page.DirectoryPage.Family) ?loam.ObjectId {
+        return switch (family) {
+            .resource => self.resources,
+            .grant => self.grants,
+            .identity => self.identities,
+        };
+    }
+
+    pub fn setRoot(self: *OwnerRecord, family: directory_page.DirectoryPage.Family, value: ?loam.ObjectId) void {
+        switch (family) {
+            .resource => self.resources = value,
+            .grant => self.grants = value,
+            .identity => self.identities = value,
+        }
+    }
+
+    /// The slot a family mints next.
+    pub fn nextSlot(self: *const OwnerRecord, family: directory_page.DirectoryPage.Family) u64 {
+        return switch (family) {
+            .resource => self.next_resource,
+            .grant => self.next_grant,
+            .identity => self.next_identity,
+        };
+    }
+
+    fn hasRoots(self: *const OwnerRecord) bool {
+        inline for (root_fields) |name| if (@field(self, name) != null) return true;
+        return false;
+    }
+
     fn validate(self: *const OwnerRecord) !void {
         if (self.maintenance.cursor > max_slots) return error.InvalidRecord;
         if ((self.maintenance.sequence == 0) != (self.maintenance.last == .none)) return error.InvalidRecord;
-        if (self.lifecycle == .retired and (self.maintenance.phase != .idle or self.resources != null or self.grants != null or self.history != null or self.roots != null or self.observations != null or self.identities != null)) return error.InvalidRecord;
-        if (self.max_resource_depth > 64 or self.max_grant_depth > 64) return error.InvalidRecord;
+        if (self.lifecycle == .retired and (self.maintenance.phase != .idle or self.hasRoots())) return error.InvalidRecord;
+        if (self.max_resource_depth > core.max_depth or self.max_grant_depth > core.max_depth) return error.InvalidRecord;
         if (self.next_resource > max_slots or self.next_grant > max_slots or self.next_identity > max_slots) return error.InvalidRecord;
         if ((self.next_resource == 0 and self.resources != null) or (self.next_grant == 0 and self.grants != null) or (self.next_identity == 0 and self.identities != null)) return error.InvalidRecord;
         try self.policy.check();
@@ -136,8 +170,8 @@ pub const OwnerRecord = struct {
 
     fn write(sink: anytype, self: OwnerRecord) !void {
         try s.beginRecord(sink);
-        try s.writeSymbol(sink, "access:owner");
-        try s.writePositiveInt(sink, 1);
+        try s.writeSymbol(sink, label);
+        try s.writePositiveInt(sink, format_version);
         try fields.writeWide(sink, @backingInt(self.owner));
         try fields.writeWide(sink, @backingInt(self.policy.id));
         try s.writePositiveInt(sink, self.policy.permission_count);
@@ -177,7 +211,7 @@ pub const OwnerRecord = struct {
         try s.writePositiveInt(sink, self.max_resource_depth);
         try s.writePositiveInt(sink, self.max_grant_depth);
         try s.writePositiveInt(sink, self.max_grant_children);
-        for ([_]?loam.ObjectId{ self.resources, self.grants, self.history, self.roots, self.observations, self.identities }) |root| try s.writeBool(sink, root != null);
+        inline for (root_fields) |name| try s.writeBool(sink, @field(self, name) != null);
         try s.endRecord(sink);
     }
 };

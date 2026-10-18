@@ -8,7 +8,7 @@
 // moved and a needless rewrite re-renders a roster.
 
 import type { RoomConv } from "../types.ts";
-import type { PageProjection } from "./core.ts";
+import type { PageProjection, State } from "./core.ts";
 import { getConv, put } from "./convs.ts";
 import { retireRoomLineIds } from "./items.ts";
 import type { RoomAuthorityChange } from "../../../lib/room/authority.ts";
@@ -88,7 +88,23 @@ export function setRoomBridgeIssue(projection: PageProjection, key: string, issu
 export function setRoomPolicy(projection: PageProjection, key: string, policy: RoomPolicy, name?: string): void {
 	const conv = getConv(projection, key);
 	if (conv?.type !== "room") return;
-	put(projection, { ...conv, policy, ...(name == null ? {} : { id: name }) });
+	put(projection, { ...conv, policy, policyHeard: true, ...(name == null ? {} : { id: name }) });
+}
+
+/** Whether a private-room address should still wait for the room named
+ * `name` to state its policy before reading it as open.
+ *
+ * A room restored from the workspace reads as open until its directory says
+ * otherwise. The wait ends when the room is unavailable or its directory
+ * disconnects, because neither will answer. */
+export function roomPolicyPending(state: Pick<State, "convs" | "dirs">, name: string): boolean {
+	for (const conv of state.convs.values()) {
+		if (conv.type !== "room" || conv.id !== name || conv.policyHeard) continue;
+		if (conv.membership === "unavailable") continue;
+		if (state.dirs.get(conv.dir)?.session === "disconnected") continue;
+		return true;
+	}
+	return false;
 }
 
 export function setRoomMembershipKind(

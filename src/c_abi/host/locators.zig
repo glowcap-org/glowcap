@@ -24,7 +24,7 @@ pub fn glowcap_host_designator_from_seed(
     out_len: usize,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    if (seed_len != foundation.crypto.SEED_BYTES) {
+    if (seed_len != foundation.crypto.seed_bytes) {
         shared.setLastError("host: designator_from_seed: seed_len must be 32", .{});
         return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
@@ -34,7 +34,7 @@ pub fn glowcap_host_designator_from_seed(
         shared.setLastError("host: designator_from_seed: out_len must be at least 64", .{});
         return shared.GLOWCAP_ERR_INVALID_ARGUMENT;
     }
-    var seed_arr: [foundation.crypto.SEED_BYTES]u8 = undefined;
+    var seed_arr: [foundation.crypto.seed_bytes]u8 = undefined;
     @memcpy(&seed_arr, seed_bytes);
     const designator = foundation.crypto.SecretKey.fromSeed(seed_arr).publicKey().toDesignator();
     @memcpy(out_buf[0..designator.len], &designator);

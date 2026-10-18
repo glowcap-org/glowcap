@@ -25,10 +25,12 @@ const std = @import("std");
 const Io = std.Io;
 
 const report_mod = @import("report.zig");
+const affinity = @import("affinity");
+const availability_mod = @import("availability.zig");
 
 const host_addr = "127.0.0.1";
 pub const reports_dir = "zig-out/bench-reports";
-const client_dir = "bench/langs/clients";
+pub const client_dir = "bench/langs/clients";
 
 // Resident-set sampling for the `connections` mode. The client prints `warmed`,
 // sleeps `conn_warmed_sleep_ms`, then prints `connections` and sleeps
@@ -43,9 +45,9 @@ const base_dt_ms = 100;
 const loaded_samples = 12;
 const loaded_dt_ms = 150;
 
-const Kind = enum { zig, rust, deno, python, racket, goblins };
+pub const Kind = enum { zig, rust, deno, python, racket, goblins };
 
-const ClientDef = struct {
+pub const ClientDef = struct {
     name: []const u8,
     runtime: []const u8,
     kind: Kind,
@@ -54,7 +56,7 @@ const ClientDef = struct {
 /// A roster entry that will not run, with the reason the report prints.
 pub const Skip = struct {
     def: ClientDef,
-    why: Availability,
+    why: availability_mod.Availability,
 };
 
 // Roster order is report order; it also fixes the language-palette assignment
@@ -105,6 +107,9 @@ pub const Ctx = struct {
     cold_samples: usize,
     local_n: usize,
     pinned_port: ?u16,
+    /// `--pin=A,B`: every client on core A, the host on core B, and the
+    /// `local` window's client on both.
+    pin: ?affinity.Pair,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -122,6 +127,7 @@ pub fn main(init: std.process.Init) !void {
     var smoke = false;
     var client_filter: ?[]const u8 = null;
     var pinned_port: ?u16 = null;
+    var pin: ?affinity.Pair = null;
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--smoke")) {
             smoke = true;
@@ -130,6 +136,9 @@ pub fn main(init: std.process.Init) !void {
         } else if (std.mem.startsWith(u8, arg, "--port=")) {
             pinned_port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch
                 return fail("--port must be an integer in 1..65535");
+        } else if (std.mem.startsWith(u8, arg, "--pin=")) {
+            pin = affinity.parsePair(arg["--pin=".len..]) catch
+                return fail("--pin takes two core numbers, as --pin=A,B");
         } else if (std.mem.startsWith(u8, arg, "--root=")) {
             // Accepted for forward compatibility; paths resolve against the
             // run step's cwd (the repository root), so it is unused.
@@ -147,7 +156,7 @@ pub fn main(init: std.process.Init) !void {
         .host_exe = host_exe,
         .zig_client = zig_client,
         .rust_bin = client_dir ++ "/rust_bench/target/release/langs-bench",
-        .racket_path = try onPath(io, arena, init.environ_map, "racket"),
+        .racket_path = try availability_mod.onPath(io, arena, init.environ_map, "racket"),
         .smoke = smoke,
         .lat_n = if (smoke) 20 else 2000,
         .tput_n = if (smoke) 20 else 2000,
@@ -155,6 +164,7 @@ pub fn main(init: std.process.Init) !void {
         .cold_samples = if (smoke) 3 else 5,
         .local_n = if (smoke) 20 else 2000,
         .pinned_port = pinned_port,
+        .pin = pin,
     };
 
     var present: std.ArrayList(ClientDef) = .empty;
@@ -163,7 +173,7 @@ pub fn main(init: std.process.Init) !void {
         if (client_filter) |want| {
             if (!std.mem.eql(u8, want, def.name)) continue;
         }
-        const availability = try available(&ctx, def.kind);
+        const availability = try availability_mod.available(&ctx, def.kind);
         if (availability == .ready) {
             try present.append(arena, def);
         } else {
@@ -174,7 +184,7 @@ pub fn main(init: std.process.Init) !void {
     for (skipped.items) |s|
         try out(io, "bench-langs: skipping {s} ({s})\n", .{ s.def.name, s.why.reason() });
 
-    try precompileRacket(&ctx, present.items);
+    try availability_mod.precompileRacket(&ctx, present.items);
 
     var rows: std.ArrayList(Row) = .empty;
     for (present.items) |def| {
@@ -188,135 +198,6 @@ pub fn main(init: std.process.Init) !void {
 fn fail(message: []const u8) error{Usage} {
     std.debug.print("usage: orchestrator <host-exe> <zig-client-exe> [--smoke] [--client=NAME] [--port=N]\n  ({s})\n", .{message});
     return error.Usage;
-}
-
-// ── Roster availability ──────────────────────────────────────────────────────
-/// Why a client is not in the run. A missing runtime is an expected, benign
-/// skip. A client that will not build is a defect in this repository, and the
-/// two must never print the same sentence, a build failure reported as an
-/// absent runtime hides a stale client behind a routine-looking line.
-pub const Availability = union(enum) {
-    ready,
-    runtime_absent,
-    client_absent,
-    build_failed,
-
-    pub fn reason(self: Availability) []const u8 {
-        return switch (self) {
-            .ready => "",
-            .runtime_absent => "runtime not on PATH",
-            .client_absent => "client script missing",
-            .build_failed => "client failed to build (see the compiler output above)",
-        };
-    }
-};
-
-fn available(ctx: *Ctx, kind: Kind) !Availability {
-    switch (kind) {
-        .zig => return if (exists(ctx.io, ctx.zig_client)) .ready else .client_absent,
-        .rust => {
-            if ((try onPath(ctx.io, ctx.arena, ctx.environ, "cargo")) == null) return .runtime_absent;
-            return if (try buildRust(ctx)) .ready else .build_failed;
-        },
-        .deno => {
-            if ((try onPath(ctx.io, ctx.arena, ctx.environ, "deno")) == null) return .runtime_absent;
-            return if (exists(ctx.io, client_dir ++ "/deno_bench.ts")) .ready else .client_absent;
-        },
-        .python => {
-            if ((try onPath(ctx.io, ctx.arena, ctx.environ, "python3")) == null) return .runtime_absent;
-            return if (exists(ctx.io, client_dir ++ "/python_bench.py")) .ready else .client_absent;
-        },
-        .racket => {
-            if (ctx.racket_path == null) return .runtime_absent;
-            return if (exists(ctx.io, client_dir ++ "/racket_bench.rkt")) .ready else .client_absent;
-        },
-        .goblins => {
-            if (ctx.racket_path == null or !(try goblinsPresent(ctx))) return .runtime_absent;
-            return if (exists(ctx.io, client_dir ++ "/goblins_bench.rkt")) .ready else .client_absent;
-        },
-    }
-}
-
-fn exists(io: Io, path: []const u8) bool {
-    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
-    return true;
-}
-
-/// Resolve `name` against the parent PATH, returning its absolute path or null.
-/// `alloc` is the arena: the resolved path lives for the run, and the rejected
-/// candidates are reclaimed when the arena is freed.
-fn onPath(io: Io, alloc: std.mem.Allocator, environ: ?*const std.process.Environ.Map, name: []const u8) !?[]const u8 {
-    const path_var = (if (environ) |e| e.get("PATH") else null) orelse return null;
-    var it = std.mem.tokenizeScalar(u8, path_var, ':');
-    while (it.next()) |dir| {
-        const candidate = try std.fmt.allocPrint(alloc, "{s}/{s}", .{ dir, name });
-        if (exists(io, candidate)) return candidate;
-    }
-    return null;
-}
-
-/// Build the Rust bench client (release) against the installed archives. Cargo
-/// output goes to our stdout/stderr so a failure is visible. The dependency's
-/// build.rs finds zig-out/lib from its own manifest.
-fn buildRust(ctx: *Ctx) !bool {
-    try out(ctx.io, "bench-langs: building rust client (cargo build --release) ...\n", .{});
-    var child = std.process.spawn(ctx.io, .{
-        .argv = &.{ "cargo", "build", "--release", "--manifest-path", client_dir ++ "/rust_bench/Cargo.toml" },
-        .environ_map = ctx.environ,
-        .stdout = .inherit,
-        .stderr = .inherit,
-    }) catch return false;
-    const term = child.wait(ctx.io) catch return false;
-    const ok = term == .exited and term.exited == 0;
-    return ok and exists(ctx.io, ctx.rust_bin);
-}
-
-/// Probe whether the `goblins` collection is importable, so the reference row
-/// is skipped with a note when Goblins is not installed.
-fn goblinsPresent(ctx: *Ctx) !bool {
-    const racket = ctx.racket_path orelse return false;
-    var child = std.process.spawn(ctx.io, .{
-        .argv = &.{ racket, "-e", "(require goblins)" },
-        .environ_map = ctx.environ,
-        .stdout = .ignore,
-        .stderr = .ignore,
-    }) catch return false;
-    const term = child.wait(ctx.io) catch return false;
-    return term == .exited and term.exited == 0;
-}
-
-/// Precompile every present Racket client script to bytecode before the
-/// cold-start runs. Without this, each spawn of the `racket` row pays Racket
-/// recompiling the glowcap binding from source (~650 ms here), which lands
-/// entirely in its cold-start number and, absurdly, makes the thin binding
-/// look slower to start than all of Spritely Goblins, whose collection ships
-/// precompiled `.zo` bytecode. Compiling the scripts puts both Racket rows on
-/// the same footing: a spawn loads bytecode, so cold-start measures real
-/// startup, not our packaging (verified: ~775 ms → ~120 ms per spawn).
-///
-/// `raco make` follows the module's imports, so one call writes `.zo` for the
-/// script, the binding, and the shared metrics into each source's `compiled/`
-/// (all git-ignored). Best-effort: when the command is absent or compilation
-/// fails, the run proceeds with the source-load cost still in the number.
-fn precompileRacket(ctx: *Ctx, present: []const ClientDef) !void {
-    if (ctx.racket_path == null) return;
-    const raco = (try onPath(ctx.io, ctx.arena, ctx.environ, "raco")) orelse return;
-    for (present) |def| {
-        const script = switch (def.kind) {
-            .racket => client_dir ++ "/racket_bench.rkt",
-            .goblins => client_dir ++ "/goblins_bench.rkt",
-            else => continue,
-        };
-        try out(ctx.io, "bench-langs: precompiling {s} client (raco make) ...\n", .{def.name});
-        var child = try std.process.spawn(ctx.io, .{
-            .argv = &.{ raco, "make", script },
-            .environ_map = ctx.environ,
-            .stdout = .ignore,
-            .stderr = .inherit,
-        });
-        const term = try child.wait(ctx.io);
-        if (term != .exited or term.exited != 0) return error.RacoMakeFailed;
-    }
 }
 
 // ── Per-client driving ───────────────────────────────────────────────────────
@@ -366,6 +247,51 @@ fn benchOne(ctx: *Ctx, def: ClientDef) !Row {
     return row;
 }
 
+/// Where a pinned run places a process: a client on core A, the host on
+/// core B, and the `local` window's client on both, since that process
+/// carries its own host and a spinning side must never share one core with
+/// the side it waits for.
+const Placement = enum { client, host, whole };
+
+fn cores(ctx: *Ctx, placement: Placement) []const u16 {
+    const pin = if (ctx.pin) |*p| p else return &.{};
+    return switch (placement) {
+        .client => pin[0..1],
+        .host => pin[1..2],
+        .whole => pin[0..2],
+    };
+}
+
+/// Spawn with the child held to `cpus` when the run is pinned. A child
+/// inherits the mask it is spawned under, so the orchestrator wears the mask
+/// for the spawn alone and keeps its own placement, which never enters a
+/// measured number.
+fn spawnOn(ctx: *Ctx, cpus: []const u16, options: std.process.SpawnOptions) !std.process.Child {
+    if (cpus.len == 0) return std.process.spawn(ctx.io, options);
+    const own = try affinity.current();
+    try affinity.apply(try affinity.mask(cpus));
+    var child = std.process.spawn(ctx.io, options) catch |err| {
+        try affinity.apply(own);
+        return err;
+    };
+    affinity.apply(own) catch |err| {
+        child.kill(ctx.io);
+        return err;
+    };
+    return child;
+}
+
+/// A client that left by any path but a zero exit failed the run, and the
+/// line says which client and how it left, since its stderr was its own.
+fn checkExit(def: ClientDef, mode: []const u8, term: std.process.Child.Term) error{ClientFailed}!void {
+    switch (term) {
+        .exited => |code| if (code == 0) return,
+        else => {},
+    }
+    std.debug.print("bench-langs: {s} client left {s} with {any}\n", .{ def.name, mode, term });
+    return error.ClientFailed;
+}
+
 const Host = struct {
     child: std.process.Child,
     port: u16,
@@ -381,7 +307,7 @@ fn startHost(ctx: *Ctx) !Host {
         try std.fmt.allocPrint(ctx.arena, "{d}", .{p})
     else
         "0";
-    var child = try std.process.spawn(ctx.io, .{
+    var child = try spawnOn(ctx, cores(ctx, .host), .{
         .argv = &.{ ctx.host_exe, port_arg },
         .environ_map = ctx.environ,
         .stdout = .pipe,
@@ -426,7 +352,7 @@ fn dupArgv(ctx: *Ctx, items: []const []const u8) ![]const []const u8 {
 /// Run a client to completion in `mode` and return its NDJSON metric line.
 fn runMetric(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) ![]const u8 {
     const argv = try buildArgv(ctx, def, mode, port, n);
-    var child = try std.process.spawn(ctx.io, .{
+    var child = try spawnOn(ctx, cores(ctx, if (std.mem.eql(u8, mode, "local")) .whole else .client), .{
         .argv = argv,
         .environ_map = ctx.environ,
         .stdout = .pipe,
@@ -445,7 +371,7 @@ fn runMetric(ctx: *Ctx, def: ClientDef, mode: []const u8, port: u16, n: usize) !
             found = try ctx.arena.dupe(u8, line);
     }
     const term = try child.wait(ctx.io);
-    if (term != .exited or term.exited != 0) return error.ClientFailed;
+    try checkExit(def, mode, term);
     return found orelse error.MissingClientMetric;
 }
 
@@ -461,7 +387,7 @@ const ConnResult = struct {
 /// inside the client's documented post-marker sleeps (0.6s, then 2.5s).
 fn runConnections(ctx: *Ctx, def: ClientDef, port: u16, n: usize) !ConnResult {
     const argv = try buildArgv(ctx, def, "connections", port, n);
-    var child = try std.process.spawn(ctx.io, .{
+    var child = try spawnOn(ctx, cores(ctx, .client), .{
         .argv = argv,
         .environ_map = ctx.environ,
         .stdout = .pipe,
@@ -487,7 +413,7 @@ fn runConnections(ctx: *Ctx, def: ClientDef, port: u16, n: usize) !ConnResult {
         }
     }
     const term = try child.wait(ctx.io);
-    if (term != .exited or term.exited != 0) return error.ClientFailed;
+    try checkExit(def, "connections", term);
     const delta: u64 = if (loaded > base) loaded - base else 0;
     const per_conn = @as(f64, @floatFromInt(delta)) / @as(f64, @floatFromInt(@max(1, n)));
     return .{
@@ -504,7 +430,7 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
     for (0..samples) |i| {
         const argv = try buildArgv(ctx, def, "cold", port, 1);
         const t0 = nowNs(ctx.io);
-        var child = try std.process.spawn(ctx.io, .{
+        var child = try spawnOn(ctx, cores(ctx, .client), .{
             .argv = argv,
             .environ_map = ctx.environ,
             .stdout = .pipe,
@@ -525,7 +451,7 @@ fn runCold(ctx: *Ctx, def: ClientDef, port: u16, samples: usize) ![]const u8 {
         }
         if (!found) {
             const term = try child.wait(ctx.io);
-            if (term != .exited or term.exited != 0) return error.ClientFailed;
+            try checkExit(def, "cold", term);
             return error.MissingColdMarker;
         }
         times[i] = @as(f64, @floatFromInt(nowNs(ctx.io) - t0)) / 1_000_000.0;

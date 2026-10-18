@@ -39,7 +39,8 @@ test "access maintenance owner retirement closes admission and compacts retained
         result = try change(store, backend, data.owner, .step, result.sequence);
     }
     try std.testing.expect(result.retired);
-    var read = try storage.Read.init(h.a, store, data.owner, 1);
+    var read: storage.Read = undefined;
+    try read.init(h.a, store, data.owner, 1, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     try std.testing.expectEqual(@as(u64, 6), read.header.next_identity);
@@ -69,12 +70,13 @@ test "access maintenance sweep prunes terminal grants and missing weak identitie
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?.grant;
     var caps = try storage.Capabilities.init(h.a, store, .{});
     defer caps.deinit() catch unreachable;
-    _ = try c.descriptor(&caps, backend, owner, grant, null, false);
+    _ = try c.descriptor(&caps, backend, owner, grant, null, .reachable);
     try @import("../core/fixture.zig").collect(store, backend);
     _ = try f.change(store, backend, owner, .{ .revoke = grant });
     const result = try finish(store, backend, owner, .sweep, 0);
     try std.testing.expect(!result.retired);
-    var read = try storage.Read.init(h.a, store, owner, 1);
+    var read: storage.Read = undefined;
+    try read.init(h.a, store, owner, 1, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     try std.testing.expect(read.header.grants == null);

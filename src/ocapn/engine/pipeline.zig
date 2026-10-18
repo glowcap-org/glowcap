@@ -43,9 +43,7 @@ pub const classifyListenerDrain = resolution_math.classifyListenerDrain;
 const projectResolution = resolution_math.projectResolution;
 pub const maybeInstallInboundListener = listener_drain.maybeInstallInboundListener;
 pub const prepareAnswerListenerDrain = listener_drain.prepareAnswerListenerDrain;
-pub const fireImportedPromiseListeners = listener_drain.fireImportedPromiseListeners;
 pub const PreparedListenerDrain = listener_drain.PreparedListenerDrain;
-pub const prepareImportedPromiseFires = listener_drain.prepareImportedPromiseFires;
 
 /// The answer authority behind an inbound promise target. A wire
 /// `desc:answer` names the answer directly. A wire `desc:export` naming one of
@@ -53,8 +51,8 @@ pub const prepareImportedPromiseFires = listener_drain.prepareImportedPromiseFir
 /// export-to-answer link gives both forms one queue and settlement authority.
 /// An object export with the same integer remains an object because the export
 /// slot kind wins before the promise link is consulted.
-fn pipelinedAnswer(peer: *Peer, target: anytype) ?model.AnswerName {
-    return switch (target) {
+fn pipelinedAnswer(peer: *Peer, target: *const model.view.Reference) ?model.AnswerName {
+    return switch (target.*) {
         .promise => |promise| if (peer.session_state.hasInboundAnswer(promise.answer_position))
             model.AnswerName.fromWire(promise.answer_position)
         else
@@ -72,10 +70,12 @@ fn pipelinedAnswer(peer: *Peer, target: anytype) ?model.AnswerName {
 /// source answer, its exact queue seat prepared. No answer/import/resolver
 /// authority has moved while this value is live.
 pub const PreparedPipelinedCall = struct {
-    action: union(enum) {
+    pub const Action = union(enum) {
         queue: session.PreparedPipelinedCallQueue,
         dispatch: resolution_chain.Outcome,
-    },
+    };
+
+    action: Action,
     message: ?model.Message,
     answer: ?model.AnswerName,
     introduced_far_imports: ?[]model.ImportPosition,
@@ -143,12 +143,12 @@ pub const PreparedPipelinedCall = struct {
 /// without repeating the argument walk.
 pub fn preparePipelinedCall(
     peer: *Peer,
-    deliver: model.view.Deliver,
+    deliver: *const model.view.Deliver,
     call_answer: ?model.AnswerName,
     introduced: *const session.validate.IntroducedImports,
 ) !?PreparedPipelinedCall {
-    const answer = pipelinedAnswer(peer, deliver.target) orelse return null;
-    const owned = try (model.view.Body{ .deliver = deliver }).toOwned(peer.allocator);
+    const answer = pipelinedAnswer(peer, &deliver.target) orelse return null;
+    const owned = try (model.view.Body{ .deliver = deliver.* }).toOwned(peer.allocator);
     errdefer freeMessage(peer.allocator, owned);
     const imports = try introduced.dupeArgumentMentions(peer.allocator);
     errdefer if (imports) |positions| peer.allocator.free(positions);
@@ -162,18 +162,12 @@ pub fn preparePipelinedCall(
     // Presence is certain because `pipelinedAnswer` above gated this name
     // through `hasInboundAnswer` in the same dispatch.
     const target = peer.session_state.answerTargetNamed(answer) orelse unreachable;
-    if (peer.session_state.answerPayloadForTarget(target)) |payload| {
-        if (peer.session_state.answerPayloadStoredResolution(payload) != null)
-            return .{
-                .action = .{ .dispatch = resolution_chain.followAnswer(peer, target, payload) },
-                .message = owned,
-                .answer = call_answer,
-                .introduced_far_imports = imports,
-                .reference_slots = introduced.reference_slots,
-            };
-    }
+    const action: PreparedPipelinedCall.Action = if (resolution_chain.settledOutcome(peer, target)) |outcome|
+        .{ .dispatch = outcome }
+    else
+        .{ .queue = try peer.session_state.preparePipelinedCallNamed(answer) };
     return .{
-        .action = .{ .queue = try peer.session_state.preparePipelinedCallNamed(answer) },
+        .action = action,
         .message = owned,
         .answer = call_answer,
         .introduced_far_imports = imports,
@@ -181,17 +175,22 @@ pub fn preparePipelinedCall(
     };
 }
 
-/// Drain calls the partner pipelined against a just-settled answer, dispatching
-/// each against the resolution (ADR-0007 § Queue ownership and drain).
-/// `desc:answer` carries one answer position, so every queued target is flat.
-/// Drain the local consequences of settlement: pipelined calls,
-/// anchored projections, then listeners, in that order (ADR-0007 § Queue
-/// ownership and drain, ADR-0050 for projections).
+/// Settle the local consequences of a just-sent `op:resolve`: the calls the
+/// partner pipelined against the answer, then the projections anchored on it,
+/// then its listeners (ADR-0007 § Queue ownership and drain, ADR-0050 for
+/// projections). Calls go first because a drained call may settle further
+/// answers. The resolution itself is already stored: `applySentResolve`
+/// stored it when the resolve was recorded, at the moment the answer's status
+/// flipped, so a call, projection, or `op:listen` that arrived between record
+/// and this drain was served directly. Only the work that anchored while the
+/// answer was still pending remains. The resolution frame is already on
+/// `outbound`, so a drain refusal surfaces as a step error without
+/// un-sending it.
 pub fn drainAnswerConsequencesTarget(
     peer: *Peer,
     target: session.AnswerTarget,
     payload: *session.AnswerPayload,
-    consequence: ?resolution_chain.Outcome,
+    consequence: resolution_chain.Outcome,
     prepared_listeners: *PreparedListenerDrain,
 ) !void {
     std.debug.assert(peer.session_state.answerPayloadForTarget(target) == payload);
@@ -200,10 +199,13 @@ pub fn drainAnswerConsequencesTarget(
     prepared_listeners.commit(peer);
 }
 
+/// Drain calls the partner pipelined against a just-settled answer, dispatching
+/// each against the resolution (ADR-0007 § Queue ownership and drain).
+/// `desc:answer` carries one answer position, so every queued target is flat.
 fn drainPipelinedCalls(
     peer: *Peer,
     payload: *session.AnswerPayload,
-    consequence: ?resolution_chain.Outcome,
+    consequence: resolution_chain.Outcome,
 ) !void {
     // `local_delivery_depth` bounds the local deliveries *one* resolution's
     // drain produces (a drained call resolving to a local export). The drain
@@ -229,10 +231,7 @@ fn drainPipelinedCalls(
     while (index < calls.len) {
         const queued = calls[index];
         index += 1;
-        // `stepPending` computed `consequence` non-null exactly when this
-        // payload had queued work (its `has_consequences` conditional), so
-        // the drain cannot see both.
-        try dispatchDrainedCall(peer, queued, consequence orelse unreachable);
+        try dispatchDrainedCall(peer, queued, consequence);
     }
 }
 
@@ -245,7 +244,7 @@ fn drainPipelinedCalls(
 /// projected answer breaks immediately.
 pub fn respondToProjection(
     peer: *Peer,
-    receiver: anytype,
+    receiver: model.view.Reference,
     kind: session.ProjectionKind,
     new_answer: model.AnswerPosition,
 ) !void {
@@ -290,7 +289,7 @@ pub fn respondToProjection(
 fn drainProjections(
     peer: *Peer,
     payload: *session.AnswerPayload,
-    consequence: ?resolution_chain.Outcome,
+    consequence: resolution_chain.Outcome,
 ) !void {
     const projections = try peer.session_state.takeAnswerPayloadProjections(payload);
     if (projections.len == 0) return;
@@ -301,10 +300,7 @@ fn drainProjections(
     while (index < projections.len) {
         const projection = projections[index];
         index += 1;
-        // `stepPending` computed `consequence` non-null exactly when this
-        // payload had queued work (its `has_consequences` conditional), so
-        // the drain cannot see both.
-        try applyProjectionOutcome(peer, projection, consequence orelse unreachable);
+        try applyProjectionOutcome(peer, projection, consequence);
     }
 }
 
@@ -314,14 +310,8 @@ fn drainProjections(
 fn anchorProjection(peer: *Peer, source: model.AnswerName, projection: session.Projection) !void {
     const target = peer.session_state.answerTargetNamed(source) orelse
         return breakProjection(peer, projection, "projection receiver names an unknown answer");
-    if (peer.session_state.answerPayloadForTarget(target)) |payload| {
-        if (peer.session_state.answerPayloadStoredResolution(payload) != null)
-            return applyProjectionOutcome(
-                peer,
-                projection,
-                resolution_chain.followAnswer(peer, target, payload),
-            );
-    }
+    if (resolution_chain.settledOutcome(peer, target)) |outcome|
+        return applyProjectionOutcome(peer, projection, outcome);
     return peer.session_state.installProjectionTarget(target, projection);
 }
 
@@ -334,7 +324,7 @@ fn applyProjectionOutcome(
         .pending => |target| try peer.session_state.installProjectionTarget(target, projection),
         .terminal_break => |message| try breakProjection(peer, projection, message),
         .terminal => |terminal| switch (projectResolution(terminal.resolution, projection.kind)) {
-            .resolved => |projected| try resolveProjection(peer, projection, projected),
+            .resolved => |projected| try settleProjection(peer, projection, projected),
             .reanchor => try breakProjection(
                 peer,
                 projection,
@@ -342,16 +332,6 @@ fn applyProjectionOutcome(
             ),
         },
     }
-}
-
-/// Settle one projection (taking ownership): send the projected resolve for
-/// its answer through the full resolve seam, so chained projections,
-/// pipelined calls, and listeners on the projected answer all drain. The
-/// projected payload borrows its source resolution, which the settlement
-/// clones into the answer store (the named boundary copy). A projected answer the application already
-/// settled is left as it is.
-fn resolveProjection(peer: *Peer, projection: session.Projection, projected: model.Resolution) !void {
-    try settleProjection(peer, projection, projected);
 }
 
 fn projectionTarget(peer: *Peer, projection: session.Projection) ?session.AnswerTarget {
@@ -372,10 +352,15 @@ fn breakProjection(peer: *Peer, projection: session.Projection, reason: []const 
     return settleProjection(peer, projection, .{ .@"break" = .{ .message = reason } });
 }
 
-/// Settle the exact question a projection created. A released answer with no
-/// accepted dependents disappears and needs no reply. If dependents were
-/// already accepted, its detached row remains the settlement target: they
-/// drain without confusing a later question that reused the wire position.
+/// Settle the exact question a projection created, taking ownership of the
+/// projection: the resolve goes through the full resolve seam, so chained
+/// projections, pipelined calls, and listeners on the projected answer all
+/// drain. A projected value borrows its source resolution, which the
+/// settlement clones into the answer store (the named boundary copy). A
+/// released answer with no accepted dependents disappears and needs no reply.
+/// If dependents were already accepted, its detached row remains the
+/// settlement target: they drain without confusing a later question that
+/// reused the wire position.
 fn settleProjection(peer: *Peer, projection: session.Projection, resolution: model.Resolution) !void {
     defer session.deinitProjection(peer.allocator, projection);
     const target = projectionTarget(peer, projection) orelse return;
@@ -402,6 +387,10 @@ fn dispatchDrainedCall(
     }
 }
 
+/// A sturdyref or routed reference is a value this session holds, not a
+/// target it can deliver to, so a call pipelined onto it breaks here.
+pub const undeliverable_target_message = "pipelined target resolved to a reference this session cannot deliver to";
+
 fn dispatchTerminalCall(peer: *Peer, queued: session.QueuedCall, resolution: model.Resolution) !void {
     const maybe_reference: ?model.Reference = switch (resolution) {
         .fulfill => |arg| if (arg == .reference) arg.reference else null,
@@ -422,10 +411,12 @@ fn dispatchTerminalCall(peer: *Peer, queued: session.QueuedCall, resolution: mod
             queued,
             .{ .@"break" = .{ .message = resolution_chain.missing_target_message } },
         ),
-        .routed, .sturdy, .broken => {
-            defer freeMessage(peer.allocator, queued.message);
-            try remote_forward.releaseArguments(peer, queued.introduced_far_imports);
-        },
+        .broken => |reason| try propagateBreakToDrainedCall(peer, queued, .{ .@"break" = reason }),
+        .routed, .sturdy => try propagateBreakToDrainedCall(
+            peer,
+            queued,
+            .{ .@"break" = .{ .message = undeliverable_target_message } },
+        ),
     }
 }
 
@@ -475,8 +466,6 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: session.QueuedCall, near: mode
     var rewritten = rewriteDeliverTarget(
         peer.allocator,
         queued.message.deliver,
-        // Local delivery is wire-shaped as `desc:export` (a `far` here); the
-        // export position is reinterpreted into the import space explicitly.
         .{ .far = .{ .import_position = near.export_position.reinterpret(model.ImportPosition) } },
     );
     defer freeMessage(peer.allocator, rewritten);
@@ -500,13 +489,18 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: session.QueuedCall, near: mode
         rewritten,
     );
     errdefer frame.deinit();
-    // This peer encoded the frame from `rewritten` a moment ago, so its parse
-    // cannot fail. A failure would be an engine invariant broken, not input.
-    const parse = try events.Parse.store(peer.allocator, &frame, codec.dispatch.decodeBodyForProfile(
+    const parse = events.Parse.decode(
+        peer.allocator,
+        &frame,
         peer.session_state.codec,
         peer.session_state.captp_version,
-        frame.view(),
-    ) catch unreachable);
+    ) catch |err| switch (err) {
+        error.OutOfMemory => |oom| return oom,
+        // This peer encoded the frame from `rewritten` a moment ago, so its
+        // parse cannot fail. A failure would be an engine invariant broken,
+        // not input.
+        else => unreachable,
+    };
     errdefer parse.deinit(peer.allocator);
     // The push is the last fallible step, so the row's ownership of the parse
     // begins exactly where this function's errdefer ends.

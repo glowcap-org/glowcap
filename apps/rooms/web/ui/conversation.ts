@@ -207,6 +207,10 @@ export type Conv =
 		policy: RoomPolicy;
 		/** Private or source-owned, not "this tab is presently in the room". */
 		held: boolean;
+		/** Whether the room's directory has told this page its policy, which
+		 * only `setRoomPolicy` records. Until then `policy` and `held` are the
+		 * defaults the page started the room with, not the room's word. */
+		policyHeard: boolean;
 		reconnect?: "manual" | "requested";
 		/** Which room entry link, room manager, and room moderator this session
 		 * holds for the room, as the identity the Rust application gives each

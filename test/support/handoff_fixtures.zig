@@ -43,7 +43,7 @@ pub fn give() model.HandoffGive {
 /// receive with `receiveFromRecipient` instead.
 pub const recipient_side = blk: {
     @setEvalBranchQuota(100_000);
-    break :blk glowcap.ocapn.engine.handoff_recipient.sideName(recipient_key[0..]) catch unreachable;
+    break :blk glowcap.ocapn.engine.handoff_names.sideName(recipient_key[0..]) catch unreachable;
 };
 
 /// `receive`, but naming the side the exporter will derive. For tests that

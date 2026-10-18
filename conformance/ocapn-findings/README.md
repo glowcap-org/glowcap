@@ -32,8 +32,8 @@ The draft and deployed sources disagree on the third `op:listen` operand:
 | OCapN test suite (`utils/captp_types.py`) | `assert len(record.args) == 3`, then `wants_partial = record.args[2]` |
 | Spritely Goblins (`goblins/ocapn/captp.rkt`) | `(to-desc listener-desc wants-partial?)` |
 
-glowcap retains the deployed boolean on `1.0`. Adoption of integer modes on
-`glowcap-next` is pending in the [manifest](../../docs/ocapn-conformance.md).
+glowcap keeps the deployed boolean on `1.0` and writes integer modes on
+`glowcap-next`, as the [manifest](../../docs/ocapn-conformance.md) records.
 
 ## Locator hints type
 
@@ -110,7 +110,7 @@ The draft fixes the gift id width, and the suite that tests it uses another:
 | draft CapTP specification, `deposit-gift` | `A gift ID that is bytearray of 32 generated random bytes.` |
 | OCapN test suite (`tests/third_party_handoffs.py`) | `def make_valid_handoff(self, gift_id=b"my-gift")`, seven bytes, in the case named "valid" |
 
-glowcap mints <!-- value ../../src/ocapn/model/handoff.zig GIFT_ID_BYTES -->32<!-- /value --> bytes on every profile and holds inbound gift ids to that width
+glowcap mints <!-- value ../../src/ocapn/model/handoff.zig gift_id_bytes -->32<!-- /value --> bytes on every profile and holds inbound gift ids to that width
 on `glowcap-next`, where both ends are its own. It does not hold the `1.0`
 profile to it, because refusing a give retires the session before the handoff is
 read, and the suite's own valid-handoff fixture would lose its Exporter and

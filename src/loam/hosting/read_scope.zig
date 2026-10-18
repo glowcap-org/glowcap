@@ -6,6 +6,7 @@ const calls = @import("calls.zig");
 const values = @import("values.zig");
 const memory = @import("call_memory.zig");
 const Continuation = @import("continuation.zig").Continuation;
+const actors = @import("actors");
 
 pub const Scope = struct {
     /// Trusted content declares read verbs and the interface of every returned
@@ -16,7 +17,7 @@ pub const Scope = struct {
     pub const Bounds = struct { interfaces: usize, methods: usize, verb_bytes: usize, result_roles: usize, targets: usize };
 
     pub fn sizeBound(arguments: values.Bounds, source_verb_bytes: usize, declaration: Bounds) !usize {
-        var bound = try @import("call_memory.zig").inputAllocationBound(arguments, source_verb_bytes, false);
+        var bound = try memory.inputAllocationBound(arguments, source_verb_bytes, false);
         try bound.include(try std.math.mul(usize, declaration.interfaces, @sizeOf([]const HeldMethod)), @alignOf([]const HeldMethod), 1);
         try bound.includeTotal(try std.math.mul(usize, declaration.methods, @sizeOf(HeldMethod)), @alignOf(HeldMethod), declaration.interfaces);
         try bound.includeTotal(declaration.verb_bytes, 1, declaration.methods);
@@ -66,7 +67,7 @@ pub const Scope = struct {
         return create(admitted.owner, .{ .capability = admitted.source }, admitted.intent, interfaces, continuation);
     }
 
-    const Source = union(enum) { actor: @import("actors").Ref, capability: driver.Capability };
+    const Source = union(enum) { actor: actors.Ref, capability: driver.Capability };
     fn create(owner: *h.Attachment, source: Source, intent: h.Call.Intent, interfaces: []const Interface, continuation: ?*Continuation) !*Scope {
         if (owner.closing) return error.AttachmentClosed;
         if (owner.continuations >= owner.options.max_continuations or
@@ -184,7 +185,7 @@ pub const Scope = struct {
         count.* = try std.math.add(usize, count.*, 1);
     }
     fn transform(method: *HeldMethod, call: *h.Call, value: driver.Value, index: *usize, depth: usize) !driver.Value {
-        if (depth > 64) return error.ValueTooDeep;
+        if (depth > driver.Value.max_depth) return error.ValueTooDeep;
         switch (value) {
             .capability => |target| {
                 try call.held.ensureUnusedCapacity(call.arena(), 1);
@@ -227,7 +228,7 @@ pub const Scope = struct {
             const method = for (scope.interfaces[entry.role]) |*candidate| {
                 if (std.mem.eql(u8, candidate.verb, verb)) break candidate;
             } else return error.NoSuchMethod;
-            try calls.admitContinuation(scope.owner, scope.source, turn, scope.intent, entry.target, .{ .verb = verb, .args = arg_values }, .{ .mediated = @constCast(&method.projection) });
+            try calls.admitContinuation(scope.owner, scope.source, turn, scope.intent, entry.target, .{ .verb = verb, .args = arg_values }, .{ .mediated = &method.projection });
             return .{ .void = {} };
         }
         pub fn deinit(self: *Endpoint, _: std.mem.Allocator) void {

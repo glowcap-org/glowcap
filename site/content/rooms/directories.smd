@@ -63,7 +63,7 @@ No directory knows where else you are. Each one knows your nickname there,
 the rooms you joined there, and who you talk to there. Only your session
 knows all of it.
 
-So wherever your session goes, all of it goes. Share it with your phone and
+Everything travels with your session. Share it with your phone and
 every room on every directory is there, along with the same direct
 conversations. Reply to someone from the phone and it reaches them on their
 own directory, even though the phone never connected to it. Run your
@@ -82,8 +82,8 @@ history. You can pause that link or take it back while they still hold it,
 and nothing changes on the directories. Each one keeps seeing the same
 session it always saw.
 
-That is how you give a bot or a teammate a view of everything you are in
-without giving them your voice. [Run Rooms]($link.page('rooms/start'))
+Use this to give a bot or a teammate a read-only view of everything you are
+in. [Run Rooms]($link.page('rooms/start'))
 shares a session with a phone, and
 [Operate Rooms]($link.page('rooms/operations')) covers setting a link's
 permissions.
@@ -101,14 +101,13 @@ and from then on your messages go straight between you. If your network
 will not allow that, you can choose a relay instead, and it only ever sees
 encrypted bytes.
 
-A directory carries its own rooms and nothing else. There is no
-server-to-server protocol, nothing is copied between directories, and no
-directory has any say over another's rooms. If a directory goes away, its
+A directory carries its own rooms and nothing else. Nothing is copied
+between directories, and no directory has any say over another's rooms. If a directory goes away, its
 rooms go with it and everything else keeps working.
 
-The tradeoff is names. A nickname only means something on the directory
-that gave it out, so `lu` on one directory is not known to be the same
-person as `lu` on another.
+The cost is that names are local. A nickname only means something on the
+directory that gave it out, so `lu` on one directory is not known to be the
+same person as `lu` on another.
 
 # A directory can list a room hosted elsewhere
 
@@ -120,22 +119,19 @@ directory that listed it only made the introduction.
 
 Whoever published a listing holds the one way to take it down, and the
 listing also ends when their session disconnects. Either way, new members
-stop finding the room there, and anyone who already joined keeps it. A
-member running [Spritely Goblins](https://spritely.institute/goblins/) gets
-an address in the OCapN 1.0 form it understands, and a room it could not
-reach is refused instead of handed over.
+stop finding the room there, and anyone who already joined keeps it.
 [Operate Rooms]($link.page('rooms/operations')) covers the peering link.
 
-# Why OCapN makes this easy
+# How OCapN makes this work
 
 In [OCapN](https://ocapn.org/), a room, your seat in it, and your inbox for
 direct messages are all references, and a reference works the same no
 matter which server it came from. Joining a room on another directory is
-just fetching a reference from a different server. Starting a direct
+fetching a reference from a different server. Starting a direct
 message is OCapN's three-party handoff: the directory you share introduces
 two peers, and they connect to each other. Peering a room is that same
-handoff between a member and the room's host. Rooms needed no federation
-protocol for any of this.
+handoff between a member and the room's host. Rooms has no federation
+protocol on top of these.
 
 [How Rooms works]($link.page('rooms/architecture')) follows a direct message
 from introduction to connection, and

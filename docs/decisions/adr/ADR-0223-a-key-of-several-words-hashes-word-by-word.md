@@ -7,7 +7,7 @@ decision: "A table key wider than one word declares the words that identify it, 
 supersedes: []
 superseded_by: []
 amends: [ADR-0218]
-amended_by: []
+amended_by: [ADR-0254]
 ---
 
 # ADR-0223 A key of several words hashes word by word

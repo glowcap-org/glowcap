@@ -27,9 +27,9 @@ const DrivenGiftSeams = struct {
         return target;
     }
 
-    fn project(ctx: ?*anyopaque, scope: engine.PeerHandle, opaque_target: u64) !engine.bootstrap.gifts.ProjectedLocalTarget {
+    fn project(ctx: ?*anyopaque, scope: engine.PeerHandle, opaque_target: u64) engine.bootstrap.gifts.LocalObjectProjection.Error!engine.bootstrap.gifts.ProjectedLocalTarget {
         const self: *DrivenGiftSeams = @ptrCast(@alignCast(ctx.?));
-        if (scope != self.recipient_scope or opaque_target != target) return error.InvalidGiftTarget;
+        if (scope != self.recipient_scope or opaque_target != target) return error.NoSuchActor;
         const position: model.ExportPosition = .from(try self.recipient_peer.exportNextObject());
         self.projected_position = position;
         return .{ .export_position = position, .created = true };
@@ -57,9 +57,9 @@ const DrivenGiftSeams = struct {
 /// use either codec. Handoff signatures remain in the Syrup signing domain.
 pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
     const crypto = foundation.crypto;
-    const gifter_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x11)));
-    const recipient_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x22)));
-    const exporter_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x33)));
+    const gifter_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x11)));
+    const recipient_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x22)));
+    const exporter_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x33)));
 
     var gifter_to_recipient = support.keyedNegotiatingPeer(allocator, codec_id);
     defer gifter_to_recipient.deinit();
@@ -70,7 +70,7 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
     var recipient_to_exporter = support.keyedNegotiatingPeer(allocator, codec_id);
     defer recipient_to_exporter.deinit();
 
-    var exporter_node = engine.Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x33)));
+    var exporter_node = engine.Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x33)));
     defer exporter_node.deinit();
     const exporter_options: engine.Peer.NegotiatingOptions = .{
         .captp_version = .v1_0,
@@ -122,7 +122,7 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
         var settle = gifter_to_exporter.pollEvent() orelse return error.MissingFetchResolve;
         defer settle.deinit();
         const owned = try settle.decodeOwned(allocator);
-        const match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_position, owned);
+        const match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer.position, owned);
         switch (match) {
             .settled => |outcome| switch (outcome) {
                 .fulfilled => |reference| fetched = reference,
@@ -157,15 +157,11 @@ pub fn run(allocator: std.mem.Allocator, codec_id: model.CodecId) ![]u8 {
 
     const recipient_key = gifter_to_recipient.session_state.partnerSessionKey() orelse return error.NoRecipientKey;
     const exporter_key = gifter_to_exporter.session_state.partnerSessionKey() orelse return error.NoExporterKey;
-    const exporter_location = try engine.encodePeerLocatorRecord(allocator, .{
-        .transport = "tcp",
-        .designator = "exporter",
-        .hints = model.Hints.emptyFalse(),
-    });
+    const exporter_location = try engine.encodePeerLocatorRecord(allocator, .hintless("tcp", "exporter"));
     defer allocator.free(exporter_location);
-    const gifter_side = try engine.handoff_recipient.sideName(gifter_secret.publicKey().asBytes());
-    const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
-    const gifter_exporter_session = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
+    const gifter_side = try engine.handoff_names.sideName(gifter_secret.publicKey().asBytes());
+    const exporter_side = try engine.handoff_names.sideName(exporter_key);
+    const gifter_exporter_session = engine.handoff_names.sessionName(gifter_side, exporter_side);
     const gift_id = @as([32]u8, @splat(0x6b));
     const give_bytes = try engine.handoff_gifter.buildSignedGive(
         allocator,

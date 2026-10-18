@@ -94,19 +94,11 @@ pub fn glowcap_host_turn_forward(
     out_reply: ?*shared.GlowcapArgument,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_reply orelse return GLOWCAP_ERR_NULL_POINTER;
-    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
-    const inst = instOf(host_turn.host);
-    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    const reply = host_turn.forward(
-        inst.core.capabilityFromRaw(target_ptr.id),
-        msg.verb,
-        msg.args,
-    ) catch |err| return errToCode(err);
-    _ = inst.turn_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
-    slot.* = common.valueToC(inst.turn_scratch.allocator(), reply) catch |err| return errToCode(err);
+    var call = turnCall(turn, target, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    const reply = call.host_turn.forward(call.target, call.msg.verb, call.msg.args) catch |err| return errToCode(err);
+    _ = call.inst.turn_scratch.reset(.{ .retain_with_limit = steady_scratch_bytes });
+    slot.* = common.valueToC(call.inst.turn_scratch.allocator(), reply) catch |err| return errToCode(err);
     return GLOWCAP_OK;
 }
 
@@ -125,17 +117,9 @@ pub fn glowcap_host_turn_send(
     out_vow: ?*u64,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
-    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
-    const inst = instOf(host_turn.host);
-    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    slot.* = host_turn.send(
-        inst.core.capabilityFromRaw(target_ptr.id),
-        msg.verb,
-        msg.args,
-    ) catch |err| return errToCode(err);
+    var call = turnCall(turn, target, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    slot.* = call.host_turn.send(call.target, call.msg.verb, call.msg.args) catch |err| return errToCode(err);
     return GLOWCAP_OK;
 }
 
@@ -150,17 +134,35 @@ pub fn glowcap_host_turn_tell(
     args_len: usize,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const t = turnFrom(turn) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
-    var host_turn = driver_core.HostTurn.fromActorTurn(t) catch |err| return errToCode(err);
-    const inst = instOf(host_turn.host);
-    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    host_turn.tell(
-        inst.core.capabilityFromRaw(target_ptr.id),
-        msg.verb,
-        msg.args,
-    ) catch |err| return errToCode(err);
+    var call = turnCall(turn, target, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    call.host_turn.tell(call.target, call.msg.verb, call.msg.args) catch |err| return errToCode(err);
     return GLOWCAP_OK;
+}
+
+/// What every turn-time message verb resolves before it acts: the Host turn
+/// behind the handle, its instance, the target capability, and the decoded
+/// message. A null handle or target is `NullPointer`.
+const TurnCall = struct {
+    host_turn: driver_core.HostTurn,
+    inst: *common.Instance,
+    target: driver_core.Capability,
+    msg: common.ValueMessage,
+};
+
+fn turnCall(
+    turn: ?*GlowcapHostTurn,
+    target: ?*const shared.GlowcapReference,
+    verb: ?[*]const u8,
+    verb_len: usize,
+    args: ?[*]const shared.GlowcapArgument,
+    args_len: usize,
+) !TurnCall {
+    const t = turnFrom(turn) orelse return error.NullPointer;
+    const target_ptr = target orelse return error.NullPointer;
+    const host_turn = try driver_core.HostTurn.fromActorTurn(t);
+    const inst = instOf(host_turn.host);
+    const msg = try valueMessageFromC(inst, verb, verb_len, args, args_len);
+    return .{ .host_turn = host_turn, .inst = inst, .target = inst.core.capabilityFromRaw(target_ptr.id), .msg = msg };
 }
 
 /// From inside a behavior callback, spawn a hosted object in the Host Vat and

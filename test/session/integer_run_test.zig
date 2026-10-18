@@ -14,7 +14,8 @@ test "a decoded integer run obeys the same session depth bound as lazy integers"
         for ([_][]const u8{ accepted, refused }, 0..) |bytes, i| {
             var views: [16]model.view.Argument = undefined;
             var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(views[0..capacity]));
-            const body = try syrup.decodeBodyInto(.v1_0, .{ .bytes = bytes, .shape = .byte }, &slab);
+            var body: model.view.Body = undefined;
+            try syrup.decodeBodyInto(.v1_0, .{ .bytes = bytes, .shape = .byte }, &slab, &body);
             var s = session.Session.initWith(std.testing.allocator, .{ .limits = .{ .max_nesting_depth = 1 } });
             defer s.deinit();
             try s.registerExport(.from(7));

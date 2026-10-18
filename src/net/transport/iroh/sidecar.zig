@@ -102,7 +102,7 @@ pub const ReadyEvent = extern struct {
 /// backend, and the loop surface a language binding drives, reads it here, so
 /// one function decides what "the connection proved" means for iroh.
 pub fn connRemoteKey(conn: *const CConn) ?crypto.PeerKey {
-    var remote: [crypto.PEER_KEY_BYTES]u8 = undefined;
+    var remote: [crypto.peer_key_bytes]u8 = undefined;
     if (glowcap_iroh_sidecar_conn_remote_node_id(conn, &remote) != 0) return null;
     return crypto.PeerKey.fromBytes(remote);
 }

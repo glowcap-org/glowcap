@@ -336,8 +336,8 @@ fn verifyGoblinsStartSession(allocator: std.mem.Allocator, peer: *engine.Peer) !
                 const sig = switch (ss.acceptable_location_sig) {
                     .halves => |h| crypto.Signature.fromParts(h.r, h.s) catch return error.BadGoblinsSig,
                     .raw => |raw| blk: {
-                        if (raw.len != crypto.SIGNATURE_BYTES) return error.BadGoblinsSig;
-                        break :blk crypto.Signature.fromBytes(raw[0..crypto.SIGNATURE_BYTES].*);
+                        if (raw.len != crypto.signature_bytes) return error.BadGoblinsSig;
+                        break :blk crypto.Signature.fromBytes(raw[0..crypto.signature_bytes].*);
                     },
                 };
                 const loc = try ss.acceptable_location.toOwned(allocator);

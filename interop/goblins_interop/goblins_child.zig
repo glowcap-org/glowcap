@@ -72,7 +72,7 @@ pub fn openKeyedSession(
     conn: anytype,
     designator: []const u8,
 ) !crypto.SecretKey {
-    var seed: [crypto.SEED_BYTES]u8 = undefined;
+    var seed: [crypto.seed_bytes]u8 = undefined;
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
     const secret = crypto.SecretKey.fromSeed(seed);
     try openKeyedSessionWith(peer, conn, designator, secret);
@@ -118,7 +118,7 @@ pub fn fetchCap(
             const match = try engine.fetch.tryMatchFetchOutcome(
                 allocator,
                 prepared.resolver_export,
-                prepared.answer_position,
+                prepared.answer.position,
                 owned,
             );
             switch (match) {
@@ -168,7 +168,7 @@ pub fn enlivenCap(
             const match = try engine.fetch.tryMatchFetchOutcome(
                 allocator,
                 prepared.resolver_export,
-                prepared.answer_position,
+                prepared.answer.position,
                 owned,
             );
             switch (match) {

@@ -205,7 +205,7 @@ fn drainWithStaleCompletions(server: *h.Hosted, backend: anytype) !usize {
     for (0..256) |_| {
         _ = try server.host.vat.driveIngressBudgeted(.local, 64);
         try server.attached.advance();
-        while (try worker.next(server.attached, false)) |work| {
+        while (try worker.next(server.attached, .when_uncertain)) |work| {
             if (work.request == .read) for (server.attached.operations) |*operation| {
                 if (!operation.pending_read) continue;
                 const preparation = operation.call.?.preparation.?;

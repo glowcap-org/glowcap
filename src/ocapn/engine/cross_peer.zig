@@ -12,9 +12,8 @@
 //! exporter, send the receive, pump the frames) is host choreography, not
 //! engine semantics. The in-repo harness for it lives in
 //! `test/support/cross_peer.zig`. Introducing-session foreign-promise relay
-//! (`installThirdPartyImport` / `Peer.applyRelayedResolution`, driven by
-//! `proxy_admission.foreignPromiseFulfill`) lives on `engine.Node` /
-//! `driver_core.Host`.
+//! (`proxy_admission.foreignPromiseFulfill` projecting each recipient's local
+//! promise) lives on `engine.Node` / `driver_core.Host`.
 
 /// An injected signature-verification hook for a host that drives cross-peer
 /// handoff routing itself: it decides whether a give or receive certificate is

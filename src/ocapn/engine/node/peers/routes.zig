@@ -10,11 +10,12 @@ const Node = node_mod.Node;
 const Internal = node_mod.Internal;
 const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 
-/// One node-local route to a live session and its real wire reference. The Node
-/// owns `reference` and frees it at route retirement or teardown.
+/// One node-local route: the live session that holds the real import and the
+/// wire reference there. A row is plain data, so enrollment and retirement
+/// allocate nothing.
 pub const Route = struct {
     peer_handle: PeerHandle,
-    reference: model.Reference,
+    far: model.FarRef,
 };
 
 pub const ForeignEnrollmentReceipt = struct {
@@ -36,19 +37,13 @@ pub const Routed = struct {
 };
 
 /// Remove routes tied to a dying peer without allocating during teardown.
-pub fn removeForPeer(
-    self: *Node,
-    routes: *std.AutoHashMapUnmanaged(model.CapabilityRouteId, Route),
-    peer_handle: PeerHandle,
-) void {
+pub fn removeForPeer(routes: *std.AutoHashMapUnmanaged(model.CapabilityRouteId, Route), peer_handle: PeerHandle) void {
     var it = routes.iterator();
     while (it.next()) |entry| {
         if (entry.value_ptr.peer_handle != peer_handle) continue;
-        const owned = entry.value_ptr.reference;
         // Removing the iterator's current row tombstones the slot without
-        // moving or allocating. Free only after the table releases ownership.
+        // moving or allocating.
         routes.removeByPtr(entry.key_ptr);
-        model.freeReference(self.allocator, owned);
     }
 }
 
@@ -70,30 +65,26 @@ pub fn redeemedRouteId(self: *const Node, reference: model.Reference) ?model.Cap
     return if (self.redeemed.contains(route_id)) route_id else null;
 }
 
-/// Enroll a redeemed capability under a fresh Node route.
+/// Enroll a redeemed capability under a fresh Node route and return its id.
 ///
-/// The returned explicit routed reference later swaps to `reference` on the
-/// exporter peer. The Node clones and owns that real reference. The caller
-/// retains its own.
-///
-/// Capacity is reserved by the caller, so cloning is the only fallible step
-/// before commit. The id advances only after the owned reference is installed.
-pub fn enrollRedeemed(self: *Node, exporter_peer: PeerHandle, reference: model.Reference) !model.Reference {
+/// A routed reference carrying the id later swaps to `far` on the exporter
+/// peer. Capacity is reserved by the caller, so nothing here can fail after
+/// the exhaustion check.
+pub fn enrollRedeemed(self: *Node, exporter_peer: PeerHandle, far: model.FarRef) error{CapabilitySpaceExhausted}!model.CapabilityRouteId {
     if (self.next_route_id.int() == std.math.maxInt(u64)) return error.CapabilitySpaceExhausted;
-    const owned = try model.cloneReference(self.allocator, reference);
     const route_id = self.next_route_id;
-    self.redeemed.putAssumeCapacity(route_id, .{ .peer_handle = exporter_peer, .reference = owned });
+    self.redeemed.putAssumeCapacity(route_id, .{ .peer_handle = exporter_peer, .far = far });
     self.next_route_id = .from(route_id.int() + 1);
     // The per-peer outbound walk also turns a redeemed route used as Passable
     // data into an inline give. Once a route escapes, keep its cheap gate on.
     self.route_lowering_active = true;
-    return .{ .routed = .{ .id = route_id, .kind = .object } };
+    return route_id;
 }
 
-/// Resolve any node-local route to its route row. Redeemed and foreign imports
-/// use the same shape so sends and re-gifts share one address substitution.
-pub fn route(self: *Node, reference: model.Reference) ?Route {
-    const id = routeIdOf(reference) orelse return null;
+/// Resolve any node-local route id to its route row. Redeemed and foreign
+/// imports use the same shape so sends and re-gifts share one address
+/// substitution.
+pub fn routeById(self: *Node, id: model.CapabilityRouteId) ?Route {
     if (self.redeemed.get(id)) |redeemed| return redeemed;
     return foreignRoute(self, id);
 }
@@ -105,11 +96,7 @@ pub fn route(self: *Node, reference: model.Reference) ?Route {
 pub fn foreignRoute(self: *Node, id: model.CapabilityRouteId) ?Route {
     const foreign = self.foreign_imports.get(id) orelse return null;
     const home = Internal.peerAt(self, foreign.peer_handle) orelse return null;
-    const position = switch (foreign.reference) {
-        .far => |far| far.import_position,
-        else => return null,
-    };
-    if (home.session_state.foreignRouteIdFor(position) != id) return null;
+    if (home.session_state.foreignRouteIdFor(foreign.far.import_position) != id) return null;
     return foreign;
 }
 
@@ -117,7 +104,7 @@ pub fn foreignRoute(self: *Node, id: model.CapabilityRouteId) ?Route {
 /// deterministic answer to where a handoff capability lives, never a guess
 /// based on whichever dial happens to be in flight.
 pub fn exporterPeerFor(self: *Node, reference: model.Reference) ?PeerHandle {
-    const found = route(self, reference) orelse return null;
+    const found = routeById(self, routeIdOf(reference) orelse return null) orelse return null;
     return found.peer_handle;
 }
 
@@ -128,21 +115,10 @@ pub fn exporterPeerFor(self: *Node, reference: model.Reference) ?PeerHandle {
 /// map row. Abandonment can discard both preparations without reusing the id.
 /// The enrolled row also owns reference kind: a caller cannot relabel the same
 /// import by presenting another kind on a later fetch.
-pub fn prepareForeignEnrollment(self: *Node, home: PeerHandle, wire: model.Reference) !ForeignEnrollment {
-    const far = switch (wire) {
-        .far => |value| value,
-        else => return error.NotAFarReference,
-    };
+pub fn prepareForeignEnrollment(self: *Node, home: PeerHandle, far: model.FarRef) !ForeignEnrollment {
     const home_peer = self.peer(home) orelse return error.UnknownPeer;
-    const kind = far.kind;
     if (home_peer.session_state.foreignRouteIdFor(far.import_position)) |existing| {
-        const enrolled_kind = if (self.foreign_imports.get(existing)) |row|
-            switch (row.reference) {
-                .far => |enrolled_far| enrolled_far.kind,
-                else => kind,
-            }
-        else
-            kind;
+        const enrolled_kind = if (self.foreign_imports.get(existing)) |row| row.far.kind else far.kind;
         return .{
             .reference = .{ .routed = .{ .id = existing, .kind = enrolled_kind } },
             .abandon = null,
@@ -153,12 +129,12 @@ pub fn prepareForeignEnrollment(self: *Node, home: PeerHandle, wire: model.Refer
     try self.foreign_imports.ensureUnusedCapacity(self.allocator, 1);
     const route_id = self.next_route_id;
     try home_peer.session_state.noteForeignRouteId(far.import_position, route_id);
-    self.foreign_imports.putAssumeCapacity(route_id, .{ .peer_handle = home, .reference = wire });
+    self.foreign_imports.putAssumeCapacity(route_id, .{ .peer_handle = home, .far = far });
     self.next_route_id = .from(route_id.int() + 1);
     const activated_lowering = !self.route_lowering_active;
     self.route_lowering_active = true;
     return .{
-        .reference = .{ .routed = .{ .id = route_id, .kind = kind } },
+        .reference = .{ .routed = .{ .id = route_id, .kind = far.kind } },
         .abandon = .{
             .activated_lowering = activated_lowering,
             .home = home,
@@ -179,7 +155,6 @@ pub fn abandonForeignEnrollment(self: *Node, abandoned: ForeignEnrollmentReceipt
     home.session_state.abandonForeignRouteId(abandoned.position, abandoned.route_id);
     const removed = self.foreign_imports.fetchRemove(abandoned.route_id) orelse unreachable;
     std.debug.assert(removed.value.peer_handle == abandoned.home);
-    model.freeReference(self.allocator, removed.value.reference);
     if (abandoned.activated_lowering) {
         std.debug.assert(self.foreign_imports.count() == 0);
         self.route_lowering_active = false;
@@ -187,14 +162,13 @@ pub fn abandonForeignEnrollment(self: *Node, abandoned: ForeignEnrollmentReceipt
 }
 
 /// Enroll a fetched far import and publish its canonical route immediately.
-pub fn enrollForeign(self: *Node, home: PeerHandle, wire: model.Reference) !model.Reference {
-    return (try prepareForeignEnrollment(self, home, wire)).reference;
+pub fn enrollForeign(self: *Node, home: PeerHandle, far: model.FarRef) !model.Reference {
+    return (try prepareForeignEnrollment(self, home, far)).reference;
 }
 
 /// The connection a fetched capability route lives on.
 pub fn homeOf(self: *Node, route_id: model.CapabilityRouteId) ?PeerHandle {
-    if (foreignRoute(self, route_id)) |found| return found.peer_handle;
-    return null;
+    return (foreignRoute(self, route_id) orelse return null).peer_handle;
 }
 
 /// Whether a raw reference lacks an argument name on `default_peer`. A foreign
@@ -210,15 +184,15 @@ pub fn argIsForeign(self: *Node, default_peer: PeerHandle, reference: model.Refe
 ///
 /// Ordinary wire references return after one exhaustive tag check. Routed
 /// references pay the map lookup, and only a route homed on this connection
-/// can lower. The returned far reference is POD and moves without allocation.
-/// Cross-session redirect and re-gifting are outside this
+/// can lower. The returned far reference is plain data and moves without
+/// allocation. Cross-session redirect and re-gifting are outside this
 /// function. They choose another session and are owned by the driver and
 /// resolve interceptor.
 pub fn lowerForConn(self: *Node, peer_handle: PeerHandle, reference: model.Reference) engine.LoweringError!model.Reference {
-    if (routeIdOf(reference) == null) return reference;
-    const found = route(self, reference) orelse return error.RouteNotLowerable;
+    const id = routeIdOf(reference) orelse return reference;
+    const found = routeById(self, id) orelse return error.RouteNotLowerable;
     if (found.peer_handle != peer_handle) return error.RouteNotLowerable;
-    return found.reference;
+    return .{ .far = found.far };
 }
 
 /// Resolve a target to the connection and real reference that carries it.
@@ -231,9 +205,9 @@ pub fn routeReference(self: *Node, default_peer: PeerHandle, target: model.Refer
 /// or retired generation returns null rather than putting a Node-local id on
 /// the wire.
 pub fn routeCapability(self: *Node, route_id: model.CapabilityRouteId) ?Routed {
-    const found = route(self, .{ .routed = .{ .id = route_id } }) orelse return null;
+    const found = routeById(self, route_id) orelse return null;
     if (Internal.peerAt(self, found.peer_handle) == null) return null;
-    return .{ .peer_handle = found.peer_handle, .target = found.reference };
+    return .{ .peer_handle = found.peer_handle, .target = .{ .far = found.far } };
 }
 
 /// Retire a route once its real wire import generation is no longer live.
@@ -241,34 +215,16 @@ pub fn routeCapability(self: *Node, route_id: model.CapabilityRouteId) ?Routed {
 /// it is gone, retaining the route would let an old capability address a newly
 /// reused import position.
 pub fn retireReleasedRoute(self: *Node, route_id: model.CapabilityRouteId) void {
-    const kind: enum { redeemed, foreign } = if (self.redeemed.contains(route_id))
-        .redeemed
-    else if (self.foreign_imports.contains(route_id))
-        .foreign
-    else
-        return;
-    const route_row = switch (kind) {
-        .redeemed => self.redeemed.get(route_id).?,
-        .foreign => self.foreign_imports.get(route_id).?,
-    };
-    const home = Internal.peerAt(self, route_row.peer_handle) orelse return;
-    const position = switch (route_row.reference) {
-        .far => |far| far.import_position,
-        else => return,
-    };
-    switch (kind) {
-        .redeemed => {
-            if (home.session_state.hasImport(position)) return;
-            const removed = self.redeemed.fetchRemove(route_id).?;
-            model.freeReference(self.allocator, removed.value.reference);
-        },
-        .foreign => {
-            // A reused row may exist here. The generation, not presence,
-            // decides whether this route still belongs to it.
-            if (home.session_state.foreignRouteIdFor(position) == route_id) return;
-            const removed = self.foreign_imports.fetchRemove(route_id).?;
-            model.freeReference(self.allocator, removed.value.reference);
-        },
+    if (self.redeemed.get(route_id)) |row| {
+        const home = Internal.peerAt(self, row.peer_handle) orelse return;
+        if (home.session_state.hasImport(row.far.import_position)) return;
+        std.debug.assert(self.redeemed.remove(route_id));
+    } else if (self.foreign_imports.get(route_id)) |row| {
+        const home = Internal.peerAt(self, row.peer_handle) orelse return;
+        // A reused row may exist here. The generation, not presence,
+        // decides whether this route still belongs to it.
+        if (home.session_state.foreignRouteIdFor(row.far.import_position) == route_id) return;
+        std.debug.assert(self.foreign_imports.remove(route_id));
     }
 }
 
@@ -276,7 +232,5 @@ pub fn retireReleasedRoute(self: *Node, route_id: model.CapabilityRouteId) void 
 /// This transfers identity authority to the Host. Keeping the Node row would
 /// leave a second stale-capable handle. Foreign routes remain session-owned.
 pub fn consumeRedeemedRoute(self: *Node, route_id: model.CapabilityRouteId) bool {
-    const removed = self.redeemed.fetchRemove(route_id) orelse return false;
-    model.freeReference(self.allocator, removed.value.reference);
-    return true;
+    return self.redeemed.remove(route_id);
 }

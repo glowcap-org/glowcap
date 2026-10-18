@@ -91,8 +91,8 @@ test "loam worker refuses a second request when every slot is taken" {
     var capture: f.Capture = .{};
     try queueAdd(&fixture, &capture);
 
-    const slot = (try worker.next(fixture.attached, false)).?;
-    try std.testing.expectError(error.Busy, worker.next(fixture.attached, false));
+    const slot = (try worker.next(fixture.attached, .when_uncertain)).?;
+    try std.testing.expectError(error.Busy, worker.next(fixture.attached, .when_uncertain));
     try Worker.run(slot, &fixture.data.backend);
     try worker.complete(slot, fixture.attached);
     try worker.release(slot);
@@ -110,10 +110,10 @@ test "loam worker admits reads up to the engine's readers and still offers the w
     fixture.data.store.evict();
     try queueAdd(&fixture, &capture);
 
-    const read = (try worker.next(fixture.attached, false)).?;
+    const read = (try worker.next(fixture.attached, .when_uncertain)).?;
     try std.testing.expect(read.request == .read);
     // A slot is free, but the one read the engine admits is taken.
-    try std.testing.expectError(error.Busy, worker.next(fixture.attached, false));
+    try std.testing.expectError(error.Busy, worker.next(fixture.attached, .when_uncertain));
     try Worker.run(read, &fixture.data.backend);
     try worker.complete(read, fixture.attached);
     // The read holds its reader until release, and the write it enabled
@@ -123,7 +123,7 @@ test "loam worker admits reads up to the engine's readers and still offers the w
         try fixture.attached.advance();
         if (fixture.attached.writing != null) break;
     } else return error.DidNotStage;
-    const write = (try worker.next(fixture.attached, false)).?;
+    const write = (try worker.next(fixture.attached, .when_uncertain)).?;
     try std.testing.expect(write.request == .write);
     try worker.release(read);
     try Worker.run(write, &fixture.data.backend);
@@ -143,19 +143,19 @@ test "loam worker recovery excludes ordinary work in both directions" {
     var capture: f.Capture = .{};
     try queueAdd(&fixture, &capture);
 
-    const write = (try worker.next(fixture.attached, false)).?;
+    const write = (try worker.next(fixture.attached, .when_uncertain)).?;
     try std.testing.expect(write.request == .write);
-    try std.testing.expectError(error.Busy, worker.next(fixture.attached, true));
+    try std.testing.expectError(error.Busy, worker.next(fixture.attached, .forced));
     try Worker.run(write, UnknownCommit{ .inner = &fixture.data.backend });
     try worker.complete(write, fixture.attached);
     try std.testing.expect(fixture.data.store.phase == .uncertain);
     // The fenced write still holds a slot, so recovery waits for its release.
-    try std.testing.expectError(error.Busy, worker.next(fixture.attached, false));
+    try std.testing.expectError(error.Busy, worker.next(fixture.attached, .when_uncertain));
     try worker.release(write);
 
-    const recovery = (try worker.next(fixture.attached, false)).?;
+    const recovery = (try worker.next(fixture.attached, .when_uncertain)).?;
     try std.testing.expect(recovery.request == .recover);
-    try std.testing.expectError(error.Busy, worker.next(fixture.attached, false));
+    try std.testing.expectError(error.Busy, worker.next(fixture.attached, .when_uncertain));
     try Worker.run(recovery, &fixture.data.backend);
     try worker.complete(recovery, fixture.attached);
     try worker.release(recovery);
@@ -172,7 +172,7 @@ test "loam worker refuses to complete a slot that has not run" {
     var capture: f.Capture = .{};
     try queueAdd(&fixture, &capture);
 
-    const slot = (try worker.next(fixture.attached, false)).?;
+    const slot = (try worker.next(fixture.attached, .when_uncertain)).?;
     try std.testing.expectError(error.WorkerNotRetired, worker.complete(slot, fixture.attached));
     try std.testing.expectError(error.Busy, worker.release(slot));
     try Worker.run(slot, &fixture.data.backend);
@@ -197,7 +197,7 @@ test "loam worker leaves a sibling attachment's uncertain write to its owner" {
     var capture: f.Capture = .{};
     try queueAdd(&fixture, &capture);
 
-    const write = (try worker.next(fixture.attached, false)).?;
+    const write = (try worker.next(fixture.attached, .when_uncertain)).?;
     try Worker.run(write, UnknownCommit{ .inner = &fixture.data.backend });
     try worker.complete(write, fixture.attached);
     try worker.release(write);

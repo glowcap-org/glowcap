@@ -125,7 +125,7 @@ substrate ([ADR-0052](ADR-0052-untag-responder.md)).
 - **Computing a resolved value against a local actor model.** A drained call
   whose target resolved to a local export is re-targeted and surfaced as a
   synthesized `op:deliver` event
-  ([`Peer.deliverDrainedCallLocally`](../../../src/ocapn/engine/mod.zig)) for
+  (`pipeline.deliverDrainedCallLocally` in `src/ocapn/engine/pipeline.zig`) for
   the application to dispatch. The engine runs no method itself.
 - **Export-side listen: paired local promises retain their backing answer.** A
   listen on a live object export (held `local_value`, no inbound answer) fires

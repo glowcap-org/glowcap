@@ -383,7 +383,7 @@ test "decimal word scans agree with scalar parsing at every byte and word bounda
     for ([_]usize{ 0, 1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 19, 20, 21, 24 }) |width| {
         @memset(bytes, '1');
         var cursor: usize = 0;
-        try std.testing.expectError(error.Incomplete, syntax.readPositiveInt(bytes[0..width], &cursor));
+        try std.testing.expectError(error.MalformedFrame, syntax.readPositiveInt(bytes[0..width], &cursor));
         for ([_]usize{ 0, 8 }) |tail| {
             for (0..width + 1) |position| {
                 for (0..256) |byte| {
@@ -405,10 +405,10 @@ test "decimal word scans agree with scalar parsing at every byte and word bounda
     }
 }
 
-fn scalarDecimal(bytes: []const u8) error{ Incomplete, MalformedFrame }!u64 {
+fn scalarDecimal(bytes: []const u8) error{MalformedFrame}!u64 {
     var end: usize = 0;
     while (end < bytes.len and std.ascii.isDigit(bytes[end])) : (end += 1) {}
-    if (end == bytes.len) return error.Incomplete;
+    if (end == bytes.len) return error.MalformedFrame;
     if (end == 0 or bytes[end] != '+' or (end > 1 and bytes[0] == '0')) return error.MalformedFrame;
     return std.fmt.parseInt(u64, bytes[0..end], 10) catch error.MalformedFrame;
 }

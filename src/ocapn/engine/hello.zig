@@ -143,7 +143,7 @@ fn validateExactAdvertisedProfile(
     // allocation; folding the three reads would thread parse state through
     // the send path for a cost the wire never sees.
     const actual = try session.parsePreferenceHints(advertised.hints);
-    if (!std.meta.eql(actual, expected)) return session.Error.MalformedMessage;
+    if (!std.meta.eql(actual, expected)) return error.MalformedMessage;
 }
 
 /// This peer's hello locator: the caller's plus the preference hints this
@@ -177,7 +177,7 @@ pub fn advertisedLocator(
 pub const HelloHints = struct {
     inline_entries: [inline_hint_entries]model.HintEntry = undefined,
     allocated_entries: ?[]model.HintEntry = null,
-    codec_digits: [8]u8 = undefined,
+    codec_token: model.CodecId.HintToken = .{},
     feature_bytes: [model.FeatureSet.wire_string_max_len]u8 = undefined,
 
     pub fn deinit(self: *HelloHints, allocator: std.mem.Allocator) void {
@@ -185,23 +185,21 @@ pub const HelloHints = struct {
         self.* = .{};
     }
 
-    /// A locator's own hints plus this peer's transport-admissible
-    /// preference. A peer that prefers the baseline, or any peer
-    /// advertising onion, adds nothing and signs the byte-identical bare
-    /// locator.
     pub const Error = model.PeerLocatorValidationError || error{
         /// The caller's hint count cannot be extended without overflowing
         /// the address space.
         TooManyHints,
         /// The caller supplied a hint this peer stamps itself.
         ReservedHintName,
-        /// Hints are a dictionary. Signing duplicates produces a hello a
-        /// conforming receiver must reject.
         /// The peer preference names an open wire id with no implementation
         /// in this build. Advertising it would promise a codec we cannot use.
         UnknownCodec,
     } || std.mem.Allocator.Error;
 
+    /// A locator's own hints plus this peer's transport-admissible
+    /// preference. A peer that prefers the baseline, or any peer
+    /// advertising onion, adds nothing and signs the byte-identical bare
+    /// locator.
     pub fn extend(
         self: *HelloHints,
         allocator: std.mem.Allocator,
@@ -210,7 +208,7 @@ pub const HelloHints = struct {
         partner_known_glowcap: bool,
     ) Error!model.PeerLocator {
         std.debug.assert(self.allocated_entries == null);
-        if (!codec.registry.contains(preference.codec)) return Error.UnknownCodec;
+        if (!codec.registry.contains(preference.codec)) return error.UnknownCodec;
         try model.validatePeerLocator(supplied);
         const locator = canonicalAdvertisedLocator(supplied, partner_known_glowcap);
         const carried = locator.hints.entries;
@@ -224,7 +222,7 @@ pub const HelloHints = struct {
         // assertion would hold only in a safe build: `perf-check` and
         // `release-pack` compile it out. The overflow and allocation paths
         // are reported, as is a second profile claim in one hello.
-        if (model.firstDuplicateHintName(carried) != null) return Error.DuplicateHintName;
+        if (model.firstDuplicateHintName(carried) != null) return error.DuplicateHintName;
         for (carried) |entry| {
             // A caller that supplied the profile itself keeps its encoding:
             // replacing it would change the bytes the partner verifies the
@@ -235,7 +233,7 @@ pub const HelloHints = struct {
                 model.transport.hint_codec,
                 model.transport.hint_features,
             }) |reserved| {
-                if (std.mem.eql(u8, entry.name, reserved)) return Error.ReservedHintName;
+                if (std.mem.eql(u8, entry.name, reserved)) return error.ReservedHintName;
             }
         }
         // Onion's standardized locator is hintless: the
@@ -254,8 +252,8 @@ pub const HelloHints = struct {
             @as(usize, @intFromBool(!std.meta.eql(effective.features, baseline.features)));
         if (stamped_count == 0) return locator;
         const count = std.math.add(usize, carried.len, stamped_count) catch
-            return Error.TooManyHints;
-        if (count > model.max_locator_hint_count) return Error.TooManyHints;
+            return error.TooManyHints;
+        if (count > model.max_locator_hint_count) return error.TooManyHints;
         const entries = if (count <= self.inline_entries.len)
             self.inline_entries[0..count]
         else blk: {
@@ -268,14 +266,13 @@ pub const HelloHints = struct {
         if (effective.captp_version != baseline.captp_version) {
             entries[write] = .{
                 .name = model.transport.hint_captp_version,
-                .value = .{ .string = effective.captp_version.wireString() },
+                .value = .{ .string = effective.captp_version.hintToken() },
             };
             write += 1;
         }
         if (effective.codec != baseline.codec) {
-            // A `u16` in decimal fits five digits; the buffer holds eight.
-            const digits = std.fmt.bufPrint(&self.codec_digits, "{d}", .{@backingInt(effective.codec)}) catch unreachable;
-            entries[write] = .{ .name = model.transport.hint_codec, .value = .{ .string = digits } };
+            self.codec_token = effective.codec.hintToken();
+            entries[write] = .{ .name = model.transport.hint_codec, .value = .{ .string = self.codec_token.slice() } };
             write += 1;
         }
         if (!std.meta.eql(effective.features, baseline.features)) {
@@ -312,23 +309,12 @@ fn canonicalAdvertisedLocator(locator: model.PeerLocator, keep_profile_hints: bo
     // spelling, `#f` hints, so nothing this peer signs is undialable by
     // the pinned Goblins (ADR-0108). Routing hints stay stripped in both
     // cases: only the profile entries this peer stamps may ride.
-    if (keep_profile_hints) {
-        for (locator.hints.entries) |entry| {
-            if (!model.transport.isProfileHintName(entry.name)) {
-                return .{
-                    .transport = locator.transport,
-                    .designator = locator.designator,
-                    .hints = model.Hints.emptyFalse(),
-                };
-            }
-        }
-        return locator;
+    const bare = locator.bare();
+    if (!keep_profile_hints) return bare;
+    for (locator.hints.entries) |entry| {
+        if (!model.transport.isProfileHintName(entry.name)) return bare;
     }
-    return .{
-        .transport = locator.transport,
-        .designator = locator.designator,
-        .hints = model.Hints.emptyFalse(),
-    };
+    return locator;
 }
 
 /// Verify the partner's `op:start-session` location signature: real Ed25519

@@ -214,7 +214,13 @@ pub fn register(ctx: Context) Registered {
     // `-Doptimize`.
     const langs_host_exe = common.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-host", "bench/langs/host.zig");
     const langs_zig_client_exe = common.glowcapExecutable(b, ctx.fast_lib_mod, ctx.target, .ReleaseFast, "glowcap-langs-client-zig", "bench/langs/clients/zig_bench.zig");
-    const run_bench_langs = common.addGlowcapRun(b, .benchmark, lib_mod, ctx.target, ctx.optimize, "glowcap-langs-orchestrator", "bench/langs/orchestrator.zig");
+    const langs_orchestrator = common.glowcapExecutable(b, lib_mod, ctx.target, ctx.optimize, "glowcap-langs-orchestrator", "bench/langs/orchestrator.zig");
+    // `--pin=A,B` places every client on core A and the host on core B through
+    // the helper the two-thread benches pin with.
+    langs_orchestrator.root_module.addImport("affinity", b.createModule(.{ .root_source_file = b.path("bench/support/affinity.zig"), .target = ctx.target, .optimize = ctx.optimize }));
+    const run_bench_langs = execution.addArtifact(b, .benchmark, langs_orchestrator);
+    run_bench_langs.setCwd(b.path("."));
+    run_bench_langs.has_side_effects = true;
     // The Deno, Python, and Rust rows link the installed C ABI archives, so the
     // run needs the install step the way the binding dogfoods do.
     run_bench_langs.step.dependOn(b.getInstallStep());

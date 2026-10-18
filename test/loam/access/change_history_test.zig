@@ -25,10 +25,11 @@ fn roundTrip(allocator: std.mem.Allocator) !void {
     defer allocator.free(bytes);
     const encoded = try frame(allocator, records.profile.change_batch, bytes, &.{});
     defer allocator.free(encoded);
-    var decoded = try records.ChangeBatchRecord.decodeOwned(allocator, try f.loam.core.RecordView.decode(encoded, f.limits.records, &f.schemas));
+    var decoded: records.ChangeBatchRecord = undefined;
+    try decoded.decodeOwned(allocator, try f.loam.core.RecordView.decode(encoded, f.limits.records, &f.schemas));
     defer decoded.deinit(allocator);
     @memset(encoded, 0);
-    try std.testing.expectEqualDeep(batch, decoded.value);
+    try std.testing.expectEqualDeep(batch, decoded);
 }
 
 test "access retained batch owns paths including full generation width and unwinds failures" {
@@ -39,8 +40,8 @@ test "access retained batch owns paths including full generation width and unwin
     for (0..bytes.len) |length| {
         const encoded = try frame(a, records.profile.change_batch, bytes[0..length], &.{});
         defer a.free(encoded);
-        if (records.ChangeBatchRecord.decodeOwned(a, try f.loam.core.RecordView.decode(encoded, f.limits.records, &f.schemas))) |value| {
-            var owned = value;
+        var owned: records.ChangeBatchRecord = undefined;
+        if (owned.decodeOwned(a, try f.loam.core.RecordView.decode(encoded, f.limits.records, &f.schemas))) {
             owned.deinit(a);
             return error.AcceptedTruncation;
         } else |_| {}
@@ -87,7 +88,8 @@ fn stagingFailure(allocator: std.mem.Allocator, reached: *bool) !void {
     var fixture = try f.Fixture.init(allocator, f.limits);
     defer fixture.deinit();
     const owner_object = try f.create(&fixture.store, &fixture.backend, owner);
-    var read = try f.storage.Read.init(allocator, &fixture.store, owner_object, 1);
+    var read: f.storage.Read = undefined;
+    try read.init(allocator, &fixture.store, owner_object, 1, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, &fixture.backend);
     var append = try f.storage.Append.init(&read, .resource);

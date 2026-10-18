@@ -81,6 +81,20 @@ pub fn register(
     b.step("bench-capnp", "Cap'n Proto RPC echo round trip in Rust and C++ for the comparison table on the benchmarks page (needs capnp, cargo, g++)")
         .dependOn(&run_bench_capnp.step);
 
+    // One bench alternated between an archived base revision and this tree,
+    // ReleaseFast on both sides, read from the bench's own key=number rows.
+    const ab_mod = b.createModule(.{ .root_source_file = b.path("tools/ab/compare.zig"), .target = b.graph.host, .optimize = .Debug });
+    const ab = b.addExecutable(.{ .name = "bench-ab", .root_module = ab_mod });
+    const run_ab = execution.addArtifact(b, .benchmark, ab);
+    run_ab.setCwd(b.path("."));
+    run_ab.has_side_effects = true;
+    run_ab.addArg(b.graph.zig_exe);
+    run_ab.addPassthruArgs();
+    b.step("bench-ab", "Run one bench alternately on a base revision and this tree, ReleaseFast, and print each row's medians side by side: -- --base=<rev> [--pairs=N] <bench-step> [bench args]").dependOn(&run_ab.step);
+    const ab_tests = execution.addZigTest(b, b.addTest(.{ .root_module = ab_mod }), .unit_test);
+    b.step("bench-ab-test", "Unit-test the row reader behind bench-ab").dependOn(&ab_tests.step);
+    check_step.dependOn(&ab_tests.step);
+
     for (benches) |bench| {
         const exe = glowcapExecutable(b, lib_mod, target, optimize, bench.name, bench.path);
         if (bench.needs_persistent) {

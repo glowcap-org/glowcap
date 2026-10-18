@@ -6,8 +6,7 @@ sources: []
 
 # What you can depend on
 
-glowcap has no stable release yet. The table below lists the checks for each
-area and what they leave open. Some checks run on every main or dev push.
+glowcap has no stable release yet. Some checks run on every main or dev push.
 Others need external runtimes or network access and run on demand. None is a
 compatibility or security promise.
 
@@ -34,7 +33,7 @@ change a deployment, read [known limitations](boundaries.md).
 | Rust, Deno, Python, and Racket bindings | Each binding holds live Goblins sessions in both directions and takes both handoff roles, as community review details. | Bun cannot host the driver loop. |
 | TypeScript on Bun | The `bun-dogfood` consumer check covers Host identity and lifetime, locator and sturdyref ABI calls, and that Bun refuses driver listeners before allocating a loop. | Bun's synchronous FFI cannot host the C driver or blocking transport lifecycles. No Goblins check runs on Bun. |
 | Zig driver and actor layer | Session, Host, handoff, turn-loop, hosting, and snapshot tests run under `check`. | These are glowcap's own APIs with no outside implementation to compare. |
-| Loam storage | Record, actor, managed-access and reference-field contracts run under `zig build test`, and `loam-lmdb-test` and `loam-sqlite-test` run one storage suite over each disk engine. Process-kill tests interrupt writes, actor turns, managed changes, collection sweeps and compaction on both engines, then verify the store in a fresh process. On Linux, `loam-io-fault-test` injects errors before and after writes and syncs, plus short writes, and verifies atomic records and truthful commit outcomes after exit without cleanup. It also fails reads, returns short reads, and cuts data files short on both engines, including under a value the caller is still reading. Every process must survive, every injected failure must fire, and each sweep of cuts must end on an intact read. `loam-abi-test` and `loam-rust-test` prove the C and Rust profile, and `loam-browser-test` drives it under Chromium through IndexedDB. The session codec graph passes cold reopening on both disk engines under `rooms-rust-test` and Chromium page reload under `rooms-rust-browser-host-test`. Example chapter 07 restarts a store under `check`. | Recovery tests cover process loss and injected syscall failures, not power loss, reordered writes, faults in the small mapped files engines use to coordinate, or arbitrary damaged pages. The read tests empty Loam's record cache but not the OS file cache. The macOS process probes have no recorded successful run. Complete Rooms physical capacity and runtime adoption remain open. |
+| Loam storage | Record, actor, managed-access and reference-field contracts run under `zig build test`, and `loam-lmdb-test` and `loam-sqlite-test` run one storage suite over each disk engine. Process-kill tests interrupt writes, actor turns, managed changes, collection sweeps and compaction on both engines, then verify the store in a fresh process. On Linux, `loam-io-fault-test` injects errors before and after writes and syncs, plus short writes, and verifies atomic records and truthful commit outcomes after exit without cleanup. It also fails reads, returns short reads, and cuts data files short on both engines, including under a value the caller is still reading. Every process must survive, every injected failure must fire, and each sweep of cuts must end on an intact read. `loam-abi-test` and `loam-rust-test` prove the C and Rust profile, and `loam-browser-test` drives it under Chromium through IndexedDB. The session codec graph passes cold reopening on both disk engines under `rooms-rust-test` and Chromium page reload under `rooms-rust-browser-host-test`. Example chapter 07 restarts a store under `check`. | Recovery tests cover process loss and injected syscall failures, not power loss, reordered writes, faults in the small mapped files engines use to coordinate, or arbitrary damaged pages. The read tests empty Loam's record cache but not the OS file cache. The macOS process probes have no recorded successful run. Complete Rooms physical capacity and runtime adoption remain open. Managed access has no test for a panic during a commit, or for retiring an owner while unrelated actors keep running. |
 | Distributed GC | Live Goblins checks prove release in both directions from Zig and every binding, as community review details. | Automatic capability finalizers have in-tree checks. The live binding checks finalize answer wrappers and release capability handles explicitly. |
 | Relay | Every runtime runs TCP, backpressure, idle-reclaim, and iroh checks. The Deno relay also carries a live Goblins session. | The Goblins interoperability check does not run through the Python, Rust, or Racket relays. |
 | Rooms | `goblins-rooms` and `goblins-rooms-irc` put a real Goblins vat in a room, as community review details. The recurring `demo-rooms` tour puts every one-shot client in one room. `rooms-web-proofs` runs every shipped-page journey in Chromium, including direct messages, durable and shared sessions, private rooms, routing, management, reconnect, archive, and trace lifecycles. In-tree checks cover room authority, operator revocation, the bounded browser state bundle, archives, and a durable session peer with two attached OCapN clients, room events, interaction, revocation, restart, and effects whose outcome is unknown. | The four-peer iroh matrix runs on demand because it needs iroh and a live Goblins vat. |
@@ -45,10 +44,10 @@ change a deployment, read [known limitations](boundaries.md).
 | Windows | Nothing. | Windows and an IOCP completion backend are not implemented. |
 | Untrusted-input and mutation tests | Bounded malformed-input tests and coverage-guided mutation runs cover codecs, framing, the Noise handshake and sealed channel, sessions, handoff, locators, the host, actors, and persistent collections. The protocol core and actors tests also run under valgrind, and the whole suite runs in ReleaseSafe. | The per-push fuzz budget is shallow and the nightly search is one machine for a few hours, and most assertions are written by glowcap. |
 
-An outside check applies only to the boundary it crosses. A live iroh
-endpoint checks the transport stack, not agreement with another CapTP
-implementation. A live Goblins session checks protocol interop, not API
-stability.
+An outside check covers only the boundary it crosses. A live iroh endpoint
+tests the transport stack and says nothing about agreeing with another CapTP
+implementation. A live Goblins session tests protocol interop and says nothing
+about API stability.
 
 These results hold only when the
 [checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
@@ -56,9 +55,8 @@ is green for the commit you are evaluating. No row freezes an API or ABI.
 
 ## Which checks recur
 
-The [checks workflow](../.github/workflows/check.yml) runs every step in
-[`ci/gates.sh`](../ci/gates.sh) on main and dev pushes. A pull request runs
-only the Zig tests and the format check, and a nightly schedule runs
-`zig build fuzz` for longer. A check not in that
-script is manual. It may still be useful, but a regression can survive
-until somebody runs it.
+[`ci/gates.sh`](../ci/gates.sh) owns the full validation sequence.
+The [checks workflow](../.github/workflows/check.yml) runs it on pushes to
+`main` and `dev` and on pull requests that target `main`.
+A check outside that script is manual. It may still be useful, but a regression
+can survive until somebody runs it.

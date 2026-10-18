@@ -30,10 +30,12 @@ const Source = struct {
     }
 };
 
-fn loadGrant(store: *loam.Store, db: *fixture.Engine, id: loam.ObjectId) !records.GrantRecord.Owned {
+fn loadGrant(store: *loam.Store, db: *fixture.Engine, id: loam.ObjectId) !records.GrantRecord {
     const lease = try f.load(store, db, id);
     defer store.release(lease) catch unreachable;
-    return records.GrantRecord.decodeOwned(a, (try store.currentView(lease)).payload);
+    var value: records.GrantRecord = undefined;
+    try value.decodeOwned(a, (try store.currentView(lease)).payload);
+    return value;
 }
 
 fn putEncoded(store: *loam.Store, id: loam.ObjectId, value: anytype, expected: ?u64, edges: []const loam.Edge) !void {
@@ -95,7 +97,7 @@ test "loam engine commits access content and change records together through unc
         store.evict();
         var loaded = try loadGrant(&store, &db, grant_object);
         defer loaded.deinit(a);
-        const source: Source = .{ .grant = loaded.value.grant, .resources = graph.revision() };
+        const source: Source = .{ .grant = loaded.grant, .resources = graph.revision() };
         var grants = source.view();
         var resources = graph.readView();
         const req: access.Policy.Requirement = .{ .permissions = &.{permission} };
@@ -135,16 +137,17 @@ test "loam engine commits access content and change records together through unc
         try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
         var restored = try loadGrant(&store, &db, grant_object);
         defer restored.deinit(a);
-        const restored_source: Source = .{ .grant = restored.value.grant, .resources = graph.revision() };
+        const restored_source: Source = .{ .grant = restored.grant, .resources = graph.revision() };
         grants = restored_source.view();
         if (commit_write) {
             try std.testing.expectError(error.Revoked, grants.require(&resources, &policy, initial.id, resource, req));
             const lease = try f.load(&store, &db, event_object);
             const row = try store.currentView(lease);
-            var event = try records.ChangeBatchRecord.decodeOwned(a, row);
+            var event: records.ChangeBatchRecord = undefined;
+            try event.decodeOwned(a, row);
             defer event.deinit(a);
-            try std.testing.expectEqualDeep(changes.event, event.value.effects[0].grant.change);
-            try std.testing.expectEqual(grants.version.revisions.grants, event.value.effects[0].grant.change.version.grants);
+            try std.testing.expectEqualDeep(changes.event, event.effects[0].grant.change);
+            try std.testing.expectEqual(grants.version.revisions.grants, event.effects[0].grant.change.version.grants);
             try std.testing.expectEqual(@as(u64, 3), row.revision);
             try store.release(lease);
         } else {

@@ -138,11 +138,21 @@
   (define m (regexp-match (regexp (format "\"~a\":\"?([^,\"}]+)\"?" key)) line))
   (and m (cadr m)))
 
+;; Stop a server the way an operator would: the interrupt lets it close its
+;; listener and runtime, and only a server that ignores the interrupt is
+;; killed. A glowcap server killed outright leaves its armed operations for the
+;; kernel to cancel, which on some kernels keeps exit work spinning for a long
+;; time after the process is gone.
+(define (stop-server! proc)
+  (subprocess-kill proc #f)
+  (unless (sync/timeout 5 proc) (subprocess-kill proc #t))
+  (subprocess-wait proc))
+
 ;; One attempt of suite×backend on a fresh server/port.
 (define (bench-one-attempt suite backend)
   (define port (next-port!))
   (define-values (proc pid) (start-server backend suite port))
-  (with-handlers ([(lambda (_) #t) (lambda (e) (subprocess-kill proc #t) (raise e))])
+  (with-handlers ([(lambda (_) #t) (lambda (e) (stop-server! proc) (raise e))])
     (sleep 0.3)
     (define lat (run-client backend suite port "latency" LAT-N))
     (define tput (run-client backend suite port "throughput" TPUT-N))
@@ -151,8 +161,7 @@
     ;; held-open measured batch. The throwaway warmup connections are held through
     ;; both samples, so they cancel in the delta.
     (define-values (conn-line base-rss loaded-rss) (run-connections backend suite port pid CONNS))
-    (subprocess-kill proc #t)
-    (subprocess-wait proc)
+    (stop-server! proc)
     (hash-set! results (list suite backend)
                (list (cons 'p50 (jf lat "p50_ms"))
                      (cons 'p99 (jf lat "p99_ms"))

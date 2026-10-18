@@ -193,7 +193,7 @@ pub fn glowcap_loam_next_work(raw: ?*GlowcapLoamAttachment, recovery: u32, out_w
     slot.* = null;
     if (recovery > 1) return common.code(error.InvalidArgument);
     const owner = attached.attachment(raw) catch |err| return common.code(err);
-    const next = works.Work.next(owner, recovery == 1) catch |err| return common.code(err);
+    const next = works.Work.next(owner, if (recovery == 1) .forced else .when_uncertain) catch |err| return common.code(err);
     slot.* = if (next) |value| @ptrCast(value) else null;
     return shared.GLOWCAP_OK;
 }

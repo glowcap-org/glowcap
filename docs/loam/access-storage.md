@@ -18,7 +18,7 @@ and runs its work outside the Host's message handling.
 the decision, and the [access architecture](access-architecture.md) lists the
 decision behind each part that exists.
 
-The guides cover each operation:
+The managed access guide describes each operation:
 
 - [Resource moves, deletion, and children](access.md#resource-moves-deletion-and-children):
   listing children from Zig, tree changes in hosted calls, and what watchers
@@ -63,12 +63,10 @@ nobody is using needs no actor in memory.
 The tree and grant records reserve their whole record capacity in memory.
 That layout stays out of every ABI so it can change.
 
-## A database of capabilities
+## Content and access in one transaction
 
-Managed access gives an application's stored object graph its resources and
-grants, and Loam commits content, references, and managed access records in
-the same transaction. Together they behave as a database whose values are
-capabilities. Managed access is not a general storage engine.
+Loam commits an application's content, its stored references, and the managed
+access records for its resources and grants in the same transaction.
 
 A held resource reference allows its operations under current permissions,
 and a stored reference is a value whose access can be restored. Row keys,
@@ -76,7 +74,7 @@ index entries, and SQL connections are never exposed. Whoever runs the
 storage engine controls everything stored in it, so managed access does not
 protect an application from its own database administrator.
 
-Six properties hold:
+These rules hold:
 
 1. Content and the references that carry access commit at the same revision.
 2. Saving, copying, loading, and passing a reference keep its access. A new
@@ -90,7 +88,7 @@ Six properties hold:
 5. Evicting a record changes only what is in memory. Deleting, revoking, and
    retiring a durable name change stored state through their own operations
    and stay in effect after recovery and compaction.
-6. The engine stores records. One shared Zig implementation decides access,
+6. The engine only stores records, and one shared Zig implementation decides access,
    including when data loads late, a write's outcome is unknown, or a call
    resumes.
 
@@ -200,19 +198,15 @@ database gives no atomic control across owners.
 
 | Record | What it stores and how it is found |
 | --- | --- |
-| Owner | Stable owner ID, format and schema identities, a commit revision that only goes up, the highest IDs allocated, the writer generation that stops stale writers, and the oldest receipt and event still kept. Looked up by owner. |
+| Owner | Stable owner ID, format and schema identities, a commit revision that only goes up, the highest IDs allocated. Looked up by owner. |
 | Resource | Stable ID and generation, kind, status, parent, content revision, and content key. Children indexed by owner, parent, and a stable ordering key. |
 | Content | Application records and the facts permissions depend on, at the resource's committed content revision. Application indexes join the same transaction. |
 | Content reference | The resource and field holding it, the exact stored capability recipe, any narrowing, and the edges that keep it alive. Outgoing references and incoming durable dependencies are indexed. |
 | Use grant | Grant ID, target or scope, the limit it was issued with, its terms, status, parent and dependencies, how far it can be shared, and revision. Direct children indexed by parent grant. |
 | Grant control | Stable control identity, the grant or scope it manages, its limit, allowed operations, status, and dependencies. A control never yields use access unless it was granted. |
 | Durable name | The Host's durable name identity, the exact recipe for restoring the original, use, or control capability, the target's generation, and dependencies. Looked up directly by name. No shortcut from a resource ID to the original. |
-| Held dependency | The exact local capability recipe or a kept remote sturdyref, the source owner, how long it lives, and its role. Dependents indexed for bounded cleanup. |
-| Receipt | Owner and request identity, the capability it came through, a digest of the request, the committed revision, the result and durable name identities, and when it is retired. Looked up by request. |
-| Change event | A sequence number per owner, the commit revision, the kind of event, and the affected resource or grant branch. Kept in order. Delivery still checks the watcher's permissions. |
-| Retirement data | The highest IDs ever used, dead generations, and retired durable names, kept to refuse old access after compaction. |
 
-The table is the full planned set. Owner, resource, grant, and bounded
+Owner, resource, grant, and bounded
 change-batch records are stored as ordinary Loam records. Sparse four-level directories
 map resource and grant slots to Loam object references. The owner header
 keeps the directory roots and saves the full policy. Strong edges between
@@ -221,7 +215,15 @@ and SQLite engines all run this layout.
 
 The directories add a bounded number of lookups above the engine's own index,
 so measure that cost before adding an index for one engine. An index never
-authorizes a result without checking the current record.
+authorizes a result without checking the current record. The one index that
+exists is engine-neutral and resident: `Capabilities` keeps the last few
+owners' decoded headers and resolved directory slots at their committed header
+revision, because a directory edit always re-proposes the header. A repeat
+operation on one of those owners copies the header and binds each demanded
+slot without walking, and a transaction that has staged the owner bypasses
+the index until commit. A committed resource row decodes once per revision:
+the binding keeps its reply for the Read, and the index keeps it for the
+next Read at the same revision.
 
 Managed access owns a versioned record encoding, built on Syrup, with field
 names, limits, and schema identities.
@@ -238,8 +240,7 @@ names, limits, and schema identities.
 Durable name secrets and kept remote sturdyrefs grant access to whoever holds
 them. Store, back up, and redact them in logs the way your program handles
 other secrets, and never include them when exporting resource metadata.
-Encryption and backup keys belong to whoever runs the deployment, because an
-opaque encoding protects nothing.
+Encryption and backup keys belong to whoever runs the deployment.
 
 Application content is never copied wholesale into Zig. A prepared operation
 owns a bounded batch of content changes, or a content participant that runs
@@ -266,8 +267,8 @@ it.
 One engine transaction compares the owner, writer, and content revisions and
 writes content, relationships, grants, controls, durable names, indexes, the
 receipt, and events. It moves the owner revision forward once. An operation
-stores only what changed, and the storage worker reads no decisions into
-storage errors.
+stores only what changed, and the storage worker never turns a storage error
+into an access decision.
 
 An unknown outcome blocks protected access to that owner. Recovery waits for
 the old write to finish, then looks up its receipt from a view the engine
@@ -333,8 +334,8 @@ One synchronous interface for viewing records lets the same Zig scope,
 sharing, and transaction code run on records in memory and on disk. A lookup
 returns a checked record, a known absence, or a typed request for missing
 records. Storage workers supply records and revisions, never answers such as
-"is an ancestor" or "allowed". A record that is not loaded is not a missing
-resource and must never produce `Gone`.
+"is an ancestor" or "allowed". A record that is not loaded leads to a read
+request, and only a confirmed absence produces `Gone`.
 
 An operation that needs records from disk keeps a bounded record of where it
 is: its capability, requirements, targets, requested keys, and expected
@@ -363,8 +364,8 @@ snapshot cannot overwrite newer records in memory.
 Pinned, changed, and prepared bytes have their own limits, apart from cache
 bytes that can be evicted. A check reserves its memory before taking the
 write slot, and reports pressure instead of starting a transaction it cannot
-finish. Eviction drops only unpinned, unchanged records, and never revokes a
-capability, destroys content, or needs a durable write. Opening an owner
+finish. Eviction drops only unpinned, unchanged records and changes nothing
+stored. Opening an owner
 allocates nothing in proportion to a large store on disk.
 
 The tree stores parent edges. Depth is computed or a checked index value, so
@@ -497,8 +498,7 @@ identities. An old grant, control, or durable name identity is never reused,
 a slot is never read as something else after its generation resets, and an
 expired receipt never allows issuing again. A missing ancestor that was
 compacted away refuses access, and surviving dependents never become roots of
-their own. Measure freeing space and the storage for retired IDs under
-sustained issuing and revoking.
+their own.
 
 A backup must keep one consistent owner revision, the durable name and
 restore records, schemas, and the lowest valid sequences for retirement and
@@ -510,8 +510,7 @@ Restoring an older backup under the same public identity can undo later
 revokes. Recovering under the same identity therefore needs the complete
 history, including committed revisions that may already have been seen, and
 cannot roll back behind changes that were confirmed. Otherwise restore as a
-new owner with new durable names, and share again. A snapshot alone cannot
-make revokes stick through a rollback.
+new owner with new durable names, and share again.
 
 ## Performance contract and measurements
 
@@ -528,12 +527,11 @@ and the final commit make no general-purpose allocations in managed access.
 Loading from disk and issuing grants have allocation limits set by their
 tests.
 
-Each workload below names what its measurement must show. Its numbers
-describe test inputs, not capacity or latency claims.
-`zig build bench-loam -- --scale-only` measures indexed reads from disk,
-`zig build loam-browser-test` counts browser crossings and copies per
-operation, and the [roadmap](../roadmap.md#durable-applications) tracks the
-rest.
+The numbers below are test inputs.
+`zig build bench-loam -- --scale-only` measures indexed reads from disk.
+`zig build loam-browser-test` checks atomic browser storage, ownership,
+cancellation, sharing, and restoring after a page reload. The
+[roadmap](../roadmap.md#durable-applications) tracks the rest.
 
 | Workload | What it must show |
 | --- | --- |

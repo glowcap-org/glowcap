@@ -35,6 +35,13 @@ pub fn publish(
     return self.retainReservedLocalCapability(reservation, exported.ref);
 }
 
+/// `prepareLocalCapability` for a hosted actor, which transfers on every
+/// outcome: a refused reservation frees its context here.
+fn prepareHostedCapability(self: *Host, session: ?*HostSession, hosted: actors.HostedActor) !capability.FreshLocalReservation {
+    errdefer hosted.discard();
+    return prepareLocalCapability(self, session);
+}
+
 /// Foreign-callback twin of `publish`. Adapters construct only the HostedActor
 /// trampoline. The ownership transaction stays here.
 pub fn publishHosted(
@@ -43,12 +50,7 @@ pub fn publishHosted(
     name: []const u8,
     hosted: actors.HostedActor,
 ) !capability.Ref {
-    var hosted_pending = true;
-    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
-
-    const reservation = try prepareLocalCapability(self, session);
-
-    hosted_pending = false;
+    const reservation = try prepareHostedCapability(self, session, hosted);
     const exported = try session.served.publishHosted(&self.vat, name, hosted);
     return self.retainReservedLocalCapability(reservation, exported.ref);
 }
@@ -74,12 +76,7 @@ pub fn spawnHosted(
     session: ?*HostSession,
     hosted: actors.HostedActor,
 ) !capability.Ref {
-    var hosted_pending = true;
-    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
-
-    const reservation = try prepareLocalCapability(self, session);
-
-    hosted_pending = false;
+    const reservation = try prepareHostedCapability(self, session, hosted);
     const actor = try self.vat.spawnHosted(hosted);
     errdefer self.vat.discardFreshActor(actor);
     return self.adoptReservedLocalCapability(reservation, actor);

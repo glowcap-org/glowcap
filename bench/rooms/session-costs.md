@@ -10,8 +10,8 @@ sources:
 # Rooms session cost measurements
 
 Measured against baseline commit `25d35d380` on 2026-10-09, using the pinned
-development container. These are allocation and traversal counts, not network latency or
-user-visible response time.
+development container. Most tables are allocation and traversal counts, not network latency or
+user-visible response time. The work admission section reports timings.
 
 ## Host route ownership
 
@@ -77,8 +77,7 @@ zig build rooms-rust-test rooms-server-test rooms-managed-rooms-browser-test
 ```
 
 The [memory ledger](../../.agents/skills/memory-ledger/SKILL.md) inventories the
-remaining owners. Cost budgets establish the measured shape. Protocol and browser
-scenarios establish behavior.
+remaining owners.
 
 ## Work admission
 
@@ -98,7 +97,7 @@ guarantee or statistical equivalence.
   forwarding and terminal observation. Each collaborator is warmed once before
   measurement.
 - A real target receives every command exactly once, with no external network
-  hop. The baseline uses the identical scenario with the new startup
+  hop. The baseline uses the identical scenario with the startup
   configuration call omitted.
 - The TCP medians differ by about 5%, within overlapping sample ranges. The
   shared medians differ by less than 1%. Neither result isolates admission CPU

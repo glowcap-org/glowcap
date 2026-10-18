@@ -14,13 +14,12 @@ const resolution_math = @import("pipeline_resolution.zig");
 const resolution_chain = @import("resolution_chain.zig");
 const Peer = engine.Peer;
 const borrowedListenerFire = resolution_math.borrowedListenerFire;
-fn classifyTerminalListenerDrain(peer: *const Peer, entry: session.ListenerEntry, resolution: model.Resolution) resolution_math.TerminalDrainAction {
-    return resolution_math.classifyTerminalListenerDrain(entry, resolution, peer.session_state.captp_version);
+fn classifyTerminalListenerDrain(peer: *const Peer, entry: session.ListenerEntry, resolution: model.Resolution) resolution_math.ListenerDrainAction {
+    return resolution_math.classifyListenerDrain(entry, resolution, peer.session_state.captp_version);
 }
 
 const InboundListenClass = union(enum) {
     answer: model.AnswerName,
-    third_party_import: model.ImportPosition,
     live_export: model.ExportPosition,
 };
 
@@ -28,9 +27,6 @@ fn classifyInboundListenTarget(peer: *Peer, listen: model.view.Listen) InboundLi
     switch (listen.target) {
         .promise => |promise| return .{ .answer = .fromWire(promise.answer_position) },
         .near => |near| {
-            const as_import = model.ImportPosition.from(near.export_position.int());
-            if (peer.session_state.isThirdPartyImport(as_import))
-                return .{ .third_party_import = as_import };
             if (peer.session_state.exportSlot(near.export_position)) |export_slot| {
                 if (export_slot == .local_unresolved) if (peer.session_state.answerForLocalPromiseExport(near.export_position)) |answer|
                     return .{ .answer = answer };
@@ -48,7 +44,6 @@ pub fn maybeInstallInboundListener(peer: *Peer, listen: model.view.Listen) !void
     try peer.session_state.validateInboundListen(listen);
     switch (classifyInboundListenTarget(peer, listen)) {
         .answer => |answer| try installAnswerListener(peer, answer, listen),
-        .third_party_import => |import_position| try installThirdPartyImportListener(peer, import_position, listen),
         .live_export => |export_position| try installExportListener(peer, export_position, listen),
     }
 }
@@ -57,30 +52,9 @@ pub fn maybeInstallInboundListener(peer: *Peer, listen: model.view.Listen) !void
 /// spends it or when the listener is discarded. It is never an application
 /// reference, so no caller's `op:gc-exports` may address it.
 fn listenerEntryFromListen(peer: *Peer, listen: model.view.Listen) !session.ListenerEntry {
-    const position = listen.listener.position() orelse return session.Error.InvalidReference;
+    const position = listen.listener.position() orelse return error.InvalidReference;
     try peer.session_state.retainImportForSession(model.ImportPosition.from(position));
     return .{ .listener = model.FarRef.object(position), .mode = listen.mode };
-}
-
-fn installThirdPartyImportListener(peer: *Peer, import_position: model.ImportPosition, listen: model.view.Listen) !void {
-    const listener_entry = try listenerEntryFromListen(peer, listen);
-    var retain_live = true;
-    errdefer if (retain_live)
-        peer.session_state.releaseSessionImportRetain(listener_entry.listener.import_position);
-    if (peer.session_state.importedPromiseStoredResolution(import_position)) |resolution| {
-        const row = peer.session_state.findImportedPromise(import_position).?;
-        try applyStoredListener(
-            peer,
-            .{
-                .target = .{ .import = .{ .position = import_position, .row_id = row.cell.row_id } },
-                .stored = resolution,
-            },
-            listener_entry,
-        );
-    } else {
-        try peer.session_state.installImportedPromiseListener(import_position, listener_entry);
-    }
-    retain_live = false;
 }
 
 fn installAnswerListener(peer: *Peer, answer: model.AnswerName, listen: model.view.Listen) !void {
@@ -89,14 +63,11 @@ fn installAnswerListener(peer: *Peer, answer: model.AnswerName, listen: model.vi
     errdefer if (retain_live)
         peer.session_state.releaseSessionImportRetain(listener_entry.listener.import_position);
     if (peer.session_state.peekStoredResolutionNamed(answer)) |resolution| {
-        const target = peer.session_state.answerTargetNamed(answer) orelse return session.Error.InvalidReference;
-        const payload = peer.session_state.answerPayloadForTarget(target) orelse return session.Error.InvalidReference;
+        const target = peer.session_state.answerTargetNamed(answer) orelse return error.InvalidReference;
+        const payload = peer.session_state.answerPayloadForTarget(target) orelse return error.InvalidReference;
         try applyStoredListener(
             peer,
-            .{
-                .target = .{ .answer = .{ .target = target, .payload = payload } },
-                .stored = resolution,
-            },
+            .{ .target = .{ .target = target, .payload = payload }, .stored = resolution },
             listener_entry,
         );
     } else {
@@ -112,7 +83,7 @@ fn installExportListener(peer: *Peer, export_position: model.ExportPosition, lis
             return;
         }
     }
-    return session.Error.InvalidReference;
+    return error.InvalidReference;
 }
 
 fn fireLiveObjectExportListener(peer: *Peer, export_position: model.ExportPosition, listen: model.view.Listen) !void {
@@ -133,43 +104,23 @@ fn fireLiveObjectExportListener(peer: *Peer, export_position: model.ExportPositi
 pub fn prepareAnswerListenerDrain(
     peer: *Peer,
     payload: *session.AnswerPayload,
-    outcome: ?resolution_chain.Outcome,
+    outcome: resolution_chain.Outcome,
 ) !PreparedListenerDrain {
     const listeners = try peer.session_state.takeAnswerPayloadListeners(payload);
-    return prepareListenerDrainPlan(
-        peer,
-        .{ .answer = payload },
-        listeners,
-        if (listeners.len == 0)
-            .{ .terminal_break = "" }
-        else
-            // Listeners on the payload made `has_consequences` true at the
-            // one caller (`Peer.stepPending`'s settled-answer arm), which
-            // then always ran the chain walk, so a null outcome cannot
-            // coincide with listeners to drain.
-            listenerDrainPlan(outcome orelse unreachable),
-    );
+    return prepareListenerDrainPlan(peer, payload, listeners, listenerDrainPlan(outcome));
 }
 
-const ListenerSource = union(enum) {
-    answer: *session.AnswerPayload,
-    import: model.ImportPosition,
-
-    fn restore(self: ListenerSource, peer: *Peer, listeners: []session.ListenerEntry) void {
-        switch (self) {
-            .answer => |payload| peer.session_state.restoreAnswerPayloadListeners(payload, listeners),
-            .import => |position| peer.session_state.restoreImportedPromiseListeners(position, listeners),
-        }
-    }
-};
-
+/// What a settled source does with its listeners: re-anchor them on the
+/// pending incarnation the chain reached, or fire each with one resolution
+/// borrowed from one payload owner.
 const ListenerDrainPlan = union(enum) {
-    terminal_break: []const u8,
     reinstall: session.AnswerTarget,
-    drain: struct {
-        target: engine.StoreTarget,
+    fire: Fire,
+
+    const Fire = struct {
+        target: engine.FireTarget,
         resolution: model.Resolution,
-    },
+    };
 };
 
 fn terminalBreak(message: []const u8) model.Resolution {
@@ -182,34 +133,21 @@ fn applyStoredListener(
     entry: session.ListenerEntry,
 ) !void {
     switch (listenerDrainPlan(resolution_chain.follow(peer, first))) {
-        .terminal_break => |message| switch (classifyTerminalListenerDrain(peer, entry, terminalBreak(message))) {
-            .fire => |position| try enqueueFire(
-                peer,
-                position,
-                .{ .static_break = message },
-                terminalBreak(message),
-            ),
-            .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
-        },
         .reinstall => |target| {
             var prepared = try peer.session_state.prepareListenerBatchTarget(target, 1);
             errdefer prepared.abandon(&peer.session_state);
             prepared.commit(&.{entry});
         },
-        .drain => |stored| switch (classifyTerminalListenerDrain(peer, entry, stored.resolution)) {
-            .fire => |position| try enqueueFire(
-                peer,
-                position,
-                .{ .store = stored.target },
-                stored.resolution,
-            ),
+        .fire => |fire| switch (classifyTerminalListenerDrain(peer, entry, fire.resolution)) {
+            .fire => |position| try enqueueFire(peer, position, fire.target, fire.resolution),
             .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
         },
     }
 }
 
 pub const PreparedListenerDrain = struct {
-    source: ListenerSource,
+    /// The payload whose listeners were taken; `abandon` gives them back.
+    source: *session.AnswerPayload,
     listeners: []session.ListenerEntry,
     plan: ListenerDrainPlan,
     reservation: ?Peer.PendingReservation = null,
@@ -220,6 +158,13 @@ pub const PreparedListenerDrain = struct {
     /// prepare so the infallible commit records each fire's mentions from it.
     inventory: session.Inventory = .none,
 
+    /// A drain with nothing to do, for an answer that had no listeners.
+    pub fn none(source: *session.AnswerPayload) PreparedListenerDrain {
+        return .{ .source = source, .listeners = &.{}, .plan = idle_plan };
+    }
+
+    const idle_plan: ListenerDrainPlan = .{ .fire = .{ .target = .{ .static_break = "" }, .resolution = terminalBreak("") } };
+
     pub fn abandon(self: *PreparedListenerDrain, peer: *Peer) void {
         const source = self.source;
         self.inventory.deinit(peer.allocator);
@@ -227,13 +172,12 @@ pub const PreparedListenerDrain = struct {
             for (0..self.reserved) |_| peer.cancelPendingReservation(reservation);
         }
         if (self.target_retains != 0) {
-            std.debug.assert(self.plan == .drain);
-            for (0..self.target_retains) |_|
-                releaseFireTarget(peer, self.plan.drain.target);
+            std.debug.assert(self.plan == .fire);
+            for (0..self.target_retains) |_| releaseFireTarget(peer, self.plan.fire.target);
         }
         if (self.reinstall_prepared) |*prepared| prepared.abandon(&peer.session_state);
-        source.restore(peer, self.listeners);
-        self.* = .{ .source = source, .listeners = &.{}, .plan = .{ .terminal_break = "" } };
+        peer.session_state.restoreAnswerPayloadListeners(source, self.listeners);
+        self.* = .none(source);
     }
 
     pub fn commit(self: *PreparedListenerDrain, peer: *Peer) void {
@@ -242,171 +186,105 @@ pub const PreparedListenerDrain = struct {
             return;
         }
         switch (self.plan) {
-            .terminal_break => |reason| for (self.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, terminalBreak(reason))) {
+            .reinstall => self.reinstall_prepared.?.commit(self.listeners),
+            .fire => |fire| for (self.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, fire.resolution)) {
                 .fire => |position| {
                     var args: [2]model.Argument = undefined;
-                    const message = borrowedListenerFire(position, terminalBreak(reason), &args);
-                    peer.session_state.commitPreparedListenerFire(message, .none, &args[1]);
+                    const message = borrowedListenerFire(position, fire.resolution, &args);
+                    peer.session_state.commitPreparedListenerFire(message, self.inventory, &args[1]);
                     peer.pushPendingAssume(self.reservation.?, .{ .listener_fire = .{
                         .listener_position = position,
-                        .target = .{ .static_break = reason },
+                        .target = fire.target,
                     } });
                 },
                 .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
             },
-            .reinstall => self.reinstall_prepared.?.commit(self.listeners),
-            .drain => |stored| for (self.listeners) |entry| {
-                switch (classifyTerminalListenerDrain(peer, entry, stored.resolution)) {
-                    .fire => |position| {
-                        var args: [2]model.Argument = undefined;
-                        const message = borrowedListenerFire(position, stored.resolution, &args);
-                        peer.session_state.commitPreparedListenerFire(message, self.inventory, &args[1]);
-                        peer.pushPendingAssume(self.reservation.?, .{ .listener_fire = .{
-                            .listener_position = position,
-                            .target = .{ .store = stored.target },
-                        } });
-                    },
-                    .discard => peer.session_state.releaseSessionImportRetain(entry.listener.import_position),
-                }
-            },
         }
-        if (self.listeners.len != 0) peer.allocator.free(self.listeners);
+        peer.allocator.free(self.listeners);
         self.inventory.deinit(peer.allocator);
         self.* = undefined;
     }
 };
 
-fn retainFireTarget(peer: *Peer, target: engine.StoreTarget) !void {
+/// A store-backed fire retains its payload box per carrier; a live-object or
+/// static-break fire borrows nothing.
+fn retainFireTarget(peer: *Peer, target: engine.FireTarget) !void {
     switch (target) {
-        .answer => |answer| try peer.session_state.retainAnswerPayload(answer.payload),
-        .import => {},
+        .store => |store| try peer.session_state.retainAnswerPayload(store.payload),
+        .near_object, .static_break => {},
     }
 }
 
-fn releaseFireTarget(peer: *Peer, target: engine.StoreTarget) void {
+fn releaseFireTarget(peer: *Peer, target: engine.FireTarget) void {
     switch (target) {
-        .answer => |answer| peer.session_state.releaseAnswerPayload(answer.payload),
-        .import => {},
+        .store => |store| peer.session_state.releaseAnswerPayload(store.payload),
+        .near_object, .static_break => {},
     }
 }
 
 fn prepareListenerDrainPlan(
     peer: *Peer,
-    source: ListenerSource,
+    source: *session.AnswerPayload,
     listeners: []session.ListenerEntry,
     plan: ListenerDrainPlan,
 ) !PreparedListenerDrain {
     var prepared = PreparedListenerDrain{ .source = source, .listeners = listeners, .plan = plan };
     errdefer prepared.abandon(peer);
     if (prepared.listeners.len == 0) return prepared;
-    switch (prepared.plan) {
-        .terminal_break => |reason| {
-            var fire_count: usize = 0;
-            for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, terminalBreak(reason))) {
-                .fire => {
-                    try peer.session_state.validateListenerFireTarget(entry.listener);
-                    fire_count += 1;
-                },
-                .discard => {},
-            };
-            if (fire_count == 0) return prepared;
-            var batch = try peer.beginPendingBatch(fire_count);
-            for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, terminalBreak(reason))) {
-                .fire => |position| {
-                    const reservation = try batch.reserve(.{ .listener_fire = .{
-                        .listener_position = position,
-                        .target = .{ .static_break = reason },
-                    } });
-                    if (prepared.reservation) |first_reservation|
-                        std.debug.assert(first_reservation.charge == reservation.charge)
-                    else
-                        prepared.reservation = reservation;
-                    prepared.reserved += 1;
-                },
-                .discard => {},
-            };
+    const fire = switch (prepared.plan) {
+        .reinstall => |next_target| {
+            prepared.reinstall_prepared =
+                try peer.session_state.prepareListenerBatchTarget(next_target, prepared.listeners.len);
+            return prepared;
         },
-        .reinstall => |next_target| prepared.reinstall_prepared =
-            try peer.session_state.prepareListenerBatchTarget(next_target, prepared.listeners.len),
-        .drain => |stored| {
-            var fire_count: usize = 0;
-            for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, stored.resolution)) {
-                .fire => {
-                    try peer.session_state.validateListenerFireTarget(entry.listener);
-                    fire_count += 1;
-                },
-                .discard => {},
-            };
-            if (fire_count == 0) return prepared;
-            prepared.inventory = try peer.session_state.inventoryResolution(stored.resolution);
-            try peer.session_state.ensureSentResolutionExportCapacity(stored.resolution, prepared.inventory);
-            var batch = try peer.beginPendingBatch(fire_count);
-            for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, stored.resolution)) {
-                .fire => |position| {
-                    try retainFireTarget(peer, stored.target);
-                    prepared.target_retains += 1;
-                    const reservation = try batch.reserve(.{ .listener_fire = .{
-                        .listener_position = position,
-                        .target = .{ .store = stored.target },
-                    } });
-                    if (prepared.reservation) |first_reservation|
-                        std.debug.assert(first_reservation.charge == reservation.charge)
-                    else
-                        prepared.reservation = reservation;
-                    prepared.reserved += 1;
-                },
-                .discard => {},
-            };
+        .fire => |fire| fire,
+    };
+    var fire_count: usize = 0;
+    for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, fire.resolution)) {
+        .fire => {
+            try peer.session_state.validateListenerFireTarget(entry.listener);
+            fire_count += 1;
         },
+        .discard => {},
+    };
+    if (fire_count == 0) return prepared;
+    // Only a stored tree carries mentions to inventory and exports to reserve.
+    if (fire.target == .store) {
+        prepared.inventory = try peer.inventoryResolution(fire.resolution);
+        try peer.session_state.ensureSentResolutionExportCapacity(fire.resolution, prepared.inventory);
     }
+    var batch = try peer.beginPendingBatch(fire_count);
+    for (prepared.listeners) |entry| switch (classifyTerminalListenerDrain(peer, entry, fire.resolution)) {
+        .fire => |position| {
+            try retainFireTarget(peer, fire.target);
+            prepared.target_retains += 1;
+            const reservation = try batch.reserve(.{ .listener_fire = .{
+                .listener_position = position,
+                .target = fire.target,
+            } });
+            if (prepared.reservation) |first_reservation|
+                std.debug.assert(first_reservation.charge == reservation.charge)
+            else
+                prepared.reservation = reservation;
+            prepared.reserved += 1;
+        },
+        .discard => {},
+    };
     return prepared;
 }
 
 fn listenerDrainPlan(outcome: resolution_chain.Outcome) ListenerDrainPlan {
     return switch (outcome) {
-        .terminal => |terminal| .{ .drain = .{
-            .target = terminal.target,
+        .terminal => |terminal| .{ .fire = .{
+            .target = .{ .store = terminal.target },
             .resolution = terminal.resolution,
         } },
         .pending => |target| .{ .reinstall = target },
-        .terminal_break => |message| .{ .terminal_break = message },
+        .terminal_break => |message| .{ .fire = .{
+            .target = .{ .static_break = message },
+            .resolution = terminalBreak(message),
+        } },
     };
-}
-
-pub fn fireImportedPromiseListeners(peer: *Peer, import_position: model.ImportPosition) !void {
-    const row = peer.session_state.findImportedPromise(import_position) orelse return;
-    const resolution = if (row.cell.resolution) |*stored| stored else return;
-    var prepared = try prepareListenerDrainPlan(
-        peer,
-        .{ .import = import_position },
-        try peer.session_state.takeImportedPromiseListeners(import_position),
-        listenerDrainPlan(resolution_chain.follow(peer, .{
-            .target = .{ .import = .{ .position = import_position, .row_id = row.cell.row_id } },
-            .stored = resolution,
-        })),
-    );
-    prepared.commit(peer);
-}
-
-pub fn prepareImportedPromiseFires(
-    peer: *Peer,
-    import_position: model.ImportPosition,
-    row_id: u64,
-    resolution: model.Resolution,
-) !PreparedListenerDrain {
-    const stored: session.StoredResolution = .{
-        .value = resolution,
-        .promise_target = try peer.session_state.promiseTargetForResolution(resolution),
-    };
-    return prepareListenerDrainPlan(
-        peer,
-        .{ .import = import_position },
-        try peer.session_state.takeImportedPromiseListeners(import_position),
-        listenerDrainPlan(resolution_chain.follow(peer, .{
-            .target = .{ .import = .{ .position = import_position, .row_id = row_id } },
-            .stored = &stored,
-        })),
-    );
 }
 
 fn enqueueFire(
@@ -415,18 +293,8 @@ fn enqueueFire(
     target: engine.FireTarget,
     resolution: model.Resolution,
 ) !void {
-    const answer_payload: ?*session.AnswerPayload = switch (target) {
-        .store => |store| switch (store) {
-            .answer => |answer| answer.payload,
-            .import => null,
-        },
-        .near_object => null,
-        .static_break => null,
-    };
-    if (answer_payload) |payload|
-        try peer.session_state.retainAnswerPayload(payload);
-    errdefer if (answer_payload) |payload|
-        peer.session_state.releaseAnswerPayload(payload);
+    try retainFireTarget(peer, target);
+    errdefer releaseFireTarget(peer, target);
     var args: [2]model.Argument = undefined;
     const borrowed = borrowedListenerFire(listener_position, resolution, &args);
     const reservation = try peer.reservePending(.{ .listener_fire = .{

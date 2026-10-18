@@ -175,7 +175,7 @@ fn closeWireFailure(self: *HostRuntime, wire: *Wire, failure: ?OperationFailure)
     if (!wire.closed) {
         wire.closed = true;
         armCarrierCloseDeadline(self, wire, self.nowMs() +| transport_close_ms);
-        const reason = if (wire.close_failure) |value| value.primaryName() else "connection closed";
+        const reason = if (wire.close_failure) |value| value.chain.primaryName() else "connection closed";
         wire.session.host.transportClosed(wire.session, reason) catch |err|
             Internal.noteTerminalFailure(self, err);
     }

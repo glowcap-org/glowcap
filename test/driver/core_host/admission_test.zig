@@ -130,6 +130,8 @@ test "Host transport profiles own extension semantics and refuse ambiguity" {
     try std.testing.expectError(error.UnknownTransport, host.designatorScheme("custom-key"));
     try std.testing.expectError(error.TransportSemanticsConflict, host.defineTransport(.{ .symbol = "tcp", .designator_scheme = .key }));
     try std.testing.expectError(error.InvalidTransportName, host.defineTransport(.{ .symbol = "", .designator_scheme = .address }));
+    const long_symbol: [glowcap.foundation.sealed.max_transport_bytes + 1]u8 = @splat('x');
+    try std.testing.expectError(error.InvalidTransportName, host.defineTransport(.{ .symbol = &long_symbol, .designator_scheme = .key, .sealed_channel = true }));
 
     var mutable_name = [_]u8{ 'c', 'u', 's', 't', 'o', 'm', '-', 'k', 'e', 'y' };
     const defined = try host.defineTransport(.{ .symbol = &mutable_name, .designator_scheme = .key });

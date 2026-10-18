@@ -19,7 +19,8 @@ pub const EndpointRecord = struct {
     derivations: Window = .{},
     mutations: Window = .{},
     pub const max_receipts = Window.capacity;
-    pub const version = 2;
+    pub const format_version: u64 = 2;
+    const label = "access:endpoint";
     pub const max_edges = 4 + 2 * max_receipts;
     pub const max_encoded_bytes = 256;
 
@@ -40,33 +41,24 @@ pub const EndpointRecord = struct {
     }
 
     pub fn decode(view: loam.View) !EndpointRecord {
-        if (view.schema != profile.endpoint or view.schema_version != version or view.payload.len > max_encoded_bytes or view.edge_count < 1 or view.edge_count > max_edges) return error.InvalidRecord;
+        if (view.schema != profile.endpoint or view.schema_version != format_version or view.payload.len > max_encoded_bytes or view.edge_count < 1 or view.edge_count > max_edges) return error.InvalidRecord;
+        const store = view.id.store;
         var iterator = view.edges();
-        const descriptor = iterator.next().?;
-        if (descriptor.strength != .strong) return error.InvalidRecord;
+        const descriptor = try fields.readEdge(&iterator, store);
         const b = view.payload;
         var c: usize = 0;
         try s.readByte(b, &c, '<');
-        if (!std.mem.eql(u8, try s.readSymbol(b, &c), "access:endpoint")) return error.InvalidRecord;
-        if (try s.readPositiveInt(b, &c) != version) return error.UnsupportedVersion;
-        var result: EndpointRecord = .{ .descriptor = descriptor.target };
-        if (try s.readBool(b, &c)) {
-            const edge = iterator.next() orelse return error.InvalidRecord;
-            if (edge.strength != .strong or edge.target.store != descriptor.target.store) return error.InvalidRecord;
-            const resource = try fields.readId(core.ResourceId, b, &c);
-            if (resource.generation == 0) return error.InvalidRecord;
-            result.content = .{ .resource = resource, .object = edge.target };
-        }
+        if (!std.mem.eql(u8, try s.readSymbol(b, &c), label)) return error.InvalidRecord;
+        if (try s.readPositiveInt(b, &c) != format_version) return error.UnsupportedVersion;
+        var result: EndpointRecord = .{ .descriptor = descriptor };
+        if (try s.readBool(b, &c)) result.content = try readBinding(&iterator, store, b, &c);
         if (try s.readBool(b, &c)) {
             if (result.content != null) return error.InvalidRecord;
-            const edge = try nextEdge(&iterator, descriptor.target);
-            const resource = try fields.readId(core.ResourceId, b, &c);
-            if (resource.generation == 0) return error.InvalidRecord;
-            result.administration = .{ .resource = resource, .object = edge.target };
+            result.administration = try readBinding(&iterator, store, b, &c);
         }
-        if (try s.readBool(b, &c)) result.publication = (try nextEdge(&iterator, descriptor.target)).target;
-        result.derivations = try Window.read(b, &c, &iterator, descriptor.target.store);
-        result.mutations = try Window.read(b, &c, &iterator, descriptor.target.store);
+        if (try s.readBool(b, &c)) result.publication = try fields.readEdge(&iterator, store);
+        result.derivations = try Window.read(b, &c, &iterator, store);
+        result.mutations = try Window.read(b, &c, &iterator, store);
         if (iterator.next() != null) return error.InvalidRecord;
         try s.readByte(b, &c, '>');
         try s.expectEnd(b, c);
@@ -75,8 +67,8 @@ pub const EndpointRecord = struct {
 
     fn write(sink: anytype, self: EndpointRecord) !void {
         try s.beginRecord(sink);
-        try s.writeSymbol(sink, "access:endpoint");
-        try s.writePositiveInt(sink, version);
+        try s.writeSymbol(sink, label);
+        try s.writePositiveInt(sink, format_version);
         try s.writeBool(sink, self.content != null);
         if (self.content) |content| try fields.writeId(sink, content.resource);
         try s.writeBool(sink, self.administration != null);
@@ -111,9 +103,11 @@ pub const EndpointRecord = struct {
         return buffer[0..n];
     }
 
-    fn nextEdge(iterator: anytype, descriptor: loam.ObjectId) !loam.Edge {
-        const edge = iterator.next() orelse return error.InvalidRecord;
-        if (edge.strength != .strong or edge.target.store != descriptor.store) return error.InvalidRecord;
-        return edge;
+    /// A binding's edge precedes its resource identity in the payload.
+    fn readBinding(iterator: *loam.EdgeIterator, store: loam.StoreId, bytes: []const u8, cursor: *usize) !Binding {
+        const object = try fields.readEdge(iterator, store);
+        const resource = try fields.readId(core.ResourceId, bytes, cursor);
+        if (resource.generation == 0) return error.InvalidRecord;
+        return .{ .resource = resource, .object = object };
     }
 };

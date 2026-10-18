@@ -156,7 +156,7 @@
 						<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-rim"></i><i class="mark-piece mark-flesh"></i><i class="mark-piece mark-shade"></i><i class="mark-piece mark-windows"></i></span>
 						<span class="wordmark"><span>glowcap</span></span>
 					</a>
-					<p>An object-capability RPC library for OCapN, written in Zig. Two programs hand each other references to live objects, and holding one is the whole permission to call it.</p>
+					<p>An object-capability RPC library for OCapN, written in Zig. Two programs hand each other references to live objects, and holding one is what lets you call it.</p>
 				</div>
 				<nav aria-label="Learn">
 					<h2>Learn</h2>

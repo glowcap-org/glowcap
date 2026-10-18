@@ -17,12 +17,18 @@ const counts = @import("counts.zig");
 /// The engine keeps targets opaque: the composition resolves bootstrap names,
 /// captures exact gifts, and projects retained targets onto another Port.
 pub const LocalObjectProjection = struct {
+    /// What a composition may refuse a fetch or projection with: the
+    /// session's refusals while minting the export, or the composition's own
+    /// binding refusals for a target it no longer holds.
+    pub const Error = session_mod.Error || std.mem.Allocator.Error ||
+        error{ UnknownCapability, NoSuchActor, NotLocal, AlreadyPublished };
+
     ctx: ?*anyopaque,
     /// One namespace decision: immediate projection, miss/refusal, or bounded
     /// deferred admission. The Session stamped the exact answer before entry.
-    resolve_fetch: *const fn (ctx: ?*anyopaque, scope: PeerHandle, request: @import("../bootstrap.zig").FetchContext) anyerror!@import("../bootstrap.zig").FetchOutcome,
+    resolve_fetch: *const fn (ctx: ?*anyopaque, scope: PeerHandle, request: @import("../bootstrap.zig").FetchContext) Error!@import("../bootstrap.zig").FetchOutcome,
     capture: *const fn (ctx: ?*anyopaque, scope: PeerHandle, export_position: model.ExportPosition) ?u64,
-    project: *const fn (ctx: ?*anyopaque, scope: PeerHandle, target: u64) anyerror!ProjectedLocalTarget,
+    project: *const fn (ctx: ?*anyopaque, scope: PeerHandle, target: u64) Error!ProjectedLocalTarget,
     rollback: *const fn (ctx: ?*anyopaque, scope: PeerHandle, target: u64, projected: ProjectedLocalTarget) void,
     /// Release the deposit-capture root on a `local_target` gift row that died
     /// (ADR-0101): consumed by withdrawal, replaced by a re-deposit, or
@@ -126,7 +132,7 @@ const GiftStore = struct {
     retained_bytes: usize = 0,
 };
 
-pub const HandoffCountCommitError = counts.CommitError;
+pub const HandoffCountCheckError = counts.CheckError;
 pub const PreparedHandoffCount = counts.Prepared;
 
 /// One CapTP session's gift and handoff-count authority. Deposits made on this
@@ -162,7 +168,7 @@ pub const GiftRegistry = struct {
         return switch (payload) {
             .provenance => |recipient_key| recipient_key.len,
             .verbatim_cap => |reference| model.measureReferenceOwnedBytes(reference) catch
-                return session_mod.Error.DepositedGiftCapExceeded,
+                return error.DepositedGiftCapExceeded,
             .local_target => 0,
         };
     }
@@ -170,9 +176,9 @@ pub const GiftRegistry = struct {
     fn entryRetainedBytes(gift_id: []const u8, payload: GiftPayload) session_mod.Error!usize {
         const row_bytes = @sizeOf([]const u8) + @sizeOf(GiftEntry);
         var total = std.math.add(usize, row_bytes, gift_id.len) catch
-            return session_mod.Error.DepositedGiftCapExceeded;
+            return error.DepositedGiftCapExceeded;
         total = std.math.add(usize, total, try payloadRetainedBytes(payload)) catch
-            return session_mod.Error.DepositedGiftCapExceeded;
+            return error.DepositedGiftCapExceeded;
         return total;
     }
 
@@ -207,19 +213,24 @@ pub const GiftRegistry = struct {
     }
 
     /// Prepare the `handoff_count` for this session's next withdrawal without
-    /// consuming it. The caller commits only after its outbound queue owns the
-    /// withdrawal, so malformed input, allocation failure, and backpressure do
-    /// not consume a count. Queue admission is the emission boundary: teardown
-    /// may discard an admitted frame, so counts are monotonic, not contiguous.
+    /// consuming it. The caller applies it only after its outbound queue owns
+    /// the withdrawal, so malformed input, allocation failure, and backpressure
+    /// do not consume a count. Queue admission is the emission boundary:
+    /// teardown may discard an admitted frame, so counts are monotonic, not
+    /// contiguous.
     pub fn prepareEmittedCount(self: *GiftRegistry) !PreparedHandoffCount {
         const value = self.next_emitted_handoff_count;
         if (value == std.math.maxInt(u64)) return error.HandoffCountExhausted;
-        return PreparedHandoffCount.bind(self, value, commitPreparedEmittedCount);
+        return PreparedHandoffCount.bind(self, value, checkPreparedEmittedCount, applyPreparedEmittedCount);
     }
 
-    fn commitPreparedEmittedCount(self: *GiftRegistry, prepared: u64) HandoffCountCommitError!void {
+    fn checkPreparedEmittedCount(self: *GiftRegistry, prepared: u64) HandoffCountCheckError!void {
         if (self.next_emitted_handoff_count != prepared or prepared == std.math.maxInt(u64))
             return error.StaleHandoffCountPreparation;
+    }
+
+    fn applyPreparedEmittedCount(self: *GiftRegistry, prepared: u64) void {
+        std.debug.assert(self.next_emitted_handoff_count == prepared);
         self.next_emitted_handoff_count = prepared + 1;
     }
 
@@ -259,7 +270,7 @@ pub const GiftRegistry = struct {
         gift_id: []const u8,
         recipient_key: []const u8,
     ) !void {
-        if (recipient_key.len == 0) return session_mod.Error.MalformedMessage;
+        if (recipient_key.len == 0) return error.MalformedMessage;
         try self.putGift(allocator, limits, projection, gift_id, .{ .provenance = recipient_key });
     }
 
@@ -275,7 +286,7 @@ pub const GiftRegistry = struct {
         gift_id: []const u8,
         spec: GiftPayload,
     ) !void {
-        if (gift_id.len == 0) return session_mod.Error.MalformedMessage;
+        if (gift_id.len == 0) return error.MalformedMessage;
 
         const store = self.store;
         const existing = if (store) |s| s.gifts.getPtr(gift_id) else null;
@@ -286,12 +297,12 @@ pub const GiftRegistry = struct {
             0;
         const without_prior = self.retainedBytes() - prior_bytes;
         if (replacement_bytes > @as(usize, limits.max_deposited_gift_bytes) -| without_prior) {
-            return session_mod.Error.DepositedGiftCapExceeded;
+            return error.DepositedGiftCapExceeded;
         }
 
         const live_gifts = if (store) |s| s.gifts.count() else 0;
         if (existing == null and live_gifts >= @as(usize, limits.max_deposited_gifts)) {
-            return session_mod.Error.DepositedGiftCapExceeded;
+            return error.DepositedGiftCapExceeded;
         }
 
         const stored: GiftPayload = switch (spec) {
@@ -381,11 +392,11 @@ pub const GiftRegistry = struct {
     /// Public only for the sibling bootstrap orchestrator, which has already
     /// authenticated and narrowed a borrowed or parked certificate.
     pub fn validateWithdrawGiftClaim(self: *const GiftRegistry, claim: WithdrawGiftClaim) session_mod.Error!void {
-        const store = self.store orelse return session_mod.Error.InvalidGift;
-        const gift = store.gifts.get(claim.gift_id) orelse return session_mod.Error.InvalidGift;
+        const store = self.store orelse return error.InvalidGift;
+        const gift = store.gifts.get(claim.gift_id) orelse return error.InvalidGift;
         switch (gift.payload) {
             .provenance => |recipient_key| if (!std.mem.eql(u8, recipient_key, claim.recipient_key))
-                return session_mod.Error.InvalidGift,
+                return error.InvalidGift,
             .verbatim_cap, .local_target => {},
         }
     }
@@ -414,14 +425,14 @@ pub const GiftRegistry = struct {
     ) session_mod.Error!void {
         if (expected) |names| {
             if (!std.mem.eql(u8, receive.receiving_side, &names.side))
-                return session_mod.Error.InvalidHandoffSession;
+                return error.InvalidHandoffSession;
             if (names.session) |name| {
                 if (!std.mem.eql(u8, receive.receiving_session, &name))
-                    return session_mod.Error.InvalidHandoffSession;
+                    return error.InvalidHandoffSession;
             }
         }
         if (self.acceptedHandoffCount()) |last| {
-            if (receive.gift.handoff_count <= last) return session_mod.Error.HandoffReplay;
+            if (receive.gift.handoff_count <= last) return error.HandoffReplay;
         }
     }
 
@@ -438,8 +449,8 @@ pub const GiftRegistry = struct {
         gifts: *GiftRegistry,
         claim: WithdrawGiftClaim,
     ) session_mod.Error!PreparedWithdrawCommit {
-        const store = gifts.store orelse return session_mod.Error.InvalidGift;
-        const gift = store.gifts.getKey(claim.gift_id) orelse return session_mod.Error.InvalidGift;
+        const store = gifts.store orelse return error.InvalidGift;
+        const gift = store.gifts.getKey(claim.gift_id) orelse return error.InvalidGift;
         return .{ .handoff_count = claim.handoff_count, .gift = gift };
     }
 

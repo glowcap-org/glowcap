@@ -134,9 +134,9 @@ test "loam managed content graph confirms pages receipt and one content stamp to
     try std.testing.expectEqual(previous.next_sequence + 1, committed.next_sequence);
     var effects = try history.batch(&store, &backend, committed.batches[committed.count - 1]);
     defer effects.deinit(a);
-    try std.testing.expectEqual(@as(usize, 1), effects.value.effects.len);
-    try std.testing.expect(effects.value.effects[0] == .content);
-    try std.testing.expect(effects.value.effects[0].content.id.eql(seeded.data.resource));
+    try std.testing.expectEqual(@as(usize, 1), effects.effects.len);
+    try std.testing.expect(effects.effects[0] == .content);
+    try std.testing.expect(effects.effects[0].content.id.eql(seeded.data.resource));
     store.evict();
     var restored: h.Answer = .{};
     try host.send(host.use, "get", &.{}, &restored);

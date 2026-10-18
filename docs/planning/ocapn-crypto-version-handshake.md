@@ -242,8 +242,7 @@ The supported standard fixes it, so bindings gain no caller option. A precise
 mismatch or malformed-handshake result surfaces through the existing error
 paths.
 
-No probe lifecycle, replacement ownership, retry policy, or transport metadata
-is added. Applications never assemble the crypto token or raw handshake fields.
+Applications never assemble the crypto token or raw handshake fields.
 Zig, the C ABI, Rust, TypeScript, Python, and Racket keep choosing `interop` or
 `glowcap` with their existing profile vocabulary.
 

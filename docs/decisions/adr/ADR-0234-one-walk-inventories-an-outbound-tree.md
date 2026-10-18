@@ -7,7 +7,7 @@ decision: "A session walks an outbound argument tree once at admission, certifyi
 supersedes: []
 superseded_by: []
 amends: [ADR-0069]
-amended_by: [ADR-0246]
+amended_by: [ADR-0246, ADR-0253]
 ---
 
 # ADR-0234 One walk inventories an outbound tree

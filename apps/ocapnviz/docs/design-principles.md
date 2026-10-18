@@ -10,8 +10,8 @@ sources:
 
 # ocapnviz: Design Principles
 
-Use this page when changing the interface. A change keeps gestures consistent
-across surfaces and keeps each rule at one implementation point.
+When you change the interface, make each gesture work the same on every
+surface and put each rule in one place in the code.
 
 ## Visual vocabulary
 

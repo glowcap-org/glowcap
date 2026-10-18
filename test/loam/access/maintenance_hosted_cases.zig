@@ -62,7 +62,8 @@ pub fn replay(store: *h.loam.core.Store, backend: anytype, collect: anytype) !vo
     try client.host.vowOn(try client.host.fetch(client.pair.a, name.text()), .{ .ctx = &fetched, .func = f.captures.CapturedRef.record });
     try client.pump();
     try std.testing.expect(fetched.broken);
-    var read = try h.c.storage.Read.init(h.a, store, data.owner, 4);
+    var read: h.c.storage.Read = undefined;
+    try read.init(h.a, store, data.owner, 4, null);
     errdefer read.deinit() catch unreachable;
     _ = try h.f.pump(&read, backend);
     var grants = try read.grantView();

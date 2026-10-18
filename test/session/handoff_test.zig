@@ -92,7 +92,7 @@ test "inbound give admission rejects wrong recipient and gift width atomically" 
 
     const session_name = @as([32]u8, @splat(0x41));
     const gifter_side = @as([32]u8, @splat(0x42));
-    const valid_gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x43));
+    const valid_gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x43));
     const wrong_key = @as([32]u8, @splat(0x44));
     var handoff = model.Handoff{ .give = .{
         .recipient_key = &wrong_key,
@@ -103,7 +103,7 @@ test "inbound give admission rejects wrong recipient and gift width atomically" 
         .signature = "signature",
     } };
     var inbound = model.Message{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(session.BOOTSTRAP_POSITION) } },
+        .target = .{ .near = .{ .export_position = .from(session.bootstrap_position) } },
         .args = &.{.{ .handoff = &handoff }},
         .answer = .from(41),
         .resolve_me_desc = .{ .far = model.FarRef.object(0) },
@@ -135,7 +135,7 @@ test "v1 inbound give admission enforces recipient and gift-id domain" {
     try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
     try s.recordRecv(startSessionMessageWithKey(.v1_0, &remote_key));
 
-    const valid_gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x53));
+    const valid_gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x53));
     var handoff = model.Handoff{ .give = .{
         .recipient_key = "not-this-session-key",
         .exporter = .{ .transport = "memory", .designator = "exporter" },
@@ -145,7 +145,7 @@ test "v1 inbound give admission enforces recipient and gift-id domain" {
         .signature = "signature",
     } };
     var inbound = model.Message{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(session.BOOTSTRAP_POSITION) } },
+        .target = .{ .near = .{ .export_position = .from(session.bootstrap_position) } },
         .args = &.{.{ .handoff = &handoff }},
         .answer = .from(51),
     } };
@@ -170,7 +170,7 @@ test "outbound give admission requires the partner session key" {
 
     const local_key = @as([32]u8, @splat(0x61));
     const partner_key = @as([32]u8, @splat(0x62));
-    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x63));
+    const gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x63));
     try s.recordSend(startSessionMessageWithKey(.v1_0, &local_key));
     try s.recordRecv(startSessionMessageWithKey(.v1_0, &partner_key));
 
@@ -183,7 +183,7 @@ test "outbound give admission requires the partner session key" {
         .signature = "signature",
     } };
     const outbound = model.Message{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(session.BOOTSTRAP_POSITION) },
+        .target = .{ .far = model.FarRef.object(session.bootstrap_position) },
         .args = &.{.{ .handoff = &handoff }},
     } };
 
@@ -232,7 +232,7 @@ test "session feature gates listen and sturdyref-bearing payloads" {
 
 test "identity-route locators require the negotiated feature in sturdyrefs" {
     const allocator = std.testing.allocator;
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x70))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x70))).publicKey().toDesignator();
     const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route);
     const hints = [_]model.HintEntry{.{
@@ -350,7 +350,7 @@ test "sturdyref locators must be structurally valid" {
 
 test "identity-route locators require the negotiated feature in handoff gives" {
     const allocator = std.testing.allocator;
-    const exporter_key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x74))).publicKey().toDesignator();
+    const exporter_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x74))).publicKey().toDesignator();
     const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{exporter_key[0..]});
     defer allocator.free(route);
     const hints = [_]model.HintEntry{.{
@@ -358,7 +358,7 @@ test "identity-route locators require the negotiated feature in handoff gives" {
         .value = .{ .string = route },
     }};
     const partner_key = @as([32]u8, @splat(0x72));
-    const gift_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x73));
+    const gift_id = @as([model.handoff_gift_id_bytes]u8, @splat(0x73));
     var handoff = model.Handoff{ .give = .{
         .recipient_key = &partner_key,
         .exporter = .{
@@ -413,7 +413,8 @@ test "listen target and listener descriptor roles match on owned and borrowed pa
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
-    try s.installThirdPartyImport(.from(1), "remote");
+    try s.registerImport(.from(1));
+    _ = try s.nominateShorteningResolver(.from(1));
     try s.registerExport(.from(2));
     try s.registerExport(.from(3));
 

@@ -33,7 +33,7 @@ const crypto = foundation.crypto;
 /// only its partner. `publication_lookup.resolveFetch` consults this registry
 /// first.
 pub const Publication = struct {
-    name: []const u8,
+    name: []u8,
     actor: actors.Ref,
     active: bool = true,
 };
@@ -83,15 +83,18 @@ pub fn publish(self: *Host, name: []const u8, comptime Behavior: type, initial: 
     return actor;
 }
 
+/// Admit a hosted spawn. `hosted` transfers on every outcome, so a refusal
+/// here frees its context before the Vat could own it.
+fn admitHostedSpawn(self: *Host, hosted: actors.HostedActor) !void {
+    errdefer hosted.discard();
+    try self.refuseReentry();
+    try self.admitApplicationOperation();
+}
+
 /// Foreign-callback twin of `publish`. `hosted` transfers into the
 /// Vat on every outcome, preserving one owner for its context.
 pub fn publishHosted(self: *Host, name: []const u8, hosted: actors.HostedActor) !actors.Ref {
-    var hosted_pending = true;
-    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
-
-    try self.refuseReentry();
-    try self.admitApplicationOperation();
-    hosted_pending = false;
+    try admitHostedSpawn(self, hosted);
     const actor = try self.vat.spawnHosted(hosted);
     errdefer self.vat.discardFreshActor(actor);
     try bindPublication(self, name, actor);
@@ -116,7 +119,7 @@ pub fn unpublish(
     if (engine.isDurableSwiss(name)) return error.ReservedDurableNamespace;
     const removed = self.publications.fetchRemove(name) orelse return error.UnknownPublication;
     // Key and row name are one allocation (`bindPublication`); free once.
-    self.allocator.free(@constCast(removed.value.name));
+    self.allocator.free(removed.value.name);
     // Release the alias root the row adopted (ADR-0101): with no other
     // rooting relationship, the actor is reclaimed here rather than at
     // Host teardown.
@@ -192,12 +195,7 @@ pub fn publishHostedDurable(
     entropy: [engine.durable_swiss_entropy_len]u8,
     hosted: actors.HostedActor,
 ) !DurableSwiss {
-    var hosted_pending = true;
-    defer if (hosted_pending) if (hosted.free) |free| free(hosted.ctx);
-
-    try self.refuseReentry();
-    try self.admitApplicationOperation();
-    hosted_pending = false;
+    try admitHostedSpawn(self, hosted);
     const actor = try self.vat.spawnHosted(hosted);
     errdefer self.vat.discardFreshActor(actor);
     return bindDurable(self, entropy, actor);
@@ -244,7 +242,7 @@ pub const DurableReservation = struct {
         host.assertOwner();
         const removed = host.publications.fetchRemove(self.swiss.slice()).?;
         std.debug.assert(!removed.value.active);
-        host.allocator.free(@constCast(removed.value.name));
+        host.allocator.free(removed.value.name);
         host.vat.releaseActor(removed.value.actor.local);
         self.host = null;
         self.lifetime.complete();
@@ -288,7 +286,7 @@ pub fn removeDurable(
     if (!engine.isDurableSwiss(swiss)) return error.NotDurableName;
     if (self.publications.get(swiss)) |row| if (!row.active) return error.UnknownPublication;
     const removed = self.publications.fetchRemove(swiss) orelse return error.UnknownPublication;
-    self.allocator.free(@constCast(removed.value.name));
+    self.allocator.free(removed.value.name);
     self.vat.releaseActor(localActorId(removed.value.actor) catch unreachable);
 }
 
@@ -325,7 +323,7 @@ pub fn publishedCapability(self: *Host, session: *HostSession, name: []const u8)
     try self.admitSessionOperation(session);
     try self.checkSession(session);
     const actor = if (session.served.port.peer.session_state.bootstrapLookup(name)) |position|
-        session.served.refForExport(position.int()) orelse return actors.Error.NoSuchActor
+        session.served.refForExport(position.int()) orelse return error.NoSuchActor
     else if (self.publications.get(name)) |row|
         if (row.active) row.actor else return null
     else

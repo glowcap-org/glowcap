@@ -19,7 +19,7 @@ const State = struct {
     cancellation: ?*storage.ObservationCancellation = null,
     result: ?storage.Observation.Result = null,
     publication: ?loam.Lease = null,
-    retirement_leases: [2]?loam.Lease = @splat(null),
+    retirement_leases: [records.ObservationEndpointRecord.role_count]?loam.Lease = @splat(null),
     waiting: bool = false,
     ready: bool = false,
     changed: bool = false,
@@ -39,7 +39,7 @@ const State = struct {
             defer self.store().release(lease) catch unreachable;
             if (std.mem.eql(u8, self.verb, "durable-name")) {
                 const context = try records.ObservationRecord.decode(try self.store().currentView(lease));
-                const id = context.publications[if (self.endpoint.role == .receive) @as(usize, 0) else 1] orelse return error.ObservationClosed;
+                const id = context.publications[@backingInt(self.endpoint.role)] orelse return error.ObservationClosed;
                 const published = switch (try self.acquire(id)) {
                     .ready => |held| held,
                     .read => |request| return .{ .read = request },
@@ -98,18 +98,10 @@ const State = struct {
         return .ready;
     }
 
-    fn acquire(self: *State, id: loam.ObjectId) !union(enum) { ready: loam.Lease, read: loam.Read, waiting } {
-        const acquired = self.store().acquire(id) catch |err| {
-            if (err == error.PendingRead) return .waiting;
-            return err;
-        };
-        return switch (acquired) {
-            .ready => |lease| .{ .ready = lease },
-            .read => |request| blk: {
-                self.pending = request.ticket;
-                break :blk .{ .read = request };
-            },
-        };
+    fn acquire(self: *State, id: loam.ObjectId) !hosting.Preparation.Acquisition {
+        const acquired = try hosting.Preparation.acquire(self.store(), id);
+        if (acquired == .read) self.pending = acquired.read.ticket;
+        return acquired;
     }
 };
 
@@ -165,7 +157,7 @@ fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const dri
     if (!value.ready) return error.NotPrepared;
     if (value.publication) |lease| {
         const view = try value.store().currentView(lease);
-        const name = driver.Host.DurableSwiss.fromEntropy(view.payload[0..@sizeOf(driver.Host.DurableSwiss.Entropy)].*);
+        const name = driver.Host.DurableSwiss.fromEntropy(hosting.publication.entropyOf(view));
         return .{ .string = try call.arena().dupe(u8, name.slice()) };
     }
     if (value.cancellation != null) {
@@ -181,11 +173,18 @@ fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const dri
     };
     parts[2] = .{ .boolean = result.resync };
     parts[3] = .{ .boolean = result.changed };
-    const flags = try call.arena().alloc(driver.Value, @intFromBool(result.notices.access) + @as(usize, @intFromBool(result.notices.target)) + @intFromBool(result.notices.inventory) + @intFromBool(result.notices.management) + @intFromBool(result.notices.subtree));
+    const notices = @typeInfo(@TypeOf(result.notices)).@"struct".field_names;
     var count: usize = 0;
-    inline for (.{ "access", "target", "inventory", "management", "subtree" }) |field| if (@field(result.notices, field)) {
-        flags[count] = .{ .symbol = field };
-        count += 1;
+    inline for (notices) |name| if (@FieldType(@TypeOf(result.notices), name) == bool) {
+        count += @intFromBool(@field(result.notices, name));
+    };
+    const flags = try call.arena().alloc(driver.Value, count);
+    count = 0;
+    inline for (notices) |name| if (@FieldType(@TypeOf(result.notices), name) == bool) {
+        if (@field(result.notices, name)) {
+            flags[count] = .{ .symbol = name };
+            count += 1;
+        }
     };
     parts[4] = .{ .list = flags };
     return .{ .tagged = .{ .tag = "access:observation", .value = parts } };
@@ -195,7 +194,7 @@ fn stage(context: *anyopaque, store: *loam.Store) !void {
     if (store != value.store()) return error.ForeignStore;
     _ = try value.cancellation.?.stage(.{ .context = value, .stage = retire });
 }
-fn retire(context: *anyopaque, publications: [2]?loam.ObjectId) !void {
+fn retire(context: *anyopaque, publications: records.ObservationRecord.Publications) !void {
     const value = backing(context);
     for (publications, value.retirement_leases) |publication, lease| if (publication) |id| {
         if (lease == null or !(try value.store().currentView(lease.?)).id.eql(id)) return error.NotPrepared;

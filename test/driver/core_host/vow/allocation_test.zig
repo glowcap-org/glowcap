@@ -85,7 +85,7 @@ test "core host: fetch allocation failures are pre-commit and a committed vow id
         const pair = try openPair(std.testing.allocator, &client, &server, "127.0.0.1:7106", &dials);
 
         try std.testing.expectEqual(@as(usize, 0), pair.a.served.queuedOutboundBytes());
-        const held_bootstrap_before = pair.a.served.port.peer.session_state.holdsImport(.from(engine.BOOTSTRAP_POSITION));
+        const held_bootstrap_before = pair.a.served.port.peer.session_state.holdsImport(.from(engine.bootstrap_position));
         failing.fail_index = failing.alloc_index + offset;
 
         const result = client.fetch(pair.a, "allocation-transaction");
@@ -101,7 +101,7 @@ test "core host: fetch allocation failures are pre-commit and a committed vow id
             try std.testing.expectEqual(@as(usize, 0), client.vows.count());
             try std.testing.expectEqual(
                 held_bootstrap_before,
-                pair.a.served.port.peer.session_state.holdsImport(.from(engine.BOOTSTRAP_POSITION)),
+                pair.a.served.port.peer.session_state.holdsImport(.from(engine.bootstrap_position)),
             );
         }
 

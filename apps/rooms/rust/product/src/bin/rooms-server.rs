@@ -132,7 +132,7 @@ fn boot_block(
 		lines.push(format!("  transport   {transport}"));
 		lines.push(format!("  locator     {location}"));
 		if keeps {
-			lines.push("  history     listed rooms keep their last lines".into());
+			lines.push("  history     rooms keep their last lines".into());
 		}
 		if !capabilities.is_empty() {
 			lines.push(String::new());

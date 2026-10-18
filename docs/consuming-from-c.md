@@ -236,8 +236,8 @@ foreign owner to stop new calls and join its own call leases first.
 ## Learn from a binding
 
 Rust, TypeScript, Python, and Racket consume this same Host ABI, and their
-pumps, trampolines, and release paths are runnable examples of using
-glowcap from a language runtime. See the [binding contract](../bindings/README.md).
+pumps, trampolines, and release paths show how a language runtime drives
+glowcap. See the [binding contract](../bindings/README.md).
 
 ## Persistent resources
 

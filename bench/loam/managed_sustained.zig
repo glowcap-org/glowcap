@@ -13,7 +13,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().createDir(init.io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(init.io, path) catch unreachable;
-    var db = try w.Lmdb.open(path, .{ .mode = .{ .create = @fromBackingInt(75) } });
+    var db = try w.Lmdb.open(path, .{ .opening = .{ .id = @fromBackingInt(75), .mode = .create } });
     var opened = true;
     defer if (opened) db.close() catch unreachable;
     var bytes: metrics.LiveBytesAllocator = .{ .backing = init.gpa };
@@ -51,7 +51,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
     // writer after installation, never the closed pre-compaction owner.
     try db.close();
     opened = false;
-    db = try w.Lmdb.open(path, .{ .mode = .{ .open = @fromBackingInt(75) } });
+    db = try w.Lmdb.open(path, .{ .opening = .{ .id = @fromBackingInt(75), .mode = .open } });
     opened = true;
     const after = try db.inspect();
     if (!std.meta.eql(try metadata.claim(), db.metadata) or before.entries != after.entries) return error.CompactionChangedRecords;

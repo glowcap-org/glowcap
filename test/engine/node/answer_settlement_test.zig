@@ -11,6 +11,7 @@ const crypto = glowcap.foundation.crypto;
 
 const Node = engine.Node;
 const openKeyedSessionWithCounterpart = @import("harness.zig").openKeyedSessionWithCounterpart;
+const projection_support = @import("../../support/projection.zig");
 
 const AnswerPath = enum {
     v1_wire,
@@ -23,11 +24,11 @@ fn installObservedAnswer(
     counterpart: *engine.Peer,
     path: AnswerPath,
 ) !model.AnswerName {
-    const target = model.ExportPosition.from(recipient.session_state.next_export_position);
+    const target = recipient.session_state.exports.nextPosition();
     try recipient.session_state.registerExport(target);
     try counterpart.session_state.registerImport(.from(target.int()));
     const virtual_resolver = model.ExportPosition.from(
-        counterpart.session_state.next_export_position,
+        counterpart.session_state.exports.nextPosition().int(),
     );
     if (path == .v1_virtual)
         try counterpart.session_state.registerExport(virtual_resolver);
@@ -69,7 +70,7 @@ fn runNestedSettlement(
     options: engine.Peer.NegotiatingOptions,
 ) !void {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0xb0)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0xb0)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(options);
@@ -80,21 +81,21 @@ fn runNestedSettlement(
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0xb1)),
+        @as([crypto.seed_bytes]u8, @splat(0xb1)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0xb2)),
+        @as([crypto.seed_bytes]u8, @splat(0xb2)),
     );
     defer exporter_counterpart.deinit();
 
     const answer = try installObservedAnswer(recipient, &recipient_counterpart, path);
     const original_target = recipient.session_state.answerTargetNamed(answer).?;
     try exporter.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
+    const foreign = try node.enrollForeign(exporter_id, model.FarRef.object(4));
     const nested = [_]model.Argument{
         .{ .reference = foreign },
         .{ .list = &.{.{ .reference = foreign }} },
@@ -124,12 +125,12 @@ fn runNestedSettlement(
         try std.testing.expect(replacement.row_id != original_target.row_id);
     }
 
-    const first_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xb3));
+    const first_id = @as([model.handoff_gift_id_bytes]u8, @splat(0xb3));
     try node.provideGiftId(second, &first_id);
     try std.testing.expect(recipient.session_state.peekResolutionNamed(answer) == null);
     try std.testing.expect(node.nextAction() == null);
 
-    const second_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xb4));
+    const second_id = @as([model.handoff_gift_id_bytes]u8, @splat(0xb4));
     try node.provideGiftId(first, &second_id);
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     const original_payload = recipient.session_state.answerPayloadForTarget(original_target).?;
@@ -263,7 +264,7 @@ test "next Cap'n Proto answer settlement fires its installed listener" {
 
 test "answer settlement recursively projects repeated nested foreign promises" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0xb5)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0xb5)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -274,21 +275,21 @@ test "answer settlement recursively projects repeated nested foreign promises" {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0xb6)),
+        @as([crypto.seed_bytes]u8, @splat(0xb6)),
     );
     defer recipient_counterpart.deinit();
     var home_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         home,
-        @as([crypto.SEED_BYTES]u8, @splat(0xb7)),
+        @as([crypto.seed_bytes]u8, @splat(0xb7)),
     );
     defer home_counterpart.deinit();
 
     const answer = model.AnswerName.fromWire(.from(44));
     try recipient.session_state.installInboundAnswerNamed(answer);
     try home.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(home_id, .{ .far = model.FarRef.promise(4) });
+    const foreign = try node.enrollForeign(home_id, model.FarRef.promise(4));
     const nested = [_]model.Argument{
         .{ .reference = foreign },
         .{ .@"struct" = &.{.{ .key = "nested", .value = .{ .reference = foreign } }} },
@@ -344,27 +345,24 @@ test "answer settlement recursively projects repeated nested foreign promises" {
     );
 
     // This synthetic V1 answer has no resolver callback, so settlement is a
-    // local consequence only. The paired third-party import uses the same
-    // numeric slot; an ordinary wire delivery proves its counterpart-facing
-    // `.far` encoding in `gift_test.zig`.
+    // local consequence only. An ordinary wire delivery proves the
+    // projection's counterpart-facing `.far` encoding in `gift_test.zig`.
     try recipient.stepToIdle();
     try std.testing.expect(recipient.takeOutbound() == null);
-    const first_import = model.ImportPosition.from(first.near.export_position.int());
-    const second_import = model.ImportPosition.from(second.near.export_position.int());
 
     const settlement = try allocator.dupe(u8, "settled");
     try std.testing.expect(node.consumeProjectedProxyListenerFire(home_id, listener_position, .{
         .fulfill = .{ .bytes = settlement },
     }));
-    const first_settlement = recipient.session_state.importedPromiseResolution(first_import).?;
-    const second_settlement = recipient.session_state.importedPromiseResolution(second_import).?;
+    const first_settlement = projection_support.resolution(&recipient.session_state, first.near.export_position).?;
+    const second_settlement = projection_support.resolution(&recipient.session_state, second.near.export_position).?;
     try std.testing.expectEqualStrings("settled", first_settlement.fulfill.bytes);
     try std.testing.expectEqualStrings("settled", second_settlement.fulfill.bytes);
 }
 
 test "settlement admission refusal leaves named answer and projection authority untouched" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0xc0)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0xc0)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{});
@@ -375,21 +373,21 @@ test "settlement admission refusal leaves named answer and projection authority 
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0xc1)),
+        @as([crypto.seed_bytes]u8, @splat(0xc1)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0xc2)),
+        @as([crypto.seed_bytes]u8, @splat(0xc2)),
     );
     defer exporter_counterpart.deinit();
 
     const answer = model.AnswerName.fromWire(.from(42));
     try recipient.session_state.installInboundAnswerNamed(answer);
     try exporter.session_state.registerImport(.from(4));
-    const foreign = try node.enrollForeign(exporter_id, .{ .far = model.FarRef.object(4) });
+    const foreign = try node.enrollForeign(exporter_id, model.FarRef.object(4));
     const resolution: model.Resolution = .{ .fulfill = .{ .list = &.{
         .{ .reference = foreign },
         .{ .list = &.{.{ .reference = foreign }} },
@@ -420,8 +418,8 @@ test "settlement admission refusal leaves named answer and projection authority 
     try recipient.sendAnswerResolutionCopying(answer, resolution);
     const first = node.nextAction().?.need_gift_id.ticket;
     const second = node.nextAction().?.need_gift_id.ticket;
-    const first_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xc3));
-    const second_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xc4));
+    const first_id = @as([model.handoff_gift_id_bytes]u8, @splat(0xc3));
+    const second_id = @as([model.handoff_gift_id_bytes]u8, @splat(0xc4));
     try node.provideGiftId(first, &first_id);
     try node.provideGiftId(second, &second_id);
     const terminal = node.nextAction().?.fail;
@@ -562,7 +560,7 @@ test "answer-store allocation refusal precedes every export mutation" {
     const resolution: model.Resolution = .{ .fulfill = .{ .reference = .{
         .near = model.NearRef.promise(export_position.int()),
     } } };
-    const inventory = try peer.session_state.inventoryResolution(resolution);
+    const inventory = try peer.inventoryResolution(resolution);
     defer inventory.deinit(peer.allocator);
     try peer.session_state.ensureSentResolutionExportCapacity(resolution, inventory);
 

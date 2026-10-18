@@ -6,6 +6,7 @@ const glowcap = @import("glowcap");
 
 const model = glowcap.ocapn.model;
 const session = glowcap.ocapn.session;
+const NoMeter = session.inventory.NoMeter;
 
 const near = struct {
     fn ref(position: u64) model.Argument {
@@ -24,17 +25,17 @@ test "an inventory measures what the owned model measures" {
     var list_items = [_]model.Argument{ .{ .@"struct" = &entries }, .{ .bytes = &.{ 1, 2, 3 } } };
     var args = [_]model.Argument{ .{ .list = &list_items }, near.ref(4), .{ .symbol = "greet" } };
 
-    const of_args = try s.inventoryArguments(&args);
+    const of_args = try s.inventoryArguments(&args, NoMeter);
     defer of_args.deinit(std.testing.allocator);
     try std.testing.expectEqual(try model.measureArgumentSliceOwnedBytes(&args), of_args.owned_bytes);
 
     const fulfill: model.Resolution = .{ .fulfill = .{ .list = &list_items } };
-    const of_fulfill = try s.inventoryResolution(fulfill);
+    const of_fulfill = try s.inventoryResolution(fulfill, NoMeter);
     defer of_fulfill.deinit(std.testing.allocator);
     try std.testing.expectEqual(try model.measureResolutionOwnedBytes(fulfill), of_fulfill.owned_bytes);
 
     const broken: model.Resolution = .{ .@"break" = .{ .message = "nope" } };
-    const of_break = try s.inventoryResolution(broken);
+    const of_break = try s.inventoryResolution(broken, NoMeter);
     defer of_break.deinit(std.testing.allocator);
     try std.testing.expectEqual(try model.measureResolutionOwnedBytes(broken), of_break.owned_bytes);
     try std.testing.expectEqual(@as(usize, 0), of_break.slots.len);
@@ -47,7 +48,7 @@ test "an inventory lists references, handoffs, and sets in tree order" {
     var list_items = [_]model.Argument{ near.ref(2), .{ .set = &set_items } };
     var args = [_]model.Argument{ near.ref(1), .{ .list = &list_items }, .{ .string = "tail" } };
 
-    const inventory = try s.inventoryArguments(&args);
+    const inventory = try s.inventoryArguments(&args, NoMeter);
     defer inventory.deinit(std.testing.allocator);
     // A set is listed after its items, because its uniqueness is certified
     // once shortening has rewritten them.
@@ -56,7 +57,7 @@ test "an inventory lists references, handoffs, and sets in tree order" {
     for (expected, inventory.slots) |argument, slot| try std.testing.expectEqual(argument, slot.heap);
 
     // A fulfillment that is itself a reference is the by-value root.
-    const root_only = try s.inventoryResolution(.{ .fulfill = near.ref(5) });
+    const root_only = try s.inventoryResolution(.{ .fulfill = near.ref(5) }, NoMeter);
     defer root_only.deinit(std.testing.allocator);
     try std.testing.expectEqual(@as(usize, 1), root_only.slots.len);
     try std.testing.expect(root_only.slots[0] == .root);
@@ -72,10 +73,10 @@ test "an inventory refuses nesting past the limit, an empty container included" 
     var deeper = [_]model.Argument{.{ .list = &outer }};
 
     // Two containers deep fits, and the third refuses even though it is empty.
-    const fits = try s.inventoryArguments(&outer);
+    const fits = try s.inventoryArguments(&outer, NoMeter);
     defer fits.deinit(std.testing.allocator);
-    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(&deeper));
-    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryResolution(.{ .fulfill = .{ .list = &outer } }));
+    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryArguments(&deeper, NoMeter));
+    try std.testing.expectError(session.Error.NestingTooDeep, s.inventoryResolution(.{ .fulfill = .{ .list = &outer } }, NoMeter));
 }
 
 test "an inventory refuses a duplicate struct key" {
@@ -86,7 +87,7 @@ test "an inventory refuses a duplicate struct key" {
         .{ .key = "a", .value = .{ .integer = 2 } },
     };
     var args = [_]model.Argument{.{ .@"struct" = &entries }};
-    try std.testing.expectError(session.Error.DuplicateStructKey, s.inventoryArguments(&args));
+    try std.testing.expectError(session.Error.DuplicateStructKey, s.inventoryArguments(&args, NoMeter));
 }
 
 test "an inventory allocates only for a tree with something to return to" {
@@ -97,16 +98,16 @@ test "an inventory allocates only for a tree with something to return to" {
     var plain = [_]model.Argument{ .{ .list = &plain_items }, .{ .symbol = "greet" } };
 
     failing.fail_index = failing.alloc_index;
-    const nothing = try s.inventoryArguments(&plain);
+    const nothing = try s.inventoryArguments(&plain, NoMeter);
     nothing.deinit(failing.allocator());
     try std.testing.expectEqual(@as(usize, 0), nothing.slots.len);
 
     // One reference costs the slot list, and nothing else.
     var one_ref = [_]model.Argument{ .{ .list = &plain_items }, near.ref(1) };
     failing.fail_index = failing.alloc_index;
-    try std.testing.expectError(error.OutOfMemory, s.inventoryArguments(&one_ref));
+    try std.testing.expectError(error.OutOfMemory, s.inventoryArguments(&one_ref, NoMeter));
     failing.fail_index = failing.alloc_index + 1;
-    const listed = try s.inventoryArguments(&one_ref);
+    const listed = try s.inventoryArguments(&one_ref, NoMeter);
     defer listed.deinit(failing.allocator());
     try std.testing.expectEqual(@as(usize, 1), listed.slots.len);
 }
@@ -131,7 +132,7 @@ test "a set whose promises shorten onto one target is refused after the rewrite"
         .target = .{ .far = model.FarRef.promise(7) },
         .args = &args,
     } };
-    const inventory = try s.inventoryMessage(message);
+    const inventory = try s.inventoryMessage(message, NoMeter);
     defer inventory.deinit(allocator);
 
     // Shortening folds both onto promise 7, and the send is refused before

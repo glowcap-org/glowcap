@@ -40,7 +40,7 @@ pub fn service(self: anytype) !void {
     var slot: [1]Worker.Slot = undefined;
     var worker: Worker = .init(&slot, self.db.readerCapacity());
     try self.attachment.advance();
-    while (try worker.next(self.attachment, false)) |work| {
+    while (try worker.next(self.attachment, .when_uncertain)) |work| {
         try Worker.run(work, self.db);
         try worker.complete(work, self.attachment);
         switch (work.request) {

@@ -32,7 +32,7 @@ pub fn State(
         pub const Retirement = enum { normal, publish_cancel };
 
         pub fn noteCleanup(job: *Self, later: foundation.FailureChain) void {
-            if (job.cleanup) |*first| first.noteChain(later) else job.cleanup = later;
+            foundation.latchFailure(&job.cleanup, later);
         }
 
         pub fn run(job: *Self) std.Io.Cancelable!void {

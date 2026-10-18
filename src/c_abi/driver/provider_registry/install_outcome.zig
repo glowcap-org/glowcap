@@ -10,7 +10,7 @@ pub const Outcome = struct {
 
     pub fn fromError(err: anyerror) Outcome {
         const failure = driver.OperationFailure.fromError(err);
-        return .{ .result = driver_error.code(failure.kind), .failure = failure };
+        return .{ .result = driver_error.code(failure.kind()), .failure = failure };
     }
 
     pub fn fromCode(result: i32, err: anyerror) Outcome {
@@ -21,7 +21,7 @@ pub const Outcome = struct {
         if (self.failure) |*failure| {
             failure.noteFailure(later);
         } else {
-            self.result = driver_error.code(later.kind);
+            self.result = driver_error.code(later.kind());
             self.failure = later;
         }
     }

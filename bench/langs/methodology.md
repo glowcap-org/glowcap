@@ -8,9 +8,7 @@ sources:
 # Per-language benchmark methodology
 
 The benchmark holds one Zig host and one application contract constant, then
-replaces the client stack. Each client runs the same workload, and the sections
-below say how each metric is measured and where comparisons stop being
-meaningful.
+replaces the client stack. Each client runs the same workload.
 
 ## Shared workload
 
@@ -22,7 +20,8 @@ One unit performs four operations against a task board:
 3. complete it
 4. read and verify its final status
 
-All clients use loopback TCP. The transport disables Nagle for each peer.
+All clients use loopback TCP. glowcap's transport disables Nagle for each
+glowcap peer, and the Goblins row keeps Racket's default.
 Each networked measurement window starts a fresh ReleaseFast host, so heap
 growth does not carry from one window into the next.
 

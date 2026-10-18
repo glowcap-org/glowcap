@@ -20,12 +20,12 @@ var key_state: std.atomic.Value(u8) = .init(0);
 var key_ready_single = false;
 var key: [16]u8 = undefined;
 
-pub fn issuer(seed: [crypto.SEED_BYTES]u8) driver_core.CapabilityIdIssuer {
+pub fn issuer(seed: [crypto.seed_bytes]u8) driver_core.CapabilityIdIssuer {
     ensureKey(seed);
     return .{ .next = issue };
 }
 
-fn deriveKey(seed: [crypto.SEED_BYTES]u8) [16]u8 {
+fn deriveKey(seed: [crypto.seed_bytes]u8) [16]u8 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
     hasher.update("glowcap opaque capability id permutation\x00");
     hasher.update(&seed);
@@ -34,7 +34,7 @@ fn deriveKey(seed: [crypto.SEED_BYTES]u8) [16]u8 {
     return digest[0..16].*;
 }
 
-fn ensureKey(seed: [crypto.SEED_BYTES]u8) void {
+fn ensureKey(seed: [crypto.seed_bytes]u8) void {
     if (comptime builtin.single_threaded) {
         if (!key_ready_single) {
             key = deriveKey(seed);

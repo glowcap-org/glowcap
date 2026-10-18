@@ -36,7 +36,7 @@ pub const RuntimeAdoptionError = error{
 /// actions transfer. Live sessions and a popped action retain their current
 /// byte-channel or borrowed-payload owner.
 pub fn checkRuntimeAdoption(self: *const Host) RuntimeAdoptionError!void {
-    if (self.in_callback) return error.ReenteredHost;
+    if (self.callback_latch.isHeld()) return error.ReenteredHost;
     if (self.lifecyclePhase() != .active) return error.HostClosing;
     if (self.sessions.count() != 0 or self.last_action != null or self.retry_last_action)
         return error.HostNotQuiescent;
@@ -46,12 +46,12 @@ pub fn checkRuntimeAdoption(self: *const Host) RuntimeAdoptionError!void {
 /// the session root is replaced per process so every session key is distinct.
 pub fn init(
     allocator: std.mem.Allocator,
-    seed: [crypto.SEED_BYTES]u8,
-    session_seed_root: [crypto.SEED_BYTES]u8,
+    seed: [crypto.seed_bytes]u8,
+    session_seed_root: [crypto.seed_bytes]u8,
     opts: Host.Options,
 ) Host.InitError!Host {
     if (opts.host_work_quantum == 0)
-        return Host.InitError.InvalidHostWorkQuantum;
+        return error.InvalidHostWorkQuantum;
     return .{
         .allocator = allocator,
         .node = engine.Node.init(allocator, seed),
@@ -72,11 +72,12 @@ pub fn deinit(self: *Host) void {
 /// first ingress-retirement refusal is returned only after the complete sweep.
 pub fn deinitOutcome(self: *Host) ?anyerror {
     self.assertOwner();
-    std.debug.assert(!self.in_callback);
+    std.debug.assert(!self.callback_latch.isHeld());
     var first_failure: ?anyerror = null;
     // Break listeners under the callback latch; nested work only enqueues and
-    // every resulting queue row is retired later in this same sweep.
-    self.in_callback = true;
+    // every resulting queue row is retired later in this same sweep. The
+    // latch is never released: the Host does not outlive this sweep.
+    _ = self.callback_latch.hold();
     var break_it = self.sessions.valueIterator();
     while (break_it.next()) |session| {
         session.*.served.port.breakFarVows(session.*.served.closeReason("host released"));
@@ -103,18 +104,17 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
     self.vat.deinit();
     self.sessions.deinit(self.allocator);
     var publications = self.publications.valueIterator();
-    while (publications.next()) |row| self.allocator.free(@constCast(row.name));
+    while (publications.next()) |row| self.allocator.free(row.name);
     self.publications.deinit(self.allocator);
     self.turn_receipts.deinit(self.allocator);
     self.hellos.deinit(self.allocator);
     self.partner_by_side.deinit(self.allocator);
     self.peer_by_durable.deinit(self.allocator);
     self.dialed_by_target.deinit(self.allocator);
+    // Every key is this Host's copy: `defineTransports` refuses a known name
+    // before it dupes, so the map never holds a static symbol.
     var transport_it = self.transport_profiles.keyIterator();
-    while (transport_it.next()) |transport| {
-        if (model.transport.parseKnown(transport.*) == null)
-            self.allocator.free(@constCast(transport.*));
-    }
+    while (transport_it.next()) |transport| self.allocator.free(@constCast(transport.*));
     self.transport_profiles.deinit(self.allocator);
     if (self.last_action) |last| action.freeStorage(self.allocator, last);
     for (self.actions.unpopped()) |queued| action.freeStorage(self.allocator, queued);
@@ -143,7 +143,7 @@ pub fn deinitOutcome(self: *Host) ?anyerror {
 /// Destroy after an adapter transfers exclusive terminal ownership to this
 /// thread. No Host call may remain in flight or begin afterward.
 pub fn deinitAfterOwnershipTransfer(self: *Host) ?anyerror {
-    std.debug.assert(!self.in_callback);
+    std.debug.assert(!self.callback_latch.isHeld());
     if (comptime admission.tracks_thread_affinity) self.owner_tid = admission.initial_owner_thread_id;
     return deinitOutcome(self);
 }
@@ -151,5 +151,5 @@ pub fn deinitAfterOwnershipTransfer(self: *Host) ?anyerror {
 /// Validate terminal ownership transfer without claiming the ordinary driving
 /// thread. Release is legal only outside a callback window.
 pub fn checkReleaseOwnershipTransfer(self: *const Host) error{ReenteredHost}!void {
-    if (self.in_callback) return error.ReenteredHost;
+    if (self.callback_latch.isHeld()) return error.ReenteredHost;
 }

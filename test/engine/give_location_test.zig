@@ -34,7 +34,7 @@ test "a bare exporter location needs no stripping and allocates nothing" {
 test "profile hints strip to the bare onion form" {
     const allocator = std.testing.allocator;
     const hints = [_]model.HintEntry{
-        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "glowcap-next" } },
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.hintToken() } },
         .{ .name = model.transport.hint_codec, .value = .{ .string = "1" } },
     };
     const raw = try recordBytes(allocator, .{
@@ -58,7 +58,7 @@ test "routing hints a receiver needs survive the onion profile strip" {
     const allocator = std.testing.allocator;
     const hints = [_]model.HintEntry{
         .{ .name = "direct-addresses", .value = .{ .string = "192.0.2.7:9045" } },
-        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "glowcap-next" } },
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.hintToken() } },
     };
     const raw = try recordBytes(allocator, .{
         .transport = model.transport.onion,
@@ -88,7 +88,7 @@ test "a profile-only non-onion give keeps the exporter's hello verbatim" {
     const allocator = std.testing.allocator;
     const hints = [_]model.HintEntry{
         .{ .name = "direct-addresses", .value = .{ .string = "192.0.2.7:9045" } },
-        .{ .name = model.transport.hint_captp_version, .value = .{ .string = "glowcap-next" } },
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.hintToken() } },
     };
     const raw = try recordBytes(allocator, .{
         .transport = model.transport.iroh,
@@ -107,11 +107,11 @@ fn expectMintedExporter(
     exporter_loc: []const u8,
     policy: engine.handoff_gifter.RecipientLocatorPolicy,
 ) !model.HandoffGive {
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x21)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x21)));
     const give = try engine.handoff_gifter.mintGive(
         allocator,
         secret,
-        &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x22)),
+        &@as([model.handoff_gift_id_bytes]u8, @splat(0x22)),
         &@as([32]u8, @splat(0x23)),
         &@as([32]u8, @splat(0x24)),
         exporter_loc,
@@ -124,7 +124,7 @@ fn expectMintedExporter(
 
 test "id gives fail closed for recipients without route vocabulary" {
     const allocator = std.testing.allocator;
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x25))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x25))).publicKey().toDesignator();
     const route_text = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.iroh",
@@ -149,7 +149,7 @@ test "id gives fail closed for recipients without route vocabulary" {
 
 test "id gives lower to the recipient session transport" {
     const allocator = std.testing.allocator;
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x27))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x27))).publicKey().toDesignator();
     const route_text = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route_text);
     const routes = [_]model.HintEntry{.{
@@ -210,7 +210,7 @@ test "via remains an ordinary unknown hint outside the id transport" {
 
 test "route vocabulary recipients keep id locators verbatim" {
     const allocator = std.testing.allocator;
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x26))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x26))).publicKey().toDesignator();
     const route_text = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route_text);
     const routes = [_]model.HintEntry{.{
@@ -237,7 +237,7 @@ test "route vocabulary recipients keep id locators verbatim" {
 
 test "route vocabulary recipients use a baseline exporter's session location" {
     const allocator = std.testing.allocator;
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x28))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x28))).publicKey().toDesignator();
     const route_text = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route_text);
     const routes = [_]model.HintEntry{.{
@@ -257,11 +257,11 @@ test "route vocabulary recipients use a baseline exporter's session location" {
     });
     defer allocator.free(baseline_raw);
 
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x29)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x29)));
     const signed = try engine.handoff_gifter.mintGive(
         allocator,
         secret,
-        &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x2a)),
+        &@as([model.handoff_gift_id_bytes]u8, @splat(0x2a)),
         &@as([32]u8, @splat(0x2b)),
         &@as([32]u8, @splat(0x2c)),
         id_raw,
@@ -290,11 +290,11 @@ test "route vocabulary recipients keep a baseline-compatible exporter override" 
     });
     defer allocator.free(session_raw);
 
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x2d)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x2d)));
     const signed = try engine.handoff_gifter.mintGive(
         allocator,
         secret,
-        &@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x2e)),
+        &@as([model.handoff_gift_id_bytes]u8, @splat(0x2e)),
         &@as([32]u8, @splat(0x2f)),
         &@as([32]u8, @splat(0x30)),
         override_raw,

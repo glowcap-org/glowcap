@@ -1,7 +1,7 @@
 //! The mark's generated files, held to one geometry.
 //!
 //! The mushroom exists once, as the WebGPU shader in
-//! `apps/rooms/web/ui/mark_gpu_field.ts`, and `zig build gen-mark` traces every
+//! `apps/rooms/web/ui/mark/field.ts`, and `zig build gen-mark` traces every
 //! still picture of it out of one render: the artwork, the favicon cut from it,
 //! the square raster, the masks and line drawing in `ui/tokens.css`, and the
 //! placement in `ui/mark.css`. That step runs a real browser, so it is a
@@ -37,7 +37,7 @@ const layers = [_]struct { mask: []const u8, tone: []const u8 }{
 };
 
 /// How much larger the mushroom stands than the box it is given, matching
-/// `GROW` in `apps/rooms/web/ui/mark_gpu_live.ts` and in
+/// `GROW` in `apps/rooms/web/ui/mark/live.ts` and in
 /// `tools/gen/mark/emit.ts`.
 const grow = 1.2;
 

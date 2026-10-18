@@ -28,8 +28,9 @@ Visual rules:
 ## The page and its chunks
 
 `page.js` is the browser entry point, and it loads the React application in `main.tsx`. A second, small entry,
-`ground.js`, starts the mycelium under the page (`mycelium.ts`). It loads on its own so the threads come up under the
-opening screen while `page.js` is still arriving. Both entries share `ground_link.ts`, which is how `page.js` dims
+`ground.js`, starts the mycelium under the page (`mycelium/live.ts`). It loads on its own so the threads come up under the
+opening screen while `page.js` is still arriving. The threads draw with WebGPU, so a browser without it shows the
+plain ground. Both entries share `mycelium/link.ts`, which is how `page.js` dims
 the threads while every connection is lost and grows them back in when one returns.
 
 - **Production build.** The app's Vite configuration runs through Deno's pinned toolchain and publishes the entries as
@@ -60,6 +61,8 @@ The component folders follow visual ownership:
 - `panes/` holds the conversation and modal work surfaces.
 - `settings/` holds the settings surface and its sections.
 - `ops/`, `sidebar/`, `composer/`, and `message/` each own a narrower domain.
+- `mark/` draws the live mushroom and `mycelium/` the threads under the page, both with WebGPU on the one device
+  `gpu/` shares between them.
 - Reusable controls and composition helpers stay at this directory's root.
 
 State lives in three places:
@@ -245,8 +248,6 @@ A success is also shown where the action happened:
 - As its own checked line under the actions row ("Listed here as lobby."), never inside the row, so the buttons stay
   put.
 - Or as the well changing into what the action made, such as a link's copy field replacing the button that created it.
-
-A form that shows nothing on success has not answered the reader.
 
 Pending work belongs to the action that started it. `session/managed/lifecycle.ts` records its owner, phase and
 outcome separately.

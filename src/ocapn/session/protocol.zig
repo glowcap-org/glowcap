@@ -10,6 +10,7 @@
 //! record produced by validation and hands that same record to apply.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const model = @import("model");
 
 const session = @import("mod.zig");
@@ -35,7 +36,12 @@ pub fn recordSentResolutionTarget(
 ) !void {
     var apply_owns_resolution = false;
     errdefer if (!apply_owns_resolution) model.freeResolution(self.allocator, resolution);
-    try admitOpen(self);
+    // A wire answer's settlement is a send and waits for the open session. A
+    // projection's settlement is local state: only a closed session refuses it.
+    switch (target.name) {
+        .wire => try admitOpen(self),
+        .virtual => if (self.state == .closed) return error.SessionClosed,
+    }
     try answer_notifications.validateSettlement(self, target, payload, resolution, inventory);
     apply_owns_resolution = true;
     try apply.applySentResolutionTarget(self, target, payload, resolution, inventory);
@@ -49,20 +55,40 @@ pub fn close(self: *Session) void {
 /// head. Kind-specific rules remain in the per-message validators.
 fn admitInState(self: *const Session, message: anytype) Error!void {
     switch (self.state) {
-        .closed => return Error.SessionClosed,
+        .closed => return error.SessionClosed,
         .negotiating => switch (message) {
             .start_session, .abort => {},
-            else => return Error.UnexpectedMessage,
+            else => return error.UnexpectedMessage,
         },
         .open => {},
     }
 }
 
+/// The receive arena is scratch space for one message. Everything validation
+/// allocates in it is freed at once when the message ends, and the reset keeps
+/// up to a bounded amount of memory for the next message, so steady traffic
+/// allocates nothing and a large message cannot pin its peak. A message that
+/// took nothing from the arena, or gave back what it took without growing the
+/// arena past that bound, leaves it as the last reset did, so the reset's walk
+/// over the arena's buffers is paid only after a message that grew it.
+fn resetRecvScratch(self: *Session) void {
+    const state = &self.recv_scratch.state;
+    const untouched = state.free_list == null and if (state.used_list) |node|
+        node.next == null and node.end_index == 0 and
+            self.recv_scratch.queryCapacity() <= Session.steady_recv_scratch_bytes
+    else
+        true;
+    if (untouched) return;
+    // tolerant: a retained buffer the child allocator could not shrink stays
+    // until the next message that allocates, bounded by what that message took.
+    _ = self.recv_scratch.reset(.{ .retain_with_limit = Session.steady_recv_scratch_bytes });
+}
+
 /// Admit a semantic operation that has no wire-message tag of its own.
 fn admitOpen(self: *const Session) Error!void {
     switch (self.state) {
-        .closed => return Error.SessionClosed,
-        .negotiating => return Error.UnexpectedMessage,
+        .closed => return error.SessionClosed,
+        .negotiating => return error.UnexpectedMessage,
         .open => {},
     }
 }
@@ -80,7 +106,7 @@ pub fn recordSend(self: *Session, message: model.Message) !void {
     var inventoried = false;
     errdefer if (message == .resolve and !inventoried)
         model.freeResolution(self.allocator, message.resolve.resolution);
-    const inventory = try session.inventory.ofMessage(self, message);
+    const inventory = try session.inventory.ofMessage(self, message, session.inventory.NoMeter);
     defer inventory.deinit(self.allocator);
     inventoried = true;
     return recordSendInventoried(self, message, inventory);
@@ -96,9 +122,11 @@ pub fn validateSendInventoried(self: *Session, message: model.Message, inventory
 /// Commit a send `validateSendInventoried` accepted, with no session
 /// mutation between the two beyond a resolver mint for its answer. A resolve
 /// is not accepted here: its resolution moves at `recordSendInventoried`.
-pub fn applyValidatedSend(self: *Session, message: model.Message, inventory: Inventory) !void {
+/// `resolver` is the export the admitting peer minted for the message's
+/// answer, which the answer row takes (`apply.applySend`).
+pub fn applyValidatedSend(self: *Session, message: model.Message, inventory: Inventory, resolver: ?model.ExportPosition) !void {
     std.debug.assert(message != .resolve);
-    return apply.applySend(self, message, inventory);
+    return apply.applySend(self, message, inventory, resolver);
 }
 
 pub fn recordSendInventoried(self: *Session, message: model.Message, inventory: Inventory) !void {
@@ -112,7 +140,7 @@ pub fn recordSendInventoried(self: *Session, message: model.Message, inventory: 
     apply_owns_resolution = true;
     switch (message) {
         .resolve => |resolve| try apply.applySentResolve(self, resolve, inventory),
-        else => try apply.applySend(self, message, inventory),
+        else => try apply.applySend(self, message, inventory, null),
     }
 }
 
@@ -149,7 +177,7 @@ pub fn retractPreparedListen(self: *Session, message: model.Message) void {
 pub fn recordPreparedSend(self: *Session, message: model.Message) void {
     std.debug.assert(self.state == .open);
     switch (message) {
-        .listen, .gc_export, .gc_answer => apply.applySend(self, message, .none) catch unreachable,
+        .listen, .gc_export, .gc_answer => apply.applySend(self, message, .none, null) catch unreachable,
         // Only the kinds the prepare/commit pairs build; a new prepared kind
         // extends this switch with its own infallibility argument.
         else => unreachable,
@@ -176,7 +204,7 @@ pub fn recordSentResolutionNamed(
 ) !void {
     var apply_owns_resolution = false;
     errdefer if (!apply_owns_resolution) model.freeResolution(self.allocator, resolution);
-    const inventory = try session.inventory.ofResolution(self, resolution);
+    const inventory = try session.inventory.ofResolution(self, resolution, session.inventory.NoMeter);
     defer inventory.deinit(self.allocator);
     try admitOpen(self);
     try validate.validateSentResolutionNamed(self, answer, resolution, inventory);
@@ -186,21 +214,12 @@ pub fn recordSentResolutionNamed(
 
 pub fn recordRecv(self: *Session, message: model.Message) !void {
     try admitInState(self, message);
-    // The receive arena is scratch space for this one message. Everything
-    // validation allocates in it is freed at once when the message ends. The
-    // reset keeps up to a bounded amount of memory for the next message, so
-    // steady traffic allocates nothing and a large message cannot pin its
-    // peak.
-    defer _ = self.recv_scratch.reset(.{
-        .retain_with_limit = Session.steady_recv_scratch_bytes,
-    });
-    var introduced: validate.IntroducedImports = .init(
-        self.recv_scratch.allocator(),
-        self,
-    );
+    defer resetRecvScratch(self);
+    var introduced: validate.IntroducedImports = undefined;
+    introduced.init(self.recv_scratch.allocator(), self);
     try validate.validateRecv(self, message, &introduced);
     switch (message) {
-        .deliver => |deliver| try prepareValidatedInboundDeliverOwned(self, deliver, &introduced),
+        .deliver => |*deliver| try prepareValidatedInboundDeliver(self, deliver, &introduced),
         .resolve => try prepareIntroducedImports(self, &introduced),
         else => {},
     }
@@ -212,23 +231,18 @@ pub fn recordRecv(self: *Session, message: model.Message) !void {
 /// turn-local owned materialization only after their feature gate succeeds.
 pub fn recordRecvView(self: *Session, body: model.view.Body) !void {
     try admitInState(self, body);
-    // Same arena reset as in `recordRecv`.
-    defer _ = self.recv_scratch.reset(.{
-        .retain_with_limit = Session.steady_recv_scratch_bytes,
-    });
-    var introduced: validate.IntroducedImports = .init(
-        self.recv_scratch.allocator(),
-        self,
-    );
+    defer resetRecvScratch(self);
+    var introduced: validate.IntroducedImports = undefined;
+    introduced.init(self.recv_scratch.allocator(), self);
     switch (body) {
         .deliver, .resolve, .listen, .start_session, .abort, .get, .index, .untag => {
-            try validate.validateRecvView(self, body, &introduced);
+            try validate.validateRecvView(self, &body, &introduced);
             switch (body) {
-                .deliver => |deliver| try prepareValidatedInboundDeliverView(self, deliver, &introduced),
+                .deliver => |*deliver| try prepareValidatedInboundDeliver(self, deliver, &introduced),
                 .resolve => try prepareIntroducedImports(self, &introduced),
                 else => {},
             }
-            try apply.applyRecvView(self, body, &introduced);
+            try apply.applyRecvView(self, &body, &introduced);
         },
         .gc_export, .gc_answer => {
             try refuseUnnegotiatedKind(self, body);
@@ -243,7 +257,7 @@ pub fn recordRecvView(self: *Session, body: model.view.Body) !void {
 fn refuseUnnegotiatedKind(self: *const Session, body: model.view.Body) Error!void {
     switch (body) {
         .gc_export, .gc_answer => if (!self.features.wire_delta)
-            return Error.FeatureNotNegotiated,
+            return error.FeatureNotNegotiated,
         else => {},
     }
 }
@@ -252,15 +266,12 @@ fn refuseUnnegotiatedKind(self: *const Session, body: model.view.Body) Error!voi
 /// pipeline mutation. The caller retains `introduced` for the matching apply.
 pub fn validateInboundDeliverView(
     self: *Session,
-    deliver: model.view.Deliver,
+    body: *const model.view.Body,
     introduced: *validate.IntroducedImports,
 ) !void {
-    const body = model.view.Body{ .deliver = deliver };
-    try admitInState(self, body);
-    // Same arena reset as in `recordRecv`.
-    defer _ = self.recv_scratch.reset(.{
-        .retain_with_limit = Session.steady_recv_scratch_bytes,
-    });
+    std.debug.assert(body.* == .deliver);
+    try admitInState(self, body.*);
+    defer resetRecvScratch(self);
     try validate.validateRecvView(self, body, introduced);
 }
 
@@ -268,23 +279,7 @@ pub fn validateInboundDeliverView(
 /// then performs only bounded lookups, refcount increments, and
 /// `putAssumeCapacity`. Allocator refusal cannot split answer installation from
 /// introduced-import retention after the engine has accepted the frame.
-pub fn prepareValidatedInboundDeliverView(
-    self: *Session,
-    deliver: model.view.Deliver,
-    introduced: *const validate.IntroducedImports,
-) !void {
-    try prepareValidatedInboundDeliver(self, deliver, introduced);
-}
-
-fn prepareValidatedInboundDeliverOwned(
-    self: *Session,
-    deliver: model.Deliver,
-    introduced: *const validate.IntroducedImports,
-) !void {
-    try prepareValidatedInboundDeliver(self, deliver, introduced);
-}
-
-fn prepareValidatedInboundDeliver(
+pub fn prepareValidatedInboundDeliver(
     self: *Session,
     deliver: anytype,
     introduced: *const validate.IntroducedImports,
@@ -301,12 +296,14 @@ pub fn prepareIntroducedImports(
     self: *Session,
     introduced: *const validate.IntroducedImports,
 ) !void {
+    // A message that introduced nothing reserves nothing.
+    if (introduced.mentions.count() == 0) return;
     // A row can approach u64 exhaustion only after an infeasible number of
     // prior wire mentions. Keep exact duplicate counting off the ordinary path
     // and allocate it only when this frame's total mention count could possibly
     // overflow at least one held row.
     const mention_count = std.math.cast(u64, introduced.mentions.count()) orelse
-        return Error.GcUnderflow;
+        return error.GcUnderflow;
     var needs_exact_counts = false;
     for (introduced.mentions.items()) |position| {
         const held = self.imports.count(position);
@@ -316,19 +313,22 @@ pub fn prepareIntroducedImports(
         }
     }
     if (needs_exact_counts) {
-        var counts: std.AutoHashMapUnmanaged(model.ImportPosition, u64) = .empty;
+        // The positions are the peer's words, so the table hashes under the
+        // session's secret (ADR-0223).
+        var counts: foundation.inline_rows.Table(model.ImportPosition, u64, 8, .wire) = .keyed(self.wire_hash_multiplier);
         defer counts.deinit(introduced.allocator);
+        try counts.ensureUnusedCapacity(introduced.allocator, introduced.mentions.count());
         for (introduced.mentions.items()) |position| {
-            const gop = try counts.getOrPut(introduced.allocator, position);
+            const gop = counts.getOrPutAssumeCapacity(position);
             if (!gop.found_existing) gop.value_ptr.* = 0;
             gop.value_ptr.* = std.math.add(u64, gop.value_ptr.*, 1) catch
-                return Error.GcUnderflow;
+                return error.GcUnderflow;
         }
         var it = counts.iterator();
         while (it.next()) |entry| {
             const held = self.imports.count(entry.key_ptr.*);
             if (entry.value_ptr.* > std.math.maxInt(u64) - held)
-                return Error.GcUnderflow;
+                return error.GcUnderflow;
         }
     }
     try self.imports.ensureUnusedCapacity(self.allocator, introduced.seen.count());
@@ -337,10 +337,11 @@ pub fn prepareIntroducedImports(
 /// Apply a deliver already accepted by `validateInboundDeliverView`.
 pub fn applyValidatedInboundDeliverView(
     self: *Session,
-    deliver: model.view.Deliver,
+    body: *const model.view.Body,
     introduced: *const validate.IntroducedImports,
 ) !void {
-    try apply.applyRecvView(self, .{ .deliver = deliver }, introduced);
+    std.debug.assert(body.* == .deliver);
+    try apply.applyRecvView(self, body, introduced);
 }
 
 /// Record the semantic resolve synthesized from a resolver callback deliver.
@@ -348,14 +349,9 @@ pub fn recordResolverCallbackResolve(
     self: *Session,
     resolve: model.view.Resolve,
 ) !void {
-    // Same arena reset as in `recordRecv`.
-    defer _ = self.recv_scratch.reset(.{
-        .retain_with_limit = Session.steady_recv_scratch_bytes,
-    });
-    var introduced: validate.IntroducedImports = .init(
-        self.recv_scratch.allocator(),
-        self,
-    );
+    defer resetRecvScratch(self);
+    var introduced: validate.IntroducedImports = undefined;
+    introduced.init(self.recv_scratch.allocator(), self);
     try validateResolverCallbackResolve(self, resolve, &introduced);
     try prepareIntroducedImports(self, &introduced);
     try applyValidatedResolverCallbackResolve(self, resolve, &introduced);
@@ -376,7 +372,7 @@ pub fn applyValidatedResolverCallbackResolve(
     resolve: model.view.Resolve,
     introduced: *const validate.IntroducedImports,
 ) !void {
-    try apply.applyRecvView(self, .{ .resolve = resolve }, introduced);
+    try apply.applyRecvView(self, &.{ .resolve = resolve }, introduced);
 }
 
 /// Commit a listener fire whose target, payload, export capacity, and outbound

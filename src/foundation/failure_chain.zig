@@ -51,42 +51,31 @@ pub const FailureChain = struct {
     }
 
     pub fn note(self: *FailureChain, consequence: anyerror) void {
-        if (self.secondary_cause == null) self.secondary_cause = consequence;
-        self.secondary_count +|= 1;
+        self.noteChain(.init(consequence));
     }
 
-    pub fn noteNamed(self: *FailureChain, consequence: anyerror, name: []const u8) void {
-        if (self.secondary_cause == null) {
-            self.secondary_cause = consequence;
-            self.secondary_cause_name = name;
-        }
-        self.secondary_count +|= 1;
-    }
-
-    pub fn noteClassified(
-        self: *FailureChain,
-        consequence: anyerror,
-        name: []const u8,
-        classification: Classification,
-    ) void {
-        if (self.secondary_cause == null) {
-            self.secondary_cause = consequence;
-            self.secondary_cause_name = name;
-            self.secondary_classification = classification;
-        }
-        self.secondary_count +|= 1;
-    }
-
-    /// Append a later failure chain without replacing this chain's cause or
-    /// first secondary. `later.cause` is one consequence. Its own secondary
-    /// count is added because those failures happened too.
+    /// Record a later failure without replacing this chain's cause or first
+    /// consequence. `later.cause` is one consequence, with its name and
+    /// classification. Its own secondary count is added because those
+    /// failures happened too.
     pub fn noteChain(self: *FailureChain, later: FailureChain) void {
-        if (later.classification) |classification|
-            self.noteClassified(later.cause, later.primaryName(), classification)
-        else if (later.cause_name) |name|
-            self.noteNamed(later.cause, name)
-        else
-            self.note(later.cause);
+        if (self.secondary_cause == null) {
+            self.secondary_cause = later.cause;
+            self.secondary_cause_name = later.cause_name;
+            self.secondary_classification = later.classification;
+        }
+        self.secondary_count +|= 1;
         self.secondary_count +|= later.secondary_count;
     }
 };
+
+/// Keep the first failure in `slot` and note `later` as a consequence of it.
+/// `slot` is an optional `FailureChain`, or an optional of any record that
+/// carries one as `chain`: a transport's phased failure, the driver's
+/// operation failure.
+pub fn latch(slot: anytype, later: @typeInfo(@typeInfo(@TypeOf(slot)).pointer.child).optional.child) void {
+    const Record = @TypeOf(later);
+    if (slot.*) |*first| {
+        if (Record == FailureChain) first.noteChain(later) else first.chain.noteChain(later.chain);
+    } else slot.* = later;
+}

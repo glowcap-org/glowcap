@@ -60,29 +60,31 @@ pub fn encodeMessageForProfile(
 
 pub fn encodeMessage(allocator: std.mem.Allocator, message: model.Message) EncodeError!foundation.Frame {
     const body = view.Body.fromOwned(&message);
-    return render(allocator, null, &body);
+    return render(allocator, .v1_0, &body);
 }
 
 /// Encode a borrowed body with the `1.0` profile's spellings.
 pub fn encodeBody(allocator: std.mem.Allocator, body: *const view.Body) EncodeError!foundation.Frame {
-    return render(allocator, null, body);
+    return render(allocator, .v1_0, body);
 }
 
 /// Encode a borrowed body for a CapTP version. The body is read, never
 /// materialized: a lazy record is projected where it is written, and a
-/// malformed one refuses the encode as `MalformedView`.
+/// malformed one refuses the encode as `MalformedView`. Cap'n Proto sizes
+/// its own segments and declares no meter, so `values` is always null here.
 pub fn encodeBodyForProfile(
     allocator: std.mem.Allocator,
     profile: model.CaptpVersion,
     body: *const view.Body,
+    values: ?usize,
 ) EncodeError!foundation.Frame {
+    std.debug.assert(values == null);
     return render(allocator, profile, body);
 }
 
-fn render(allocator: std.mem.Allocator, profile: ?model.CaptpVersion, body: *const view.Body) EncodeError!foundation.Frame {
-    if (profile == .next and body.* == .resolve) return Error.UnsupportedMessage;
+fn render(allocator: std.mem.Allocator, profile: model.CaptpVersion, body: *const view.Body) EncodeError!foundation.Frame {
+    if (!profile.carries(body.*)) return Error.UnsupportedMessage;
     if (profile == .next) switch (body.*) {
-        .get, .index, .untag => return Error.UnsupportedMessage,
         .deliver => |deliver| {
             if (deliver.answer != null and deliver.resolve_me_desc == null) return Error.UnsupportedMessage;
             if (deliver.resolve_me_desc) |resolver| {
@@ -116,7 +118,7 @@ fn messageKind(body: view.Body) Kind {
     };
 }
 
-fn encodeBodyInto(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?model.CaptpVersion, body: *const view.Body) EncodeError!StructLoc {
+fn encodeBodyInto(b: *wire.Builder, allocator: std.mem.Allocator, profile: model.CaptpVersion, body: *const view.Body) EncodeError!StructLoc {
     return switch (body.*) {
         .gc_answer => |gc| blk: {
             const loc = try allocStruct(b, allocator, 0, 1);
@@ -144,7 +146,7 @@ fn encodeBodyInto(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?mode
         .deliver => |*deliver| try encodeDeliver(b, allocator, profile, deliver),
         .listen => |listen| blk: {
             const loc = try allocStruct(b, allocator, 1, 2);
-            b.set(loc.data_idx, switch (profile orelse .v1_0) {
+            b.set(loc.data_idx, switch (profile) {
                 .v1_0 => @intFromBool(listen.mode.toV1_0WantsPartial() orelse return Error.UnsupportedMessage),
                 .next => @backingInt(listen.mode),
             });
@@ -174,8 +176,7 @@ fn encodeBodyInto(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?mode
                     const loc = try allocStruct(b, allocator, 3, 2);
                     b.set(loc.data_idx, 0);
                     b.set(loc.data_idx + 1, index.answer.int());
-                    b.set(loc.data_idx + 2, shared.index_big_integer |
-                        (if (big.negative) shared.index_negative else 0));
+                    b.set(loc.data_idx + 2, @bitCast(shared.IndexFlags{ .big_integer = true, .negative = big.negative }));
                     setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, index.receiver));
                     try setData(b, allocator, loc, 1, big.digits);
                     break :blk loc;
@@ -211,18 +212,18 @@ fn setPositionList(b: *wire.Builder, allocator: std.mem.Allocator, loc: StructLo
     try setListPtr(b, ptrIndex(loc, i), .{ .data_idx = start, .elem = .eight_bytes, .count = count });
 }
 
-fn encodeDeliver(b: *wire.Builder, allocator: std.mem.Allocator, profile: ?model.CaptpVersion, deliver: *const view.Deliver) EncodeError!StructLoc {
+fn encodeDeliver(b: *wire.Builder, allocator: std.mem.Allocator, profile: model.CaptpVersion, deliver: *const view.Deliver) EncodeError!StructLoc {
     const loc = try allocStruct(b, allocator, 2, 3);
-    var flags: u64 = 0;
+    var flags: shared.DeliverFlags = .{};
     if (deliver.answer) |answer| {
-        flags |= shared.deliver_has_answer;
+        flags.has_answer = true;
         b.set(loc.data_idx + 1, answer.int());
     }
     if (deliver.resolve_me_desc != null) {
-        flags |= shared.deliver_has_resolve_me;
-        if (profile == .next) flags |= @as(u64, @backingInt(deliver.listen_mode)) << shared.deliver_listen_shift;
+        flags.has_resolve_me = true;
+        if (profile == .next) flags.listen_mode = @backingInt(deliver.listen_mode);
     }
-    b.set(loc.data_idx, flags);
+    b.set(loc.data_idx, @bitCast(flags));
     setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, deliver.target));
     try setListPtr(b, ptrIndex(loc, 1), try encodeArgumentList(b, allocator, deliver.args));
     if (deliver.resolve_me_desc) |desc| setStructPtr(b, ptrIndex(loc, 2), try encodeReference(b, allocator, desc));

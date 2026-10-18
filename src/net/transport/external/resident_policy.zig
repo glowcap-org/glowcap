@@ -74,9 +74,7 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
             if (try backend.listenerCanonicalize(allocator, candidate)) |canonical| return canonical;
             const own = try backend.listenerLocator(allocator);
             defer model.freePeerLocator(allocator, own);
-            if (!std.mem.eql(u8, candidate.transport, own.transport) or !std.mem.eql(u8, candidate.designator, own.designator))
-                return error.InvalidAddress;
-            return model.clonePeerLocator(allocator, candidate);
+            return netlayer.canonicalizeFixedLocator(allocator, candidate, own.transport, own.designator);
         }
     };
 }

@@ -3,7 +3,8 @@ type: static
 description: Diagrams of reference descriptors and the export, import, and answer tables they index.
 sources:
   - resource: /src/ocapn/session/references/
-  - resource: /src/ocapn/session/slot_table.zig
+  - resource: /src/ocapn/session/export_table.zig
+  - resource: /src/ocapn/session/import_table.zig
   - resource: /src/ocapn/session/bimap.zig
 ---
 
@@ -78,7 +79,7 @@ export table and its own answers-asked table. The mirrors fill in on receipt.
 
 Every `desc:import-object` / `desc:import-promise` appearing in an inbound
 message's payload installs (or increments) an import row before the message is
-acted on. This is what makes later `op:gc-exports` accounting sound, see
+acted on. The later `op:gc-exports` accounting depends on it, see
 [05-gc.md](05-gc.md).
 
 ```mermaid

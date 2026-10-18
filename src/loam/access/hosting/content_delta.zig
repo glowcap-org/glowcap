@@ -11,11 +11,13 @@ pub const ContentDelta = struct {
     /// Encode validated recipes inside the same transaction as their fields.
     pub fn stageEdges(self: ContentDelta, store: *loam.Store, arena: std.mem.Allocator) ![]const loam.Edge {
         const edges = try arena.alloc(loam.Edge, self.edges.len);
-        for (edges, self.edges) |*edge, replacement| edge.* = switch (replacement) {
-            .edge => |value| value,
-            .saved => |saved| try saved.stage(store),
-        };
+        for (edges, self.edges) |*edge, replacement| edge.* = try replacement.stage(store);
         return edges;
+    }
+
+    /// Put the changed content row at the revision the call read.
+    pub fn put(self: ContentDelta, store: *loam.Store, arena: std.mem.Allocator, view: loam.RecordView) !void {
+        try store.putCopying(.{ .id = view.id, .revision = 0, .schema = view.schema, .schema_version = view.schema_version, .rooted = view.rooted, .payload = self.payload, .edges = try self.stageEdges(store, arena) }, view.revision);
     }
 
     /// Payload borrows the pinned row or retained call arena. Edge output

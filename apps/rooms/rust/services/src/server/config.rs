@@ -13,7 +13,7 @@ pub struct Config {
 	/// nothing kept past it.
 	pub state: Option<PathBuf>,
 	pub transport: Transport,
-	/// Whether listed rooms keep their last lines. They persist under the
+	/// Whether rooms keep their last lines. They persist under the
 	/// state directory, or stay in memory when there is none.
 	pub history: bool,
 	/// The boot capabilities to mint and publish.
@@ -30,7 +30,7 @@ pub const TRACE_PORT: u16 = 9300;
 
 pub const HELP: &str = "rooms-server [--state=<directory>] [--transport=iroh|tcp|onion] [--history]
   --state=<directory>  keep the server document, history, and operator choices here across restarts
-  --history  keep the last lines of listed rooms
+  --history  keep the last lines of each room
   --admission-scale=<1..100>  scale default work allowances (default: 1)
   --admission-rates=<class=burst/per-minute,...>  absolute per-class overrides
   --admission-rows=<1..65536>  retained subject row cap (default: 8192)

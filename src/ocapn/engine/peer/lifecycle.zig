@@ -139,9 +139,14 @@ pub fn detachNodeServices(self: *Peer) void {
     var dependencies = self.pending_withdraws.keyIterator();
     while (dependencies.next()) |dependency| services.pendingWithdrawRemoved(dependency.*);
     self.pending_handoff_change = null;
-    self.gift_registry.deinit(self.allocator, services.localObjectProjection());
-    self.gift_registry = .{};
+    retireGiftRegistry(self);
     self.node_services = null;
+}
+
+/// Retire every gift this session registered and leave an empty registry.
+pub fn retireGiftRegistry(self: *Peer) void {
+    self.gift_registry.deinit(self.allocator, self.localObjectProjection());
+    self.gift_registry = .{};
 }
 
 /// Retire every parked receive and its scheduler registration. Kept public to

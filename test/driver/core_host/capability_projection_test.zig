@@ -74,7 +74,7 @@ fn inlineGive() model.HandoffGive {
         },
         .gifter_exporter_session = &(@as([32]u8, @splat(0x22))),
         .gifter_side = &(@as([32]u8, @splat(0x33))),
-        .gift_id = &(@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x44))),
+        .gift_id = &(@as([model.handoff_gift_id_bytes]u8, @splat(0x44))),
         .signature = &(@as([64]u8, @splat(0x55))),
     };
 }

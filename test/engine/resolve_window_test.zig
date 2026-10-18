@@ -154,7 +154,7 @@ test "a failed immediate pipeline dispatch keeps its inbound commit and closes" 
     try peer.session_state.registerExport(.from(9));
     try peer.session_state.installInboundAnswer(.from(42));
     peer.session_state.limits.max_local_deliveries = 0;
-    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_resolver = peer.session_state.exports.nextPosition();
 
     // Record a local target while leaving the resolve queued. The inbound
     // pipelined deliver therefore dispatches immediately against this value.

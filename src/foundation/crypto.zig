@@ -29,14 +29,14 @@ const X25519 = std.crypto.dh.X25519;
 
 /// Width in bytes of an Ed25519 raw public key (the `q` value in the
 /// OCapN-spec gcrypt s-expression form).
-pub const PEER_KEY_BYTES: usize = 32;
+pub const peer_key_bytes: usize = Ed25519.PublicKey.encoded_length;
 
 /// Width in bytes of an Ed25519 raw signature (`r || s`).
-pub const SIGNATURE_BYTES: usize = 64;
+pub const signature_bytes: usize = Ed25519.Signature.encoded_length;
 
 /// Width in bytes of the 32-byte secret seed a `SecretKey` is reconstructed
 /// from.
-pub const SEED_BYTES: usize = 32;
+pub const seed_bytes: usize = Ed25519.KeyPair.seed_length;
 
 /// The ways verification can go wrong. Signing and deriving a key from a good
 /// seed can't fail, so everything here is about checking someone else's bytes.
@@ -54,13 +54,13 @@ pub const CryptoError = error{
 /// It's only ever used to check signatures. A key never grants authority. That
 /// always lives in a `Reference`.
 pub const PeerKey = struct {
-    bytes: [PEER_KEY_BYTES]u8,
+    bytes: [peer_key_bytes]u8,
 
     /// Width in bytes of a key designator: the key printed as lowercase hex,
     /// two characters per key byte.
-    pub const designator_len: usize = PEER_KEY_BYTES * 2;
+    pub const designator_len: usize = peer_key_bytes * 2;
 
-    pub fn fromBytes(bytes: [PEER_KEY_BYTES]u8) PeerKey {
+    pub fn fromBytes(bytes: [peer_key_bytes]u8) PeerKey {
         return .{ .bytes = bytes };
     }
 
@@ -79,7 +79,7 @@ pub const PeerKey = struct {
     /// is no second form for a dialer to alias a key under.
     pub fn fromDesignator(designator: []const u8) ?PeerKey {
         if (designator.len != designator_len) return null;
-        var out: [PEER_KEY_BYTES]u8 = undefined;
+        var out: [peer_key_bytes]u8 = undefined;
         for (&out, 0..) |*byte, i| {
             const hi = hexNibble(designator[i * 2]) orelse return null;
             const lo = hexNibble(designator[i * 2 + 1]) orelse return null;
@@ -101,8 +101,8 @@ pub const PeerKey = struct {
     /// to a `[32]u8` means one small copy. It happens here, behind the length
     /// check, so callers get to keep passing slices around.
     pub fn fromSlice(bytes: []const u8) CryptoError!PeerKey {
-        if (bytes.len != PEER_KEY_BYTES) return CryptoError.MalformedKey;
-        return fromBytes(bytes[0..PEER_KEY_BYTES].*);
+        if (bytes.len != peer_key_bytes) return CryptoError.MalformedKey;
+        return fromBytes(bytes[0..peer_key_bytes].*);
     }
 
     pub fn asBytes(self: *const PeerKey) []const u8 {
@@ -116,9 +116,9 @@ pub const PeerKey = struct {
 
 /// A 64-byte Ed25519 signature (`r || s` per RFC 8032).
 pub const Signature = struct {
-    bytes: [SIGNATURE_BYTES]u8,
+    bytes: [signature_bytes]u8,
 
-    pub fn fromBytes(bytes: [SIGNATURE_BYTES]u8) Signature {
+    pub fn fromBytes(bytes: [signature_bytes]u8) Signature {
         return .{ .bytes = bytes };
     }
 
@@ -127,9 +127,9 @@ pub const Signature = struct {
     /// `sig-val` view hands you. Same fixed-width copy as `PeerKey.fromSlice`.
     /// Here the two 32-byte halves get joined into one 64-byte value.
     pub fn fromParts(r: []const u8, s: []const u8) CryptoError!Signature {
-        const half = SIGNATURE_BYTES / 2;
+        const half = signature_bytes / 2;
         if (r.len != half or s.len != half) return CryptoError.MalformedSignature;
-        var out: [SIGNATURE_BYTES]u8 = undefined;
+        var out: [signature_bytes]u8 = undefined;
         out[0..half].* = r[0..half].*;
         out[half..].* = s[0..half].*;
         return .{ .bytes = out };
@@ -140,8 +140,8 @@ pub const Signature = struct {
     /// the length check, so callers keep passing slices and map the typed error
     /// to their own context.
     pub fn fromSlice(bytes: []const u8) CryptoError!Signature {
-        if (bytes.len != SIGNATURE_BYTES) return CryptoError.MalformedSignature;
-        return .{ .bytes = bytes[0..SIGNATURE_BYTES].* };
+        if (bytes.len != signature_bytes) return CryptoError.MalformedSignature;
+        return .{ .bytes = bytes[0..signature_bytes].* };
     }
 
     pub fn asBytes(self: *const Signature) []const u8 {
@@ -170,13 +170,13 @@ pub const SecretKey = struct {
     /// This can't fail. Deterministic generation from any 32-byte seed always
     /// yields a valid key pair, and the `unreachable` says exactly that: the
     /// identity-element error underneath can't happen for a clamped Ed25519 seed.
-    pub fn fromSeed(seed_bytes: [SEED_BYTES]u8) SecretKey {
-        const keypair = Ed25519.KeyPair.generateDeterministic(seed_bytes) catch unreachable;
+    pub fn fromSeed(bytes: [seed_bytes]u8) SecretKey {
+        const keypair = Ed25519.KeyPair.generateDeterministic(bytes) catch unreachable;
         return .{ .keypair = keypair };
     }
 
     /// Hand back the 32-byte seed, so you can rebuild this key later with `fromSeed`.
-    pub fn seed(self: *const SecretKey) [SEED_BYTES]u8 {
+    pub fn seed(self: *const SecretKey) [seed_bytes]u8 {
         return self.keypair.secret_key.seed();
     }
 

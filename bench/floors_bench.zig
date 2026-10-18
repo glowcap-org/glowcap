@@ -124,7 +124,7 @@ fn floorNoiseRecord(io: std.Io, iterations: usize) !void {
     defer sealer.deinit();
     defer opener.deinit();
     const plaintext: [record_bytes]u8 = @splat(0x42);
-    var wire: [record_bytes + noise.RECORD_HEADER_BYTES + noise.TAG_BYTES]u8 = undefined;
+    var wire: [record_bytes + noise.record_header_bytes + noise.tag_bytes]u8 = undefined;
     var out: [record_bytes]u8 = undefined;
     var checksum: u8 = 0;
 
@@ -140,7 +140,7 @@ fn floorNoiseRecord(io: std.Io, iterations: usize) !void {
     var fresh = noise.CipherState.init(@splat(0x11));
     defer fresh.deinit();
     const sealed = try noise.sealRecord(&fresh, &plaintext, &wire);
-    const body = sealed[noise.RECORD_HEADER_BYTES..];
+    const body = sealed[noise.record_header_bytes..];
     const open_start = nowNs(io);
     for (0..iterations) |_| {
         opener = noise.CipherState.init(@splat(0x11));

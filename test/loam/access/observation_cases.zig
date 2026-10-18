@@ -221,7 +221,7 @@ pub fn controlInventory(store: *f.loam.core.Store, backend: anytype) !void {
     const child = (try f.change(store, backend, data.owner, .{ .derive = .{ .parent = data.grant, .request = f.vocabulary.issue(terms, 0) } })).?;
     const inventory = try poll(&caps, backend, context, first.cursor);
     try std.testing.expect(inventory.changed and inventory.notices.inventory and !inventory.notices.target);
-    const use_descriptor = try c.descriptor(&caps, backend, data.owner, child.grant, null, false);
+    const use_descriptor = try c.descriptor(&caps, backend, data.owner, child.grant, null, .reachable);
     const use_context = try register(&caps, backend, use_descriptor, data.resource, @splat(88));
     const use_first = try poll(&caps, backend, use_context, null);
     try management.revoke(&caps, backend, root_control);
@@ -269,7 +269,8 @@ pub fn composed(store: *f.loam.core.Store, backend: anytype) !void {
         count += 1;
         _ = try f.pump(registration.*, backend);
     }
-    var read = try storage.Read.init(store.allocator, store, data.owner, 8);
+    var read: storage.Read = undefined;
+    try read.init(store.allocator, store, data.owner, 8, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     try f.require(&read, backend, data.grant, data.resource, .{ .permissions = &.{} });

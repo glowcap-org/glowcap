@@ -134,9 +134,8 @@ test "served Host reply lends containers without turn storage and near reply kee
     var arena = std.heap.FixedBufferAllocator.init(&empty);
     var turn = glowcap.actors.Turn{
         .vat = &vat,
-        .port = &session.served.port,
-        .self_ref = .{ .local = 0 },
-        .ingress = .local,
+        .source = .{ .port = &session.served.port },
+        .self_id = 0,
         .arena = arena.allocator(),
         .origin = .{ .served = null },
     };

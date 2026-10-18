@@ -11,7 +11,7 @@ sources:
 A publication gives a durable actor a secret name that peers can fetch: the
 swiss number in a sturdyref. The name is saved on disk, so a sturdyref keeps
 working after a restart. Nothing loads at startup, and a fetch wakes only the
-actor it names. This guide also covers destroying the attachment.
+actor it names.
 
 ## Serving names
 
@@ -76,7 +76,8 @@ current record, so a stale lookup cannot bring a retired name back.
 ## Destroying the attachment
 
 Finish waiting calls and storage work before `attachment.destroy()`, which
-returns `Busy` while any call, read, write, or queued name restore remains.
+returns `Busy` while any call, read, write, reference save, effect
+continuation, or queued name restore remains.
 Destroying the attachment closes it to new calls. Capabilities peers still
 hold keep a little routing data until the Host releases them, answer
 `AttachmentClosed`, and never touch the Store again.

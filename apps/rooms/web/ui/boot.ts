@@ -20,7 +20,7 @@
 
 import * as store from "./store.ts";
 import { stopBootAsides } from "./boot_note.ts";
-import type { MarkLive } from "./mark_gpu_live.ts";
+import type { MarkLive } from "./mark/live.ts";
 import type { PageProjection } from "./store/core.ts";
 
 /** The two states this module puts the document in. `running` closes the window
@@ -178,7 +178,7 @@ export function startOpeningMark(): void {
 	if (typeof document === "undefined") return;
 	const box = document.querySelector<HTMLElement>("#boot .boot-mark");
 	if (box === null) return;
-	openingMark = import("./mark_gpu_live.ts").then((m) => m.start(box, "loop")).then((mark) => {
+	openingMark = import("./mark/live.ts").then((m) => m.start(box, "loop")).then((mark) => {
 		// The screen may already be gone by the time a device arrives.
 		if (mark !== null && (!box.isConnected || handedOver())) {
 			mark.stop();

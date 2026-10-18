@@ -249,17 +249,6 @@ test "virtual answer exhaustion returns a typed failure instead of wrapping" {
     try std.testing.expectError(error.VirtualAnswerSpaceExhausted, s.allocateInboundAnswer());
 }
 
-test "outbound answer exhaustion returns a typed failure instead of wrapping" {
-    var s = session.Session.init(std.testing.allocator);
-    defer s.deinit();
-    s.next_outbound_answer = std.math.maxInt(u64) - 1;
-
-    try std.testing.expectEqual(std.math.maxInt(u64) - 1, (try s.allocateOutboundAnswer()).int());
-    try std.testing.expectEqual(std.math.maxInt(u64), s.next_outbound_answer);
-    try std.testing.expectError(error.OutboundAnswerSpaceExhausted, s.allocateOutboundAnswer());
-    try std.testing.expectEqual(std.math.maxInt(u64), s.next_outbound_answer);
-}
-
 test "wire gc-answers cannot alias a private local-promise answer" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
@@ -382,4 +371,47 @@ test "a partner may reuse an answer position after releasing it" {
         .resolve_me_desc = .{ .far = model.FarRef.object(0) },
     } });
     try std.testing.expectEqual(session.AnswerStatus.pending, s.inboundAnswer(.from(11)).?.status);
+}
+
+test "a settled question's position is asked again under a new identity" {
+    var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = .next });
+    defer s.deinit();
+
+    const first = try s.allocateOutboundAnswer();
+    try std.testing.expectEqual(first, s.outboundAnswerTarget(first.position).?);
+    try s.installOutboundAnswer(first.position);
+    try std.testing.expect(s.hasLiveOutboundAnswer(first));
+
+    try s.releaseOutboundAnswer(first.position);
+    try std.testing.expect(!s.hasLiveOutboundAnswer(first));
+    try std.testing.expect(s.outboundAnswerTarget(first.position) == null);
+
+    // The partner answered and released the position, so it is the next one
+    // minted. The question it now names is a different one.
+    const second = try s.allocateOutboundAnswer();
+    try std.testing.expectEqual(first.position, second.position);
+    try std.testing.expect(second.row_id != first.row_id);
+    try s.installOutboundAnswer(second.position);
+    try std.testing.expect(s.hasLiveOutboundAnswer(second));
+    try std.testing.expect(!s.hasLiveOutboundAnswer(first));
+    try std.testing.expect(!s.outboundAnswerReleaseClaimed(first));
+    try std.testing.expectEqual(second, s.outboundAnswerTarget(first.position).?);
+}
+
+test "CapTP 1.0 withholds a pending question's position the partner may still resolve" {
+    var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = .v1_0 });
+    defer s.deinit();
+
+    const first = try s.allocateOutboundAnswer();
+    try s.installOutboundAnswer(first.position);
+    try s.releaseOutboundAnswer(first.position);
+    try std.testing.expect(!s.hasLiveOutboundAnswer(first));
+    try std.testing.expect(s.outboundAnswerTarget(first.position) == null);
+    try std.testing.expect(!s.outbound_answers.contains(first.position));
+
+    // The partner's resolve still names this position, so the next question
+    // takes the one after it.
+    const second = try s.allocateOutboundAnswer();
+    try std.testing.expectEqual(first.position.int() + 1, second.position.int());
+    try std.testing.expectEqual(@as(u64, 0), s.outbound_answers.count(first.position));
 }

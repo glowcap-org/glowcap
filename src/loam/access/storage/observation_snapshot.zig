@@ -4,6 +4,7 @@ const core = @import("loam_access_core");
 const records = @import("loam_access_records");
 const op = @import("capability_operation.zig");
 const history = @import("history.zig");
+const Read = @import("read.zig").Read;
 const Hash = std.crypto.hash.sha2.Sha256;
 
 pub const Control = struct {
@@ -45,7 +46,7 @@ pub fn prepare(operation: *op.Operation, target: ?core.ResourceId) !Prepared {
     const state = op.state(operation);
     var prepared: Prepared = .{ .snapshot = undefined, .digest = undefined };
     prepared.snapshot = if (state.binding.role == .use) .{ .use = operation.describe(target orelse return error.WrongRole) catch |err| switch (err) {
-        error.Gone => .{ .access = .out_of_scope, .policy = state.read.?.header.policy },
+        error.Gone => .{ .access = .out_of_scope, .policy = state.read.header.policy },
         else => return err,
     } } else blk: {
         const description = try operation.describeControl();
@@ -86,7 +87,7 @@ pub fn prepare(operation: *op.Operation, target: ?core.ResourceId) !Prepared {
         hash.final(&prepared.digest);
         return prepared;
     }
-    var grants = try state.read.?.grantView();
+    var grants = try state.read.grantView();
     var ancestry = grants.ancestry(state.descriptor.grant);
     defer ancestry.close();
     while (try ancestry.next()) |grant| {
@@ -94,12 +95,12 @@ pub fn prepare(operation: *op.Operation, target: ?core.ResourceId) !Prepared {
         prepared.grants[prepared.grant_count] = grant.id;
         prepared.grant_count += 1;
         // The lent row stays intact through the resource lookups below.
-        const stored = state.read.?.heldRow();
+        const stored = state.read.heldRow();
         stamp(&prepared, &hash, if (state.binding.role == .control or prepared.snapshot.use.access == .paused) stored.lifecycle else stored.authority);
         if (state.binding.role == .control and grant.id.eql(state.descriptor.grant)) stamp(&prepared, &hash, stored.inventory);
         if (prepared.snapshot == .use and prepared.active()) {
             for ([_]*const core.Terms{ &grant.ceiling, &grant.configured }) |terms| {
-                if (terms.scope == .owned_subtree) try containment(&state.read.?, &prepared, &hash, target.?, terms.scope.owned_subtree);
+                if (terms.scope == .owned_subtree) try containment(&state.read, &prepared, &hash, target.?, terms.scope.owned_subtree);
             }
             // Every ancestor's scope contains its child's, so the observed
             // grant's own scope decides whether the target's descendants are
@@ -108,8 +109,8 @@ pub fn prepare(operation: *op.Operation, target: ?core.ResourceId) !Prepared {
         }
     }
     if (prepared.snapshot == .use and prepared.active()) {
-        try resource(&state.read.?, &prepared, &hash, target.?);
-        const row = try history.row(&state.read.?, .{ .resource = target.? });
+        try resource(&state.read, &prepared, &hash, target.?);
+        const row = try history.row(&state.read, .{ .resource = target.? });
         const stored = try records.ResourceRecord.decode(row.view);
         stamp(&prepared, &hash, stored.content);
         if (prepared.subtree) stamp(&prepared, &hash, stored.subtree);
@@ -118,7 +119,7 @@ pub fn prepare(operation: *op.Operation, target: ?core.ResourceId) !Prepared {
     return prepared;
 }
 
-fn containment(read: *@import("read.zig").Read, prepared: *Prepared, hash: *Hash, target: core.ResourceId, anchor: core.ResourceId) !void {
+fn containment(read: *Read, prepared: *Prepared, hash: *Hash, target: core.ResourceId, anchor: core.ResourceId) !void {
     var cursor = target;
     for (0..records.ChangeBatchRecord.max_path) |_| {
         if (cursor.eql(anchor)) return;
@@ -129,7 +130,7 @@ fn containment(read: *@import("read.zig").Read, prepared: *Prepared, hash: *Hash
     return error.DepthLimit;
 }
 
-fn resource(read: *@import("read.zig").Read, prepared: *Prepared, hash: *Hash, id: core.ResourceId) !void {
+fn resource(read: *Read, prepared: *Prepared, hash: *Hash, id: core.ResourceId) !void {
     for (prepared.resources[0..prepared.resource_count]) |prior| if (prior.eql(id)) return;
     if (prepared.resource_count == prepared.resources.len) return error.DepthLimit;
     var resources = try read.resourceView();

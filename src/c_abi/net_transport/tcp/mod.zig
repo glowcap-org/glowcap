@@ -297,15 +297,19 @@ fn tcpConnect(
     job.done.wait(nl.io());
     if (job.err) |err| {
         abortConn(payload);
-        setLastError("connect: {s}", .{@errorName(err)});
-        return GLOWCAP_ERR_IO;
+        const classified = net.tcp.classifyConnect(err);
+        setLastError("connect: {s}: {s}", .{ @errorName(classified), @errorName(err) });
+        return c.netlayerFailureCode(classified);
     }
     slot.* = @ptrCast(payload);
     return GLOWCAP_OK;
 }
 
 /// Connect and optionally copy this call's diagnostic into caller-owned
-/// storage before an off-thread runtime regains control.
+/// storage before an off-thread runtime regains control. A failed dial
+/// reports the shared netlayer code (`GLOWCAP_ERR_TIMEOUT` when the connect
+/// timeout elapses, `GLOWCAP_ERR_IO` otherwise) and names both the
+/// classification and the OS cause in the last-error text.
 pub export fn glowcap_tcp_connect(
     netlayer: ?*GlowcapTcpNetlayer,
     host: ?[*]const u8,
@@ -358,7 +362,7 @@ pub export fn glowcap_tcp_listen(
         .listener = net.tcp.Listener.bind(nl.io(), address) catch |err| {
             nl.allocator.destroy(payload);
             setLastError("listen: {s}", .{@errorName(err)});
-            return GLOWCAP_ERR_IO;
+            return c.netlayerFailureCode(err);
         },
         .operations = .{},
         .io = nl.io(),
@@ -420,7 +424,7 @@ fn tcpAccept(
     payload.stream = lpayload.listener.acceptFrameStream(lpayload.allocator, codec_id, max_frame_bytes, payload.read_buf, payload.write_buf, stream_options) catch |err| {
         abortConn(payload);
         setLastError("accept: {s}", .{@errorName(err)});
-        return GLOWCAP_ERR_IO;
+        return c.netlayerFailureCode(err);
     };
     slot.* = @ptrCast(payload);
     return GLOWCAP_OK;

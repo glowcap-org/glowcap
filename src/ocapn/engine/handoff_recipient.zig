@@ -27,12 +27,6 @@ const CountIssuer = union(enum) {
     }
 };
 
-/// The side and session naming both handoff ends derive from session keys. The
-/// exporter checks an inbound receive against the same derivation, so they live
-/// in `handoff_names.zig` and are re-exported here for the recipient's callers.
-pub const sideName = handoff_names.sideName;
-pub const sessionName = handoff_names.sessionName;
-
 /// A signed `desc:handoff-receive` that owns its derived bytes, including the
 /// gifter's give it parsed from `give_bytes` (`give` carries both `raw_signed`,
 /// for a Syrup session's verbatim fast path, and the typed fields a Cap'n Proto
@@ -45,7 +39,7 @@ pub const sessionName = handoff_names.sessionName;
 pub const SignedReceive = struct {
     receiving_session: [32]u8,
     receiving_side: [32]u8,
-    signature: [crypto.SIGNATURE_BYTES]u8,
+    signature: [crypto.signature_bytes]u8,
     give: model.HandoffGive,
     handoff_count: u64,
 
@@ -90,13 +84,13 @@ pub fn signedReceiveFromGiveBytes(
 ) !SignedReceive {
     const give = try codec.signed.decodeGiveOwned(allocator, give_bytes);
     errdefer model.freeHandoffGive(allocator, give);
-    const our_side = try sideName(our_pubkey.asBytes());
-    const exporter_side = try sideName(exporter_partner_key);
-    const receiving_session = sessionName(our_side, exporter_side);
+    const our_side = handoff_names.sideNameForKey(our_pubkey);
+    const exporter_side = try handoff_names.sideName(exporter_partner_key);
+    const receiving_session = handoff_names.sessionName(our_side, exporter_side);
     var result: SignedReceive = .{
         .receiving_session = receiving_session,
         .receiving_side = our_side,
-        .signature = @as([crypto.SIGNATURE_BYTES]u8, @splat(0)),
+        .signature = @as([crypto.signature_bytes]u8, @splat(0)),
         .give = give,
         .handoff_count = handoff_count,
     };
@@ -248,14 +242,13 @@ pub fn sendWithdrawGift(
         return error.NoLocalSessionKey;
     const our_side_key = foundation.crypto.PeerKey.fromSlice(local_key) catch
         return error.NoLocalSessionKey;
-    const issuer: CountIssuer = if (peer.session_state.captp_version == .v1_0)
-        if (peer.node_services) |services|
-            .{ .node_v1 = services }
-        else
-            .{ .session = peer.giftRegistry() }
-    else
-        .{ .session = peer.giftRegistry() };
+    const issuer: CountIssuer = issuer: {
+        if (peer.session_state.captp_version == .v1_0)
+            if (peer.node_services) |services| break :issuer .{ .node_v1 = services };
+        break :issuer .{ .session = peer.giftRegistry() };
+    };
     const prepared_count = try issuer.prepare();
+    try prepared_count.check();
     const signed = try signedReceiveFromGiveBytes(
         peer.allocator,
         prepared_count.count,
@@ -269,9 +262,9 @@ pub fn sendWithdrawGift(
     // keeps nothing of the deliver once it returns.
     var handoff = model.Handoff{ .receive = signed.message() };
     try peer.sendBorrowed(.{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
+        .target = .{ .far = model.FarRef.object(engine.bootstrap_position) },
         .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff } },
         .answer = answer,
     } });
-    try prepared_count.commit();
+    prepared_count.apply();
 }

@@ -1,46 +1,41 @@
-# A2A on CapTP (Spec D)
+# A2A on CapTP
 
-This is a design sketch for Agent2Agent
-([A2A](https://github.com/a2aproject/A2A)) as an application vocabulary on
-CapTP. Nothing here is built.
-[ADR-0084](../decisions/adr/ADR-0084-glowcap-cli-product-boundary.md) deferred
-it. The roadmap item owns this sketch, and its plan starts from the object
-shapes below.
+Agent2Agent ([A2A](https://github.com/a2aproject/A2A)) gives AI agents a
+shared vocabulary for advertising skills and handing each other tasks. This
+sketch carries that vocabulary as CapTP objects, so glowcap peers trade agent
+tasks with the same capability rules as any other call. None of it is built,
+and [ADR-0084](../decisions/adr/ADR-0084-glowcap-cli-product-boundary.md)
+deferred it until the maintainer decides to take it up.
 
-## Boundary
+## Layers
 
 | Layer | Job |
-|-------|-----|
-| CapTP / OCapN | Capability substrate (glowcap mesh, Goblins) |
-| A2A-on-CapTP | Agent Card, Task, Skill, and artifact as CapTP objects |
-| A2A-HTTP facade (optional) | Wire Agent2Agent (Agent Cards, JSON-RPC over HTTP) for foreign agents |
+| --- | --- |
+| CapTP and OCapN | Capability-secure messaging between peers, glowcap or Goblins |
+| A2A on CapTP | Agent Card, Task, Skill, and artifact as CapTP objects |
+| HTTP facade (optional) | Wire A2A (Agent Cards, JSON-RPC over HTTP) for agents outside CapTP |
 
-A2A does not replace CapTP, which already carries capability-secure
-agent-to-agent messaging. Spec D adds the task, skill, and card application shape for glowcap
-peers, plus an optional HTTP facade for the public A2A ecosystem.
+CapTP already carries messages between agents. This work adds the shape of
+cards, skills, and tasks on top, and an optional facade for agents that speak
+A2A over HTTP.
 
-## CLI surface (when built)
+## The CapTP shape
 
-```
-glowcap app a2a …
-```
+- An Agent Card is a capability a peer can fetch by name or restore from a
+  sturdyref.
+- A task is an actor called through ordinary CapTP messages. A skill is a set
+  of allowed methods, handed out by attenuating the agent.
+- An artifact is a settled value or a sturdyref.
+- glowcap peers find each other through CapTP (`fetch`, sturdyrefs, and
+  introductions) instead of an HTTP `/.well-known` path.
 
-Not a CapTP root noun. Not a synonym for `apps rooms session` (the CapTP presence harness).
+## The HTTP facade
 
-## Primary shape
+The facade speaks wire A2A over HTTP and JSON-RPC and maps each request onto
+the CapTP objects. It lives in an adapter, so the protocol core stays free of
+I/O, and `arch-check` keeps it out of the core modules.
 
-- Publish an Agent Card as a CapTP capability (fetchable or sturdy).
-- Task actors with CapTP verbs. Skills as method allow-lists or attenuation.
-- Artifacts as settled values or sturdyrefs.
-- Discovery among glowcap peers uses CapTP (`fetch`, sturdy, handoff), not
-  `/.well-known` HTTP.
+## Reference
 
-## Secondary shape (optional facade)
-
-HTTP and JSON-RPC (gRPC only if it is needed) that speak wire A2A and map onto
-the CapTP objects. That gives ecosystem interop without making HTTP the
-substrate. I/O stays in adapters. `arch-check` keeps it out of `core = true`.
-
-## Present boundary
-
-A-v1 ships without `app a2a`. Do not describe the facade as if it runs.
+- CLI: a `glowcap apps a2a` command group, separate from the CapTP commands and
+  from `glowcap apps rooms session`.

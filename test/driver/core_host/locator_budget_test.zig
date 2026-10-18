@@ -80,9 +80,11 @@ test "core host locator owned preparation outlives hint scratch and Host" {
     try std.testing.expectEqualStrings("127.0.0.1:7088", prepared.designator);
     try std.testing.expectEqual(@as(usize, 6), prepared.hints.entries.len);
     try std.testing.expectEqualStrings("four", prepared.hints.entries[3].value.string);
+    try std.testing.expectEqualStrings(model.transport.hint_captp_version, prepared.hints.entries[4].name);
+    try std.testing.expectEqualStrings(options().captp_version.hintToken(), prepared.hints.entries[4].value.string);
     try std.testing.expectEqualStrings(model.transport.hint_codec, prepared.hints.entries[5].name);
-    var codec_digits: [8]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&codec_digits, "{d}", .{@backingInt(options().codec)}), prepared.hints.entries[5].value.string);
+    const codec_token = options().codec.hintToken();
+    try std.testing.expectEqualStrings(codec_token.slice(), prepared.hints.entries[5].value.string);
 }
 
 test "core host locator preparation preserves borrowed inputs and allocation rollback" {

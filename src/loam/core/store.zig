@@ -17,16 +17,26 @@ pub const Store = struct {
     collection_work: ?collection.Request = null,
     collector: ?custody.Custody = null,
     changes: []transaction.Mutation,
+    /// The decoded view of each staged change's bytes, indexed like `changes`,
+    /// so composing onto a staged row reads it back without re-validating the
+    /// envelope and its checksum on every lookup.
+    staged_views: []records.View,
     count: usize = 0,
     staged_bytes: usize = 0,
+    /// Advances with every transition of the phase, the ticket, the committed
+    /// metadata, or the staged set, so a reader that checked itself against
+    /// the store can tell that nothing it checked has moved, without reading
+    /// any of it back. Every assignment to those fields advances it.
+    state_generation: u64 = 0,
     limits: Limits,
     sequence: u64 = 0,
     object_sequence: u64 = 0,
     creation_floor: u64 = 0,
     retain_committed: bool = false,
     ticket: ?transaction.Ticket = null,
-    phase: enum { idle, staging, prepared, writing, uncertain } = .idle,
+    phase: Phase = .idle,
 
+    pub const Phase = enum { idle, staging, prepared, writing, uncertain };
     pub const Limits = struct {
         records: records.Limits = .{},
         cache_slots: usize = 64,
@@ -63,7 +73,9 @@ pub const Store = struct {
         var retentions = try retention.Registry.init(allocator, limits.max_retentions);
         errdefer retentions.deinit(allocator) catch unreachable;
         const changes = try allocator.alloc(transaction.Mutation, limits.max_changes);
-        return .{ .allocator = allocator, .metadata = metadata, .sequence = metadata.last_sequence, .cache = cache, .retentions = retentions, .changes = changes, .limits = limits };
+        errdefer allocator.free(changes);
+        const staged_views = try allocator.alloc(records.View, limits.max_changes);
+        return .{ .allocator = allocator, .metadata = metadata, .sequence = metadata.last_sequence, .cache = cache, .retentions = retentions, .changes = changes, .staged_views = staged_views, .limits = limits };
     }
 
     /// Refuses while a write, read completion, or lease still owns store memory.
@@ -74,6 +86,7 @@ pub const Store = struct {
         try self.retentions.deinit(self.allocator);
         if (self.collector) |*work| work.deinit();
         self.allocator.free(self.changes);
+        self.allocator.free(self.staged_views);
         self.* = undefined;
     }
 
@@ -90,10 +103,7 @@ pub const Store = struct {
     }
 
     pub fn completeRead(self: *Store, ticket: transaction.Ticket, result: residency.ReadResult) !void {
-        if (self.phase == .uncertain) {
-            try self.cache.cancel(ticket);
-            return self.cache.complete(self.metadata, ticket, result);
-        }
+        if (self.phase == .uncertain) try self.cache.cancel(ticket);
         return self.cache.complete(self.metadata, ticket, result);
     }
 
@@ -143,6 +153,7 @@ pub const Store = struct {
         self.ticket = .{ .store = self.metadata.store, .incarnation = self.metadata.incarnation, .sequence = self.sequence, .revision = self.metadata.revision };
         self.creation_floor = self.object_sequence;
         self.phase = .staging;
+        self.state_generation +%= 1;
     }
 
     /// Reserves an unpublished name for this opening, including forward edges
@@ -171,9 +182,12 @@ pub const Store = struct {
             const bytes = try self.encodeProposed(record, old_len);
             errdefer self.allocator.free(bytes);
             if (bytes.len > self.limits.staging_bytes - self.staged_bytes + old_len) return error.StagingCapacity;
+            const staged_view = try self.decodeStaged(bytes);
             self.allocator.free(existing.bytes.?);
             self.changes[index] = .{ .id = record.id, .expected = expected, .bytes = bytes };
+            self.staged_views[index] = staged_view;
             self.staged_bytes = self.staged_bytes - old_len + bytes.len;
+            self.state_generation +%= 1;
             return;
         }
         if (self.count == self.changes.len) return error.ChangeCapacity;
@@ -181,9 +195,11 @@ pub const Store = struct {
         const bytes = try self.encodeProposed(record, 0);
         errdefer self.allocator.free(bytes);
         if (bytes.len > self.limits.staging_bytes - self.staged_bytes) return error.StagingCapacity;
+        self.staged_views[self.count] = try self.decodeStaged(bytes);
         self.changes[self.count] = .{ .id = record.id, .expected = expected, .bytes = bytes };
         self.count += 1;
         self.staged_bytes += bytes.len;
+        self.state_generation +%= 1;
     }
 
     fn encodeProposed(self: *Store, record: records.Record, extra: usize) ![]u8 {
@@ -192,6 +208,12 @@ pub const Store = struct {
         var bounded = self.limits.records;
         bounded.max_record_bytes = @min(bounded.max_record_bytes, self.limits.staging_bytes - self.staged_bytes + extra);
         return staged_record.encodeAlloc(self.allocator, bounded, self.cache.schemas);
+    }
+
+    /// The encoder just produced `bytes`; decoding them once here is the
+    /// envelope check every later read-back would otherwise repeat.
+    fn decodeStaged(self: *Store, bytes: []const u8) !records.View {
+        return records.View.decode(bytes, self.limits.records, self.cache.schemas);
     }
 
     fn stagedIndex(self: *Store, id: records.ObjectId) ?usize {
@@ -208,24 +230,23 @@ pub const Store = struct {
     /// that row is re-proposed or the transaction ends. The expectation is copied.
     pub fn proposed(self: *Store, id: records.ObjectId) !?Proposed {
         if (self.phase != .staging) return null;
-        for (self.changes[0..self.count]) |change| {
-            if (!change.id.eql(id)) continue;
-            const bytes = change.bytes orelse return null;
-            const decoded = try records.View.decode(bytes, self.limits.records, self.cache.schemas);
-            return .{ .view = decoded, .expected = change.expected };
-        }
-        return null;
+        const index = self.stagedIndex(id) orelse return null;
+        const change = self.changes[index];
+        if (change.bytes == null) return null;
+        return .{ .view = self.staged_views[index], .expected = change.expected };
     }
 
     pub fn remove(self: *Store, id: records.ObjectId, expected: u64) !void {
         try self.admit(id);
         self.changes[self.count] = .{ .id = id, .expected = expected, .bytes = null };
         self.count += 1;
+        self.state_generation +%= 1;
     }
 
     pub fn prepare(self: *Store) !transaction.Ticket {
         if (self.phase != .staging or self.count == 0) return error.WrongPhase;
         self.phase = .prepared;
+        self.state_generation +%= 1;
         return self.ticket.?;
     }
 
@@ -242,13 +263,17 @@ pub const Store = struct {
     pub fn beginWrite(self: *Store, ticket: transaction.Ticket) !transaction.Batch {
         try self.match(ticket, .prepared);
         self.phase = .writing;
+        self.state_generation +%= 1;
         return self.batch();
     }
 
     pub fn completeWrite(self: *Store, ticket: transaction.Ticket, outcome: transaction.Outcome) !void {
         try self.match(ticket, .writing);
         switch (outcome) {
-            .unknown => self.phase = .uncertain,
+            .unknown => {
+                self.phase = .uncertain;
+                self.state_generation +%= 1;
+            },
             .unchanged => self.discard(),
             .committed => |meta| try self.install(meta),
         }
@@ -281,7 +306,7 @@ pub const Store = struct {
         for (self.changes[0..self.count]) |change| if (change.id.eql(id)) return error.DuplicateMutation;
     }
 
-    fn match(self: *Store, ticket: transaction.Ticket, phase: @FieldType(Store, "phase")) !void {
+    fn match(self: *Store, ticket: transaction.Ticket, phase: Phase) !void {
         if (self.ticket == null or !std.meta.eql(self.ticket.?, ticket)) return error.StaleCompletion;
         if (self.phase != phase) return error.WrongPhase;
     }
@@ -292,6 +317,7 @@ pub const Store = struct {
 
     fn install(self: *Store, meta: transaction.Metadata) !void {
         self.phase = .uncertain;
+        self.state_generation +%= 1;
         const resolution = try self.batch().resolve(meta);
         if (resolution != .committed) return error.RecoveryRequired;
         self.cache.install(self.metadata, meta, self.changes[0..self.count], self.collection_work != null);
@@ -305,7 +331,7 @@ pub const Store = struct {
         }
         if (self.retain_committed) for (self.changes[0..self.count]) |*change| {
             if (change.bytes) |bytes| {
-                if (self.cache.adoptCommitted(meta, change.id, @constCast(bytes))) change.bytes = null;
+                if (self.cache.adoptCommitted(meta, change.id, bytes)) change.bytes = null;
             }
         };
         self.discard();
@@ -316,6 +342,7 @@ pub const Store = struct {
         for (self.changes[0..self.count]) |change| if (change.bytes) |bytes| self.allocator.free(bytes);
         self.count = 0;
         self.staged_bytes = 0;
+        self.state_generation +%= 1;
         self.ticket = null;
         self.retain_committed = false;
         self.phase = .idle;
@@ -354,6 +381,7 @@ pub const Store = struct {
             .scratch = work.scratch,
         };
         self.phase = .prepared;
+        self.state_generation +%= 1;
         return self.ticket.?;
     }
 

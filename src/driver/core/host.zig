@@ -115,7 +115,7 @@ pub const Host = struct {
     /// Inline handoff promises. Rows exist only while redemption is pending or
     /// while their opaque capability identity remains live.
     capability_promises: std.AutoHashMapUnmanaged(capability.PromiseId, capability_promise_row.Row) = .empty,
-    next_capability_promise: u64 = 1,
+    capability_promise_ids: foundation.id_issuer.IdIssuer = .{},
     /// Incarnation stamp for remote import rows first lifted into Host space.
     /// Monotonic for the Host lifetime. Zero is never issued.
     next_import_incarnation: u64 = 1,
@@ -125,7 +125,7 @@ pub const Host = struct {
     hellos: CrossedHellos = .{},
     /// Root from which `mintShell` derives each session's signing seed
     /// (ADR-0097). The embedder supplies a fresh root for each process.
-    session_seed_root: [crypto.SEED_BYTES]u8,
+    session_seed_root: [crypto.seed_bytes]u8,
     /// Counter distinguishing successive sessions' derived seeds. Monotonic
     /// for the host's life, so two sessions never share a key.
     session_seed_counter: u64 = 0,
@@ -153,7 +153,7 @@ pub const Host = struct {
     /// so a row can be written from a borrowed hello view before apply, which
     /// is when duplicate collapse needs it, without retaining bytes the frame
     /// owns.
-    peer_by_durable: std.AutoHashMapUnmanaged([crypto.PEER_KEY_BYTES]u8, engine.PeerHandle) = .{},
+    peer_by_durable: std.AutoHashMapUnmanaged([crypto.peer_key_bytes]u8, engine.PeerHandle) = .{},
     /// Our own dialed `(transport, designator)` → peer handle. Key slices borrow
     /// the session shell and leave the index before those bytes free. The
     /// complete locator identity prevents one netlayer from satisfying or
@@ -198,13 +198,13 @@ pub const Host = struct {
     /// through settlement and retire on explicit release, preserving promise
     /// pipelining until the public handle itself dies.
     vows: foundation.identity_hash.Map(u64, *VowRow) = .{},
-    next_vow: u64 = 1,
+    vow_ids: foundation.id_issuer.IdIssuer = .{},
     /// Host resolver id → its session-less vow row and the vat resolver it
     /// settles (ADR-0102). A row is consumed by the first settle attempt, so
     /// the map holds exactly the live settle authorities. Freed with the
     /// host. Ids are host-scoped, from their own counter, and never reused.
     resolver_index: foundation.identity_hash.Map(u64, ResolverIndexEntry) = .{},
-    next_resolver: u64 = 1,
+    resolver_ids: foundation.id_issuer.IdIssuer = .{},
     /// Enlivens waiting on a dial this host staged (`enlivenSelectOrDial`,
     /// ADR-0098). Each row holds the vow id minted for the caller *before*
     /// any session exists, so the outcome reaches an embedder that only
@@ -265,10 +265,8 @@ pub const Host = struct {
     /// Cached nearest finite session deadline. The timing map remains the
     /// authority. This avoids an O(n) sweep on every adapter turn.
     next_session_close_deadline_ms: ?i64 = null,
-    /// The reentrancy latch: true while a top-level verb is firing callbacks
-    /// or pumping. Nested verbs enqueue only, and the enclosing verb's unwind
-    /// encodes and pumps. The host-driving verbs refuse `ReenteredHost`.
-    in_callback: bool = false,
+    /// Held while a top-level verb fires callbacks or pumps.
+    callback_latch: host_admission.CallbackLatch = .{},
     /// Owning thread, latched by public admission and released only at an
     /// explicit quiescent handoff. This is runtime contract state in every
     /// build: affinity mistakes are caller refusals, never debug-only panics or
@@ -435,7 +433,6 @@ pub const Host = struct {
     const condemnRemainingSessions = sessions_mod.condemnRemainingSessions;
     const RoleSpec = sessions_mod.RoleSpec;
     const mint = sessions_mod.mint;
-    const mintOver = sessions_mod.mintOver;
     const negotiatingOptions = sessions_mod.negotiatingOptions;
     const mintShell = sessions_mod.mintShell;
     const enroll = sessions_mod.enroll;
@@ -465,14 +462,9 @@ pub const Host = struct {
     pub const vowIndex = vows_mod.vowIndex;
     pub const vowUntag = vows_mod.vowUntag;
     pub const vowGet = vows_mod.vowGet;
-    const reserveVow = vows_mod.reserveVow;
-    pub const reserveVowAt = vows_mod.reserveVowAt;
-    pub const cancelVowReservation = vows_mod.cancelVowReservation;
     pub const mintDeferredVow = vows_mod.mintDeferredVow;
     pub const moveDeferredVow = vows_mod.moveDeferredVow;
     pub const attachDeferredVow = vows_mod.attachDeferredVow;
-    const commitVow = vows_mod.commitVow;
-    pub const commitVowWithListener = vows_mod.commitVowWithListener;
     pub const fireVow = vow_settlement.fireVow;
 
     /// Publication (`publish.zig`): the Host and durable name registries
@@ -624,12 +616,6 @@ pub const Host = struct {
     pub const routeCapability = host_capability_routing.routeCapability;
     pub const routeTurnTarget = host_capability_routing.routeTurnTarget;
     pub const routeTurnCapability = host_capability_routing.routeTurnCapability;
-
-    // ── Inbound interception ─────────────────────────────────────────────────
-
-    pub const hostBeforeServe = host_interception.hostBeforeServe;
-
-    pub const hostResolveInterceptor = host_interception.hostResolveInterceptor;
 };
 
 pub const HostTurn = host_hosting.HostTurn;

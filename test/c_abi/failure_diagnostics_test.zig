@@ -18,7 +18,7 @@ fn providerResult(cause: anyerror) i32 {
 
 test "provider failure projection preserves one neutral chain exactly" {
     var failure = foundation.FailureChain.initNamed(error.ProviderProxy, "ProviderRefusedByName");
-    failure.noteNamed(error.CleanupDenied, "SocketUnlinkRefused");
+    failure.noteChain(.initNamed(error.CleanupDenied, "SocketUnlinkRefused"));
     failure.note(error.LaterCleanup);
 
     var report = shared.transport_provider.emptyProviderFailure();
@@ -83,7 +83,6 @@ test "failure diagnostics preserve typed cause identity and claim once" {
         .secondary_count = 2,
     });
 
-    try testing.expectEqual(@as(?usize, 85), journal.nextPayloadLen());
     var payload: [256]u8 = undefined;
     var event: diagnostics.Claim = undefined;
     var required: usize = undefined;

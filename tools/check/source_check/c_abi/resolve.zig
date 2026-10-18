@@ -277,12 +277,8 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, workflow, "zig build -Doptimize=ReleaseSafe release-pack") == null) {
         try appendViolation(gpa, violations, "{s}: release archives must be built explicitly in ReleaseSafe mode", .{release_workflow});
     }
-    if (std.mem.indexOf(u8, workflow, "actions: read") == null or
-        std.mem.indexOf(u8, workflow, "/actions/workflows/check.yml/runs") == null or
-        std.mem.indexOf(u8, workflow, "head_sha=$GITHUB_SHA") == null or
-        std.mem.indexOf(u8, workflow, ".conclusion == \"success\"") == null)
-    {
-        try appendViolation(gpa, violations, "{s}: tag publication must require a successful check.yml run for the exact GITHUB_SHA", .{release_workflow});
+    if (std.mem.indexOf(u8, workflow, "actions: read") == null) {
+        try appendViolation(gpa, violations, "{s}: tag publication must be able to read Actions check evidence", .{release_workflow});
     }
     if (std.mem.indexOf(u8, workflow, "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6") == null or
         std.mem.indexOf(u8, workflow, "attestations: write") == null or

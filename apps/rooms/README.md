@@ -48,7 +48,7 @@ zig build rooms-web -Dtransport=tcp     # cleartext loopback, for local testing
 zig build rooms-web -Dtransport=onion   # a Tor onion service; needs tor
 ```
 
-TCP does not show who is on the other end and hides nothing. Use it to look
+TCP sends everything in the clear and cannot tell you who answered. Use it to look
 around or to reach a peer that speaks nothing else, and only on a network you
 trust. `-Dport=` pins the HTTP port, and server flags
 such as `--history` or `--diagnostics` follow `--`.
@@ -81,9 +81,10 @@ the browser code is compiled and how to switch bundlers.
   `zig build rooms-server -- --transport=tcp --port=9099` and join it with
   `zig build rooms-chat -- 127.0.0.1:9099 general alice`. The client takes
   `/list`, `/open`, `/enter`, and `/leave`.
-- **From five languages at once.** `zig build demo-rooms` starts a server and
-  joins a Zig, Rust, Python, Racket, and Deno client to one room, checking
-  that each member receives every message. `demo-rooms-iroh` and
+- **From several languages at once.** `zig build demo-rooms` starts a server and
+  joins Zig and Deno clients to one room, plus Rust, Python, and Racket
+  clients when those runtimes are installed, checking that each member
+  receives every message. `demo-rooms-iroh` and
   `demo-rooms-onion` run the same tour over encrypted QUIC and over Tor.
 - **From a Goblins vat.** A [Spritely Goblins](https://spritely.institute/goblins/)
   vat sits in the same room, speaking the standard OCapN protocol, and can be
@@ -100,7 +101,7 @@ take explicit state directories. Keep each service's identity and state together
 
 | Service | Keeps | Start |
 | --- | --- | --- |
-| Directory | The directory, its rooms, room links, and operator capabilities. With `--history`, each listed room's recent lines | `glowcap apps rooms directory serve --state=<dir> --history` |
+| Directory | The directory, its rooms, room links, and operator capabilities. With `--history`, each room's recent lines | `glowcap apps rooms directory serve --state=<dir> --history` |
 | Session | One person's workspace, so several browsers can open the same session | `glowcap apps rooms session serve --dir=<dir>` |
 | Archive | A member's own message history, behind a sturdyref | `glowcap apps rooms archive serve --state=<dir>` |
 
@@ -115,8 +116,7 @@ Rooms is written in Rust, with the browser page in TypeScript and React. Vite
 builds the production scripts and serves source modules during development.
 Deno supplies its pinned runtime and lockfile. The same Rust crates run as
 services and in the browser as WebAssembly, linked with glowcap's Zig protocol
-core in one module, so joining, sending, and recovering mean the same thing in
-both places.
+core in one module, so both behave the same way.
 
 | Path | Owns |
 | --- | --- |
@@ -128,9 +128,9 @@ both places.
 | [`irc/`](irc/) | The IRC bridge and IRC server |
 | [`demos/`](demos/), [`test/`](test/) | The scripted scenarios and the checks |
 
-The protocol is a handful of objects and the calls they answer. The server
-publishes one object by name, `directory`, and every other reference is handed
-back from it. There is no HTTP API.
+The Rooms protocol is a set of OCapN objects. The server publishes one object by name, `directory`, and every other reference is handed
+back from it. The web server's HTTP routes only serve the page and help
+peers connect, such as the relay, ICE servers, and link previews.
 [The Rooms protocol](https://jimisaacs.github.io/glowcap/rooms/protocol/)
 lists each object. [Developing Rooms](developing.md) covers the build steps,
 the scenarios, and the source map.
@@ -140,7 +140,7 @@ it stands.
 ## Prerelease
 
 Rooms ships from this repository at a Git commit. There is no published
-versioned package or application image yet. The server, session, and archive
+versioned package or application image. The server, session, and archive
 stores accept their current schema and refuse an older one. A release names
 its commit, its green checks, and any state reset that commit requires.
 

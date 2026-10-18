@@ -247,12 +247,10 @@ pub fn progressClose(self: *HostRuntime, effect_mode: ExternalEffectMode) !void 
     if (self.core.lifecyclePhase() == .active) return;
     if (self.core.lifecyclePhase() != .closed)
         try self.core.progressClose(self.nowMs());
-    if (self.core.lifecyclePhase() == .terminating or self.core.lifecyclePhase() == .closed)
-        cancelPendingRuntimeWork(self);
+    if (!self.core.lifecyclePhase().serving()) cancelPendingRuntimeWork(self);
     try Internal.drainActionsWith(self, effect_mode);
     if (effect_mode == .operational) try Internal.advancePendingOpens(self);
-    if (self.core.lifecyclePhase() == .terminating or self.core.lifecyclePhase() == .closed)
-        cancelPendingRuntimeWork(self);
+    if (!self.core.lifecyclePhase().serving()) cancelPendingRuntimeWork(self);
     try Internal.drainActionsWith(self, effect_mode);
 }
 

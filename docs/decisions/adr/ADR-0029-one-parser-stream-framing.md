@@ -105,8 +105,8 @@ overflow the stack. It is the parse-stage analog of the session-level cap in
 
 - Each codec gains `decodePrefix`. `codec.dispatch` gains `decodePrefix`,
   `frameShape`, `scanStream`, and the `framePrefix` entry point that combines
-  them. The Syrup error set gains `Incomplete` (internal to the decoder, never
-  surfaced past a whole-frame boundary).
+  them. Whole-frame decoding (ADR-0229) left the Syrup decoder no partial
+  signal: a buffer that ends mid-message is a malformed frame.
 - `engine.Peer.recvStreamPrefix` is the single stream-framing entry the
   peer-backed adapters drive. A reader with no peer drives
   `codec.dispatch.framePrefix` directly and carries its own scan.

@@ -230,6 +230,8 @@ pub export fn glowcap_inproc_connect(
 }
 
 /// Bind an in-process listener on `designator`. Returns an owned listener handle.
+/// An empty designator is `GLOWCAP_ERR_INVALID_ARGUMENT`; one already bound is
+/// `GLOWCAP_ERR_IO`, the shared code for a bind another listener holds.
 pub export fn glowcap_inproc_listen(
     netlayer: ?*GlowcapInprocNetlayer,
     designator: ?[*]const u8,
@@ -423,64 +425,38 @@ pub export fn glowcap_inproc_listener_release(
 }
 
 fn dialErrorToCode(err: net.netlayer.DialError) i32 {
-    return switch (err) {
-        error.InvalidAddress => blk: {
-            setLastError("connect: empty inproc designator", .{});
-            break :blk GLOWCAP_ERR_INVALID_ARGUMENT;
-        },
-        error.ConnectionRefused => blk: {
-            setLastError("connect: no listener bound at that inproc designator", .{});
-            break :blk GLOWCAP_ERR_IO;
-        },
-        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
+    switch (err) {
+        error.InvalidAddress => setLastError("connect: empty inproc designator", .{}),
+        error.ConnectionRefused => setLastError("connect: no listener bound at that inproc designator", .{}),
         // ConnectionLost is reachable: a listener acquired for the dial can be
         // torn down before `enqueue`. NetworkUnreachable and TimedOut have no
         // in-memory meaning and never arise for inproc; the shared DialError set
         // only spells them because network transports need them. Surface the
         // exact classification by name rather than collapsing it, so a consumer
         // reading `glowcap_inproc_last_error` sees which one it hit.
-        else => blk: {
-            setLastError("connect: inproc dial failed: {s}", .{@errorName(err)});
-            break :blk GLOWCAP_ERR_IO;
-        },
-    };
+        else => setLastError("connect: inproc dial failed: {s}", .{@errorName(err)}),
+    }
+    return c.netlayerFailureCode(err);
 }
 
 fn listenErrorToCode(err: net.netlayer.ListenError) i32 {
-    return switch (err) {
-        error.InvalidAddress => blk: {
-            setLastError("listen: empty inproc designator", .{});
-            break :blk GLOWCAP_ERR_INVALID_ARGUMENT;
-        },
-        error.InvalidOptions => GLOWCAP_ERR_INVALID_ARGUMENT,
-        error.BindFailed => blk: {
-            setLastError("listen: inproc designator already bound", .{});
-            break :blk GLOWCAP_ERR_INVALID_ARGUMENT;
-        },
-        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
-    };
+    switch (err) {
+        error.InvalidAddress => setLastError("listen: empty inproc designator", .{}),
+        error.BindFailed => setLastError("listen: inproc designator already bound", .{}),
+        else => setLastError("listen: inproc listen failed: {s}", .{@errorName(err)}),
+    }
+    return c.netlayerFailureCode(err);
 }
 
 fn acceptErrorToCode(err: net.netlayer.AcceptError) i32 {
-    return switch (err) {
-        error.ConnectionLost => blk: {
-            setLastError("accept: listener closed", .{});
-            break :blk GLOWCAP_ERR_IO;
-        },
-        error.SocketConfigurationFailed => blk: {
-            setLastError("accept: transport socket configuration failed", .{});
-            break :blk GLOWCAP_ERR_IO;
-        },
-        error.WakeNudgeFailed => blk: {
-            setLastError("accept: in-process listener wake failed", .{});
-            break :blk GLOWCAP_ERR_IO;
-        },
-        error.WakeDrainFailed => blk: {
-            setLastError("accept: in-process listener wake drain failed", .{});
-            break :blk GLOWCAP_ERR_IO;
-        },
-        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
-    };
+    switch (err) {
+        error.ConnectionLost => setLastError("accept: listener closed", .{}),
+        error.SocketConfigurationFailed => setLastError("accept: transport socket configuration failed", .{}),
+        error.WakeNudgeFailed => setLastError("accept: in-process listener wake failed", .{}),
+        error.WakeDrainFailed => setLastError("accept: in-process listener wake drain failed", .{}),
+        else => setLastError("accept: inproc accept failed: {s}", .{@errorName(err)}),
+    }
+    return c.netlayerFailureCode(err);
 }
 
 fn onReadConnectionLost(_: *InprocConnPayload) void {

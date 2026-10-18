@@ -37,8 +37,7 @@ on Goblins instead. Both exercise three concerns above CapTP:
 scenario is named as a fixture in that scenario's docs.
 
 Twenty KERI secret keys (`.data/keys/*.sk`) and their key event logs remain in
-the repository's history, from one round of output committed before this rule
-existed. The kernel generated them on one machine as demo material. They hold
+the repository's history from one commit of generated output. The kernel generated them on one machine as demo material. They hold
 authority over nothing outside these scenarios, and nothing needs rotating. The
 working tree carries none of it: both directories are ignored, and the kernel
 demo below regenerates them.
@@ -65,7 +64,7 @@ Verify outputs with sibling scenarios:
 
 ```sh
 bash conformance/episode-audit/run.sh
-bash conformance/keri-conformance/run.sh --fixture sample-kel
+bash conformance/keri-conformance/run.sh
 ```
 
 ## Posture

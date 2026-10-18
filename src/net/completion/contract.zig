@@ -489,10 +489,40 @@ pub const ReadyQueue = struct {
     items: std.ArrayList(Completion) = .empty,
     /// Prefix already moved to the caller. It resets with the list when empty.
     head: usize = 0,
+    /// Seats held by admitted operations: capacity `appendReserved` spends
+    /// without a fallible step, so a completion that must be published after
+    /// its admission (a cancellation, a close) cannot fail for room.
+    reserved: usize = 0,
 
     pub fn deinit(self: *ReadyQueue, allocator: std.mem.Allocator) void {
         self.items.deinit(allocator);
         self.head = 0;
+        self.reserved = 0;
+    }
+
+    /// Hold `count` more seats.
+    pub fn reserve(self: *ReadyQueue, allocator: std.mem.Allocator, count: usize) !void {
+        const total = std.math.add(usize, self.reserved, count) catch return error.OutOfMemory;
+        try self.items.ensureUnusedCapacity(allocator, total);
+        self.reserved = total;
+    }
+
+    /// Room for `count` records beyond every held seat, holding none.
+    pub fn ensureUnreservedCapacity(self: *ReadyQueue, allocator: std.mem.Allocator, count: usize) !void {
+        const total = std.math.add(usize, self.reserved, count) catch return error.OutOfMemory;
+        try self.items.ensureUnusedCapacity(allocator, total);
+    }
+
+    /// Give back `count` held seats unused.
+    pub fn release(self: *ReadyQueue, count: usize) void {
+        std.debug.assert(self.reserved >= count);
+        self.reserved -= count;
+    }
+
+    /// Publish a record into one held seat.
+    pub fn appendReserved(self: *ReadyQueue, c: Completion) void {
+        self.release(1);
+        self.items.appendAssumeCapacity(c);
     }
 
     pub fn len(self: *const ReadyQueue) usize {

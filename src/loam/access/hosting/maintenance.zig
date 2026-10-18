@@ -11,7 +11,7 @@ const State = struct {
     call: *hosting.Call,
     config: *service.Service,
     operation: *storage.Maintenance,
-    publications: [2]?loam.Lease = @splat(null),
+    publications: [records.ObservationEndpointRecord.role_count]?loam.Lease = @splat(null),
     pending: ?loam.Ticket = null,
     ready: bool = false,
 
@@ -27,16 +27,13 @@ const State = struct {
         const publications = try self.operation.publications();
         for (publications, 0..) |publication, index| if (publication) |id| {
             if (self.publications[index] != null) continue;
-            const acquired = self.config.capabilities.store.acquire(id) catch |err| {
-                if (err == error.PendingRead) return .waiting;
-                return err;
-            };
-            switch (acquired) {
+            switch (try hosting.Preparation.acquire(self.config.capabilities.store, id)) {
                 .read => |request| {
                     self.pending = request.ticket;
                     return .{ .read = request };
                 },
                 .ready => |lease| self.publications[index] = lease,
+                .waiting => return .waiting,
             }
         };
         self.ready = true;
@@ -101,7 +98,7 @@ fn stage(context: *anyopaque, store: *loam.Store) !void {
     if (store != value.config.capabilities.store) return error.ForeignStore;
     _ = try value.operation.stage(.{ .context = value, .stage = retire });
 }
-fn retire(context: *anyopaque, publications: [2]?loam.ObjectId) !void {
+fn retire(context: *anyopaque, publications: records.ObservationRecord.Publications) !void {
     const value = backing(context);
     for (publications, value.publications) |publication, lease| if (publication) |id| {
         if (lease == null or !(try value.config.capabilities.store.currentView(lease.?)).id.eql(id)) return error.NotPrepared;

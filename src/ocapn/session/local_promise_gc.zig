@@ -12,10 +12,11 @@ const LocalPromiseAnswer = @import("promises/types.zig").LocalPromiseAnswer;
 
 const Trace = struct {
     owner: *session.Session,
-    head: ?model.ExportPosition = null,
+    /// The mark list's head. `.from(0)` is the empty list, as on `gc_next`.
+    head: model.ExportPosition = .from(0),
 
     fn markExport(self: *Trace, position: model.ExportPosition) void {
-        const purpose = self.owner.outbound_resolver_link.forward.getPtr(position) orelse return;
+        const purpose = self.owner.exports.purposePtr(position) orelse return;
         if (purpose.* != .local_promise_answer) return;
         const projection = &purpose.local_promise_answer;
         if (projection.gc_mark) return;
@@ -30,9 +31,7 @@ const Trace = struct {
         if (target.name != .virtual) return;
         const current = self.owner.answerTargetNamed(target.name) orelse return;
         if (current.row_id != target.row_id) return;
-        const position = self.owner.outbound_resolver_link.getByValue(.{
-            .local_promise_answer = .{ .name = target.name },
-        }) orelse return;
+        const position = local_promise.projectionExport(self.owner, target.name) orelse return;
         self.markExport(position);
     }
 
@@ -65,35 +64,31 @@ const Trace = struct {
     }
 
     fn drain(self: *Trace) void {
-        while (self.head) |position| {
-            const purpose = self.owner.outbound_resolver_link.forward.getPtr(position) orelse unreachable;
+        while (self.head.int() != 0) {
+            const position = self.head;
+            const purpose = self.owner.exports.purposePtr(position) orelse unreachable;
             const projection = &purpose.local_promise_answer;
             self.head = projection.gc_next;
-            projection.gc_next = null;
-            const row = self.owner.inbound_answers.getPtr(projection.name) orelse unreachable;
+            projection.gc_next = .from(0);
+            const row = self.owner.inbound_answers.getPtr(projection.name()) orelse unreachable;
             if (row.payload) |value| self.payload(value);
         }
     }
 };
 
-fn hasConsequences(payload: *const answers.AnswerPayload) bool {
-    return payload.refs > 1 or payload.resolver_import != null or
-        payload.queue.items.len != 0 or payload.listeners.len() != 0 or
-        payload.projections.items.len != 0;
-}
-
 fn projectionAt(owner: *session.Session, position: model.ExportPosition) *LocalPromiseAnswer {
-    const purpose = owner.outbound_resolver_link.forward.getPtr(position) orelse unreachable;
+    const purpose = owner.exports.purposePtr(position) orelse unreachable;
     return &purpose.local_promise_answer;
 }
 
 /// A projection the partner or a local owner still holds directly. Only a
-/// projection without such a root can be garbage.
+/// projection without such a root can be garbage. A settlement whose carrier
+/// is still owed is a local producer root, like a staging owner.
 fn selfRooted(owner: *session.Session, position: model.ExportPosition, projection: *const LocalPromiseAnswer) bool {
-    if (projection.staging_owners != 0 or owner.exports.wireHeld(position) != 0) return true;
-    const row = owner.inbound_answers.getPtr(projection.name) orelse unreachable;
+    if (projection.staging_owners != 0 or projection.settlement_deferred or owner.exports.wireHeld(position) != 0) return true;
+    const row = owner.inbound_answers.getPtr(projection.name()) orelse unreachable;
     if (row.status() == .pending) return true;
-    return if (row.payload) |value| hasConsequences(value) else false;
+    return if (row.payload) |value| value.hasConsequences() else false;
 }
 
 /// Trace each rooted tree and reachable projection once, then collect an
@@ -102,8 +97,7 @@ fn selfRooted(owner: *session.Session, position: model.ExportPosition, projectio
 /// value-tree recursion is bounded by the admission-time model depth check.
 ///
 /// Every collection site is a release the partner can drive, so the scan of
-/// answer and imported-promise tables runs only when some projection lacks a
-/// root of its own. Otherwise tracing could reclaim nothing, and the cost is
+/// the answer tables runs only when some projection lacks a root of its own. Otherwise tracing could reclaim nothing, and the cost is
 /// one pass over the registry.
 pub fn collect(owner: *session.Session) void {
     const registry = owner.local_promises orelse return;
@@ -112,7 +106,7 @@ pub fn collect(owner: *session.Session) void {
     for (registry.projections.items) |position| {
         const projection = projectionAt(owner, position);
         projection.gc_mark = false;
-        projection.gc_next = null;
+        projection.gc_next = .from(0);
         if (!selfRooted(owner, position, projection)) candidate = true;
     }
     if (!candidate) {
@@ -133,10 +127,6 @@ pub fn collect(owner: *session.Session) void {
         var detached_rows = detached.rows.valueIterator();
         while (detached_rows.next()) |entry| trace.payload(entry.payload);
     }
-    var imported = owner.imported_promises.valueIterator();
-    while (imported.next()) |entry| {
-        if (entry.cell.resolution) |*resolution| trace.stored(resolution);
-    }
     trace.drain();
 
     // The registry, not either table, drives the sweep, so removing a BiMap or
@@ -149,11 +139,11 @@ pub fn collect(owner: *session.Session) void {
             kept += 1;
             continue;
         }
-        std.debug.assert(owner.outbound_resolver_link.removeByKey(position));
+        std.debug.assert(owner.exports.clearPurpose(position) != null);
         owner.releaseUnsharedExport(position);
-        const row = owner.inbound_answers.getPtr(projection.name) orelse unreachable;
+        const row = owner.inbound_answers.getPtr(projection.name()) orelse unreachable;
         owner.releaseInboundAnswerCell(row);
-        owner.inbound_answers.remove(projection.name);
+        owner.inbound_answers.remove(projection.name());
     }
     registry.projections.shrinkRetainingCapacity(kept);
     if (kept == 0) local_promise.destroyRegistry(owner);

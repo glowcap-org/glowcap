@@ -345,28 +345,11 @@ pub const Backend = struct {
     }
 
     pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
-        // The completion loop counts ops in flight and defers a connection's
-        // teardown until each one retires, so every submitted op must eventually
-        // yield a completion. io_uring posts a cancellation completion for a recv
-        // or send still pending when its fd closes; kqueue drops the fd from the
-        // kernel filter set, so synthesize those completions by hand before
-        // removing the slot, otherwise a close while a recv is armed strands the
-        // connection slot forever (its ops-in-flight never reaches zero).
         // Reserve every completion slot before touching any state: a failed
         // append after the fd closes (or after only one synthetic completion
         // lands) would strand the slot with ops still counted in flight.
-        try self.ready.ensureUnusedCapacity(self.allocator, 3);
-        if (self.pending.getPtr(fd)) |p| {
-            switch (p.read) {
-                .idle => {},
-                .recv, .accept, .poll => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
-            }
-            switch (p.write) {
-                .idle => {},
-                .send => |s| self.ready.appendAssumeCapacity(.{ .user_data = s.ud, .result = -1 }),
-                .connect, .poll => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
-            }
-        }
+        try self.ready.ensureUnusedCapacity(self.allocator, Pending.max_cancellations + 1);
+        if (self.pending.get(fd)) |pending| pending.cancelInto(&self.ready);
         // tolerant: an fd with no pending op was never inserted, so the guard
         // above may have found nothing and this removal need not be present.
         _ = self.pending.remove(fd);

@@ -84,7 +84,9 @@ earlier in this session, as if someone else wrote it. Answer:
   `zig build doc-impact` lists the docs that name the changed code in their
   `sources`. Reread each one it lists.
 - **Coupling:** What fact did the diff repeat, and what unrelated concern did
-  it require changing? Collapse duplication at the shared owner. Which
+  it require changing? Collapse duplication at the shared owner;
+  `source-check` names two bodies that are one shape written twice
+  (`zig_duplicate_bodies`), and a pair below its bar is yours to judge. Which
   `pub` function lost its last caller? Zig compiles an unused function
   without complaint. `source-check` holds a private function to a caller in
   its file (`checkZigDeadPrivateFns`), so count callers across `src`,

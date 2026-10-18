@@ -6,8 +6,8 @@
 .draft = false,
 ---
 
-The CapTP session stays the same when you change transports. What changes is
-who you can reach and what the path between you proves.
+Changing transports does not change the CapTP session. It changes who you can
+reach and what the path between you proves.
 **Implemented** means glowcap has the path, not that it is released, audited,
 or fit for irreplaceable data.
 
@@ -16,10 +16,10 @@ or fit for irreplaceable data.
 | `iroh` | Implemented | Peers outside the browser that need discovery or NAT traversal, and Goblins through this repository's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
 | `webrtc` | Implemented | Browsers talking directly | The DataChannel is encrypted. Who the peer is is vouched for by the signaling service that introduced it. |
 | `noise-tcp` | Implemented | glowcap peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. It works only between glowcap peers. |
-| `noise-relay` | Implemented | glowcap peers outside the browser, sealed, through a relay | The same Noise handshake, peer to peer. The relay only sees ciphertext. |
+| `noise-relay` | Implemented | glowcap peers, sealed, through a relay | The same Noise handshake, peer to peer. The relay only sees ciphertext. |
 | `onion` | Implemented | Meeting Goblins as it ships, on the standardized path | Tor proves you reached the service you dialed and hides where both ends are. That proof happens inside the Tor daemon, and only for the side that dialed, so glowcap does not count it as proof of who the CapTP peer is. |
 | `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
-| `keyed-relay` | Trusted network only | Peers outside the browser through a relay, cleartext | Same key demand. The relay reads every frame, and nothing proves who is on the far side. |
+| `keyed-relay` | Trusted network only | Peers through a relay, cleartext | Same key demand. The relay reads every frame, and nothing proves who is on the far side. |
 | `tcp` | Testing only | Cleartext Goblins testing (adapter this repository wrote) | A host:port. Nothing is proved and nothing is encrypted. |
 | `inproc` | Testing only | Both peers in one process | No network between them, so nothing to prove and nothing to encrypt. |
 

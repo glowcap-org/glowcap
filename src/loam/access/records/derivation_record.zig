@@ -3,6 +3,7 @@ const std = @import("std");
 const core = @import("loam_access_core");
 const loam = @import("loam_records");
 const syrup = @import("syrup");
+const fields = @import("fields.zig");
 const terms = @import("terms.zig");
 const s = syrup.RecordSyntax;
 const profile = @import("profile.zig");
@@ -13,6 +14,9 @@ pub const DerivationRecord = struct {
     publication: loam.ObjectId,
     control: ?loam.ObjectId = null,
     pub const max_encoded_bytes = 64 * 1024;
+    pub const format_version: u64 = 1;
+    pub const max_edges = 3;
+    const label = "access:derive";
 
     pub fn encodeIntent(allocator: std.mem.Allocator, owner: core.OwnerId, request: core.GrantLedger.Issue) ![]u8 {
         try request.label.validate();
@@ -31,37 +35,25 @@ pub const DerivationRecord = struct {
     }
 
     pub fn decode(view: loam.View) !DerivationRecord {
-        if (view.schema != profile.derivation or view.schema_version != 1 or (view.edge_count != 2 and view.edge_count != 3) or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
+        if (view.schema != profile.derivation or view.schema_version != format_version or (view.edge_count != 2 and view.edge_count != 3) or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
         var edges = view.edges();
-        const endpoint = edges.next().?;
-        const publication = edges.next().?;
-        if (endpoint.strength != .strong or publication.strength != .strong or endpoint.target.store != publication.target.store) return error.InvalidRecord;
-        const control = if (view.edge_count == 3) edges.next().? else null;
-        if (control) |edge| if (edge.strength != .strong or edge.target.store != endpoint.target.store) return error.InvalidRecord;
-        return .{ .intent = view.payload, .endpoint = endpoint.target, .publication = publication.target, .control = if (control) |edge| edge.target else null };
+        const endpoint = try fields.readEdge(&edges, view.id.store);
+        const publication = try fields.readEdge(&edges, view.id.store);
+        const control = if (view.edge_count == 3) try fields.readEdge(&edges, view.id.store) else null;
+        return .{ .intent = view.payload, .endpoint = endpoint, .publication = publication, .control = control };
     }
 
     fn write(sink: anytype, request: core.GrantLedger.Issue, powers: ?core.Control.Powers) !void {
         try s.beginRecord(sink);
-        try s.writeSymbol(sink, "access:derive");
-        try s.writePositiveInt(sink, 1);
+        try s.writeSymbol(sink, label);
+        try s.writePositiveInt(sink, format_version);
         try terms.write(sink, request.ceiling);
         try terms.write(sink, request.configured);
         try s.writePositiveInt(sink, request.delegation_depth);
         try s.writeSymbol(sink, @tagName(request.initial_status));
         try s.writeBytes(sink, request.label.slice());
         try s.writeBool(sink, powers != null);
-        if (powers) |control| {
-            try s.writeBool(sink, control.policy_ceiling != null);
-            if (control.policy_ceiling) |ceiling| try terms.write(sink, ceiling);
-            try s.writeBool(sink, control.issue_ceiling != null);
-            if (control.issue_ceiling) |ceiling| try terms.write(sink, ceiling);
-            try s.writeBool(sink, control.inspect);
-            try s.writeBool(sink, control.delegate_control);
-            try s.writeBool(sink, control.pause);
-            try s.writeBool(sink, control.resume_access);
-            try s.writeBool(sink, control.revoke);
-        }
+        if (powers) |control| try terms.writePowers(sink, control);
         try s.endRecord(sink);
     }
 };

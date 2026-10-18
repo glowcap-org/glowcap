@@ -48,9 +48,10 @@ pub const EnlivenStart = union(enum) {
     /// Carries the reconstructed `Reference.far` (kind preserved). No wire traffic.
     /// Nothing to send.
     cached: model.Reference,
-    /// An enliven for this swiss-number is already in flight on `answer_position`. This
-    /// call collapsed onto it (ADR-0012 in-flight dedup). Nothing new to send.
-    in_flight: model.AnswerPosition,
+    /// An enliven for this swiss-number is already in flight on this question.
+    /// This call collapsed onto it (ADR-0012 in-flight dedup). Nothing new to
+    /// send.
+    in_flight: session_mod.OutboundAnswerTarget,
     /// Cache + in-flight miss: a fresh bootstrap-fetch. The adapter sends
     /// `prepared.message` (move it into `Peer.send`), drives the wire loop, and
     /// feeds the settlement to `recordEnlivenment`. Owns `prepared.message`.
@@ -62,8 +63,8 @@ pub const EnlivenStart = union(enum) {
 /// locator-match that is an adapter/dial concern in the Zig core): the session
 /// negotiated `FeatureSet.sturdyref` and is open.
 pub fn checkEnlivenPreconditions(session: *session_mod.Session) Error!void {
-    if (!session.features.sturdyref) return Error.SturdyrefsNotNegotiated;
-    if (session.state != .open) return Error.SessionNotOpen;
+    if (!session.features.sturdyref) return error.SturdyrefsNotNegotiated;
+    if (session.state != .open) return error.SessionNotOpen;
 }
 
 /// ADR-0012 cache short-circuit: if `swissnum` was already enlivened on
@@ -96,13 +97,14 @@ pub fn prepareEnliven(
         return .{ .cached = reference };
     }
     if (session.pendingEnlivenAnswer(swissnum)) |answer| {
-        return .{ .in_flight = answer };
+        // The pending row leaves with the fetch's settlement, so its answer is live.
+        return .{ .in_flight = session.outboundAnswerTarget(answer) orelse unreachable };
     }
 
     const prepared = try fetch.prepareFetchSwissnum(allocator, session, swissnum);
     errdefer model.freeMessage(allocator, prepared.message);
     errdefer if (prepared.resolver_export) |position| session.releaseUnsharedExport(position);
-    try session.notePendingEnliven(swissnum, prepared.answer_position);
+    try session.notePendingEnliven(swissnum, prepared.answer.position);
     return .{ .fresh = prepared };
 }
 
@@ -132,17 +134,17 @@ pub fn recordEnlivenment(
             else => {
                 session.finishPendingEnliven(swissnum);
                 model.freeReference(allocator, reference);
-                return Error.EnlivenmentBroke;
+                return error.EnlivenmentBroke;
             },
         },
         .broken => |reason| {
             session.finishPendingEnliven(swissnum);
             allocator.free(reason);
-            return Error.EnlivenmentBroke;
+            return error.EnlivenmentBroke;
         },
         .malformed => {
             session.finishPendingEnliven(swissnum);
-            return Error.EnlivenmentBroke;
+            return error.EnlivenmentBroke;
         },
     }
 }

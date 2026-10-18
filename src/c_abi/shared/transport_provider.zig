@@ -15,6 +15,7 @@ const std = @import("std");
 const model = @import("model");
 const foundation = @import("foundation");
 const locator = @import("locator.zig");
+const codes = @import("result.zig");
 
 pub const GLOWCAP_TRANSPORT_PROVIDER_ABI_VERSION: u32 = 1;
 pub const GLOWCAP_TRANSPORT_PROFILE_ABI_VERSION: u32 = 1;
@@ -61,6 +62,12 @@ pub fn carrierPhaseCode(phase: anytype) u32 {
     return switch (phase) {
         inline else => |tag| @field(@This(), "GLOWCAP_CARRIER_PHASE_" ++ upperTag(@tagName(tag))),
     };
+}
+
+/// `carrierPhaseCode` for a failure that may not be carrier-owned: NONE when
+/// no phase names it.
+pub fn optionalCarrierPhaseCode(phase: anytype) u32 {
+    return carrierPhaseCode(phase orelse return GLOWCAP_CARRIER_PHASE_NONE);
 }
 
 fn upperTag(comptime name: []const u8) *const [name.len]u8 {
@@ -174,6 +181,37 @@ pub fn takeProviderFailure(failure: *GlowcapProviderFailure, out_failure: ?*Glow
     failure.* = std.mem.zeroes(GlowcapProviderFailure);
 }
 
+/// Take one more reference on a lease-counted payload, or refuse when the
+/// last one is already gone: a payload whose count reached zero is being
+/// torn down, and reviving it from a late retain would hand the caller
+/// memory about to be freed.
+pub fn retainLive(references: *std.atomic.Value(usize)) bool {
+    var current = references.load(.acquire);
+    while (current != 0) {
+        if (references.cmpxchgWeak(current, current + 1, .acq_rel, .acquire)) |observed| {
+            current = observed;
+        } else return true;
+    }
+    return false;
+}
+
+/// The provider table's `retain` callback for a lease context that is a
+/// `*Payload` with a `retain` method: a null context is refused as a null
+/// pointer, and a payload past its last reference is refused as closed.
+pub fn retainCallback(comptime Payload: type) fn (?*anyopaque, ?*GlowcapProviderFailure) callconv(.c) i32 {
+    return struct {
+        fn retain(ctx: ?*anyopaque, out_failure: ?*GlowcapProviderFailure) callconv(.c) i32 {
+            const payload: *Payload = @ptrCast(@alignCast(ctx orelse {
+                setProviderFailure(out_failure, codes.GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+                return codes.GLOWCAP_ERR_NULL_POINTER;
+            }));
+            if (payload.retain()) return codes.GLOWCAP_OK;
+            setProviderFailure(out_failure, codes.GLOWCAP_ERR_CLOSED, error.Closed);
+            return codes.GLOWCAP_ERR_CLOSED;
+        }
+    }.retain;
+}
+
 pub fn setProviderFailure(out: ?*GlowcapProviderFailure, result: i32, cause: anyerror) void {
     const slot = out orelse return;
     const name = @errorName(cause);
@@ -217,6 +255,24 @@ pub fn failProviderChain(
 ) i32 {
     setProviderFailureChain(out, result, failure, secondaryResult);
     return result;
+}
+
+/// Project a nonblocking transfer's outcome onto a provider `try_read` or
+/// `try_write` result: the byte count, `GLOWCAP_TRANSPORT_WOULD_BLOCK`, or -1
+/// with the first failure latched in `failure` for `conn_take_failure`.
+pub fn tryOutcome(failure: *GlowcapProviderFailure, outcome: anyerror!usize) isize {
+    const moved = outcome catch |err| {
+        if (err == error.WouldBlock) return GLOWCAP_TRANSPORT_WOULD_BLOCK;
+        if (providerFailureEmpty(failure.*)) setProviderFailure(failure, codes.GLOWCAP_ERR_IO, err);
+        return -1;
+    };
+    return @intCast(moved);
+}
+
+/// A try hook handed a null buffer: latch the refusal and fail the call.
+pub fn failNullBuffer(failure: *GlowcapProviderFailure) isize {
+    setProviderFailure(failure, codes.GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
+    return -1;
 }
 
 pub fn providerFailureEmpty(report: GlowcapProviderFailure) bool {

@@ -43,6 +43,18 @@ Component edits use React Fast Refresh. Changes that reach page startup reload
 the document, because its Host, session and React root each live as long as
 one document.
 
+An open page reloads itself onto a new build after its server restarts.
+Every directory session goes through the server's relay, so a restart leaves
+the page with no connection. The page then asks `/ui-version` which build the
+server serves: when its last connection goes, on a beat while it has none, and
+when one comes back. It reloads when the answer differs from the build it was
+served as (`web/ui/build_link.ts`).
+
+A tab never reloads twice in a row for the same build, so a server whose page
+and `/ui-version` disagree cannot loop it. A build published while the page's
+connections hold waits for the next restart. In development the build is named
+by the Wasm application file, so component edits keep using Fast Refresh.
+
 The browser proofs run concurrently, so name every proof you need in one
 `zig build` invocation, or run the whole family with `rooms-web-proofs`. The
 build prepares the browser assets once, and each proof starts `rooms-web` with
@@ -174,7 +186,7 @@ devcontainer sets `0.0.0.0`).
 ### As an onion service
 
 `zig build rooms-web -Dtransport=onion` publishes the directory as a Tor
-onion service, while the page itself is still served over HTTP.
+onion service, while the page itself is served over HTTP.
 
 - The launcher starts a private Tor and stops it when the process ends. To use
   a Tor you already run instead, set `GLOWCAP_ONION_SOCKS` and
@@ -395,6 +407,7 @@ The server therefore enforces limits:
 | `rust/services/` | The room server, session peer, archive peer, IRC edges, web server, and interactive client |
 | `rust/browser/` | The Wasm application: session controllers, storage, signaling, transport |
 | `rust/proofs/` | The application contracts replayed from fixtures, in a process and in Wasm |
+| `rust/product/` | Private executable entry points, workspace and roster supervision, and process proofs |
 | `web/ui/` | The browser page: React components, the store, the session projection |
 | `web/compiler.json` | The production compiler invocation and additional source-identity inputs |
 | `web/deno.json`, `web/vite.config.ts` | The pinned browser toolchain and Vite configuration |

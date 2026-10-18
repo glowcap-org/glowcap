@@ -67,7 +67,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn firstRun(allocator: std.mem.Allocator, io: std.Io, path: [:0]const u8) !core.ObjectId {
-    var db = try Sqlite.open(path, .{ .mode = .{ .create = store_id } });
+    var db = try Sqlite.open(path, .{ .opening = .{ .id = store_id, .mode = .create } });
     defer db.close() catch |err| std.log.err("closing SQLite: {s}", .{@errorName(err)});
     var store = try core.Store.init(allocator, db.metadata, &schemas, limits);
     defer store.deinit() catch |err| std.log.err("closing the store: {s}", .{@errorName(err)});
@@ -91,7 +91,7 @@ fn firstRun(allocator: std.mem.Allocator, io: std.Io, path: [:0]const u8) !core.
 }
 
 fn secondRun(allocator: std.mem.Allocator, io: std.Io, path: [:0]const u8, id: core.ObjectId) !void {
-    var db = try Sqlite.open(path, .{ .mode = .{ .open = store_id } });
+    var db = try Sqlite.open(path, .{ .opening = .{ .id = store_id, .mode = .open } });
     defer db.close() catch |err| std.log.err("closing SQLite: {s}", .{@errorName(err)});
     var store = try core.Store.init(allocator, db.metadata, &schemas, limits);
     defer store.deinit() catch |err| std.log.err("closing the store: {s}", .{@errorName(err)});

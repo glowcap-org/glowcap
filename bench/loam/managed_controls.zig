@@ -38,7 +38,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), self: *m.Managed,
             break;
         } else return error.NoProgress;
         try self.store.begin();
-        const descriptor = try self.capabilities.stageAttenuatedControl(operation, false);
+        const descriptor = try self.capabilities.stageAttenuatedControl(operation, .reachable);
         try self.finish(try self.store.prepare());
         const child_lease = try self.load(descriptor);
         const child = try self.capabilities.restoreControl(child_lease);

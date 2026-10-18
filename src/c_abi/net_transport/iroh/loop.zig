@@ -282,16 +282,5 @@ fn dialErrorToCode(err: net.netlayer.DialError, detail: []const u8) i32 {
         setLastError("connect: {s}: {s}", .{ @errorName(err), detail })
     else
         setLastError("connect: {s}", .{@errorName(err)});
-    return switch (err) {
-        error.WouldBlock => GLOWCAP_ERR_WOULD_BLOCK,
-        // Permanent under ADR-0082 `isTransient`: bindings must not retry these.
-        error.InvalidAddress, error.InvalidOptions, error.ConnectionRefused => GLOWCAP_ERR_INVALID_ARGUMENT,
-        error.OutOfMemory => GLOWCAP_ERR_INTERNAL,
-        error.NetworkUnreachable,
-        error.TimedOut,
-        error.ConnectionLost,
-        error.SocketConfigurationFailed,
-        error.WakeNudgeFailed,
-        => GLOWCAP_ERR_IO,
-    };
+    return c.netlayerFailureCode(err);
 }

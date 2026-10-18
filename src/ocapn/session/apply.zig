@@ -3,7 +3,7 @@
 //! The public spine is the three dispatch appliers (`applySend`, `applyRecv`,
 //! `applyRecvView`), reached through `Session.recordSend` / `recordRecv` /
 //! `recordRecvView`, plus the two commit steps the engine drives directly
-//! (`retainSentExportRef`, `installAnswer` via `answers.lifecycle.installInbound`).
+//! (`retainSentExportRef`, `installInboundAnswerNamed`).
 //! Recursive sent-export accounting lives in `apply/sent_exports.zig`. Appliers run
 //! only after the matching validator in `validate.zig` has proven the message
 //! valid, and they mutate the authoritative tables: installing answers,
@@ -11,7 +11,7 @@
 //! advancing the handshake. Apply stays all-or-nothing for every typed protocol
 //! refusal: validation decides them before apply mutates (the
 //! prospective-import cap walk in `validate.zig` exists for exactly this), and
-//! the one refusal raised here, the inbound-answer cap in `installAnswer`,
+//! the one refusal raised here, the cap in `installInboundAnswerNamed`,
 //! fires as an arm's first step, before anything commits. Only a host
 //! allocation failure can interrupt an arm mid-walk. The engine treats that as
 //! fatal to the session, never as state to resume from.
@@ -19,6 +19,7 @@
 const std = @import("std");
 const model = @import("model");
 const answers = @import("answers/store.zig");
+const resolution_store = @import("answers/resolution_store.zig");
 const listen_claims = @import("listen_claims.zig");
 const sent_exports = @import("apply/sent_exports.zig");
 const session = @import("mod.zig");
@@ -26,9 +27,8 @@ const validate = @import("validate.zig");
 
 const Session = session.Session;
 const Error = session.Error;
-const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const bootstrap_position = session.bootstrap_position;
 const RecvViewError = session.RecvViewError;
-const AnswerDirection = session.AnswerDirection;
 
 pub const retainSentExportRef = sent_exports.retainRef;
 pub const releaseSentMessage = sent_exports.releaseMessage;
@@ -36,8 +36,8 @@ pub const releaseSentExports = sent_exports.releaseExports;
 pub const listSentExports = sent_exports.listSentExports;
 pub const ensureSentResolutionExportCapacity = sent_exports.ensureResolutionCapacity;
 
-pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const validate.IntroducedImports) !void {
-    switch (body) {
+pub fn applyRecvView(self: *Session, body: *const model.view.Body, introduced: *const validate.IntroducedImports) !void {
+    switch (body.*) {
         // The borrowed steady-state kinds share one apply body with the owned
         // retain path; the rarer owned-fallback kinds never arrive here (they
         // are routed through `recordRecv` by `recordRecvView`).
@@ -45,9 +45,9 @@ pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const v
         // The owned dispatch's twin arms: a projection op exports a promise at
         // the new answer position (CapTP § op:get "Receiving"); the engine
         // anchors the projection itself.
-        .get => |get| try installAnswer(self, .inbound, get.answer),
-        .index => |index| try installAnswer(self, .inbound, index.answer),
-        .untag => |untag| try installAnswer(self, .inbound, untag.answer),
+        .get => |get| try installInboundAnswerNamed(self, .fromWire(get.answer)),
+        .index => |index| try installInboundAnswerNamed(self, .fromWire(index.answer)),
+        .untag => |untag| try installInboundAnswerNamed(self, .fromWire(untag.answer)),
         else => {},
     }
 }
@@ -59,12 +59,14 @@ pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const v
 /// mention record the validate walk produced over this same message: apply
 /// consumes it instead of re-walking the argument tree, so one inbound
 /// deliver/resolve's argument bytes are traversed once, in validation.
+/// `message` points at the owned or the borrowed message, so the deliver arm
+/// reads its tree in place.
 fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate.IntroducedImports) !void {
-    switch (message) {
+    switch (message.*) {
         .abort => self.close(),
-        .deliver => |deliver| {
+        .deliver => |*deliver| {
             if (deliver.answer) |answer| {
-                try installAnswer(self, .inbound, answer);
+                try installInboundAnswerNamed(self, .fromWire(answer));
             }
             // A `far` argument is the partner introducing one of its exports
             // as our import (ADR-0010); install every recorded mention so we
@@ -76,12 +78,7 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
         },
         .resolve => |resolve| {
             if (self.outbound_answers.getPtr(resolve.answer)) |cell| {
-                if (cell.status() == .pending) {
-                    switch (resolve.resolution) {
-                        .fulfill => cell.fulfill() catch unreachable,
-                        .@"break" => cell.breakCell() catch unreachable,
-                    }
-                }
+                if (cell.status() == .pending) cell.settle(resolve.resolution);
             }
             // A canonical `op:resolve` fulfilling with a `far` reference hands
             // us a new import (the resolved capability), install the recorded
@@ -158,7 +155,11 @@ fn relocateSubslice(owned: []u8, parent: []const u8, child: []const u8) ?[]const
     return owned[off..][0..child.len];
 }
 
-pub fn applySend(self: *Session, message: model.Message, inventory: session.Inventory) !void {
+/// `resolver` is the resolver export an admitted deliver minted for its
+/// answer before this record (`engine.outbound.encoded.admit`), which the
+/// answer row installed here takes (ADR-0254). Null for every other send.
+pub fn applySend(self: *Session, message: model.Message, inventory: session.Inventory, resolver: ?model.ExportPosition) !void {
+    std.debug.assert(resolver == null or message == .deliver);
     // Answer-producing sends retain every near reference they publish. Acquire
     // the only fallible storage those arms need before taking any wire-delta
     // retain, so an allocator refusal cannot leave authority for a frame that
@@ -170,8 +171,8 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
         .untag => |untag| untag.answer,
         else => null,
     };
-    if (produced_answer != null)
-        try self.outbound_answers.ensureUnusedCapacity(self.allocator, 1);
+    if (produced_answer) |answer|
+        try self.outbound_answers.ensureInstallable(self.allocator, answer);
 
     // Account every `near` export we put on the wire so a later
     // `op:gc-exports` releasing the same wire-delta balances.
@@ -179,7 +180,7 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
     switch (message) {
         .deliver => |deliver| {
             if (deliver.answer) |answer| {
-                installPreparedOutboundAnswer(self, answer);
+                installPreparedOutboundAnswer(self, answer, resolver);
                 if (self.captp_version == .next)
                     self.outbound_answers.getPtr(answer).?.sent_listen_modes = @backingInt(deliver.listen_mode);
             }
@@ -187,9 +188,9 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
         // Sending `op:get` / `op:index` / `op:untag` allocates the projected
         // answer on our side (ADR-0050): install it outbound so the partner's
         // `op:resolve` for it validates as an answer we are owed.
-        .get => |get| installPreparedOutboundAnswer(self, get.answer),
-        .index => |index| installPreparedOutboundAnswer(self, index.answer),
-        .untag => |untag| installPreparedOutboundAnswer(self, untag.answer),
+        .get => |get| installPreparedOutboundAnswer(self, get.answer, null),
+        .index => |index| installPreparedOutboundAnswer(self, index.answer, null),
+        .untag => |untag| installPreparedOutboundAnswer(self, untag.answer, null),
         // A sent `op:resolve` is routed through `applySentResolve` by
         // `recordSend`, never here, it consumes the resolution (moves it into
         // the answer store) under a single-owner contract `applySend`'s
@@ -200,8 +201,8 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
             retireReleasedImports(self, gc_export.positions);
         },
         // Outbound `op:gc-answers` releases a question we asked, decrement
-        // our outbound answers and drop any outbound resolver link we
-        // committed for it.
+        // our outbound answers and retire the resolver export we bound to
+        // each one.
         .gc_answer => |gc_answer| try applyGcAnswerDecrementOutbound(self, gc_answer.positions),
         .start_session => |ss| {
             // Record our own key before the transition: an exporter derives the
@@ -232,12 +233,15 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
     }
 }
 
-fn installPreparedOutboundAnswer(self: *Session, position: model.AnswerPosition) void {
+/// A position minted by `allocateOutboundAnswer` carries the stamp it was
+/// reserved with, so the target the caller holds names the row installed
+/// here. A position the caller chose is stamped now.
+fn installPreparedOutboundAnswer(self: *Session, position: model.AnswerPosition, resolver: ?model.ExportPosition) void {
     std.debug.assert(!self.outbound_answers.contains(position));
-    self.outbound_answers.putAssumeCapacity(
-        position,
-        session.AnswerCell.initPending(self.nextStoreStamp()),
-    );
+    const stamp = self.outbound_answers.reservedStamp(position) orelse self.nextStoreStamp();
+    var cell = session.AnswerCell.initPending(stamp);
+    if (resolver) |resolver_export| cell.setResolverExport(resolver_export);
+    self.outbound_answers.installAssumeCapacity(position, cell);
 }
 
 /// Apply a resolve we are sending. **Consumes `resolve.resolution`**: it is
@@ -267,30 +271,19 @@ pub fn applySentResolutionNamed(
     resolution: model.Resolution,
     inventory: session.Inventory,
 ) !void {
-    var resolution_owned = true;
-    errdefer if (resolution_owned)
-        model.freeResolution(self.allocator, resolution);
     // Admit the durable answer bytes before any capacity reservation or export
     // mutation. The inventory measured the tree once, and its charge travels
     // through the later infallible commit.
-    const store_plan = try answers.planResolutionStoreNamed(self, answer_name, resolution, inventory.owned_bytes);
-    // Reserve every allocation the export pass and answer store can need before
-    // either authority changes. The inventory already bounded the tree;
-    // capacity plus the prepared store make the commit below infallible.
-    try self.ensureSentResolutionExportCapacity(resolution, inventory);
-    const prepared_store = try answers.prepareResolutionStore(self, store_plan);
-    // Establish every fulfilled local export now. A V1 resolver callback is a
-    // known publication and takes its wire retain here; next keeps only the
-    // local baseline until each listener fire takes its retain at queue time.
-    if (resolution == .fulfill) {
-        const has_v1_callback = self.captp_version == .v1_0 and
-            self.resolverForInboundAnswer(answer_name) != null;
-        sent_exports.recordMentions(self, inventory, &resolution.fulfill, has_v1_callback) catch unreachable;
-    }
-    // Transfer ownership only after every fallible preparation. No export
-    // retain can survive without the stored resolution it describes.
-    answers.commitPreparedResolutionStore(self, prepared_store, resolution);
-    resolution_owned = false;
+    const store_plan = resolution_store.planResolutionStoreNamed(self, answer_name, resolution, inventory.owned_bytes) catch |err| {
+        model.freeResolution(self.allocator, resolution);
+        return err;
+    };
+    // A V1 resolver callback is a known publication and takes its wire retain
+    // in the commit; next keeps only the local baseline until each listener
+    // fire takes its retain at queue time.
+    const has_v1_callback = self.captp_version == .v1_0 and
+        self.resolverForInboundAnswer(answer_name) != null;
+    return commitSentResolution(self, store_plan, has_v1_callback, resolution, inventory);
 }
 
 pub fn applySentResolutionTarget(
@@ -300,24 +293,39 @@ pub fn applySentResolutionTarget(
     resolution: model.Resolution,
     inventory: session.Inventory,
 ) !void {
+    const store_plan = resolution_store.planResolutionStoreTarget(self, target, payload, resolution, inventory.owned_bytes) catch |err| {
+        model.freeResolution(self.allocator, resolution);
+        return err;
+    };
+    const has_v1_callback = self.captp_version == .v1_0 and payload.resolver_import != null;
+    return commitSentResolution(self, store_plan, has_v1_callback, resolution, inventory);
+}
+
+/// The commit both sent-resolution verbs share once their store is planned.
+/// Owns `resolution` on every outcome: freed on a refusal, moved into the
+/// store on success.
+fn commitSentResolution(
+    self: *Session,
+    store_plan: resolution_store.ResolutionStorePlan,
+    has_v1_callback: bool,
+    resolution: model.Resolution,
+    inventory: session.Inventory,
+) !void {
     var resolution_owned = true;
     errdefer if (resolution_owned)
         model.freeResolution(self.allocator, resolution);
-    const store_plan = try answers.planResolutionStoreTarget(
-        self,
-        target,
-        payload,
-        resolution,
-        inventory.owned_bytes,
-    );
+    // Reserve every allocation the export pass and answer store can need before
+    // either authority changes. The inventory already bounded the tree;
+    // capacity plus the prepared store make the commit below infallible.
     try self.ensureSentResolutionExportCapacity(resolution, inventory);
-    const prepared_store = try answers.prepareResolutionStore(self, store_plan);
+    const prepared_store = try resolution_store.prepareResolutionStore(self, store_plan);
+    // Establish every fulfilled local export now.
     if (resolution == .fulfill) {
-        const has_v1_callback = self.captp_version == .v1_0 and
-            payload.resolver_import != null;
         sent_exports.recordMentions(self, inventory, &resolution.fulfill, has_v1_callback) catch unreachable;
     }
-    answers.commitPreparedResolutionStore(self, prepared_store, resolution);
+    // Transfer ownership only after every fallible preparation. No export
+    // retain can survive without the stored resolution it describes.
+    resolution_store.commitPreparedResolutionStore(self, prepared_store, resolution);
     resolution_owned = false;
 }
 
@@ -340,12 +348,12 @@ pub fn applyRecv(self: *Session, message: model.Message, introduced: *const vali
         // position (CapTP § op:get "Receiving"): install the inbound answer the
         // partner will pipeline against. The engine anchors the projection
         // itself.
-        .get => |get| try installAnswer(self, .inbound, get.answer),
-        .index => |index| try installAnswer(self, .inbound, index.answer),
-        .untag => |untag| try installAnswer(self, .inbound, untag.answer),
+        .get => |get| try installInboundAnswerNamed(self, .fromWire(get.answer)),
+        .index => |index| try installInboundAnswerNamed(self, .fromWire(index.answer)),
+        .untag => |untag| try installInboundAnswerNamed(self, .fromWire(untag.answer)),
         // abort / deliver / resolve / start_session share one body with the
         // borrowed-view path.
-        else => try applyRecvShared(self, message, introduced),
+        else => try applyRecvShared(self, &message, introduced),
     }
 }
 
@@ -371,7 +379,7 @@ fn installIntroducedImports(self: *Session, introduced: *const validate.Introduc
 /// release's, unchanged.
 pub fn applySessionImportRelease(self: *Session, gc_export: model.GcExport) void {
     for (gc_export.positions, gc_export.deltas) |pos, delta| {
-        std.debug.assert(pos != BOOTSTRAP_POSITION);
+        std.debug.assert(pos != bootstrap_position);
         self.imports.releaseSessionHeld(.from(pos), delta);
     }
     retireReleasedImports(self, gc_export.positions);
@@ -404,8 +412,8 @@ fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) !void {
     try self.prepareAnswerGc(positions);
     for (positions) |position| {
         const answer = model.AnswerName.fromWire(.from(position));
-        const entry = self.inbound_answers.getPtr(answer) orelse return Error.GcUnderflow;
-        if (entry.count == 0) return Error.GcUnderflow;
+        const entry = self.inbound_answers.getPtr(answer) orelse return error.GcUnderflow;
+        if (entry.count == 0) return error.GcUnderflow;
         if (entry.count == 1) self.commitFinalAnswerGc(answer) else entry.count -= 1;
     }
     self.collectLocalPromiseProjections();
@@ -425,35 +433,27 @@ fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!
     }
 }
 
-/// Install a pending answer row in the table `direction` names. Inbound rows
-/// and detached accepted consequences share `SessionLimits.max_inbound_answers`.
-/// Outbound rows are positions we allocate, bounded by our own sends, so the
-/// cap is the direction's policy, not a property of which pointer was passed.
-/// Idempotent only for a still-pending inbound row: validation and apply may
-/// meet the same answer during one prepared receive transaction. Outbound rows
-/// are locally chosen question identities and must always be fresh.
-pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model.AnswerPosition) !void {
-    switch (direction) {
-        .inbound => return installInboundAnswerNamed(self, .fromWire(position)),
-        .outbound => {},
-    }
-    if (self.outbound_answers.getPtr(position)) |_| {
-        return Error.UnexpectedMessage;
-    }
-    try self.outbound_answers.put(
-        self.allocator,
-        position,
-        session.AnswerCell.initPending(self.nextStoreStamp()),
-    );
+/// Install a fresh pending outbound answer: a question identity we chose,
+/// bounded by our own sends and so under no cap. A position already live is
+/// refused.
+pub fn installOutboundAnswer(self: *Session, position: model.AnswerPosition) !void {
+    if (!self.outbound_answers.fresh(position)) return error.UnexpectedMessage;
+    try self.outbound_answers.ensureInstallable(self.allocator, position);
+    const stamp = self.outbound_answers.reservedStamp(position) orelse self.nextStoreStamp();
+    self.outbound_answers.installAssumeCapacity(position, session.AnswerCell.initPending(stamp));
 }
 
+/// Install a pending inbound answer we owe resolution for. Inbound rows and
+/// detached accepted consequences share `SessionLimits.max_inbound_answers`.
+/// Idempotent for a still-pending row: validation and apply may meet the same
+/// answer during one prepared receive transaction.
 pub fn installInboundAnswerNamed(self: *Session, answer: model.AnswerName) !void {
     if (self.inbound_answers.getPtr(answer)) |entry| {
-        if (entry.status() != .pending) return Error.UnexpectedMessage;
+        if (entry.status() != .pending) return error.UnexpectedMessage;
         return;
     }
     if (self.inboundAnswerObligationCount() >= self.limits.max_inbound_answers) {
-        return Error.InboundAnswerCapExceeded;
+        return error.InboundAnswerCapExceeded;
     }
     try self.inbound_answers.put(
         self.allocator,

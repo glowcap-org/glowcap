@@ -74,24 +74,12 @@ pub fn exporterLocationForRecipient(
     }
     if (recipient.known_glowcap) return null;
     if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return null;
-    var stripped: usize = 0;
     for (locator.hints.entries) |entry| {
-        if (model.transport.isProfileHintName(entry.name)) stripped += 1;
-    }
-    if (stripped == 0) return null;
-    const kept = try allocator.alloc(model.HintEntry, locator.hints.entries.len - stripped);
-    defer allocator.free(kept);
-    var write: usize = 0;
-    for (locator.hints.entries) |entry| {
-        if (model.transport.isProfileHintName(entry.name)) continue;
-        kept[write] = entry;
-        write += 1;
-    }
-    return try codec.signed.encodeLocatorRecord(allocator, .{
-        .transport = locator.transport,
-        .designator = locator.designator,
-        .hints = if (kept.len == 0) model.Hints.emptyFalse() else .{ .entries = kept },
-    });
+        if (!keepsHint(locator, entry, recipient)) break;
+    } else return null;
+    const stripped = try cloneLocatorForRecipient(allocator, locator, recipient);
+    defer model.freePeerLocator(allocator, stripped);
+    return try codec.signed.encodeLocatorRecord(allocator, stripped);
 }
 
 fn compatibleRoute(
@@ -108,7 +96,7 @@ fn compatibleRoute(
     defer bundle.deinit(allocator);
     for (bundle.paths) |path| {
         if (!routeFitsRecipient(recipient, path.transport)) continue;
-        return try clonePathForRecipient(allocator, path, recipient);
+        return try cloneLocatorForRecipient(allocator, path, recipient);
     }
     return error.UnsupportedArgument;
 }
@@ -121,23 +109,19 @@ fn routeFitsRecipient(recipient: RecipientLocatorPolicy, transport: []const u8) 
 }
 
 fn hasPrivateRouteHint(locator: model.PeerLocator) bool {
+    if (!std.mem.eql(u8, locator.transport, model.transport.id)) return false;
     for (locator.hints.entries) |entry| {
-        if (std.mem.eql(u8, locator.transport, model.transport.id) and
-            std.mem.eql(u8, entry.name, model.transport.hint_via)) return true;
+        if (std.mem.eql(u8, entry.name, model.transport.hint_via)) return true;
     }
     return false;
 }
 
-fn clonePathForRecipient(
-    allocator: std.mem.Allocator,
-    path: model.RoutePath,
-    recipient: RecipientLocatorPolicy,
-) !model.PeerLocator {
-    return cloneLocatorForRecipient(allocator, .{
-        .transport = path.transport,
-        .designator = path.designator,
-        .hints = path.hints,
-    }, recipient);
+/// Whether a hint rides to `recipient`: profile hints only toward a partner
+/// known to be glowcap, and an `id` locator's private route hints never.
+fn keepsHint(locator: model.PeerLocator, entry: model.HintEntry, recipient: RecipientLocatorPolicy) bool {
+    if (!recipient.known_glowcap and model.transport.isProfileHintName(entry.name)) return false;
+    return !(std.mem.eql(u8, locator.transport, model.transport.id) and
+        std.mem.eql(u8, entry.name, model.transport.hint_via));
 }
 
 fn cloneLocatorForRecipient(
@@ -147,10 +131,7 @@ fn cloneLocatorForRecipient(
 ) !model.PeerLocator {
     var kept_count: usize = 0;
     for (locator.hints.entries) |entry| {
-        if (!recipient.known_glowcap and model.transport.isProfileHintName(entry.name)) continue;
-        if (std.mem.eql(u8, locator.transport, model.transport.id) and
-            std.mem.eql(u8, entry.name, model.transport.hint_via)) continue;
-        kept_count += 1;
+        if (keepsHint(locator, entry, recipient)) kept_count += 1;
     }
     if (kept_count == locator.hints.entries.len)
         return model.clonePeerLocator(allocator, locator);
@@ -160,11 +141,7 @@ fn cloneLocatorForRecipient(
     const designator = try allocator.dupe(u8, locator.designator);
     errdefer allocator.free(designator);
     if (kept_count == 0) {
-        return .{
-            .transport = transport,
-            .designator = designator,
-            .hints = model.Hints.emptyFalse(),
-        };
+        return .hintless(transport, designator);
     }
     const entries = try allocator.alloc(model.HintEntry, kept_count);
     errdefer allocator.free(entries);
@@ -173,9 +150,7 @@ fn cloneLocatorForRecipient(
         for (entries[0..write]) |entry| model.freeHintEntry(allocator, entry);
     }
     for (locator.hints.entries) |entry| {
-        if (!recipient.known_glowcap and model.transport.isProfileHintName(entry.name)) continue;
-        if (std.mem.eql(u8, locator.transport, model.transport.id) and
-            std.mem.eql(u8, entry.name, model.transport.hint_via)) continue;
+        if (!keepsHint(locator, entry, recipient)) continue;
         const name = try allocator.dupe(u8, entry.name);
         errdefer allocator.free(name);
         entries[write] = .{
@@ -213,9 +188,9 @@ pub fn mintGive(
     recipient: RecipientLocatorPolicy,
     exporter: ExporterLocatorPolicy,
 ) ![]u8 {
-    const gifter_side = try engine.handoff_recipient.sideName(secret.publicKey().asBytes());
-    const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
-    const session_name = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
+    const gifter_side = engine.handoff_names.sideNameForKey(secret.publicKey());
+    const exporter_side = try engine.handoff_names.sideName(exporter_key);
+    const session_name = engine.handoff_names.sessionName(gifter_side, exporter_side);
 
     const accepted_by_exporter = source: {
         if (exporter.route_vocabulary) break :source exporter_loc;
@@ -312,16 +287,16 @@ pub fn prepareDepositGiftInBatch(
     gifted: model.Reference,
 ) !PreparedDepositGift {
     var message = try model.cloneMessage(peer.allocator, .{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
+        .target = .{ .far = model.FarRef.object(engine.bootstrap_position) },
         .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = gift_id }, .{ .reference = gifted } },
         .answer = null,
     } });
     errdefer model.freeMessage(peer.allocator, message);
-    const inventory = try peer.session_state.inventoryMessage(message);
+    const inventory = try peer.inventoryMessage(message);
     defer inventory.deinit(peer.allocator);
 
     if (peer.node_services) |services| {
-        if (services.lowering_active.*) try lower.lowerMessage(services, &message, inventory);
+        if (services.loweringActive()) try lower.lowerMessage(services, &message, inventory);
     }
     peer.session_state.rewriteShortenedMessage(&message, inventory);
     try peer.session_state.admits(model.view.Body.fromOwned(&message));
@@ -356,15 +331,6 @@ pub fn sendDepositGift(peer: *Peer, gift_id: []const u8, gifted: model.Reference
     prepared.commit(peer);
 }
 
-/// Where the recipient half of an originated give settles.
-pub const GiveDestination = union(enum) {
-    answer: session.AnswerTarget,
-    relayed: struct {
-        import_position: model.ImportPosition,
-        row_id: u64,
-    },
-};
-
 /// Admit both local halves of one originated handoff as one sans-I/O queue
 /// transaction. Every exporter-side failure is acquired before the recipient
 /// queue can own `give_bytes`. After that recipient commit, the exporter queue
@@ -378,7 +344,7 @@ pub fn queueOriginatedGive(
     gift_id: []const u8,
     gifted: model.Reference,
     give_bytes: []const u8,
-    destination: GiveDestination,
+    answer: session.AnswerTarget,
 ) !void {
     if (exporter == recipient) return error.AliasedHandoffPeers;
 
@@ -386,15 +352,7 @@ pub fn queueOriginatedGive(
     var deposit_owned = true;
     defer if (deposit_owned) deposit.abandon(exporter);
 
-    switch (destination) {
-        .answer => |answer| try sendResolveHandoffGive(recipient, answer, give_bytes),
-        .relayed => |slot| try applyRelayedHandoffGive(
-            recipient,
-            slot.import_position,
-            slot.row_id,
-            give_bytes,
-        ),
-    }
+    try sendResolveHandoffGive(recipient, answer, give_bytes);
     deposit.commit(exporter);
     deposit_owned = false;
 }
@@ -412,22 +370,9 @@ pub fn sendResolveHandoffGive(peer: *Peer, answer: session.AnswerTarget, give_by
     );
 }
 
-/// Store a signed `desc:handoff-give` as the relayed resolution of
-/// `import_position`. `give_bytes` is borrowed. Ownership of the decoded
-/// handoff passes to `applyRelayedResolution`.
-pub fn applyRelayedHandoffGive(
-    peer: *Peer,
-    import_position: model.ImportPosition,
-    row_id: u64,
-    give_bytes: []const u8,
-) !void {
-    const boxed = try decodeHandoffGive(peer.allocator, give_bytes);
-    return peer.applyRelayedResolution(import_position, row_id, .{ .fulfill = .{ .handoff = boxed } });
-}
-
 /// Decode and box one borrowed signed give, transferring the complete owned
-/// handoff to the caller. Both recipient destinations use this ownership edge.
-/// Neither needs to deep-clone an already-owned signed tree.
+/// handoff to the caller, so the resolve never deep-clones an already-owned
+/// signed tree.
 pub fn decodeHandoffGive(allocator: std.mem.Allocator, give_bytes: []const u8) !*model.Handoff {
     const give = try codec.signed.decodeGiveOwned(allocator, give_bytes);
     const handoff = allocator.create(model.Handoff) catch |err| {

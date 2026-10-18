@@ -7,9 +7,9 @@
 
 const std = @import("std");
 
-const abort_projection = @import("../abort_projection.zig");
 const codec = @import("codec");
 const encoded = @import("encoded.zig");
+const inbound = @import("../inbound.zig");
 const listener_fire = @import("listener_fire.zig");
 const model = @import("model");
 const outbound = @import("../outbound.zig");
@@ -36,7 +36,7 @@ pub fn holdsAnswerReleases(self: *Peer) bool {
     if (!self.sessionIsOpen()) return false;
     var live = false;
     for (self.pending_send.pending()) |row| switch (row.item) {
-        .answer_release => |answer| live = live or self.session_state.outboundAnswer(answer) != null,
+        .answer_release => |answer| live = live or self.session_state.hasLiveOutboundAnswer(answer),
         else => return false,
     };
     return live;
@@ -57,91 +57,8 @@ pub fn stepPending(self: *Peer) !void {
     // `drive` steps here only while `peek` answers.
     const pending = self.pending_send.peek() orelse unreachable;
     switch (pending.item) {
-        .answer_release => {
-            // Consecutive releases leave as one `op:gc-answers`. Failed
-            // preparation leaves no answer to release, and a successful
-            // carrier precedes its release in the same pending queue.
-            var positions: [release_wave]u64 = undefined;
-            var count: usize = 0;
-            var carriers: usize = 0;
-            const rows = self.pending_send.pending();
-            while (carriers < rows.len and carriers < release_wave) : (carriers += 1) {
-                const answer = switch (rows[carriers].item) {
-                    .answer_release => |answer| answer,
-                    else => break,
-                };
-                if (!self.sessionIsOpen() or self.session_state.outboundAnswer(answer) == null) continue;
-                const position = answer.int();
-                const seen = for (positions[0..count]) |earlier| {
-                    if (earlier == position) break true;
-                } else false;
-                if (seen) continue;
-                positions[count] = position;
-                count += 1;
-            }
-            if (count != 0) try emitRecordedPendingMessage(self, .{
-                .gc_answer = .{ .positions = positions[0..count] },
-            }, .prepared_send);
-            for (0..carriers) |_| {
-                var consumed = self.takePending();
-                consumed.item.deinit(self);
-            }
-        },
-        .settled_answer => |sa| {
-            // The `applySentResolve` invariant: a settled inbound answer always
-            // holds its resolution, stored when the resolve was recorded.
-            const stored = self.session_state.answerPayloadResolution(sa.payload) orelse unreachable;
-            const has_consequences = sa.payload.queue.items.len != 0 or
-                sa.payload.listeners.len() != 0 or
-                sa.payload.projections.items.len != 0;
-            const consequence = if (has_consequences)
-                resolution_chain.followAnswer(self, sa.target, sa.payload)
-            else
-                null;
-            var prepared_listeners = try pipeline.prepareAnswerListenerDrain(
-                self,
-                sa.payload,
-                consequence,
-            );
-            var listeners_prepared = true;
-            errdefer if (listeners_prepared) prepared_listeners.abandon(self);
-            // A temporary retain bridges carrier consumption and consequence
-            // drain. Resolver/listener publication is committed once, then the
-            // queue carrier is consumed before any fallible local consequence,
-            // so retry can never duplicate the notification.
-            try self.session_state.retainAnswerPayload(sa.payload);
-            defer {
-                self.session_state.retireVirtualAnswer(sa.target);
-                self.session_state.retireDetachedAnswer(sa.target, sa.payload);
-                self.session_state.releaseAnswerPayload(sa.payload);
-                self.session_state.collectLocalPromiseProjections();
-            }
-            // V1.0 sends the settlement through its resolver callback. The
-            // next profile has no wire op:resolve: its inline or explicit
-            // subscription is the notification path, so only the local consequence drain runs.
-            if (self.session_state.captp_version == .v1_0) {
-                if (self.session_state.answerPayloadResolver(sa.payload)) |resolver_import| {
-                    try v1_0.encodeResolutionAsCallback(self, stored.*, resolver_import);
-                    self.session_state.clearAnswerPayloadResolver(sa.target, sa.payload);
-                }
-            }
-            // A sent settlement also resolves this answer locally. Notification
-            // publication is the last retryable boundary: after it, repeating
-            // the carrier would duplicate wire authority, while dropping a
-            // failed call/projection drain would leave the peer hanging. Make
-            // that failure terminal and consume the carrier exactly once.
-            settleSentAnswer(self, sa.target, sa.payload, consequence, &prepared_listeners) catch |err| {
-                prepared_listeners.abandon(self);
-                listeners_prepared = false;
-                const consumed = self.takePending();
-                consumed.item.deinit(self);
-                emitTerminalConsequenceFailure(self, err);
-                return err;
-            };
-            listeners_prepared = false;
-            const consumed = self.takePending();
-            consumed.item.deinit(self);
-        },
+        .answer_release => try emitAnswerReleaseWave(self),
+        .settled_answer => |sa| try emitSettledAnswer(self, sa),
         .encoded => |sent| {
             try emitEncoded(self, sent);
             const consumed = self.takePending();
@@ -166,17 +83,85 @@ pub fn stepPending(self: *Peer) !void {
     }
 }
 
-fn emitTerminalConsequenceFailure(self: *Peer, err: anyerror) void {
-    self.recordFailure(err);
-    const projected = abort_projection.abortForError(err);
-    if (projected) |reason| {
-        self.commitAbortOutbound(.{ .kind = reason.kind, .message = reason.message }) catch |abort_err| {
-            self.recordAbortDeliveryFailure(abort_err);
-            self.closeSession();
+/// Consecutive releases leave as one `op:gc-answers`. Failed preparation
+/// leaves no answer to release, and a successful carrier precedes its
+/// release in the same pending queue.
+fn emitAnswerReleaseWave(self: *Peer) !void {
+    var positions: [release_wave]u64 = undefined;
+    var count: usize = 0;
+    var carriers: usize = 0;
+    const rows = self.pending_send.pending();
+    while (carriers < rows.len and carriers < release_wave) : (carriers += 1) {
+        const answer = switch (rows[carriers].item) {
+            .answer_release => |answer| answer,
+            else => break,
         };
-    } else {
-        self.closeSession();
+        if (!self.sessionIsOpen() or !self.session_state.hasLiveOutboundAnswer(answer)) continue;
+        const position = answer.position.int();
+        const seen = for (positions[0..count]) |earlier| {
+            if (earlier == position) break true;
+        } else false;
+        if (seen) continue;
+        positions[count] = position;
+        count += 1;
     }
+    if (count != 0) try emitRecordedPendingMessage(self, .{
+        .gc_answer = .{ .positions = positions[0..count] },
+    }, .prepared_send);
+    for (0..carriers) |_| {
+        var consumed = self.takePending();
+        consumed.item.deinit(self);
+    }
+}
+
+/// Send one settled inbound answer, then run its local consequences.
+fn emitSettledAnswer(self: *Peer, sa: outbound.SettledAnswer) !void {
+    // The `applySentResolve` invariant: a settled inbound answer always
+    // holds its resolution, stored when the resolve was recorded.
+    const stored = self.session_state.answerPayloadResolution(sa.payload) orelse unreachable;
+    // Only an answer with work anchored on it walks the chain. One with none
+    // has no listeners to take and nothing to drain.
+    const consequence: ?resolution_chain.Outcome = if (sa.payload.hasAnchoredWork())
+        resolution_chain.followAnswer(self, sa.target, sa.payload)
+    else
+        null;
+    var prepared_listeners: pipeline.PreparedListenerDrain = if (consequence) |outcome|
+        try pipeline.prepareAnswerListenerDrain(self, sa.payload, outcome)
+    else
+        .none(sa.payload);
+    var listeners_prepared = true;
+    errdefer if (listeners_prepared) prepared_listeners.abandon(self);
+    // A temporary retain bridges carrier consumption and consequence
+    // drain. Resolver/listener publication is committed once, then the
+    // queue carrier is consumed before any fallible local consequence,
+    // so retry can never duplicate the notification.
+    try self.session_state.retainAnswerPayload(sa.payload);
+    defer self.session_state.releaseAnswerCarrier(sa.target, sa.payload);
+    // V1.0 sends the settlement through its resolver callback. The
+    // next profile has no wire op:resolve: its inline or explicit
+    // subscription is the notification path, so only the local consequence drain runs.
+    if (self.session_state.captp_version == .v1_0) {
+        if (self.session_state.answerPayloadResolver(sa.payload)) |resolver_import| {
+            try v1_0.encodeResolutionAsCallback(self, stored.*, resolver_import);
+            self.session_state.clearAnswerPayloadResolver(sa.target, sa.payload);
+        }
+    }
+    // A sent settlement also resolves this answer locally. Notification
+    // publication is the last retryable boundary: after it, repeating
+    // the carrier would duplicate wire authority, while dropping a
+    // failed call/projection drain would leave the peer hanging. Make
+    // that failure terminal and consume the carrier exactly once.
+    if (consequence) |outcome| pipeline.drainAnswerConsequencesTarget(self, sa.target, sa.payload, outcome, &prepared_listeners) catch |err| {
+        prepared_listeners.abandon(self);
+        listeners_prepared = false;
+        const consumed = self.takePending();
+        consumed.item.deinit(self);
+        inbound.failClosed(self, err);
+        return err;
+    };
+    listeners_prepared = false;
+    const consumed = self.takePending();
+    consumed.item.deinit(self);
 }
 
 /// Move an admitted row's frame, including its inline subscription, to
@@ -234,7 +219,7 @@ fn emitRecordedPendingMessage(self: *Peer, message: model.Message, accounting: P
 /// translations that have no wire form under next (`v1_0`, ADR-0010):
 ///   - a semantic `Resolve` ships as a resolver-callback `op:deliver` to the
 ///     partner's resolver import, or is dropped when only `op:listen`
-///     listeners settle the answer (the listener fire in `settleSentAnswer`
+///     listeners settle the answer (the listener fire in `drainAnswerConsequencesTarget`
 ///     handles notification).
 ///   - a projection trails an `op:listen` that carries its new answer's
 ///     resolution back, since the projection ops carry no inline resolver
@@ -260,7 +245,7 @@ fn emitPendingMessage(self: *Peer, message: model.Message) !void {
         // callback: there is nobody to notify, so the resolve emits nothing:
         // V1.0 has no wire shape to invent for it.
         if (self.session_state.resolverForInboundAnswer(.fromWire(message.resolve.answer))) |resolver_import| {
-            try v1_0.encodeResolveAsCallback(self, message.resolve, resolver_import);
+            try v1_0.encodeResolutionAsCallback(self, message.resolve.resolution, resolver_import);
         }
         return;
     }
@@ -288,28 +273,4 @@ fn emitV1Projection(
         listener.message,
         .already_recorded,
     );
-}
-
-/// Settle the local consequences of a just-sent `op:resolve`: drain the
-/// calls the partner pipelined against the answer and the projections
-/// anchored on it (calls first, since a drained call may settle further answers,
-/// ADR-0007 § Queue ownership and drain), then fire its listeners. The
-/// resolution itself is already stored: `applySentResolve` stored it when
-/// this resolve was recorded (`recordSend` routes a sent resolve there), at the
-/// same moment the answer's status flipped. A
-/// pipelined call, projection, or `op:listen` that arrived between record and
-/// this emit already saw the settled answer with its value on hand and was
-/// served directly. Only the calls / projections / listeners that anchored
-/// while the answer was still pending remain for these drains. The resolution
-/// frame is already on `outbound`, so a drain refusal surfaces as a step
-/// error without un-sending it. Borrows `resolve`. The caller owns and frees
-/// it.
-fn settleSentAnswer(
-    self: *Peer,
-    target: session.AnswerTarget,
-    payload: *session.AnswerPayload,
-    consequence: ?resolution_chain.Outcome,
-    prepared_listeners: *pipeline.PreparedListenerDrain,
-) !void {
-    try pipeline.drainAnswerConsequencesTarget(self, target, payload, consequence, prepared_listeners);
 }

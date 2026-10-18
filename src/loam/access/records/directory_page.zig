@@ -9,9 +9,16 @@ const profile = @import("profile.zig");
 
 pub const DirectoryPage = struct {
     header: Header,
-    targets: [256]loam.Edge = undefined,
+    targets: [max_edges]loam.Edge = undefined,
 
     pub const Family = enum { resource, grant, identity };
+    /// A slot's bytes, one radix digit per level, the leaf level last.
+    pub const levels = @sizeOf(u32);
+    pub const last_level = levels - 1;
+    pub const format_version: u64 = 1;
+    pub const max_encoded_bytes = 192;
+    pub const max_edges = 256;
+    const label = "access:directory";
 
     /// The page without its targets: what a lookup needs to find one key's
     /// edge in the record view, with no copy of the page.
@@ -54,18 +61,28 @@ pub const DirectoryPage = struct {
     }
 
     pub fn digit(slot: u32, level: u2) u8 {
-        return @truncate(slot >> (@as(u5, 3 - @as(u5, level)) * 8));
+        return @truncate(slot >> (@as(u5, last_level - @as(u5, level)) * 8));
     }
 
     pub fn prefixFor(slot: u32, level: u2) u32 {
-        const bits: u6 = @as(u6, 4 - @as(u6, level)) * 8;
+        const bits: u6 = @as(u6, levels - @as(u6, level)) * 8;
         return if (bits == 32) 0 else slot & (@as(u32, std.math.maxInt(u32)) << @as(u5, @intCast(bits)));
+    }
+
+    /// The prefix of the child a page at `level` maps `key` to.
+    pub fn childPrefix(prefix: u32, key: u8, level: u2) u32 {
+        return prefix | (@as(u32, key) << (@as(u5, last_level - @as(u5, level)) * 8));
+    }
+
+    /// The slots a child of a page at `level` spans.
+    pub fn span(level: u2) u64 {
+        return @as(u64, 1) << (@as(u6, last_level - @as(u6, level)) * 8);
     }
 
     /// Leaf identity edges are weak: an identity row's life is its owner's,
     /// not the directory's.
     fn strengthFor(family: Family, level: u2) @FieldType(loam.Edge, "strength") {
-        return if (family == .identity and level == 3) .weak else .strong;
+        return if (family == .identity and level == last_level) .weak else .strong;
     }
 
     fn rankIn(mask: u256, key: u8) usize {
@@ -107,15 +124,14 @@ pub const DirectoryPage = struct {
     /// Validate the page record and read its header. The targets stay in the
     /// view as fixed-width edges, one per set mask bit in key order.
     pub fn decodeHeader(view: loam.View) !Header {
-        if (view.schema != profile.directory or view.schema_version != 1 or view.payload.len > 192) return error.InvalidRecord;
+        if (view.schema != profile.directory or view.schema_version != format_version or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
         const b = view.payload;
         var c: usize = 0;
         try s.readByte(b, &c, '<');
-        if (!std.mem.eql(u8, try s.readSymbol(b, &c), "access:directory")) return error.InvalidRecord;
-        if (try s.readPositiveInt(b, &c) != 1) return error.UnsupportedVersion;
+        if (!std.mem.eql(u8, try s.readSymbol(b, &c), label)) return error.InvalidRecord;
+        if (try s.readPositiveInt(b, &c) != format_version) return error.UnsupportedVersion;
         const owner: core.OwnerId = @fromBackingInt(try fields.readWide(b, &c));
-        const tag = try s.readSymbol(b, &c);
-        const family: Family = if (std.mem.eql(u8, tag, "resource")) .resource else if (std.mem.eql(u8, tag, "grant")) .grant else if (std.mem.eql(u8, tag, "identity")) .identity else return error.InvalidRecord;
+        const family = std.meta.stringToEnum(Family, try s.readSymbol(b, &c)) orelse return error.InvalidRecord;
         const level = std.math.cast(u2, try s.readPositiveInt(b, &c)) orelse return error.InvalidRecord;
         const prefix = std.math.cast(u32, try s.readPositiveInt(b, &c)) orelse return error.InvalidRecord;
         const mask_bytes = try s.readBytes(b, &c);
@@ -141,8 +157,8 @@ pub const DirectoryPage = struct {
 
     fn write(sink: anytype, self: *const DirectoryPage) !void {
         try s.beginRecord(sink);
-        try s.writeSymbol(sink, "access:directory");
-        try s.writePositiveInt(sink, 1);
+        try s.writeSymbol(sink, label);
+        try s.writePositiveInt(sink, format_version);
         try fields.writeWide(sink, @backingInt(self.header.owner));
         try s.writeSymbol(sink, @tagName(self.header.family));
         try s.writePositiveInt(sink, self.header.level);

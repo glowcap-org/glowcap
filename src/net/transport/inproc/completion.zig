@@ -79,11 +79,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
 
             pub fn reserveSeats(backend: *Self, count: usize) !void {
-                try backend.reserveReady(count);
+                try backend.ready.reserve(backend.allocator, count);
             }
 
             pub fn publish(backend: *Self, item: completion.Completion) void {
-                backend.appendReserved(item);
+                backend.ready.appendReserved(item);
             }
         };
         const TryIo = completion.HintedTryIo(Self, TryIoOps);
@@ -97,7 +97,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
         conns: std.AutoHashMap(Fd, ConnEntry),
         accept_ud: ?u64 = null,
         ready: completion.ReadyQueue = .{},
-        ready_reserved: usize = 0,
         wake_armed: bool = false,
         next_id: u32 = 1,
         buffer_pool: completion.BufferPool,
@@ -227,13 +226,13 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 .inproc => |designator| designator,
             };
             const exchange = self.exchange orelse return error.InprocNotConfigured;
-            try self.reserveReady(1);
-            errdefer self.releaseReady(1);
+            try self.ready.reserve(self.allocator, 1);
+            errdefer self.ready.release(1);
             const fd = try self.reserveFd();
             try self.conns.ensureUnusedCapacity(1);
             const end = try exchange.connect(designator, self.sink, Namespace.fdId(fd));
             self.conns.putAssumeCapacity(fd, .{ .end = end, .pending = .{ .writable_hint = true } });
-            self.appendReserved(.{ .user_data = user_data, .result = 0 });
+            self.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
             return fd;
         }
 
@@ -248,7 +247,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         }
 
         /// An in-process pipe proves no peer identity.
-        pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
+        pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.peer_key_bytes]u8 {
             if (Namespace.ownsFd(fd)) return null;
             return self.platform.verifiedChannelKey(fd);
         }
@@ -257,7 +256,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (!Namespace.ownsFd(listen)) return self.platform.submitAccept(user_data, listen);
             if (listen != listen_fd or self.listener == null) return error.ListenerClosed;
             if (self.accept_ud != null) return error.AlreadyAccepting;
-            try self.reserveReady(1);
+            try self.ready.reserve(self.allocator, 1);
             self.accept_ud = user_data;
             self.takeAccept();
         }
@@ -285,20 +284,20 @@ pub fn CompletionBackend(comptime Platform: type) type {
         pub fn submitClose(self: *Self, user_data: u64, fd: Fd) !void {
             if (!Namespace.ownsFd(fd)) return self.platform.submitClose(user_data, fd);
             // Pending operations already own their seats; reserve the close's.
-            try self.reserveReady(1);
+            try self.ready.reserve(self.allocator, 1);
             if (fd == listen_fd) {
                 if (self.accept_ud) |ud| {
-                    self.appendReserved(.{ .user_data = ud, .result = -1 });
+                    self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
                     self.accept_ud = null;
                 }
                 self.stopListening();
             } else if (self.conns.getPtr(fd)) |entry| {
-                if (entry.pending.read_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
-                if (entry.pending.write_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
+                if (entry.pending.read_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
+                if (entry.pending.write_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
                 entry.pending = .{};
                 self.closeFd(fd);
             }
-            self.appendReserved(.{ .user_data = user_data, .result = 0 });
+            self.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
         }
 
         pub fn closeFd(self: *Self, fd: Fd) void {
@@ -403,10 +402,10 @@ pub fn CompletionBackend(comptime Platform: type) type {
             self.accept_ud = null;
             const fd = self.bindAccepted(end) catch |err| {
                 end.release(self.allocator);
-                self.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
+                self.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
                 return;
             };
-            self.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });
+            self.ready.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });
         }
 
         fn bindAccepted(self: *Self, end: *End) !Fd {
@@ -433,22 +432,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const id = self.next_id;
             self.next_id += 1;
             return Namespace.fdFromId(id);
-        }
-
-        fn reserveReady(self: *Self, count: usize) !void {
-            const total = std.math.add(usize, self.ready_reserved, count) catch return error.OutOfMemory;
-            try self.ready.ensureUnusedCapacity(self.allocator, total);
-            self.ready_reserved = total;
-        }
-
-        fn releaseReady(self: *Self, count: usize) void {
-            std.debug.assert(self.ready_reserved >= count);
-            self.ready_reserved -= count;
-        }
-
-        fn appendReserved(self: *Self, item: completion.Completion) void {
-            self.releaseReady(1);
-            self.ready.appendAssumeCapacity(item);
         }
     };
 }
@@ -493,11 +476,7 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
             allocator: std.mem.Allocator,
         ) !model.PeerLocator {
             return switch (try backend.listenerAddress(fd)) {
-                .inproc => |designator| model.clonePeerLocator(allocator, .{
-                    .transport = transport,
-                    .designator = designator,
-                    .hints = model.Hints.emptyFalse(),
-                }),
+                .inproc => |designator| model.clonePeerLocator(allocator, .hintless(transport, designator)),
                 .platform => Inner.localLocator(&backend.platform, fd, transport, identity, allocator),
             };
         }
@@ -522,13 +501,11 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
             candidate: model.PeerLocator,
         ) !model.PeerLocator {
             if (!isInproc(transport)) return Inner.canonicalizeLocator(&backend.platform, fd, transport, identity, allocator, candidate);
-            model.validatePeerLocator(candidate) catch return error.InvalidAddress;
             const served = switch (try backend.listenerAddress(fd)) {
                 .inproc => |designator| designator,
                 .platform => return error.InvalidAddress,
             };
-            if (!isInproc(candidate.transport) or !std.mem.eql(u8, candidate.designator, served)) return error.InvalidAddress;
-            return model.clonePeerLocator(allocator, candidate);
+            return netlayer.canonicalizeFixedLocator(allocator, candidate, transport, served);
         }
     };
 }

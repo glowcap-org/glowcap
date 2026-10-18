@@ -349,18 +349,17 @@ test "next Cap'n Proto rejects absent malformed and unnegotiated inline mode bit
     defer allocator.free(bytes);
     const view = glowcap.foundation.FrameView{ .bytes = bytes, .shape = .word };
     const parsed = try capnp.decodeMessageView(view);
-    const flags = bytes[(parsed.body.data_idx + 1) * capnp.wire.WORD_BYTES ..][0..capnp.wire.WORD_BYTES];
+    const flags = bytes[(parsed.body.data_idx + 1) * capnp.wire.word_bytes ..][0..capnp.wire.word_bytes];
     const valid = std.mem.readInt(u64, flags, .little);
-    const base = shared.deliver_has_answer | shared.deliver_has_resolve_me;
-    const invalid = [_]u64{
-        base,
-        base | (2 << shared.deliver_listen_shift),
-        shared.deliver_has_answer,
-        1 << shared.deliver_listen_shift,
-        valid | (1 << 8),
+    const invalid = [_]shared.DeliverFlags{
+        .{ .has_answer = true, .has_resolve_me = true },
+        .{ .has_answer = true, .has_resolve_me = true, .listen_mode = 2 },
+        .{ .has_answer = true },
+        .{ .listen_mode = 1 },
+        .{ .has_answer = true, .has_resolve_me = true, .listen_mode = 3, .reserved = 1 << 4 },
     };
     for (invalid) |value| {
-        std.mem.writeInt(u64, flags, value, .little);
+        std.mem.writeInt(u64, flags, @bitCast(value), .little);
         try std.testing.expectError(error.MalformedFrame, capnp.decodeBodyForProfile(.next, view));
     }
     std.mem.writeInt(u64, flags, valid, .little);

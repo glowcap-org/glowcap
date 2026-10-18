@@ -28,7 +28,7 @@ pub const receiving_session = repeated(32, 0xdd);
 /// fixture derives it the same way rather than picking a constant.
 pub const receiving_side = blk: {
     @setEvalBranchQuota(100_000);
-    break :blk engine.handoff_recipient.sideName(recipient_key[0..]) catch unreachable;
+    break :blk engine.handoff_names.sideName(recipient_key[0..]) catch unreachable;
 };
 
 pub const give_signature = repeated(64, 0xaa);
@@ -43,7 +43,7 @@ pub const gift_id_b = repeated(32, 0x02);
 /// must name exactly this, so a fixture holding its own recipient key derives it
 /// the same way instead of inventing bytes.
 pub fn sideOf(key: crypto.PeerKey) [32]u8 {
-    return engine.handoff_recipient.sideName(key.asBytes()) catch unreachable;
+    return engine.handoff_names.sideName(key.asBytes()) catch unreachable;
 }
 
 pub const GifterSessionFixture = struct {
@@ -137,8 +137,8 @@ pub const RoutingVerifier = struct {
             self.recipient_key
         else
             self.gifter_key;
-        if (signature.len != crypto.SIGNATURE_BYTES) return false;
-        const sig = crypto.Signature.fromBytes(signature[0..crypto.SIGNATURE_BYTES].*);
+        if (signature.len != crypto.signature_bytes) return false;
+        const sig = crypto.Signature.fromBytes(signature[0..crypto.signature_bytes].*);
         crypto.verify(key, payload, sig) catch return false;
         return true;
     }

@@ -48,10 +48,7 @@ pub fn write(
     }
     if (built != encoded.len) return error.MalformedView;
 
-    std.mem.sort([]u8, encoded, {}, codec_order.lessByteSlice([]u8));
-    if (comptime refuse_adjacent_dupes) {
-        try codec_order.refuseAdjacentEqualKeys(WalkError, encoded);
-    }
+    try codec_order.orderByKey([]u8, WalkError, encoded, codec_order.ownBytes, refuse_adjacent_dupes);
     for (encoded) |element| try sink.appendSlice(element);
 }
 

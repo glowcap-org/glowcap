@@ -12,13 +12,14 @@ pub const DirectoryEdit = struct {
     family: Page.Family,
     slot: u32,
     cursor: ?loam.ObjectId,
-    frames: [4]Frame = undefined,
-    count: u3 = 0,
+    frames: [Page.levels]Frame = undefined,
+    count: Count = 0,
     load: Load = .{},
     staged: bool = false,
     cancelled: bool = false,
 
     const Frame = struct { object: ?loam.ObjectId, revision: ?u64, page: Page };
+    const Count = std.math.IntFittingRange(0, Page.levels);
 
     pub fn init(view: *read.Read, family: Page.Family, root: ?loam.ObjectId, slot: u32) DirectoryEdit {
         return .{ .view = view, .family = family, .slot = slot, .cursor = root };
@@ -37,7 +38,7 @@ pub const DirectoryEdit = struct {
         try self.view.current();
         if (self.cancelled) return error.Cancelled;
         if (self.staged) return error.WrongPhase;
-        while (self.count < 4) {
+        while (self.count < Page.levels) {
             const level: u2 = @intCast(self.count);
             var frame: Frame = .{ .object = self.cursor, .revision = null, .page = .{ .header = .{ .owner = self.view.header.owner, .family = self.family, .level = level, .prefix = Page.prefixFor(self.slot, level) } } };
             if (self.cursor) |object| {
@@ -73,7 +74,7 @@ pub const DirectoryEdit = struct {
     /// Never introduce storage work after staging begins.
     pub fn rebaseProposed(self: *DirectoryEdit, root: ?loam.ObjectId) !void {
         try self.view.current();
-        if (self.staged or self.cancelled or self.count != 4 or self.load.pending != null) return error.WrongPhase;
+        if (self.staged or self.cancelled or self.count != Page.levels or self.load.pending != null) return error.WrongPhase;
         var cursor = root;
         for (&self.frames, 0..) |*frame, index| {
             const level: u2 = @intCast(index);
@@ -95,10 +96,10 @@ pub const DirectoryEdit = struct {
     /// Each changed page owns one temporary payload and one Store proposal.
     pub fn stage(self: *DirectoryEdit, target: ?loam.ObjectId) !?loam.ObjectId {
         try self.view.current();
-        if (self.cancelled or self.staged or self.count != 4 or self.load.pending != null) return error.WrongPhase;
+        if (self.cancelled or self.staged or self.count != Page.levels or self.load.pending != null) return error.WrongPhase;
         self.staged = true;
         var child = target;
-        var remaining: usize = 4;
+        var remaining: usize = Page.levels;
         while (remaining != 0) {
             remaining -= 1;
             const frame = &self.frames[remaining];
@@ -118,7 +119,7 @@ pub const DirectoryEdit = struct {
             const object = frame.object orelse try self.view.store.allocateId();
             const payload = try frame.page.encodeAlloc(self.view.store.allocator);
             defer self.view.store.allocator.free(payload);
-            try record.put(self.view.store, object, records.profile.directory, payload, frame.page.targets[0..frame.page.count()], frame.revision, false);
+            try record.put(self.view.store, object, records.profile.directory, payload, frame.page.targets[0..frame.page.count()], frame.revision, .reachable);
             child = object;
         }
         return child;

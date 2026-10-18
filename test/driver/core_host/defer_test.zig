@@ -279,7 +279,7 @@ test "core host: a behavior defers onto a resolver vow and the settle re-enters 
     // One attempt: the resolver and its hidden vow row are consumed.
     try std.testing.expectError(actors.Error.AlreadySettled, server.resolverBreak(minted_resolver, "late"));
     // An id never minted is a different refusal from a consumed authority.
-    for ([_]u64{ 0, server.next_resolver, std.math.maxInt(u64) }) |id| {
+    for ([_]u64{ 0, server.resolver_ids.next, std.math.maxInt(u64) }) |id| {
         try std.testing.expectError(error.NoSuchResolver, server.resolverBreak(id, "unminted"));
         try std.testing.expectError(error.NoSuchResolver, server.resolverFulfill(id, .{ .void = {} }));
     }
@@ -400,8 +400,8 @@ test "core host: local and foreign deferrals publish no Host or Vat authority" {
     defer dials.deinit(allocator);
     const pair = try openPair(allocator, &client, &server, "127.0.0.1:7822", &dials);
 
-    const next_vow = server.next_vow;
-    const next_resolver = server.next_resolver;
+    const next_vow = server.vow_ids.next;
+    const next_resolver = server.resolver_ids.next;
     var local_refused = false;
     const local = try server.vat.spawn(Refusing, .{
         .host = &server,
@@ -411,8 +411,8 @@ test "core host: local and foreign deferrals publish no Host or Vat authority" {
     });
     _ = try server.vat.near(local, .{ .verb = "local", .args = &.{} });
     try std.testing.expect(local_refused);
-    try std.testing.expectEqual(next_vow, server.next_vow);
-    try std.testing.expectEqual(next_resolver, server.next_resolver);
+    try std.testing.expectEqual(next_vow, server.vow_ids.next);
+    try std.testing.expectEqual(next_resolver, server.resolver_ids.next);
     try std.testing.expectEqual(@as(usize, 0), server.vows.count());
     try std.testing.expectEqual(@as(usize, 0), server.resolver_index.count());
 
@@ -464,14 +464,14 @@ test "core host: a served tell cannot mint resolver authority" {
     var worker = CapturedRef{};
     try client.vowOn(try client.fetch(pair.a, "tell-worker"), .{ .ctx = &worker, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
-    const next_vow = server.next_vow;
-    const next_resolver = server.next_resolver;
+    const next_vow = server.vow_ids.next;
+    const next_resolver = server.resolver_ids.next;
     try client.tell(pair.a, try worker.require(), .{ .verb = "tell", .args = &.{} });
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
 
     try std.testing.expect(refused);
-    try std.testing.expectEqual(next_vow, server.next_vow);
-    try std.testing.expectEqual(next_resolver, server.next_resolver);
+    try std.testing.expectEqual(next_vow, server.vow_ids.next);
+    try std.testing.expectEqual(next_resolver, server.resolver_ids.next);
     try std.testing.expectEqual(@as(usize, 0), server.vows.count());
     try std.testing.expectEqual(@as(usize, 0), server.resolver_index.count());
 }

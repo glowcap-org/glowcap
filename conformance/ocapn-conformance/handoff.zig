@@ -103,7 +103,7 @@ fn dialOpened(ctx: *anyopaque, _: u64, session: *HostSession) anyerror!void {
 }
 
 fn dialFailed(_: *anyopaque, _: u64, failure: driver.OperationFailure) void {
-    std.debug.print("glowcap-ocapn-peer: gifter dial failed: {s}\n", .{failure.primaryName()});
+    std.debug.print("glowcap-ocapn-peer: gifter dial failed: {s}\n", .{failure.chain.primaryName()});
 }
 
 /// When a gifter dial opens, run any enliven that was waiting for this

@@ -72,8 +72,8 @@ void glowcap_inproc_netlayer_release(GlowcapInprocNetlayer *netlayer);
    error_cap - 1 bytes and is NUL-terminated when error_cap is nonzero. */
 int32_t glowcap_inproc_connect(GlowcapInprocNetlayer *netlayer, const uint8_t *designator, size_t designator_len, uint32_t codec, size_t max_frame_bytes, GlowcapInprocConn **out_conn, uint8_t *out_error, size_t error_cap, size_t *out_error_len);
 /* Bind an in-process listener on `designator` (any opaque token; borrowed).
-   GLOWCAP_ERR_INVALID_ARGUMENT for an empty or already-bound designator. Release
-   with glowcap_inproc_listener_release. */
+   GLOWCAP_ERR_INVALID_ARGUMENT for an empty designator; GLOWCAP_ERR_IO when it is
+   already bound. Release with glowcap_inproc_listener_release. */
 int32_t glowcap_inproc_listen(GlowcapInprocNetlayer *netlayer, const uint8_t *designator, size_t designator_len, GlowcapInprocListener **out_listener);
 /* Return the borrowed wake descriptor nudged when a dial is queued. Park an
    external reactor on it before glowcap_inproc_accept. The listener owns the fd;

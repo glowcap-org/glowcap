@@ -202,10 +202,15 @@ pub fn lastAbortToC(info: engine.AbortInfo) GlowcapLastAbort {
     };
 }
 
-pub fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
+/// A borrowed view of `len` items at `ptr`. An empty view needs no pointer,
+/// and a null pointer under a nonzero length is refused.
+pub fn itemsFromC(comptime T: type, ptr: ?[*]const T, len: usize) error{NullPointer}![]const T {
     if (len == 0) return &.{};
-    const p = ptr orelse return error.NullPointer;
-    return p[0..len];
+    return (ptr orelse return error.NullPointer)[0..len];
+}
+
+pub fn sliceFromC(ptr: ?[*]const u8, len: usize) error{NullPointer}![]const u8 {
+    return itemsFromC(u8, ptr, len);
 }
 
 /// Depth bound on a host-supplied argument tree. A foreign caller could nest
@@ -308,7 +313,7 @@ fn valueFromCImpl(
 /// number of words, or the value is refused before anything is queued.
 fn integersFromC(arena: std.mem.Allocator, c_arg: GlowcapArgument, comptime own_bytes: bool) MarshalError![]const i64 {
     const bytes = try sliceFromC(c_arg.bytes, c_arg.bytes_len);
-    if (bytes.len % @sizeOf(i64) != 0) return error.UnsupportedValue;
+    if (bytes.len % model.run_word_bytes != 0) return error.UnsupportedValue;
     if (bytes.len == 0) return &.{};
     if (!std.mem.isAligned(@intFromPtr(bytes.ptr), 8)) return error.UnsupportedValue;
     const aligned: []align(@alignOf(i64)) const u8 = @alignCast(bytes);
@@ -414,7 +419,10 @@ fn valuesFromCImpl(
     return out;
 }
 
-/// One recursive model-value encoder parameterized only by the reference leaf.
+/// One recursive C-value encoder parameterized only by the reference leaf,
+/// the mirror of `argumentFromCWith`: the archive supplies the reference
+/// projection without cloning the pass-by-copy value algebra. Children land
+/// in `arena`, and byte leaves are lent where they lie.
 pub fn argumentToCWith(
     comptime RefError: type,
     ref_ctx: anytype,
@@ -422,8 +430,61 @@ pub fn argumentToCWith(
     arena: std.mem.Allocator,
     arg: model.Argument,
 ) (MarshalError || RefError)!GlowcapArgument {
+    return valueToCImpl(model.Argument, RefError, ref_ctx, ref_to_c, arena, arg);
+}
+
+pub fn argsToCWith(
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_to_c: anytype,
+    arena: std.mem.Allocator,
+    args: []const model.Argument,
+) (MarshalError || RefError)![]GlowcapArgument {
+    return valuesToCImpl(model.Argument, RefError, ref_ctx, ref_to_c, arena, args);
+}
+
+/// Encode the Host's opaque-capability value, the mirror of `valuesFromCWith`.
+/// `Value` carries the data arms above, a `capability` arm the callback
+/// projects, and an `integers` run that leaves as one `_INTEGERS` value with
+/// its words lent where they lie (ADR-0247).
+pub fn valueToCWith(
+    comptime Value: type,
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_to_c: anytype,
+    arena: std.mem.Allocator,
+    value: Value,
+) (MarshalError || RefError)!GlowcapArgument {
+    return valueToCImpl(Value, RefError, ref_ctx, ref_to_c, arena, value);
+}
+
+pub fn valuesToCWith(
+    comptime Value: type,
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_to_c: anytype,
+    arena: std.mem.Allocator,
+    values: []const Value,
+) (MarshalError || RefError)![]GlowcapArgument {
+    return valuesToCImpl(Value, RefError, ref_ctx, ref_to_c, arena, values);
+}
+
+/// The one encoding recursion behind both application value forms. The data
+/// arms are spelled once; the arms whose C form depends on `Input` are
+/// resolved at compile time below them, and an arm neither names stops the
+/// build at this boundary, which must decide how (or whether) the typed
+/// surface carries it, instead of degrading silently to the opaque-frame
+/// fallback.
+fn valueToCImpl(
+    comptime Input: type,
+    comptime RefError: type,
+    ref_ctx: anytype,
+    comptime ref_to_c: anytype,
+    arena: std.mem.Allocator,
+    value: Input,
+) (MarshalError || RefError)!GlowcapArgument {
     var c_arg = zero_argument;
-    switch (arg) {
+    switch (value) {
         .integer => |v| {
             c_arg.kind = GLOWCAP_ARG_INTEGER;
             c_arg.integer = v;
@@ -434,95 +495,79 @@ pub fn argumentToCWith(
         },
         .boolean => |v| {
             c_arg.kind = GLOWCAP_ARG_BOOLEAN;
-            c_arg.boolean = if (v) 1 else 0;
+            c_arg.boolean = @intFromBool(v);
         },
-        .bytes => |b| {
-            c_arg.kind = GLOWCAP_ARG_BYTES;
-            c_arg.bytes = b.ptr;
-            c_arg.bytes_len = b.len;
-        },
-        .string => |b| {
-            c_arg.kind = GLOWCAP_ARG_STRING;
-            c_arg.bytes = b.ptr;
-            c_arg.bytes_len = b.len;
-        },
-        .symbol => |b| {
-            c_arg.kind = GLOWCAP_ARG_SYMBOL;
-            c_arg.bytes = b.ptr;
-            c_arg.bytes_len = b.len;
-        },
-        .@"error" => |reason| {
-            c_arg.kind = GLOWCAP_ARG_ERROR;
-            c_arg.bytes = reason.message.ptr;
-            c_arg.bytes_len = reason.message.len;
-        },
+        .bytes => |b| c_arg = leafToC(GLOWCAP_ARG_BYTES, b),
+        .string => |b| c_arg = leafToC(GLOWCAP_ARG_STRING, b),
+        .symbol => |b| c_arg = leafToC(GLOWCAP_ARG_SYMBOL, b),
+        .keyword => |b| c_arg = leafToC(GLOWCAP_ARG_KEYWORD, b),
+        .@"error" => |reason| c_arg = leafToC(GLOWCAP_ARG_ERROR, reason.message),
         .void => c_arg.kind = GLOWCAP_ARG_VOID,
-        .reference => |r| {
-            c_arg.kind = GLOWCAP_ARG_REFERENCE;
-            c_arg.reference = try ref_to_c(ref_ctx, r);
-        },
         .list => |items| {
             c_arg.kind = GLOWCAP_ARG_LIST;
-            const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, items);
-            c_arg.items = arr.ptr;
-            c_arg.items_len = arr.len;
+            setItems(&c_arg, try valuesToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, items));
         },
         .set => |items| {
             c_arg.kind = GLOWCAP_ARG_SET;
-            const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, items);
-            c_arg.items = arr.ptr;
-            c_arg.items_len = arr.len;
+            setItems(&c_arg, try valuesToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, items));
         },
         .tagged => |tagged| {
-            c_arg.kind = GLOWCAP_ARG_TAGGED;
-            c_arg.bytes = tagged.tag.ptr;
-            c_arg.bytes_len = tagged.tag.len;
-            const arr = try argsToCWith(RefError, ref_ctx, ref_to_c, arena, tagged.value);
-            c_arg.items = arr.ptr;
-            c_arg.items_len = arr.len;
-        },
-        .keyword => |keyword| {
-            c_arg.kind = GLOWCAP_ARG_KEYWORD;
-            c_arg.bytes = keyword.ptr;
-            c_arg.bytes_len = keyword.len;
+            c_arg = leafToC(GLOWCAP_ARG_TAGGED, tagged.tag);
+            setItems(&c_arg, try valuesToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, tagged.value));
         },
         .big_integer => |big| {
-            c_arg.kind = GLOWCAP_ARG_BIG_INTEGER;
-            c_arg.boolean = if (big.negative) 1 else 0;
-            c_arg.bytes = big.digits.ptr;
-            c_arg.bytes_len = big.digits.len;
+            c_arg = leafToC(GLOWCAP_ARG_BIG_INTEGER, big.digits);
+            c_arg.boolean = @intFromBool(big.negative);
         },
         .@"struct" => |entries| {
             c_arg.kind = GLOWCAP_ARG_STRUCT;
             const arr = try arena.alloc(GlowcapArgument, entries.len * 2);
             for (entries, 0..) |entry, i| {
-                var key = zero_argument;
-                key.kind = GLOWCAP_ARG_STRING;
-                key.bytes = entry.key.ptr;
-                key.bytes_len = entry.key.len;
-                arr[i * 2] = key;
-                arr[i * 2 + 1] = try argumentToCWith(RefError, ref_ctx, ref_to_c, arena, entry.value);
+                arr[i * 2] = leafToC(GLOWCAP_ARG_STRING, entry.key);
+                arr[i * 2 + 1] = try valueToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, entry.value);
             }
-            c_arg.items = arr.ptr;
-            c_arg.items_len = arr.len;
+            setItems(&c_arg, arr);
         },
-        // The switch is exhaustive: the model arms with no C mapping are named
-        // here, so a new `model.Argument` arm stops this build at the boundary
-        // that must decide how (or whether) the typed surface carries it,
-        // instead of degrading silently to the opaque-frame fallback.
-        .handoff => return error.UnsupportedValue,
+        inline else => |payload, tag| {
+            const name = @tagName(tag);
+            if (comptime std.mem.eql(u8, name, "reference") or std.mem.eql(u8, name, "capability")) {
+                c_arg.kind = GLOWCAP_ARG_REFERENCE;
+                c_arg.reference = try ref_to_c(ref_ctx, payload);
+            } else if (comptime std.mem.eql(u8, name, "integers")) {
+                c_arg = leafToC(GLOWCAP_ARG_INTEGERS, std.mem.sliceAsBytes(payload));
+            } else if (comptime std.mem.eql(u8, name, "handoff")) {
+                return error.UnsupportedValue;
+            } else {
+                @compileError("no C form for " ++ @typeName(Input) ++ "." ++ name);
+            }
+        },
     }
     return c_arg;
 }
 
-pub fn argsToCWith(
+fn valuesToCImpl(
+    comptime Input: type,
     comptime RefError: type,
     ref_ctx: anytype,
     comptime ref_to_c: anytype,
     arena: std.mem.Allocator,
-    args: []const model.Argument,
+    values: []const Input,
 ) (MarshalError || RefError)![]GlowcapArgument {
-    const out = try arena.alloc(GlowcapArgument, args.len);
-    for (args, 0..) |arg, i| out[i] = try argumentToCWith(RefError, ref_ctx, ref_to_c, arena, arg);
+    const out = try arena.alloc(GlowcapArgument, values.len);
+    for (values, out) |value, *slot| slot.* = try valueToCImpl(Input, RefError, ref_ctx, ref_to_c, arena, value);
     return out;
+}
+
+/// A value whose payload is one byte view, lent where it lies.
+fn leafToC(kind: u32, bytes: []const u8) GlowcapArgument {
+    var c_arg = zero_argument;
+    c_arg.kind = kind;
+    c_arg.bytes = bytes.ptr;
+    c_arg.bytes_len = bytes.len;
+    return c_arg;
+}
+
+fn setItems(c_arg: *GlowcapArgument, items: []GlowcapArgument) void {
+    c_arg.items = items.ptr;
+    c_arg.items_len = items.len;
 }

@@ -58,11 +58,11 @@ pub const Prepared = union(enum) {
 /// callback on OOM. The prepared token frees both on refusal, or transfers them
 /// to the answer store until listener drain/GC/teardown. Bounded by inbound
 /// answer and per-target listener limits; deliver-only allocates neither.
-pub fn prepare(owner: *Session, deliver: model.view.Deliver) !?Prepared {
+pub fn prepare(owner: *Session, deliver: *const model.view.Deliver) !?Prepared {
     const resolver = deliver.resolve_me_desc orelse return null;
     const position = resolver.position() orelse return error.UnexpectedMessage;
     const virtual = if (deliver.answer == null) try nextVirtualInboundAnswer(owner) else null;
-    const answer: model.AnswerName = if (deliver.answer) |wire| .fromWire(wire) else .fromVirtual(virtual.?);
+    const answer = model.AnswerName.ofDeliver(deliver.answer, virtual).?;
     const imported = model.ImportPosition.from(position);
     if (owner.captp_version == .v1_0) return .{ .baseline = try owner.prepareInboundResolver(answer, imported, virtual) };
     if (deliver.listen_mode == .settling_only) return error.UnexpectedMessage;

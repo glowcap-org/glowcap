@@ -86,15 +86,20 @@ comptime {
 /// Bit 16 of data word 0 carries the promise flag for a RefTag, the value for
 /// a boolean ArgKind, and the sign for a BigInteger.
 pub const data0_flag: u64 = 1 << 16;
-/// Deliver data word 0 flag bits.
-pub const deliver_has_answer: u64 = 1;
-pub const deliver_has_resolve_me: u64 = 2;
-/// Next carries its inline listen mode in bits 2..3 of deliver data word 0.
-pub const deliver_listen_shift: u6 = 2;
-pub const deliver_listen_mask: u64 = 3 << deliver_listen_shift;
-/// `op:index` data word 2 flags. A frame that omits this word reads as zero.
-pub const index_big_integer: u64 = 1;
-pub const index_negative: u64 = 2;
+/// Deliver data word 0. Next carries its inline listen mode, and 1.0 leaves
+/// it zero.
+pub const DeliverFlags = packed struct(u64) {
+    has_answer: bool = false,
+    has_resolve_me: bool = false,
+    listen_mode: u2 = 0,
+    reserved: u60 = 0,
+};
+/// `op:index` data word 2. A frame that omits this word reads as zero.
+pub const IndexFlags = packed struct(u64) {
+    big_integer: bool = false,
+    negative: bool = false,
+    reserved: u62 = 0,
+};
 
 pub const ResolutionKind = enum(u16) { fulfill = 0, @"break" = 1 };
 pub const HandoffKind = enum(u16) { give = 0, receive = 1 };
@@ -122,32 +127,18 @@ pub const StructLoc = struct {
 /// frame (`UnsupportedSegmentCount`), a segment count whose length math
 /// overflows `usize` on a 32-bit target (`Truncated`, checked add/mul), and a
 /// buffer shorter than the `(seg_words + 1) * 8` bytes the header declares
-/// (`Truncated`), so no caller can build a `Reader` whose declared segment
-/// extends past the bytes it borrows.
+/// (`Truncated`), and a buffer longer than them (`MalformedFrame`), so a frame
+/// has one byte string and no `Reader` borrows past its declared segment.
 pub fn readerFromFrame(bytes: []const u8) Error!Reader {
-    if (bytes.len < wire.WORD_BYTES) return Error.Truncated;
-    const header = std.mem.readInt(u64, bytes[0..wire.WORD_BYTES], .little);
+    if (bytes.len < wire.word_bytes) return Error.Truncated;
+    const header = std.mem.readInt(u64, bytes[0..wire.word_bytes], .little);
     if (@as(u32, @truncate(header)) != 0) return Error.UnsupportedSegmentCount;
     const seg_words: usize = @intCast(header >> 32);
     const frame_words = std.math.add(usize, seg_words, 1) catch return Error.Truncated;
-    const frame_len = std.math.mul(usize, frame_words, wire.WORD_BYTES) catch return Error.Truncated;
+    const frame_len = std.math.mul(usize, frame_words, wire.word_bytes) catch return Error.Truncated;
     if (bytes.len < frame_len) return Error.Truncated;
-    return .{ .bytes = bytes, .seg_words = seg_words };
-}
-
-/// Refuse bytes past the length a frame's own header declares.
-///
-/// `readerFromFrame` is lenient about this: the framing layer
-/// hands it a buffer that may hold several frames back to back and expects it
-/// to read the first. A caller that has already been given one delimited frame
-/// wants the strict rule, and calls this.
-pub fn expectExactFrameLength(bytes: []const u8) Error!void {
-    if (bytes.len < wire.WORD_BYTES) return Error.Truncated;
-    const header = std.mem.readInt(u64, bytes[0..wire.WORD_BYTES], .little);
-    const seg_words: usize = @intCast(header >> 32);
-    const frame_words = std.math.add(usize, seg_words, 1) catch return Error.Truncated;
-    const frame_len = std.math.mul(usize, frame_words, wire.WORD_BYTES) catch return Error.Truncated;
     if (bytes.len != frame_len) return Error.MalformedFrame;
+    return .{ .bytes = bytes, .seg_words = seg_words };
 }
 
 /// Words a legitimate frame is allowed to (re-)read per segment word before the
@@ -221,7 +212,7 @@ pub const Reader = struct {
     pub fn word(self: Reader, seg_idx: usize) Error!u64 {
         if (seg_idx >= self.seg_words) return Error.Truncated;
         try self.spend(1);
-        return std.mem.readInt(u64, self.bytes[(seg_idx + 1) * wire.WORD_BYTES ..][0..wire.WORD_BYTES], .little);
+        return std.mem.readInt(u64, self.bytes[(seg_idx + 1) * wire.word_bytes ..][0..wire.word_bytes], .little);
     }
 
     /// Resolve a pointer at segment index `ptr_idx` with signed `offset`. Empty
@@ -248,7 +239,7 @@ pub const Reader = struct {
         const end = std.math.add(usize, seg_idx, span) catch return Error.Truncated;
         if (end > self.seg_words) return Error.Truncated;
         try self.spend(span);
-        return self.bytes[(seg_idx + 1) * wire.WORD_BYTES ..][0..len];
+        return self.bytes[(seg_idx + 1) * wire.word_bytes ..][0..len];
     }
 
     /// Data word `i` of a struct, defaulting to 0 past the struct's data section

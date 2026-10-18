@@ -88,8 +88,9 @@ void glowcap_tcp_netlayer_release(GlowcapTcpNetlayer *netlayer);
    refusing inbound frames over max_frame_bytes. `options == NULL` inherits the
    netlayer's stream defaults; a nonnull zeroed value disables keepalive for this
    connection. Blocking; `host` is borrowed. GLOWCAP_ERR_INVALID_ARGUMENT for a
-   bad option, codec, frame cap, or address; GLOWCAP_ERR_IO when the dial fails.
-   Release with glowcap_tcp_conn_release.
+   bad option, codec, frame cap, or address; GLOWCAP_ERR_TIMEOUT when the connect
+   timeout elapses; GLOWCAP_ERR_IO when the dial fails otherwise. Release with
+   glowcap_tcp_conn_release.
 
    out_error/out_error_len optionally capture this call's diagnostic before an
    off-thread runtime regains control: omit all three diagnostic arguments, or

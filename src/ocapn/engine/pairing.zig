@@ -122,7 +122,7 @@ pub fn pairedNegotiated(
     allocator: std.mem.Allocator,
     negotiated: engine.negotiation.Negotiated,
 ) !Pair {
-    return pairedWithCaptpVersionCodecAndFeatures(allocator, negotiated.captp_version, negotiated.codec, negotiated.features);
+    return pairedWithLimitsInternal(allocator, negotiated.captp_version, negotiated.codec, negotiated.features, .{});
 }
 
 /// Resolve two offers through `negotiation.negotiate` and pair on the result.
@@ -132,8 +132,8 @@ fn pairedWithOffers(
     remote: engine.negotiation.Offer,
 ) !Pair {
     const negotiated = engine.negotiation.negotiate(local, remote) orelse {
-        if (offersShareCaptpVersion(local, remote)) return Error.NoSharedCodec;
-        return Error.NoSharedCaptpVersion;
+        if (offersShareCaptpVersion(local, remote)) return error.NoSharedCodec;
+        return error.NoSharedCaptpVersion;
     };
     return pairedNegotiated(allocator, negotiated);
 }
@@ -152,7 +152,7 @@ fn offersShareCaptpVersion(local: engine.negotiation.Offer, remote: engine.negot
 /// translation stays on. glowcap's Cap'n Proto without V1.0 translation goes
 /// through `paired` / `pairedWithOffers`.
 pub fn pairedWithCodec(allocator: std.mem.Allocator, codec_id: model.CodecId) !Pair {
-    return pairedWithCaptpVersionCodecAndFeatures(allocator, .v1_0, codec_id, model.FeatureSet.full());
+    return pairedWithLimitsInternal(allocator, .v1_0, codec_id, model.FeatureSet.full(), .{});
 }
 
 /// V1.0-floor pairing: `Offer.v1_0Syrup()` yields authenticated `v1_0` / `"1.0"`
@@ -160,18 +160,6 @@ pub fn pairedWithCodec(allocator: std.mem.Allocator, codec_id: model.CodecId) !P
 /// match live Goblins wire shape. `paired` is the glowcap-forward CapNP path.
 pub fn pairedV1_0Syrup(allocator: std.mem.Allocator) !Pair {
     return pairedWithOffers(allocator, engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()), engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()));
-}
-
-/// Shared body for stub-key pairing on an already-chosen CapTP version, codec,
-/// and feature set. Handshake and subsequent traffic ride `codec_id` through
-/// the codec-dispatch boundary on `session.codec`.
-fn pairedWithCaptpVersionCodecAndFeatures(
-    allocator: std.mem.Allocator,
-    captp_version: model.CaptpVersion,
-    codec_id: model.CodecId,
-    features: model.FeatureSet,
-) !Pair {
-    return pairedWithLimitsInternal(allocator, captp_version, codec_id, features, .{});
 }
 
 /// A pair whose sessions carry the given resource bounds.
@@ -215,14 +203,14 @@ fn pairedWithLimitsInternal(
     });
     errdefer p2.deinit();
 
-    const zero_pubkey = @as([crypto.PEER_KEY_BYTES]u8, @splat(0));
-    const zero_sig = @as([crypto.SIGNATURE_BYTES]u8, @splat(0));
+    const zero_pubkey = @as([crypto.peer_key_bytes]u8, @splat(0));
+    const zero_sig = @as([crypto.signature_bytes]u8, @splat(0));
 
     try sendStartSession(&p1, defaultLocator("p1"), &zero_pubkey, &zero_sig);
     try sendStartSession(&p2, defaultLocator("p2"), &zero_pubkey, &zero_sig);
 
     if (try shuttleUntilQuiescent(&p1, &p2) != .quiescent) {
-        return Error.HandshakeDidNotQuiesce;
+        return error.HandshakeDidNotQuiesce;
     }
 
     drainEvents(&p1);
@@ -241,8 +229,8 @@ fn pairedWithLimitsInternal(
 /// `Error.InvalidStartSessionSignature`.
 pub fn pairedWithKeys(
     allocator: std.mem.Allocator,
-    p1_seed: [crypto.SEED_BYTES]u8,
-    p2_seed: [crypto.SEED_BYTES]u8,
+    p1_seed: [crypto.seed_bytes]u8,
+    p2_seed: [crypto.seed_bytes]u8,
 ) !Pair {
     // Keyed handshake is the authenticated `"1.0"` interop path (ADR-0006,
     // the one live Goblins interop rides): `v1_0` + Syrup. glowcap CapNP
@@ -251,7 +239,7 @@ pub fn pairedWithKeys(
     const negotiated = engine.negotiation.negotiate(
         engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()),
         engine.negotiation.Offer.v1_0Syrup(model.FeatureSet.full()),
-    ) orelse return Error.NoSharedCodec;
+    ) orelse return error.NoSharedCodec;
     var p1 = Peer.initNegotiatingWith(allocator, .{
         .captp_version = negotiated.captp_version,
         .codec = negotiated.codec,
@@ -267,31 +255,15 @@ pub fn pairedWithKeys(
 
     const p1_secret = crypto.SecretKey.fromSeed(p1_seed);
     const p2_secret = crypto.SecretKey.fromSeed(p2_seed);
-    const p1_pub = p1_secret.publicKey();
-    const p2_pub = p2_secret.publicKey();
 
     const p1_loc = defaultLocator("p1");
     const p2_loc = defaultLocator("p2");
 
-    var p1_hints: Peer.HelloHints = .{};
-    defer p1_hints.deinit(allocator);
-    const p1_advertised = try p1.advertisedLocator(p1_loc, &p1_hints);
-    const p1_signed = try codec.signed.locationBytes(allocator, p1_advertised);
-    defer allocator.free(p1_signed);
-    var p2_hints: Peer.HelloHints = .{};
-    defer p2_hints.deinit(allocator);
-    const p2_advertised = try p2.advertisedLocator(p2_loc, &p2_hints);
-    const p2_signed = try codec.signed.locationBytes(allocator, p2_advertised);
-    defer allocator.free(p2_signed);
-
-    const p1_sig = crypto.sign(&p1_secret, p1_signed);
-    const p2_sig = crypto.sign(&p2_secret, p2_signed);
-
-    try queueStartSession(&p1, p1_advertised, p1_pub.asBytes(), p1_sig.asBytes());
-    try queueStartSession(&p2, p2_advertised, p2_pub.asBytes(), p2_sig.asBytes());
+    try p1.sendKeyedStartSession(p1_loc, p1_secret);
+    try p2.sendKeyedStartSession(p2_loc, p2_secret);
 
     if (try shuttleUntilQuiescent(&p1, &p2) != .quiescent) {
-        return Error.HandshakeDidNotQuiesce;
+        return error.HandshakeDidNotQuiesce;
     }
 
     try verifyAndDrainEvents(allocator, &p1);
@@ -344,16 +316,13 @@ fn verifyAndDrainEvents(allocator: std.mem.Allocator, peer: *Peer) !void {
         const view = e.view();
         switch (view.*) {
             .start_session => |ss| {
-                engine.verifyPartnerStartSession(allocator, ss) catch |err| switch (err) {
-                    error.InvalidStartSessionSignature => return Error.InvalidStartSessionSignature,
-                    else => |other| return other,
-                };
+                try engine.verifyPartnerStartSession(allocator, ss);
                 saw_start_session = true;
             },
             else => {},
         }
     }
-    if (!saw_start_session) return Error.MissingStartSessionEvent;
+    if (!saw_start_session) return error.MissingStartSessionEvent;
 }
 
 fn defaultLocator(designator: []const u8) model.PeerLocator {

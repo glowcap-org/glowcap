@@ -107,10 +107,10 @@ test "Zig Server: close claims a failure delivered during asynchronous stop" {
     const server = try driver.listen(allocator, threaded.io(), .{ .residents = &providers }, fixtures.AcceptOwnershipResident.transport, .{ .designator = "" }, .ephemeral, fixtures.opts);
     defer server.deinit();
     const failure = server.close().?;
-    try std.testing.expectEqual(error.ConnectionLost, failure.cause);
+    try std.testing.expectEqual(error.ConnectionLost, failure.chain.cause);
     try std.testing.expect(server.closed);
     try std.testing.expectEqual(@as(usize, 2), resident.stop_calls);
-    try std.testing.expectEqual(error.ConnectionLost, server.close().?.cause);
+    try std.testing.expectEqual(error.ConnectionLost, server.close().?.chain.cause);
 }
 
 test "Zig Server: ready wait releases affinity and close claims an unconsumed listener failure" {
@@ -131,7 +131,7 @@ test "Zig Server: ready wait releases affinity and close claims an unconsumed li
     try std.testing.expect(try server.waitAcceptable(0));
     var moved_wait = try io.concurrent(waitReady, .{server});
     try std.testing.expect(try moved_wait.await(io));
-    try std.testing.expectEqual(error.ConnectionLost, server.close().?.cause);
+    try std.testing.expectEqual(error.ConnectionLost, server.close().?.chain.cause);
     try std.testing.expect(server.closed);
-    try std.testing.expectEqual(error.ConnectionLost, server.close().?.cause);
+    try std.testing.expectEqual(error.ConnectionLost, server.close().?.chain.cause);
 }

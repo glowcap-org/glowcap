@@ -81,16 +81,13 @@ pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !m
     return (try decodeBody(frame)).toOwned(allocator);
 }
 
-/// Project the borrowed codec-neutral `model.view.Body` over `frame`.
-/// Decode one delimited frame.
+/// Project the borrowed codec-neutral `model.view.Body` over one frame.
 ///
-/// The frame must be exactly the length its own header declares. Syrup refuses
-/// trailing bytes the same way (`expectEnd`), and without the rule two
-/// different byte strings decode to the same message, so anything that treats
-/// a frame's bytes as its identity ends up with two names for one thing. The
-/// framing layer is where a buffer legitimately holds more than one frame.
-/// `shared.readerFromFrame` stays lenient for it, and this is the entry point
-/// that has already been handed a single frame.
+/// The frame is exactly the length its own header declares
+/// (`shared.readerFromFrame`). Syrup refuses trailing bytes the same way
+/// (`expectEnd`): without the rule two byte strings decode to one message,
+/// and anything that treats a frame's bytes as its identity has two names
+/// for one thing.
 pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     return decodeBodyForProfile(.v1_0, frame);
 }
@@ -98,17 +95,17 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
 /// Validate the frame once and cache collection views in the lent head.
 /// Integer runs borrow the wire directly. Collections that outgrow the head
 /// remain wire-backed after the same metered validation.
-pub fn decodeBodyInto(profile: model.CaptpVersion, frame: foundation.FrameView, slab: *model.view.ValueSlab) Error!model.view.Body {
+pub fn decodeBodyInto(profile: model.CaptpVersion, frame: foundation.FrameView, slab: *model.view.ValueSlab, body: *model.view.Body) Error!void {
     const view = try decodeMessageView(frame);
-    try shared.expectExactFrameLength(frame.bytes);
-    if (profile == .next and view.kind == .resolve) return Error.UnsupportedMessage;
-    if (profile == .next and (view.kind == .get or view.kind == .index or view.kind == .untag)) return Error.UnsupportedMessage;
-    return neutralBodyForProfile(view, profile, slab);
+    if (!profile.carries(view.kind)) return Error.UnsupportedMessage;
+    body.* = try neutralBodyForProfile(view, profile, slab);
 }
 
 pub fn decodeBodyForProfile(profile: model.CaptpVersion, frame: foundation.FrameView) Error!model.view.Body {
     var slab = model.view.ValueSlab.empty;
-    return decodeBodyInto(profile, frame, &slab);
+    var body: model.view.Body = undefined;
+    try decodeBodyInto(profile, frame, &slab, &body);
+    return body;
 }
 
 /// The Cap'n Proto name for the shared codec decode recursion bound, which
@@ -149,17 +146,15 @@ fn neutralBodyForProfile(view: MessageView, profile: model.CaptpVersion, slab: *
     if (view.kind == .listen) return projectListenBodyForProfile(metered, view.body, profile);
     var body = try projectBody(metered, view.kind, view.body, slab);
     if (body == .deliver) {
-        const flags = try metered.dataWord(view.body, 0);
-        const allowed = shared.deliver_has_answer | shared.deliver_has_resolve_me |
-            (if (profile == .next) shared.deliver_listen_mask else @as(u64, 0));
-        if (flags & ~allowed != 0) return Error.MalformedFrame;
+        const flags: shared.DeliverFlags = @bitCast(try metered.dataWord(view.body, 0));
+        if (flags.reserved != 0) return Error.MalformedFrame;
         if (profile == .next) {
             if (body.deliver.resolve_me_desc) |resolver| {
                 if (resolver != .far) return Error.MalformedFrame;
-                body.deliver.listen_mode = model.ListenMode.fromInt((flags & shared.deliver_listen_mask) >> shared.deliver_listen_shift) orelse return Error.MalformedFrame;
+                body.deliver.listen_mode = model.ListenMode.fromInt(flags.listen_mode) orelse return Error.MalformedFrame;
                 if (body.deliver.listen_mode == .settling_only) return Error.MalformedFrame;
-            } else if (body.deliver.answer != null or flags & shared.deliver_listen_mask != 0) return Error.MalformedFrame;
-        }
+            } else if (body.deliver.answer != null or flags.listen_mode != 0) return Error.MalformedFrame;
+        } else if (flags.listen_mode != 0) return Error.MalformedFrame;
     }
     return body;
 }
@@ -195,15 +190,15 @@ fn projectBody(reader: Reader, kind: Kind, body: StructLoc, slab: *model.view.Va
 }
 
 fn projectDeliverBody(reader: Reader, body: StructLoc, slab: *model.view.ValueSlab) Error!model.view.Body {
-    const flags = try reader.dataWord(body, 0);
+    const flags: shared.DeliverFlags = @bitCast(try reader.dataWord(body, 0));
     var resolve_me: ?model.view.Reference = null;
-    if (flags & shared.deliver_has_resolve_me != 0) {
+    if (flags.has_resolve_me) {
         if (try reader.followStruct(body, 2)) |ref_loc| resolve_me = try values.neutralReferenceView(reader, ref_loc, &values.chargeHintList);
     }
     return .{ .deliver = .{
         .target = try values.neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame, &values.chargeHintList),
         .args = try values.neutralArgs(reader, body, 1, &values.chargeHintList, slab, 0),
-        .answer = if (flags & shared.deliver_has_answer != 0) model.AnswerPosition.from(try reader.dataWord(body, 1)) else null,
+        .answer = if (flags.has_answer) model.AnswerPosition.from(try reader.dataWord(body, 1)) else null,
         .resolve_me_desc = resolve_me,
     } };
 }
@@ -281,16 +276,16 @@ fn projectIndexBody(reader: Reader, body: StructLoc, slab: *model.view.ValueSlab
 }
 
 fn projectIndexValue(reader: Reader, body: StructLoc) Error!model.Integer {
-    const flags = try reader.dataWord(body, 2);
-    if (flags & ~(shared.index_big_integer | shared.index_negative) != 0) return Error.MalformedFrame;
-    if (flags & shared.index_big_integer == 0) {
-        if (flags != 0) return Error.MalformedFrame;
+    const flags: shared.IndexFlags = @bitCast(try reader.dataWord(body, 2));
+    if (flags.reserved != 0) return Error.MalformedFrame;
+    if (!flags.big_integer) {
+        if (flags.negative) return Error.MalformedFrame;
         if (!try reader.pointerIsNull(body, 1)) return Error.MalformedFrame;
         return .{ .integer = @bitCast(try reader.dataWord(body, 0)) };
     }
     if (try reader.dataWord(body, 0) != 0) return Error.MalformedFrame;
     const big: model.BigInteger = .{
-        .negative = flags & shared.index_negative != 0,
+        .negative = flags.negative,
         .digits = try values.borrowedData(reader, body, 1),
     };
     if (!big.isCanonical()) return Error.MalformedFrame;

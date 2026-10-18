@@ -19,14 +19,14 @@ and runs the room server over encrypted iroh in a temporary data directory.
 `zig build rooms-dev` keeps its state between runs and turns on every
 admin capability.
 
-To host it, install the glowcap product and Docker with Compose, then run:
+To host it from a checkout, install Docker with Compose, then run:
 
 ```sh
 ./glowcap apps rooms deployment up
 ```
 
-That starts the page, an iroh room server, and one durable session service.
-The image needs no checkout or compiler. The same command can check the stack,
+That builds an image from your source and starts the page, an iroh room
+server, and one durable session service. The same command can check the stack,
 show its logs, stop it, and reset one part of it after saying what will be
 lost.
 
@@ -35,7 +35,8 @@ share it, put an HTTPS reverse proxy or a private network in front of it. That
 proxy does not guard the room server, which people reach over iroh with its
 own authentication. The
 [deployment guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md) covers images, where state lives,
-your own Compose settings, every environment variable, and the health checks.
+and your own Compose settings. Its `docker-compose.yml` lists the environment
+variables.
 
 # Choose how people reach it
 
@@ -56,13 +57,13 @@ of quietly making a new one.
 
 The web server carries bytes between a session on the page and the room
 server over a WebSocket on the page's own address. The same relay lets another
-peer reach that session. The encrypted connection is still between the two
-peers.
+peer reach that session, and Noise encrypts that connection end to end, so
+the relay sees only ciphertext.
 
 Direct messages over WebRTC need ICE servers. STUN helps two peers find a
 direct route, and TURN carries the traffic when a network will not allow
-one. Rooms can read a fixed ICE configuration, or ask a TLS service for
-short-lived TURN credentials without ever giving the page that service's
+one. Rooms can take a fixed list of STUN servers, and ask a TLS service for
+short-lived TURN credentials without giving the page that service's
 secret.
 
 If two peers exchange an offer but no route can be found, switching direct
@@ -101,8 +102,9 @@ restart.
 # Keep the data directory together
 
 Only one process may use a Rooms data directory at a time. Stop the server,
-then copy or restore the directory as a whole. It holds the server's saved
-state, the record of unfinished work, its identity, bridge settings, saved credentials, and kept room history. A
+then copy or restore the directory as a whole. It holds the server's identity
+and room links, its listener and IRC settings, one file per capability, the
+onion key when it uses Tor, and kept room history. A
 partial copy can pair old settings with a new identity, which the server cannot
 repair.
 
@@ -142,16 +144,17 @@ secret into the **Holdings** tab in Settings and the matching page appears under
 
 The live wire view sends wire traffic to ocapnviz, glowcap's
 protocol viewer. A server can show full room
-traffic. For a person's direct messages it shows only who talked to whom,
-when, which call, and how many bytes, because the other person never agreed to
-let a viewer read them.
+traffic. Direct messages never pass through the server, so they show up only
+when a member publishes their own trace, with the **Live trace** toggle under
+**Holdings**. That trace records who talked to whom, when, which call, and how
+many bytes, never the messages themselves.
 
 The full
 [operating guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/operating.md)
 covers each flag, the saved files, the IRC forms, and
 how to set up the live view.
 
-# Read failures as they are
+# When something fails
 
 The deployment tells apart a service that refused to start, one that stopped
 after it was ready, and a cleanup that also failed. Docker restarts services
@@ -160,4 +163,4 @@ state and reason.
 
 Your session does the same. A request still in progress stays marked in
 progress, a known refusal offers the next step, and a request nobody can
-confirm is never shown as cleanly undone.
+confirm stays marked unconfirmed.

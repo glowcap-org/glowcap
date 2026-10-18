@@ -74,7 +74,7 @@ test "a wire map finds its rows under its multiplier" {
 }
 
 test "a node keys each session's wire tables from its identity" {
-    var node = glowcap.ocapn.engine.Node.init(std.testing.allocator, @as([foundation.crypto.SEED_BYTES]u8, @splat(0x5c)));
+    var node = glowcap.ocapn.engine.Node.init(std.testing.allocator, @as([foundation.crypto.seed_bytes]u8, @splat(0x5c)));
     defer node.deinit();
     const first = try node.registerPeer(.{});
     const second = try node.registerPeer(.{});
@@ -84,13 +84,10 @@ test "a node keys each session's wire tables from its identity" {
     try std.testing.expect(a != b);
     try std.testing.expect(a & 1 == 1 and b & 1 == 1);
     try std.testing.expectEqual(a, node.peer(first).?.session_state.imports.slots.rows.multiplier);
-    // The outbound resolver link's purposes carry the peer's answer
-    // positions, so its purpose side hashes under the same secret.
-    try std.testing.expectEqual(a, node.peer(first).?.session_state.outbound_resolver_link.reverse.multiplier);
 }
 
 test "a host's fresh salt keys a session apart from the node's handle-only multiplier" {
-    var node = glowcap.ocapn.engine.Node.init(std.testing.allocator, @as([foundation.crypto.SEED_BYTES]u8, @splat(0x5c)));
+    var node = glowcap.ocapn.engine.Node.init(std.testing.allocator, @as([foundation.crypto.seed_bytes]u8, @splat(0x5c)));
     defer node.deinit();
     const handle = try node.registerPeer(.{});
     const peer = node.peer(handle).?;
@@ -100,7 +97,6 @@ test "a host's fresh salt keys a session apart from the node's handle-only multi
     try std.testing.expect(salted != keyed_by_node);
     try std.testing.expect(salted & 1 == 1);
     try std.testing.expectEqual(salted, peer.session_state.imports.slots.rows.multiplier);
-    try std.testing.expectEqual(salted, peer.session_state.outbound_resolver_link.reverse.multiplier);
     try std.testing.expectEqual(salted, foundation.identity_hash.saltedMultiplier(keyed_by_node, 0x1234_5678_9abc_def0));
     // Another salt over the same registration is another secret.
     try std.testing.expect(foundation.identity_hash.saltedMultiplier(keyed_by_node, 1) != salted);

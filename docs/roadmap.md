@@ -15,9 +15,7 @@ watch](upstream-watch.md) tracks open OCapN and Goblins questions.
 ## Platforms and reachability
 
 OS portability and platform acceptance, including Windows with IOCP and
-macOS validation, are release obligations the maintainer runs. The items
-below are the integration work for language bindings and browser execution
-and storage, in order.
+macOS validation, are release obligations the maintainer runs.
 
 - **Windows and IOCP.** There is no Windows runtime check and no IOCP backend.
   Windows support needs an IOCP backend that meets the existing
@@ -46,7 +44,7 @@ The `1.0` profile preserves pinned Goblins interoperability, and
 `glowcap-next` tracks the merged draft. The
 [conformance manifest](ocapn-conformance.md) records adopted, deferred, and
 pending sections independently of the specification reference. [Upstream watch](upstream-watch.md) holds
-what glowcap cannot settle alone. These items are glowcap's side.
+what glowcap cannot settle alone.
 
 - **Five-field `op:start-session`.** The merged draft moves `crypto-version`
   into the hello and replaces the structured key and signature records with
@@ -107,7 +105,13 @@ module, and persistence research. Nothing above blocks this work.
    default engine, SQLite. One that locates a limit in it reopens that choice
    ([ADR-0239](decisions/adr/ADR-0239-sqlite-is-loams-default-disk-engine.md),
    [plan to plan](planning/plan-to-plan.md)).
-4. **Residency slot lookup.** The resident record cache finds a slot by
+4. **Typed hosted access API.** Build typed resource and control clients over
+   the existing Host, and expose bounded resource-tree operations and the
+   owner lifecycle through the C ABI and Rust. The
+   [implementation plan](planning/typed-hosted-access.md) waits for maintainer
+   review before execution. Existing Zig admission, receipts, and recovery
+   remain authoritative.
+5. **Residency slot lookup.** The resident record cache finds a slot by
    scanning them in order, 7 percent of a hot read at both profile shapes
    and stable as the population grows. An indexed lookup waits for a bench
    shape in which that share matters
@@ -116,9 +120,7 @@ module, and persistence research. Nothing above blocks this work.
 The C/Rust and browser fixed-resource lifecycles are described in the
 [C/Rust scope](loam/c-and-rust.md) and the
 [browser scope and evidence](loam/browser.md). The exercised fixed-resource
-profile does not freeze the broader foreign ABI. The remaining general graph
-and owner-lifecycle projections are tracked by the
-[access API contract](loam/access-api.md#the-foreign-language-boundary).
+profile does not freeze the broader foreign ABI.
 
 The [Rooms design contract](planning/rooms-design.md) specifies the remaining
 resource work. The [session guide](rooms/session.md) and
@@ -137,7 +139,7 @@ Each row is done when its evidence sentence is true. Then delete the row.
 | Nightly fuzz | The scheduled fuzz job in `check.yml` runs only on the default branch, so it has not run while `main` trails `dev` ([plan to plan](planning/plan-to-plan.md)). | One scheduled run on `main` is green. |
 | Loam acceptance | One successful macOS run of `zig build test loam-lmdb-test loam-sqlite-test` plus the Loam crash probes the macOS job runs, recorded with revision and commands. Maintainer-owned. Needs runners the private repository does not get ([plan to plan](planning/plan-to-plan.md)). | `docs/stability.md` records the run. The macOS sentences in [stability](stability.md) and [shipped](shipped.md#resource-models) change to present tense. |
 | Visualizer | Re-measure playback on the reporting machine's real GPU with the committed stress corpus. Maintainer action ([plan to plan](planning/plan-to-plan.md)). | No visible playhead jump with the work-budget tests green. The table in `apps/ocapnviz/test-data/README.md` gains the new row. |
-| Publication | Make the repository public, re-run `check` on `main` and confirm the `gates` and `macos-runtime` jobs are green, enable private vulnerability reporting, set Pages to deploy from Actions and run `pages`. Maintainer-owned ([plan to plan](planning/plan-to-plan.md)). | The badge, run, and site are visible without authentication. The release section of the [release dependencies](#release-dependencies) takes over. |
+| Publication | Remain private and use [local integration](maintaining.md#integrating-locally) until the maintainer authorizes publication. Then verify hosted runner availability, make the repository public, activate and verify [main protection](maintaining.md#repository-protection), confirm the promotion PR and resulting `main` push pass their required checks, enable private vulnerability reporting, set Pages to deploy from Actions and run `pages`. Maintainer-owned ([plan to plan](planning/plan-to-plan.md)). | The badge, run, and site are visible without authentication. An unchecked promotion cannot merge. The release section of the [release dependencies](#release-dependencies) takes over. |
 
 ## Further application work
 

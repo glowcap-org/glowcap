@@ -41,13 +41,13 @@ test "start-session handshake transitions to open and installs bootstrap export"
     try s.recordSend(startSessionMessage(.v1_0));
     try std.testing.expectEqual(session.State.negotiating, s.state);
     try std.testing.expect(!s.handshakeComplete());
-    try std.testing.expect(!s.hasExport(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expect(!s.hasExport(.from(session.bootstrap_position)));
 
     // Partner half completes the handshake → open + bootstrap export@0.
     try s.recordRecv(startSessionMessage(.v1_0));
     try std.testing.expectEqual(session.State.open, s.state);
     try std.testing.expect(s.handshakeComplete());
-    try std.testing.expect(s.hasExport(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expect(s.hasExport(.from(session.bootstrap_position)));
 }
 
 test "start-session is rejected outside the negotiating state" {
@@ -220,14 +220,6 @@ test "preference hints on the owned path refuse duplicates, wrong types, and unr
         session.parsePreferenceHints(model.Hints{ .entries = &non_string }),
     );
 
-    const bad_version = [_]model.HintEntry{
-        .{ .name = transport.hint_captp_version, .value = .{ .string = "ocapn-2" } },
-    };
-    try std.testing.expectError(
-        session.Error.MalformedMessage,
-        session.parsePreferenceHints(model.Hints{ .entries = &bad_version }),
-    );
-
     const bad_codec_token = [_]model.HintEntry{
         .{ .name = transport.hint_codec, .value = .{ .string = "bad" } },
     };
@@ -237,7 +229,7 @@ test "preference hints on the owned path refuse duplicates, wrong types, and unr
     );
 
     const bad_features = [_]model.HintEntry{
-        .{ .name = transport.hint_features, .value = .{ .string = "no-such-feature" } },
+        .{ .name = transport.hint_features, .value = .{ .string = "pipelining,,handoff" } },
     };
     try std.testing.expectError(
         session.Error.MalformedMessage,
@@ -245,10 +237,23 @@ test "preference hints on the owned path refuse duplicates, wrong types, and unr
     );
 }
 
+test "preference hints read a token this build does not write as the baseline" {
+    const transport = model.transport;
+    const unknown = [_]model.HintEntry{
+        .{ .name = transport.hint_captp_version, .value = .{ .string = "ocapn-2" } },
+        .{ .name = transport.hint_codec, .value = .{ .string = "0/0123456789abcdef" } },
+        .{ .name = transport.hint_features, .value = .{ .string = "no-such-feature,sturdyref" } },
+    };
+    const preference = try session.parsePreferenceHints(model.Hints{ .entries = &unknown });
+    try std.testing.expectEqual(model.Preference.baseline.captp_version, preference.captp_version);
+    try std.testing.expectEqual(model.Preference.baseline.codec, preference.codec);
+    try std.testing.expectEqual(model.FeatureSet{ .sturdyref = true }, preference.features);
+}
+
 test "preference hints on the owned path parse a stated profile" {
     const transport = model.transport;
     const stated = [_]model.HintEntry{
-        .{ .name = transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.wireString() } },
+        .{ .name = transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.hintToken() } },
     };
     const preference = try session.parsePreferenceHints(model.Hints{ .entries = &stated });
     try std.testing.expectEqual(model.CaptpVersion.next, preference.captp_version);

@@ -6,9 +6,9 @@ const Gates = @import("../gates.zig").Registered;
 const Engine = @import("crash.zig").Engine;
 
 /// Registers the SQLite module with its tests and vacuum probe.
-pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, owner_lock: *std.Build.Module, support: *std.Build.Module, temp: *std.Build.Module, gates: Gates) Engine {
-    const sqlite = create(b, target, optimize, core, owner_lock, true);
-    const tested = configured(b, target, optimize, core, owner_lock, false, true);
+pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, custody: *std.Build.Module, support: *std.Build.Module, temp: *std.Build.Module, gates: Gates) Engine {
+    const sqlite = create(b, target, optimize, core, custody, true);
+    const tested = configured(b, target, optimize, core, custody, false, true);
     const tests = b.createModule(.{ .root_source_file = b.path("test/loam_sqlite_test.zig"), .target = target, .optimize = optimize, .link_libc = true });
     tests.addImport("loam_test_support", support);
     tests.addImport("loam_core", core);
@@ -39,11 +39,11 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
 
 /// One SQLite module for a target, wired to `core`. The profiled bench graph
 /// builds its own through this, unregistered.
-pub fn create(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, owner_lock: *std.Build.Module, registered: bool) *std.Build.Module {
-    return configured(b, target, optimize, core, owner_lock, registered, false);
+pub fn create(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, custody: *std.Build.Module, registered: bool) *std.Build.Module {
+    return configured(b, target, optimize, core, custody, registered, false);
 }
 
-fn configured(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, owner_lock: *std.Build.Module, registered: bool, inject: bool) *std.Build.Module {
+fn configured(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, custody: *std.Build.Module, registered: bool, inject: bool) *std.Build.Module {
     const options: std.Build.Module.CreateOptions = .{
         .root_source_file = b.path("src/loam/engines/sqlite/mod.zig"),
         .target = target,
@@ -55,7 +55,7 @@ fn configured(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bui
     };
     const sqlite = if (registered) b.addModule("glowcap_loam_sqlite", options) else b.createModule(options);
     sqlite.addImport("loam_core", core);
-    sqlite.addImport("loam_owner_lock", owner_lock);
+    sqlite.addImport("loam_custody", custody);
     // A fetch of the amalgamation zip strips its one top-level directory,
     // so the sources sit at the package root.
     const source = b.dependency("sqlite", .{}).path("");

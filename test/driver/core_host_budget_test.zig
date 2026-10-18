@@ -28,7 +28,7 @@ const budget: usize = 4;
 const flood_turns: usize = budget + 2;
 
 const EventServeOutOfMemory = struct {
-    pub fn hook(ctx: ?*anyopaque, _: *driver.core.Served, _: *engine.Event) anyerror!bool {
+    pub fn hook(ctx: ?*anyopaque, _: *driver.core.Served, _: *engine.Event) driver.core.BeforeServeError!bool {
         const calls = @as(*usize, @ptrCast(@alignCast(ctx.?)));
         calls.* += 1;
         return error.OutOfMemory;
@@ -217,7 +217,7 @@ test "standard host action drain retains a gift-id request when entropy fails" {
     const recipient = try host.node.registerPeer(.{});
     const exporter = try host.node.registerPeer(.{});
     try host.node.peer(exporter).?.session_state.registerImport(.from(4));
-    const gift = try host.node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    const gift = try host.node.enrollForeign(exporter, model.FarRef.object(4));
     try host.node.peer(recipient).?.session_state.installInboundAnswer(.from(77));
     try std.testing.expect(try host.node.interceptFulfilledRoute(recipient, 77, gift.routed.id));
 

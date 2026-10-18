@@ -22,7 +22,7 @@ const harness = @import("harness.zig");
 test "a released host wipes its session seed root" {
     var host = test_host.initWithRoot(std.testing.allocator, @splat(0x51), @splat(0x52), .{});
     host.deinit();
-    const wiped: [glowcap.foundation.crypto.SEED_BYTES]u8 = @splat(0);
+    const wiped: [glowcap.foundation.crypto.seed_bytes]u8 = @splat(0);
     try std.testing.expectEqualSlices(u8, &wiped, &host.session_seed_root);
 }
 
@@ -89,9 +89,9 @@ test "operation failure preserves its first cause and later chain" {
     failure.noteChain(cleanup);
     failure.note(error.LastCleanup);
 
-    try std.testing.expectEqual(error.Primary, failure.cause);
-    try std.testing.expectEqual(error.FirstCleanup, failure.secondary_cause.?);
-    try std.testing.expectEqual(@as(u16, 3), failure.secondary_count);
+    try std.testing.expectEqual(error.Primary, failure.chain.cause);
+    try std.testing.expectEqual(error.FirstCleanup, failure.chain.secondary_cause.?);
+    try std.testing.expectEqual(@as(u16, 3), failure.chain.secondary_count);
 }
 
 test "peer failure diagnostics retain first and secondary cleanup failures" {
@@ -336,7 +336,7 @@ test "core host finish counts pending gift entropy and cancel retires it without
     const recipient = try host.node.registerPeer(.{});
     const exporter = try host.node.registerPeer(.{});
     try host.node.peer(exporter).?.session_state.registerImport(.from(4));
-    const gift = try host.node.enrollForeign(exporter, .{ .far = model.FarRef.object(4) });
+    const gift = try host.node.enrollForeign(exporter, model.FarRef.object(4));
     try host.node.peer(recipient).?.session_state.installInboundAnswer(.from(9));
     try std.testing.expect(try host.node.interceptFulfilledRoute(recipient, 9, gift.routed.id));
 
@@ -363,7 +363,6 @@ test "core host failures classify at the sans-I/O authority" {
     try std.testing.expectEqual(HostFailure.Kind.would_block, HostFailure.classify(error.SessionOperationLimitReached));
     try std.testing.expectEqual(HostFailure.Kind.closed, HostFailure.classify(error.SessionClosing));
     try std.testing.expectEqual(HostFailure.Kind.session, HostFailure.classify(error.SendRejected));
-    try std.testing.expectEqual(HostFailure.Kind.session, HostFailure.classify(error.OutboundAnswerSpaceExhausted));
     try std.testing.expectEqual(HostFailure.Kind.codec, HostFailure.classify(error.MalformedView));
     try std.testing.expectEqual(HostFailure.Kind.frame_too_large, HostFailure.classify(error.FrameTooLarge));
 }
@@ -389,7 +388,6 @@ test "driver and Host failure tables agree on every name both classify" {
         error.MissingAdvertisedLocator,
         error.InvalidArgument,
         error.OutOfMemory,
-        error.OutboundAnswerSpaceExhausted,
     };
     for (shared) |cause| {
         const expected: OperationFailure.Kind = switch (HostFailure.classify(cause)) {

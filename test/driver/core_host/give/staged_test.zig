@@ -73,7 +73,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
     var call: ?*Host.Call = null;
     defer if (call) |held| held.deinit();
     const staged_vow = if (owner == .cancelled) blk: {
-        const id = gifter.next_vow;
+        const id = gifter.vow_ids.next;
         call = try gifter.callCapability(allocator, g_to_r.a, sink, "poke", &nested, 1024);
         break :blk id;
     } else try gifter.queueSendValues(g_to_r.a, sink, "poke", &nested, arena.allocator());
@@ -85,7 +85,7 @@ fn stagedGiftOutcome(profile: model.CaptpVersion, owner: Owner, success: bool) !
     const port = &g_to_r.a.served.port;
     try std.testing.expect(@sizeOf(@TypeOf(port.peer.pending_send.peek().?.item.staged)) <= 32);
     const wire_vow = gifter.vows.get(staged_vow).?.vow;
-    try std.testing.expect(port.peer.session_state.outbound_answers.getPtr(wire_vow.far) == null);
+    try std.testing.expect(port.peer.session_state.outbound_answers.getPtr(wire_vow.far.position) == null);
     try std.testing.expect(port.peer.canObserveAnswer(wire_vow.far));
     const listener = port.takeListener(&gifter.vat, wire_vow).?;
     try std.testing.expect(port.takeListener(&gifter.vat, wire_vow) == null);

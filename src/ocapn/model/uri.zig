@@ -7,10 +7,10 @@
 //! netlayer, is handed out of band to bootstrap a session, the same format the
 //! reference suite and Goblins exchange.
 //!
-//! Parsing uses the allocation-free OCapN URI-shape reader. Percent-decoding
-//! uses `std.Uri.percentDecodeInPlace`. OCapN-specific splits (last-dot
-//! transport, `/s/` sturdyref, query key=value pairs on percent-encoded form)
-//! live here. A V1.0 sturdyref's swiss number is unpadded base64url, matching
+//! Parsing uses the allocation-free OCapN URI-shape reader, and each
+//! component percent-decodes once into exact storage. OCapN-specific splits
+//! (last-dot transport, `/s/` sturdyref, query key=value pairs on
+//! percent-encoded form) live here. A V1.0 sturdyref's swiss number is unpadded base64url, matching
 //! Goblins. `next` keeps the current draft's RFC 3986-escaped raw string.
 //!
 //! Query hints carry no wire type system, so parsing always yields `string`
@@ -57,15 +57,16 @@ pub const validatePercentEncoding = uri_shape.validatePercentEncoding;
 pub const ParseAllocationBound = struct { bytes: usize, allocations: usize };
 
 /// Bounds successful owned sturdyref parsing without parsing or allocating.
-/// Component strings partition the URI. Percent decoding may copy twice.
-/// Escaped baseline Swiss bytes can additionally require a decoded buffer.
-/// Hint spine growth follows ArrayList's public capacity policy, assuming
-/// every resize requires a fresh allocation, including its final owned slice.
+/// Component strings partition the URI, and each decodes once into exact
+/// storage. An escaped baseline Swiss number decodes once more, into its
+/// base64 bytes. Hint spine growth follows ArrayList's public capacity policy,
+/// assuming every resize requires a fresh allocation, including its final
+/// owned slice.
 pub fn parseAllocationBound(uri_bytes: usize, hints: usize) !ParseAllocationBound {
     if (hints > model.max_locator_hint_count) return error.InvalidLocator;
     var bound: ParseAllocationBound = .{
-        .bytes = try std.math.mul(usize, uri_bytes, 3),
-        .allocations = try std.math.add(usize, 7, try std.math.mul(usize, hints, 4)),
+        .bytes = try std.math.mul(usize, uri_bytes, 2),
+        .allocations = try std.math.add(usize, 4, try std.math.mul(usize, hints, 2)),
     };
     var capacity: usize = 0;
     while (capacity < hints) {
@@ -85,42 +86,28 @@ pub fn freeSturdyref(allocator: std.mem.Allocator, sturdyref: model.SturdyRef) v
     allocator.free(sturdyref.swissnum);
 }
 
-/// Percent-decode `s` into a fresh owned allocation. Uses `std.Uri.percentDecodeInPlace`
-/// on a mutable copy.
+/// Percent-decode `s` into exact owned storage.
 fn percentDecodeOwned(allocator: std.mem.Allocator, s: []const u8) Error![]u8 {
     uri_shape.validatePercentEncoding(s) catch return error.MalformedPercentEncoding;
-    const buf = try allocator.dupe(u8, s);
-    errdefer allocator.free(buf);
-    const decoded = std.Uri.percentDecodeInPlace(buf);
-    if (decoded.len == buf.len) return buf;
-    // Shrunk after decode; realloc to exact size.
-    const exact = try allocator.dupe(u8, decoded);
-    allocator.free(buf);
-    return exact;
+    const decoded = try allocator.alloc(u8, uri_shape.decodedLen(s));
+    var at: usize = 0;
+    for (decoded) |*byte| byte.* = uri_shape.decodedByte(s, &at);
+    std.debug.assert(at == s.len);
+    return decoded;
 }
 
-fn parseUri(uri_str: []const u8) Error!uri_shape.View {
-    return uri_shape.inspect(uri_str) catch |err| switch (err) {
-        error.MalformedPercentEncoding => error.MalformedPercentEncoding,
-        error.UnsupportedUriComponent => error.UnsupportedUriComponent,
-        error.UriParseError => error.UriParseError,
-    };
-}
+const Netloc = struct { transport_encoded: []const u8, designator_encoded: []const u8 };
 
 /// Split the netloc into designator and transport on the last dot. The split
-/// happens on the **percent-encoded** form (so an escaped `.` in the designator
-/// is data, not a structural delimiter), then each side percent-decodes
-/// individually, the same discipline as `decodeHintBytes`.
-fn splitNetloc(allocator: std.mem.Allocator, netloc_pe: []const u8) Error!struct { transport: []u8, designator: []u8 } {
+/// happens on the **percent-encoded** form, so an escaped `.` in the
+/// designator is data, not a structural delimiter, and each side then
+/// percent-decodes on its own, the same discipline as `decodeHintBytes`.
+fn splitNetloc(netloc_pe: []const u8) Error!Netloc {
     const dot = std.mem.lastIndexOfScalar(u8, netloc_pe, '.') orelse return Error.MissingTransport;
     const designator_pe = netloc_pe[0..dot];
     const transport_pe = netloc_pe[dot + 1 ..];
     if (designator_pe.len == 0 or transport_pe.len == 0) return Error.EmptyComponent;
-
-    const transport = try percentDecodeOwned(allocator, transport_pe);
-    errdefer allocator.free(transport);
-    const designator = try percentDecodeOwned(allocator, designator_pe);
-    return .{ .transport = transport, .designator = designator };
+    return .{ .transport_encoded = transport_pe, .designator_encoded = designator_pe };
 }
 
 /// Parse query hints. Splits on the **percent-encoded** form (so an escaped `&`
@@ -179,22 +166,12 @@ pub const Internal = struct {
 };
 
 pub fn parsePeer(allocator: std.mem.Allocator, uri_str: []const u8) Error!model.PeerLocator {
-    const uri = try parseUri(uri_str);
+    const uri = try uri_shape.inspect(uri_str);
     if (!std.mem.eql(u8, uri.scheme, scheme_str)) return Error.NotOcapnUri;
-
-    const nl = try splitNetloc(allocator, uri.authority);
-    errdefer allocator.free(nl.transport);
-    errdefer allocator.free(nl.designator);
-
-    // A peer URI has no path; reject if present (sturdyrefs have `/s/…`).
-    const path_pe = uri.path;
-    if (path_pe.len > 0) return Error.MalformedPath;
-
-    const hints = try decodeHintBytes(allocator, uri.query);
-    errdefer model.freeHints(allocator, hints);
-    const locator: model.PeerLocator = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints };
-    model.validatePeerLocator(locator) catch return error.InvalidLocator;
-    return locator;
+    const netloc = try splitNetloc(uri.authority);
+    // A peer URI has no path; a sturdyref carries `/s/…`.
+    if (uri.path.len > 0) return Error.MalformedPath;
+    return parsePeerInspected(allocator, netloc.transport_encoded, netloc.designator_encoded, uri.query);
 }
 
 /// Parse the baseline Goblins-compatible sturdyref URI form.
@@ -207,27 +184,17 @@ pub fn parseSturdyrefForProfile(
     profile: model.CaptpVersion,
     uri_str: []const u8,
 ) Error!model.SturdyRef {
-    const uri = try parseUri(uri_str);
+    const uri = try uri_shape.inspect(uri_str);
     if (!std.mem.eql(u8, uri.scheme, scheme_str)) return Error.NotOcapnUri;
+    const netloc = try splitNetloc(uri.authority);
+    if (!std.mem.startsWith(u8, uri.path, sturdyref_path_prefix)) return Error.MalformedPath;
+    const swiss_pe = uri.path[sturdyref_path_prefix.len..];
 
-    const nl = try splitNetloc(allocator, uri.authority);
-    errdefer allocator.free(nl.transport);
-    errdefer allocator.free(nl.designator);
-
-    const path_pe = uri.path;
-    if (!std.mem.startsWith(u8, path_pe, sturdyref_path_prefix)) return Error.MalformedPath;
-    const swiss_pe = path_pe[sturdyref_path_prefix.len..];
-
-    const swissnum = try decodeSwissNumber(allocator, profile, swiss_pe);
-    errdefer allocator.free(swissnum);
-
-    const hints = try decodeHintBytes(allocator, uri.query);
-    errdefer model.freeHints(allocator, hints);
-    const peer: model.PeerLocator = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints };
-    model.validatePeerLocator(peer) catch return error.InvalidLocator;
+    const peer = try parsePeerInspected(allocator, netloc.transport_encoded, netloc.designator_encoded, uri.query);
+    errdefer model.freePeerLocator(allocator, peer);
     return .{
         .peer = peer,
-        .swissnum = swissnum,
+        .swissnum = try decodeSwissNumber(allocator, profile, swiss_pe),
     };
 }
 
@@ -434,11 +401,7 @@ pub fn canonicalPeerIdentityUri(allocator: std.mem.Allocator, uri_str: []const u
         else => return try allocator.dupe(u8, uri_str),
     };
     defer model.freePeerLocator(allocator, parsed);
-    const bare: model.PeerLocator = .{
-        .transport = parsed.transport,
-        .designator = parsed.designator,
-        .hints = model.Hints.emptyFalse(),
-    };
+    const bare = parsed.bare();
     return writePeer(allocator, bare);
 }
 

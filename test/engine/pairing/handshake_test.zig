@@ -26,8 +26,8 @@ test "paired factory drives the handshake to open with bootstrap export" {
 
     try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
     try std.testing.expectEqual(session.State.open, pair.p2.session_state.state);
-    try std.testing.expect(pair.p1.session_state.hasExport(.from(session.BOOTSTRAP_POSITION)));
-    try std.testing.expect(pair.p2.session_state.hasExport(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expect(pair.p1.session_state.hasExport(.from(session.bootstrap_position)));
+    try std.testing.expect(pair.p2.session_state.hasExport(.from(session.bootstrap_position)));
     try std.testing.expect(pair.p1.session_state.handshakeComplete());
     try std.testing.expect(pair.p2.session_state.handshakeComplete());
     try std.testing.expect(pair.p1.pollEvent() == null);
@@ -42,7 +42,7 @@ test "paired peers can exchange traffic once open" {
     // p1 delivers against p2's permanently addressable bootstrap export.
     try pair.p1.sendBorrowed(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
             .args = &.{.{ .bytes = "ping" }},
             .answer = null,
             .resolve_me_desc = null,
@@ -67,8 +67,8 @@ test "sendKeyedStartSession drives two negotiating peers to an open session" {
 
     const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
     const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() };
-    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x11)));
-    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x22)));
+    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x11)));
+    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x22)));
 
     // Each side proactively signs and queues its own keyed start-session, exactly
     // as a real handshake (and a live Goblins partner) does.
@@ -99,8 +99,8 @@ test "sendKeyedStartSession advertises non-baseline features into the signed hel
 
     const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:11", .hints = model.Hints.emptyFalse() };
     const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:12", .hints = model.Hints.emptyFalse() };
-    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x12)));
-    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x23)));
+    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x12)));
+    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x23)));
 
     try p1.sendKeyedStartSession(loc1, secret1);
     try p2.sendKeyedStartSession(loc2, secret2);
@@ -198,8 +198,8 @@ test "sendKeyedStartSession preserves arbitrary locator hint maps" {
         .designator = "peer-two",
         .hints = model.Hints.emptyFalse(),
     };
-    try p1.sendKeyedStartSession(loc1, crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x31))));
-    try p2.sendKeyedStartSession(loc2, crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x32))));
+    try p1.sendKeyedStartSession(loc1, crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x31))));
+    try p2.sendKeyedStartSession(loc2, crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x32))));
 
     var i: usize = 0;
     while (i < 8 and !(p1.sessionIsOpen() and p2.sessionIsOpen())) : (i += 1) {
@@ -270,7 +270,7 @@ test "a negotiated fallback retains its hello under the baseline profile" {
     };
     try sender.sendKeyedStartSession(
         locator,
-        crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x42))),
+        crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x42))),
     );
     try std.testing.expectEqual(engine.StepOutcome.progress, try sender.step());
     try receiver.feedOwned(sender.takeOutbound().?);
@@ -299,14 +299,15 @@ test "negotiation uses the local preference actually stated on the wire" {
 
     var feature_bytes: [model.FeatureSet.wire_string_max_len]u8 = undefined;
     const features = try model.FeatureSet.full().toWireString(&feature_bytes);
+    const codec_token = model.CodecId.capnp.hintToken();
     const remote_hints = [_]model.HintEntry{
-        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.wireString() } },
-        .{ .name = model.transport.hint_codec, .value = .{ .string = "0" } },
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.hintToken() } },
+        .{ .name = model.transport.hint_codec, .value = .{ .string = codec_token.slice() } },
         .{ .name = model.transport.hint_features, .value = .{ .string = features } },
     };
     const remote = try handshake.signedHelloFrame(
         allocator,
-        crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x4b))),
+        crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x4b))),
         "tcp",
         "127.0.0.1:2",
         .{ .entries = &remote_hints },
@@ -331,14 +332,15 @@ test "remote-first handshake settles after the local wire preference is sent" {
 
     var remote_feature_bytes: [model.FeatureSet.wire_string_max_len]u8 = undefined;
     const remote_features = try model.FeatureSet.full().toWireString(&remote_feature_bytes);
+    const codec_token = model.CodecId.capnp.hintToken();
     const remote_hints = [_]model.HintEntry{
-        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.wireString() } },
-        .{ .name = model.transport.hint_codec, .value = .{ .string = "0" } },
+        .{ .name = model.transport.hint_captp_version, .value = .{ .string = model.CaptpVersion.next.hintToken() } },
+        .{ .name = model.transport.hint_codec, .value = .{ .string = codec_token.slice() } },
         .{ .name = model.transport.hint_features, .value = .{ .string = remote_features } },
     };
     const remote = try handshake.signedHelloFrame(
         allocator,
-        crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x4c))),
+        crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x4c))),
         "tcp",
         "127.0.0.1:3",
         .{ .entries = &remote_hints },
@@ -354,13 +356,73 @@ test "remote-first handshake settles after the local wire preference is sent" {
     };
     try peer.sendKeyedStartSession(
         local,
-        crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x4d))),
+        crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x4d))),
     );
 
     try std.testing.expect(peer.sessionIsOpen());
     try std.testing.expectEqual(model.CaptpVersion.next, peer.session_state.captp_version);
     try std.testing.expectEqual(model.CodecId.capnp, peer.codecId());
     try std.testing.expect(peer.session_state.features.multi_location);
+}
+
+test "a partner on another build of the own wire settles each axis on its baseline" {
+    const allocator = std.testing.allocator;
+    const version_token = model.CaptpVersion.next.hintToken();
+    const codec_token = model.CodecId.capnp.hintToken();
+    // A token this build does not write (one from before hint tokens named
+    // their wire, another build's fingerprint, or an empty one) settles its own
+    // axis on the baseline and leaves the other axis to agree on its own.
+    const Row = struct { version: []const u8, codec: []const u8, settled: model.CaptpVersion, codec_id: model.CodecId };
+    const rows = [_]Row{
+        .{ .version = "glowcap-next", .codec = "0", .settled = .v1_0, .codec_id = .syrup },
+        .{ .version = "glowcap-next/0123456789abcdef", .codec = "0/0123456789abcdef", .settled = .v1_0, .codec_id = .syrup },
+        .{ .version = "", .codec = "0/", .settled = .v1_0, .codec_id = .syrup },
+        .{ .version = "glowcap-next/0123456789abcdef", .codec = codec_token.slice(), .settled = .v1_0, .codec_id = .capnp },
+        .{ .version = version_token, .codec = "0/0123456789abcdef", .settled = .next, .codec_id = .syrup },
+    };
+    for (rows, 0..) |row, index| {
+        for ([_]bool{ true, false }) |remote_first| {
+            var peer = engine.Peer.initNegotiatingWith(allocator, .{
+                .captp_version = .next,
+                .codec = .capnp,
+                .features = model.FeatureSet.full(),
+            });
+            defer peer.deinit();
+
+            const remote_hints = [_]model.HintEntry{
+                .{ .name = model.transport.hint_captp_version, .value = .{ .string = row.version } },
+                .{ .name = model.transport.hint_codec, .value = .{ .string = row.codec } },
+                .{ .name = model.transport.hint_features, .value = .{ .string = "pipelining,handoff,a_later_feature" } },
+            };
+            const remote = try handshake.signedHelloFrame(
+                allocator,
+                crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(@intCast(0x60 + index)))),
+                "tcp",
+                "127.0.0.1:5",
+                .{ .entries = &remote_hints },
+            );
+            const local: model.PeerLocator = .{
+                .transport = "tcp",
+                .designator = "127.0.0.1:6",
+                .hints = model.Hints.emptyFalse(),
+            };
+            const local_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x70)));
+            if (remote_first) {
+                try peer.feedOwned(remote);
+                try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+                try peer.sendKeyedStartSession(local, local_secret);
+            } else {
+                try peer.sendKeyedStartSession(local, local_secret);
+                try peer.feedOwned(remote);
+                try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+            }
+
+            try std.testing.expect(peer.sessionIsOpen());
+            try std.testing.expectEqual(row.settled, peer.session_state.captp_version);
+            try std.testing.expectEqual(row.codec_id, peer.codecId());
+            try std.testing.expectEqual(model.FeatureSet{ .pipelining = true, .handoff = true }, peer.session_state.features);
+        }
+    }
 }
 
 test "a pre-settlement abort uses the baseline wire pair" {
@@ -393,7 +455,7 @@ test "exact keyed start-session refuses an unstamped non-baseline profile" {
     defer peer.deinit();
 
     const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x44)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x44)));
     try std.testing.expectError(
         session.Error.MalformedMessage,
         peer.sendKeyedStartSessionExact(loc, secret),
@@ -415,7 +477,7 @@ test "exact keyed start-session refuses duplicate locator hints before signing" 
         .designator = "127.0.0.1:1",
         .hints = .{ .entries = &hints },
     };
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x45)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x45)));
     try std.testing.expectError(
         session.Error.MalformedMessage,
         peer.sendKeyedStartSessionExact(loc, secret),
@@ -426,7 +488,7 @@ test "exact keyed start-session refuses duplicate locator hints before signing" 
 test "keyed start-session refuses an unregistered preferred codec before signing" {
     const allocator = std.testing.allocator;
     const unknown: model.CodecId = @fromBackingInt(@intCast(0xfffe));
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x46)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x46)));
     const loc: model.PeerLocator = .{
         .transport = "tcp",
         .designator = "127.0.0.1:1",
@@ -455,8 +517,8 @@ test "keyed start-session refuses an unregistered preferred codec before signing
 
 test "a signed hello advertising an unknown codec falls back before dispatch" {
     const allocator = std.testing.allocator;
-    const local_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x47)));
-    const remote_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x48)));
+    const local_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x47)));
+    const remote_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x48)));
 
     var peer = engine.Peer.initNegotiatingWith(allocator, .{
         .captp_version = .next,
@@ -496,7 +558,7 @@ test "a signed hello advertising an unknown codec falls back before dispatch" {
 
     const deliver = try codec.syrup.encodeMessageForProfile(allocator, .v1_0, .{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
             .args = &.{.{ .bytes = "still syrup" }},
             .answer = null,
             .resolve_me_desc = null,
@@ -516,7 +578,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
 
     try pair.p1.sendBorrowed(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
             .args = &.{.{ .bytes = "ping" }},
             .answer = .from(42),
             .resolve_me_desc = null,
@@ -524,8 +586,8 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
     });
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
 
-    const resolver_export = pair.p1.session_state.next_export_position - 1;
-    try std.testing.expect(resolver_export != session.BOOTSTRAP_POSITION);
+    const resolver_export = pair.p1.session_state.exports.nextPosition().int() - 1;
+    try std.testing.expect(resolver_export != session.bootstrap_position);
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(42)), pair.p1.session_state.answerForResolverExport(.from(resolver_export)));
 
     const deliver_frame = pair.p1.takeOutbound().?;

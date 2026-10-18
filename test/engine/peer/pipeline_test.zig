@@ -297,7 +297,7 @@ test "a call to a local promise export queues on its backing answer" {
     try std.testing.expect(backing_answer == .virtual);
     // Grant the caller one wire mention of the promise export. Its import table
     // is kindless by design; the reference carries `.promise` on the wire.
-    try receiver.session_state.exports.retain(allocator, promise_export);
+    receiver.session_state.exports.retain(promise_export);
     try caller.session_state.registerImport(promise_export.reinterpret(model.ImportPosition));
 
     try caller.sendBorrowed(.{ .deliver = .{
@@ -357,7 +357,7 @@ test "a local promise projection survives wire GC until its settlement drains" {
     defer receiver.deinit();
 
     const projection = try receiver.session_state.allocateLocalPromiseProjection();
-    try receiver.session_state.exports.retain(allocator, projection.export_position);
+    receiver.session_state.exports.retain(projection.export_position);
     try caller.session_state.registerImport(projection.export_position.reinterpret(model.ImportPosition));
 
     try caller.sendBorrowed(.{ .gc_export = .{
@@ -388,7 +388,7 @@ test "a terminal settlement drain retires a released local promise projection" {
     defer receiver.deinit();
 
     const projection = try receiver.session_state.allocateLocalPromiseProjection();
-    try receiver.session_state.exports.retain(allocator, projection.export_position);
+    receiver.session_state.exports.retain(projection.export_position);
     try caller.session_state.registerImport(projection.export_position.reinterpret(model.ImportPosition));
 
     try caller.sendBorrowed(.{ .deliver = .{

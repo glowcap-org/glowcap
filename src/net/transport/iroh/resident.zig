@@ -406,6 +406,18 @@ pub const loop_ev_closed: u32 = ev_closed;
 pub const loop_ev_accept: u32 = ev_accept;
 pub const loop_ev_connect: u32 = ev_connect;
 
+// The sidecar's records reach the runtime unchanged, so its bits are the
+// resident vocabulary's (`multiplexed_resident/readiness.zig`).
+comptime {
+    const readiness = net.multiplexed_resident;
+    std.debug.assert(ev_readable == readiness.ev_readable);
+    std.debug.assert(ev_writable == readiness.ev_writable);
+    std.debug.assert(ev_closed == readiness.ev_closed);
+    std.debug.assert(ev_accept == readiness.ev_accept);
+    std.debug.assert(ev_connect == readiness.ev_connect);
+    std.debug.assert(would_block == readiness.would_block);
+}
+
 const resident_ctx = net.netlayer.ResidentContext(Resident);
 
 const resident_vtable: Netlayer.VTable = .{

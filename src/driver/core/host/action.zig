@@ -157,16 +157,12 @@ pub fn nextAction(self: *Host) HostError!?HostAction {
         if (action == .dial and !self.node.beginDialEffect(action.dial.ticket, action.dial.route_index)) return null;
         return action;
     }
-    try resumeWorkForActionDrain(
-        self,
-    );
+    try resumeWorkForActionDrain(self);
     if (self.last_action) |last| {
         self.last_action = null;
         freePayload(self, last);
     }
-    const action = popAction(
-        self,
-    ) orelse return null;
+    const action = popAction(self) orelse return null;
     self.last_action = action;
     return action;
 }
@@ -227,12 +223,8 @@ pub fn takeAction(self: *Host) HostError!?HostAction {
         if (action == .dial and !self.node.beginDialEffect(action.dial.ticket, action.dial.route_index)) return null;
         return action;
     }
-    try resumeWorkForActionDrain(
-        self,
-    );
-    return popAction(
-        self,
-    );
+    try resumeWorkForActionDrain(self);
+    return popAction(self);
 }
 
 /// Free an action `takeAction` transferred, once its payload is consumed
@@ -293,7 +285,7 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
     // completions would retire that very connection.
     if (self.resume_pump_refused) return;
     host_pump.finishVerb(self) catch |err| switch (err) {
-        error.OutOfMemory => return HostError.OutOfMemory,
+        error.OutOfMemory => return error.OutOfMemory,
         // `drainWork` requeued the dirty session and published its deduplicated
         // FLUSH wake before returning. Continue into `popAction` so the
         // embedder can drain the bytes that make this pressure actionable;

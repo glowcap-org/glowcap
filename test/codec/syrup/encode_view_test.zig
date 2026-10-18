@@ -20,11 +20,11 @@ fn expectViewMatchesOwned(profile: model.CaptpVersion, bytes: []const u8) !bool 
     defer model.freeMessage(allocator, owned);
 
     var via_owned = syrup.encodeMessageForProfile(allocator, profile, owned) catch |err| {
-        try std.testing.expectError(err, syrup.encodeBodyForProfile(allocator, profile, &body));
+        try std.testing.expectError(err, syrup.encodeBodyForProfile(allocator, profile, &body, null));
         return false;
     };
     defer via_owned.deinit();
-    var via_view = try syrup.encodeBodyForProfile(allocator, profile, &body);
+    var via_view = try syrup.encodeBodyForProfile(allocator, profile, &body, null);
     defer via_view.deinit();
     try std.testing.expectEqualSlices(u8, via_owned.bytes(), via_view.bytes());
     return true;
@@ -63,7 +63,7 @@ fn expectArgumentViewRoundTrip(arg: model.Argument) !void {
     defer frame.deinit();
 
     const body = try syrup.decodeBodyForProfile(.v1_0, frame.view());
-    var again = try syrup.encodeBodyForProfile(allocator, .v1_0, &body);
+    var again = try syrup.encodeBodyForProfile(allocator, .v1_0, &body, null);
     defer again.deinit();
     try std.testing.expectEqualSlices(u8, frame.bytes(), again.bytes());
 }

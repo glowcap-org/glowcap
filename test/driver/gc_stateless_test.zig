@@ -133,7 +133,7 @@ test "stateless GC skips a before-serve-claimed event" {
     served.serve_options = .{
         .gc_stateless = true,
         .before_serve = struct {
-            fn hook(ctx: ?*anyopaque, s: *driver.Served, event: *engine.Event) anyerror!bool {
+            fn hook(ctx: ?*anyopaque, s: *driver.Served, event: *engine.Event) driver.core.BeforeServeError!bool {
                 _ = s;
                 _ = event;
                 const claimed: *bool = @ptrCast(@alignCast(ctx.?));
@@ -176,21 +176,21 @@ test "stateless GC skips a before-serve-claimed event" {
 
 /// A V1.0 resolver-callback deliver as the engine surfaces it: a real
 /// `op:deliver` frame decoded once, tagged `.resolve` on the answer it settles.
-fn resolverCallbackEvent(allocator: std.mem.Allocator, answer: model.AnswerPosition) !engine.Event {
+fn resolverCallbackEvent(allocator: std.mem.Allocator, answer: engine.OutboundAnswerTarget) !engine.Event {
     var args = [_]model.Argument{ .{ .symbol = "fulfill" }, .{ .integer = 1 } };
     var frame = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(1) },
         .args = &args,
     } });
     errdefer frame.deinit();
-    const parse = try engine.events.Parse.store(allocator, &frame, try codec.syrup.decodeBodyForProfile(.next, frame.view()));
+    const parse = try engine.events.Parse.decode(allocator, &frame, .syrup, .next);
     return .{
         .frame = frame,
         .parse = parse,
         .tag = .resolve,
         .codec = .syrup,
         .captp_version = .next,
-        .answer_override = .{ .resolver_callback = answer },
+        .answer_override = .{ .resolve = answer },
         .allocator = allocator,
     };
 }
@@ -205,10 +205,10 @@ test "stateless GC releases every answer sharing a resolve callback" {
     try peer.session_state.installOutboundAnswer(.from(6));
     try peer.session_state.installOutboundAnswer(.from(7));
 
-    var event = try resolverCallbackEvent(allocator, .from(5));
+    var event = try resolverCallbackEvent(allocator, peer.session_state.outboundAnswerTarget(.from(5)).?);
     defer event.deinit();
-    try event.resolve_aliases.append(allocator, .from(6));
-    try event.resolve_aliases.append(allocator, .from(7));
+    try event.resolve_aliases.append(allocator, peer.session_state.outboundAnswerTarget(.from(6)).?);
+    try event.resolve_aliases.append(allocator, peer.session_state.outboundAnswerTarget(.from(7)).?);
 
     try driver.core.testing.emitStatelessAfter(&peer, &event);
     try std.testing.expect(peer.session_state.outboundAnswer(.from(5)) == null);
@@ -235,7 +235,7 @@ test "stateless GC reports an enqueue allocation failure" {
     peer.session_state.captp_version = .next;
     try peer.session_state.installOutboundAnswer(.from(5));
 
-    var event = try resolverCallbackEvent(std.testing.allocator, .from(5));
+    var event = try resolverCallbackEvent(std.testing.allocator, peer.session_state.outboundAnswerTarget(.from(5)).?);
     defer event.deinit();
 
     failing.fail_index = failing.alloc_index;
@@ -243,4 +243,25 @@ test "stateless GC reports an enqueue allocation failure" {
         error.OutOfMemory,
         driver.core.testing.emitStatelessAfter(&peer, &event),
     );
+}
+
+test "stateless GC refuses a resolve for a question already released" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.initWithSession(allocator, session.Session.initWith(allocator, .{
+        .captp_version = .next,
+    }));
+    defer peer.deinit();
+    try peer.session_state.installOutboundAnswer(.from(5));
+    var event = try resolverCallbackEvent(allocator, peer.session_state.outboundAnswerTarget(.from(5)).?);
+    defer event.deinit();
+
+    try peer.session_state.releaseOutboundAnswer(.from(5));
+    try std.testing.expectError(error.GcUnderflow, driver.core.testing.emitStatelessAfter(&peer, &event));
+
+    // The position asked again is a different question, and the old resolve
+    // cannot release it.
+    try peer.session_state.installOutboundAnswer(.from(5));
+    try std.testing.expectError(error.GcUnderflow, driver.core.testing.emitStatelessAfter(&peer, &event));
+    try std.testing.expect(peer.session_state.outboundAnswer(.from(5)) != null);
+    try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
 }

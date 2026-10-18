@@ -22,7 +22,7 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, smo
     defer init.gpa.free(path);
     try std.Io.Dir.cwd().createDir(init.io, path, .default_dir);
     defer std.Io.Dir.cwd().deleteTree(init.io, path) catch unreachable;
-    var db = try w.Lmdb.open(path, .{ .mode = .{ .create = @fromBackingInt(74) } });
+    var db = try w.Lmdb.open(path, .{ .opening = .{ .id = @fromBackingInt(74), .mode = .create } });
     defer db.close() catch unreachable;
     var bytes: metrics.LiveBytesAllocator = .{ .backing = init.gpa };
     var allocations: metrics.CountingAllocator = .{ .backing = bytes.allocator() };

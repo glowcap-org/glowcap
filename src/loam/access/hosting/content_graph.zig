@@ -47,7 +47,7 @@ pub const Spec = struct {
     pub fn validate(self: Spec, store: *loam.Store, root: Schema) !void {
         if (self.requirement_verbs.len > max_requirement_verbs) return error.InvalidGraphLimits;
         for (self.requirement_verbs, 0..) |name, index| {
-            if (name.len == 0 or name.len > 256) return error.InvalidGraphMethod;
+            if (name.len == 0 or name.len > max_requirement_verb_bytes) return error.InvalidGraphMethod;
             for (self.requirement_verbs[0..index]) |prior| if (std.mem.eql(u8, prior, name)) return error.DuplicateGraphMethod;
         }
         if (self.schemas.len == 0 or self.max_pages == 0 or self.max_payload_bytes == 0 or self.max_edges == 0) return error.InvalidGraphLimits;
@@ -75,7 +75,7 @@ pub const Page = struct {
 };
 
 pub const Snapshot = struct {
-    pages: []const Page,
+    pages: []Page,
 
     /// Token membership scans the bounded prepared page inventory. Edge
     /// selection is indexed and never walks preceding fields or restores them.
@@ -111,7 +111,7 @@ pub const Prepared = struct {
     incarnation: u64,
     resource: loam.ObjectId,
     snapshot: Snapshot,
-    links: @TypeOf(@as(loam.RecordView, undefined).edges()),
+    links: loam.EdgeIterator,
     target: ?loam.ObjectId = null,
     index: usize = 0,
     payload_bytes: usize,
@@ -145,21 +145,18 @@ pub const Prepared = struct {
     pub fn advanceCopying(self: *Prepared) !hosting.Preparation.Step {
         try self.current();
         if (self.pending != null) return .waiting;
-        const pages: []Page = @constCast(self.snapshot.pages);
+        const pages = self.snapshot.pages;
         while (self.index < pages.len) {
             if (self.target == null) self.target = self.links.next().?.target;
             const target = self.target.?;
             for (pages[0..self.index]) |page| if (page.view.id.eql(target)) return error.DuplicatePage;
-            const acquired = self.store.acquire(target) catch |err| {
-                if (err == error.PendingRead) return .waiting;
-                return err;
-            };
-            const lease = switch (acquired) {
+            const lease = switch (try hosting.Preparation.acquire(self.store, target)) {
                 .ready => |lease| lease,
                 .read => |read| {
                     self.pending = read.ticket;
                     return .{ .read = read };
                 },
+                .waiting => return .waiting,
             };
             defer self.store.release(lease) catch unreachable;
             const view = try self.store.currentView(lease);
@@ -277,10 +274,7 @@ pub const Delta = struct {
                     const id = try store.allocateId();
                     const fields = try prepared.arena.alloc(loam.Edge, write.fields.len + 1);
                     fields[0] = .{ .target = prepared.resource };
-                    for (write.fields, fields[1..]) |field, *edge| edge.* = switch (field) {
-                        .edge => |committed| committed,
-                        .saved => |saved| try saved.stage(store),
-                    };
+                    for (write.fields, fields[1..]) |field, *edge| edge.* = try field.stage(store);
                     try store.putCopying(.{ .id = id, .revision = 0, .schema = write.schema.id, .schema_version = write.schema.version, .payload = write.payload, .edges = fields }, null);
                     break :fresh id;
                 },
@@ -300,7 +294,8 @@ fn selected(candidate: anytype) ?*const PageHandle {
     };
 }
 
-fn registered(store: *loam.Store, schema: Schema) !loam.Schema {
+/// The Store's declaration of `schema`.
+pub fn registered(store: *loam.Store, schema: Schema) !loam.Schema {
     for (store.cache.schemas) |candidate| if (candidate.id == schema.id and candidate.version == schema.version) return candidate;
     return error.UnsupportedSchema;
 }

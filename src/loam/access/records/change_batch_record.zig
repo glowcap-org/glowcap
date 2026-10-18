@@ -16,6 +16,9 @@ pub const ChangeBatchRecord = struct {
     pub const max_effects = 16;
     pub const max_path = 65;
     pub const max_encoded_bytes = 64 * 1024;
+    pub const format_version: u64 = 1;
+    pub const max_edges = 0;
+    const label = "access:change-batch";
     pub const Effect = union(enum) {
         grant: struct { change: core.GrantPlan.Change, path: []const core.GrantId },
         grant_retired: struct { id: core.GrantId, path: []const core.GrantId },
@@ -29,15 +32,12 @@ pub const ChangeBatchRecord = struct {
         control: struct { object: loam.ObjectId, kind: enum { attenuated, revoked } },
     };
 
-    pub const Owned = struct {
-        value: ChangeBatchRecord,
-
-        pub fn deinit(self: *Owned, allocator: std.mem.Allocator) void {
-            for (self.value.effects) |effect| freeEffect(allocator, effect);
-            allocator.free(self.value.effects);
-            self.* = undefined;
-        }
-    };
+    /// Releases the effects `decodeOwned` took from `allocator`.
+    pub fn deinit(self: *ChangeBatchRecord, allocator: std.mem.Allocator) void {
+        for (self.effects) |effect| freeEffect(allocator, effect);
+        allocator.free(self.effects);
+        self.* = undefined;
+    }
 
     pub fn encodeAlloc(self: ChangeBatchRecord, allocator: std.mem.Allocator) ![]u8 {
         try self.validate(null);
@@ -49,13 +49,13 @@ pub const ChangeBatchRecord = struct {
 
     /// Owns the bounded effect array and its paths. No input bytes survive.
     /// Batch edges retain no application payload or capability descriptor.
-    pub fn decodeOwned(allocator: std.mem.Allocator, view: loam.View) !Owned {
-        if (view.schema != profile.change_batch or view.schema_version != 1 or view.edge_count != 0 or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
+    pub fn decodeOwned(self: *ChangeBatchRecord, allocator: std.mem.Allocator, view: loam.View) !void {
+        if (view.schema != profile.change_batch or view.schema_version != format_version or view.edge_count != 0 or view.payload.len > max_encoded_bytes) return error.InvalidRecord;
         const bytes = view.payload;
         var cursor: usize = 0;
         try s.readByte(bytes, &cursor, '<');
-        if (!std.mem.eql(u8, try s.readSymbol(bytes, &cursor), "access:change-batch")) return error.InvalidRecord;
-        if (try s.readPositiveInt(bytes, &cursor) != 1) return error.UnsupportedVersion;
+        if (!std.mem.eql(u8, try s.readSymbol(bytes, &cursor), label)) return error.InvalidRecord;
+        if (try s.readPositiveInt(bytes, &cursor) != format_version) return error.UnsupportedVersion;
         const owner: core.OwnerId = @fromBackingInt(try fields.readWide(bytes, &cursor));
         const revision = try s.readPositiveInt(bytes, &cursor);
         const sequence = try s.readPositiveInt(bytes, &cursor);
@@ -71,10 +71,9 @@ pub const ChangeBatchRecord = struct {
         }
         try s.readByte(bytes, &cursor, '>');
         try s.expectEnd(bytes, cursor);
-        const result: ChangeBatchRecord = .{ .owner = owner, .commit_revision = revision, .sequence = sequence, .effects = effects };
-        try result.validate(view.id.store);
+        self.* = .{ .owner = owner, .commit_revision = revision, .sequence = sequence, .effects = effects };
+        try self.validate(view.id.store);
         if (revision != view.revision) return error.InvalidRecord;
-        return .{ .value = result };
     }
 
     fn validate(self: ChangeBatchRecord, store: ?loam.StoreId) !void {
@@ -122,8 +121,8 @@ pub const ChangeBatchRecord = struct {
 
     fn write(sink: anytype, self: ChangeBatchRecord) !void {
         try s.beginRecord(sink);
-        try s.writeSymbol(sink, "access:change-batch");
-        try s.writePositiveInt(sink, 1);
+        try s.writeSymbol(sink, label);
+        try s.writePositiveInt(sink, format_version);
         try fields.writeWide(sink, @backingInt(self.owner));
         try s.writePositiveInt(sink, self.commit_revision);
         try s.writePositiveInt(sink, self.sequence);
@@ -166,9 +165,7 @@ pub const ChangeBatchRecord = struct {
                     try writePath(sink, content.path);
                 },
                 .control => |control| {
-                    try fields.writeWide(sink, @backingInt(control.object.store));
-                    try s.writePositiveInt(sink, control.object.incarnation);
-                    try s.writePositiveInt(sink, control.object.sequence);
+                    try fields.writeObject(sink, control.object);
                     try s.writeSymbol(sink, @tagName(control.kind));
                 },
             }
@@ -239,11 +236,7 @@ pub const ChangeBatchRecord = struct {
             const id = try readName(core.ResourceId, bytes, cursor, owner);
             break :result .{ .content = .{ .id = id, .path = try readPath(core.ResourceId, allocator, bytes, cursor, owner) } };
         } else if (std.mem.eql(u8, tag, "control")) result: {
-            const object: loam.ObjectId = .{
-                .store = @fromBackingInt(try fields.readWide(bytes, cursor)),
-                .incarnation = try s.readPositiveInt(bytes, cursor),
-                .sequence = try s.readPositiveInt(bytes, cursor),
-            };
+            const object = try fields.readObject(bytes, cursor);
             const Kind = @FieldType(@FieldType(Effect, "control"), "kind");
             break :result .{ .control = .{ .object = object, .kind = std.meta.stringToEnum(Kind, try s.readSymbol(bytes, cursor)) orelse return error.InvalidRecord } };
         } else return error.InvalidRecord;

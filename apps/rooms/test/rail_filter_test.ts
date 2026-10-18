@@ -53,6 +53,7 @@ function room(id: string): RoomConv {
 		standingPending: false,
 		bridgeIssue: "",
 		held: false,
+		policyHeard: true,
 	};
 }
 

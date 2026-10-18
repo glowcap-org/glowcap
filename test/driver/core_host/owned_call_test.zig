@@ -315,3 +315,114 @@ test "core host: deferred local listener can publish its returned occurrence" {
     const position = pair.a.served.port.reverse_exports.get(actor.local).?;
     try std.testing.expectEqual(@as(u64, 1), pair.a.served.port.peer.session_state.exportRefcount(.from(position)));
 }
+
+const ReservationSnapshot = struct {
+    vows: usize,
+    pending_vows: usize,
+    operations: u24,
+    releases: usize,
+    answers: usize,
+    exports: usize,
+    queued_bytes: usize,
+
+    fn capture(host: *driver.Host, session: *driver.HostSession) ReservationSnapshot {
+        const peer = session.served.port.peer;
+        return .{
+            .vows = host.vows.count(),
+            .pending_vows = host.pendingVowCount(),
+            .operations = session.pendingOperations(),
+            .releases = peer.pending_send_reservations,
+            .answers = peer.session_state.outbound_answers.len(),
+            .exports = peer.session_state.exports.len(),
+            .queued_bytes = session.served.queuedOutboundBytes(),
+        };
+    }
+};
+
+// The replay key is (profile, codec, close-before-transmit, allocation offset).
+// Only Host admission fails, because public Call storage has its own allocator.
+// Each refusal is retried at once, before any wire is pumped. The two finite
+// continuations then settle once or retire the session first. The replay fails
+// if an observer-release carrier stays uncancelled, an unpublished row leaks,
+// or a committed reservation stays armed for destruction. Settlement is
+// byte-fed, so OS I/O faults are out of reach.
+test "core host: owned call reservation replay preserves refusal retry settlement and close" {
+    const model = glowcap.ocapn.model;
+    for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
+        for ([_]model.CodecId{ .syrup, .capnp }) |codec| {
+            for ([_]bool{ false, true }) |close_first| {
+                var failures: usize = 0;
+                for (0..64) |offset| {
+                    if (!try replayReservation(profile, codec, close_first, offset)) break;
+                    failures += 1;
+                } else return error.AllocationSweepDidNotComplete;
+                try std.testing.expect(failures != 0);
+            }
+        }
+    }
+}
+
+fn replayReservation(profile: glowcap.ocapn.model.CaptpVersion, codec: glowcap.ocapn.model.CodecId, close_first: bool, offset: usize) !bool {
+    var failing = std.testing.FailingAllocator.init(a, .{});
+    var options = driver.Host.Options.withFrameCap(h.frame_cap);
+    options.captp_version = profile;
+    options.codec = codec;
+    options.features = glowcap.ocapn.model.FeatureSet.full().forCaptpVersion(profile);
+    var client = support.init(failing.allocator(), @splat(0x6b), options);
+    defer client.deinit();
+    var server = support.init(a, @splat(0x6c), options);
+    defer server.deinit();
+    var dials: std.ArrayList(h.ParkedDial) = .empty;
+    defer dials.deinit(a);
+    const pair = try h.openPair(a, &client, &server, "127.0.0.1:7918", &dials);
+    try std.testing.expectEqual(profile, pair.a.served.port.peer.session_state.captp_version);
+    try std.testing.expectEqual(codec, pair.a.served.port.peer.session_state.codec);
+    var calls: usize = 0;
+    const actor = try server.sessionPublish(pair.b, "replay", driver.Hosting(Echo), .{ .inner = .{ .calls = &calls } });
+    defer server.releaseCapabilityTerminal(actor, null);
+    const fetched = try client.enlivenCapability(a, h.tcpSturdyref("127.0.0.1:7918", "replay"));
+    defer fetched.deinit();
+    try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+    const target = try fetched.take();
+    defer client.releaseCapabilityTerminal(target, null);
+    try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+    const before = ReservationSnapshot.capture(&client, pair.a);
+    try std.testing.expectEqual(@as(usize, 0), calls);
+    failing.fail_index = failing.alloc_index + offset;
+    const result = client.callCapability(a, pair.a, target, "echo", &.{.{ .string = "one committed call" }}, 128);
+    const induced = failing.has_induced_failure;
+    failing.fail_index = std.math.maxInt(usize);
+    const owned = if (result) |call| call else |err| blk: {
+        try std.testing.expectEqual(error.OutOfMemory, err);
+        try std.testing.expect(induced);
+        try std.testing.expectEqualDeep(before, ReservationSnapshot.capture(&client, pair.a));
+        try std.testing.expectEqual(@as(usize, 0), calls);
+        break :blk try client.callCapability(a, pair.a, target, "echo", &.{.{ .string = "one committed call" }}, 128);
+    };
+    defer owned.deinit();
+    try std.testing.expect(owned.result() == .pending);
+    try std.testing.expectEqual(before.pending_vows + 1, client.pendingVowCount());
+    try std.testing.expectEqual(before.operations + 1, pair.a.pendingOperations());
+    if (close_first) {
+        try client.releaseSession(pair.a);
+        try std.testing.expect(owned.result() == .failed);
+        try std.testing.expectEqualStrings("connection released", owned.result().failed.message);
+        try std.testing.expectEqual(@as(usize, 0), calls);
+        try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
+        try std.testing.expectEqual(@as(usize, 0), client.vows.count());
+        // No session pointer is used after release. The server never received
+        // the queued call, and its own retirement must not invoke that actor.
+        try server.releaseSession(pair.b);
+        try std.testing.expectEqual(@as(usize, 0), calls);
+        try std.testing.expectEqual(@as(usize, 0), server.pendingVowCount());
+    } else {
+        try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+        try std.testing.expect(owned.result() == .ready);
+        try std.testing.expectEqualStrings("one committed call", owned.result().ready.string);
+        try std.testing.expectEqual(@as(usize, 1), calls);
+        try h.pumpToQuiescence(a, &.{ &client, &server }, &.{pair}, &dials);
+        try std.testing.expectEqual(@as(usize, 1), calls);
+        try std.testing.expectEqualDeep(before, ReservationSnapshot.capture(&client, pair.a));
+    }
+    return induced;
+}

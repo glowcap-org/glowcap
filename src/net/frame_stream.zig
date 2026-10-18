@@ -159,7 +159,7 @@ pub const Fill = enum { filled, closed };
 /// that same condition into a bounded owned accumulation instead, and is what
 /// the frame readers drive.
 fn fillStep(r: *std.Io.Reader) FillError!Fill {
-    if (r.buffer.len > 0 and r.bufferedLen() == r.buffer.len) return error.FrameTooLarge;
+    if (bufferFull(r)) return error.FrameTooLarge;
 
     r.fillMore() catch |err| switch (err) {
         error.EndOfStream => return if (r.bufferedLen() == 0) .closed else error.TruncatedFrame,
@@ -222,11 +222,16 @@ pub fn fillThroughSpill(
         try absorbFrom(spill, allocator, r);
         return .filled;
     }
-    if (r.buffer.len > 0 and r.bufferedLen() == r.buffer.len) {
+    if (bufferFull(r)) {
         try absorbFrom(spill, allocator, r);
         return .filled;
     }
     return fillStep(r);
+}
+
+/// The reader's buffer holds as much as it can, so a fill makes no progress.
+fn bufferFull(r: *const std.Io.Reader) bool {
+    return r.buffer.len > 0 and r.bufferedLen() == r.buffer.len;
 }
 
 /// Block until one whole envelope is available on `r`, returning its body as

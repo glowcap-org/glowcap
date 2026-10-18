@@ -11,8 +11,7 @@ const driver = @import("driver_core");
 const service = @import("service.zig");
 const ContentDelta = @import("content_delta.zig").ContentDelta;
 const Mutation = @import("mutation.zig").Mutation;
-
-pub const Step = union(enum) { ready, read: loam.Read, waiting, more };
+const Step = @import("step.zig").Step;
 
 pub const Creation = struct {
     declared: service.Creation,
@@ -31,17 +30,12 @@ pub const Creation = struct {
     /// Hold the descriptor row and prepare the append under `parent`. `.more`
     /// asks the caller to drain its operations and call again.
     pub fn prepare(self: *Creation, store: *loam.Store, descriptor: loam.ObjectId, staging: *storage.Operation, parent: core.ResourceId, requirement: core.Policy.Requirement) !Step {
-        if (self.descriptor == null) self.descriptor = switch (store.acquire(descriptor) catch |err| {
-            if (err == error.PendingRead) return .waiting;
-            return err;
-        }) {
+        if (self.descriptor == null) self.descriptor = switch (try hosting.Preparation.acquire(store, descriptor)) {
             .ready => |lease| lease,
             .read => |read| return .{ .read = read },
+            .waiting => return .waiting,
         };
-        staging.prepareChild(parent, requirement) catch |err| {
-            if (err == error.RecordUnloaded) return .more;
-            return err;
-        };
+        try loam.reload(staging.prepareChild(parent, requirement)) orelse return .more;
         self.prepared = true;
         return .ready;
     }
@@ -65,14 +59,14 @@ pub const Creation = struct {
         try store.putCopying(.{ .id = content, .revision = 0, .schema = self.declared.schema, .schema_version = self.declared.version, .payload = self.payload.?, .edges = &.{} }, null);
         const endpoint = try store.allocateId();
         const descriptor = (try store.currentView(self.descriptor.?)).id;
-        try storage.stage.endpointAtOperation(staging, arena, endpoint, .{ .descriptor = descriptor, .content = .{ .resource = child.id, .object = content } }, false);
+        try storage.stage.endpointAtOperation(staging, arena, endpoint, .{ .descriptor = descriptor, .content = .{ .resource = child.id, .object = content } }, .reachable);
         const edit = self.bound_edit.?;
         const appended = try arena.alloc(hosting.references.Replacement, edit.appended.len + 1);
         @memcpy(appended[0..edit.appended.len], edit.appended);
         appended[edit.appended.len] = .{ .edge = .{ .target = endpoint } };
         const view = try store.currentView(bound);
         const delta = (try ContentDelta.prepare(arena, view, edit.replacement, edit.edits, appended)).?;
-        try store.putCopying(.{ .id = view.id, .revision = 0, .schema = view.schema, .schema_version = view.schema_version, .rooted = view.rooted, .payload = delta.payload, .edges = try delta.stageEdges(store, arena) }, view.revision);
+        try delta.put(store, arena, view);
         const facet = try call.discloseHeld(try call.projectDependent(try call.propose(endpoint)));
         self.facet = facet;
         if (mutation) |receipt| try receipt.retainFacetResult(facet, endpoint);

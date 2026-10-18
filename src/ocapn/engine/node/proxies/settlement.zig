@@ -11,8 +11,6 @@ const Node = node_mod.Node;
 const Internal = node_mod.Internal;
 const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 
-const RelayedSlot = struct { import_pos: u64, row_id: u64 };
-
 pub fn isHomeListener(self: *const Node, home_peer: PeerHandle, listener_export: u64) bool {
     return self.proxy_by_listener.contains(.{ .home = home_peer, .listener_export = listener_export });
 }
@@ -29,12 +27,8 @@ pub fn claimProjectedListenerFire(
 ) !bool {
     if (!isHomeListener(self, home_peer, listener_export)) return false;
     const owned = try view_res.toOwned(allocator);
-    std.debug.assert(consumeProjectedListenerFire(
-        self,
-        home_peer,
-        listener_export,
-        owned,
-    ));
+    const consumed = consumeProjectedListenerFire(self, home_peer, listener_export, owned);
+    std.debug.assert(consumed);
     return true;
 }
 
@@ -45,51 +39,41 @@ fn breakRecipients(self: *Node, row: *topology.Proxy) void {
     for (row.recipients.items) |*recipient| breakRecipient(self, recipient);
 }
 
-fn breakRelayedOwned(self: *Node, peer_handle: PeerHandle, slot: RelayedSlot, reason: []u8) void {
-    const recip = self.peer(peer_handle) orelse {
+/// Settle a recipient's projection with the break escrowed at admission.
+/// The guaranteed settlement stores the break even under outbound pressure,
+/// so no allocation and no later event is needed.
+pub fn breakRecipient(self: *Node, recipient: *topology.Recipient) void {
+    const reason = recipient.takeFailure();
+    const recip = self.peer(recipient.peer) orelse {
         self.allocator.free(reason);
         actions.releaseProxyReservation(self);
         return;
     };
-    // `applyRelayedResolution` consumes the resolution on every outcome,
-    // including an error after the store commits. Freeing it here would
-    // double-free that stored settlement.
-    recip.applyRelayedResolutionGuaranteed(
-        model.ImportPosition.from(slot.import_pos),
-        slot.row_id,
-        .{ .@"break" = .{ .message = reason } },
-    ) catch |err| recip.emitFailure(err);
-    actions.queueProxyFlush(self, peer_handle);
+    recip.breakAnswerTargetGuaranteed(recipient.target, reason);
+    actions.queueProxyFlush(self, recipient.peer);
 }
 
-pub fn breakRecipient(self: *Node, recipient: *topology.Recipient) void {
-    breakRelayedOwned(
-        self,
-        recipient.peer,
-        .{ .import_pos = recipient.import_pos, .row_id = recipient.row_id },
-        recipient.takeFailure(),
-    );
-}
-
-/// Move one resolution into a recipient store. If validation or storage
-/// refuses it before commit, use the already-reserved terminal break. After
-/// commit, only release the now-unneeded escrow.
+/// Settle a recipient's projection with the fire's value. A refusal before
+/// commit spends the escrowed terminal break instead; after commit, only the
+/// now-unneeded escrow is released.
 pub fn settleRecipient(self: *Node, recipient: *topology.Recipient, resolution: model.Resolution) void {
     const recip = self.peer(recipient.peer) orelse {
         model.freeResolution(self.allocator, resolution);
-        recipient.releaseFailure(self.allocator);
-        actions.releaseProxyReservation(self);
+        topology.retireEscrow(self, recipient);
         return;
     };
-    recip.applyRelayedResolutionGuaranteed(
-        model.ImportPosition.from(recipient.import_pos),
-        recipient.row_id,
-        resolution,
-    ) catch |err| recip.recordFailure(err);
-    if (recip.session_state.importedPromiseResolution(.from(recipient.import_pos)) != null)
-        recipient.releaseFailure(self.allocator)
-    else
-        return breakRecipient(self, recipient);
+    recip.settleAnswerTargetGuaranteed(recipient.target, resolution) catch |err| switch (err) {
+        // The projection was collected, settled, or its session closed: nobody holds it.
+        error.InvalidReference, error.UnexpectedMessage, error.SessionClosed => {
+            topology.retireEscrow(self, recipient);
+            return;
+        },
+        else => {
+            recip.recordFailure(err);
+            return breakRecipient(self, recipient);
+        },
+    };
+    recipient.releaseFailure(self.allocator);
     actions.queueProxyFlush(self, recipient.peer);
 }
 
@@ -106,7 +90,8 @@ pub const RelayRecipient = struct {
 
     /// Materialize `resolution` into the recipient allocator, then settle it
     /// directly or transfer it into the shared bounded Passable transaction.
-    /// False means the reserved terminal break was already delivered.
+    /// False means the reserved terminal break was already delivered, or the
+    /// projection is gone and the fire was moot.
     pub fn adopt(self: *RelayRecipient, resolution: model.Resolution) bool {
         const recipient_peer = self.node.peer(self.recipient.peer) orelse {
             breakRecipient(self.node, self.recipient);
@@ -116,32 +101,49 @@ pub const RelayRecipient = struct {
             breakRecipient(self.node, self.recipient);
             return false;
         };
-        var payload: Internal.InlinePassablePayload = .{ .relayed_resolution = owned };
-        const inventory = recipient_peer.session_state.inventoryResolution(owned) catch {
-            payload.deinit(recipient_peer.allocator, &recipient_peer.session_state);
+        const begun = recipient_peer.session_state.beginAnswerSettlement(self.recipient.target) catch |err| {
+            model.freeResolution(recipient_peer.allocator, owned);
+            switch (err) {
+                // The projection was collected or settled: nobody holds it.
+                error.InvalidReference, error.UnexpectedMessage => topology.retireEscrow(self.node, self.recipient),
+                else => breakRecipient(self.node, self.recipient),
+            }
+            return false;
+        };
+        var payload: Internal.InlinePassableOutbound = .{ .answer_settlement = .{
+            .target = begun.target,
+            .payload = begun.payload,
+            .resolution = owned,
+        } };
+        const inventory = recipient_peer.inventoryResolution(owned) catch {
+            payload.deinit(&recipient_peer.session_state);
             breakRecipient(self.node, self.recipient);
             return false;
         };
         defer inventory.deinit(recipient_peer.allocator);
-        var destination: Internal.InlinePassableDestination = .{ .relayed = self.recipient.* };
-        self.recipient.failure_reason = null;
         const staged = Internal.stageInlinePassable(
             self.node,
             self.recipient.peer,
             &payload,
             inventory,
-            &destination,
-            null,
+            .{ .inbound_answer = begun.target },
+            &self.recipient.failure_reason,
         ) catch {
-            self.recipient.* = destination.relayed;
-            payload.deinit(recipient_peer.allocator, &recipient_peer.session_state);
+            payload.deinit(&recipient_peer.session_state);
             breakRecipient(self.node, self.recipient);
             return false;
         };
-        if (staged) return true;
-
-        self.recipient.* = destination.relayed;
-        settleRecipient(self.node, self.recipient, payload.relayed_resolution);
+        if (staged) {
+            // The batch took the escrow and owns the terminal, and its own
+            // completion seat drives the recipient.
+            std.debug.assert(self.recipient.failure_reason == null);
+            actions.releaseProxyReservation(self.node);
+            return true;
+        }
+        // No cross-session projection: the guaranteed settlement begins the
+        // answer again on its own path.
+        recipient_peer.session_state.releaseAnswerPayload(begun.payload);
+        settleRecipient(self.node, self.recipient, owned);
         return true;
     }
 };
@@ -221,15 +223,12 @@ pub fn sweepForPeer(self: *Node, peer_handle: PeerHandle) void {
         } else {
             var i: usize = 0;
             while (i < entry.value_ptr.recipients.items.len) {
-                if (entry.value_ptr.recipients.items[i].peer == peer_handle) {
-                    if (entry.value_ptr.recipients.items[i].failure_reason != null)
-                        actions.releaseProxyReservation(self);
-                    entry.value_ptr.recipients.items[i].releaseFailure(self.allocator);
-                    entry.value_ptr.recipients.items[i] = entry.value_ptr.recipients.items[entry.value_ptr.recipients.items.len - 1];
-                    entry.value_ptr.recipients.items.len -= 1;
-                } else {
+                if (entry.value_ptr.recipients.items[i].peer != peer_handle) {
                     i += 1;
+                    continue;
                 }
+                var retired = entry.value_ptr.recipients.swapRemove(i);
+                topology.retireEscrow(self, &retired);
             }
             remove = entry.value_ptr.recipients.items.len == 0;
         }

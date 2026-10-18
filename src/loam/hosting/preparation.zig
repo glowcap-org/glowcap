@@ -10,6 +10,20 @@ pub const Preparation = struct {
     completeFn: *const fn (*anyopaque, core.Ticket, core.ReadResult) anyerror!void,
     deinitFn: *const fn (*anyopaque) void,
     pub const Step = union(enum) { ready, read: core.Read, waiting };
+    /// A row for a preparation: its lease, the read to park on, or
+    /// `.waiting` while the Store's room is spoken for.
+    pub const Acquisition = union(enum) { ready: core.Lease, read: core.Read, waiting };
+
+    pub fn acquire(store: *core.Store, id: core.ObjectId) !Acquisition {
+        const acquired = store.acquire(id) catch |err| switch (err) {
+            error.PendingRead => return .waiting,
+            else => return err,
+        };
+        return switch (acquired) {
+            .ready => |lease| .{ .ready = lease },
+            .read => |read| .{ .read = read },
+        };
+    }
 
     pub fn advance(self: Preparation) !Step {
         return self.advanceFn(self.context);

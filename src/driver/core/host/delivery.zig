@@ -214,27 +214,13 @@ fn sendValuesWithProgress(
     admission: WorkAdmission,
 ) !u64 {
     try admission.check(self);
-    const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
-    if (resolved_target == .deferred) {
-        const promise = self.capability_promises.get(resolved_target.deferred) orelse
-            return error.UnknownCapability;
-        switch (promise.state) {
-            .pending, .settling => {
-                if (observer != null) return error.NotResolved;
-                const id = try capability_promise.queueSendValues(
-                    self,
-                    resolved_target.deferred,
-                    session,
-                    verb,
-                    values,
-                );
-                if (drive_now) host_pump.finishCommittedWork(self, session);
-                return id;
-            },
-            .fulfilled, .broken => {},
-        }
+    if (try unsettledPromiseOf(self, target)) |promise_id| {
+        if (observer != null) return error.NotResolved;
+        const id = try capability_promise.queueSendValues(self, promise_id, session, verb, values);
+        if (drive_now) host_pump.finishCommittedWork(self, session);
+        return id;
     }
-    const routed = try routing.routeCapability(self, session, target, true);
+    const routed = try routing.routeCapability(self, session, target, .object_only);
     try self.checkOutboundAdmission(routed.session);
     if (freightOf(routed, verb, values)) |freight|
         return commitRoutedSend(self, routed, freight, drive_now, null, observer);
@@ -247,6 +233,19 @@ fn sendValuesWithProgress(
     }, drive_now, &prepared, observer);
     _ = prepared.commit();
     return id;
+}
+
+/// The unsettled promise `target` stands for, when a send to it queues on
+/// the promise instead of routing to an exporter. A settled promise and a
+/// direct target route.
+fn unsettledPromiseOf(self: *Host, target: capability.Ref) !?capability.PromiseId {
+    const resolved = self.capabilities.resolve(target) orelse return error.UnknownCapability;
+    if (resolved != .deferred) return null;
+    const promise = self.capability_promises.get(resolved.deferred) orelse return error.UnknownCapability;
+    return switch (promise.state) {
+        .pending, .settling => resolved.deferred,
+        .fulfilled, .broken => null,
+    };
 }
 
 /// A far send of values that carry no capability leaves as freight: the
@@ -280,7 +279,7 @@ fn sendCapabilityWithProgress(
     drive_now: bool,
 ) !u64 {
     try self.admitApplicationOperation();
-    const routed = try routing.routeCapability(self, session, target, true);
+    const routed = try routing.routeCapability(self, session, target, .object_only);
     try self.checkOutboundAdmission(routed.session);
     try routing.validateRoutedArguments(self, routed.session, msg.args);
     return commitRoutedSend(self, routed, msg.delivery(), drive_now, null, null);
@@ -304,26 +303,21 @@ fn commitRoutedSend(
         .local => .none,
         .far => .peer_visible,
     };
-    const reservation = try vows.reserveVow(self, routed.session, location, .plain, answer_release);
-    var reservation_live = true;
-    errdefer if (reservation_live) {
-        vow_settlement.cancelObserverRelease(reservation.row, routed.session);
-        vows.cancelVowReservation(self, reservation);
-    };
+    var reservation = try vows.reserveVow(self, routed.session, location, .plain, answer_release);
+    defer reservation.deinit();
     if (observer) |recipient| switch (recipient) {
-        .call => |owned| try @import("owned_call.zig").observe(owned, routed.session, reservation.row),
+        .call => |owned| try @import("owned_call.zig").observe(owned, routed.session, reservation.getRow()),
         .listener => |listener| {
             if (answer_release == .peer_visible)
-                reservation.row.observer_release = try routed.session.served.port.peer.reserveAnswerRelease();
-            reservation.row.inner = listener;
+                reservation.getRow().observer_release = try routed.session.served.port.peer.reserveAnswerRelease();
+            reservation.getRow().inner = listener;
         },
     };
     const vow = if (staging) |prepared|
         try lower.servedSendWithStaging(self, routed.session, routed.target, .{ .verb = delivery.verb, .args = prepared.values }, prepared)
     else
         try routed.session.served.sendDelivery(&self.vat, routed.target, delivery);
-    const id = vows.commitVow(self, routed.session, reservation, vow);
-    reservation_live = false;
+    const id = reservation.commit(vow);
     self.node.exporterApplicationOwned(routed.session.peer_handle);
     if (drive_now)
         host_pump.finishCommittedVow(self, routed.session)
@@ -341,7 +335,7 @@ pub fn tell(self: *Host, session: *HostSession, target: model.Reference, msg: ac
 
 pub fn tellCapability(self: *Host, session: *HostSession, target: capability.Ref, msg: actors.Message) !void {
     try self.admitApplicationOperation();
-    const routed = try routing.routeCapability(self, session, target, true);
+    const routed = try routing.routeCapability(self, session, target, .object_only);
     try self.checkOutboundAdmission(routed.session);
     try routing.validateRoutedArguments(self, routed.session, msg.args);
     return commitRoutedTell(self, routed, msg.delivery());
@@ -360,26 +354,12 @@ pub fn tellValues(
 
 pub fn tellValuesAdmitted(self: *Host, session: *HostSession, target: capability.Ref, verb: []const u8, values: []const value_mod.Value, arena: std.mem.Allocator, admission: WorkAdmission) !void {
     try admission.check(self);
-    const resolved_target = self.capabilities.resolve(target) orelse return error.UnknownCapability;
-    if (resolved_target == .deferred) {
-        const promise = self.capability_promises.get(resolved_target.deferred) orelse
-            return error.UnknownCapability;
-        switch (promise.state) {
-            .pending, .settling => {
-                try capability_promise.queueTellValues(
-                    self,
-                    resolved_target.deferred,
-                    session,
-                    verb,
-                    values,
-                );
-                host_pump.finishCommittedWork(self, session);
-                return;
-            },
-            .fulfilled, .broken => {},
-        }
+    if (try unsettledPromiseOf(self, target)) |promise_id| {
+        try capability_promise.queueTellValues(self, promise_id, session, verb, values);
+        host_pump.finishCommittedWork(self, session);
+        return;
     }
-    const routed = try routing.routeCapability(self, session, target, true);
+    const routed = try routing.routeCapability(self, session, target, .object_only);
     try self.checkOutboundAdmission(routed.session);
     if (freightOf(routed, verb, values)) |freight| return commitRoutedTell(self, routed, freight);
     var prepared = try lower.prepareValues(self, routed.session, arena, values);

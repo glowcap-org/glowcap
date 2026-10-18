@@ -9,6 +9,7 @@
 const std = @import("std");
 
 const model = @import("model");
+const session = @import("session");
 
 const semantic = @import("../outbound.zig");
 const engine = @import("../mod.zig");
@@ -27,8 +28,8 @@ pub const PendingOutbound = struct {
     provisional: bool = false,
 };
 
-pub const PendingReservation = struct { charge: usize };
-pub const InlinePassableStagingReservation = struct { charge: usize };
+pub const PendingReservation = budget.PendingReservation;
+pub const InlinePassableStagingReservation = budget.InlinePassableStagingReservation;
 
 /// One authority transaction that may stage several outbound carriers.
 /// Admission is checked for the producer as a whole. Every returned seat stays
@@ -58,27 +59,15 @@ pub const PendingBatch = struct {
     }
 };
 
-/// Measure one staged carrier once at admission. Store-backed carriers are
-/// POD. Owned messages account for their retained model bytes.
-pub fn pendingOutboundCharge(item: semantic.Outbound) !usize {
-    return budget.pendingCharge(item);
-}
-
-/// Reserve shared outbound budget and one queue seat before protocol state
-/// commits. The result must be published or canceled on the same unwind path.
-pub fn reservePending(self: *Peer, item: semantic.Outbound) !PendingReservation {
-    return budget.reservePending(self, item, PendingReservation);
-}
-
-pub fn reservePendingCharged(self: *Peer, charge: usize, handshake: bool) !PendingReservation {
-    return budget.reservePendingCharged(self, charge, handshake, PendingReservation);
-}
+pub const pendingOutboundCharge = budget.pendingCharge;
+pub const reservePending = budget.reservePending;
+pub const reservePendingCharged = budget.reservePendingCharged;
 
 /// Reserve the POD carrier that will relinquish one application answer after
 /// its caller releases it or an in-process observer fires. Commit supplies the
 /// answer. This preparation owns its fixed charge and queue seat.
 pub fn reserveAnswerRelease(self: *Peer) !PendingReservation {
-    return reservePending(self, .{ .answer_release = .from(0) });
+    return reservePending(self, .{ .answer_release = .{ .position = .from(0), .row_id = 0 } });
 }
 
 /// Transfer release responsibility to the pending queue. A staged send carries
@@ -86,13 +75,14 @@ pub fn reserveAnswerRelease(self: *Peer) !PendingReservation {
 pub fn publishAnswerRelease(
     self: *Peer,
     reservation: PendingReservation,
-    answer: model.AnswerPosition,
+    answer: session.OutboundAnswerTarget,
 ) void {
-    if (self.session_state.outbound_answers.getPtr(answer)) |_| {
+    if (self.session_state.outbound_answers.live(answer)) |_| {
         claimQueuedRelease(self, answer);
     } else {
+        std.debug.assert(self.session_state.outbound_answers.reservedStamp(answer.position) == answer.row_id);
         for (self.pending_send.pending()) |*row| switch (row.item) {
-            .staged => |*staged| if (staged.answer == answer) {
+            .staged => |*staged| if (staged.answer == answer.position) {
                 std.debug.assert(!staged.release_queued);
                 staged.release_queued = true;
                 break;
@@ -103,7 +93,7 @@ pub fn publishAnswerRelease(
     pushPendingAssume(self, reservation, .{ .answer_release = answer });
 }
 
-fn claimQueuedRelease(self: *Peer, answer: model.AnswerPosition) void {
+fn claimQueuedRelease(self: *Peer, answer: session.OutboundAnswerTarget) void {
     if (!self.session_state.outboundAnswerReleaseClaimed(answer)) {
         const claimed = self.session_state.claimOutboundAnswerRelease(answer);
         std.debug.assert(claimed);
@@ -111,29 +101,9 @@ fn claimQueuedRelease(self: *Peer, answer: model.AnswerPosition) void {
     self.session_state.consumeOutboundAnswerNotification(answer);
 }
 
-/// Admit a complete carrier while Node projects its foreign Passable tree.
-pub fn reserveInlinePassableStaging(
-    self: *Peer,
-    charge: usize,
-) !InlinePassableStagingReservation {
-    return budget.reserveInline(self, charge, InlinePassableStagingReservation);
-}
-
-pub fn cancelInlinePassableStaging(
-    self: *Peer,
-    reservation: InlinePassableStagingReservation,
-) void {
-    budget.cancelInline(self, reservation);
-}
-
-/// Transfer an already-charged Node staging carrier into pending storage.
-pub fn transferInlinePassableStaging(
-    self: *Peer,
-    staged: InlinePassableStagingReservation,
-    item: semantic.Outbound,
-) !PendingReservation {
-    return budget.transferInline(self, staged, item, PendingReservation);
-}
+pub const reserveInlinePassableStaging = budget.reserveInline;
+pub const cancelInlinePassableStaging = budget.cancelInline;
+pub const transferInlinePassableStaging = budget.transferInline;
 
 /// Preflight storage once for a multi-carrier authority transaction. The first
 /// actual reservation performs admission, so an empty upper bound is inert.
@@ -169,19 +139,17 @@ pub fn cancelPendingReservation(self: *Peer, reservation: PendingReservation) vo
     self.pending_send_reservations -= 1;
     std.debug.assert(self.pending_send_bytes >= reservation.charge);
     self.pending_send_bytes -= reservation.charge;
+    trimPendingIfIdle(self);
+}
+
+/// Give the pending queue its steady footprint back once nothing is queued
+/// and no reservation still counts on its capacity.
+pub fn trimPendingIfIdle(self: *Peer) void {
     if (self.pending_send_reservations == 0 and self.pending_send.isEmpty())
         self.pending_send.trimDrained(self.allocator);
 }
 
-/// Move the owned-resolution portion into Session storage without changing
-/// the aggregate waterline or measuring the payload again.
-pub fn transferPendingChargeToAnswerStore(
-    self: *Peer,
-    reservation: *PendingReservation,
-    store_charge: usize,
-) void {
-    budget.transferPendingToAnswerStore(self, reservation, store_charge);
-}
+pub const transferPendingChargeToAnswerStore = budget.transferPendingToAnswerStore;
 
 /// Hold the queue position of a carrier the Node starts staging. The row is
 /// free: the carrier's bytes stay charged to its staging reservation.
@@ -195,11 +163,12 @@ pub fn reserveStagedRow(self: *Peer) !PendingReservation {
 /// Session row owns the usual case. Only sends awaiting Node preparation need
 /// the pending-queue walk, before their row exists. No completed-answer cache
 /// is needed, and a retracted or released answer cannot acquire a new observer.
-pub fn canObserveAnswer(self: *Peer, answer: model.AnswerPosition) bool {
-    if (self.session_state.outbound_answers.getPtr(answer)) |row|
+pub fn canObserveAnswer(self: *Peer, answer: session.OutboundAnswerTarget) bool {
+    if (self.session_state.outbound_answers.live(answer)) |row|
         return !row.application_notification_consumed;
+    if (self.session_state.outbound_answers.reservedStamp(answer.position) != answer.row_id) return false;
     for (self.pending_send.pending()) |row| switch (row.item) {
-        .staged => |staged| if (staged.answer == answer) return !staged.release_queued,
+        .staged => |staged| if (staged.answer == answer.position) return !staged.release_queued,
         else => {},
     };
     return false;
@@ -222,7 +191,7 @@ pub fn fillStagedRow(self: *Peer, batch: BatchId, appended: usize) void {
     // the row leaves only through this fill or the batch's retirement.
     const index = stagedRowIndex(self, batch) orelse unreachable;
     const staged = self.pending_send.pending()[index].item.staged;
-    if (staged.release_queued) claimQueuedRelease(self, staged.answer.?);
+    if (staged.release_queued) claimQueuedRelease(self, self.session_state.outbound_answers.targetOf(staged.answer.?) orelse unreachable);
     if (appended == 0) return self.pending_send.removePending(index);
     // `appended == 1`: the send pushed exactly the carrier popped here.
     const filled = self.pending_send.popBack() orelse unreachable;
@@ -249,8 +218,7 @@ pub const StagedRowRemoval = enum {
 pub fn removeStagedRow(self: *Peer, batch: BatchId) StagedRowRemoval {
     const index = stagedRowIndex(self, batch) orelse return .absent;
     self.pending_send.removePending(index);
-    if (self.pending_send_reservations == 0 and self.pending_send.isEmpty())
-        self.pending_send.trimDrained(self.allocator);
+    trimPendingIfIdle(self);
     const sendable = !self.pending_send.isEmpty() and !blockedOnStaging(self);
     return if (index == 0 and sendable) .unblocked else .removed;
 }
@@ -275,8 +243,7 @@ pub fn withdrawQueuedListen(self: *Peer, listener: model.ExportPosition) void {
             self.pending_send_bytes -= row.charge;
             self.session_state.retractPreparedListen(message);
             row.item.deinit(self);
-            if (self.pending_send_reservations == 0 and self.pending_send.isEmpty())
-                self.pending_send.trimDrained(self.allocator);
+            trimPendingIfIdle(self);
             return;
         },
         else => {},
@@ -309,27 +276,14 @@ pub fn popPendingBack(self: *Peer) ?PendingOutbound {
     return pending;
 }
 
-/// Refuse a new producer once all retained outbound work reaches the waterline.
-pub fn checkOutboundWaterline(self: *const Peer) !void {
-    return budget.checkWaterline(self);
-}
-
-/// Refuse a producer the budget cannot hold or that arrives at the
-/// waterline, before it allocates.
-pub fn admitOutboundProducer(self: *const Peer, charge: usize) !void {
-    return budget.admitProducer(self, charge);
-}
+pub const checkOutboundWaterline = budget.checkWaterline;
+pub const admitOutboundProducer = budget.admitProducer;
 
 pub fn ensureOutboundCapacity(self: *Peer, count: usize) !void {
     try self.outbound.ensureUnusedCapacity(self.allocator, count);
 }
 
-/// Constant-time aggregate of pending carriers and encoded frames. Durable
-/// sent resolutions answer to the session's table bounds, not this flow
-/// waterline. Host and adapters use this without re-walking payloads.
-pub fn queuedOutboundBytes(self: *const Peer) usize {
-    return budget.queuedBytes(self);
-}
+pub const queuedOutboundBytes = budget.queuedBytes;
 
 /// Whether retained outbound work has reached this peer's waterline. This is
 /// the signal an adapter parks new inbound on: every applied frame can only

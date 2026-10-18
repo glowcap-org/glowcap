@@ -24,6 +24,9 @@ pub const encodeMessage = encode.encodeMessage;
 pub const encodeMessageForProfile = encode.encodeMessageForProfile;
 pub const encodeBody = encode.encodeBody;
 pub const encodeBodyForProfile = encode.encodeBodyForProfile;
+/// Sizes an outbound tree's values during the session's admission walk, so
+/// `encodeBodyForProfile` reads the tree once (`meter.zig`).
+pub const meter: ?type = @import("meter.zig");
 pub const canonicalLocationSignedBytes = canonical.canonicalLocationSignedBytes;
 pub const canonicalLocationSignedBytesRaw = canonical.canonicalLocationSignedBytesRaw;
 pub const canonicalHandoffGiveSignedBytes = canonical.canonicalHandoffGiveSignedBytes;

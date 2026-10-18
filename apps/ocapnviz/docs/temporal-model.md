@@ -12,7 +12,7 @@ behavior layer of [`data-model.md`](data-model.md). The code is the
 specification: `src/engine/temporal/time-span.ts` holds the storage shape and the
 gesture rewrites, `doc-resolver.ts` holds the table of which reader reads which
 layer, and `authoring/moves.ts::moveEvent` pairs an observation move with its
-entity patch. This page carries the reasoning the type signatures do not.
+entity patch.
 
 ## Three layers
 
@@ -136,9 +136,8 @@ duration has reached zero.
 A timeline lane draws the effective range as a solid bar. Where intrinsic
 reaches past effective, it draws a thin dashed ghost outline of intrinsic, so
 the user can see what they typed. An entity whose effective range is empty draws
-only that ghost, and stays selectable from the timeline even though the stage
-hides it. Hit-testing follows: effective bounds on the stage, intrinsic bounds
-in the timeline so ghosts stay clickable.
+only that ghost. Hit-testing reads effective bounds on the stage and in the
+timeline.
 
 The Inspector shows peers and sessions as start and end, and messages as start
 and flight. It reads stored values, and when a stored value differs from the

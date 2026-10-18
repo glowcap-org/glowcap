@@ -10,23 +10,28 @@
 
 (provide server-run client-connect client-fetch client-call client-close)
 
-;; Serve forever: accept each connection, publish the app root (built with a
-;; connection-scoped mint-cap that exports + publishes any capability a handler
-;; returns), and serve it on its own thread. build-root : mint-cap -> root-ctor.
-;; Do not swallow serve faults, `session-serve` closes the transport on error;
-;; a swallowed exception would leave partners hung on a half-open TCP.
+;; Serve until interrupted: accept each connection, publish the app root (built
+;; with a connection-scoped mint-cap that exports + publishes any capability a
+;; handler returns), and serve it on its own thread. build-root : mint-cap ->
+;; root-ctor. Do not swallow serve faults, `session-serve` closes the transport
+;; on error; a swallowed exception would leave partners hung on a half-open TCP.
+;; The orchestrator stops the server with an interrupt, which breaks the accept
+;; wait. Closing the server then retires the listener and the driver loop it
+;; owns, so the process leaves with its ring drained instead of handing the
+;; kernel armed operations to cancel.
 (define (server-run name host port build-root)
   (define srv (listen host port))
   (printf "{\"v\":1,\"event\":\"ready\",\"listen\":\"~a:~a\"}\n" host (server-port srv))
   (flush-output)
-  (let accept-loop ()
-    (define hconn (accept srv))
-    (thread
-     (lambda ()
-       (define (mint-cap ctor) (session-spawn hconn ctor))
-       (session-publish hconn name (build-root mint-cap))
-       (session-serve hconn)))
-    (accept-loop)))
+  (with-handlers ([exn:break? (lambda (_) (server-close! srv))])
+    (let accept-loop ()
+      (define hconn (accept srv))
+      (thread
+       (lambda ()
+         (define (mint-cap ctor) (session-spawn hconn ctor))
+         (session-publish hconn name (build-root mint-cap))
+         (session-serve hconn)))
+      (accept-loop))))
 
 (struct pclient (runtime conn))
 

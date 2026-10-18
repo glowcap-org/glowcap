@@ -126,7 +126,7 @@ The choreography:
    `installThirdPartyImport` and returns a near-promise rewrite for the vat.
 3. **Subscribe on the home session.** One `op:listen` per home wire import
    (shared across recipient introduces of that wire). Refused with
-   `session_not_open` when the home peer is not yet open (CapTP break reason
+   `SessionNotOpen` when the home peer is not yet open (CapTP break reason
    via `@errorName`).
 4. **Project once per recipient.** The Host lifts the consumed home fire to
    opaque identity once. `projectProxyListenerFire` lowers that complete value

@@ -55,13 +55,13 @@ test "core host fresh vow id exhaustion refuses before publishing a vow row" {
     defer host.deinit();
     const session = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7000", &.{});
 
-    host.next_vow = std.math.maxInt(u64);
+    host.vow_ids.next = std.math.maxInt(u64);
     try std.testing.expectError(
         error.CapabilitySpaceExhausted,
         host.queueFetch(session, "widget"),
     );
     try std.testing.expectEqual(@as(usize, 0), host.vows.count());
-    try std.testing.expectEqual(std.math.maxInt(u64), host.next_vow);
+    try std.testing.expectEqual(std.math.maxInt(u64), host.vow_ids.next);
 }
 
 test "core host: listener vows retire on settle and public vows remain sendable until release" {
@@ -205,7 +205,6 @@ fn expectObservedRemoteRelease(
     const client_state = &pair.a.served.port.peer.session_state;
     const server_state = &pair.b.served.port.peer.session_state;
     const client_answers = client_state.outbound_answers.len();
-    const client_resolvers = client_state.outbound_resolver_link.len();
     const client_exports = client_state.exports.len();
     const server_answers = server_state.inbound_answers.len();
 
@@ -217,7 +216,6 @@ fn expectObservedRemoteRelease(
     _ = try fetched.require();
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
     try std.testing.expectEqual(client_answers, client_state.outbound_answers.len());
-    try std.testing.expectEqual(client_resolvers, client_state.outbound_resolver_link.len());
     try std.testing.expectEqual(client_exports, client_state.exports.len());
     try std.testing.expectEqual(server_answers, server_state.inbound_answers.len());
 }
@@ -234,7 +232,6 @@ test "core host: releasing a pending or condemned vow retires its listener exact
     const opened = try openWidgetPair(allocator, &client, &server, &dials);
     const state = &opened.pair.a.served.port.peer.session_state;
     const baseline_answers = state.outbound_answers.len();
-    const baseline_resolvers = state.outbound_resolver_link.len();
     const baseline_exports = state.exports.len();
     const pending = try client.send(opened.pair.a, opened.widget, .{ .verb = "poke", .args = &.{} });
     try std.testing.expectEqual(baseline_answers + 1, state.outbound_answers.len());
@@ -245,7 +242,6 @@ test "core host: releasing a pending or condemned vow retires its listener exact
     try std.testing.expectEqual(@as(usize, 0), client.pendingVowCount());
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{opened.pair}, &dials);
     try std.testing.expectEqual(baseline_answers, state.outbound_answers.len());
-    try std.testing.expectEqual(baseline_resolvers, state.outbound_resolver_link.len());
     try std.testing.expectEqual(baseline_exports, state.exports.len());
 
     const condemned = try client.send(opened.pair.a, opened.widget, .{ .verb = "poke", .args = &.{} });
@@ -301,16 +297,13 @@ test "core host: local listen release retires answer and resolver ownership" {
     const opened = try openWidgetPair(allocator, &client, &server, &dials);
     const state = &opened.pair.a.served.port.peer.session_state;
     const baseline_answers = state.outbound_answers.len();
-    const baseline_resolvers = state.outbound_resolver_link.len();
     const baseline_exports = state.exports.len();
 
     const pending = try client.queueListenTo(opened.pair.a, opened.widget);
     const pending_answer = client.vows.get(pending).?.vow.far;
-    const pending_resolver = state.outbound_resolver_link.getByValue(.{
-        .application_answer = pending_answer,
-    }).?;
+    const pending_resolver = state.resolverExportForAnswer(pending_answer.position).?;
     try std.testing.expectEqual(baseline_answers + 1, state.outbound_answers.len());
-    try std.testing.expectEqual(baseline_resolvers + 1, state.outbound_resolver_link.len());
+    try std.testing.expectEqual(baseline_exports + 1, state.exports.len());
     try std.testing.expectEqual(@as(u64, 1), state.exports.wireHeld(pending_resolver));
     try client.vowRelease(pending);
     try std.testing.expectEqual(baseline_answers, state.outbound_answers.len());
@@ -319,21 +312,17 @@ test "core host: local listen release retires answer and resolver ownership" {
     try std.testing.expectEqual(@as(u64, 0), state.exports.wireHeld(pending_resolver));
     try std.testing.expect(state.retiredResolverState(pending_resolver) == null);
     try std.testing.expect(!state.exports.contains(pending_resolver));
-    try std.testing.expectEqual(baseline_resolvers, state.outbound_resolver_link.len());
     try std.testing.expectEqual(baseline_exports, state.exports.len());
 
     const settled = try client.queueListenTo(opened.pair.a, opened.widget);
     const settled_answer = client.vows.get(settled).?.vow.far;
-    const settled_resolver = state.outbound_resolver_link.getByValue(.{
-        .application_answer = settled_answer,
-    }).?;
+    const settled_resolver = state.resolverExportForAnswer(settled_answer.position).?;
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{opened.pair}, &dials);
     try std.testing.expectEqual(baseline_answers + 1, state.outbound_answers.len());
     try std.testing.expectEqual(@as(u64, 0), state.exports.wireHeld(settled_resolver));
     try client.vowRelease(settled);
     try std.testing.expect(!state.exports.contains(settled_resolver));
     try std.testing.expectEqual(baseline_answers, state.outbound_answers.len());
-    try std.testing.expectEqual(baseline_resolvers, state.outbound_resolver_link.len());
     try std.testing.expectEqual(baseline_exports, state.exports.len());
 
     const observed = try client.queueListenTo(opened.pair.a, opened.widget);
@@ -343,7 +332,6 @@ test "core host: local listen release retires answer and resolver ownership" {
     _ = try observed_value.require();
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
     try std.testing.expectEqual(baseline_answers, state.outbound_answers.len());
-    try std.testing.expectEqual(baseline_resolvers, state.outbound_resolver_link.len());
     try std.testing.expectEqual(baseline_exports, state.exports.len());
 }
 

@@ -78,11 +78,7 @@ pub const designator_len = foundation.crypto.PeerKey.designator_len;
 /// Build the hint-free locator for a WebRTC peer's keyed identity. Signaling
 /// authority belongs to the dialing Host, not to the locator.
 pub fn locator(designator: []const u8) model.PeerLocator {
-    return .{
-        .transport = transport_name,
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    };
+    return .hintless(transport_name, designator);
 }
 
 const sidecar = @import("webrtc/sidecar.zig");

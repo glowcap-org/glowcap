@@ -28,6 +28,8 @@ pub const PreparedStage = union(enum) {
     fresh: struct {
         pending_id: dials.PendingId,
         plan: plan.Owned,
+        /// The first wave of routes, sized when the actions were reserved.
+        batch: attempts.Batch,
     },
     consumed,
 
@@ -53,22 +55,7 @@ pub const PreparedStage = union(enum) {
                 break :commit_existing .{ .pending = pending_id };
             },
             .fresh => |fresh| commit_fresh: {
-                const state = &node.redeems.dials;
-                const identity = fresh.plan.identity;
-                state.pending.putAssumeCapacity(fresh.pending_id, .{ .dialing = .{
-                    .plan = fresh.plan,
-                    .application_owned = true,
-                } });
-                state.by_identity.putAssumeCapacity(identity, fresh.pending_id);
-                const entry = &state.pending.getPtr(fresh.pending_id).?.dialing;
-                const batch = attempts.State.initial(entry.plan);
-                for (batch.slice()) |route_index| {
-                    entry.attempts.markScheduled(route_index);
-                    actions.pushReserved(node, .{ .dial = .{
-                        .pending = fresh.pending_id,
-                        .route_index = route_index,
-                    } });
-                }
+                dials.publishFresh(node, fresh.pending_id, .{ .plan = fresh.plan, .application_owned = true }, fresh.batch);
                 break :commit_fresh .{ .pending = fresh.pending_id };
             },
             .consumed => unreachable,
@@ -105,7 +92,7 @@ fn prepareOwned(self: *Node, owned: plan.Owned) !PreparedStage {
     try actions.reserve(self, initial.len);
     const pending_id = try actions.claimTicketRange(self, 1);
     staged_owned = false;
-    return .{ .fresh = .{ .pending_id = pending_id, .plan = staged } };
+    return .{ .fresh = .{ .pending_id = pending_id, .plan = staged, .batch = initial } };
 }
 
 fn stageOwned(self: *Node, owned: plan.Owned) !Stage {

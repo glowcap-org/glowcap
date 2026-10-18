@@ -128,7 +128,7 @@ pub fn beginEffect(self: *Node, pending: PendingId, route_index: usize) bool {
 pub fn rollbackEffect(self: *Node, pending: PendingId, route_index: usize) void {
     const row = self.redeems.dials.pending.getPtr(pending) orelse return;
     switch (row.*) {
-        .dialing => |*entry| entry.attempts.rollback(route_index),
+        .dialing => |*entry| _ = entry.attempts.clearFlight(route_index),
         .retiring => {},
     }
 }
@@ -227,21 +227,35 @@ pub fn cancelled(self: *Node, pending: PendingId, route_index: usize) void {
     if (route_index >= model.route_bundle.max_route_list_count) return;
     const state = &self.redeems.dials;
     const row = state.pending.getPtr(pending) orelse return;
-    const route = routeBit(route_index);
     switch (row.*) {
         .dialing => |*entry| {
-            if (!entry.cancel_requested or entry.attempts.in_flight & route == 0) return;
-            entry.attempts.in_flight &= ~route;
-            if (entry.attempts.in_flight != 0) return;
+            if (!entry.cancel_requested or !entry.attempts.inFlight(route_index)) return;
+            if (!entry.attempts.clearFlight(route_index)) return;
             const removed = (state.pending.fetchRemove(pending) orelse unreachable).value;
             var owned = removed.dialing;
             freeDialing(self, &owned);
         },
         .retiring => |*routes| {
+            const route = attempts.bit(route_index);
             if (routes.* & route == 0) return;
             routes.* &= ~route;
             if (routes.* == 0) std.debug.assert(state.pending.remove(pending));
         },
+    }
+}
+
+/// Publish a fresh dial row under a claimed ticket and queue its first wave
+/// of route attempts. The caller reserved the row, the identity index, and
+/// `batch.len` actions.
+pub fn publishFresh(self: *Node, pending_id: PendingId, dialing: Dialing, batch: attempts.Batch) void {
+    const state = &self.redeems.dials;
+    const identity = dialing.plan.identity;
+    state.pending.putAssumeCapacity(pending_id, .{ .dialing = dialing });
+    state.by_identity.putAssumeCapacity(identity, pending_id);
+    const entry = &state.pending.getPtr(pending_id).?.dialing;
+    for (batch.slice()) |route_index| {
+        entry.attempts.markScheduled(route_index);
+        actions.pushReserved(self, .{ .dial = .{ .pending = pending_id, .route_index = route_index } });
     }
 }
 
@@ -266,15 +280,10 @@ fn settleCancelledWaiters(self: *Node, pending: *Dialing) void {
     pending.waiters = .empty;
 }
 
-fn routeBit(index: usize) u8 {
-    std.debug.assert(index < model.route_bundle.max_route_list_count);
-    return @as(u8, 1) << @intCast(index);
-}
-
 fn popRoute(routes: *u8) ?usize {
     if (routes.* == 0) return null;
     const index: usize = @ctz(routes.*);
-    routes.* &= ~routeBit(index);
+    routes.* &= ~attempts.bit(index);
     return index;
 }
 
@@ -321,6 +330,15 @@ pub fn exporterApplicationOwned(self: *Node, exporter_peer: PeerHandle) void {
     if (self.peers.getPtr(exporter_peer)) |slot| slot.provisional_exporter = false;
 }
 
+/// What `exporterReady` reserved before consuming the pending row, so that
+/// every waiter becomes a tracked withdrawal or an explicit terminal failure.
+const ReadyBatch = struct {
+    losing_flights: u8,
+    redeem_only: bool,
+    cache_identity: bool,
+    route_advice: ?*withdrawals.RouteAdvice,
+};
+
 fn exporterReady(
     self: *Node,
     pending_id: PendingId,
@@ -336,7 +354,72 @@ fn exporterReady(
         .retiring => return false,
     };
     if (pending_ptr.cancel_requested) return false;
-    const pending_view = pending_ptr.*;
+    const ready = try prepareReady(self, pending_ptr.*, route_index, exporter_peer, selected, authenticated_identity);
+
+    var entry = pending_ptr.*;
+    if (ready.losing_flights == 0)
+        std.debug.assert(state.pending.remove(pending_id))
+    else
+        pending_row.* = .{ .retiring = ready.losing_flights };
+    releaseWaiterReservations(self, entry.waiters.items.len);
+    defer {
+        for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
+        entry.waiters.deinit(self.allocator);
+    }
+    std.debug.assert(state.by_identity.remove(entry.plan.identity));
+    var cancel_routes = ready.losing_flights;
+    while (popRoute(&cancel_routes)) |losing_route| actions.pushReserved(self, .{
+        .cancel_dial = .{
+            .pending = pending_id,
+            .route_index = losing_route,
+        },
+    });
+    entry.plan.deinitPaths(self.allocator);
+    if (entry.exporter_locator) |locator| {
+        model.freePeerLocator(self.allocator, locator);
+        entry.exporter_locator = null;
+    }
+    if (ready.cache_identity) {
+        const cached = state.exporters.getOrPutAssumeCapacity(entry.plan.identity);
+        if (cached.found_existing) {
+            self.allocator.free(entry.plan.identity);
+        } else {
+            cached.value_ptr.* = exporter_peer;
+        }
+    } else {
+        self.allocator.free(entry.plan.identity);
+    }
+
+    const slot = self.peers.getPtr(exporter_peer);
+    if (slot) |live| live.provisional_exporter = ready.redeem_only;
+    for (entry.waiters.items) |waiter| {
+        withdrawals.begin(self, exporter_peer, waiter.dest, waiter.give, ready.route_advice) catch |err| switch (err) {
+            error.OutOfMemory => actions.pushReserved(self, .{ .fail = .{
+                .dest = redeem.failureDestination(waiter.dest),
+                .reason = .{ .static = "handoff redeem failed: local allocation failure" },
+            } }),
+        };
+    }
+    withdrawals.finishRouteAdviceSetup(self, ready.route_advice);
+    if (slot) |live| {
+        if (ready.redeem_only and live.pending_withdraw_count == 0)
+            actions.pushReserved(self, .{ .retire_exporter = exporter_peer });
+    }
+    return true;
+}
+
+/// Preflight the whole batch before the pending row is consumed: the
+/// identity cache slot, the withdrawal rows, the route advice, and one
+/// action per waiter, losing flight, and redeem-only retirement.
+fn prepareReady(
+    self: *Node,
+    pending_view: Dialing,
+    route_index: usize,
+    exporter_peer: PeerHandle,
+    selected: bool,
+    authenticated_identity: bool,
+) !ReadyBatch {
+    const state = &self.redeems.dials;
     const losing_flights = pending_view.attempts.losingFlights(route_index);
     const waiter_count = pending_view.waiters.items.len;
     const redeem_only = !pending_view.application_owned and !selected;
@@ -355,22 +438,9 @@ fn exporterReady(
         try codec.signed.encodeLocatorRecord(self.allocator, pending_view.exporter_locator.?)
     else
         null;
-    var encoded_route_advice_owned = encoded_route_advice != null;
-    errdefer if (encoded_route_advice_owned) if (encoded_route_advice) |location|
-        self.allocator.free(location);
+    errdefer if (encoded_route_advice) |location| self.allocator.free(location);
 
-    // Preflight the whole batch before consuming the pending row. Each waiter
-    // then becomes a tracked withdrawal or an explicit terminal failure.
-    const outcome_actions = std.math.add(
-        usize,
-        waiter_count,
-        @intFromBool(redeem_only),
-    ) catch return error.OutOfMemory;
-    const batch_actions = std.math.add(
-        usize,
-        outcome_actions,
-        @popCount(losing_flights),
-    ) catch return error.OutOfMemory;
+    const batch_actions = waiter_count + @intFromBool(redeem_only) + @popCount(losing_flights);
     if (cache_identity) try state.exporters.ensureUnusedCapacity(self.allocator, 1);
     const route_advice = if (retain_route_advice)
         try withdrawals.createEmptyRouteAdvice(self)
@@ -382,65 +452,13 @@ fn exporterReady(
         std.math.cast(u32, waiter_count) orelse return error.OutOfMemory,
     );
     try actions.reserve(self, batch_actions);
-
-    var entry = pending_ptr.*;
-    if (losing_flights == 0)
-        std.debug.assert(state.pending.remove(pending_id))
-    else
-        pending_row.* = .{ .retiring = losing_flights };
-    releaseWaiterReservations(self, entry.waiters.items.len);
-    defer {
-        for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
-        entry.waiters.deinit(self.allocator);
-    }
-    std.debug.assert(state.by_identity.remove(entry.plan.identity));
-    var cancel_routes = losing_flights;
-    while (popRoute(&cancel_routes)) |losing_route| actions.pushReserved(self, .{
-        .cancel_dial = .{
-            .pending = pending_id,
-            .route_index = losing_route,
-        },
-    });
-    entry.plan.deinitPaths(self.allocator);
-    if (entry.exporter_locator) |locator| {
-        model.freePeerLocator(self.allocator, locator);
-        entry.exporter_locator = null;
-    }
-    if (route_advice) |advice| {
-        advice.location = encoded_route_advice.?;
-        encoded_route_advice_owned = false;
-    }
-    if (cache_identity) {
-        const cached = state.exporters.getOrPutAssumeCapacity(entry.plan.identity);
-        if (cached.found_existing) {
-            self.allocator.free(entry.plan.identity);
-        } else {
-            cached.value_ptr.* = exporter_peer;
-        }
-    } else {
-        self.allocator.free(entry.plan.identity);
-    }
-
-    const slot = self.peers.getPtr(exporter_peer);
-    if (slot) |live| live.provisional_exporter = redeem_only;
-    for (entry.waiters.items) |waiter| {
-        withdrawals.begin(self, exporter_peer, waiter.dest, waiter.give, route_advice) catch |err| switch (err) {
-            error.OutOfMemory => actions.pushReserved(self, .{ .fail = .{
-                .dest = redeem.failureDestination(waiter.dest),
-                .reason = .{ .static = "handoff redeem failed: local allocation failure" },
-            } }),
-            error.OutboundAnswerSpaceExhausted => actions.pushReserved(self, .{ .fail = .{
-                .dest = redeem.failureDestination(waiter.dest),
-                .reason = .{ .static = "handoff redeem failed: local answer space exhausted" },
-            } }),
-        };
-    }
-    withdrawals.finishRouteAdviceSetup(self, route_advice);
-    if (slot) |live| {
-        if (redeem_only and live.pending_withdraw_count == 0)
-            actions.pushReserved(self, .{ .retire_exporter = exporter_peer });
-    }
-    return true;
+    if (route_advice) |advice| advice.location = encoded_route_advice.?;
+    return .{
+        .losing_flights = losing_flights,
+        .redeem_only = redeem_only,
+        .cache_identity = cache_identity,
+        .route_advice = route_advice,
+    };
 }
 
 /// Claim a queued redeem-only exporter retirement at execution time.
@@ -487,11 +505,7 @@ pub fn failed(self: *Node, pending: PendingId, route_index: usize, reason: []con
     }
 
     var buf: [256]u8 = undefined;
-    const message = std.fmt.bufPrint(
-        &buf,
-        "handoff redeem failed: {s}",
-        .{reason},
-    ) catch "handoff redeem failed";
+    const message = redeem.failureMessage(&buf, reason);
     // Preserve transport detail when memory permits; held action seats still
     // settle the complete batch with a static reason under allocator pressure.
     const owned_reasons: ?[][]u8 = stage_reasons: {
@@ -510,15 +524,10 @@ pub fn failed(self: *Node, pending: PendingId, route_index: usize, reason: []con
     };
     defer if (owned_reasons) |reasons| self.allocator.free(reasons);
 
-    const removed = (state.pending.fetchRemove(pending) orelse return .stale).value;
+    // The row was found above and nothing since removed it.
+    const removed = (state.pending.fetchRemove(pending) orelse unreachable).value;
     var entry = removed.dialing;
-    releaseWaiterReservations(self, entry.waiters.items.len);
-    defer {
-        entry.plan.deinit(self.allocator);
-        if (entry.exporter_locator) |locator| model.freePeerLocator(self.allocator, locator);
-        for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
-        entry.waiters.deinit(self.allocator);
-    }
+    defer freeDialing(self, &entry);
     std.debug.assert(state.by_identity.remove(entry.plan.identity));
     for (entry.waiters.items, 0..) |waiter, index| {
         const failure_reason: Node.FailureReason = if (owned_reasons) |reasons|

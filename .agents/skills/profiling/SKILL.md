@@ -25,7 +25,9 @@ attributes one workload.
 - Ir repeats exactly for one build on any machine. Keep the report from
   before a change and diff the phase totals after it. A lower Ir on the
   marked phase is the attribution; the bench's ReleaseFast wall-clock run is
-  still the claim ([bench/README.md](../../../bench/README.md)).
+  still the claim, and `zig build bench-ab -- --base=<rev> <bench> ...` makes
+  it against the base revision in alternating pairs
+  ([bench/README.md](../../../bench/README.md)).
 - Callgrind multiplies the bench's own time by tens, so profile the smallest
   workload that reaches the path, and prefer a bench filter to a longer
   deadline.
@@ -36,8 +38,8 @@ A bench marks what it measures with `bench/support/profile.zig`: `begin()`
 before the timed loop, `end("<phase>")` after it. Each phase is one callgrind
 part, collected alone, so setup and teardown count nothing. Name the phase
 what the bench's report row calls it. A new bench joins the `profile-*` family
-through its table row in `tools/build/bench.zig` or its own registration in
-`tools/build/loam.zig`.
+through its table row in `tools/build/bench.zig` or its own registration, as
+`tools/build/loam.zig` and `tools/build/iroh.zig` do.
 
 ## Reading the result
 

@@ -206,8 +206,8 @@ const GiveCapture = struct {
 test "a resolve carrying a handoff give fires the listener typed: verbatim envelope, dialable locator, recipient key" {
     const crypto = glowcap.foundation.crypto;
     const allocator = std.testing.allocator;
-    const recipient_seed = @as([crypto.SEED_BYTES]u8, @splat(9));
-    const partner_seed = @as([crypto.SEED_BYTES]u8, @splat(10));
+    const recipient_seed = @as([crypto.seed_bytes]u8, @splat(9));
+    const partner_seed = @as([crypto.seed_bytes]u8, @splat(10));
     var pair = try engine.pairing.pairedWithKeys(allocator, recipient_seed, partner_seed);
     defer pair.deinit();
 
@@ -234,18 +234,18 @@ test "a resolve carrying a handoff give fires the listener typed: verbatim envel
 
     // A genuine signed give whose exporter location is a verbatim locator
     // record, exactly what a gifter node would have minted.
-    const gifter_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(7)));
+    const gifter_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(7)));
     const recipient_key = crypto.SecretKey.fromSeed(recipient_seed).publicKey().asBytes();
-    const exporter_key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(8))).publicKey().asBytes();
+    const exporter_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(8))).publicKey().asBytes();
     const location = try engine.encodePeerLocatorRecord(allocator, .{
         .transport = "tcp",
         .designator = "127.0.0.1:9070",
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(location);
-    const gifter_side = try engine.handoff_recipient.sideName(gifter_secret.publicKey().asBytes());
-    const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
-    const session = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
+    const gifter_side = try engine.handoff_names.sideName(gifter_secret.publicKey().asBytes());
+    const exporter_side = try engine.handoff_names.sideName(exporter_key);
+    const session = engine.handoff_names.sessionName(gifter_side, exporter_side);
     const gift_id = @as([32]u8, @splat(0x5a));
     const give = try engine.handoff_gifter.buildSignedGive(
         allocator,
@@ -445,7 +445,7 @@ test "reply interceptor nested calls commit their local and far sends" {
         mode: Mode,
         fn fire(ctx: ?*anyopaque, answer: engine.AnswerTarget, value: model.view.Argument) anyerror!actors.InterceptOutcome {
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
-            _ = try self.vat.nearFromPort(self.port, .local, self.sender, .{ .verb = "send" });
+            _ = try self.vat.nearFromPort(self.port, self.sender, .{ .verb = "send" });
             return switch (self.mode) {
                 .pass => .{ .resolve = value },
                 .refuse => error.HookRefused,

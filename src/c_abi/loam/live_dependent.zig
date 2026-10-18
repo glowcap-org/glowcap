@@ -13,12 +13,6 @@ pub fn glowcap_loam_references_save_live_dependent(raw: ?*c.GlowcapLoamReference
     return shared.GLOWCAP_OK;
 }
 
-fn active(raw: ?*c.GlowcapLoamCall) !*callbacks.Call {
-    const call: *callbacks.Call = @ptrCast(@alignCast(raw orelse return error.NullPointer));
-    if (!call.active) return error.WrongPhase;
-    return call;
-}
-
 /// Borrow Host-owned exporter metadata for a committed live dependent facet.
 /// Null means no exporter. The result discloses no target capability and must
 /// not be released. Its lifetime belongs to the existing Host session.
@@ -26,7 +20,7 @@ pub fn glowcap_loam_call_live_dependent_exporter(raw: ?*c.GlowcapLoamCall, facet
     shared.lastErrorClear();
     const out = out_session orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = null;
-    const call = active(raw) catch |err| return common.code(err);
+    const call = callbacks.active(raw) catch |err| return common.code(err);
     const session = call.content_call.liveDependentExporter(
         call.host.capabilityFromRaw((facet orelse return shared.GLOWCAP_ERR_NULL_POINTER).id),
     ) catch |err| return common.code(err);
@@ -40,7 +34,7 @@ pub fn glowcap_loam_call_prepared_live_dependent(raw: ?*c.GlowcapLoamCall, sourc
     shared.lastErrorClear();
     const out = out_reference orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = .{ .id = 0 };
-    const call = active(raw) catch |err| return common.code(err);
+    const call = callbacks.active(raw) catch |err| return common.code(err);
     const host = call.host;
     const ref = call.content_call.preparedLiveDependent(
         host.capabilityFromRaw((source orelse return shared.GLOWCAP_ERR_NULL_POINTER).id),
@@ -56,7 +50,7 @@ pub fn glowcap_loam_call_matches_live_dependent(raw: ?*c.GlowcapLoamCall, facet:
     shared.lastErrorClear();
     const out = out_matches orelse return shared.GLOWCAP_ERR_NULL_POINTER;
     out.* = 0;
-    const call = active(raw) catch |err| return common.code(err);
+    const call = callbacks.active(raw) catch |err| return common.code(err);
     const host = call.host;
     out.* = @intFromBool(call.content_call.matchesLiveDependent(
         host.capabilityFromRaw((facet orelse return shared.GLOWCAP_ERR_NULL_POINTER).id),

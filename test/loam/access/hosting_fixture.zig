@@ -163,14 +163,15 @@ fn seedConfigured(store: *loam.core.Store, backend: anytype, depth: u16, policy:
         grant;
     var caps = try c.storage.Capabilities.init(store.allocator, store, .{});
     defer caps.deinit() catch unreachable;
-    const use_descriptor = try c.descriptor(&caps, backend, owner, grant, null, false);
-    const control_descriptor = try c.descriptor(&caps, backend, owner, if (independent_target) ancestor else grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, false);
-    const target_use_descriptor = try c.descriptor(&caps, backend, owner, target_grant, null, false);
+    const use_descriptor = try c.descriptor(&caps, backend, owner, grant, null, .reachable);
+    const control_descriptor = try c.descriptor(&caps, backend, owner, if (independent_target) ancestor else grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, .reachable);
+    const target_use_descriptor = try c.descriptor(&caps, backend, owner, target_grant, null, .reachable);
     const target_control_descriptor = if (independent_target)
-        try c.descriptor(&caps, backend, owner, target_grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, false)
+        try c.descriptor(&caps, backend, owner, target_grant, .{ .delegate_control = true, .pause = true, .resume_access = true, .revoke = true, .policy_ceiling = terms }, .reachable)
     else
         null;
-    var endpoint_owner = try c.storage.Read.init(store.allocator, store, owner, 1);
+    var endpoint_owner: c.storage.Read = undefined;
+    try endpoint_owner.init(store.allocator, store, owner, 1, null);
     defer endpoint_owner.deinit() catch unreachable;
     try prepareEndpointOwner(&endpoint_owner, backend, 4);
     const use_lease = try c.load(store, backend, use_descriptor);
@@ -183,15 +184,15 @@ fn seedConfigured(store: *loam.core.Store, backend: anytype, depth: u16, policy:
     defer if (target_control_lease) |held| store.release(held) catch unreachable;
     try store.begin();
     const content = try store.allocateId();
-    const use = try access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = use_descriptor, .content = .{ .resource = resource, .object = content } }, true);
-    const control = try access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = control_descriptor }, true);
+    const use = try access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = use_descriptor, .content = .{ .resource = resource, .object = content } }, .rooted);
+    const control = try access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = control_descriptor }, .rooted);
     const target_control = if (target_control_descriptor) |descriptor|
-        try access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = descriptor }, true)
+        try access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = descriptor }, .rooted)
     else
         null;
     // Edge 0 is the stored reference field the share verbs disclose. A weak
     // edge at 1 retains nothing: disclosing it must fail closed.
-    const peer = try access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = target_use_descriptor, .content = .{ .resource = resource, .object = content } }, false);
+    const peer = try access.stageEndpoint(&endpoint_owner, store.allocator, .{ .descriptor = target_use_descriptor, .content = .{ .resource = resource, .object = content } }, .reachable);
     try store.putCopying(.{ .id = content, .revision = 0, .schema = 7, .payload = &@as([8]u8, @splat(0)), .edges = &.{ .{ .target = peer }, .{ .target = control, .strength = .weak } } }, null);
     try f.commit(store, backend);
     return .{ .owner = owner, .resource = resource, .grant = grant, .target_grant = if (independent_target) target_grant else null, .content = content, .use = use, .control = control, .target_control = target_control };

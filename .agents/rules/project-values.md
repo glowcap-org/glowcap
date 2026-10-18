@@ -47,8 +47,8 @@ below conflict.
   C ABI, LMDB, driver loop, or the specific OS. Avoid "native" as a software
   label, and rename historical names with their owning migration.
 - **Every source file fits one read.** `source-check` holds a line limit with
-  no exceptions. A file you open is yours to split by subject to make room
-  for a change, never to squeeze by deleting lines. The
+  no exceptions. Split by subject when a change would cross the limit,
+  never squeeze by deleting useful content. The
   [file-budget skill](../skills/file-budget/SKILL.md) is the procedure.
 - **Taste lands as structure.** External taste-reference names, the
   maintainer's biography, line-audit claims, and destination slogans stay out

@@ -3,6 +3,7 @@ const std = @import("std");
 const loam = @import("loam_records");
 const syrup = @import("syrup");
 const s = syrup.RecordSyntax;
+const fields = @import("fields.zig");
 const profile = @import("profile.zig");
 
 pub const ObservationIndexRecord = struct {
@@ -10,6 +11,9 @@ pub const ObservationIndexRecord = struct {
     contexts: [capacity]loam.ObjectId = undefined,
     pub const capacity = 32;
     pub const max_encoded_bytes = 64;
+    pub const format_version: u64 = 1;
+    pub const max_edges = capacity;
+    const label = "access:observations";
 
     pub fn append(self: *ObservationIndexRecord, id: loam.ObjectId) !void {
         if (self.count >= capacity) return error.ObservationCapacity;
@@ -39,20 +43,17 @@ pub const ObservationIndexRecord = struct {
     }
 
     pub fn decode(view: loam.View) !ObservationIndexRecord {
-        if (view.schema != profile.observation_index or view.schema_version != 1 or view.payload.len > max_encoded_bytes or view.edge_count > capacity) return error.InvalidRecord;
+        if (view.schema != profile.observation_index or view.schema_version != format_version or view.payload.len > max_encoded_bytes or view.edge_count > capacity) return error.InvalidRecord;
         const bytes = view.payload;
         var cursor: usize = 0;
         try s.readByte(bytes, &cursor, '<');
-        if (!std.mem.eql(u8, try s.readSymbol(bytes, &cursor), "access:observations")) return error.InvalidRecord;
-        if (try s.readPositiveInt(bytes, &cursor) != 1) return error.UnsupportedVersion;
+        if (!std.mem.eql(u8, try s.readSymbol(bytes, &cursor), label)) return error.InvalidRecord;
+        if (try s.readPositiveInt(bytes, &cursor) != format_version) return error.UnsupportedVersion;
         const count = try s.readPositiveInt(bytes, &cursor);
         if (count != view.edge_count) return error.InvalidRecord;
         var result: ObservationIndexRecord = .{};
         var iterator = view.edges();
-        while (iterator.next()) |edge| {
-            if (edge.strength != .strong or edge.target.store != view.id.store) return error.InvalidRecord;
-            try result.append(edge.target);
-        }
+        for (0..view.edge_count) |_| try result.append(try fields.readEdge(&iterator, view.id.store));
         try s.readByte(bytes, &cursor, '>');
         try s.expectEnd(bytes, cursor);
         return result;
@@ -60,8 +61,8 @@ pub const ObservationIndexRecord = struct {
 
     fn write(sink: anytype, self: ObservationIndexRecord) !void {
         try s.beginRecord(sink);
-        try s.writeSymbol(sink, "access:observations");
-        try s.writePositiveInt(sink, 1);
+        try s.writeSymbol(sink, label);
+        try s.writePositiveInt(sink, format_version);
         try s.writePositiveInt(sink, self.count);
         try s.endRecord(sink);
     }

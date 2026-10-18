@@ -155,7 +155,7 @@ pub const Args = struct {
 
     /// The argument at `i` as an owned value in the turn arena. A view
     /// delivery lifts that one subtree, and a value delivery lends its own.
-    pub fn value(self: Args, i: usize) anyerror!Value {
+    pub fn value(self: Args, i: usize) !Value {
         return switch (self.inner) {
             .views => |v| v.turn.host.liftView(v.turn.session.?, v.turn.turn.arena, try viewAt(v.args, i)),
             .values => |v| try valueAt(v.items, i),
@@ -165,7 +165,7 @@ pub const Args = struct {
     /// Every argument as owned values in the turn arena: the lift a view
     /// delivery skipped, paid on each call, or the values a value delivery
     /// already holds.
-    pub fn values(self: Args) anyerror![]const Value {
+    pub fn values(self: Args) ![]const Value {
         return switch (self.inner) {
             .views => |v| v.turn.host.liftValues(v.turn.session.?, v.turn.turn.arena, v.args),
             .values => |v| v.items,

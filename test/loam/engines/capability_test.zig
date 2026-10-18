@@ -27,8 +27,8 @@ test "loam engine managed capabilities restore roles and fence cold calls throug
         {
             var caps = try c.storage.Capabilities.init(a, &store, .{});
             defer caps.deinit() catch unreachable;
-            use_id = try c.descriptor(&caps, &db, owner, grant, null, true);
-            control_id = try c.descriptor(&caps, &db, owner, grant, .{ .revoke = true, .policy_ceiling = terms }, true);
+            use_id = try c.descriptor(&caps, &db, owner, grant, null, .rooted);
+            control_id = try c.descriptor(&caps, &db, owner, grant, .{ .revoke = true, .policy_ceiling = terms }, .rooted);
         }
         try store.begin();
         const content = try store.allocateId();
@@ -57,7 +57,7 @@ test "loam engine managed capabilities restore roles and fence cold calls throug
             try std.testing.expect(try c.edit(edit, &db, .revoke));
             try store.begin();
             try store.putCopying(.{ .id = content, .revision = 0, .schema = 7, .payload = "revoked", .rooted = true }, revision);
-            _ = try caps.stage(edit, false);
+            _ = try caps.stage(edit, .reachable);
             const ticket = try store.prepare();
             const batch = try store.beginWrite(ticket);
             if (committed) {
@@ -99,7 +99,7 @@ test "loam engine managed capabilities restore roles and fence cold calls throug
         // An unrooted descriptor survives only while actual store custody does.
         var caps = try c.storage.Capabilities.init(a, &store, .{});
         defer caps.deinit() catch unreachable;
-        const loose = try c.descriptor(&caps, &db, owner, grant, null, false);
+        const loose = try c.descriptor(&caps, &db, owner, grant, null, .reachable);
         const held = try c.use(&caps, &db, loose);
         try support.collect(&store, &db);
         const before = store.metadata.objects;

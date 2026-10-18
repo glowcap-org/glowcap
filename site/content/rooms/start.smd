@@ -109,7 +109,7 @@ shows where a host supplies TURN credentials and the relay.
 
 Back in the first session, open Settings and go to the **Session** tab.
 **Share this session** publishes it and shows you its link. Open the page
-somewhere else (your phone is the natural choice), choose **Shared session**
+somewhere else (a phone works well), choose **Shared session**
 on the first screen, paste the link, and press **Attach**.
 
 [The same session opened on a phone. The room, its members, and the direct conversation all came with it, and the divider marks where the shared history ends and live messages begin.]($image.siteAsset('rooms-session-attached-dark.webp'))

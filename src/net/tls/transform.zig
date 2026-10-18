@@ -7,6 +7,7 @@
 //! This type owns those facts so no I/O projection can implement a subtly
 //! different TLS state machine.
 
+const foundation = @import("foundation");
 const engine = @import("engine.zig");
 
 /// TLS 1.3's maximum record plus expansion. Fixed per active secure channel.
@@ -130,10 +131,7 @@ pub const Transform = struct {
     }
 
     pub fn note(self: *Transform, phase: engine.Phase, cause: anyerror) void {
-        if (self.local_failure) |*failure|
-            failure.chain.note(cause)
-        else
-            self.local_failure = .init(phase, cause);
+        foundation.latchFailure(&self.local_failure, .init(phase, cause));
     }
 
     pub fn takeFailure(self: *Transform) ?engine.Failure {

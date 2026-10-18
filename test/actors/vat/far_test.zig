@@ -322,7 +322,7 @@ test "one converged wire resolve fires every local far listener" {
 
     try peer.session_state.registerImport(.from(5));
     try peer.session_state.registerImport(.from(6));
-    const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_five = peer.session_state.exports.nextPosition();
     try glowcap.ocapn.engine.listen.ensureShorteningListener(&peer, .from(5));
     try glowcap.ocapn.engine.listen.ensureShorteningListener(&peer, .from(6));
     while ((try peer.step()) != .idle) {}
@@ -339,9 +339,7 @@ test "one converged wire resolve fires every local far listener" {
         &peer,
         .{ .far = model.FarRef.promise(6) },
     );
-    const resolver_six = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_six,
-    }).?;
+    const resolver_six = peer.session_state.resolverExportForAnswer(answer_six.position).?;
     var five = Captured{};
     var six = Captured{};
     try port.on(&vat, .{ .far = answer_five }, .{ .ctx = &five, .func = Captured.record });
@@ -487,7 +485,7 @@ test "far observation refuses an unobserved send retracted without allocation" {
     defer port.deinit(&vat);
     var vow: actors.Vow = undefined;
     const actor = try vat.spawn(Probe, .{ .vow = &vow, .allocator = &failing });
-    try std.testing.expectError(error.Refused, vat.nearFromPort(&port, .local, actor, .{ .verb = "fail" }));
+    try std.testing.expectError(error.Refused, vat.nearFromPort(&port, actor, .{ .verb = "fail" }));
     var captured = Captured{};
     try std.testing.expectError(error.AlreadySettled, port.on(&vat, vow, .{ .ctx = &captured, .func = Captured.record }));
     try std.testing.expect(!failing.has_induced_failure);
@@ -587,4 +585,41 @@ test "a served deliver hands the handler the frame's own bytes" {
     const seen = seen_slot.?;
     const start = @intFromPtr(fed.ptr);
     try std.testing.expect(@intFromPtr(seen.ptr) >= start and @intFromPtr(seen.ptr) + seen.len <= start + fed.len);
+}
+
+test "a far vow whose question settled is refused, and the position asked again is a new vow" {
+    const allocator = std.testing.allocator;
+    var peer = peer_fixture.openPeer(allocator);
+    defer peer.deinit();
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var port = actors.Port.init(allocator, &peer);
+    defer port.deinit(&vat);
+
+    try peer.session_state.registerImport(.from(5));
+    try peer.session_state.registerImport(.from(6));
+    try glowcap.ocapn.engine.listen.ensureShorteningListener(&peer, .from(5));
+    try glowcap.ocapn.engine.listen.ensureShorteningListener(&peer, .from(6));
+    const first = try glowcap.ocapn.engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
+    while ((try peer.step()) != .idle) {}
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    try peer.session_state.releaseOutboundAnswer(first.position);
+    var stale = Captured{};
+    try std.testing.expectError(error.AlreadySettled, port.on(&vat, .{ .far = first }, .{ .ctx = &stale, .func = Captured.record }));
+    try std.testing.expectError(error.AlreadySettled, port.tellToAnswer(&vat, first, .{ .verb = "poke" }));
+    try std.testing.expectError(error.AlreadySettled, port.sendToAnswer(&vat, first, .{ .verb = "poke" }));
+
+    // The released position is the next one minted, so the next question
+    // takes it under a new identity, and the stale vow still misses it.
+    const second = try glowcap.ocapn.engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) });
+    try std.testing.expectEqual(first.position, second.position);
+    try std.testing.expect(second.row_id != first.row_id);
+    try std.testing.expectError(error.AlreadySettled, port.on(&vat, .{ .far = first }, .{ .ctx = &stale, .func = Captured.record }));
+    var fresh = Captured{};
+    try port.on(&vat, .{ .far = second }, .{ .ctx = &fresh, .func = Captured.record });
+    try std.testing.expect(port.takeListener(&vat, .{ .far = second }) != null);
 }

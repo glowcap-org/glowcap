@@ -79,7 +79,9 @@ comptime {
         _ = @import("loam/access/maintenance_test.zig");
         _ = @import("loam/access/observation_hosted_test.zig");
         _ = @import("loam/access/owner_test.zig");
+        _ = @import("loam/access/owner_composed_test.zig");
         _ = @import("loam/access/directory_edit_test.zig");
+        _ = @import("loam/access/owner_index_test.zig");
         _ = @import("loam/access/stored_capability_test.zig");
         _ = @import("loam/access/stored_capability_memory_test.zig");
         _ = @import("loam/access/stored_capability_record_test.zig");
@@ -106,6 +108,7 @@ comptime {
         // Oracle protocol tests run under `zig build oracle-check` only.
         _ = @import("foundation/frame_test.zig");
         _ = @import("foundation/id_test.zig");
+        _ = @import("foundation/id_issuer_test.zig");
         _ = @import("foundation/crypto_test.zig");
         _ = @import("foundation/noise_test.zig");
         _ = @import("foundation/sealed_test.zig");
@@ -121,6 +124,7 @@ comptime {
     }
     if (wanted(.codec)) {
         _ = @import("codec/syrup/encode_test.zig");
+        _ = @import("codec/syrup/meter_test.zig");
         _ = @import("codec/syrup/render_test.zig");
         _ = @import("codec/syrup/struct_order_test.zig");
         _ = @import("codec/syrup/encode_view_test.zig");
@@ -157,6 +161,7 @@ comptime {
         _ = @import("engine/peer/v1_translation/oom_test.zig");
         _ = @import("engine/peer/v1_translation/resolver_test.zig");
         _ = @import("engine/peer/pipeline_test.zig");
+        _ = @import("engine/peer/pipeline_undeliverable_test.zig");
         _ = @import("engine/peer/pipeline_reply_identity_test.zig");
         _ = @import("engine/peer/pipeline_remote_forward_test.zig");
         _ = @import("engine/peer/pipeline_local_promise_test.zig");
@@ -206,6 +211,7 @@ comptime {
         _ = @import("engine/node/staged_order_test.zig");
         _ = @import("engine/node/answer_settlement_test.zig");
         _ = @import("engine/node/gift_failure_test.zig");
+        _ = @import("engine/node/relay_failure_test.zig");
         _ = @import("engine/node/staged_local_promise_test.zig");
         _ = @import("engine/node/dial_test.zig");
         _ = @import("engine/node/dial/allocation_test.zig");
@@ -248,6 +254,11 @@ comptime {
         _ = @import("driver/core_host/pressure_test.zig");
         _ = @import("driver/core_host/give_test.zig");
         _ = @import("driver/core_host/give/staged_test.zig");
+        _ = @import("driver/core_host/give/tell_retirement_test.zig");
+        _ = @import("driver/core_host/give/projection_callback_test.zig");
+        _ = @import("driver/core_host/give/cancel_pump_test.zig");
+        _ = @import("driver/core_host/give/id_exhaustion_test.zig");
+        _ = @import("driver/core_host/failure_taxonomy_test.zig");
         _ = @import("driver/core_host/capability_projection_test.zig");
         _ = @import("driver/core_host/routing_depth_test.zig");
         _ = @import("driver/core_host/give/relayed_test.zig");
@@ -266,6 +277,7 @@ comptime {
         _ = @import("driver/core_host/redeem/id_routes_test.zig");
         _ = @import("driver/core_host/redeem/route_completion_test.zig");
         _ = @import("driver/core_host/redeem/withdraw_test.zig");
+        _ = @import("driver/core_host/redeem/batch_failure_test.zig");
         _ = @import("driver/core_host/actors_test.zig");
         _ = @import("driver/core_host/actors/swiss_test.zig");
         _ = @import("driver/core_host/actors/scope_test.zig");
@@ -388,6 +400,7 @@ comptime {
         _ = @import("session/imported_promise_test.zig");
         _ = @import("session/slot_test.zig");
         _ = @import("session/answers_slot_test.zig");
+        _ = @import("session/position_slab_test.zig");
         _ = @import("session/bootstrap_test.zig");
         _ = @import("session/inspect_test.zig");
         _ = @import("session/inventory_test.zig");

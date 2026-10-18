@@ -55,11 +55,11 @@ test "route plan equality treats hint maps semantically" {
         .{ .name = "zone", .value = .{ .integer = 2 } },
         .{ .name = "address", .value = .{ .string = "127.0.0.1:1" } },
     };
-    var left_paths = [_]model.RoutePath{
+    var left_paths = [_]model.PeerLocator{
         .{ .transport = model.transport.keyed_tcp, .designator = "key", .hints = .{ .entries = &left_entries } },
         .{ .transport = model.transport.tcp, .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() },
     };
-    var right_paths = [_]model.RoutePath{
+    var right_paths = [_]model.PeerLocator{
         .{ .transport = model.transport.keyed_tcp, .designator = "key", .hints = .{ .entries = &right_entries } },
         .{ .transport = model.transport.tcp, .designator = "127.0.0.1:2", .hints = model.Hints.emptyMap() },
     };
@@ -131,6 +131,34 @@ test "CapTP versions parse and render wire strings" {
     try std.testing.expectEqual(model.CaptpVersion.next, model.CaptpVersion.fromWireString("glowcap-next").?);
     try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromWireString("ocapn-1.0"));
     try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromWireString("2.0"));
+}
+
+test "hint tokens name the exact own wire of a version or codec glowcap owns" {
+    const fingerprint = comptime model.CaptpVersion.next.hintToken()["glowcap-next/".len..];
+    try std.testing.expectEqualStrings("1.0", model.CaptpVersion.v1_0.hintToken());
+    try std.testing.expectEqualStrings("glowcap-next/" ++ fingerprint, model.CaptpVersion.next.hintToken());
+    try std.testing.expectEqual(model.CaptpVersion.next, model.CaptpVersion.fromHintToken("glowcap-next/" ++ fingerprint).?);
+    // Another build's `next`, or one from before tokens named their wire, is
+    // a version this build cannot speak.
+    try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromHintToken("glowcap-next"));
+    try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromHintToken("glowcap-next/0123456789abcdef"));
+
+    const capnp_token = model.CodecId.capnp.hintToken();
+    const syrup_token = model.CodecId.syrup.hintToken();
+    try std.testing.expectEqualStrings("0/" ++ fingerprint, capnp_token.slice());
+    try std.testing.expectEqualStrings("1", syrup_token.slice());
+    // A minted codec id writes its decimal id whatever its width.
+    const widest_token = @as(model.CodecId, @fromBackingInt(@intCast(std.math.maxInt(u16)))).hintToken();
+    try std.testing.expectEqualStrings("65535", widest_token.slice());
+    try std.testing.expectEqual(model.CodecId.capnp, (try model.CodecId.fromHintToken("0/" ++ fingerprint)).?);
+    try std.testing.expectEqual(model.CodecId.syrup, (try model.CodecId.fromHintToken("1")).?);
+    try std.testing.expectEqual(@as(model.CodecId, @fromBackingInt(@intCast(700))), (try model.CodecId.fromHintToken("700")).?);
+    try std.testing.expectEqual(@as(?model.CodecId, null), try model.CodecId.fromHintToken("0"));
+    try std.testing.expectEqual(@as(?model.CodecId, null), try model.CodecId.fromHintToken("0/0123456789abcdef"));
+    try std.testing.expectEqual(@as(?model.CodecId, null), try model.CodecId.fromHintToken("1/" ++ fingerprint));
+    try std.testing.expectError(error.MalformedHintToken, model.CodecId.fromHintToken("capnp"));
+    try std.testing.expectError(error.MalformedHintToken, model.CodecId.fromHintToken("/0"));
+    try std.testing.expectError(error.MalformedHintToken, model.CodecId.fromHintToken("70000"));
 }
 
 test "CaptpVersion diagnostic names" {

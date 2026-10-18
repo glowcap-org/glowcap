@@ -9,6 +9,7 @@
 //! `SO_ERROR`, and losing descriptors are closed only after a winner exists.
 
 const std = @import("std");
+const foundation = @import("foundation");
 const builtin = @import("builtin");
 
 const address_race = @import("address_race.zig");
@@ -403,11 +404,7 @@ fn noteClose(cleanup_failure: *?DialFailure, close_failure: ?anyerror) void {
 }
 
 fn appendFailure(target: *?DialFailure, next: ?DialFailure) void {
-    const value = next orelse return;
-    if (target.*) |*first|
-        first.chain.noteChain(value.chain)
-    else
-        target.* = value;
+    foundation.latchFailure(target, next orelse return);
 }
 
 fn failure(phase: carrier_failure.Phase, err: anyerror) DialFailure {

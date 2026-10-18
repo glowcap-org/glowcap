@@ -115,15 +115,18 @@ pub fn accepts(signaling: GlowcapWebrtcSignaling) bool {
     return signaling.send_answer != null;
 }
 
+/// Whether retiring an exchange tells the application through `done`.
+pub const Notice = enum { announced, silent };
+
 /// End an exchange: forget it, tell the application when it had learned of
 /// the exchange, and release the peer. Returns the release outcome, which is
 /// clean while the provider lease holds the netlayer.
-pub fn retire(payload: *NetlayerPayload, peer: *PeerPayload, announce: bool) ?anyerror {
+pub fn retire(payload: *NetlayerPayload, peer: *PeerPayload, notice: Notice) ?anyerror {
     const id = peer.exchange.?.id;
     std.debug.assert(payload.exchanges.remove(id));
     std.debug.assert(payload.peers.remove(@backingInt(peer.peer.id())));
     peer.exchange = null;
-    if (announce) if (payload.signaling.done) |done| done(payload.signaling.ctx, id);
+    if (notice == .announced) if (payload.signaling.done) |done| done(payload.signaling.ctx, id);
     return ownership.releasePeer(peer);
 }
 
@@ -192,7 +195,7 @@ fn failExchange(payload: *NetlayerPayload, peer: *PeerPayload, code: i32, err: a
         .accept => {
             // The provider lease pins the netlayer, so this release frees the
             // peer alone and cannot fail.
-            std.debug.assert(retire(payload, peer, true) == null);
+            std.debug.assert(retire(payload, peer, .announced) == null);
             return null;
         },
     }

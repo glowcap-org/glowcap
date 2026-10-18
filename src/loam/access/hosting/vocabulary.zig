@@ -11,7 +11,7 @@ const Service = @import("service.zig").Service;
 /// The scope is the symbol `object` for the named resource alone or `subtree`
 /// for it and every descendant, including ones added later.
 pub fn derive(_: ?*anyopaque, _: std.mem.Allocator, resource: core.ResourceId, args: []const Value) !core.GrantLedger.Issue {
-    if (args.len != 5 or args[4] != .integer or args[4].integer < 0 or args[4].integer > 64) return error.InvalidArguments;
+    if (args.len != 5 or args[4] != .integer or args[4].integer < 0 or args[4].integer > core.max_depth) return error.InvalidArguments;
     const terms: core.Terms = .{ .scope = try shareScope(resource, args[0]), .policy = try policy(args[1..4]) };
     return .{ .ceiling = terms, .configured = terms, .delegation_depth = @intCast(args[4].integer) };
 }
@@ -52,7 +52,12 @@ pub fn edit(_: ?*anyopaque, _: std.mem.Allocator, bound: core.Control.Powers, ve
         if (values.len != 1 or values[0] != .string) return error.InvalidArguments;
         return .{ .set_label = try core.GrantLedger.Label.init(values[0].string) };
     }
-    if (values.len != 0) return error.InvalidArguments;
+    return lifecycle(verb, values);
+}
+
+/// The lifecycle edits every control speaks, each without arguments.
+pub fn lifecycle(verb: []const u8, args: []const Value) !core.Control.Edit {
+    if (args.len != 0) return error.InvalidArguments;
     if (std.mem.eql(u8, verb, "pause")) return .pause;
     if (std.mem.eql(u8, verb, "resume")) return .resume_access;
     if (std.mem.eql(u8, verb, "revoke")) return .revoke;
@@ -60,8 +65,19 @@ pub fn edit(_: ?*anyopaque, _: std.mem.Allocator, bound: core.Control.Powers, ve
 }
 
 pub fn revision(_: []const u8, args: []const Value) !core.Revision {
-    if (args.len == 0 or args[0] != .bytes or args[0].bytes.len != 8) return error.InvalidArguments;
-    return @fromBackingInt(std.mem.readInt(u64, args[0].bytes[0..8], .big));
+    if (args.len == 0) return error.InvalidArguments;
+    return revisionOf(args[0]);
+}
+
+/// A revision on the wire: its big-endian bytes.
+pub fn revisionOf(value: Value) !core.Revision {
+    return @fromBackingInt(try unsigned(u64, value));
+}
+
+/// An unsigned scalar on the wire: exactly its big-endian bytes.
+fn unsigned(comptime T: type, value: Value) !T {
+    if (value != .bytes or value.bytes.len != @sizeOf(T)) return error.InvalidArguments;
+    return std.mem.readInt(T, value.bytes[0..@sizeOf(T)], .big);
 }
 
 pub fn attenuate(_: ?*anyopaque, _: std.mem.Allocator, bound: core.Control.Powers, args: []const Value) !core.Control.Powers {
@@ -77,8 +93,9 @@ pub fn attenuate(_: ?*anyopaque, _: std.mem.Allocator, bound: core.Control.Power
 fn powers(scope: ?core.Scope, value: Value) !core.Control.Powers {
     if (value != .list or value.list.len != 3) return error.InvalidArguments;
     const mask = value.list[2];
-    if (mask != .integer or mask.integer < 0 or mask.integer > 31) return error.InvalidArguments;
-    var result: core.Control.Powers = .{ .pause = mask.integer & 1 != 0, .resume_access = mask.integer & 2 != 0, .revoke = mask.integer & 4 != 0, .inspect = mask.integer & 8 != 0, .delegate_control = mask.integer & 16 != 0 };
+    if (mask != .integer or mask.integer < 0 or mask.integer > std.math.maxInt(PowerMask)) return error.InvalidArguments;
+    const bits: PowerBits = @bitCast(@as(PowerMask, @intCast(mask.integer)));
+    var result: core.Control.Powers = .{ .pause = bits.pause, .resume_access = bits.resume_access, .revoke = bits.revoke, .inspect = bits.inspect, .delegate_control = bits.delegate_control };
     if (value.list[0] != .void) {
         if (value.list[0] != .list) return error.InvalidArguments;
         result.policy_ceiling = .{ .scope = scope orelse return error.Denied, .policy = try policy(value.list[0].list) };
@@ -90,15 +107,16 @@ fn powers(scope: ?core.Scope, value: Value) !core.Control.Powers {
     return result;
 }
 
+/// The independent power mask on the wire, lowest bit first.
+const PowerMask = u5;
+const PowerBits = packed struct(PowerMask) { pause: bool, resume_access: bool, revoke: bool, inspect: bool, delegate_control: bool };
+
 fn policy(args: []const Value) !core.Policy.Value {
-    if (args.len != 3 or args[0] != .bytes or args[0].bytes.len != 16 or args[1] != .list or args[1].list.len != 1 or args[2] != .list or args[2].list.len > 16) return error.InvalidArguments;
-    const mask = args[1].list[0];
-    if (mask != .bytes or mask.bytes.len != 8) return error.InvalidArguments;
-    var result: core.Policy.Value = .{ .schema = @fromBackingInt(std.mem.readInt(u128, args[0].bytes[0..16], .big)), .permissions = std.mem.readInt(u64, mask.bytes[0..8], .big) };
+    if (args.len != 3 or args[1] != .list or args[1].list.len != 1 or args[2] != .list or args[2].list.len > core.Policy.max_constraints) return error.InvalidArguments;
+    var result: core.Policy.Value = .{ .schema = @fromBackingInt(try unsigned(u128, args[0])), .permissions = try unsigned(u64, args[1].list[0]) };
     for (args[2].list, 0..) |item, i| {
         if (item == .void) continue;
-        if (item != .bytes or item.bytes.len != 8) return error.InvalidArguments;
-        result.setBound(i, std.mem.readInt(u64, item.bytes[0..8], .big));
+        result.setBound(i, try unsigned(u64, item));
     }
     return result;
 }

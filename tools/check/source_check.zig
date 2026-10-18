@@ -99,6 +99,7 @@ const zig_doc_names = @import("source_check/zig_doc_names.zig");
 const zig_dead_fns = @import("source_check/zig_dead_fns.zig");
 const fuzz = @import("source_check/fuzz.zig");
 const file_length = @import("source_check/file_length.zig");
+const zig_duplicate_bodies = @import("source_check/zig_duplicate_bodies.zig");
 const namespaces = @import("source_check/namespaces.zig");
 const signing_domain = @import("source_check/signing_domain.zig");
 const util = @import("source_check/util.zig");
@@ -113,12 +114,23 @@ pub fn create(b: *Build) *Step {
             // This analyzer scans the whole source tree on every gate. Keep
             // safety checks while optimizing its parsing and traversal loops.
             .optimize = .ReleaseSafe,
+            .imports = &.{.{ .name = "model", .module = modelModule(b, b.graph.host, .ReleaseSafe) }},
         }),
     });
     const run = b.addRunArtifact(exe);
     run.addArg(b.root.toString(b.allocator) catch @panic("OOM"));
     run.addArg(zigLibPath(b));
     return &run.step;
+}
+
+/// The codec-neutral model, which some checks read by reflection rather than
+/// by parsing its text. It imports nothing, so the check tool takes it alone.
+pub fn modelModule(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *Build.Module {
+    return b.createModule(.{
+        .root_source_file = b.path("src/ocapn/model/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 }
 
 pub fn check(
@@ -206,6 +218,7 @@ pub fn check(
     try ps_license_manifests.check(io, gpa, root, &violations);
     try ps_execution_deadlines.check(io, gpa, root, &violations);
     try file_length.check(io, gpa, root, &violations);
+    try zig_duplicate_bodies.check(io, gpa, root, &violations);
     try c_abi_versions.checkAbiVersionLockstep(io, gpa, root, &violations);
     try c_abi_versions.checkPrereleaseProviderAbiVersions(io, gpa, root, &violations);
     try c_abi_surface.checkAbiFreeingVerb(io, gpa, root, &violations);
@@ -385,6 +398,7 @@ test {
     _ = docs_corpus;
     _ = docs_snippets;
     _ = file_length;
+    _ = zig_duplicate_bodies;
     _ = ps_packages;
     _ = ps_formatting;
     _ = ps_npm_pins;

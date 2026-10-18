@@ -6,7 +6,7 @@ tags: [loam, persistence, storage, lmdb, indexeddb, benchmark]
 decision: "Loam's default storage is LMDB with a synchronous flush at every commit for Zig, C and Rust, and IndexedDB in the browser. No second engine is added, because the Tasks, scale and browser measurements located no limit in LMDB, within the scope this record lists. An application declares its capacity limits from its own data shape, and the Store's defaults size only a small embedding. The record cache charges each resident record its encoded size."
 supersedes: []
 superseded_by: []
-amends: []
+amends: [ADR-0159]
 amended_by: [ADR-0233, ADR-0239]
 ---
 
@@ -24,8 +24,9 @@ stored resources, and the browser binding's crossings per operation. The
 [recorded results](../../../bench/loam/results.md) hold the numbers.
 
 The open question was whether those numbers point at the storage engine. The
-storage research names SQLite or a custom pager only once a measurement locates
-a limit in LMDB itself.
+storage research
+([ADR-0159](ADR-0159-memory-and-persistence-research.md)) names SQLite or a
+custom pager only once a measurement locates a limit in LMDB itself.
 
 ## Decision
 

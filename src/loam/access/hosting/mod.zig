@@ -1,4 +1,7 @@
 //! Managed endpoints on the existing durable Host attachment. No I/O owner.
+const hosting = @import("loam_hosting");
+const records = @import("loam_access_records");
+const loam = @import("loam_core");
 pub const Service = @import("service.zig").Service;
 pub const ContentBehavior = @import("service.zig").ContentBehavior;
 pub const ContentCall = @import("service.zig").ContentCall;
@@ -25,5 +28,4 @@ pub const stageOwner = @import("owner.zig").stageOwner;
 pub const vocabulary = @import("vocabulary.zig");
 /// The records every managed hosting store declares beside its application
 /// content schemas.
-pub const system_schemas = @import("loam_access_records").profile.schemas ++ [_]@import("loam_core").Schema{ hosting.publication.schema, hosting.references.schema, hosting.LiveEpoch.schema };
-const hosting = @import("loam_hosting");
+pub const system_schemas = records.profile.schemas ++ [_]loam.Schema{ hosting.publication.schema, hosting.references.schema, hosting.LiveEpoch.schema };

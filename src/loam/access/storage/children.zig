@@ -6,6 +6,7 @@ const records = @import("loam_access_records");
 const op = @import("capability_operation.zig");
 const DirectoryQuery = @import("directory_query.zig").DirectoryQuery;
 const Load = @import("load.zig").Load;
+const Read = @import("read.zig").Read;
 
 const State = struct {
     operation: *op.Operation,
@@ -23,9 +24,9 @@ pub fn create(operation: *op.Operation, parent: core.ResourceId, requirement: co
     const value = op.state(operation);
     try value.unprepared();
     try operation.require(parent, requirement);
-    const view = &value.read.?;
+    const view = &value.read;
     const binding = (try view.binding(.{ .resource = parent })).?;
-    const row = (try @import("read.zig").Read.rowFor(view.store, binding)).?.view;
+    const row = (try Read.rowFor(view.store, binding)).?.view;
     const parent_record = try records.ResourceRecord.decode(row);
     const allocator = value.binding.owner.allocator;
     const state = try allocator.create(State);
@@ -49,7 +50,7 @@ pub const Children = opaque {
         const operation = state.operation;
         const value = op.state(operation);
         try value.opened();
-        const view = &value.read.?;
+        const view = &value.read;
         for (0..16) |_| {
             if (state.candidate == null) {
                 if (state.entry == null) {
@@ -75,9 +76,7 @@ pub const Children = opaque {
                 };
                 defer loaded.release(view.store);
                 const row = loaded.view;
-                if (row.schema != records.profile.resource or row.schema_version != 1) return error.InvalidRecord;
-                const record = try records.ResourceRecord.decode(row);
-                if (!record.live or record.resource.id.owner != state.parent.owner or record.resource.id.slot != entry.slot or record.resource.parent == null or !record.resource.parent.?.eql(state.parent)) return error.InvalidRecord;
+                const record = try records.ResourceRecord.decodeChildOf(row, state.parent, entry.slot);
                 state.candidate = record.resource.id;
             }
             operation.require(state.candidate.?, state.requirement) catch |err| switch (err) {
@@ -101,7 +100,7 @@ pub const Children = opaque {
                 else => return err,
             };
             const binding = (try view.binding(.{ .resource = state.candidate.? })).?;
-            const row = (try @import("read.zig").Read.rowFor(view.store, binding)).?.view;
+            const row = (try Read.rowFor(view.store, binding)).?.view;
             if (!row.id.eql(state.entry.?.object)) return error.InvalidRecord;
             const result = state.candidate.?;
             try view.forgetResources();

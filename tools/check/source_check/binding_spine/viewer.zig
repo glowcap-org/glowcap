@@ -47,27 +47,16 @@ pub fn checkTraceViewerVocabulary(
     const viewer = "apps/ocapnviz/src/schema/topology.ts";
     const provenance_mirror = "apps/ocapnviz/src/schema/session-end.ts";
 
-    if (root.readFileAlloc(io, authority, gpa, .limited(1 << 20))) |source| {
-        defer gpa.free(source);
-        var arms: std.ArrayList(util.CaptpWireArm) = .empty;
-        defer arms.deinit(gpa);
-        try util.collectCaptpWireArms(gpa, source, &arms);
-        if (arms.items.len == 0) {
-            try appendViolation(gpa, violations, "{s}: `wireString` gave up no version arms, so the viewer's vocabulary was held against nothing", .{authority});
-        } else if (root.readFileAlloc(io, viewer, gpa, .limited(4 << 20))) |contents| {
-            defer gpa.free(contents);
-            for (arms.items) |arm| {
-                const quoted = try std.mem.concat(gpa, u8, &.{ "\"", arm.wire, "\"" });
-                defer gpa.free(quoted);
-                if (std.mem.indexOf(u8, contents, quoted) == null) {
-                    try appendViolation(gpa, violations, "{s}: the viewer has no word for `.{s}`, which every producer sends as {s} (`{s}`). A version the feed can carry and the viewer cannot read draws as nothing.", .{ viewer, arm.tag, quoted, authority });
-                }
+    if (root.readFileAlloc(io, viewer, gpa, .limited(4 << 20))) |contents| {
+        defer gpa.free(contents);
+        inline for (util.captp_wire_words) |arm| {
+            const quoted = "\"" ++ arm.wire ++ "\"";
+            if (std.mem.indexOf(u8, contents, quoted) == null) {
+                try appendViolation(gpa, violations, "{s}: the viewer has no word for `.{s}`, which every producer sends as {s} (`{s}`). A version the feed can carry and the viewer cannot read draws as nothing.", .{ viewer, arm.tag, quoted, authority });
             }
-        } else |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for the viewer's CapTP vocabulary with {s}", .{ viewer, @errorName(err) });
         }
     } else |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read the trace wire-word authority with {s}", .{ authority, @errorName(err) });
+        try appendViolation(gpa, violations, "{s}: failed to read for the viewer's CapTP vocabulary with {s}", .{ viewer, @errorName(err) });
     }
 
     // The whole declaration, not the bare word, so a changed value fails as

@@ -14,9 +14,5 @@ pub const Temp = @import("loam_engine_temp").Temp;
 
 /// Opens the store at `path` in `mode` with the suite's capacity.
 pub fn open(path: [:0]const u8, mode: core.OpenMode, id: core.StoreId) !Engine {
-    return Engine.open(path, .{ .capacity_bytes = capacity_bytes.?, .mode = switch (mode) {
-        .create => .{ .create = id },
-        .open => .{ .open = id },
-        .bootstrap => .{ .bootstrap = id },
-    } });
+    return Engine.open(path, .{ .capacity_bytes = capacity_bytes.?, .opening = .{ .id = id, .mode = mode } });
 }

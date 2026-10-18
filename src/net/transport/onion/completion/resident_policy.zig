@@ -47,11 +47,7 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
                 .onion => |id| id,
                 .platform => return Inner.localLocator(&backend.inner, fd, transport, identity, allocator),
             };
-            return model.clonePeerLocator(allocator, .{
-                .transport = transport,
-                .designator = &service_id,
-                .hints = model.Hints.emptyFalse(),
-            });
+            return model.clonePeerLocator(allocator, .hintless(transport, &service_id));
         }
 
         /// An onion listener restores from its service key. Any other
@@ -73,13 +69,11 @@ pub fn ResidentPolicy(comptime Backend: type, comptime Inner: type) type {
             candidate: model.PeerLocator,
         ) !model.PeerLocator {
             if (!isOnion(transport)) return Inner.canonicalizeLocator(&backend.inner, fd, transport, identity, allocator, candidate);
-            model.validatePeerLocator(candidate) catch return error.InvalidAddress;
             const service_id = switch (try backend.listenerAddress(fd)) {
                 .onion => |id| id,
                 .platform => return error.InvalidAddress,
             };
-            if (!isOnion(candidate.transport) or !std.mem.eql(u8, candidate.designator, &service_id)) return error.InvalidAddress;
-            return model.clonePeerLocator(allocator, candidate);
+            return netlayer.canonicalizeFixedLocator(allocator, candidate, transport, &service_id);
         }
     };
 }

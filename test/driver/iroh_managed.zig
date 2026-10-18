@@ -35,7 +35,7 @@ fn host(io: std.Io, allocator: std.mem.Allocator, endpoint: *iroh.Resident, secr
     if (!try server.waitAcceptable(5000)) return error.AcceptTimedOut;
     const session = try server.accept();
     defer session.deinit();
-    if (server.close()) |failure| return failure.cause;
+    if (server.close()) |failure| return failure.chain.cause;
     server.deinit();
     owns_server = false;
     // The client may already have coalesced its fetch with the hello. Setup

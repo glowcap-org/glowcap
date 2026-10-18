@@ -15,7 +15,7 @@ const Ed25519 = std.crypto.sign.Ed25519;
 const Blake3 = std.crypto.hash.Blake3;
 
 pub const DIGEST_BYTES = 32;
-pub const SEED_BYTES = 32;
+pub const seed_bytes = 32;
 
 /// A base64url-no-pad rendering of a 32-byte digest is 43 chars. An AID or SAID
 /// carries a 1-char derivation code in front of it, for 44 total.
@@ -33,15 +33,15 @@ pub const Error = error{
 /// the only secret. Everything else is public.
 pub const Key = struct {
     pair: Ed25519.KeyPair,
-    seed: [SEED_BYTES]u8,
+    seed: [seed_bytes]u8,
 
-    pub fn fromSeed(seed: [SEED_BYTES]u8) Error!Key {
+    pub fn fromSeed(seed: [seed_bytes]u8) Error!Key {
         const pair = Ed25519.KeyPair.generateDeterministic(seed) catch return Error.BadSeed;
         return .{ .pair = pair, .seed = seed };
     }
 
     pub fn random(io: std.Io) Error!Key {
-        var seed: [SEED_BYTES]u8 = undefined;
+        var seed: [seed_bytes]u8 = undefined;
         io.random(&seed);
         return fromSeed(seed);
     }
@@ -169,14 +169,14 @@ pub fn nextKeyDigest(next_verkey: [32]u8) [SAID_LEN]u8 {
 }
 
 test "a D-coded verkey round-trips" {
-    const key = try Key.fromSeed(@as([SEED_BYTES]u8, @splat(0x01)));
+    const key = try Key.fromSeed(@as([seed_bytes]u8, @splat(0x01)));
     var coded: [SAID_LEN]u8 = undefined;
     encodeSaid('D', key.verkey(), &coded);
     try std.testing.expectEqual(key.verkey(), try decodeVerkey(&coded));
 }
 
 test "a signature round-trips through base64url" {
-    const key = try Key.fromSeed(@as([SEED_BYTES]u8, @splat(0x02)));
+    const key = try Key.fromSeed(@as([seed_bytes]u8, @splat(0x02)));
     const sig = key.sign("preimage");
     var encoded: [SIG_LEN]u8 = undefined;
     _ = b64.Encoder.encode(&encoded, &sig);

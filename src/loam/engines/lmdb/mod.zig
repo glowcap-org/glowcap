@@ -5,9 +5,10 @@
 const std = @import("std");
 const core = @import("loam_core");
 const c = @import("c.zig");
-const owner_lock = @import("loam_owner_lock");
+const custody = @import("loam_custody");
 const Kv = @import("kv.zig").Kv;
 const check = @import("kv.zig").check;
+const compaction = @import("compaction.zig");
 
 /// The file inside a store directory that holds its records.
 pub const file_name = "data.mdb";
@@ -25,22 +26,19 @@ pub const Lmdb = struct {
     directory: [std.fs.max_path_bytes:0]u8,
     capacity_limit_bytes: usize,
     dbi: c_uint,
-    lock: owner_lock.Held,
+    lock: custody.owner_lock.Held,
     /// LMDB's reader table, which holds at least `Options.max_readers` and
     /// more when an earlier open left a larger lock file.
     reader_capacity: usize,
     environment_open: bool = true,
     metadata: core.Metadata,
-    users: std.atomic.Value(usize) = .init(0),
+    admission: custody.Admission = .{},
     writer_idle: std.atomic.Value(bool) = .init(true),
-    const closing: usize = @as(usize, 1) << (@bitSizeOf(usize) - 1);
-    const maintenance = closing >> 1;
-    const reopen_required = maintenance >> 1;
 
     pub const Options = struct {
         map_bytes: usize = 256 * 1024 * 1024,
         max_readers: u32 = 16,
-        mode: union(enum) { create: core.StoreId, open: core.StoreId, bootstrap: core.StoreId },
+        opening: core.Opening,
     };
 
     /// The directory must exist. Create refuses an existing Loam store. Open
@@ -48,12 +46,12 @@ pub const Lmdb = struct {
     /// mismatched metadata. Successful opening durably
     /// reserves a fresh incarnation while holding exclusive lifetime custody.
     pub fn open(path: [:0]const u8, options: Options) !Lmdb {
-        if (options.map_bytes < 1024 * 1024 or options.map_bytes > std.math.maxInt(std.c.off_t) or options.max_readers == 0) return error.InvalidLimits;
+        if (options.map_bytes < core.backend.min_capacity_bytes or options.map_bytes > std.math.maxInt(std.c.off_t) or options.max_readers == 0) return error.InvalidLimits;
         var absolute: [std.fs.max_path_bytes:0]u8 = undefined;
-        var lock = try owner_lock.acquire(path, &absolute);
+        var lock = try custody.owner_lock.acquire(path, &absolute);
         // best-effort: the lock is released on every refusal below, and a failing unlock cannot change what the refusal reports.
         errdefer lock.release() catch {};
-        const env = try openEnvironment(&absolute, options.map_bytes, options.max_readers, options.mode == .open);
+        const env = try openEnvironment(&absolute, options.map_bytes, options.max_readers, options.opening.mode == .open);
         errdefer c.mdb_env_close(env);
         var readers: c_uint = 0;
         try check(c.mdb_env_get_maxreaders(env, &readers));
@@ -68,9 +66,7 @@ pub const Lmdb = struct {
         // One cursor seek verifies this under the same exclusive transaction;
         // reclaiming an allocator/identity floor would revive stale authority.
         if (stored == null and try kv.next("", null) != null) return error.Corrupt;
-        const meta = switch (options.mode) {
-            inline else => |id, mode| try core.Metadata.select(id, @field(core.OpenMode, @tagName(mode)), stored),
-        };
+        const meta = try core.Metadata.select(options.opening.id, options.opening.mode, stored);
         const claimed = try meta.claim();
         try kv.put(core.metadata_key, &claimed.encode());
         const active = txn.?;
@@ -85,7 +81,7 @@ pub const Lmdb = struct {
     /// pending commit retains it. Retry after joining that work. The associated
     /// Store must also retire its leases and staging before its own deinit.
     pub fn close(self: *Lmdb) !void {
-        if (self.users.fetchOr(closing, .acq_rel) & ~(closing | reopen_required) != 0) return error.Busy;
+        try self.admission.close();
         if (self.environment_open) {
             c.mdb_env_close(self.env);
             self.environment_open = false;
@@ -130,7 +126,7 @@ pub const Lmdb = struct {
             errdefer self.phase = .failed;
             try check(c.mdb_env_copyfd2(self.owner.env, self.files.copy, c.compact));
             try check(c.loam_lmdb_replacement_sync_copy(&self.files));
-            try @import("compaction.zig").verify(self.owner.env, self.owner.dbi, self.owner.metadata, &self.copy_path);
+            try compaction.verify(self.owner.env, self.owner.dbi, self.owner.metadata, &self.copy_path);
             self.phase = .prepared;
         }
 
@@ -158,7 +154,7 @@ pub const Lmdb = struct {
         /// closed to work, and close alone releases lifetime writer custody.
         pub fn deinit(self: *Compaction) void {
             c.loam_lmdb_replacement_end(&self.files);
-            self.owner.endMaintenance();
+            self.owner.admission.endMaintenance();
             self.* = undefined;
         }
     };
@@ -167,8 +163,8 @@ pub const Lmdb = struct {
     /// and retire the associated Store before beginning this offline operation.
     /// Installation closes engine admission. Close it before reopening.
     pub fn beginCompaction(self: *Lmdb) !Compaction {
-        try self.beginMaintenance();
-        errdefer self.endMaintenance();
+        try self.admission.beginMaintenance();
+        errdefer self.admission.endMaintenance();
         return Compaction.init(self);
     }
 
@@ -183,7 +179,7 @@ pub const Lmdb = struct {
     }
 
     fn closeForReplacement(self: *Lmdb) void {
-        _ = self.users.fetchOr(closing, .acq_rel);
+        self.admission.stop();
         c.mdb_env_close(self.env);
         self.environment_open = false;
     }
@@ -192,8 +188,8 @@ pub const Lmdb = struct {
     /// High water includes reusable free pages. Capacity minus high water is unused
     /// file capacity, not a guarantee that a particular write will fit.
     pub fn inspect(self: *Lmdb) !Statistics {
-        try self.beginMaintenance();
-        defer self.endMaintenance();
+        try self.admission.beginMaintenance();
+        defer self.admission.endMaintenance();
         return self.statistics();
     }
 
@@ -202,8 +198,8 @@ pub const Lmdb = struct {
     /// memory for the new size. The next successful write saves it in LMDB's
     /// metadata.
     pub fn grow(self: *Lmdb, map_bytes: usize) !void {
-        try self.beginMaintenance();
-        defer self.endMaintenance();
+        try self.admission.beginMaintenance();
+        defer self.admission.endMaintenance();
         const stat = try self.statistics();
         if (map_bytes <= stat.map_bytes or map_bytes > std.math.maxInt(std.c.off_t) or map_bytes % stat.page_bytes != 0) return error.InvalidLimits;
         try check(c.mdb_env_set_mapsize(self.env, map_bytes));
@@ -224,19 +220,6 @@ pub const Lmdb = struct {
         };
     }
 
-    fn beginMaintenance(self: *Lmdb) !void {
-        if (self.users.cmpxchgStrong(0, maintenance, .acq_rel, .acquire)) |current| {
-            if (current & reopen_required != 0) return error.ReopenRequired;
-            return if (current & closing != 0) error.Closed else error.Busy;
-        }
-    }
-
-    fn endMaintenance(self: *Lmdb) void {
-        // A concurrent close can set its fence while maintenance is in flight.
-        const previous = self.users.fetchAnd(~maintenance, .release);
-        std.debug.assert(previous & maintenance != 0);
-    }
-
     pub fn read(self: *Lmdb, request: core.Read) core.ReadResult {
         return core.backend.read(self, request);
     }
@@ -254,12 +237,9 @@ pub const Lmdb = struct {
     /// directory lock and the store's open count. A failed reopen keeps refusing
     /// work and can be retried.
     pub fn recover(self: *Lmdb, batch: core.Batch) !core.Resolution {
-        const fenced = self.users.load(.acquire) & reopen_required;
-        if (self.users.cmpxchgStrong(fenced, fenced | maintenance | reopen_required, .acq_rel, .acquire)) |current| {
-            return if (current & closing != 0) error.Closed else error.Busy;
-        }
-        defer self.endMaintenance();
-        if (fenced != 0) {
+        const fenced = try self.admission.beginRecovery();
+        defer self.admission.endMaintenance();
+        if (fenced) {
             if (self.environment_open) {
                 c.mdb_env_close(self.env);
                 self.environment_open = false;
@@ -279,7 +259,7 @@ pub const Lmdb = struct {
         try check(c.mdb_env_sync(self.env, 1));
         const resolution = try batch.resolve(try core.backend.metadata(&kv));
         self.dbi = dbi;
-        _ = self.users.fetchAnd(~reopen_required, .release);
+        self.admission.recovered();
         return resolution;
     }
 
@@ -291,8 +271,8 @@ pub const Lmdb = struct {
 
     /// Retains the engine until `end`. A borrowed value ends at the next operation or transaction end.
     pub fn beginRead(self: *Lmdb) !ReadTransaction {
-        try self.retain();
-        errdefer self.release();
+        try self.admission.retain();
+        errdefer self.admission.release();
         var txn: ?*c.Txn = null;
         try check(c.mdb_txn_begin(self.env, null, c.readonly, &txn));
         return .{ .owner = self, .kv = .{ .txn = txn.?, .dbi = self.dbi } };
@@ -302,11 +282,11 @@ pub const Lmdb = struct {
     /// same worker. A concurrent writer is refused as Busy, never queued
     /// inside LMDB where it could pass an uncertain completion's fence.
     pub fn beginWrite(self: *Lmdb) !WriteTransaction {
-        try self.retain();
-        errdefer self.release();
+        try self.admission.retain();
+        errdefer self.admission.release();
         if (!self.writer_idle.swap(false, .acq_rel)) return error.Busy;
         errdefer self.writer_idle.store(true, .release);
-        if (self.users.load(.acquire) & reopen_required != 0) return error.ReopenRequired;
+        try self.admission.checkOpen();
         var txn: ?*c.Txn = null;
         try check(c.mdb_txn_begin(self.env, null, 0, &txn));
         return .{ .owner = self, .kv = .{ .txn = txn.?, .dbi = self.dbi } };
@@ -326,7 +306,7 @@ pub const Lmdb = struct {
 
         pub fn end(self: *ReadTransaction) void {
             c.mdb_txn_abort(self.kv.txn);
-            self.owner.release();
+            self.owner.admission.release();
         }
     };
 
@@ -349,18 +329,12 @@ pub const Lmdb = struct {
         /// has already marked unusable for anything but abort.
         pub fn put(self: *WriteTransaction, key: []const u8, value: []const u8) !void {
             if (self.state != .active) return error.Closed;
-            self.kv.put(key, value) catch |err| {
-                self.abort();
-                return err;
-            };
+            try self.abortOnError(self.kv.put(key, value));
         }
 
         pub fn remove(self: *WriteTransaction, key: []const u8) !void {
             if (self.state != .active) return error.Closed;
-            self.kv.remove(key) catch |err| {
-                self.abort();
-                return err;
-            };
+            try self.abortOnError(self.kv.remove(key));
         }
 
         /// Commit once and retain the reported state. A refused commit changed
@@ -377,16 +351,16 @@ pub const Lmdb = struct {
             if (rc != 0) if (commitRefusal(rc)) |err| {
                 self.state = .aborted;
                 self.owner.writer_idle.store(true, .release);
-                self.owner.release();
+                self.owner.admission.release();
                 return err;
             };
             const state: core.backend.Commit = if (rc == 0) .committed else .unknown;
             // LMDB does not fence every post-metadata failure (notably the
             // macOS F_FULLFSYNC path). Admission is our responsibility.
-            if (state == .unknown) _ = self.owner.users.fetchOr(reopen_required, .acq_rel);
+            if (state == .unknown) self.owner.admission.fence();
             self.state = .{ .finished = state };
             self.owner.writer_idle.store(true, .release);
-            self.owner.release();
+            self.owner.admission.release();
             return state;
         }
 
@@ -396,24 +370,17 @@ pub const Lmdb = struct {
             c.mdb_txn_abort(self.kv.txn);
             self.state = .aborted;
             self.owner.writer_idle.store(true, .release);
-            self.owner.release();
+            self.owner.admission.release();
+        }
+
+        /// `result`, with a refusal ending the transaction first.
+        fn abortOnError(self: *WriteTransaction, result: anytype) @TypeOf(result) {
+            return result catch |err| {
+                self.abort();
+                return err;
+            };
         }
     };
-
-    fn retain(self: *Lmdb) !void {
-        var current = self.users.load(.acquire);
-        while (true) {
-            if (current & reopen_required != 0) return error.ReopenRequired;
-            if (current & closing != 0) return error.Closed;
-            if (current & maintenance != 0 or current == reopen_required - 1) return error.Busy;
-            current = self.users.cmpxchgWeak(current, current + 1, .acq_rel, .acquire) orelse return;
-        }
-    }
-
-    fn release(self: *Lmdb) void {
-        const previous = self.users.fetchSub(1, .release);
-        std.debug.assert(previous & ~(closing | reopen_required) != 0);
-    }
 
     comptime {
         core.backend.checkEngine(@This());

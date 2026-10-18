@@ -68,7 +68,7 @@ pub fn canonicalHandoffGiveViewSignedBytes(
     give: model.view.HandoffGive,
 ) ![]u8 {
     if (give.raw_signed) |raw| {
-        return handoffGiveSignedPayloadBytes(allocator, raw);
+        return allocator.dupe(u8, try decode.signedGivePayload(raw));
     }
     var scratch: ProjectedHints = .{};
     defer scratch.deinit(allocator);
@@ -154,28 +154,4 @@ pub fn canonicalHandoffReceiveViewSignedBytes(
         projected.signed_give.exporter.hints = try scratch.project(allocator, receive.signed_give.exporter.hints);
     }
     return render.renderRecordExact(allocator, signing.writeHandoffReceiveRecord, .{ allocator, projected });
-}
-
-/// Recover the inner `<desc:handoff-give …>` payload bytes from a verbatim signed
-/// `<desc:sig-envelope <desc:handoff-give …> <sig-val …>>`, the byte domain the
-/// gifter signed. Used when a forwarded give carries `raw_signed`.
-fn handoffGiveSignedPayloadBytes(allocator: std.mem.Allocator, raw_signed: []const u8) ![]u8 {
-    var cursor: usize = 0;
-    try decode.readByte(raw_signed, &cursor, '<');
-    const envelope_tag = try decode.readLabel(raw_signed, &cursor);
-    if (!std.mem.eql(u8, envelope_tag, "desc:sig-envelope")) return Error.MalformedFrame;
-
-    const payload_start = cursor;
-    try decode.readByte(raw_signed, &cursor, '<');
-    const payload_tag = try decode.readLabel(raw_signed, &cursor);
-    if (!std.mem.eql(u8, payload_tag, "desc:handoff-give")) return Error.MalformedFrame;
-
-    cursor = payload_start;
-    _ = try decode.readBalanced(raw_signed, &cursor, '<', '>');
-    const payload_end = cursor;
-    _ = try decode.readSignatureView(raw_signed, &cursor);
-    try decode.readByte(raw_signed, &cursor, '>');
-    try decode.expectEnd(raw_signed, cursor);
-
-    return allocator.dupe(u8, raw_signed[payload_start..payload_end]);
 }

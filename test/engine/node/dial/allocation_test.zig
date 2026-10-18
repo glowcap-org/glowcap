@@ -14,13 +14,13 @@ const testGiveBytes = harness.testGiveBytes;
 test "dial failure settles every waiter when diagnostics cannot allocate" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     const allocator = failing.allocator();
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x41)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x41)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
     const locator = "ocapn://127.0.0.1%3A9050.tcp";
-    try node.acceptGive(recipient, 11, "give-one", locator);
-    try node.acceptGive(recipient, 12, "give-two", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 11), "give-one", locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 12), "give-two", locator);
     const dial = node.nextAction().?;
 
     // The action FIFO already has room for both consequences. Fail the first
@@ -29,8 +29,8 @@ test "dial failure settles every waiter when diagnostics cannot allocate" {
     _ = try node.dialFailed(dial.dial.pending, 0, "connection refused");
     const first = node.nextAction().?;
     const second = node.nextAction().?;
-    try std.testing.expectEqual(@as(u64, 11), first.fail.dest.answer.answer.int());
-    try std.testing.expectEqual(@as(u64, 12), second.fail.dest.answer.answer.int());
+    try std.testing.expectEqual(@as(u64, 11), first.fail.dest.answer.answer.position.int());
+    try std.testing.expectEqual(@as(u64, 12), second.fail.dest.answer.answer.position.int());
     try std.testing.expectEqualStrings("handoff redeem failed: exporter dial failed", first.fail.reason.bytes());
     try std.testing.expectEqualStrings("handoff redeem failed: exporter dial failed", second.fail.reason.bytes());
     try std.testing.expect(node.nextAction() == null);
@@ -43,7 +43,7 @@ test "exporter completion settles the whole batch across outbound allocation fai
     while (fail_offset < 128 and !exercised_partial_batch) : (fail_offset += 1) {
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
         const allocator = failing.allocator();
-        var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x42)));
+        var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x42)));
         defer node.deinit();
 
         const recipient = try node.registerPeer(.{});
@@ -52,7 +52,7 @@ test "exporter completion settles the whole batch across outbound allocation fai
             allocator,
             &node,
             node.peer(exporter).?,
-            @as([crypto.SEED_BYTES]u8, @splat(0x43)),
+            @as([crypto.seed_bytes]u8, @splat(0x43)),
         );
         defer counterpart.deinit();
 
@@ -63,9 +63,9 @@ test "exporter completion settles the whole batch across outbound allocation fai
         const give_c = try testGiveBytes(allocator);
         defer allocator.free(give_c);
         const locator = "ocapn://127.0.0.1%3A9054.tcp";
-        try node.acceptGive(recipient, 51, give_a, locator);
-        try node.acceptGive(recipient, 52, give_b, locator);
-        try node.acceptGive(recipient, 53, give_c, locator);
+        try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 51), give_a, locator);
+        try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 52), give_b, locator);
+        try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 53), give_c, locator);
         const dial = node.nextAction().?;
 
         failing.fail_index = failing.alloc_index + fail_offset;
@@ -92,11 +92,11 @@ test "exporter completion settles the whole batch across outbound allocation fai
         if (flush_count == 0 or fail_count == 0) continue;
 
         exercised_partial_batch = true;
-        var answers: [3]u64 = undefined;
+        var answers: [3]engine.OutboundAnswerTarget = undefined;
         var answer_count: usize = 0;
         var withdraws = node.redeems.withdrawals.rows.keyIterator();
         while (withdraws.next()) |key| {
-            answers[answer_count] = key.answer;
+            answers[answer_count] = harness.withdrawTarget(&node, exporter, key.answer);
             answer_count += 1;
         }
         try std.testing.expectEqual(flush_count, answer_count);

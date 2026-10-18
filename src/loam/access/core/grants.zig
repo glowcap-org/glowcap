@@ -104,10 +104,10 @@ pub const GrantLedger = struct {
     fn lend(context: *const anyopaque, id: GrantId) GrantView.SourceError!GrantView.Reply {
         const self: *const GrantLedger = @ptrCast(@alignCast(context));
         if (self.pending) |pending| if (pending.phase == .uncertain) return error.RecoveryRequired;
-        const version_: GrantView.Version = .{ .owner = self.graph.owner, .revisions = self.version() };
-        if (id.slot >= self.used or id.generation == 0) return .{ .version = version_, .value = .{ .absent = .unknown } };
-        if (id.generation != 1) return .{ .version = version_, .value = .{ .absent = .gone } };
-        return .{ .version = version_, .value = .{ .present = &self.records[id.slot] } };
+        const current: GrantView.Version = .{ .owner = self.graph.owner, .revisions = self.version() };
+        if (id.slot >= self.used or id.generation == 0) return .{ .version = current, .value = .{ .absent = .unknown } };
+        if (id.generation != identity.first_generation) return .{ .version = current, .value = .{ .absent = .gone } };
+        return .{ .version = current, .value = .{ .present = &self.records[id.slot] } };
     }
 
     /// Trusted issuance of independent access. The volatile convenience path

@@ -24,6 +24,35 @@ const unclaimed_owner_thread_id = OwnerThread.unclaimed;
 pub const OwnerThreadId = OwnerThread.Id;
 pub const initial_owner_thread_id = OwnerThread.initial;
 
+/// The Host's reentrancy latch. While it is held, the Host-driving verbs
+/// refuse `ReenteredHost` and a nested verb tail leaves its pump to the
+/// outermost one, so a callback cannot free a row its caller still borrows.
+/// A hold restores the state it found, so releasing a nested hold never
+/// unlatches the holder outside it. `held` is read and written only here.
+pub const CallbackLatch = struct {
+    held: bool = false,
+
+    pub const Hold = struct {
+        latch: *CallbackLatch,
+        prior: bool,
+
+        pub fn release(self: Hold) void {
+            std.debug.assert(self.latch.held);
+            self.latch.held = self.prior;
+        }
+    };
+
+    pub fn hold(self: *CallbackLatch) Hold {
+        const prior = self.held;
+        self.held = true;
+        return .{ .latch = self, .prior = prior };
+    }
+
+    pub fn isHeld(self: CallbackLatch) bool {
+        return self.held;
+    }
+};
+
 fn currentOwnerThreadId() OwnerThreadId {
     if (comptime !tracks_thread_affinity) return {};
     return OwnerThread.token(@intCast(std.Thread.getCurrentId()));
@@ -41,10 +70,7 @@ pub const PendingWorkLease = struct {
         try claimOwner(expected);
         const owner = self.host orelse return error.NoPendingWork;
         if (owner != expected) return error.ForeignWork;
-        switch (expected.lifecyclePhase()) {
-            .active, .finishing => {},
-            .terminating, .closed => return error.HostClosing,
-        }
+        if (!expected.lifecyclePhase().serving()) return error.HostClosing;
     }
 
     /// Derive child custody from an actual live operation. Finish preserves
@@ -114,7 +140,7 @@ pub fn assertOwner(self: *Host) void {
 /// is a sequential ownership transfer, not permission for concurrent access.
 pub fn releaseDriverOwnership(self: *Host) void {
     if (comptime !tracks_thread_affinity) return;
-    std.debug.assert(!self.in_callback);
+    std.debug.assert(!self.callback_latch.isHeld());
     if (self.owner_tid != unclaimed_owner_thread_id) {
         std.debug.assert(self.owner_tid == currentOwnerThreadId());
         self.owner_tid = unclaimed_owner_thread_id;
@@ -160,14 +186,11 @@ pub fn refuseReentry(self: *Host) error{ ReenteredHost, WrongThread }!void {
 /// lifetime query keeps borrowed callback storage alive. Top-level admission
 /// uses refuseReentry instead.
 pub fn withinCallback(self: *const Host) bool {
-    return self.in_callback or self.vat.isExecuting();
+    return self.callback_latch.isHeld() or self.vat.isExecuting();
 }
 
 pub fn checkLive(session: *const HostSession) HostError!void {
-    switch (session.lifecyclePhase()) {
-        .active, .finishing => {},
-        .cancel_pending, .terminating => return HostError.SessionCondemned,
-    }
+    if (session.lifecyclePhase().condemned()) return error.SessionCondemned;
 }
 
 /// Prove both halves of the application boundary: the session belongs to this
@@ -185,7 +208,7 @@ pub fn checkOutboundAdmission(self: *Host, session: *HostSession) HostError!void
     try checkOwnedSession(self, session);
     if (!session.sessionOpen()) return;
     if (session.served.queuedOutboundBytes() >= session.outbound_high_water_bytes)
-        return HostError.OutboundBackpressure;
+        return error.OutboundBackpressure;
 }
 
 /// Admit application work on one session. Protocol ingress and teardown
@@ -194,11 +217,11 @@ pub fn admitSessionOperation(self: *const Host, session: *const HostSession) Hos
     try checkOwnedSession(self, session);
     try switch (session.lifecyclePhase()) {
         .active => {},
-        .finishing => HostError.SessionClosing,
-        .cancel_pending, .terminating => HostError.SessionCondemned,
+        .finishing => error.SessionClosing,
+        .cancel_pending, .terminating => error.SessionCondemned,
     };
     if (session.pendingOperations() == std.math.maxInt(u24))
-        return HostError.SessionOperationLimitReached;
+        return error.SessionOperationLimitReached;
 }
 
 /// Account one committed session operation at the row authority that owns its
@@ -260,7 +283,7 @@ pub fn admitApplicationOperation(self: *const Host) error{HostClosing}!void {
 /// Ownership-only half for teardown and condemned-session no-op paths,
 /// which must remain legal after ordinary verbs start refusing the session.
 pub fn checkOwnedSession(self: *const Host, session: *const HostSession) HostError!void {
-    if (session.host != self) return HostError.ForeignSession;
+    if (session.host != self) return error.ForeignSession;
 }
 
 /// Resolve an action's stable peer handle to its still-retained shell. Adapter

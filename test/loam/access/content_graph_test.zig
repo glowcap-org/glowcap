@@ -122,7 +122,7 @@ test "loam graph retained fields exclude bindings and preserve exact recipe edge
     const bytes = try row.encodeAlloc(a, f.limits.records, &f.schemas);
     defer a.free(bytes);
     const view = try loam.records.View.decode(bytes, f.limits.records, &f.schemas);
-    const pages = [_]graph.Page{.{ .view = view }};
+    var pages = [_]graph.Page{.{ .view = view }};
     const snapshot: graph.Snapshot = .{ .pages = &pages };
     try std.testing.expectEqualDeep(row.edges[1], try snapshot.field(pages[0].handle(), 0));
     try std.testing.expectError(error.NotDurable, snapshot.field(pages[0].handle(), 1));

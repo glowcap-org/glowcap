@@ -9,7 +9,7 @@ const fixture = @import("engine_fixture");
 const capacity = 1024 * 1024;
 
 fn create(path: [:0]const u8) !Sqlite {
-    return Sqlite.open(path, .{ .capacity_bytes = capacity, .mode = .{ .create = f.id } });
+    return Sqlite.open(path, .{ .capacity_bytes = capacity, .opening = .{ .id = f.id, .mode = .create } });
 }
 
 test "loam SQLite engine passes the storage engine suite at one mebibyte" {
@@ -144,14 +144,14 @@ test "loam SQLite engine refuses a writer while a foreign connection holds the w
 test "loam SQLite engine leaves a foreign database untouched and creates nothing when opening a missing store" {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
-    try std.testing.expectError(error.MissingStore, Sqlite.open(tmp.path, .{ .mode = .{ .open = f.id } }));
+    try std.testing.expectError(error.MissingStore, Sqlite.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open } }));
     try std.testing.expectError(error.FileNotFound, tmp.dir.dir.access(std.testing.io, sqlite.file_name, .{}));
 
     const foreign = try Foreign.open(tmp.path);
     try foreign.exec("CREATE TABLE theirs(x INTEGER); INSERT INTO theirs VALUES(7)");
     foreign.close();
     try std.testing.expectError(error.ForeignDatabase, create(tmp.path));
-    try std.testing.expectError(error.ForeignDatabase, Sqlite.open(tmp.path, .{ .mode = .{ .open = f.id } }));
+    try std.testing.expectError(error.ForeignDatabase, Sqlite.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open } }));
     const again = try Foreign.open(tmp.path);
     defer again.close();
     try again.exec("SELECT x FROM theirs");
@@ -169,7 +169,7 @@ test "loam SQLite engine refuses to open an empty file and leaves it empty" {
     defer tmp.deinit();
     const file = try tmp.dir.dir.createFile(std.testing.io, sqlite.file_name, .{});
     file.close(std.testing.io);
-    try std.testing.expectError(error.MissingStore, Sqlite.open(tmp.path, .{ .mode = .{ .open = f.id } }));
+    try std.testing.expectError(error.MissingStore, Sqlite.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open } }));
     try std.testing.expectEqual(@as(u64, 0), (try tmp.dir.dir.statFile(std.testing.io, sqlite.file_name, .{})).size);
     var db = try create(tmp.path);
     try db.close();
@@ -178,7 +178,7 @@ test "loam SQLite engine refuses to open an empty file and leaves it empty" {
 test "loam SQLite engine refuses a capacity past SQLite's page limit" {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
-    try std.testing.expectError(error.InvalidLimits, Sqlite.open(tmp.path, .{ .capacity_bytes = std.math.maxInt(usize), .mode = .{ .create = f.id } }));
+    try std.testing.expectError(error.InvalidLimits, Sqlite.open(tmp.path, .{ .capacity_bytes = std.math.maxInt(usize), .opening = .{ .id = f.id, .mode = .create } }));
     var db = try create(tmp.path);
     defer db.close() catch unreachable;
     try std.testing.expectError(error.InvalidLimits, db.grow(std.math.maxInt(usize) / sqlite.page_bytes * sqlite.page_bytes));

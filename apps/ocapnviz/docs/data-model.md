@@ -11,8 +11,7 @@ sources:
 # The glowcap document
 
 A glowcap document holds three layers of state: identity, behavior, and
-recording. The schema in `src/engine/timeline.ts` is the authority wherever this
-page disagrees with it. [`temporal-model.md`](temporal-model.md) covers the time
+recording. The schema in `src/engine/timeline.ts` is the authority. [`temporal-model.md`](temporal-model.md) covers the time
 span, part of behavior, in detail.
 
 ## Three layers
@@ -137,9 +136,7 @@ would claim that a row ended and another began.
 
 A loose end's id comes from the session and the side, through
 `endpointStageId`. It describes what the loose end is, not the designator it
-claims, because a name a partner chose is not one this stage may adopt. Minting
-an id from the claim once let a placeholder collide with the very peer it
-claimed to be.
+claims, because a name a partner chose is not one this stage may adopt.
 
 A loose end is not an entity. It has no row in the document, no lifetime of its
 own, and no keyframes. It is born and dies with the session that owns it, and

@@ -7,6 +7,7 @@
 const std = @import("std");
 
 const model = @import("model");
+const decimal = @import("foundation").decimal;
 const limits = @import("codec_limits");
 const shared = @import("../shared.zig");
 
@@ -43,8 +44,7 @@ pub const SignatureView = struct {
 /// `:` for byte-strings, `"` for strings, `'` for symbols. The length digits
 /// are canonical-checked and parsed with overflow rejection, and the body is
 /// bound-checked without wrappable arithmetic, so an untrusted length fails
-/// closed (`Incomplete` / `MalformedFrame`) rather than
-/// reading out of bounds.
+/// closed as `MalformedFrame` rather than reading out of bounds.
 fn readLengthPrefixed(bytes: []const u8, cursor: *usize, comptime marker: u8) Error![]const u8 {
     return readLengthPrefixedScanned(bytes, cursor, scanDecimal(bytes[cursor.*..]), marker);
 }
@@ -56,17 +56,12 @@ fn readLengthPrefixed(bytes: []const u8, cursor: *usize, comptime marker: u8) Er
 fn readLengthPrefixedScanned(bytes: []const u8, cursor: *usize, run: DigitRun, comptime marker: u8) Error![]const u8 {
     const len_start = cursor.*;
     const marker_index = len_start + run.len;
-    if (marker_index >= bytes.len) return Error.Incomplete;
-    if (run.len == 0 or bytes[marker_index] != marker) {
-        return Error.MalformedFrame;
-    }
+    if (run.len == 0 or marker_index >= bytes.len or bytes[marker_index] != marker) return Error.MalformedFrame;
     try rejectNonCanonicalDigits(bytes, len_start, marker_index);
     const len = run.lengthValue() orelse return Error.MalformedFrame;
 
     const body_start = marker_index + 1;
-    if (len > bytes.len - body_start) {
-        return Error.Incomplete;
-    }
+    if (len > bytes.len - body_start) return Error.MalformedFrame;
     const body_end = body_start + len;
     cursor.* = body_end;
     return bytes[body_start..body_end];
@@ -93,19 +88,37 @@ pub fn readLeafScanned(bytes: []const u8, cursor: *usize, run: DigitRun, comptim
     return payload;
 }
 
+/// Whether `window` spells `label`, as two overlapping word loads: the widest
+/// word the length allows, read from both ends. The length is known here, so
+/// this is a handful of instructions where `std.mem.eql` is a call with a
+/// runtime length.
+inline fn labelMatches(comptime n: usize, window: *const [n]u8, comptime label: [n]u8) bool {
+    const Word = if (n >= 16) @Vector(16, u8) else if (n >= 8) u64 else if (n >= 4) u32 else u16;
+    const width = @sizeOf(Word);
+    comptime std.debug.assert(n >= width);
+    comptime std.debug.assert(n <= 2 * width);
+    const head: Word = @bitCast(window[0..width].*);
+    const tail: Word = @bitCast(window[n - width ..][0..width].*);
+    const head_label: Word = comptime @bitCast(label[0..width].*);
+    const tail_label: Word = comptime @bitCast(label[n - width ..][0..width].*);
+    if (Word == @Vector(16, u8)) return !@reduce(.Or, (head != head_label) | (tail != tail_label));
+    return ((head ^ head_label) | (tail ^ tail_label)) == 0;
+}
+
 /// Match the one canonical form of a label the decoder knows, its width, a
 /// quote, and its bytes, at `cursor`, advancing past it on a match. Syrup
 /// spells a given label one way (the width carries no leading zero), so an
 /// exact comparison against that form admits exactly the labels the general
 /// reader returns as equal, with no digit scan. A label that would end past
-/// the bytes does not match. A mismatch
-/// reads nothing: the caller hands the bytes to `readLabel` for the
-/// verdict, incomplete, malformed, or a label it does not know.
+/// the bytes does not match. A mismatch reads nothing: the caller hands the
+/// bytes to `readLabel` for the verdict, incomplete, malformed, or a label it
+/// does not know.
 pub fn readKnownLabel(bytes: []const u8, cursor: *usize, comptime label: []const u8) bool {
     const spelled = comptime std.fmt.comptimePrint("{d}'{s}", .{ label.len, label });
-    const end = cursor.* + spelled.len;
-    if (!std.mem.startsWith(u8, bytes[cursor.*..], spelled)) return false;
-    cursor.* = end;
+    const at = cursor.*;
+    if (bytes.len - at < spelled.len) return false;
+    if (!labelMatches(spelled.len, bytes[at..][0..spelled.len], spelled[0..spelled.len].*)) return false;
+    cursor.* = at + spelled.len;
     return true;
 }
 
@@ -151,27 +164,14 @@ pub fn readPositionList(bytes: []const u8, cursor: *usize) Error!Sliced {
         if (elements > max_collection_elements) return Error.MalformedFrame;
         _ = try readPositiveInt(bytes, cursor);
     }
-    if (cursor.* >= bytes.len) {
-        return Error.Incomplete;
-    }
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
 
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
     return .{ .body = body, .elements = elements };
 }
 
-pub fn readPeerKeyQ(bytes: []const u8, cursor: *usize) Error![]const u8 {
-    // `readBalanced` consumes against the live buffer, so a truncated list is a
-    // genuine `Incomplete` (read more). `list` is then a *complete* slice, so a
-    // short read while re-parsing it is malformed, not stream-incomplete.
-    const list = try readBalanced(bytes, cursor, '[', ']');
-    return parsePeerKeyQ(list) catch |err| switch (err) {
-        Error.Incomplete => Error.MalformedFrame,
-        else => |other| other,
-    };
-}
-
-/// Parse the spec-pinned public-key record (CapTP spec § Public Key):
+/// Read the spec-pinned public-key record (CapTP spec § Public Key):
 ///
 /// ```text
 /// ['public-key ['ecc ['curve 'Ed25519] ['flags 'eddsa] ['q q_value]]]
@@ -181,70 +181,58 @@ pub fn readPeerKeyQ(bytes: []const u8, cursor: *usize) Error![]const u8 {
 /// claims any other curve or scheme is refused as malformed: accepting it and
 /// then verifying its `q` as an Ed25519 key would silently coerce the claimed
 /// algorithm, exactly the mis-decode ADR-0003's symmetric refusal forbids.
-fn parsePeerKeyQ(list: []const u8) Error![]const u8 {
-    var cursor: usize = 0;
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "public-key");
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "ecc");
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "curve");
-    try expectSymbol(list, &cursor, "Ed25519");
-    try readByte(list, &cursor, ']');
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "flags");
-    try expectSymbol(list, &cursor, "eddsa");
-    try readByte(list, &cursor, ']');
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "q");
-    const q = try readBytes(list, &cursor);
-    try readByte(list, &cursor, ']');
-    try readByte(list, &cursor, ']');
-    try readByte(list, &cursor, ']');
-    try expectEnd(list, cursor);
+pub fn readPeerKeyQ(bytes: []const u8, cursor: *usize) Error![]const u8 {
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "public-key");
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "ecc");
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "curve");
+    try expectSymbol(bytes, cursor, "Ed25519");
+    try readByte(bytes, cursor, ']');
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "flags");
+    try expectSymbol(bytes, cursor, "eddsa");
+    try readByte(bytes, cursor, ']');
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "q");
+    const q = try readBytes(bytes, cursor);
+    try readByte(bytes, cursor, ']');
+    try readByte(bytes, cursor, ']');
+    try readByte(bytes, cursor, ']');
     return q;
 }
 
-fn expectSymbol(bytes: []const u8, cursor: *usize, expected: []const u8) Error!void {
-    const symbol = try readLabel(bytes, cursor);
-    if (!std.mem.eql(u8, symbol, expected)) return Error.MalformedFrame;
+/// Refuse anything but `expected` in its one canonical form, which is the
+/// only form a spec-pinned record carries.
+pub fn expectSymbol(bytes: []const u8, cursor: *usize, comptime expected: []const u8) Error!void {
+    if (!readKnownLabel(bytes, cursor, expected)) return Error.MalformedFrame;
 }
 
-pub fn readSignatureView(bytes: []const u8, cursor: *usize) Error!SignatureView {
-    // See `readPeerKeyQ`: `list` is complete, so a short re-parse is malformed.
-    const list = try readBalanced(bytes, cursor, '[', ']');
-    return parseSignatureView(list) catch |err| switch (err) {
-        Error.Incomplete => Error.MalformedFrame,
-        else => |other| other,
-    };
-}
-
-/// Parse the spec-pinned signature record (CapTP spec § Signature):
+/// Read the spec-pinned signature record (CapTP spec § Signature):
 ///
 /// ```text
 /// ['sig-val ['eddsa ['r r_value] ['s s_value]]]
 /// ```
 ///
-/// As with `parsePeerKeyQ`, the grammar is matched exactly: a record claiming
+/// As with `readPeerKeyQ`, the grammar is matched exactly: a record claiming
 /// any signature scheme other than `eddsa` is refused rather than having its
 /// `r`/`s` bytes verified as Ed25519 anyway.
-fn parseSignatureView(list: []const u8) Error!SignatureView {
-    var cursor: usize = 0;
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "sig-val");
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "eddsa");
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "r");
-    const r = try readBytes(list, &cursor);
-    try readByte(list, &cursor, ']');
-    try readByte(list, &cursor, '[');
-    try expectSymbol(list, &cursor, "s");
-    const s = try readBytes(list, &cursor);
-    try readByte(list, &cursor, ']');
-    try readByte(list, &cursor, ']');
-    try readByte(list, &cursor, ']');
-    try expectEnd(list, cursor);
+pub fn readSignatureView(bytes: []const u8, cursor: *usize) Error!SignatureView {
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "sig-val");
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "eddsa");
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "r");
+    const r = try readBytes(bytes, cursor);
+    try readByte(bytes, cursor, ']');
+    try readByte(bytes, cursor, '[');
+    try expectSymbol(bytes, cursor, "s");
+    const s = try readBytes(bytes, cursor);
+    try readByte(bytes, cursor, ']');
+    try readByte(bytes, cursor, ']');
+    try readByte(bytes, cursor, ']');
     return .{ .r = r, .s = s };
 }
 
@@ -285,11 +273,19 @@ pub fn scanDecimal(bytes: []const u8) DigitRun {
     // accumulate with no check. The twentieth and later take the checked
     // loop, and a run past the range still counts to its end so the caller
     // finds the terminator and refuses with the value.
-    const unchecked_digits = comptime std.fmt.comptimePrint("{d}", .{std.math.maxInt(u64)}).len - 1;
+    const unchecked_digits = decimal.max_width - 1;
     var count: usize = 0;
     var value: u64 = 0;
     // One bound for the unchecked loop, so each digit costs one compare.
     const unchecked_end = @min(bytes.len, unchecked_digits);
+    // Positions and short lengths are runs of one to three digits, so those
+    // go one at a time and only a longer run pays the word test.
+    const short_run = @min(unchecked_end, 3);
+    while (count < short_run) : (count += 1) {
+        const digit = bytes[count] -% '0';
+        if (digit > 9) return .{ .len = count, .value = value };
+        value = value * 10 + digit;
+    }
     // Four complete digits fold into two pairs, then one decimal chunk.
     // A failed word test leaves every byte for the scalar tail to classify.
     while (unchecked_end - count >= 4) {
@@ -326,12 +322,12 @@ pub fn scanDecimal(bytes: []const u8) DigitRun {
 }
 
 /// Scan the leading decimal run at `cursor`, advancing past it, and return the
-/// borrowed digit slice with its value. `Incomplete` when the run reaches the
-/// end with no terminator byte to inspect, `MalformedFrame` when it is empty
-/// or non-canonical (a leading zero). The cursor is left on the terminator
-/// byte the caller reads (a `+`/`-` sign, or the `+` a positive integer
-/// requires), which is guaranteed in-bounds by the `Incomplete` check. The
-/// shared prologue of every Syrup integer reader.
+/// borrowed digit slice with its value. `MalformedFrame` when the run reaches
+/// the end with no terminator byte to inspect, is empty, or is non-canonical
+/// (a leading zero). The cursor is left on the terminator byte the caller
+/// reads (a `+`/`-` sign, or the `+` a positive integer requires), which the
+/// end check guarantees in bounds. The shared prologue of every Syrup integer
+/// reader.
 const ScannedDigits = struct { digits: []const u8, value: ?u64 };
 
 fn scanDigits(bytes: []const u8, cursor: *usize) Error!ScannedDigits {
@@ -343,8 +339,7 @@ fn scanDigits(bytes: []const u8, cursor: *usize) Error!ScannedDigits {
 fn finishDigits(bytes: []const u8, cursor: *usize, run: DigitRun) Error!ScannedDigits {
     const start = cursor.*;
     const end = start + run.len;
-    if (end >= bytes.len) return Error.Incomplete;
-    if (run.len == 0) return Error.MalformedFrame;
+    if (run.len == 0 or end >= bytes.len) return Error.MalformedFrame;
     try rejectNonCanonicalDigits(bytes, start, end);
     cursor.* = end;
     return .{ .digits = bytes[start..end], .value = run.value };
@@ -436,7 +431,7 @@ pub fn readIntegerScanned(bytes: []const u8, cursor: *usize, run: DigitRun) Erro
 }
 
 pub fn readBool(bytes: []const u8, cursor: *usize) Error!bool {
-    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
     switch (bytes[cursor.*]) {
         't' => {
             cursor.* += 1;
@@ -453,8 +448,7 @@ pub fn readBool(bytes: []const u8, cursor: *usize) Error!bool {
 /// Read a `'D'`-tagged `binary64` double: the marker then 8 bytes IEEE-754
 /// big-endian. Advances `cursor` past all 9 bytes.
 pub fn readFloat64(bytes: []const u8, cursor: *usize) Error!f64 {
-    if (cursor.* >= bytes.len or bytes[cursor.*] != 'D') return Error.MalformedFrame;
-    if (cursor.* + 9 > bytes.len) return Error.Incomplete;
+    if (cursor.* + 9 > bytes.len or bytes[cursor.*] != 'D') return Error.MalformedFrame;
     const raw = std.mem.readInt(u64, bytes[cursor.* + 1 ..][0..8], .big);
     cursor.* += 9;
     return @bitCast(raw);
@@ -462,90 +456,16 @@ pub fn readFloat64(bytes: []const u8, cursor: *usize) Error!f64 {
 
 /// Read a Syrup byte-string (`<len>:<bytes>`) at `cursor` and advance past it,
 /// returning the borrowed payload. The length prefix is parsed with overflow
-/// rejection and the body is bound-checked without wrappable arithmetic, so a
-/// untrusted length fails closed (`Incomplete` / `MalformedFrame`) rather than
-/// reading out of bounds. Exposed so callers that need a raw byte-string at a
+/// rejection and the body is bound-checked without wrappable arithmetic, so an
+/// untrusted length fails closed as `MalformedFrame` rather than reading out
+/// of bounds. Exposed so callers that need a raw byte-string at a
 /// known offset reuse this reader instead of re-deriving the wire grammar.
 pub fn readBytes(bytes: []const u8, cursor: *usize) Error![]const u8 {
     return readLengthPrefixed(bytes, cursor, ':');
 }
 
-pub fn readBalanced(bytes: []const u8, cursor: *usize, open: u8, close: u8) Error![]const u8 {
-    const start = cursor.*;
-    try readByte(bytes, cursor, open);
-    var depth: usize = 1;
-    while (cursor.* < bytes.len) {
-        const byte = bytes[cursor.*];
-        cursor.* += 1;
-        if (byte == open) {
-            depth += 1;
-        } else if (byte == close) {
-            depth -= 1;
-            if (depth == 0) {
-                return bytes[start..cursor.*];
-            }
-        } else if (std.ascii.isDigit(byte)) {
-            cursor.* -= 1;
-            try skipByteStringLike(bytes, cursor);
-        } else if (byte == ':' or byte == '"' or byte == '\'') {
-            cursor.* -= 1;
-            try skipByteStringLike(bytes, cursor);
-        } else if (byte == 'D') {
-            // A `D`-tagged binary64 is the marker plus 8 raw IEEE-754 payload
-            // bytes (the marker is already consumed). Skip the payload as opaque
-            // so a payload byte equal to `<`/`>`/`[`/`]` or a digit cannot
-            // corrupt the depth count or trigger a bogus length parse.
-            if (bytes.len - cursor.* < 8) return Error.Incomplete;
-            cursor.* += 8;
-        }
-    }
-    return Error.Incomplete;
-}
-
-pub fn skipSyrupValue(bytes: []const u8, cursor: *usize) Error!void {
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    switch (bytes[cursor.*]) {
-        '<' => _ = try readBalanced(bytes, cursor, '<', '>'),
-        '[' => _ = try readBalanced(bytes, cursor, '[', ']'),
-        '{' => _ = try readBalanced(bytes, cursor, '{', '}'),
-        't', 'f' => cursor.* += 1,
-        // A `D`-tagged binary64: the marker plus 8 raw IEEE-754 payload bytes.
-        'D' => {
-            if (bytes.len - cursor.* < 9) return Error.Incomplete;
-            cursor.* += 9;
-        },
-        '0'...'9' => try skipByteStringLike(bytes, cursor),
-        else => return Error.MalformedFrame,
-    }
-}
-
-pub fn skipByteStringLike(bytes: []const u8, cursor: *usize) Error!void {
-    const len_start = cursor.*;
-    const run = scanDecimal(bytes[len_start..]);
-    cursor.* = len_start + run.len;
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    if (cursor.* == len_start) {
-        return Error.MalformedFrame;
-    }
-    const marker = bytes[cursor.*];
-    if (marker == '+' or marker == '-') {
-        cursor.* += 1;
-        return;
-    }
-    if (marker != ':' and marker != '"' and marker != '\'') {
-        return Error.MalformedFrame;
-    }
-    try rejectNonCanonicalDigits(bytes, len_start, cursor.*);
-    const len = run.lengthValue() orelse return Error.MalformedFrame;
-    cursor.* += 1;
-    if (len > bytes.len - cursor.*) {
-        return Error.Incomplete;
-    }
-    cursor.* += len;
-}
-
-pub fn readByte(bytes: []const u8, cursor: *usize, expected: u8) Error!void {
-    if (cursor.* >= bytes.len) return Error.Incomplete;
+pub inline fn readByte(bytes: []const u8, cursor: *usize, expected: u8) Error!void {
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
     if (bytes[cursor.*] != expected) return Error.MalformedFrame;
     cursor.* += 1;
 }

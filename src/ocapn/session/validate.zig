@@ -27,21 +27,21 @@ const Session = session.Session;
 const Error = session.Error;
 const RecvViewError = session.RecvViewError;
 const SessionLimits = session.SessionLimits;
-const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const bootstrap_position = session.bootstrap_position;
 
 /// Per-message imports recorded by the Passable walk and consumed by apply.
 pub const IntroducedImports = passable.IntroducedImports;
 
-pub fn validateRecvView(self: *Session, body: model.view.Body, introduced: *IntroducedImports) !void {
+pub fn validateRecvView(self: *Session, body: *const model.view.Body, introduced: *IntroducedImports) !void {
     // State admission is gated at the dispatch head (`admitInState`); this is
     // the kind-specific validation. `op:start-session` keeps its own
     // "negotiating-only" rule because the gate admits it in `open` too, a
     // second handshake there is the kind-specific violation.
-    switch (body) {
+    switch (body.*) {
         .start_session => |ss| try validateStartSession(self, ss, .remote_received),
-        .deliver => |deliver| try validateInboundDeliverAny(self, deliver, introduced),
+        .deliver => |*deliver| try validateInboundDeliverAny(self, deliver, introduced),
         .resolve => |resolve| {
-            if (self.needsV1_0Translation()) return Error.UnexpectedMessage;
+            if (self.needsV1_0Translation()) return error.UnexpectedMessage;
             try validateInboundResolve(self, resolve, introduced);
         },
         .listen => |listen| try validateInboundListen(self, listen),
@@ -62,7 +62,7 @@ pub fn validateRecvView(self: *Session, body: model.view.Body, introduced: *Intr
 /// an inbound projection op with an unheld position would surface to the
 /// application unvalidated, an authority gap versus deliver and listen.
 fn validateProjectionOp(self: *Session, receiver: anytype, answer: model.AnswerPosition) passable.ReferenceError(@TypeOf(receiver))!void {
-    if (self.captp_version == .next) return Error.UnexpectedMessage;
+    if (self.captp_version == .next) return error.UnexpectedMessage;
     try passable.validateReference(self, receiver, .received, .held_import);
     try checkInboundAnswerPosition(self, answer);
 }
@@ -77,12 +77,12 @@ fn validateStartSession(
     ss: anytype,
     half: enum { local_sent, remote_received },
 ) Error!void {
-    if (self.state != .negotiating) return Error.UnexpectedMessage;
+    if (self.state != .negotiating) return error.UnexpectedMessage;
     const already_observed = switch (half) {
         .local_sent => self.handshake_local_sent,
         .remote_received => self.handshake_remote_received,
     };
-    if (already_observed) return Error.DuplicateStartSession;
+    if (already_observed) return error.DuplicateStartSession;
     // A hello names the baseline version, not the sender's preference: a peer
     // that stated a preference here would be refused by every partner that did
     // not already share it, which is the opposite of negotiating. The
@@ -91,7 +91,7 @@ fn validateStartSession(
     // version because by this point the session may already have settled on
     // something else.
     if (ss.captp_version != model.Preference.baseline.captp_version) {
-        return Error.CaptpVersionMismatch;
+        return error.CaptpVersionMismatch;
     }
     try locator_vocabulary.validateLocatorShape(ss.acceptable_location);
     const preference = try parsePreferenceHintsValidated(ss.acceptable_location.hints);
@@ -113,9 +113,11 @@ fn validateStartSession(
 }
 
 /// CapTP preference encoded in start-session location hints. Absent names mean
-/// the baseline. Duplicate names, a non-string value, or an unreadable token is
-/// `MalformedMessage`. Session owns this parse so hello validation, apply, and
-/// advertised-profile checks cannot drift.
+/// the baseline, and so does a version or codec token this build does not
+/// write, such as another build's `next` (ADR-0252): negotiation then settles
+/// that axis on what both peers speak. Duplicate names, a non-string value, or
+/// an unreadable token is `MalformedMessage`. Session owns this parse so hello
+/// validation, apply, and advertised-profile checks cannot drift.
 pub fn parsePreferenceHints(hints: anytype) Error!model.Preference {
     try locator_vocabulary.validateHintShape(hints);
     return parsePreferenceHintsValidated(hints);
@@ -124,16 +126,16 @@ pub fn parsePreferenceHints(hints: anytype) Error!model.Preference {
 fn parsePreferenceHintsValidated(hints: anytype) Error!model.Preference {
     var out = model.Preference.baseline;
     if (try preferenceHintString(hints, model.transport.hint_captp_version)) |text| {
-        out.captp_version = model.CaptpVersion.fromWireString(text) orelse
-            return Error.MalformedMessage;
+        out.captp_version = model.CaptpVersion.fromHintToken(text) orelse
+            model.Preference.baseline.captp_version;
     }
     if (try preferenceHintString(hints, model.transport.hint_codec)) |text| {
-        const id = std.fmt.parseInt(u16, text, 10) catch return Error.MalformedMessage;
-        out.codec = @fromBackingInt(@intCast(id));
+        out.codec = (model.CodecId.fromHintToken(text) catch return error.MalformedMessage) orelse
+            model.Preference.baseline.codec;
     }
     if (try preferenceHintString(hints, model.transport.hint_features)) |text| {
         out.features = model.FeatureSet.fromWireString(text) orelse
-            return Error.MalformedMessage;
+            return error.MalformedMessage;
     }
     return out;
 }
@@ -142,13 +144,13 @@ fn preferenceHintString(hints: anytype, name: []const u8) Error!?[]const u8 {
     const value = (try startSessionHintValue(hints, name)) orelse return null;
     return switch (value) {
         .string => |s| s,
-        else => return Error.MalformedMessage,
+        else => return error.MalformedMessage,
     };
 }
 
 fn startSessionHintValue(hints: anytype, name: []const u8) Error!?model.HintValue {
     if (comptime @hasDecl(@TypeOf(hints), "findNamed")) {
-        return hints.findNamed(name) catch return Error.MalformedMessage;
+        return hints.findNamed(name) catch return error.MalformedMessage;
     }
     for (hints.entries) |entry| {
         if (std.mem.eql(u8, entry.name, name)) return entry.value;
@@ -163,7 +165,7 @@ fn startSessionHintValue(hints: anytype, name: []const u8) Error!?model.HintValu
 /// `recordRecvView` and must validate before it mutates. Both dispatch arms
 /// call this same body, so the engine pre-step and the recv path cannot drift.
 pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void {
-    if (!self.features.pipelining) return Error.FeatureNotNegotiated;
+    if (!self.features.pipelining) return error.FeatureNotNegotiated;
     try passable.validateDeliverOrListenTarget(self, listen.target, .received);
     try passable.validateListenListener(self, listen.listener, .received);
 }
@@ -183,12 +185,12 @@ pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void
 /// drift.
 pub fn validateInboundResolve(self: *Session, resolve: anytype, introduced: *IntroducedImports) RecvViewError!void {
     const entry = self.outbound_answers.getPtr(resolve.answer) orelse
-        return Error.InvalidReference;
+        return error.InvalidReference;
     // An answer resolves exactly once. A second `op:resolve` for an
     // already-settled answer is a partner protocol violation, not a fresh
     // settlement: reject it (a protocol_error abort) instead of re-mutating
     // status and re-introducing the fulfill's imports.
-    if (entry.status() != .pending) return Error.UnexpectedMessage;
+    if (entry.status() != .pending) return error.UnexpectedMessage;
     switch (resolve.resolution) {
         .fulfill => |arg| try passable.validateInboundArgument(self, &arg, 0, introduced),
         .@"break" => {},
@@ -209,7 +211,7 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
             inventory,
         ),
         .gc_export => |gc_export| {
-            if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
+            if (!self.features.wire_delta) return error.FeatureNotNegotiated;
             try session.validateGcExport(gc_export);
             // Our import 0 is the partner's pinned bootstrap, always reachable
             // without a table row (`validateReference` with `.held_import`) and outside
@@ -218,7 +220,7 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
             // release on the wire (a partner that does account it, the way
             // Goblins does, would tear down its bootstrap export on receipt).
             for (gc_export.positions) |pos| {
-                if (pos == BOOTSTRAP_POSITION) return Error.GcUnderflow;
+                if (pos == bootstrap_position) return error.GcUnderflow;
             }
             // Outbound `op:gc-exports` releases our refs to the partner's
             // exports, decrements the import table, never below the retains
@@ -226,7 +228,7 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
             try session.checkGcExportDecrement(self.allocator, &self.imports, gc_export, self.wire_hash_multiplier);
         },
         .gc_answer => |gc_answer| {
-            if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
+            if (!self.features.wire_delta) return error.FeatureNotNegotiated;
             // The deliverer that allocated an answer position sends
             // `op:gc-answers` when it releases the question, so an outbound
             // gc-answers releases a question we asked and decrements
@@ -235,7 +237,7 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
             try session.checkGcAnswerDecrement(self.allocator, &self.outbound_answers, gc_answer.positions, self.wire_hash_multiplier);
         },
         .listen => |listen| {
-            if (!self.features.pipelining) return Error.FeatureNotNegotiated;
+            if (!self.features.pipelining) return error.FeatureNotNegotiated;
             try passable.validateDeliverOrListenTarget(self, listen.target, .sent);
             try passable.validateListenListener(self, listen.listener, .sent);
             try listen_claims.validate(self, listen);
@@ -243,18 +245,18 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
         // `op:get` / `op:index` / `op:untag` name a receiver like a deliver
         // target: it must be something we hold (ADR-0050).
         .get => |get| {
-            if (self.captp_version == .next) return Error.UnexpectedMessage;
+            if (self.captp_version == .next) return error.UnexpectedMessage;
             try checkOutboundAnswerPosition(self, get.answer);
             try passable.validateReference(self, get.receiver, .sent, .held_import);
         },
         .index => |index| {
-            if (self.captp_version == .next) return Error.UnexpectedMessage;
+            if (self.captp_version == .next) return error.UnexpectedMessage;
             try checkOutboundAnswerPosition(self, index.answer);
             try passable.validateReference(self, index.receiver, .sent, .held_import);
         },
         .untag => |untag| {
-            if (self.captp_version == .next) return Error.UnexpectedMessage;
-            if (!self.features.untag) return Error.FeatureNotNegotiated;
+            if (self.captp_version == .next) return error.UnexpectedMessage;
+            if (!self.features.untag) return error.FeatureNotNegotiated;
             try checkOutboundAnswerPosition(self, untag.answer);
             try passable.validateReference(self, untag.receiver, .sent, .held_import);
         },
@@ -275,8 +277,8 @@ pub fn validateSentResolutionNamed(
 ) !void {
     // Send-side answers also resolve once; a second settlement cannot publish.
     const entry = self.inbound_answers.getPtr(answer) orelse
-        return Error.InvalidReference;
-    if (entry.status() != .pending) return Error.UnexpectedMessage;
+        return error.InvalidReference;
+    if (entry.status() != .pending) return error.UnexpectedMessage;
     try validateSentResolutionValue(self, resolution, inventory);
 }
 
@@ -304,7 +306,7 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
         // the wire refusal lives in `validateRecvView`.
         .resolve => |resolve| try validateInboundResolve(self, resolve, introduced),
         .gc_export => |gc_export| {
-            if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
+            if (!self.features.wire_delta) return error.FeatureNotNegotiated;
             try session.validateGcExport(gc_export);
             // Inbound `op:gc-exports` is the partner releasing refs to our
             // exports, decrements the export table. The duplicate-position
@@ -313,7 +315,7 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
             try session.checkGcExportDecrement(self.recv_scratch.allocator(), &self.exports, gc_export, self.wire_hash_multiplier);
         },
         .gc_answer => |gc_answer| {
-            if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
+            if (!self.features.wire_delta) return error.FeatureNotNegotiated;
             // Inbound `op:gc-answers` is the partner GCing a question it
             // asked us to answer, so it releases the inbound answers we
             // created for it (Goblins removes from its `answers` table on
@@ -330,11 +332,11 @@ pub fn validateRecv(self: *Session, message: model.Message, introduced: *Introdu
 }
 
 fn validateOutboundDeliver(self: *Session, deliver: model.Deliver, inventory: session.Inventory) !void {
-    if (self.captp_version == .next and (deliver.answer != null or deliver.resolve_me_desc != null) and deliver.listen_mode == .settling_only) return Error.UnexpectedMessage;
+    if (self.captp_version == .next and (deliver.answer != null or deliver.resolve_me_desc != null) and deliver.listen_mode == .settling_only) return error.UnexpectedMessage;
     if (deliver.answer) |answer| try checkOutboundAnswerPosition(self, answer);
     try passable.validateDeliverOrListenTarget(self, deliver.target, .sent);
     if (deliver.resolve_me_desc) |reference| {
-        if (self.captp_version == .next and (deliver.listen_mode == .settling_only or reference != .near)) return Error.UnexpectedMessage;
+        if (self.captp_version == .next and (deliver.listen_mode == .settling_only or reference != .near)) return error.UnexpectedMessage;
         try passable.validateReference(self, reference, .sent, .held_import);
     }
     try passable.certifySent(self, inventory, null, .held);
@@ -344,32 +346,33 @@ fn validateOutboundDeliver(self: *Session, deliver: model.Deliver, inventory: se
 /// matching `op:gc-answers` release removes it. Reuse would alias two distinct
 /// calls onto one settlement row.
 fn checkOutboundAnswerPosition(self: *const Session, answer: model.AnswerPosition) Error!void {
-    if (self.outbound_answers.contains(answer)) return Error.UnexpectedMessage;
+    if (!self.outbound_answers.fresh(answer)) return error.UnexpectedMessage;
 }
 
 /// A partner-named answer names one outstanding question, so reusing a row
 /// that is still live, pending, or
 /// settled and awaiting `op:gc-answers`, is a protocol violation. Refusing it
-/// here projects a typed abort, where letting it through left `installAnswer` a
-/// no-op and failed later on our own outbound resolve with no abort recorded.
+/// here projects a typed abort, where letting it through left
+/// `installInboundAnswerNamed` a no-op and failed later on our own outbound
+/// resolve with no abort recorded.
 ///
 /// Every kind that installs an inbound answer calls this: the deliver that
 /// carries one, and the three projection ops (ADR-0050), which name an answer
 /// of their own and install a row as a deliver does.
 fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Error!void {
-    if (self.inbound_answers.contains(.fromWire(answer))) return Error.UnexpectedMessage;
+    if (self.inbound_answers.contains(.fromWire(answer))) return error.UnexpectedMessage;
 }
 
 fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *IntroducedImports) RecvViewError!void {
-    if (self.captp_version == .next and deliver.answer != null and deliver.resolve_me_desc == null) return Error.UnexpectedMessage;
+    if (self.captp_version == .next and deliver.answer != null and deliver.resolve_me_desc == null) return error.UnexpectedMessage;
     if (deliver.answer) |answer| try checkInboundAnswerPosition(self, answer);
     try passable.validateDeliverOrListenTarget(self, deliver.target, .received);
     if (deliver.resolve_me_desc) |reference| {
-        if (self.captp_version == .next and deliver.listen_mode == .settling_only) return Error.UnexpectedMessage;
+        if (self.captp_version == .next and deliver.listen_mode == .settling_only) return error.UnexpectedMessage;
         // Resolver introductions share the argument import transaction.
         switch (reference) {
             .far => |far| try introduced.noteResolver(self, far),
-            else => return Error.UnexpectedMessage,
+            else => return error.UnexpectedMessage,
         }
     }
     try passable.validateInboundArguments(self, deliver.args, 0, introduced);
@@ -395,12 +398,8 @@ pub fn validateHandoffGiftId(self: *const Session, gift_id: []const u8) Error!vo
     try passable.validateHandoffGiftId(self.captp_version, gift_id);
 }
 
-/// A stored resolution answers to send's rules, so no refusable value commits
-/// and later aborts from a queued fire's accounting.
-pub const validateStoredResolution = validateSentResolutionValue;
-
 /// Validate the destination of a prepared listener fire. Its payload has
-/// already passed `validateStoredResolution`. This checks the one remaining
+/// already passed `validateSentResolutionValue`. This checks the one remaining
 /// session-relative name without repeating the payload's allocation-bearing
 /// set/struct folds for every fan-out recipient.
 pub fn validateListenerFireTarget(self: *Session, listener: model.FarRef) Error!void {

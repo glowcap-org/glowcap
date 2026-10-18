@@ -212,5 +212,5 @@ fn status(grants: *GrantView, id: GrantId, replacement: types.Status) Error!?Gra
 }
 
 fn nextRevision(grants: *const GrantView) Error!identity.Revision {
-    return @fromBackingInt(std.math.add(u64, @backingInt(grants.version.revisions.grants), 1) catch return error.RevisionExhausted);
+    return grants.version.revisions.grants.next() orelse error.RevisionExhausted;
 }

@@ -5,6 +5,7 @@
 //! explicit retirement or a terminal listener failure.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 const model = @import("model");
 const net = @import("net");
@@ -254,11 +255,7 @@ fn activeListenerObservation(self: *const HostRuntime, listener: *const Transpor
 
 pub fn failActiveListener(self: *HostRuntime, tag: u64, primary: OperationFailure) void {
     const active = self.active_listeners.getPtr(tag) orelse return;
-    if (active.terminal_failure) |*first| {
-        first.noteFailure(primary);
-    } else {
-        active.terminal_failure = primary;
-    }
+    foundation.latchFailure(&active.terminal_failure, primary);
     const outcome = closeActiveListener(self, tag, true);
     std.debug.assert(outcome.found);
 }

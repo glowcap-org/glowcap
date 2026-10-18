@@ -99,7 +99,7 @@ const ServerShard = struct {
 
     fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
         const self: *ServerShard = @ptrCast(@alignCast(ctx));
-        if (self.loop_error == null) self.loop_error = failure.cause;
+        if (self.loop_error == null) self.loop_error = failure.chain.cause;
     }
 
     fn init(
@@ -202,7 +202,7 @@ const ClientShard = struct {
             (ordinal >> 8) & 0xff,
             ordinal & 0xff,
         });
-        var seed: [foundation.crypto.SEED_BYTES]u8 = @splat(0x71);
+        var seed: [foundation.crypto.seed_bytes]u8 = @splat(0x71);
         std.mem.writeInt(u64, seed[0..8], @intCast(ordinal), .little);
         var peer = engine.Peer.initNegotiating(allocator);
         errdefer peer.deinit();
@@ -231,7 +231,7 @@ const ClientShard = struct {
                 "greeter",
             );
             conn.fetch_sent = true;
-            conn.answer_position = prepared.answer_position;
+            conn.answer_position = prepared.answer.position;
             conn.resolver_export = prepared.resolver_export;
             try peer.send(prepared.message);
         }

@@ -2,6 +2,7 @@
 
 const std = @import("std");
 
+const wire_hash = @import("../wire_hash.zig");
 const engine = @import("../../mod.zig");
 const export_ranges = @import("../../export_ranges.zig");
 const node_mod = @import("../../node.zig");
@@ -51,11 +52,11 @@ pub fn registerPeer(self: *Node, options: engine.Peer.NegotiatingOptions) !PeerH
         self.allocator.destroy(new_peer);
     }
     try export_ranges.applyExportRange(self, new_peer);
-    errdefer export_ranges.recycleExportBase(self, new_peer.session_state.export_base);
+    errdefer export_ranges.recycleExportBase(self, new_peer.session_state.exports.base);
 
     const handle = try self.peers.mint(self.allocator, .{ .peer = new_peer, .ownership = .node_owned });
-    new_peer.session_state.keyWireTables(export_ranges.wireHashMultiplier(self.wire_hash_secret, handle.int()));
-    new_peer.node_services = services(self, handle);
+    new_peer.session_state.keyWireTables(wire_hash.multiplier(self.wire_hash_secret, handle.int()));
+    new_peer.node_services = .{ .node = self, .peer_handle = handle };
     return handle;
 }
 
@@ -67,10 +68,10 @@ pub fn registerPeer(self: *Node, options: engine.Peer.NegotiatingOptions) !PeerH
 pub fn registerPeerOver(self: *Node, adopted: *engine.Peer) !PeerHandle {
     if (self.peers.full()) return error.CapabilitySpaceExhausted;
     try export_ranges.applyExportRange(self, adopted);
-    errdefer export_ranges.recycleExportBase(self, adopted.session_state.export_base);
+    errdefer export_ranges.recycleExportBase(self, adopted.session_state.exports.base);
     const handle = try self.peers.mint(self.allocator, .{ .peer = adopted, .ownership = .borrowed });
-    adopted.session_state.keyWireTables(export_ranges.wireHashMultiplier(self.wire_hash_secret, handle.int()));
-    adopted.node_services = services(self, handle);
+    adopted.session_state.keyWireTables(wire_hash.multiplier(self.wire_hash_secret, handle.int()));
+    adopted.node_services = .{ .node = self, .peer_handle = handle };
     return handle;
 }
 
@@ -98,7 +99,7 @@ pub fn removePeer(self: *Node, peer_handle: PeerHandle) void {
     // Give the range back before the peer goes, while it remains the only
     // record of the range this session held. Reclamation makes the slot bound
     // live sessions rather than all sessions over the Node's lifetime.
-    export_ranges.recycleExportBase(self, removed.peer.session_state.export_base);
+    export_ranges.recycleExportBase(self, removed.peer.session_state.exports.base);
     if (removed.ownership == .node_owned) {
         removed.peer.deinit();
         self.allocator.destroy(removed.peer);
@@ -114,8 +115,8 @@ pub fn removePeer(self: *Node, peer_handle: PeerHandle) void {
     // A claimed gift whose recipient died has no settlement destination.
     gift_tickets.retireRecipient(self, peer_handle);
 
-    routes.removeForPeer(self, &self.redeemed, peer_handle);
-    routes.removeForPeer(self, &self.foreign_imports, peer_handle);
+    routes.removeForPeer(&self.redeemed, peer_handle);
+    routes.removeForPeer(&self.foreign_imports, peer_handle);
     // Proxies are last: their retirement may inspect route liveness, and no
     // later home fire may relay onto a peer or route generation now gone.
     Internal.sweepPromiseProxiesForPeer(self, peer_handle);
@@ -124,32 +125,6 @@ pub fn removePeer(self: *Node, peer_handle: PeerHandle) void {
 /// The live peer for `peer_handle`, or null after membership retirement. Presence
 /// in the membership map is the sole liveness marker used by routing.
 pub fn peer(self: *Node, peer_handle: PeerHandle) ?*engine.Peer {
-    return peerAt(self, peer_handle);
-}
-
-pub fn peerAt(self: *Node, peer_handle: PeerHandle) ?*engine.Peer {
     const slot = self.peers.get(peer_handle) orelse return null;
     return slot.peer;
-}
-
-/// Bind this membership generation to the Node-owned cross-session services.
-/// The lowering gate points at stable Node state, so a peer that never sees a
-/// route skips the recursive outbound walk for one bool load.
-pub fn services(self: *Node, peer_handle: PeerHandle) engine.NodeServices {
-    return engine.NodeServices.bind(self, peer_handle, &self.route_lowering_active, .{
-        .lower = routes.lowerForConn,
-        .stage_outbound = Internal.stageOutbound,
-        .staged_withdrawn = Internal.stagedWithdrawn,
-        .provisional_closed = Internal.provisionalClosed,
-        .local_object_projection = Node.localObjectProjection,
-        .gifter_session_resolver = Node.gifterSessionResolver,
-        .pending_withdraw_added = Internal.addHandoffWaiter,
-        .pending_withdraw_removed = Internal.removeHandoffWaiter,
-        .gift_deposited = Internal.markHandoffChanged,
-        .session_closed = Internal.sessionClosed,
-        .prepare_v1_emitted_handoff_count = Internal.prepareV1HandoffCount,
-        .prepare_promise_shortening = Internal.prepareProxyPromiseShortening,
-        .commit_promise_shortening = Internal.commitProxyPromiseShortening,
-        .designator_scheme = Internal.designatorScheme,
-    });
 }

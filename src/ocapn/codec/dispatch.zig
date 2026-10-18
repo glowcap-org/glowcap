@@ -44,23 +44,26 @@ pub fn decodeBodyForProfile(
     profile: model.CaptpVersion,
     frame: foundation.FrameView,
 ) Error!model.view.Body {
-    inline for (registry.active) |spec| {
-        if (codec == spec.id) return spec.module.decodeBodyForProfile(profile, frame);
-    }
-    return error.UnknownCodec;
+    var slab = model.view.ValueSlab.empty;
+    var body: model.view.Body = undefined;
+    try decodeBodyInto(codec, profile, frame, &slab, &body);
+    return body;
 }
 
-/// `decodeBodyForProfile` with `slab` lent for the message's top-level
-/// argument list, so a codec that parses ahead to find a list's end keeps
-/// what it parsed (ADR-0222). The views in `slab` borrow `frame`.
+/// `decodeBodyForProfile` writing the body into `body`, with `slab` lent
+/// for the message's top-level argument list, so a codec that parses ahead
+/// to find a list's end keeps what it parsed (ADR-0222) and the body is
+/// written once, where it will live. The views in `slab` borrow `frame`.
+/// On a refusal `body` is undefined.
 pub fn decodeBodyInto(
     codec: model.CodecId,
     profile: model.CaptpVersion,
     frame: foundation.FrameView,
     slab: *model.view.ValueSlab,
-) Error!model.view.Body {
+    body: *model.view.Body,
+) Error!void {
     inline for (registry.active) |spec| {
-        if (codec == spec.id) return spec.module.decodeBodyInto(profile, frame, slab);
+        if (codec == spec.id) return spec.module.decodeBodyInto(profile, frame, slab, body);
     }
     return error.UnknownCodec;
 }
@@ -70,8 +73,13 @@ pub fn decodeBodyWith(
     codec: model.CodecId,
     frame: foundation.FrameView,
 ) registry.unionErrors(specs)!model.view.Body {
+    var slab = model.view.ValueSlab.empty;
+    var body: model.view.Body = undefined;
     inline for (specs) |spec| {
-        if (codec == spec.id) return spec.module.decodeBody(frame);
+        if (codec == spec.id) {
+            try spec.module.decodeBodyInto(.v1_0, frame, &slab, &body);
+            return body;
+        }
     }
     return error.UnknownCodec;
 }
@@ -103,14 +111,17 @@ pub fn encodeMessageForProfile(
 
 /// Encode a borrowed `body` for `codec` under `profile`. The body is read
 /// where it lies, whichever codec or owner backs it.
+/// `values` is what the body's value tree encodes to when the caller walked
+/// it with the codec's `meter`, or null for a codec that declares none.
 pub fn encodeBodyForProfile(
     codec: model.CodecId,
     allocator: std.mem.Allocator,
     profile: model.CaptpVersion,
     body: *const model.view.Body,
+    values: ?usize,
 ) EncodeError!foundation.Frame {
     inline for (registry.active) |spec| {
-        if (codec == spec.id) return spec.module.encodeBodyForProfile(allocator, profile, body);
+        if (codec == spec.id) return spec.module.encodeBodyForProfile(allocator, profile, body, values);
     }
     return error.UnknownCodec;
 }

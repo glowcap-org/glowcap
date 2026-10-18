@@ -81,11 +81,11 @@ pub fn gifterKeyForSession(
 /// target whose partner-named import position happens to be 0 falls through to
 /// ordinary handling instead of being auto-served.
 pub fn pendingBootstrapAction(
-    deliver: model.view.Deliver,
+    deliver: *const model.view.Deliver,
     prepared_virtual_answer: ?model.VirtualAnswer,
 ) model.view.ProjectError!?Request {
     const target_export = deliver.target.exportPosition() orelse return null;
-    if (target_export.int() != session_mod.BOOTSTRAP_POSITION) return null;
+    if (target_export.int() != session_mod.bootstrap_position) return null;
 
     // Forward peel: one linear pass over the arg region, matching validate.zig,
     // no `len()` pre-walk and no per-index `at(i)` re-scan from byte 0.
@@ -105,11 +105,11 @@ pub fn pendingBootstrapAction(
             else => return null,
         };
         if ((try it.next()) != null) return null;
-        const answer = preparedAnswerForDeliver(deliver, prepared_virtual_answer);
+        const answer = model.AnswerName.ofDeliver(deliver.answer, prepared_virtual_answer);
         return .{ .deposit_gift = .{ .gift_id = gift_id, .gifted = gifted, .answer = answer } };
     }
 
-    const answer = preparedAnswerForDeliver(deliver, prepared_virtual_answer) orelse return null;
+    const answer = model.AnswerName.ofDeliver(deliver.answer, prepared_virtual_answer) orelse return null;
 
     if (std.mem.eql(u8, method, "fetch")) {
         const swissnum = switch ((try it.next()) orelse return null) {
@@ -136,17 +136,6 @@ pub fn pendingBootstrapAction(
     return null;
 }
 
-/// The answer available during inbound classification, before a prepared V1.0
-/// resolver-only answer has committed its Session link.
-fn preparedAnswerForDeliver(
-    deliver: model.view.Deliver,
-    virtual_answer: ?model.VirtualAnswer,
-) ?model.AnswerName {
-    if (deliver.answer) |answer| return .fromWire(answer);
-    if (virtual_answer) |answer| return .fromVirtual(answer);
-    return null;
-}
-
 pub fn resolveForSwissnum(
     session: *session_mod.Session,
     local_projection: ?gifts.LocalObjectProjection,
@@ -158,7 +147,7 @@ pub fn resolveForSwissnum(
     const outcome: FetchOutcome = if (session.bootstrapLookup(request.swissnum)) |position|
         .{ .found = position }
     else if (local_projection) |p|
-        try p.resolve_fetch(p.ctx, scope orelse return session_mod.Error.InvalidGift, .{
+        try p.resolve_fetch(p.ctx, scope orelse return error.InvalidGift, .{
             .swissnum = request.swissnum,
             .answer = session.answerTargetNamed(request.answer) orelse return error.InvalidReference,
         })
@@ -174,13 +163,15 @@ pub fn resolveForSwissnum(
     };
 }
 
+/// Record a deposited gift in this session's registry. The deliver's answer,
+/// when it carries one, is the caller's to fulfill once this returns.
 pub fn resolveForDeposit(
     session: *session_mod.Session,
     registry: *gifts.GiftRegistry,
     local_projection: ?gifts.LocalObjectProjection,
     scope: ?PeerHandle,
     request: DepositRequest,
-) !?model.Resolution {
+) !void {
     try session.validateHandoffGiftId(request.gift_id);
     const gifted = try request.gifted.toOwned(session.allocator);
     var transferred = false;
@@ -191,7 +182,7 @@ pub fn resolveForDeposit(
     // a session-local near across the two sessions handoff requires.
     if (gifted == .near) {
         if (local_projection) |p| {
-            const target = p.capture(p.ctx, scope orelse return session_mod.Error.InvalidGift, gifted.near.export_position) orelse return session_mod.Error.InvalidGift;
+            const target = p.capture(p.ctx, scope orelse return error.InvalidGift, gifted.near.export_position) orelse return error.InvalidGift;
             transferred = true;
             model.freeReference(session.allocator, gifted);
             registry.depositLocalTarget(
@@ -206,10 +197,9 @@ pub fn resolveForDeposit(
                 p.release_target(p.ctx, target);
                 return err;
             };
-            if (request.answer == null) return null;
-            return .{ .fulfill = .{ .void = {} } };
+            return;
         }
-        return session_mod.Error.InvalidGift;
+        return error.InvalidGift;
     }
     // A far is the same argument from the import side, and it has no swissnum
     // door to come in through. It names an object the *gifter* hosts, which is
@@ -221,14 +211,12 @@ pub fn resolveForDeposit(
     // could aim: `Session.validateSend` refuses the fulfill (the backstop that
     // also covers the in-process `gifts.GiftRegistry.depositOwned`), and by then the
     // party that earned the refusal is no longer the party that pays it.
-    if (gifted == .far) return session_mod.Error.InvalidGift;
+    if (gifted == .far) return error.InvalidGift;
     // This registry belongs to the depositing session. The give's signed
     // session name selects it at withdrawal, so no peer-supplied namespace key
     // is retained beside the gift id.
     try registry.depositOwned(session.allocator, session.limits, local_projection, request.gift_id, gifted);
     transferred = true;
-    if (request.answer == null) return null;
-    return .{ .fulfill = .{ .void = {} } };
 }
 
 /// The withdraw responder's verdict.
@@ -257,13 +245,13 @@ pub const WithdrawOutcome = union(enum) {
 /// partner-sized storage. The authenticated keys/session name are fixed-width.
 pub const PendingReceive = struct {
     handoff_count: u64,
-    recipient_key: [crypto.PEER_KEY_BYTES]u8,
+    recipient_key: [crypto.peer_key_bytes]u8,
     gifter_exporter_session: [32]u8,
     gifter_side: [32]u8,
     gift_id: []u8,
 
     fn initVerified(allocator: std.mem.Allocator, receive: model.view.HandoffReceive) error{OutOfMemory}!?PendingReceive {
-        var recipient_key: [crypto.PEER_KEY_BYTES]u8 = undefined;
+        var recipient_key: [crypto.peer_key_bytes]u8 = undefined;
         var gifter_exporter_session: [32]u8 = undefined;
         var gifter_side: [32]u8 = undefined;
         // Production resolution establishes these widths, but the sans-I/O

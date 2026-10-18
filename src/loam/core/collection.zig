@@ -4,12 +4,13 @@ const std = @import("std");
 const records = @import("loam_records");
 
 pub const Progress = struct {
-    phase: enum(u8) { idle, clearing, roots, trace, sweep, finishing } = .idle,
+    phase: Phase = .idle,
     cursor: [33]u8 = @splat(0),
     head: u64 = 0,
     tail: u64 = 0,
     reclaimed_objects: u64 = 0,
     reclaimed_bytes: u64 = 0,
+    pub const Phase = enum(u8) { idle, clearing, roots, trace, sweep, finishing };
     pub const encoded_size = 66;
 
     pub fn encode(self: Progress) [encoded_size]u8 {
@@ -22,7 +23,7 @@ pub const Progress = struct {
     }
 
     pub fn decode(bytes: *const [encoded_size]u8) !Progress {
-        const phase = std.enums.fromInt(@FieldType(Progress, "phase"), bytes[0]) orelse return error.Corrupt;
+        const phase = std.enums.fromInt(Phase, bytes[0]) orelse return error.Corrupt;
         const result: Progress = .{
             .phase = phase,
             .cursor = bytes[1..34].*,
@@ -99,7 +100,15 @@ pub fn mark(progress: *Progress, kv: anytype, id: records.ObjectId) !void {
 
 pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.Limits, schemas: []const records.Schema, carry: *Resume) !void {
     if (request.work_limit == 0 or request.scratch.len < limits.max_record_bytes) return error.InvalidLimits;
-    const progress = &metadata.collection;
+    var cycle: Cycle(@TypeOf(metadata), @TypeOf(kv)) = .{
+        .request = request,
+        .metadata = metadata,
+        .kv = kv,
+        .limits = limits,
+        .schemas = schemas,
+        .carry = carry,
+    };
+    const progress = cycle.cycleProgress();
     // Idle is committed only after finishing removed every temporary row.
     // Reopening an interrupted cycle selects clearing through Metadata.claim.
     if (progress.phase == .idle) progress.* = .{ .phase = .roots };
@@ -127,82 +136,113 @@ pub fn apply(request: Request, metadata: anytype, kv: anytype, limits: records.L
                     break;
                 } else progress.phase = .idle;
             },
-            .roots => {
-                if (carry.held) |held| {
-                    try mark(progress, kv, held.id);
-                    progress.cursor = held.id.key();
-                    carry.held = null;
-                } else if (try nextObject(progress, kv)) |row| {
-                    const view = try checked(row, metadata.*, limits, schemas);
-                    if (view.rooted) carry.held = .{ .id = view.id, .length = row.value.len } else progress.cursor = view.id.key();
-                } else {
-                    progress.cursor = @splat(0);
-                    progress.phase = .trace;
-                }
-            },
-            .trace => {
-                if (progress.head == progress.tail) {
-                    progress.phase = .sweep;
-                    continue;
-                }
-                const id = carry.traced orelse {
-                    carry.traced = try records.ObjectId.fromKey((try kv.get(&queueKey(progress.head))) orelse return error.Corrupt);
-                    continue;
-                };
-                const key = id.key();
-                const length = carry.record_len orelse {
-                    const bytes = (try kv.get(&key)) orelse {
-                        // Explicit deletion may leave gone edges.
-                        try kv.remove(&queueKey(progress.head));
-                        progress.head += 1;
-                        carry.traced = null;
-                        continue;
-                    };
-                    if (bytes.len > request.scratch.len) return error.RecordTooLarge;
-                    // A row borrow ends at the next write. Trace an owned bounded
-                    // copy before marking children mutates the store.
-                    @memcpy(request.scratch[0..bytes.len], bytes);
-                    carry.record_len = bytes.len;
-                    carry.edge_cursor = 0;
-                    continue;
-                };
-                const view = try checked(.{ .key = &key, .value = request.scratch[0..length] }, metadata.*, limits, schemas);
-                var edges = view.edges();
-                edges.cursor = carry.edge_cursor;
-                while (edges.next()) |edge| {
-                    if (edge.strength == .strong) try mark(progress, kv, edge.target);
-                    carry.edge_cursor = edges.cursor;
-                }
-                try kv.remove(&queueKey(progress.head));
-                progress.head += 1;
-                carry.traced = null;
-                carry.record_len = null;
-            },
-            .sweep => {
-                // Both live-retention seeds and concurrent writer barriers
-                // must drain before another candidate can be deleted.
-                if (progress.head != progress.tail) {
-                    progress.phase = .trace;
-                    continue;
-                }
-                if (carry.held) |held| {
-                    const key = held.id.key();
-                    const marked = (try kv.get(&("gm".* ++ key))) != null;
-                    progress.cursor = key;
-                    carry.held = null;
-                    if (marked) continue;
-                    metadata.objects = std.math.sub(u64, metadata.objects, 1) catch return error.Corrupt;
-                    metadata.record_bytes = std.math.sub(u64, metadata.record_bytes, held.length) catch return error.Corrupt;
-                    progress.reclaimed_objects = try std.math.add(u64, progress.reclaimed_objects, 1);
-                    progress.reclaimed_bytes = try std.math.add(u64, progress.reclaimed_bytes, held.length);
-                    try kv.remove(&key);
-                } else if (try nextObject(progress, kv)) |row| {
-                    const view = try checked(row, metadata.*, limits, schemas);
-                    if (view.rooted) progress.cursor = view.id.key() else carry.held = .{ .id = view.id, .length = row.value.len };
-                } else progress.phase = .finishing;
-            },
+            .roots => try cycle.roots(),
+            .trace => try cycle.trace(),
+            .sweep => try cycle.sweep(),
         }
     }
+}
+
+/// One collection cycle's phase steps over the store's row access. Each
+/// step spends one unit of the batch's work limit.
+fn Cycle(comptime Metadata: type, comptime Kv: type) type {
+    return struct {
+        request: Request,
+        metadata: Metadata,
+        kv: Kv,
+        limits: records.Limits,
+        schemas: []const records.Schema,
+        carry: *Resume,
+
+        const Self = @This();
+
+        fn cycleProgress(self: *Self) *Progress {
+            return &self.metadata.collection;
+        }
+
+        /// Walk every object row and mark the rooted ones.
+        fn roots(self: *Self) !void {
+            const progress = self.cycleProgress();
+            if (self.carry.held) |held| {
+                try mark(progress, self.kv, held.id);
+                progress.cursor = held.id.key();
+                self.carry.held = null;
+            } else if (try nextObject(progress, self.kv)) |row| {
+                const view = try checked(row, self.metadata.*, self.limits, self.schemas);
+                if (view.rooted) self.carry.held = .{ .id = view.id, .length = row.value.len } else progress.cursor = view.id.key();
+            } else {
+                progress.cursor = @splat(0);
+                progress.phase = .trace;
+            }
+        }
+
+        /// Pop one queued record, trace its strong edges, and mark their targets.
+        fn trace(self: *Self) !void {
+            const progress = self.cycleProgress();
+            if (progress.head == progress.tail) {
+                progress.phase = .sweep;
+                return;
+            }
+            const id = self.carry.traced orelse {
+                self.carry.traced = try records.ObjectId.fromKey((try self.kv.get(&queueKey(progress.head))) orelse return error.Corrupt);
+                return;
+            };
+            const key = id.key();
+            const length = self.carry.record_len orelse {
+                const bytes = (try self.kv.get(&key)) orelse {
+                    // Explicit deletion may leave gone edges.
+                    try self.kv.remove(&queueKey(progress.head));
+                    progress.head += 1;
+                    self.carry.traced = null;
+                    return;
+                };
+                if (bytes.len > self.request.scratch.len) return error.RecordTooLarge;
+                // A row borrow ends at the next write. Trace an owned bounded
+                // copy before marking children mutates the store.
+                @memcpy(self.request.scratch[0..bytes.len], bytes);
+                self.carry.record_len = bytes.len;
+                self.carry.edge_cursor = 0;
+                return;
+            };
+            const view = try checked(.{ .key = &key, .value = self.request.scratch[0..length] }, self.metadata.*, self.limits, self.schemas);
+            var edges = view.edges();
+            edges.cursor = self.carry.edge_cursor;
+            while (edges.next()) |edge| {
+                if (edge.strength == .strong) try mark(progress, self.kv, edge.target);
+                self.carry.edge_cursor = edges.cursor;
+            }
+            try self.kv.remove(&queueKey(progress.head));
+            progress.head += 1;
+            self.carry.traced = null;
+            self.carry.record_len = null;
+        }
+
+        /// Walk every object row again and delete the unmarked, unrooted ones.
+        fn sweep(self: *Self) !void {
+            const progress = self.cycleProgress();
+            // Both live-retention seeds and concurrent writer barriers
+            // must drain before another candidate can be deleted.
+            if (progress.head != progress.tail) {
+                progress.phase = .trace;
+                return;
+            }
+            if (self.carry.held) |held| {
+                const key = held.id.key();
+                const marked = (try self.kv.get(&("gm".* ++ key))) != null;
+                progress.cursor = key;
+                self.carry.held = null;
+                if (marked) return;
+                self.metadata.objects = std.math.sub(u64, self.metadata.objects, 1) catch return error.Corrupt;
+                self.metadata.record_bytes = std.math.sub(u64, self.metadata.record_bytes, held.length) catch return error.Corrupt;
+                progress.reclaimed_objects = try std.math.add(u64, progress.reclaimed_objects, 1);
+                progress.reclaimed_bytes = try std.math.add(u64, progress.reclaimed_bytes, held.length);
+                try self.kv.remove(&key);
+            } else if (try nextObject(progress, self.kv)) |row| {
+                const view = try checked(row, self.metadata.*, self.limits, self.schemas);
+                if (view.rooted) progress.cursor = view.id.key() else self.carry.held = .{ .id = view.id, .length = row.value.len };
+            } else progress.phase = .finishing;
+        }
+    };
 }
 
 fn nextObject(progress: *Progress, kv: anytype) !?Row {

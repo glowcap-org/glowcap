@@ -112,3 +112,36 @@ test "zero consumption preserves waiting bytes but still releases an empty spill
     spill.consume(allocator, 0, 0);
     try std.testing.expectEqual(@as(usize, 0), spill.buf.len);
 }
+
+test "spill reservation overflow preserves pending bytes and permits retry" {
+    const allocator = std.testing.allocator;
+    var spill: Spill = .{};
+    defer spill.deinit(allocator);
+    try spill.absorbBytesPrecise(allocator, "pending");
+    const storage = spill.buf;
+    try std.testing.expectError(error.OutOfMemory, spill.ensureUnusedCapacityPrecise(allocator, std.math.maxInt(usize)));
+    try std.testing.expectEqual(storage.ptr, spill.buf.ptr);
+    try std.testing.expectEqual(storage.len, spill.buf.len);
+    try std.testing.expectEqualStrings("pending", spill.bytes());
+    try spill.ensureUnusedCapacityPrecise(allocator, 5);
+    spill.absorbBytesAssumeCapacity(" tail");
+    try std.testing.expectEqualStrings("pending tail", spill.bytes());
+}
+
+test "spill append refusal preserves storage and bytes for both growth policies" {
+    const allocator = std.testing.allocator;
+    inline for (.{ Spill.absorbBytes, Spill.absorbBytesPrecise }) |absorb| {
+        var spill: Spill = .{};
+        defer spill.deinit(allocator);
+        try absorb(&spill, allocator, "pending");
+        const storage = spill.buf;
+        var refusing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0, .resize_fail_index = 0 });
+        try absorb(&spill, refusing.allocator(), "");
+        try std.testing.expectError(error.OutOfMemory, absorb(&spill, refusing.allocator(), " tail"));
+        try std.testing.expectEqual(storage.ptr, spill.buf.ptr);
+        try std.testing.expectEqual(storage.len, spill.buf.len);
+        try std.testing.expectEqualStrings("pending", spill.bytes());
+        try absorb(&spill, allocator, " tail");
+        try std.testing.expectEqualStrings("pending tail", spill.bytes());
+    }
+}

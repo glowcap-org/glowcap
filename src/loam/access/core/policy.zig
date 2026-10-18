@@ -53,16 +53,12 @@ pub const Policy = struct {
         bound_mask: u16 = 0,
 
         pub fn bound(self: Value, index: usize) ?u64 {
-            return if (self.bound_mask & bit(index) != 0) self.bounds[index] else null;
+            return if (self.bound_mask & bit(u16, index) != 0) self.bounds[index] else null;
         }
 
         pub fn setBound(self: *Value, index: usize, limit: ?u64) void {
             self.bounds[index] = limit orelse 0;
-            if (limit != null) self.bound_mask |= bit(index) else self.bound_mask &= ~bit(index);
-        }
-
-        fn bit(index: usize) u16 {
-            return @as(u16, 1) << @intCast(index);
+            if (limit != null) self.bound_mask |= bit(u16, index) else self.bound_mask &= ~bit(u16, index);
         }
     };
     pub const Requirement = struct {
@@ -106,9 +102,9 @@ pub const Policy = struct {
             const index = try self.permissionIndex(dependency.permission);
             const required = try self.permissionIndex(dependency.required);
             if (index == required) return error.InvalidDependency;
-            const bit = @as(u64, 1) << @intCast(required);
-            if (self.prerequisite_masks[index] & bit != 0) return error.DuplicateKey;
-            self.prerequisite_masks[index] |= bit;
+            const required_bit = bit(u64, required);
+            if (self.prerequisite_masks[index] & required_bit != 0) return error.DuplicateKey;
+            self.prerequisite_masks[index] |= required_bit;
         }
         try self.setKinds(descriptor.kinds);
         return self;
@@ -149,7 +145,7 @@ pub const Policy = struct {
                 if (required != 0) return error.UnknownPermission;
             } else {
                 if (required & ~declared != 0) return error.UnknownPermission;
-                if (required & (@as(u64, 1) << @intCast(index)) != 0) return error.InvalidDependency;
+                if (required & bit(u64, index) != 0) return error.InvalidDependency;
             }
         }
     }
@@ -185,7 +181,7 @@ pub const Policy = struct {
     /// composes along containment without loading the current descendants.
     pub fn validatePlacement(self: *const Policy, kind: KindId, parent: ?KindId) Error!void {
         const child = try self.supported(kind, true);
-        if (parent) |value_| if (child & ~try self.supported(value_, true) != 0) return error.InvalidPlacement;
+        if (parent) |parent_kind| if (child & ~try self.supported(parent_kind, true) != 0) return error.InvalidPlacement;
     }
 
     /// Adopt the persisted/ABI matrix after constructing its vocabulary. Every
@@ -270,10 +266,10 @@ pub const Policy = struct {
 
     /// Admission reuses the target's already resolved support. Effects remain
     /// partial demands. Malformed facts still refuse before a negative verdict.
-    pub fn allowsSupported(self: *const Policy, terms: Value, supported_: u64, requirement: Requirement) Error!bool {
+    pub fn allowsSupported(self: *const Policy, terms: Value, support: u64, requirement: Requirement) Error!bool {
         try self.validate(terms);
         const requested = try self.shape(requirement.permissions, requirement.facts);
-        if (requested.permissions & ~supported_ != 0) return error.InapplicablePermission;
+        if (requested.permissions & ~support != 0) return error.InapplicablePermission;
         var allowed = requested.permissions & ~terms.permissions == 0;
         for (self.constraint_fields[0..self.constraint_count], 0..) |field, i| {
             if (requested.bound(i)) |fact| {
@@ -283,10 +279,10 @@ pub const Policy = struct {
         return allowed;
     }
 
-    fn satisfies(operator: Operator, value_: u64, limit: u64) bool {
+    fn satisfies(operator: Operator, fact: u64, limit: u64) bool {
         return switch (operator) {
-            .lower_bound => value_ >= limit,
-            .upper_bound => value_ <= limit,
+            .lower_bound => fact >= limit,
+            .upper_bound => fact <= limit,
         };
     }
 
@@ -295,9 +291,9 @@ pub const Policy = struct {
         var mask: u64 = 0;
         for (keys) |key| {
             const index = try self.permissionIndex(key);
-            const bit = @as(u64, 1) << @intCast(index);
-            if (mask & bit != 0) return error.DuplicateKey;
-            mask |= bit;
+            const key_bit = bit(u64, index);
+            if (mask & key_bit != 0) return error.DuplicateKey;
+            mask |= key_bit;
         }
         return mask;
     }
@@ -312,11 +308,11 @@ pub const Policy = struct {
     }
 
     fn constraintMask(self: *const Policy) u16 {
-        return if (self.constraint_count == max_constraints) std.math.maxInt(u16) else (@as(u16, 1) << @intCast(self.constraint_count)) - 1;
+        return lowMask(u16, self.constraint_count);
     }
 
     fn declaredMaskFor(permission_count: usize) u64 {
-        return if (permission_count == max_permissions) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(permission_count)) - 1;
+        return lowMask(u64, permission_count);
     }
 
     fn constraintIndex(self: *const Policy, key: Key) Error!usize {
@@ -326,3 +322,12 @@ pub const Policy = struct {
         return error.UnknownConstraint;
     }
 };
+
+fn bit(comptime T: type, index: usize) T {
+    return @as(T, 1) << @intCast(index);
+}
+
+/// The low `count` bits of `T`, up to all of them.
+fn lowMask(comptime T: type, count: usize) T {
+    return if (count >= @bitSizeOf(T)) std.math.maxInt(T) else bit(T, count) - 1;
+}

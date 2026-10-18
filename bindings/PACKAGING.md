@@ -121,7 +121,7 @@ only after the assets can be downloaded and verified.
 1. Run `zig build -Doptimize=ReleaseSafe release-pack -Dcpu=baseline` for every published
    target.
 2. Push the release commit and require its exact SHA to complete `check.yml`
-   successfully, including both the `check.yml` jobs and macOS runtime jobs.
+   successfully, including its macOS runtime jobs.
 3. Tag `v{abi_version}`, matching `include/glowcap_ocapn.h`. The release
    workflow independently queries the successful exact-SHA check before it
    builds archives.

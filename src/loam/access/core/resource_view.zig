@@ -1,6 +1,7 @@
 //! A synchronous resource view distinguishes unloaded records from absence.
 //! Sources provide records from one revision. Managed access validates and traverses
 //! them. A miss names the record to load without performing I/O or allocating.
+const std = @import("std");
 const identity = @import("identity.zig");
 const ResourceId = identity.ResourceId;
 
@@ -20,9 +21,7 @@ pub const ResourceView = struct {
 
         pub fn validate(self: Record) error{InvalidRecord}!void {
             if (self.id.generation == 0) return error.InvalidRecord;
-            if (self.parent) |parent| {
-                if (parent.owner != self.id.owner or parent.generation == 0 or parent.eql(self.id)) return error.InvalidRecord;
-            }
+            if (self.parent) |parent| if (!identity.validParent(self.id, parent)) return error.InvalidRecord;
         }
     };
     pub const Version = struct { owner: identity.OwnerId, revision: identity.Revision };
@@ -32,15 +31,14 @@ pub const ResourceView = struct {
     pub const Absence = enum { unknown, gone };
     pub const Reply = struct {
         version: Version,
-        value: union(enum) { present: Record, absent: Absence, unloaded },
+        value: Value,
+        pub const Value = union(enum) { present: Record, absent: Absence, unloaded };
     };
     pub const SourceError = error{ ReadFailed, RecoveryRequired, RevisionConflict, InvalidRecord };
     pub const Error = SourceError || error{
         ForeignOwner,
         UnknownResource,
         Gone,
-        RevisionConflict,
-        InvalidRecord,
         RecordUnloaded,
         DepthLimit,
         ContainmentCycle,
@@ -80,20 +78,12 @@ pub const ResourceView = struct {
     }
 
     pub fn depth(self: *ResourceView, id: ResourceId) Error!u32 {
-        var record = try self.get(id);
-        var value: u32 = 0;
-        while (record.parent) |parent| {
-            if (value == self.max_depth) return error.DepthLimit;
-            value += 1;
-            record = try self.get(parent);
-        }
-        return value;
+        return (try self.ancestry(id, null)).depth;
     }
 
     /// Both resident and persistent moves validate canonical ancestry here.
     /// The caller supplies the inspected subtree's maximum relative depth.
-    pub fn checkReparent(self: *ResourceView, id: ResourceId, parent: ?ResourceId, height: u32) Error!bool {
-        const record = try self.get(id);
+    pub fn checkReparent(self: *ResourceView, id: ResourceId, parent: ?ResourceId, height: u32) Error!void {
         _ = try self.depth(id);
         const new_depth = if (parent) |target| value: {
             if (try self.isDescendant(target, id)) return error.ContainmentCycle;
@@ -102,23 +92,28 @@ pub const ResourceView = struct {
             break :value parent_depth + 1;
         } else 0;
         if (height > self.max_depth - new_depth) return error.DepthLimit;
-        return !@import("std").meta.eql(record.parent, parent);
     }
 
-    /// Walks canonical parent edges with bounded work and no allocation. A
-    /// positive match still validates the rest of the path to its root: an
-    /// unloaded, cyclic, over-depth, or missing ancestor cannot hide behind it.
+    /// Includes the root itself. Both names must denote live resources.
     pub fn isDescendant(self: *ResourceView, id: ResourceId, root: ResourceId) Error!bool {
         _ = try self.get(root);
+        return (try self.ancestry(id, root)).matched;
+    }
+
+    /// Walks canonical parent edges from `id` to its root with bounded work
+    /// and no allocation: the depth, and whether `root` was `id` or an
+    /// ancestor. A match still validates the rest of the path, so an
+    /// unloaded, cyclic, over-depth, or missing ancestor cannot hide behind it.
+    fn ancestry(self: *ResourceView, id: ResourceId, root: ?ResourceId) Error!struct { depth: u32, matched: bool } {
         var record = try self.get(id);
-        var matched = id.eql(root);
+        var matched = if (root) |target| id.eql(target) else false;
         var traversed: u32 = 0;
         while (record.parent) |parent| {
             if (traversed == self.max_depth) return error.DepthLimit;
             traversed += 1;
             record = try self.get(parent);
-            matched = matched or parent.eql(root);
+            if (root) |target| matched = matched or parent.eql(target);
         }
-        return matched;
+        return .{ .depth = traversed, .matched = matched };
     }
 };

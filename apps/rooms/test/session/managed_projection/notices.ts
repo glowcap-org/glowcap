@@ -140,3 +140,31 @@ for (
 		assertEquals(activityNotice(notice), null);
 	});
 }
+
+Deno.test("a restored room has not heard its policy until its directory answers", () => {
+	const row = room();
+	assert(row.kind === "room", "room fixture");
+	const f = fixture(row);
+	try {
+		const restored = f.selected();
+		assert(restored.type === "room", "room projection");
+		// The private-room address waits on this rather than reading the open
+		// default as the room's word.
+		assertEquals(restored.policyHeard, false);
+		assertEquals(restored.held, false);
+		f.projection.activity({
+			cursor: "1",
+			gap: false,
+			event: {
+				target: { kind: "room", id: row.id },
+				notice: { kind: "occupancy", listed: false, claimable: true },
+			},
+		});
+		const answered = f.selected();
+		assert(answered.type === "room", "room projection");
+		assertEquals(answered.policyHeard, true);
+		assertEquals(answered.held, true);
+	} finally {
+		f.close();
+	}
+});

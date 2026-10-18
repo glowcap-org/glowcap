@@ -39,7 +39,7 @@ const greeting = "hello over webrtc";
 
 /// The answerer's fixed key: the harness derives its designator and hands it to
 /// the browser to pin, so the keyed handshake proves identity end to end.
-const answerer_seed = @as([crypto.SEED_BYTES]u8, @splat(0x71));
+const answerer_seed = @as([crypto.seed_bytes]u8, @splat(0x71));
 
 /// The published actor: answers `greet` with a static greeting.
 const Greeter = struct {
@@ -55,7 +55,7 @@ const Greeter = struct {
 
 /// Serve a Greeter behind the keyed handshake over the open channel, signing
 /// with `secret` so the browser's pinned designator verifies.
-fn serveKeyed(resident: *webrtc.Resident, peer: *webrtc.Peer, allocator: std.mem.Allocator, seed: [crypto.SEED_BYTES]u8) !void {
+fn serveKeyed(resident: *webrtc.Resident, peer: *webrtc.Peer, allocator: std.mem.Allocator, seed: [crypto.seed_bytes]u8) !void {
     var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
     defer host.deinit();
 

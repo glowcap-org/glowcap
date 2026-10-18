@@ -152,7 +152,7 @@ fn exporterHalf(
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    seed: [crypto.SEED_BYTES]u8,
+    seed: [crypto.seed_bytes]u8,
 ) anyerror!void {
     var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
     defer host.deinit();
@@ -181,7 +181,7 @@ fn recipientHalf(
     resident: *webrtc.Resident,
     peer: *webrtc.Peer,
     allocator: std.mem.Allocator,
-    seed: [crypto.SEED_BYTES]u8,
+    seed: [crypto.seed_bytes]u8,
     expect_designator: []const u8,
 ) anyerror!void {
     var host = try webrtc_common.hostFromSeed(allocator, seed, frame_cap);
@@ -219,8 +219,8 @@ pub fn main(init: std.process.Init) !void {
 
     // The exporter answers; the recipient offers and reaches it. Deterministic
     // keys are the designators the two peers sign, pin, and register under.
-    const exporter_seed = @as([crypto.SEED_BYTES]u8, @splat(0x61));
-    const recipient_seed = @as([crypto.SEED_BYTES]u8, @splat(0x62));
+    const exporter_seed = @as([crypto.seed_bytes]u8, @splat(0x61));
+    const recipient_seed = @as([crypto.seed_bytes]u8, @splat(0x62));
     const exporter_secret = crypto.SecretKey.fromSeed(exporter_seed);
     const recipient_secret = crypto.SecretKey.fromSeed(recipient_seed);
     const exporter_designator = exporter_secret.publicKey().toDesignator();

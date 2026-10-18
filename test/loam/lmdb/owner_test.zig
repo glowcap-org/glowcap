@@ -13,7 +13,7 @@ test "loam LMDB managed owner reopens indexes and recovers content grants and ev
         defer a.free(path);
         const terminated = try a.dupeSentinel(u8, path, 0);
         defer a.free(terminated);
-        var db = try Lmdb.open(terminated, .{ .mode = .{ .create = f.store_id } });
+        var db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .create } });
         defer db.close() catch unreachable;
         var store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, f.limits);
         defer store.deinit() catch unreachable;
@@ -28,11 +28,12 @@ test "loam LMDB managed owner reopens indexes and recovers content grants and ev
         const content_revision = store.metadata.revision;
         try store.deinit();
         try db.close();
-        db = try Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } });
+        db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .open } });
         store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, f.limits);
         try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
         {
-            var read = try f.storage.Read.init(a, &store, owner, 6);
+            var read: f.storage.Read = undefined;
+            try read.init(a, &store, owner, 6, null);
             defer read.deinit() catch unreachable;
             _ = try f.pump(&read, &db);
             try f.require(&read, &db, issued.grant, resource, .{ .permissions = &.{f.vocabulary.read} });
@@ -63,10 +64,11 @@ test "loam LMDB managed owner reopens indexes and recovers content grants and ev
         }
         try store.deinit();
         try db.close();
-        db = try Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } });
+        db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .open } });
         store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, f.limits);
         {
-            var read = try f.storage.Read.init(a, &store, owner, 6);
+            var read: f.storage.Read = undefined;
+            try read.init(a, &store, owner, 6, null);
             defer read.deinit() catch unreachable;
             _ = try f.pump(&read, &db);
             const req: f.core.Policy.Requirement = .{ .permissions = &.{f.vocabulary.read} };
@@ -98,7 +100,7 @@ test "loam LMDB composed managed changes reopen atomically after commit and unkn
         defer a.free(path);
         const terminated = try a.dupeSentinel(u8, path, 0);
         defer a.free(terminated);
-        var db = try Lmdb.open(terminated, .{ .mode = .{ .create = f.store_id } });
+        var db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .create } });
         defer db.close() catch unreachable;
         var wide = f.limits;
         wide.cache_slots = 24;
@@ -116,7 +118,8 @@ test "loam LMDB composed managed changes reopen atomically after commit and unkn
         var staged_message: f.core.ResourceId = undefined;
         {
             try store.begin();
-            var read = try f.storage.Read.init(a, &store, owner, 7);
+            var read: f.storage.Read = undefined;
+            try read.init(a, &store, owner, 7, null);
             defer read.deinit() catch unreachable;
             _ = try f.pump(&read, &db);
             var append = try f.storage.Append.init(&read, .resource);
@@ -157,11 +160,12 @@ test "loam LMDB composed managed changes reopen atomically after commit and unkn
         }
         try store.deinit();
         try db.close();
-        db = try Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } });
+        db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .open } });
         store = try f.loam.core.Store.init(a, db.metadata, &f.schemas, wide);
         try std.testing.expectEqual(@as(usize, 0), store.cache.allocated_bytes);
         {
-            var verify = try f.storage.Read.init(a, &store, owner, 7);
+            var verify: f.storage.Read = undefined;
+            try verify.init(a, &store, owner, 7, null);
             defer verify.deinit() catch unreachable;
             _ = try f.pump(&verify, &db);
             const req: f.core.Policy.Requirement = .{ .permissions = &.{f.vocabulary.read} };
@@ -216,7 +220,7 @@ test "loam LMDB closing releases custody while a forked child awaits exec" {
     defer a.free(path);
     const terminated = try a.dupeSentinel(u8, path, 0);
     defer a.free(terminated);
-    var db = try Lmdb.open(terminated, .{ .mode = .{ .create = f.store_id } });
+    var db = try Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .create } });
     var closed = false;
     defer if (!closed) db.close() catch unreachable;
     var signal: [2]c_int = undefined;
@@ -237,10 +241,10 @@ test "loam LMDB closing releases custody while a forked child awaits exec" {
         std.testing.expectEqual(child, process.waitpid(child, &status, 0)) catch unreachable;
         std.testing.expectEqual(@as(c_int, 0), status) catch unreachable;
     }
-    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } }));
+    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .open } }));
     try db.close();
     closed = true;
-    var reopened = try Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } });
+    var reopened = try Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .open } });
     defer reopened.close() catch unreachable;
-    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(terminated, .{ .mode = .{ .open = f.store_id } }));
+    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(terminated, .{ .opening = .{ .id = f.store_id, .mode = .open } }));
 }

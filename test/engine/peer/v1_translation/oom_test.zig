@@ -83,7 +83,7 @@ test "V1.0 answered-deliver admission OOM rolls back resolver authority and retr
         try peer.session_state.registerImport(.from(7));
 
         const answer = model.AnswerPosition.from(42);
-        const first_resolver = peer.session_state.next_export_position;
+        const minted_before = peer.session_state.exports.rows.capacityUsed();
         const deliver: model.Message = .{ .deliver = .{
             .target = .{ .far = model.FarRef.object(7) },
             .args = &.{.{ .bytes = "payload" }},
@@ -104,9 +104,12 @@ test "V1.0 answered-deliver admission OOM rolls back resolver authority and retr
             try std.testing.expect(peer.session_state.outboundAnswer(answer) == null);
             try std.testing.expectEqual(
                 @as(?model.ExportPosition, null),
-                peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }),
+                peer.session_state.resolverExportForAnswer(answer),
             );
-            if (peer.session_state.next_export_position > first_resolver)
+            // A retracted mint returns its slot to the free list, but the
+            // vector it grew keeps the slot, so growth shows the sweep
+            // crossed the resolver mint.
+            if (peer.session_state.exports.rows.capacityUsed() > minted_before)
                 saw_post_mint_oom = true;
 
             // The refusal committed nothing, so the same send retries,
@@ -115,7 +118,7 @@ test "V1.0 answered-deliver admission OOM rolls back resolver authority and retr
         }
 
         try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-        const resolver = peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }) orelse
+        const resolver = peer.session_state.resolverExportForAnswer(answer) orelse
             return error.MissingRetriedResolver;
         try std.testing.expect(peer.session_state.exportRefcount(resolver) != 0);
         var frame = peer.takeOutbound() orelse return error.MissingRetriedDeliver;
@@ -140,7 +143,7 @@ test "V1.0 projection encode OOM publishes neither half and retries atomically" 
         try peer.session_state.registerImport(.from(9));
 
         const answer = model.AnswerPosition.from(5);
-        const first_resolver = peer.session_state.next_export_position;
+        const minted_before = peer.session_state.exports.rows.capacityUsed();
         try peer.sendBorrowed(.{ .get = .{
             .receiver = .{ .far = model.FarRef.object(9) },
             .field = "name",
@@ -162,15 +165,18 @@ test "V1.0 projection encode OOM publishes neither half and retries atomically" 
             try std.testing.expect(peer.takeOutbound() == null);
             try std.testing.expectEqual(
                 @as(?model.ExportPosition, null),
-                peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }),
+                peer.session_state.resolverExportForAnswer(answer),
             );
-            if (peer.session_state.next_export_position > first_resolver)
+            // A retracted mint returns its slot to the free list, but the
+            // vector it grew keeps the slot, so growth shows the sweep
+            // crossed the resolver mint.
+            if (peer.session_state.exports.rows.capacityUsed() > minted_before)
                 saw_post_mint_oom = true;
 
             try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
         }
 
-        _ = peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }) orelse
+        _ = peer.session_state.resolverExportForAnswer(answer) orelse
             return error.MissingProjectionResolver;
         var projection = peer.takeOutbound() orelse return error.MissingProjectionFrame;
         projection.deinit();
@@ -194,7 +200,7 @@ test "V1.0 resolver-only registration rolls back its virtual answer on OOM" {
     peer.session_state.captp_version = .v1_0;
 
     const message: model.Message = .{ .deliver = .{
-        .target = .{ .near = model.NearRef.object(session.BOOTSTRAP_POSITION) },
+        .target = .{ .near = model.NearRef.object(session.bootstrap_position) },
         .args = &.{},
         .resolve_me_desc = .{ .far = model.FarRef.object(7) },
     } };
@@ -203,7 +209,7 @@ test "V1.0 resolver-only registration rolls back its virtual answer on OOM" {
 
     // The answer-table allocation succeeds; the following import-table
     // allocation fails. Neither half of the resolver-only authority may remain.
-    try std.testing.expectError(error.OutOfMemory, peer.session_state.prepareDeliveryResolver(deliver));
+    try std.testing.expectError(error.OutOfMemory, peer.session_state.prepareDeliveryResolver(&deliver));
     try std.testing.expect(!peer.session_state.hasInboundAnswerNamed(virtual));
     try std.testing.expect(!peer.session_state.holdsImport(.from(7)));
     try std.testing.expect(peer.session_state.resolverForInboundAnswer(virtual) == null);
@@ -211,7 +217,7 @@ test "V1.0 resolver-only registration rolls back its virtual answer on OOM" {
     // Preparation committed nothing, including the virtual-answer cursor. A
     // clean retry therefore commits the same identity, not a skipped tombstone.
     failing.fail_index = std.math.maxInt(usize);
-    var prepared = (try peer.session_state.prepareDeliveryResolver(deliver)).?;
+    var prepared = (try peer.session_state.prepareDeliveryResolver(&deliver)).?;
     const retried = prepared.virtualAnswer().?;
     // The frame's introduced-import transaction takes the resolver's retain
     // before the commit adopts it; this unit test stands in for that step.

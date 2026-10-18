@@ -12,8 +12,7 @@ Every glowcap session uses a small vocabulary from the
 [protocol diagrams](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/README.md)
 draw the flows.
 
-The operation and descriptor names below are checked against the Syrup codec,
-so this list changes with the implementation.
+The operation and descriptor names below are checked against the Syrup codec.
 
 # Operations
 
@@ -34,7 +33,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
 | `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
 
-# How a promise settles
+# [How a promise settles]($section.id('how-a-promise-settles'))
 
 On a CapTP 1.0 session, a caller that wants an answer passes a **resolver**
 with its `op:deliver`: a reference the callee calls back. The answer comes
@@ -55,9 +54,11 @@ A Goblins peer, or any other CapTP 1.0 implementation, sees plain CapTP 1.0
 over Syrup. glowcap's preferences travel as three hints on the location its
 hello signs: `glowcap/captp-version`, `glowcap/codec`, and `glowcap/features`.
 A peer that doesn't know them ignores them, and the session uses the 1.0
-baseline. Onion locators carry no hints, because Goblins refuses a hinted
-onion address, so an onion session runs the baseline even between two glowcap
-peers.
+baseline. The version and codec hints for glowcap's own tracks also name the
+exact wire a build writes, so two glowcap builds that write it differently use
+the 1.0 baseline. Goblins refuses a hinted onion address, so over Tor glowcap
+sends hints only to a partner it already knows is glowcap. With anyone else, an
+onion session runs the baseline.
 
 glowcap sends `op:untag` only to a partner that lists the `untag` feature.
 Application code makes the same calls under either version. The one

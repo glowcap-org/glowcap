@@ -233,7 +233,7 @@ test "loam read scope facade constructor refusal releases cache entries before r
 
 /// Execute storage work for calls that only read.
 fn readsOnly(fixture: *f.Fixture, worker: *f.hosting.Worker) !void {
-    while (try worker.next(fixture.attached, false)) |slot| {
+    while (try worker.next(fixture.attached, .when_uncertain)) |slot| {
         if (slot.request == .write) return error.UnexpectedWrite;
         try f.hosting.Worker.run(slot, &fixture.data.backend);
         try worker.complete(slot, fixture.attached);

@@ -14,15 +14,15 @@ const Error = session.Error;
 
 pub fn validateHintShape(hints: anytype) Error!void {
     if (comptime @hasDecl(@TypeOf(hints), "validateShape")) {
-        hints.validateShape() catch return Error.MalformedMessage;
+        hints.validateShape() catch return error.MalformedMessage;
         return;
     }
-    model.validateHints(hints) catch return Error.MalformedMessage;
+    model.validateHints(hints) catch return error.MalformedMessage;
 }
 
 pub fn validateLocatorShape(locator: anytype) Error!void {
     model.validateLocatorTransportDesignator(locator.transport, locator.designator) catch
-        return Error.MalformedMessage;
+        return error.MalformedMessage;
     try validateHintShape(locator.hints);
 }
 
@@ -42,7 +42,7 @@ pub fn validateStartSession(
 ) !void {
     if (try carriesRouteVocabulary(acceptable_location) and
         (!acceptsRouteVocabulary(local) or !acceptsRouteVocabulary(remote)))
-        return Error.MalformedMessage;
+        return error.MalformedMessage;
     try validateIdLocator(self, acceptable_location);
 }
 
@@ -55,7 +55,7 @@ fn requireNegotiatedVocabulary(self: *const Session, locator: anytype) Error!voi
     try validateLocatorShape(locator);
     if (try carriesRouteVocabulary(locator) and
         (self.captp_version != .next or !self.features.multi_location))
-        return Error.FeatureNotNegotiated;
+        return error.FeatureNotNegotiated;
 }
 
 pub fn parseNegotiatedIdLocator(
@@ -66,12 +66,12 @@ pub fn parseNegotiatedIdLocator(
     try requireNegotiatedVocabulary(self, locator);
     return session.id_route.parseLocator(allocator, locator) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        error.UnparseableId, error.UnsupportedId => return Error.MalformedMessage,
+        error.UnparseableId, error.UnsupportedId => return error.MalformedMessage,
     };
 }
 
 fn validateIdLocator(self: *const Session, locator: anytype) Error!void {
     _ = self;
     if (!std.mem.eql(u8, locator.transport, model.transport.id)) return;
-    _ = session.id_route.validateLocator(locator) catch return Error.MalformedMessage;
+    _ = session.id_route.validateLocator(locator) catch return error.MalformedMessage;
 }

@@ -11,7 +11,7 @@ const FailureChain = glowcap.foundation.FailureChain;
 /// Join a Server's close barrier, then release the handle. Close is consuming:
 /// a returned chain is the outcome, not a reason to skip `deinit`.
 pub fn closeServer(_: *Ctx, server: *driver.Server) ?FailureChain {
-    const failure = if (server.close()) |op| op.toChain() else null;
+    const failure = if (server.close()) |op| op.chain else null;
     server.deinit();
     return failure;
 }

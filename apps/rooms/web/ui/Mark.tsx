@@ -6,7 +6,7 @@
 // accessible name: the mark itself is decoration and says so.
 
 import { useEffect, useRef } from "react";
-import type { MarkLive, MarkPlay } from "./mark_gpu_live.ts";
+import type { MarkLive, MarkPlay } from "./mark/live.ts";
 
 /** How the mark plays in a component: `arrive` runs the whole cycle once and
  * is a lockup afterwards, for the screen a person lands on; `stand` is a
@@ -24,7 +24,7 @@ export function Mark({ size, play = "stand" }: { size: number; play?: MarkStance
 		let live: MarkLive | null = null;
 		// The shader and its driver are their own chunk, fetched when the first
 		// mark mounts, so the page's own bytes never wait on a mushroom.
-		void import("./mark_gpu_live.ts").then((m) => m.start(el, play)).then((mark) => {
+		void import("./mark/live.ts").then((m) => m.start(el, play)).then((mark) => {
 			if (mark === null) return;
 			if (gone) {
 				mark.stop();

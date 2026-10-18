@@ -153,6 +153,6 @@ fn expectCapnpGiveRoundTrip(
 
     const recanonical = try syrup.canonicalHandoffGiveSignedBytes(allocator, owned_give);
     defer allocator.free(recanonical);
-    const carried = crypto.Signature.fromBytes(owned_give.signature[0..crypto.SIGNATURE_BYTES].*);
+    const carried = crypto.Signature.fromBytes(owned_give.signature[0..crypto.signature_bytes].*);
     try crypto.verify(gifter_secret.publicKey(), recanonical, carried);
 }

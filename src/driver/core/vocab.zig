@@ -366,7 +366,7 @@ pub const Exported = struct {
 /// actor that should have no wire position at all is spawned with `Vat.spawn`,
 /// which mints no export.
 pub fn spawnAt(turn: *actors.Turn, comptime Behavior: type, initial: Behavior) !Exported {
-    const port = turn.port orelse return actors.Error.NotConnected;
+    const port = turn.port() orelse return actors.Error.NotConnected;
     const position = try port.peer.exportNextObject();
     errdefer port.peer.session_state.releaseUnsharedExport(.from(position));
     const ref = try turn.vat.spawn(Behavior, initial);
@@ -422,46 +422,29 @@ pub const SettleCapture = struct {
 
     pub fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *SettleCapture = @ptrCast(@alignCast(ctx.?));
+        self.settled = own(self.arena, resolution) catch {
+            self.failed = true;
+            return;
+        };
+    }
+
+    /// `resolution` materialized into `allocator`, which may be plain (the
+    /// verb contract allows a non-arena), so a failed later copy frees the
+    /// earlier ones and a partial `.give` never leaks.
+    fn own(allocator: std.mem.Allocator, resolution: actors.Resolution) !Settled {
         switch (resolution) {
-            .fulfilled => |arg| {
-                const owned_arg = model.cloneArgument(self.arena, arg) catch {
-                    self.failed = true;
-                    return;
-                };
-                self.settled = .{ .fulfilled = owned_arg };
-            },
+            .fulfilled => |arg| return .{ .fulfilled = try model.cloneArgument(allocator, arg) },
+            .broken => |reason| return .{ .broken = try allocator.dupe(u8, reason) },
             .give => |give| {
-                // Three dupes into a caller allocator that may be plain (the
-                // verb contract allows a non-arena): free the earlier ones if
-                // a later dupe fails, so a partial `.give` never leaks. An
-                // arena caller sees these frees as no-ops.
-                const bytes = self.arena.dupe(u8, give.give_bytes) catch {
-                    self.failed = true;
-                    return;
-                };
-                const uri = self.arena.dupe(u8, give.exporter_locator_uri) catch {
-                    self.arena.free(bytes);
-                    self.failed = true;
-                    return;
-                };
-                const key = self.arena.dupe(u8, give.recipient_key) catch {
-                    self.arena.free(uri);
-                    self.arena.free(bytes);
-                    self.failed = true;
-                    return;
-                };
-                self.settled = .{ .give = .{
+                const bytes = try allocator.dupe(u8, give.give_bytes);
+                errdefer allocator.free(bytes);
+                const uri = try allocator.dupe(u8, give.exporter_locator_uri);
+                errdefer allocator.free(uri);
+                return .{ .give = .{
                     .give_bytes = bytes,
                     .exporter_locator_uri = uri,
-                    .recipient_key = key,
+                    .recipient_key = try allocator.dupe(u8, give.recipient_key),
                 } };
-            },
-            .broken => |reason| {
-                const owned_reason = self.arena.dupe(u8, reason) catch {
-                    self.failed = true;
-                    return;
-                };
-                self.settled = .{ .broken = owned_reason };
             },
         }
     }
@@ -471,7 +454,7 @@ pub const SettleCapture = struct {
     /// capture means the partner left before the vow settled.
     pub fn finish(self: *const SettleCapture) !Settled {
         if (self.failed) return error.OutOfMemory;
-        return self.settled orelse Error.ConnectionClosed;
+        return self.settled orelse error.ConnectionClosed;
     }
 };
 

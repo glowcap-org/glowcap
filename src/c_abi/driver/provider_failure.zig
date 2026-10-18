@@ -95,15 +95,20 @@ pub fn operation(
             statusIsStable(report.secondary_result) and secondary_name != null;
     if (report.result != code or !statusIsStable(code) or primary_name == null or !valid_secondary)
         return error.InvalidProviderFailure;
-    var failure = driver.OperationFailure.fromError(statusError(code));
-    failure.kind = driver.OperationFailure.fromClassification(statusClassification(code));
-    failure.carrier_phase = phase;
-    failure.carrier_detail = detail;
-    failure.namePrimary(primary_name.?);
+    var failure: driver.OperationFailure = .{
+        .chain = .{
+            .cause = statusError(code),
+            .cause_name = primary_name,
+            .classification = statusClassification(code),
+        },
+        .carrier_phase = phase,
+        .carrier_detail = detail,
+    };
     if (report.secondary_count != 0) {
-        failure.noteNamed(statusError(report.secondary_result), secondary_name.?);
-        failure.secondary_kind = driver.OperationFailure.fromClassification(statusClassification(report.secondary_result));
-        failure.secondary_count = @intCast(report.secondary_count);
+        failure.chain.secondary_cause = statusError(report.secondary_result);
+        failure.chain.secondary_cause_name = secondary_name;
+        failure.chain.secondary_classification = statusClassification(report.secondary_result);
+        failure.chain.secondary_count = @intCast(report.secondary_count);
     }
     return failure;
 }
@@ -112,19 +117,7 @@ pub fn chain(
     code: i32,
     report: shared.GlowcapProviderFailure,
 ) error{InvalidProviderFailure}!foundation.FailureChain {
-    const failure = try operation(code, report);
-    return .{
-        .cause = failure.cause,
-        .cause_name = failure.cause_name,
-        .classification = statusClassification(code),
-        .secondary_cause = failure.secondary_cause,
-        .secondary_cause_name = failure.secondary_cause_name,
-        .secondary_classification = if (report.secondary_count != 0)
-            statusClassification(report.secondary_result)
-        else
-            null,
-        .secondary_count = failure.secondary_count,
-    };
+    return (try operation(code, report)).chain;
 }
 
 /// Project a provider's dial failure onto the `DialError` retry axis. A
@@ -154,7 +147,7 @@ pub fn dial(
     const failure = try operation(code, report);
     return .{
         .classification = dialError(code, name(report.primary_name, report.primary_name_len)),
-        .chain = failure.toChain(),
+        .chain = failure.chain,
         .carrier_phase = failure.carrier_phase,
         .carrier_detail = failure.carrier_detail,
     };

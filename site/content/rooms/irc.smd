@@ -16,10 +16,13 @@ a member like anyone else, with the same rooms, lines, and direct messages.
 # Follow an IRC channel as a room
 
 ```sh
-zig build rooms-irc-bridge
+zig build rooms-irc-bridge -- \
+  --irc-realname="glowcap Rooms bridge bot; admin: YOUR_LIBERA_NICK"
 ```
 
-By default this follows Libera's `#ocapn` over TLS and offers it as a room
+The bridge will not start without `--irc-realname`, which names the bot and a
+Libera nick that answers for it. It follows Libera's `#ocapn` over TLS and
+offers it as a room
 called `libera/#ocapn` on your machine. The command prints the port and the
 room name, and any Rooms client can join. People on the IRC side appear as
 `irc/<nick>`, so you can always see where a line came from.
@@ -30,10 +33,12 @@ only a short backlog across reconnects. A line that may or may not have
 reached IRC is refused rather than sent again, so nothing lands on the
 channel twice.
 
-You set the bridge up from a form on the server's admin page. A password
-goes to the connection that uses it and is kept only so the bridge can log
-in again after a restart. It never enters exports, admin screens, or the
-server's problem log, and it is forgotten when you remove the bridge.
+The bridge takes its settings as flags, and two-way mode reads its SASL
+password from `GLOWCAP_ROOMS_IRC_SASL_PASSWORD`. A room server can also bridge
+IRC networks set up on its admin page, where each member answers a form to
+speak under their own nickname. A durable session keeps that password only
+while a room still needs it, so the bridge can log in again after a restart.
+A browser tab asks again after a reload.
 
 # Join Rooms from an IRC client
 
@@ -41,7 +46,7 @@ server's problem log, and it is forgotten when you remove the bridge.
 zig build rooms-irc-server -- --directory=127.0.0.1:9099
 ```
 
-Point your IRC client at `127.0.0.1:6667`, pick a nickname, and join a
+This needs a room server already listening on TCP port 9099. Point your IRC client at `127.0.0.1:6667`, pick a nickname, and join a
 channel named after a room. Channel messages, private messages, `NAMES`,
 `LIST`, `PART`, `PING`, `TOPIC`, and `WHOIS` all work. `JOIN` enters a room
 that exists on the server, and if there is none, you see the server's

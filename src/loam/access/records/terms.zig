@@ -46,19 +46,19 @@ pub fn write(sink: anytype, value: core.Terms) !void {
 pub fn readOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize, owner: core.OwnerId) !core.Terms {
     try syntax.readByte(bytes, cursor, '[');
     try syntax.readByte(bytes, cursor, '[');
-    const tag = try syntax.readSymbol(bytes, cursor);
-    const scope: core.Scope = if (std.mem.eql(u8, tag, "object"))
-        .{ .object = try fields.readId(core.ResourceId, bytes, cursor) }
-    else if (std.mem.eql(u8, tag, "owned_subtree"))
-        .{ .owned_subtree = try fields.readId(core.ResourceId, bytes, cursor) }
-    else if (std.mem.eql(u8, tag, "objects")) blk: {
-        const count = try syntax.readPositiveInt(bytes, cursor);
-        if (count > core.max_scope_objects) return error.InvalidRecord;
-        const ids = try allocator.alloc(core.ResourceId, @intCast(count));
-        errdefer allocator.free(ids);
-        for (ids) |*id| id.* = try fields.readId(core.ResourceId, bytes, cursor);
-        break :blk .{ .objects = ids };
-    } else return error.InvalidRecord;
+    const tag = std.meta.stringToEnum(std.meta.Tag(core.Scope), try syntax.readSymbol(bytes, cursor)) orelse return error.InvalidRecord;
+    const scope: core.Scope = switch (tag) {
+        .object => .{ .object = try fields.readId(core.ResourceId, bytes, cursor) },
+        .owned_subtree => .{ .owned_subtree = try fields.readId(core.ResourceId, bytes, cursor) },
+        .objects => blk: {
+            const count = try syntax.readPositiveInt(bytes, cursor);
+            if (count > core.max_scope_objects) return error.InvalidRecord;
+            const ids = try allocator.alloc(core.ResourceId, @intCast(count));
+            errdefer allocator.free(ids);
+            for (ids) |*id| id.* = try fields.readId(core.ResourceId, bytes, cursor);
+            break :blk .{ .objects = ids };
+        },
+    };
     errdefer if (scope == .objects) allocator.free(scope.objects);
     try syntax.readByte(bytes, cursor, ']');
     var policy: core.Policy.Value = .{
@@ -78,6 +78,15 @@ pub fn readOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize
     return value;
 }
 
-pub fn free(allocator: std.mem.Allocator, value: core.Terms) void {
-    if (value.scope == .objects) allocator.free(value.scope.objects);
+/// The control powers a capability or derivation carries, ceilings first.
+pub fn writePowers(sink: anytype, powers: core.Control.Powers) !void {
+    try syntax.writeBool(sink, powers.policy_ceiling != null);
+    if (powers.policy_ceiling) |ceiling| try write(sink, ceiling);
+    try syntax.writeBool(sink, powers.issue_ceiling != null);
+    if (powers.issue_ceiling) |ceiling| try write(sink, ceiling);
+    try syntax.writeBool(sink, powers.inspect);
+    try syntax.writeBool(sink, powers.delegate_control);
+    try syntax.writeBool(sink, powers.pause);
+    try syntax.writeBool(sink, powers.resume_access);
+    try syntax.writeBool(sink, powers.revoke);
 }

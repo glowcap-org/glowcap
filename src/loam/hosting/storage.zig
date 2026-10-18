@@ -4,6 +4,7 @@ const core = @import("loam_core");
 const driver = @import("driver_core");
 const h = @import("attachment.zig");
 const publication = @import("publication.zig");
+const drive = @import("drive.zig");
 
 pub fn prefetch(owner: *h.Attachment, ref: driver.Capability) !void {
     try owner.topLevel();
@@ -95,7 +96,7 @@ pub fn completeRead(owner: *h.Attachment, ticket: core.Ticket, result: core.Read
         if (prepared) |index| {
             const op = &owner.operations[index];
             if (err == error.StaleCompletion) {
-                @import("drive.zig").reprepare(owner, op);
+                drive.reprepare(owner, op);
                 return;
             }
             op.failure = err;
@@ -124,25 +125,25 @@ pub fn completeWrite(owner: *h.Attachment, ticket: core.Ticket, outcome: core.Ou
     if (!writing.submitted or writing.uncertain or !std.meta.eql(ticket, writing.batch.ticket)) return error.StaleCompletion;
     switch (outcome) {
         .committed, .unknown => try publication.fenceRetirements(owner, writing.batch),
-        .unchanged => publication.releaseRetirements(owner, false),
+        .unchanged => publication.releaseRetirements(owner, .release_fenced),
     }
     owner.store.completeWrite(ticket, outcome) catch |err| {
         // An install that cannot confirm locally leaves the batch uncertain;
         // fenced retirement custody survives for recovery.
         if (owner.store.phase == .uncertain) {
             owner.writing.?.uncertain = true;
-            publication.releaseRetirements(owner, true);
+            publication.releaseRetirements(owner, .keep_fenced);
         }
         return err;
     };
     switch (outcome) {
         // The fence applied; recovery now owns the transition.
         .unknown => {
-            publication.releaseRetirements(owner, true);
+            publication.releaseRetirements(owner, .keep_fenced);
             owner.writing.?.uncertain = true;
         },
         .committed => {
-            publication.releaseRetirements(owner, false);
+            publication.releaseRetirements(owner, .release_fenced);
             finish(owner, null);
         },
         .unchanged => |err| finish(owner, err),
@@ -166,7 +167,7 @@ pub fn resolve(owner: *h.Attachment, ticket: core.Ticket, resolution: core.Resol
     if (!awaitsRecovery(owner)) return error.WrongPhase;
     try owner.store.resolve(ticket, resolution);
     if (resolution == .committed) {
-        publication.releaseRetirements(owner, false);
+        publication.releaseRetirements(owner, .release_fenced);
         finish(owner, null);
     } else {
         publication.deferRepublish(owner);

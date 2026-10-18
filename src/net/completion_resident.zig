@@ -235,12 +235,6 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
                 self.listeners.count() == 0 and self.closing_listeners == 0 and self.listen_waits == 0;
         }
 
-        /// The first resident-wide failure, which `drain_ready` reports to the
-        /// runtime as `ProviderContract`.
-        pub fn failureCause(self: *const Self) ?anyerror {
-            return self.failure;
-        }
-
         pub fn resident(self: *Self) MultiplexedResident {
             return .{ .ctx = self, .vtable = &vtable };
         }

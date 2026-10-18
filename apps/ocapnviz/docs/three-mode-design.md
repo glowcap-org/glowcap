@@ -28,8 +28,8 @@ playhead, a scrubber, and follow-live over a feed that only goes forward.
 
 The app holds one document buffer at a time. Four things fill it: opening a
 file, picking a fixture, recording from a live feed, and Build editing it in
-place. Save writes it out, and is enabled once the buffer holds at least one
-event.
+place. Save writes it out and stays available in every mode, including during a
+capture.
 
 The three modes are three verbs against that buffer.
 

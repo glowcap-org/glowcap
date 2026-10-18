@@ -9,7 +9,7 @@ test "loam LMDB keeps one owner lock file across close and reopen" {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
     const id: core.StoreId = @fromBackingInt(42);
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = id } });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = id, .mode = .create } });
     const lock_before = try tmp.dir.dir.statFile(std.testing.io, "loam-owner.lock", .{});
     try db.close();
     const lock_after = try tmp.dir.dir.statFile(std.testing.io, "loam-owner.lock", .{});
@@ -19,7 +19,7 @@ test "loam LMDB keeps one owner lock file across close and reopen" {
 test "loam LMDB map exhaustion aborts the entire write and remains readable" {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id }, .map_bytes = 1024 * 1024 });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .create }, .map_bytes = 1024 * 1024 });
     defer db.close() catch unreachable;
     const schemas = [_]core.Schema{.{ .id = 7, .version = 1, .max_payload = 128 * 1024, .max_edges = 0 }};
     var limits = f.limits;
@@ -64,7 +64,7 @@ test "loam LMDB map exhaustion aborts the entire write and remains readable" {
 test "loam LMDB close retains an active transaction and stops new work" {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id } });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .create } });
     var store = try core.Store.init(std.testing.allocator, db.metadata, &f.schemas, f.limits);
     try store.begin();
     const id = try store.allocateId();
@@ -87,7 +87,7 @@ test "loam LMDB close retains an active transaction and stops new work" {
 test "loam LMDB growth refuses invalid sizes and maps nothing for a large limit" {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id }, .map_bytes = 1024 * 1024 });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .create }, .map_bytes = 1024 * 1024 });
     const before = try db.inspect();
     try std.testing.expectError(error.InvalidLimits, db.grow(before.map_bytes));
     try std.testing.expectError(error.InvalidLimits, db.grow(before.map_bytes / 2));
@@ -103,7 +103,7 @@ test "loam LMDB growth refuses invalid sizes and maps nothing for a large limit"
     try db.grow(large);
     try std.testing.expectEqual(large, (try db.inspect()).map_bytes);
     try db.close();
-    db = try Lmdb.open(tmp.path, .{ .mode = .{ .open = f.id }, .map_bytes = before.map_bytes });
+    db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open }, .map_bytes = before.map_bytes });
     defer db.close() catch unreachable;
     try std.testing.expectEqual(before.map_bytes, (try db.inspect()).map_bytes);
     try std.testing.expect(db.metadata.incarnation > 1);

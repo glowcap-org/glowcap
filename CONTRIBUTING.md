@@ -1,146 +1,130 @@
 # Contributing to glowcap
 
-glowcap implements CapTP for OCapN in Zig. New to those names?
-[Capabilities and CapTP](docs/capabilities.md) starts from first principles.
-Participation in project spaces is governed by the
-[Code of Conduct](CODE_OF_CONDUCT.md).
+Bug reports, focused fixes, tests, and documentation improvements are welcome.
+Open a pull request against `dev`. For a substantial design change, open an
+issue first to agree on the approach. Reviews are best-effort in this
+one-maintainer project.
 
-Before changing code, read [the vision](docs/vision.md) and the section of
-[the architecture](docs/architecture.md) you will touch. [AGENTS.md](AGENTS.md)
-routes agents and human contributors to the same focused rules.
+The [bug report form](.github/ISSUE_TEMPLATE/bug_report.md) lists what a report
+needs, and a fix is optional. Send suspected vulnerabilities through
+[the security policy](SECURITY.md).
+[Issues](https://github.com/jimisaacs/glowcap/issues) and
+[the roadmap](docs/roadmap.md) show the work under discussion.
 
-This is a one-person project, so reviews are best-effort. A narrow change with
-the right check is easiest to review. Use the
-[issue tracker](https://github.com/jimisaacs/glowcap/issues) for questions.
+## Get a working checkout
 
-AI-assisted contributions are welcome when a human submitter understands and
-takes responsibility for the change. Describe material AI assistance in the
-pull request, together with the checks you ran and any untested behavior.
-The restrictions on contributions to other projects are separate and live in
-[`PROVENANCE.md`](PROVENANCE.md#upstream-policies).
+The checkout uses symlinks. On Windows, enable Developer Mode and configure
+Git to preserve symlinks before cloning.
 
-## Design boundaries
-
-- OCapN behavior, Spritely Goblins fixtures, and glowcap's own Zig protocol
-  tests decide correctness.
-- Session logic is codec-neutral. A protocol feature must work through both
-  Syrup and Cap'n Proto.
-- The synchronous core (`foundation`, `model`, `codec`, `session`, `engine`)
-  performs no I/O.
-- The session decides whether a reference is valid. Codecs and adapters do
-  not.
-- Every allocation or copy a message goes through is forbidden, intentional,
-  or measured.
-- A fact has one owner. Prefer a generated mirror or check step over a
-  hand-kept copy.
-- A source file holds one subject and stays under the line limit that
-  `zig build source-check` holds, with no exceptions. Splitting a file to
-  make room for your change is the ordinary way to work
-  here, whoever wrote the file.
-- Update docs that must match the code in the same change as the code
-  they describe. A claim that outlives the code is worse than no claim.
-
-Changes to protocol semantics, session state, negotiation, vocabulary, or
-codec, netlayer, and layer boundaries need a decision record. Copy
-[the template](docs/decisions/adr/template.md) and accept the decision before
-building against it.
-
-New ways to grant access, and I/O inside the synchronous core, are out of scope.
-
-## Dev environment
-
-The committed [devcontainer](.devcontainer/) is the supported ready-to-build
-environment. In the primary checkout, open the repository with **Dev
-Containers: Reopen in Container**. On first use, it writes a local `.env`
-(never committed) and creates a private Docker network for the container's
-outbound traffic.
-The container then verifies its toolchains automatically. Run:
+Clone the development branch and create a branch for your change:
 
 ```sh
-zig build check
-zig build runtime-check
+git clone --branch dev https://github.com/jimisaacs/glowcap.git
+cd glowcap
+git switch -c fix-description
 ```
 
-Toolchain versions live in
-[`.devcontainer/pins.sh`](.devcontainer/pins.sh), and
-[dependencies](docs/dependencies.md) explains what each one is for. The
-[devcontainer README](.devcontainer/README.md) covers maintenance and host
-integration, including the port offset a second
-worktree has to choose.
-
-### Without the devcontainer
-
-The repository also builds directly on Linux and macOS. Install the Zig
-version declared as `ZIG_VERSION` in `.devcontainer/pins.sh`. The repository's
-installer reads that pin and verifies the downloaded archive:
+For the Zig test suite on Linux or macOS, you need Git, Python 3, and the
+pinned Zig compiler. The installer uses Bash, curl, tar, and xz support,
+verifies the download, and installs inside this checkout:
 
 ```sh
 ZIG_INSTALL_DIR="$PWD/.local/zig" bash .devcontainer/image/zig.sh
 export PATH="$PWD/.local/zig:$PATH"
-conformance/bootstrap-submodules.sh
-zig build test
+zig build test --test-timeout 30s
 ```
 
-The in-tree checks also use the other tools [dependencies](docs/dependencies.md)
-lists. The devcontainer remains the ready-made path when you do not already
-have them.
+The first build downloads the dependencies declared in `build.zig.zon`.
+Compiler and toolchain versions live in
+[`.devcontainer/pins.sh`](.devcontainer/pins.sh).
 
-## The checkout uses symlinks
+For the full checks, use the committed [devcontainer](.devcontainer/README.md).
+Open the checkout with **Dev Containers: Reopen in Container**. Setup installs
+the other toolchains and initializes the conformance submodules. Once setup
+finishes, run `zig build check`. A host setup can use
+[the dependency list](docs/dependencies.md) and
+`conformance/bootstrap-submodules.sh` instead.
 
-Some committed paths are symlinks. The agent overlays use them, as do the
-documentation site and rooms app when they load shared UI assets.
+## Make a change
 
-Linux and macOS need no extra setup. On Windows, enable Developer Mode or run
-`git config core.symlinks true` before checkout. Otherwise Git writes the link
-target as a small text file, often without an obvious error.
-`zig build source-check` reports any broken link.
+Start with the tests and implementation for the area you are changing.
+[Architecture](docs/architecture.md) explains the layers, and
+[the vision](docs/vision.md) explains the project's scope.
 
-## Verifying changes
+Keep fixes focused. Add a regression test for a behavior change and update
+any documentation it makes untrue. Separate prerequisite refactoring from the
+fix so each can be reviewed on its own.
 
-Run the check that covers what you changed. A change to product code normally
-runs `zig build check`. Add `zig build runtime-check` for application behavior,
-child-process lifecycles, language workspaces, or live loopback paths. Run
-`zig build source-check` for a plan-only or prose-only edit. A protocol claim
-also needs the step that checks it against the reference fixtures or an outside
-implementation such as Goblins.
-
-`.agents/skills/work/bin/glowcap-dev zig build check` runs a build inside
-the worktree's devcontainer, one build per worktree at a time. A second build
-names the one running and exits. Plain `zig build` works on a host with every
-tool installed.
-
-While iterating, narrow a run to the tests whose names match:
+While iterating, compile one layer or run tests whose names match a substring:
 
 ```sh
-zig build test -Dtest-filter=session
+zig build test -Dtest-layer=session --test-timeout 30s
+zig build test -Dtest-filter=session --test-timeout 30s
 ```
 
-[Build steps](docs/build-steps.md) explains every focused step.
+A passing filtered run covers only the selected tests. Before submitting, run
+the unfiltered check for the affected area:
 
-To try the whole product the way a user gets it:
+| Change | Check |
+| --- | --- |
+| Zig implementation | `zig build check` |
+| Process or application behavior, language workspaces | Also `zig build runtime-check` |
+| Documentation | `zig build source-check` |
 
-- `./glowcap install` builds, verifies, and installs it, using the same
-  installer as a release archive. Plain `./glowcap` installs it first when
-  needed.
-- `zig build rooms-build` stages it under `zig-out/product` without
-  installing. `zig build rooms-release` does the same with release settings.
-- On Linux, `./glowcap apps rooms deployment up` builds a Docker image from
-  your checkout with those release settings and starts it.
+[Build steps](docs/build-steps.md) lists focused checks for bindings, examples,
+protocol conformance, and other areas. If you cannot run a required check,
+say which one and why in the pull request.
+
+Keep these design constraints:
+
+- OCapN behavior, Goblins fixtures, and Zig protocol scenarios decide protocol
+  correctness. Bindings consume the protocol implementation.
+- Session logic is codec-neutral. Protocol behavior works through Syrup and
+  Cap'n Proto.
+- The synchronous core performs no I/O. Ownership, allocations, and copying
+  remain explicit.
+- Source files have a clear subject and stay within the limit enforced by
+  `source-check`.
+
+A change to an architectural contract needs a
+[decision record](docs/decisions/README.md), and that page says which changes
+qualify.
+
+## Open a pull request
+
+Fork the repository on GitHub, then publish your branch to your fork:
+
+```sh
+git remote add fork https://github.com/YOUR-USERNAME/glowcap.git
+git push -u fork fix-description
+```
+
+Open a pull request from that branch to `jimisaacs/glowcap:dev`. Describe the
+problem, resulting behavior, validation, and any untested paths. Link an issue
+or decision record when relevant. Draft pull requests are welcome for early
+feedback.
+
+The maintainer reviews the diff and checks before accepting it. Keep
+follow-up changes on the same branch so the discussion and checks stay together.
+
+AI-assisted contributions are welcome when the submitter understands and takes
+responsibility for the change. Disclose material assistance in the pull request.
+[PROVENANCE.md](PROVENANCE.md#upstream-policies) lists upstream projects whose
+policies restrict AI-assisted work. Participation follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Continuous integration
 
-These workflows run on GitHub, and CI installs the versions declared in
-[`.devcontainer/pins.sh`](.devcontainer/pins.sh):
+For pull requests, the configured workflow runs Debug and ReleaseSafe Zig tests,
+source and documentation checks, and formatting. Pull requests targeting `main` and pushes
+to `main` or `dev` also run [`ci/gates.sh`](ci/gates.sh) and the macOS checks.
+A nightly run searches longer with the mutation fuzzer.
 
-- [Checks](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml):
-  pull requests run a quick Zig-only job. Pushes to `main` and `dev` run every
-  step in [`ci/gates.sh`](ci/gates.sh) inside the devcontainer image. A macOS
-  job runs the host-side infrastructure checks and the Zig and Loam storage
-  tests. A nightly schedule runs a longer fuzz search.
-- [Documentation site](https://github.com/jimisaacs/glowcap/actions/workflows/pages.yml).
-- [Tagged releases](https://github.com/jimisaacs/glowcap/actions/workflows/release.yml):
-  runs on `v*` tags and manual dispatch. Tags publish after the matching check,
-  and manual runs upload artifacts without publishing.
+Execution requires available GitHub-hosted runners. Local checks remain the
+way to validate a change when hosted runs are unavailable.
+The commands are in the [checks workflow](.github/workflows/check.yml).
+[Maintaining glowcap](docs/maintaining.md) covers how `dev` reaches `main` and
+how releases are published.
 
 ## License
 

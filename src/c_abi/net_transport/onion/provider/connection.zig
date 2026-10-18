@@ -8,14 +8,11 @@
 const std = @import("std");
 const net = @import("net");
 const c = @import("c_abi_shared");
-const failure_projection = @import("../failure.zig");
 const runtime = @import("../runtime/state.zig");
 
 const GLOWCAP_OK = c.GLOWCAP_OK;
-const GLOWCAP_ERR_NULL_POINTER = c.GLOWCAP_ERR_NULL_POINTER;
 const GLOWCAP_ERR_INTERNAL = c.GLOWCAP_ERR_INTERNAL;
 const GLOWCAP_ERR_CLOSED = c.GLOWCAP_ERR_CLOSED;
-const GLOWCAP_ERR_IO = c.GLOWCAP_ERR_IO;
 
 const RawConn = struct {
     stream: net.onion.resident.RawStream,
@@ -61,17 +58,8 @@ pub fn providerTryRead(_: ?*anyopaque, conn_raw: ?*anyopaque, out: ?[*]u8, cap: 
         return -1;
     }
     defer conn.operations.release(conn.owner.io());
-    const dest = (out orelse {
-        c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-        return -1;
-    })[0..cap];
-    const got = net.socket.receiveNonblocking(@intCast(conn.stream.readinessFd()), dest) catch |err| {
-        if (err == error.WouldBlock) return c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
-        if (c.transport_provider.providerFailureEmpty(conn.failure))
-            c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
-        return -1;
-    };
-    return @intCast(got);
+    const dest = (out orelse return c.transport_provider.failNullBuffer(&conn.failure))[0..cap];
+    return c.transport_provider.tryOutcome(&conn.failure, net.socket.receiveNonblocking(@intCast(conn.stream.readinessFd()), dest));
 }
 
 pub fn providerTryWrite(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const u8, len: usize) callconv(.c) isize {
@@ -82,17 +70,8 @@ pub fn providerTryWrite(_: ?*anyopaque, conn_raw: ?*anyopaque, bytes: ?[*]const 
         return -1;
     }
     defer conn.operations.release(conn.owner.io());
-    const source = bytes orelse {
-        c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
-        return -1;
-    };
-    const wrote = net.socket.sendNonblocking(@intCast(conn.stream.readinessFd()), source[0..len]) catch |err| {
-        if (err == error.WouldBlock) return c.transport_provider.GLOWCAP_TRANSPORT_WOULD_BLOCK;
-        if (c.transport_provider.providerFailureEmpty(conn.failure))
-            c.transport_provider.setProviderFailure(&conn.failure, GLOWCAP_ERR_IO, err);
-        return -1;
-    };
-    return @intCast(wrote);
+    const source = (bytes orelse return c.transport_provider.failNullBuffer(&conn.failure))[0..len];
+    return c.transport_provider.tryOutcome(&conn.failure, net.socket.sendNonblocking(@intCast(conn.stream.readinessFd()), source));
 }
 
 pub fn providerConnTakeFailure(_: ?*anyopaque, conn_raw: ?*anyopaque, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) void {
@@ -113,21 +92,22 @@ pub fn providerConnClose(
     conn.operations.wait(owner.io());
     conn.stream.close();
     owner.allocator.destroy(conn);
-    if (owner.release()) |runtime_failure| {
-        if (failure) |*primary|
-            primary.noteChain(runtime_failure)
-        else
-            failure = runtime_failure;
+    return closeOutcome("onion provider connection close", failure, owner.release(), out_failure);
+}
+
+/// Project a close's outcome after the owner released its runtime share: the
+/// runtime's failure, if any, chains behind the close's own.
+pub fn closeOutcome(
+    comptime what: []const u8,
+    close_failure: ?net.netlayer.ListenerCloseFailure,
+    runtime_failure: ?net.netlayer.ListenerCloseFailure,
+    out_failure: ?*c.GlowcapProviderFailure,
+) i32 {
+    var failure = close_failure;
+    if (runtime_failure) |chain| {
+        if (failure) |*primary| primary.noteChain(chain) else failure = chain;
     }
-    if (failure) |chain| {
-        c.setLastErrorChain("onion provider connection close", chain);
-        const code = failure_projection.providerListen(chain.cause);
-        return c.transport_provider.failProviderChain(
-            out_failure,
-            code,
-            chain,
-            failure_projection.providerListen,
-        );
-    }
-    return GLOWCAP_OK;
+    const chain = failure orelse return GLOWCAP_OK;
+    c.setLastErrorChain(what, chain);
+    return c.transport_provider.failProviderChain(out_failure, c.netlayerFailureCode(chain.cause), chain, c.netlayerFailureCode);
 }

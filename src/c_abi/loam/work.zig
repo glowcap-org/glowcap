@@ -19,8 +19,8 @@ pub const Work = struct {
     slot: *Worker.Slot,
     planned: ?Result = null,
     evaluation: ?core.Batch.Evaluation = null,
-    pub fn next(owner: *attached.Attachment, force_recovery: bool) !?*Work {
-        const slot = try owner.worker.next(owner.value, force_recovery) orelse return null;
+    pub fn next(owner: *attached.Attachment, recover: Worker.Recovery) !?*Work {
+        const slot = try owner.worker.next(owner.value, recover) orelse return null;
         const work = &owner.work_slots[owner.worker.indexOf(slot).?];
         work.* = .{ .owner = owner, .slot = slot };
         if (slot.request == .write) work.evaluation = core.Batch.Evaluation.init(&slot.request.write);

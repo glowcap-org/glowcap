@@ -68,7 +68,7 @@ fn expectPollable(
     allocation_probe.resetWindow();
 
     const identity = foundation.crypto.SecretKey.fromSeed(
-        @as([foundation.crypto.SEED_BYTES]u8, @splat(0x6b)),
+        @as([foundation.crypto.seed_bytes]u8, @splat(0x6b)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -236,7 +236,7 @@ fn expectCompletion(
     };
 
     const designator = foundation.crypto.SecretKey.fromSeed(
-        @as([foundation.crypto.SEED_BYTES]u8, @splat(0x6b)),
+        @as([foundation.crypto.seed_bytes]u8, @splat(0x6b)),
     ).publicKey().toDesignator();
     const fd = try backend.startDial(1, .{ .keyed_relay = .{
         .designator = &designator,

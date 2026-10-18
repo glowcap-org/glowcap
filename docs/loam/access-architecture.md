@@ -9,9 +9,8 @@ sources:
 
 # Managed access architecture
 
-`glowcap.loam.access` is Loam's module for resource access and lifecycle. This
-page is its implementation contract, and [what ships](../shipped.md#resource-models)
-says which parts exist.
+`glowcap.loam.access` is Loam's module for resource access and lifecycle.
+[What ships](../shipped.md#resource-models) says which parts exist.
 
 | Decision record | Covers |
 | --- | --- |
@@ -30,7 +29,8 @@ says which parts exist.
 | [ADR-0178](../decisions/adr/ADR-0178-managed-lifecycle-and-mutation-receipts.md) | Persistent resource lifecycle, child indexes, moves and leaf deletion, independent child controls, shared mutation receipts |
 | [ADR-0179](../decisions/adr/ADR-0179-scoped-change-retention-and-observation.md) | Bounded retained batches and observation |
 
-The [API sketch](access-api.md) shows what calls look like, and
+The [managed access model](access-api.md) states the rules every call keeps,
+and
 [resource storage](access-storage.md) describes the stored records and how
 they load.
 
@@ -54,9 +54,7 @@ backed by Loam. The [C and Rust guide](c-and-rust.md) covers fixed resources
 through Loam's optional archive and lists what that API includes. The general
 owner and tree APIs are not available there.
 
-The module uses Loam's transactions and recovery and adds permission checks,
-resource and grant records, and what follows from them. It has no pager,
-cache, database executor, or actor wake-up machinery of its own.
+The module reuses Loam's cache, storage executor, and actor wake-up.
 
 ## Actors, resources, and access
 
@@ -95,9 +93,8 @@ flowchart LR
     Manager --> ReadGrant
 ```
 
-The diagram shows roles, not one allocation per arrow or grant. Actors may be
-shared or aliased as long as reference identity and permissions stay the
-same. An actor is not a thread or a process.
+Each box in the diagram is a role, and one actor can fill several roles as
+long as reference identity and permissions stay the same.
 
 Revoking the read grant leaves the message and the edit grant alone. Pausing
 access leaves its reference ready to resume later. Destroying a resource,
@@ -136,12 +133,9 @@ by the capability that was called, checks access, wraps dependent outputs,
 and publishes or restores the access the core picks. It keeps no second list
 of grants, reference table, or scheduler.
 
-Managed access adds no engine, driver, Host, Vat, scheduler, or event loop.
 Hosting is behavior constructors and functions that take an existing Host. A
 registration handle owns only its registrations and their managed state, and
-cannot drive or close the Host. Host APIs own durable names, held references,
-dispatch, and shutdown, and managed access owns what they mean for resources
-and grants.
+cannot drive or close the Host.
 
 | Existing part | What it already does | What the access module adds |
 | --- | --- | --- |
@@ -153,8 +147,7 @@ and grants.
 
 The protocol, actors, and an ordinary Host never depend on managed access,
 and a Host holds no owner, tree, or grant state unless an application creates
-one. One Host can serve many owners and unrelated actors, and an owner is not
-a Vat, a peer identity, or a network connection.
+one. One Host can serve many owners and unrelated actors.
 
 The build keeps core and hosting imports apart. C ABI code converts values
 and reports outcomes, and makes no policy or recovery decisions.
@@ -217,7 +210,7 @@ public Host and driver APIs, never their private internals.
 | Forward a call whose reply needs no change | Forward through the turn after the check. |
 | Narrow capabilities in a reply | Send, defer the answer, check and change the reply, then settle the answer. Forwarding at the tail cannot see the result. |
 | Publish durable access | Save the durable name's recipe, then use durable Host publication. Removing the name stops lookups, and grant checks still govern references already held. |
-| Deliver a subscription event | Check its access at delivery and send it with send or tell. |
+| Answer a watcher | The receiver answers `poll`, or a waiting `receive`, after checking current access. |
 
 [Actor caretakers and attenuators](../../src/actors/ocap.zig) provide
 revocable forwarding and method filtering. A managed facet reuses their
@@ -242,8 +235,8 @@ lead to later delivery or sharing must also declare how permissions apply.
 
 Zig owns the shared access rules. Applications register bounded descriptions
 of their permission sets, how constraints combine, and what each change
-needs. The vocabulary covers set intersection, lower and upper bounds, exact
-matches, and declared relations between resources. Zig checks schemas,
+needs. The vocabulary is permissions, which combine by intersection, and
+lower or upper bounds on numeric facts. Zig checks schemas,
 evaluates scope, combines terms, and walks local grant chains.
 
 Rooms supplies what its operations mean and the committed content facts. For
@@ -268,8 +261,7 @@ model with tests. A domain-specific check can be a bounded, synchronous
 application hook, but it cannot override scope, limits, status, or the grant
 chain. Unsupported policy schemas fail.
 
-Your program uses this API at run time. Zig compile-time helpers and Rust
-generics describe schemas and give typed views over the same model, and
+Zig compile-time helpers and Rust generics describe schemas and give typed views over the same model, and
 neither creates a separate grant implementation. Bindings may cache
 descriptions for display, never to authorize anything. Remote callers use
 application interfaces over OCapN and need not run managed access
@@ -358,12 +350,11 @@ Policy descriptors use stable permission and constraint keys. Display
 labels, presets, and UI grouping are separate. Issued grants store their
 terms explicitly, so changing a preset cannot widen them. Supported
 constraint operators share Zig rules for narrowing and intersection.
-Requirements combine permissions and checked facts with bounded "and" and
-"or", and no alternative can skip scope or status checks.
+A requirement lists the permissions an effect needs and bounds on checked
+facts, and every one must hold.
 
-The requirement vocabulary covers choosing resources, holding a permission,
-ordered bounds, and declared fact relations. Applications map operations onto
-it and supply facts from their committed content. A custom check refines a
+Applications map operations onto requirements and supply facts from their
+committed content. A custom check refines a
 domain requirement and cannot change how the vocabulary combines.
 
 Each call uses one grant, and managed access never combines permissions from
@@ -373,8 +364,7 @@ and kept in a fixed order. Remote dependencies are held references whose
 owner keeps enforcing them.
 
 The direct local API and actor calls go through the same checks. Holding the
-reference you call is the permission to use its grant, so no caller adds an
-identity or credential. Zig use and control references tie that permission to
+reference you call is what lets you use its grant. Zig use and control references tie that permission to
 committed grant records, and actor hosting calls them through the same
 checks. Applications can use managed access on local content without
 connecting to anyone.
@@ -398,7 +388,7 @@ request that changes nothing returns no event, and a failure commits nothing.
 Durable events become visible only after the state commits, and describe the
 committed result, not a request or a pending write.
 
-Hosting delivers scoped subscriptions through actors and CapTP send and tell.
+A watcher pulls changes from a receiver capability with `poll` or `receive`.
 A grant control may watch only the grants it may see. A use facet may offer to
 watch its own access without exposing grant administration. A change above
 it can become an access-changed notice for that facet without revealing
@@ -406,14 +396,13 @@ hidden ancestor IDs, policies, siblings, or unrelated activity. Raw owner
 events and revision stamps are internal and never a wire format.
 
 The UI uses these events to refresh access and status, and running services
-use them to stop or recheck protected streams and pending work. A minimal
-final notice may close a subscription when its access is revoked, carrying no
-new protected content. Delivery follows the watcher's own permission to
-watch, including while its use is paused.
+use them to stop or recheck protected streams and pending work. A revoked
+watcher sees only its status. Watching follows the watcher's own permission,
+including while its use is paused.
 
-Subscriptions have bounded queues and opaque scoped cursors. A reconnect or
-an overflow gives a start-over result with a fresh snapshot the watcher may
-see and a matching cursor, so no change is skipped silently. Managed access
+Each receiver keeps an opaque scoped cursor. When the history a cursor needs
+has expired, the reply says to start over and carries a fresh snapshot the
+watcher may see with a matching cursor, so no change is skipped silently. Managed access
 owns ordering and checking cursors, and your program runs storage and
 delivery without a second event system.
 
@@ -423,8 +412,7 @@ acknowledgement. The stored owner keeps grant, resource, content, and control
 changes in order, in bounded committed batches, with scoped revision stamps
 and the affected paths. [Observing held access](access.md#observing-held-access)
 provides receipt-backed registration, receive and cancel endpoints, catching
-up within what the watcher may see, and opaque cursors. Delivery is pulled
-through the held receive capability.
+up within what the watcher may see, and opaque cursors.
 
 ## Atomic content and access changes
 
@@ -521,7 +509,7 @@ Rust into one Wasm memory, so calls from Rust into managed access need no
 JavaScript round trip or second Wasm instance. The browser executor and
 transport adapters drive the Host.
 
-## Costs and alternatives we rejected
+## Costs and rejected alternatives
 
 Managed access creates an owner only when asked and a callable endpoint only
 when its access must be handed out. Schema definitions are shared within an
@@ -533,8 +521,7 @@ takes part in checks only when it is invalidated by revision.
 Content facts are borrowed for synchronous checks. Only data that must
 outlive a deferred answer or storage operation is kept or copied, within
 explicit bounds, and Host references are kept alive through retain and
-release. Measure the Zig and binding paths before claiming latency,
-allocation, or size numbers. A plain read through a managed facet writes
+release. A plain read through a managed facet writes
 nothing and waits in no application queue.
 
 | Alternative | Why we rejected it |
@@ -550,23 +537,19 @@ nothing and waits in no application queue.
 
 ## Tests
 
-The scenarios below are what the tests must show, not results. The full
-integration runs Rust Rooms over the Zig runtime API, including a returned
-attachment and recovery from disk.
+[Stability](../stability.md) lists what Loam's tests leave out.
 
-| Scenario | What the tests must show |
-| --- | --- |
-| One implementation | Zig and Rust run the same grant fixtures and get the same results. Rust has no tree evaluator or grant lifecycle. |
-| Independent use | Registering managed access creates no extra Host, Vat, driver, or event loop. Retiring an owner leaves unrelated Host users running. Ordinary actors work without managed access. The core builds without actors, Host, Rooms, or I/O. |
-| Several ways in | Pausing or revoking one facet leaves other facets, the resource, and unrelated actors on the same Host alone. |
-| Resource lifetime | Stored resources need no actor in memory. Restoring keeps the resource's identity and exact access without restoring network tables. |
-| Returned access | Attachments and subscriptions keep every dependency they need after edits, a revoke higher up, and restoring. |
-| Storage failure | Lost confirmations, repeated requests, and interrupted publication cannot duplicate or widen access. |
-| Cost to callers | Measure process and Wasm ABI crossings, allocations, kept state, and copying when issuing, calling, editing, and restoring. |
-| Shared runtime | Local and remote calls, deferred storage, and changed replies run through existing Host turns and answers. Calling back in from a callback is refused. |
-| Atomic content | A crash or panic at each step of preparing, confirming, applying, and publishing cannot show content and access from different revisions. |
-| Shutdown | Closing the Host waits for accepted Host work. Retiring an owner leaves unrelated actors alone. Storage results and late callbacks cannot reach freed memory. |
-| Packaging | Import checks keep Host and I/O out of the core. Archive symbol checks show one Host implementation. Browser builds use one memory. |
+| Property | What the tests show | Where |
+| --- | --- | --- |
+| Independent core | The access core builds with no Host, actors, or I/O, and import checks hold that layering. | `arch-check`, `loam-core-wasm-check` |
+| Separate facets | Pausing or revoking one facet leaves facets from other grants working, and two grants never add up. | `test/loam/access/grants_test.zig`, `test/loam/access/management_test.zig`, `test/loam/access/hosting_wire_test.zig` |
+| Restoring | A restored resource keeps its identity and exact access on both disk engines and from Rust, and a stored resource needs no actor in memory. | `test/loam/engines/capability_test.zig`, `test/loam/hosting/read_scope_test.zig`, `loam-rust-test` |
+| Returned access | Dependent facets and subscriptions keep their dependencies through a revoke higher up and a restart. | `test/loam/access/hosting_wire_test.zig`, `test/loam/access/reference_test.zig`, `test/loam/access/observation_lifetime_test.zig` |
+| Storage failure | Lost confirmations, retried requests, and interrupted publication never duplicate or widen access. | `test/loam/access/sharing_test.zig`, `test/loam/access/mutation_test.zig`, `loam-managed-crash-test` |
+| Atomic commits | Killing the process at each commit step never leaves content and access from different revisions. | `loam-managed-crash-test`, `test/loam/engines/access_test.zig` |
+| Shutdown | Closing the Host settles storage work in flight, and late storage results and callbacks never reach freed memory. | `bindings/rust/src/loam/tests/close.rs`, `test/loam/hosting/actors_test.zig` |
+| Browser cost | Each operation's IndexedDB transactions, JavaScript calls, rows, and copied bytes are counted, and a resident read or receipt replay records none. | `loam-browser-test` |
+| Callback reentry | A storage callback that calls back into Loam is refused. | `test/c_abi/loam_execution_test.zig` |
 
 Loam keeps no reader for older formats, compatibility layer, or Rust
 fallback. Stored state that does not match the current format must be reset

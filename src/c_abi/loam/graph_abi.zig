@@ -4,8 +4,8 @@ const graph = @import("graph_callbacks.zig");
 const c = common.c;
 const shared = common.shared;
 
-/// A grant chain is at most `stage.max_depth` deep, plus its root.
-pub const max_accounting_path = common.access.storage.stage.max_depth + 1;
+/// A grant chain is at most `max_depth` deep, plus its root.
+pub const max_accounting_path = common.access.core.max_depth + 1;
 
 /// Copy the admitted source grant's durable record names, nearest first.
 /// The call's validated working set supplies every ancestor. These names are

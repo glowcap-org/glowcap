@@ -240,7 +240,7 @@ test "ready import releases flush an otherwise held answer release" {
     defer peer.deinit();
     try peer.session_state.installOutboundAnswer(.from(43));
     const reservation = try peer.reserveAnswerRelease();
-    peer.publishAnswerRelease(reservation, .from(43));
+    peer.publishAnswerRelease(reservation, peer.session_state.outboundAnswerTarget(.from(43)).?);
     try peer.session_state.registerImport(.from(88));
     const releases = session.ImportRelease;
     const batch = (try releases.prepare(&peer.session_state, &.{.from(88)})).?;

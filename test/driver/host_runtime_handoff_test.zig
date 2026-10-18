@@ -254,7 +254,7 @@ test "front door handoff over keyed-tcp: the give's hint survives the redeem dia
     const io = threaded.io();
 
     const foundation = glowcap.foundation;
-    const exporter_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.SEED_BYTES]u8, @splat(0x5b)));
+    const exporter_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.seed_bytes]u8, @splat(0x5b)));
     var done = std.atomic.Value(bool).init(false);
 
     // Exporter: an owning Server on keyed-tcp, signing with the key its
@@ -311,7 +311,7 @@ test "driver Server can replace listener-derived reachability with deployment ro
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = glowcap.foundation.crypto.SecretKey.fromSeed(@as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x6b)));
+    const secret = glowcap.foundation.crypto.SecretKey.fromSeed(@as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x6b)));
     var server = try driver.listen(
         allocator,
         io,

@@ -12,7 +12,7 @@
    "encode codec=capnp iters=200000 frame_bytes=264 ns_per_op=173.1 mb_per_sec=1525 mode=ReleaseFast\n"
    "decode codec=capnp iters=200000 frame_bytes=264 ns_per_op=58.3 mb_per_sec=4531 mode=ReleaseFast\n"
    "dispatch turns=50000 ns_per_turn=179.1 turns_per_sec=5582434\n"
-   "sparse_export_table inserts=100000 ns_per_insert=37.4\n"))
+   "sparse_import_table inserts=100000 ns_per_insert=37.4\n"))
 
 (define fv-out
   (string-append

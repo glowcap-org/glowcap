@@ -7,7 +7,7 @@ decision: "An import row records how many of its wire retains the session itself
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: []
+amended_by: [ADR-0255]
 ---
 
 # ADR-0146 Session-held import retains
@@ -34,7 +34,7 @@ special cases beside one validator is the wrong owner for the fact.
 ## Decision
 
 The import row carries the fact. `ImportRow` in
-`src/ocapn/session/slot_table.zig` is `{ count, session_held }`: every wire
+`src/ocapn/session/import_table.zig` is `{ count, session_held }`: every wire
 retain, and how many of them the session keeps for a release of its own. The row
 stores no `Slot` cell, because a far import is always the `remote_value` of its
 own position. The row is 16 bytes, down from 24, and still carries the count.
@@ -73,8 +73,8 @@ Export rows are unchanged: their local baseline is outside wire accounting and
 `wireHeld` already names what a partner may release. The introduced-import
 retains a shortening callback's deliver brings in and the engine releases in
 the same transaction stay caller-kind. Nothing outside that transaction can
-address them. The third-party import row's own retain remains the
-application's, and its co-eviction on release is ADR-0009's.
+address them. A projected promise is a promise export of the recipient
+session (ADR-0255), rooted by the partner's hold and collected on its release.
 
 ## Alternatives Considered
 
@@ -114,4 +114,4 @@ narrower row moves.
 ## Notes
 
 ADR-0008 owns wire-delta accounting. ADR-0010 the V1.0 resolver link.
-ADR-0009 the third-party import row this leaves to its own release.
+ADR-0255 the projected promise this leaves to its own release.

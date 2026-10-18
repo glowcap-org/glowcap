@@ -44,23 +44,12 @@ pub const PreparedCallQueue = struct {
     }
 };
 
-const max_mintable_outbound_answer = std.math.maxInt(u64) - 1;
-
-/// Reserve the next outbound answer position. Recording the carrying deliver
-/// installs the row. This operation only advances the collision-free cursor.
-pub fn allocateOutboundAnswer(self: *Session) Error!model.AnswerPosition {
-    try ensureOutboundAnswerCapacity(self, 1);
-    const id = model.AnswerPosition.from(self.next_outbound_answer);
-    self.next_outbound_answer += 1;
-    return id;
-}
-
-fn ensureOutboundAnswerCapacity(self: *const Session, count: usize) Error!void {
-    std.debug.assert(count > 0);
-    if (self.next_outbound_answer > max_mintable_outbound_answer)
-        return Error.OutboundAnswerSpaceExhausted;
-    const available = max_mintable_outbound_answer - self.next_outbound_answer + 1;
-    if (count > available) return Error.OutboundAnswerSpaceExhausted;
+/// Mint the next outbound answer position for a question stamped now. The
+/// carrying send installs the row, and `abandonOutboundAnswer` returns a
+/// position the send never carried. A released position is minted before the
+/// frontier moves.
+pub fn allocateOutboundAnswer(self: *Session) std.mem.Allocator.Error!session.OutboundAnswerTarget {
+    return self.outbound_answers.reserve(self.allocator, self.nextStoreStamp());
 }
 
 /// Queue an owned pipelined call on a wire-named pending answer.
@@ -91,7 +80,7 @@ pub fn preparePipelinedCallNamed(
     self: *Session,
     answer_position: model.AnswerName,
 ) !PreparedCallQueue {
-    const target = self.answerTargetNamed(answer_position) orelse return Error.InvalidReference;
+    const target = self.answerTargetNamed(answer_position) orelse return error.InvalidReference;
     return preparePipelinedCallTarget(self, target);
 }
 
@@ -102,7 +91,7 @@ pub fn preparePipelinedCallTarget(
     var payload = try store.preparePendingPayloadTarget(self, target);
     errdefer payload.abandon(self);
     if (payload.payload.queue.items.len >= self.limits.queue_cap)
-        return Error.QueueCapExceeded;
+        return error.QueueCapExceeded;
     try payload.payload.queue.ensureUnusedCapacity(self.allocator, 1);
     return .{ .payload = payload };
 }
@@ -178,7 +167,7 @@ pub fn installListenerNamed(
     listener: ListenerEntry,
 ) !void {
     std.debug.assert(self.listenerRetainHeld(listener.listener));
-    const target = self.answerTargetNamed(answer_position) orelse return Error.InvalidReference;
+    const target = self.answerTargetNamed(answer_position) orelse return error.InvalidReference;
     var prepared = try prepareListenerBatchTarget(self, target, 1);
     errdefer prepared.abandon(self);
     prepared.commit(&.{listener});
@@ -208,9 +197,9 @@ pub fn prepareListenerBatchTarget(
     var payload = try store.preparePendingPayloadTarget(self, target);
     errdefer payload.abandon(self);
     const total = std.math.add(usize, payload.payload.listeners.len(), count) catch
-        return Error.ListenerCapExceeded;
+        return error.ListenerCapExceeded;
     if (total > self.limits.max_listeners_per_target)
-        return Error.ListenerCapExceeded;
+        return error.ListenerCapExceeded;
     try payload.payload.listeners.ensureUnusedCapacity(self.allocator, count);
     return .{ .payload = payload };
 }
@@ -232,7 +221,7 @@ pub fn installProjectionNamed(
 ) !void {
     const target = self.answerTargetNamed(answer_position) orelse {
         store.deinitProjection(self.allocator, projection);
-        return Error.InvalidReference;
+        return error.InvalidReference;
     };
     return installProjectionTarget(self, target, projection);
 }
@@ -246,27 +235,9 @@ pub fn installProjectionTarget(
     var payload = try store.preparePendingPayloadTarget(self, target);
     errdefer payload.abandon(self);
     if (payload.payload.projections.items.len >= self.limits.max_listeners_per_target)
-        return Error.ProjectionCapExceeded;
+        return error.ProjectionCapExceeded;
     try payload.payload.projections.append(self.allocator, projection);
     payload.commit();
-}
-
-pub fn takeProjections(
-    self: *Session,
-    answer_position: model.AnswerPosition,
-) ![]Projection {
-    return takeProjectionsNamed(self, .fromWire(answer_position));
-}
-
-/// Transfer the complete projection allocation and every owned field/tag to
-/// the caller.
-pub fn takeProjectionsNamed(
-    self: *Session,
-    answer_position: model.AnswerName,
-) ![]Projection {
-    const entry = self.inbound_answers.getPtr(answer_position) orelse return &.{};
-    const payload = entry.payload orelse return &.{};
-    return takePayloadProjections(self, payload);
 }
 
 /// Transfer projections already accepted for one exact answer incarnation,

@@ -36,11 +36,13 @@ const surfaces = [_]Surface{
     .{ .path = "src/foundation/mod.zig", .modules = &.{
         "crypto",
         "decimal",
+        "error_sets",
         "failure_chain",
         "frame",
         "handle_table",
         "bearer_table",
         "id",
+        "id_issuer",
         "identity_hash",
         "inline_rows",
         "noise",

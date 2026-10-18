@@ -26,7 +26,7 @@ pub fn State(comptime Runtime: type) type {
         pub fn noteFailure(self: *Self, later: foundation.FailureChain) void {
             self.failure_mutex.lock();
             defer self.failure_mutex.unlock();
-            if (self.failure) |*failure| failure.noteChain(later) else self.failure = later;
+            foundation.latchFailure(&self.failure, later);
         }
 
         pub fn claimFailure(self: *Self) ?foundation.FailureChain {

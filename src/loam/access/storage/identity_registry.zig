@@ -57,14 +57,10 @@ pub const Registry = struct {
         try path.rebaseProposed(self.view.header.identities);
         if (path.cursor != null) return error.IdentityCollision;
         errdefer store.abort() catch unreachable;
-        self.view.transaction = store.ticket;
         var header = self.view.header;
         header.identities = try path.stage(object);
         header.next_identity = try std.math.add(u64, header.next_identity, 1);
-        const expected = if (try store.proposed(self.view.owner_object)) |proposal| proposal.expected else self.view.header_revision;
-        var edges: [records.OwnerRecord.max_edges]loam.Edge = undefined;
-        try record.putEncoded(store, self.view.owner_object, records.profile.owner, header, header.edges(&edges), expected, true);
-        self.view.header = header;
+        try record.putOwner(self.view, &header);
         self.consumed += 1;
         return path.slot;
     }

@@ -13,9 +13,9 @@ const pipeline = @import("../pipeline.zig");
 
 const Peer = engine.Peer;
 
-fn validateResolverCallbackEnvelope(deliver: model.view.Deliver) session.Error!void {
+fn validateResolverCallbackEnvelope(deliver: *const model.view.Deliver) session.Error!void {
     if (deliver.answer != null or deliver.resolve_me_desc != null)
-        return session.Error.UnexpectedMessage;
+        return error.UnexpectedMessage;
 }
 
 /// The one route an inbound `op:deliver` takes. The variants are mutually
@@ -75,6 +75,17 @@ pub const Classification = struct {
     }
 };
 
+/// Admit a callback that settles something the session holds: its args must
+/// project to a resolution, and the deliver must validate as a whole.
+fn admitSettlingCallback(
+    peer: *Peer,
+    body: *const model.view.Body,
+    introduced: *session.validate.IntroducedImports,
+) !void {
+    _ = try events.resolutionFromResolverCallback(body.deliver.args);
+    try peer.session_state.validateInboundDeliverView(body, introduced);
+}
+
 /// Classify an inbound `op:deliver` into one route. Probe order is part of the
 /// contract:
 ///
@@ -86,51 +97,47 @@ pub const Classification = struct {
 /// 5. Bootstrap runs last and ordinary delivery is the fallback.
 pub fn classify(
     peer: *Peer,
-    deliver: model.view.Deliver,
+    body: *const model.view.Body,
     introduced: *session.validate.IntroducedImports,
-) !Classification {
+    out: *Classification,
+) !void {
+    const deliver = &body.deliver;
     // A resolver export settles by an `['fulfill|'break, payload]` deliver on
-    // every negotiated version, so this probe carries no version gate: the
+    // every negotiated version, so this read carries no version gate: the
     // V1.0 resolver callback and the `op:listen` notification a listener
     // export receives are the same wire shape (ADR-0095). Only a `.near`
-    // reaches the link, so a partner-named `.far` in the same integer space
-    // cannot key it.
+    // names an export row, so a partner-named `.far` in the same integer
+    // space cannot reach a purpose. One read of the row classifies every
+    // resolver kind; a local promise's projection is an ordinary target.
     if (deliver.target.exportPosition()) |position| {
-        if (session.ForwardedReply.find(&peer.session_state, position) != null) {
+        if (peer.session_state.resolverPurpose(position)) |purpose| if (purpose.isCallback()) {
             try validateResolverCallbackEnvelope(deliver);
-            _ = try events.resolutionFromResolverCallback(deliver.args);
-            try peer.session_state.validateInboundDeliverView(deliver, introduced);
-            return .{ .route = .{ .forwarding_callback = position } };
-        }
-        if (peer.session_state.sourceForShorteningResolver(position)) |state| {
-            try validateResolverCallbackEnvelope(deliver);
-            return switch (state) {
-                .pending => .{ .route = .{ .shortening_callback = position } },
-                .complete => session.Error.UnexpectedMessage,
-            };
-        }
-        if (peer.session_state.isNodeSettlingResolver(position)) {
-            try validateResolverCallbackEnvelope(deliver);
-            _ = try events.resolutionFromResolverCallback(deliver.args);
-            try peer.session_state.validateInboundDeliverView(deliver, introduced);
-            return .{ .route = .{ .node_resolver_callback = position } };
-        }
-        if (peer.session_state.retiredResolverState(position)) |state| {
-            try validateResolverCallbackEnvelope(deliver);
-            if (state == .complete) return session.Error.UnexpectedMessage;
-            _ = try events.resolutionFromResolverCallback(deliver.args);
-            try peer.session_state.validateInboundDeliverView(deliver, introduced);
-            return .{ .route = .{ .retired_resolver_callback = position } };
-        }
-        if (peer.session_state.answerForResolverExport(position)) |answer| {
-            try validateResolverCallbackEnvelope(deliver);
-            return .{ .route = .{ .resolver_callback_resolve = answer } };
-        }
+            switch (purpose) {
+                .forwarding => {
+                    try admitSettlingCallback(peer, body, introduced);
+                    out.* = .{ .route = .{ .forwarding_callback = position } };
+                },
+                .shortening_pending => out.* = .{ .route = .{ .shortening_callback = position } },
+                .shortening_complete => return session.Error.UnexpectedMessage,
+                .node_settling => {
+                    try admitSettlingCallback(peer, body, introduced);
+                    out.* = .{ .route = .{ .node_resolver_callback = position } };
+                },
+                .retired => |retired| {
+                    if (retired.state == .complete) return error.UnexpectedMessage;
+                    try admitSettlingCallback(peer, body, introduced);
+                    out.* = .{ .route = .{ .retired_resolver_callback = position } };
+                },
+                .application_answer => |answer| out.* = .{ .route = .{ .resolver_callback_resolve = answer } },
+                .none, .local_promise_answer => unreachable,
+            }
+            return;
+        };
     }
     // Every remaining route has ordinary deliver semantics. Validate the full
     // target, answer, resolver descriptor, and argument tree before any route
     // prepares storage or commits session authority.
-    try peer.session_state.validateInboundDeliverView(deliver, introduced);
+    try peer.session_state.validateInboundDeliverView(body, introduced);
     // A resolver-only deliver (no wire answer) has a virtual answer allocated
     // here. Carry it to the ordinary surface so a local object can reply
     // through the resolver callback.
@@ -139,22 +146,19 @@ pub fn classify(
     // Reserve the ordinary answer/import apply in the same preparation epoch.
     // The conservative extra row covers a fresh resolver import; over-reserving
     // when it aliases an argument or an existing import is private capacity.
-    try peer.session_state.prepareValidatedInboundDeliverView(
+    try peer.session_state.prepareValidatedInboundDeliver(
         deliver,
         introduced,
     );
-    const call_answer: ?model.AnswerName = if (deliver.answer) |answer| .fromWire(answer) else if (resolver) |*prepared| blk: {
-        break :blk if (prepared.virtualAnswer()) |virtual| .fromVirtual(virtual) else null;
-    } else null;
+    const virtual_answer = if (resolver) |prepared| prepared.virtualAnswer() else null;
+    const call_answer: ?model.AnswerName = .ofDeliver(deliver.answer, virtual_answer);
     if (try pipeline.preparePipelinedCall(peer, deliver, call_answer, introduced)) |prepared| {
-        return .{ .route = .{ .pipelined = prepared }, .resolver = resolver };
+        out.* = .{ .route = .{ .pipelined = prepared }, .resolver = resolver };
+        return;
     }
-    const prepared_virtual_answer = if (resolver) |prepared| prepared.virtualAnswer() else null;
-    if (try bootstrap.pendingBootstrapAction(deliver, prepared_virtual_answer)) |action| {
-        return .{ .route = .{ .bootstrap = action }, .resolver = resolver };
+    if (try bootstrap.pendingBootstrapAction(deliver, virtual_answer)) |action| {
+        out.* = .{ .route = .{ .bootstrap = action }, .resolver = resolver };
+        return;
     }
-    return .{
-        .route = .{ .ordinary = if (resolver) |prepared| prepared.virtualAnswer() else null },
-        .resolver = resolver,
-    };
+    out.* = .{ .route = .{ .ordinary = virtual_answer }, .resolver = resolver };
 }

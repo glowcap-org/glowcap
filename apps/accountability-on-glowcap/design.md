@@ -33,8 +33,7 @@ socket:
 9. The accepted Outcome Episode names the caller's AID. The run verifies its
    payload signature, countersignature, and transparency root.
 
-The caller records the attempt before the send. The host records the outcome
-inside the actor turn. The app imports the `glowcap` module and does not reach
+The host records the outcome inside the actor turn. The app imports the `glowcap` module and does not reach
 into protocol internals.
 
 ## Validating a key-event log

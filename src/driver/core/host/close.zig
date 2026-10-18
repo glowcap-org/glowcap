@@ -25,7 +25,21 @@ const HostError = host_mod.HostError;
 
 /// Application-owner lifecycle. CapTP session protocol state remains
 /// authoritative in each session and is not represented here.
-pub const LifecyclePhase = enum { active, finishing, terminating, closed };
+pub const LifecyclePhase = enum {
+    active,
+    finishing,
+    terminating,
+    closed,
+
+    /// Whether the Host still admits work: active, or finishing what it
+    /// admitted.
+    pub fn serving(self: LifecyclePhase) bool {
+        return switch (self) {
+            .active, .finishing => true,
+            .terminating, .closed => false,
+        };
+    }
+};
 
 /// Inline Host lifecycle state. `pub` is cross-file visibility for the Host
 /// aggregate. Consumers reach only `Host.LifecyclePhase`.

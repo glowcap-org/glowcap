@@ -222,8 +222,8 @@ test "three-party TCP handoff: C attributes B, not introducer A" {
     try exporter_future.await(io);
     hosts_joined = true;
 
-    if (gifter.close()) |failure| return failure.cause;
-    if (exporter.close()) |failure| return failure.cause;
+    if (gifter.close()) |failure| return failure.chain.cause;
+    if (exporter.close()) |failure| return failure.chain.cause;
 
     try std.testing.expectEqual(@as(usize, 1), served);
     try std.testing.expectEqualSlices(u8, b_identity.aidSlice(), &last_subject);

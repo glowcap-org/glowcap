@@ -32,22 +32,18 @@ pub fn setTrace(self: *Host, sink: ?trace.Sink) error{ ReenteredHost, WrongThrea
 pub fn replayTrace(self: *Host) error{ ReenteredHost, WrongThread }!void {
     try admission.refuseReentry(self);
     const sink = self.trace_sink orelse return;
-    self.in_callback = true;
-    defer self.in_callback = false;
+    const hold = self.callback_latch.hold();
+    defer hold.release();
     var sessions = self.sessions.valueIterator();
     while (sessions.next()) |slot| {
         const session = slot.*;
-        switch (session.lifecyclePhase()) {
-            .active, .finishing => reportOpen(self, session, sink),
-            .cancel_pending, .terminating => {},
-        }
+        if (!session.lifecyclePhase().condemned()) reportOpen(self, session, sink);
     }
 }
 
 fn emit(self: *Host, sink: trace.Sink, event: trace.Event) void {
-    const previous = self.in_callback;
-    self.in_callback = true;
-    defer self.in_callback = previous;
+    const hold = self.callback_latch.hold();
+    defer hold.release();
     sink.emit(sink.ctx, event);
 }
 

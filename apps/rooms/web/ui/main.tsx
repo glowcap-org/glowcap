@@ -43,7 +43,8 @@ import { refusalText } from "../../lib/text/failure.ts";
 import { membershipStatus } from "./session/managed/membership_status.ts";
 import * as store from "./store.ts";
 import { bindViewPreferences } from "./view_preferences.ts";
-import { bindGroundToConnections } from "./ground_link.ts";
+import { bindGroundToConnections } from "./mycelium/link.ts";
+import { bindReloadToBuild, servedPageBuild } from "./build_link.ts";
 
 const page = new RoomsPage();
 function report(source: string, error: unknown): void {
@@ -55,6 +56,9 @@ addEventListener("pagehide", stopPreferences, { once: true });
 // The threads under the page dim while every connection is lost and grow
 // back in when one returns. The binding lives as long as the page.
 bindGroundToConnections(page.projection);
+// A page whose server has moved to a new build reloads into it.
+const build = servedPageBuild(document, location);
+if (build != null) bindReloadToBuild(page.projection, build);
 // The stylesheet refuses page scaling everywhere the root's `touch-action` is
 // honoured. This is WebKit's half, which arrives as its own gesture events.
 refusePageScaling();

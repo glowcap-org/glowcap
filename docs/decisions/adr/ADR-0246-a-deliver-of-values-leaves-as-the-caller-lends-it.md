@@ -7,7 +7,7 @@ decision: "A deliver whose arguments carry no reference leaves as the caller len
 supersedes: []
 superseded_by: []
 amends: [ADR-0234, ADR-0236]
-amended_by: []
+amended_by: [ADR-0253]
 ---
 
 # ADR-0246 A deliver of values leaves as the caller lends it

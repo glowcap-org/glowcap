@@ -62,10 +62,7 @@ pub fn borrowedListenerFire(
     resolution: model.Resolution,
     args: *[2]model.Argument,
 ) model.Message {
-    args.* = switch (resolution) {
-        .fulfill => |arg| .{ .{ .symbol = "fulfill" }, arg },
-        .@"break" => |err| .{ .{ .symbol = "break" }, .{ .symbol = err.message } },
-    };
+    args.* = callbackArgs(resolution);
     return .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(listener_position) },
         .args = args,
@@ -74,50 +71,49 @@ pub fn borrowedListenerFire(
     } };
 }
 
-/// What draining one listener against a resolution produces, per ADR-0007
-/// § Listener fire matrix. The engine applies the action (queue the fire
-/// carrier, reinstall the entry). Every variant is POD: a fire is a ticket
-/// (the far export position the fire targets) that the engine's queue-time
-/// accounting and encode-time borrow turn into the wire deliver
-/// (`borrowedListenerFire`). A listener entry is a POD `FarRef` with no heap.
+/// The `['fulfill|'break, payload]` argument pair every resolver-shaped
+/// notification carries: the listener fire and the V1.0 resolver callback.
+/// Borrows `resolution`: a break's reason rides as a bare Symbol.
+pub fn callbackArgs(resolution: model.Resolution) [2]model.Argument {
+    return switch (resolution) {
+        .fulfill => |arg| .{ .{ .symbol = "fulfill" }, arg },
+        .@"break" => |err| .{ .{ .symbol = "break" }, .{ .symbol = err.message } },
+    };
+}
+
+/// What draining one listener against a settled resolution produces, per
+/// ADR-0007 § Listener fire matrix. The engine applies the action (queue the
+/// fire carrier). Every variant is POD: a fire is a ticket (the far export
+/// position the fire targets) that the engine's queue-time accounting and
+/// encode-time borrow turn into the wire deliver (`borrowedListenerFire`).
 pub const ListenerDrainAction = union(enum) {
-    /// Fire the listener once with the resolution and drop the entry. Every
-    /// resolution shape except `Fulfill(Promise(_))` lands here. The payload
-    /// is the far export position the fire targets.
+    /// Fire the listener once with the resolution and drop the entry. The
+    /// payload is the far export position the fire targets.
     fire: u64,
-    /// Re-anchor the entry on `next_answer` without firing. Spec-strict
-    /// `Fulfill(Promise(_))`: a same-peer promise has not yet met any mode.
-    reinstall: struct {
-        next_answer: model.AnswerPosition,
-        entry: session.ListenerEntry,
-    },
     /// The promise made a transition this subscription did not request.
     discard,
 };
 
-/// Decide how `entry` drains against `resolution` (ADR-0007 § Listener fire matrix).
-/// `Fulfill(Promise(_))` re-anchors the listener on the same peer's answer
-/// without notification. Settled values conclude listeners that requested
-/// settling. A far promise is the listener's own peer's promise. On next it
-/// concludes only shortening listeners, because every next settling listener
-/// is paired with a shortening one that reissues it against the target
-/// (ADR-0111). V1.0 has no such pair: Goblins listens with wants-partial #f
-/// alone, and the spec exempts only same-peer promises, so the far promise
-/// concludes every V1.0 listener and its peer follows it locally. Pure and
-/// infallible: listener entries are POD `FarRef` values, so the decision
-/// moves values and touches no heap.
+/// Decide how `entry` drains against a settled `resolution` (ADR-0007
+/// § Listener fire matrix). The matrix's re-anchor row, spec-strict
+/// `Fulfill(Promise(_))`, never reaches a drain site: the chain walk
+/// (`resolution_chain.follow`) re-anchors on a same-peer promise before any
+/// listener is classified, so that row is a precondition here. Settled values
+/// conclude listeners that requested settling. A far promise is the listener's
+/// own peer's promise. On next it concludes only shortening listeners, because
+/// every next settling listener is paired with a shortening one that reissues
+/// it against the target (ADR-0111). V1.0 has no such pair: Goblins listens
+/// with wants-partial #f alone, and the spec exempts only same-peer promises,
+/// so the far promise concludes every V1.0 listener and its peer follows it
+/// locally. Pure and infallible: listener entries are POD `FarRef` values, so
+/// the decision moves values and touches no heap.
 pub fn classifyListenerDrain(
     entry: session.ListenerEntry,
     resolution: model.Resolution,
     profile: model.CaptpVersion,
 ) ListenerDrainAction {
+    std.debug.assert(resolution.promiseAnswer() == null);
     const fire_position = entry.listener.import_position.int();
-    if (resolution == .fulfill and resolution.fulfill == .reference and
-        resolution.fulfill.reference == .promise)
-    {
-        const next_answer = resolution.fulfill.reference.promise.answer_position;
-        return .{ .reinstall = .{ .next_answer = next_answer, .entry = entry } };
-    }
     if (resolution == .fulfill and resolution.fulfill == .reference and
         resolution.fulfill.reference == .far and
         resolution.fulfill.reference.far.kind == .promise)
@@ -128,31 +124,6 @@ pub fn classifyListenerDrain(
         };
     }
     return if (entry.mode.wantsSettling()) .{ .fire = fire_position } else .discard;
-}
-
-/// `ListenerDrainAction` narrowed to the settled resolutions drain sites hold.
-pub const TerminalDrainAction = union(enum) {
-    fire: u64,
-    discard,
-};
-
-/// `classifyListenerDrain` for a resolution already proven settled: either
-/// `resolution_chain.Outcome.terminal`, whose `step` returns terminal only
-/// for a value that is not a same-peer promise, or a locally constructed
-/// fulfill or break. The matrix's re-anchor row is excluded by that
-/// precondition: re-anchoring is the chain walk's job before any drain site
-/// classifies. So the exclusion lives here once instead of as an arm every
-/// drain switch must refuse.
-pub fn classifyTerminalListenerDrain(
-    entry: session.ListenerEntry,
-    resolution: model.Resolution,
-    profile: model.CaptpVersion,
-) TerminalDrainAction {
-    return switch (classifyListenerDrain(entry, resolution, profile)) {
-        .fire => |position| .{ .fire = position },
-        .discard => .discard,
-        .reinstall => unreachable,
-    };
 }
 
 /// What `projectResolution` decided for one `op:get` / `op:index`

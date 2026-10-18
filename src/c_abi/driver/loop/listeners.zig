@@ -204,7 +204,7 @@ pub export fn glowcap_driver_listener_restoration_state(
         .failed => |failure| {
             const operation_failure = driver.OperationFailure.fromChain(failure);
             failure_output.setLastError("driver: listener restoration-state provider failed", operation_failure);
-            return driver_error.code(operation_failure.kind);
+            return driver_error.code(operation_failure.kind());
         },
     };
     len_slot.* = needed;
@@ -235,7 +235,7 @@ pub export fn glowcap_driver_listener_advertise(
         .failed => |failure| {
             const operation_failure = driver.OperationFailure.fromChain(failure);
             failure_output.setLastError("driver: listener advertisement failed", operation_failure);
-            return driver_error.code(operation_failure.kind);
+            return driver_error.code(operation_failure.kind());
         },
     };
     var prepared_live = true;
@@ -319,7 +319,7 @@ pub export fn glowcap_driver_listener_close(
     if (outcome.failure) |failure| {
         if (!pending) std.debug.assert(listener_state.remove(inst, listener));
         failure_output.setLastError("driver: listener close failed", failure);
-        const code = driver_error.code(failure.kind);
+        const code = driver_error.code(failure.kind());
         failure_output.project(failure_slot, code, failure);
         return code;
     }

@@ -113,7 +113,7 @@ it copies, checks, installs, and syncs the copy:
 ```zig
 try engine.compact();
 try engine.close();
-engine = try Lmdb.open(path, .{ .mode = .{ .open = expected_store_id } });
+engine = try Lmdb.open(path, .{ .opening = .{ .id = expected_store_id, .mode = .open } });
 ```
 
 After installation the old engine refuses all work, even when the rename

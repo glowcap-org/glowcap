@@ -14,12 +14,12 @@ circuit: encrypted, with both ends' network location hidden.
 This is the only transport the OCapN draft standardizes, and the only netlayer
 upstream [Spritely Goblins](https://spritely.institute/goblins/) ships. Every
 other live Goblins check (cleartext `tcp`, and `iroh`) runs over an adapter
-this repository wrote for the vat. Over Tor, both sides follow the draft and neither wrote the other's transport. `zig build goblins-onion` is the live check.
+this repository wrote for the vat. Over Tor, each side uses its own implementation of the draft transport. `zig build goblins-onion` is the live check.
 
 # A Tor you already run
 
-glowcap talks to a Tor daemon you run. Give the netlayer two endpoints, each an
-absolute Unix socket path or a `host:port`:
+glowcap talks to a Tor daemon you run. Give the netlayer two endpoints. Each is
+a `host:port`, or in a binding, an absolute Unix socket path:
 
 - the **SOCKS endpoint**, which glowcap dials through, and
 - the **control endpoint**, which glowcap asks for a service when it hosts.
@@ -207,7 +207,9 @@ Tor proves the far end of the circuit holds the key the address encodes, so the
 bytes reached the service you meant. It does not say who the CapTP peer is: the
 peer is whoever holds the local socket that service forwards to.
 
-The accepting side learns nothing about who dialed it. That is fine for CapTP, which never decides what a caller may do by asking who called: the caller either holds the reference or it does not.
+The accepting side learns nothing about who dialed it. CapTP does not need
+to know, because what a caller may do depends on the references it holds,
+not on who it is.
 
 Three-party handoff is the exception: it keys on the location a peer declared,
 and an accepted circuit has nothing to check that declaration against, so
@@ -216,8 +218,9 @@ session can report a proved peer, because QUIC authenticated the node id.
 
 # Bare onion locators
 
-The service id already says where to dial, so glowcap sends every onion
-locator bare, with no hints. The Goblins release glowcap pins cannot dial an onion locator that
+The service id already says where to dial, so glowcap sends onion locators
+bare. The one exception is a give to a peer already known to run glowcap,
+which keeps its hints. The Goblins release glowcap pins cannot dial an onion locator that
 carries hints, even though the OCapN locator rules say hints never change
 which peer an address names. Hints on a locator glowcap receives are ignored rather than
 refused.

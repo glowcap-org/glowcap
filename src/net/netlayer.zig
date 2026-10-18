@@ -263,9 +263,7 @@ pub const ListenResult = union(enum) {
     /// refusal returns, so narrowing the sum cannot leak provider work.
     pub fn requireReady(self: *ListenResult) ListenFinishOutcome {
         const outcome: ListenFinishOutcome = switch (self.*) {
-            .ready => |listener| blk: {
-                break :blk .{ .ready = listener };
-            },
+            .ready => |listener| .{ .ready = listener },
             .pending => |*attempt| blk: {
                 var failure = ListenFailure.init(error.SetupPending);
                 if (attempt.deinit()) |cleanup| failure.noteChain(cleanup);
@@ -279,9 +277,7 @@ pub const ListenResult = union(enum) {
     pub fn deinit(self: *ListenResult) ?ListenerCloseFailure {
         const failure = switch (self.*) {
             .ready => |listener| listener.close(),
-            .pending => |*attempt| blk: {
-                break :blk attempt.deinit();
-            },
+            .pending => |*attempt| attempt.deinit(),
         };
         self.* = undefined;
         return failure;
@@ -433,14 +429,7 @@ pub const Listener = struct {
 };
 
 /// Canonicalize a locator for a listener with immutable transport identity.
-pub fn canonicalizeFixedLocator(
-    allocator: std.mem.Allocator,
-    locator: model.PeerLocator,
-    expected_transport: []const u8,
-    expected_designator: []const u8,
-) ListenError!model.PeerLocator {
-    return support.canonicalizeFixedLocator(allocator, locator, expected_transport, expected_designator);
-}
+pub const canonicalizeFixedLocator = support.canonicalizeFixedLocator;
 
 /// One transport, behind a runtime vtable, a netlayer, reached as
 /// `net.netlayer.Netlayer`. `dial` turns a locator into a live `Connection`.
@@ -474,8 +463,7 @@ pub const Netlayer = struct {
         io: *const fn (ctx: *anyopaque) ?std.Io = &noIo,
     };
 
-    fn noIo(ctx: *anyopaque) ?std.Io {
-        _ = ctx;
+    fn noIo(_: *anyopaque) ?std.Io {
         return null;
     }
 
@@ -492,18 +480,10 @@ pub const Netlayer = struct {
         return self.vtable.dial != null;
     }
     pub fn supportsBlockingDial(self: Netlayer) bool {
-        const operation = self.vtable.dial orelse return false;
-        return switch (operation) {
-            .blocking => true,
-            .staged => false,
-        };
+        return if (self.vtable.dial) |operation| operation == .blocking else false;
     }
     pub fn supportsStagedDial(self: Netlayer) bool {
-        const operation = self.vtable.dial orelse return false;
-        return switch (operation) {
-            .blocking => false,
-            .staged => true,
-        };
+        return if (self.vtable.dial) |operation| operation == .staged else false;
     }
     pub fn supportsListen(self: Netlayer) bool {
         return self.vtable.listen != null;

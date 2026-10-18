@@ -155,13 +155,13 @@ A bare `webrtc` locator does not dial on its own: without a signaling reference
 there is nowhere to send an offer, so the dial refuses. TypeScript configures
 signaling on the Host, and Zig on the WebRTC backend.
 
-# One key, pinned by the handshake
+# Who the peer is
 
 Like keyed TCP and iroh, a WebRTC peer is named by its Ed25519 public key in
-canonical hex, not by an address. Signaling brings the channel up, and then the
-keyed handshake pins the session to that designator. Whoever answers has to
-prove the key the peer was introduced under, so a signaling host that swaps in
-a peer of its own is refused before the session opens.
+canonical hex, not by an address. DTLS encrypts the channel, but nothing in the
+channel proves that key. The session takes the peer's identity from the
+signaling capability that introduced it, so trusting a WebRTC peer means
+trusting your signaling service.
 
 # Optional Rust library
 

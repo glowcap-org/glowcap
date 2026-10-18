@@ -5,6 +5,7 @@ const ResourceView = @import("resource_view.zig").ResourceView;
 const Policy = @import("policy.zig").Policy;
 const Plan = @import("grant_plan.zig").GrantPlan;
 const Error = @import("grant_types.zig").Error;
+const grant_label = @import("grant_label.zig");
 
 pub const Control = struct {
     pub const Powers = struct {
@@ -20,7 +21,7 @@ pub const Control = struct {
             return self.policy_ceiling == null and self.issue_ceiling == null and !self.inspect and !self.delegate_control and !self.pause and !self.resume_access and !self.revoke;
         }
     };
-    pub const Edit = union(enum) { set_policy: Terms, set_label: @import("grant_label.zig").Label, pause, resume_access, revoke };
+    pub const Edit = union(enum) { set_policy: Terms, set_label: grant_label.Label, pause, resume_access, revoke };
 
     pub fn validate(resources: *ResourceView, policy: *const Policy, issuance: Terms, powers: Powers) Error!void {
         if (powers.policy_ceiling) |terms| if (!try terms.isSubsetOf(resources, policy, issuance)) return error.CeilingExceeded;

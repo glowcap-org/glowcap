@@ -23,7 +23,7 @@ pub const Lease = struct {
 pub const ProjectionRoute = struct {
     route_id: model.CapabilityRouteId,
     home: PeerHandle,
-    source: model.Reference,
+    source: model.FarRef,
     kind: enum { object, promise },
 };
 
@@ -65,7 +65,7 @@ pub fn inlineProjectionRoute(
     reference: model.Reference,
 ) engine.node_services.OutboundStagingError!?ProjectionRoute {
     const route_id = peer_routes.routeIdOf(reference) orelse return null;
-    const gift_route = peer_routes.route(self, reference) orelse return error.RouteNotLowerable;
+    const gift_route = peer_routes.routeById(self, route_id) orelse return error.RouteNotLowerable;
     if (gift_route.peer_handle == recipient_peer) return null;
     const routed = switch (reference) {
         .routed => |value| value,
@@ -74,7 +74,7 @@ pub fn inlineProjectionRoute(
     return .{
         .route_id = route_id,
         .home = gift_route.peer_handle,
-        .source = gift_route.reference,
+        .source = gift_route.far,
         .kind = switch (routed.kind) {
             .object => .object,
             .promise => .promise,

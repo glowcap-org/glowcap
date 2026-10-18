@@ -37,9 +37,9 @@ const SendBack = struct {
         const target = if (self.reentry) |listener| if (listener.mode == .local) listener.target else self.target else self.target;
         const vow = try turn.send(target, .{ .verb = "increment" });
         if (self.reentry) |listener|
-            try turn.port.?.on(turn.vat, vow, .{ .ctx = listener, .func = Reentry.listen })
+            try turn.port().?.on(turn.vat, vow, .{ .ctx = listener, .func = Reentry.listen })
         else
-            try turn.port.?.on(turn.vat, vow, .{ .ctx = self.broke, .func = promise_capture.captureBroken });
+            try turn.port().?.on(turn.vat, vow, .{ .ctx = self.broke, .func = promise_capture.captureBroken });
         try turn.tell(self.target, .{ .verb = "increment" });
         if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;
         return .{ .void = {} };
@@ -57,7 +57,7 @@ const Reentry = struct {
     fn listen(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *@This() = @ptrCast(@alignCast(ctx.?));
         self.broke.* = resolution == .broken;
-        _ = self.vat.nearFromPort(self.port, .local, self.target, .{ .verb = "recover" }) catch {
+        _ = self.vat.nearFromPort(self.port, self.target, .{ .verb = "recover" }) catch {
             self.failed = true;
         };
     }
@@ -215,7 +215,7 @@ test "turn rollback allocates nothing and keeps pending failure listeners cancel
         var cancelled = false;
         var unexpected = false;
         const actor = try vat.spawn(Probe, .{ .allocator = &failing, .vat = &vat, .port = &port, .cancelled = &cancelled, .unexpected = &unexpected });
-        try std.testing.expectError(error.Refused, vat.nearFromPort(&port, .local, actor, .{ .verb = "fail" }));
+        try std.testing.expectError(error.Refused, vat.nearFromPort(&port, actor, .{ .verb = "fail" }));
         try std.testing.expect(!failing.has_induced_failure);
         failing.fail_index = std.math.maxInt(usize);
         try std.testing.expect(cancelled);

@@ -79,7 +79,7 @@ pub fn startConnect(
     const sdp = peer.peer.createOffer(&sdp_buf, &sdp_len) catch |err| {
         // The provider lease pins the netlayer, so this release frees the
         // peer alone and cannot fail.
-        std.debug.assert(retire(payload, peer, false) == null);
+        std.debug.assert(retire(payload, peer, .silent) == null);
         return failProvider(out_failure, GLOWCAP_ERR_IO, err);
     };
     const signaling = payload.signaling;
@@ -96,7 +96,7 @@ pub fn startConnect(
         sdp.ptr,
         sdp.len,
     ) != 0) {
-        std.debug.assert(retire(payload, peer, false) == null);
+        std.debug.assert(retire(payload, peer, .silent) == null);
         setLastError("webrtc dial: signaling refused the offer", .{});
         return failProvider(out_failure, GLOWCAP_ERR_IO, error.SignalingRefused);
     }
@@ -128,12 +128,12 @@ pub fn finishConnect(
     switch (peer.exchange.?.state) {
         .failed, .refused => {
             const failure = peer.failure;
-            std.debug.assert(retire(payload, peer, true) == null);
+            std.debug.assert(retire(payload, peer, .announced) == null);
             if (out_failure) |out| out.* = failure;
             return failure.result;
         },
         .signaling => {
-            std.debug.assert(retire(payload, peer, true) == null);
+            std.debug.assert(retire(payload, peer, .announced) == null);
             return failProvider(out_failure, GLOWCAP_ERR_WOULD_BLOCK, error.WouldBlock);
         },
         .open => {
@@ -154,6 +154,6 @@ pub fn finishConnect(
 pub fn cancelConnect(ctx: ?*anyopaque, request_id: u64, out_failure: ?*c.GlowcapProviderFailure) callconv(.c) i32 {
     const payload: *NetlayerPayload = @ptrCast(@alignCast(ctx.?));
     const peer = dialPeer(payload, request_id) orelse return GLOWCAP_OK;
-    if (retire(payload, peer, true)) |err| return failProvider(out_failure, GLOWCAP_ERR_IO, err);
+    if (retire(payload, peer, .announced)) |err| return failProvider(out_failure, GLOWCAP_ERR_IO, err);
     return GLOWCAP_OK;
 }

@@ -7,20 +7,24 @@ const syntax = syrup.RecordSyntax;
 const fields = @import("fields.zig");
 const terms = @import("terms.zig");
 const Stamp = @import("change_stamp.zig").ChangeStamp;
+const records = @import("loam_records");
 
 pub const GrantRecord = struct {
     grant: core.GrantView.Record,
     authority: Stamp = .{},
     inventory: Stamp = .{},
     lifecycle: Stamp = .{},
-    children: ?@import("loam_records").ObjectId = null,
+    children: ?records.ObjectId = null,
 
     pub const format_version: u64 = 2;
     /// Two 256-member selections, fixed identities, and 32 optional bounds.
     pub const max_encoded_bytes: usize = 32 * 1024;
-    /// Bounds the parent edge, the resources both scopes select, and the
-    /// children root.
-    pub const max_edges = 515;
+    /// The parent edge, the resources both scopes select, and the children
+    /// root.
+    pub const max_edges = 514;
+    comptime {
+        std.debug.assert(max_edges == 2 + 2 * core.max_scope_objects);
+    }
     pub const Error = error{ MalformedRecord, UnsupportedVersion, InvalidRecord, RecordTooLarge };
     pub const DecodeError = Error || std.mem.Allocator.Error;
     const label = "access:grant";
@@ -31,32 +35,39 @@ pub const GrantRecord = struct {
         return syrup.render.renderRecordExact(allocator, write, .{self});
     }
 
-    pub const Owned = struct {
-        value: GrantRecord,
+    /// Releases the terms `decodeOwned` took from `allocator`.
+    /// Fill `self` with `source`, its terms' object lists (the one heap state
+    /// a grant record owns) copied into `allocator`. The copy deinits like a
+    /// decoded record.
+    pub fn copyOwned(self: *GrantRecord, allocator: std.mem.Allocator, source: *const GrantRecord) std.mem.Allocator.Error!void {
+        self.* = source.*;
+        self.grant.ceiling = try core.Terms.initCopying(allocator, source.grant.ceiling);
+        errdefer self.grant.ceiling.deinitOwned(allocator);
+        self.grant.configured = try core.Terms.initCopying(allocator, source.grant.configured);
+    }
 
-        pub fn deinit(self: *Owned, allocator: std.mem.Allocator) void {
-            terms.free(allocator, self.value.grant.ceiling);
-            terms.free(allocator, self.value.grant.configured);
-            self.* = undefined;
-        }
-    };
+    pub fn deinit(self: *GrantRecord, allocator: std.mem.Allocator) void {
+        self.grant.ceiling.deinitOwned(allocator);
+        self.grant.configured.deinitOwned(allocator);
+        self.* = undefined;
+    }
 
     /// The scalar index identity and its retaining edge describe one root.
     /// Store corruption cannot redirect traversal outside the retained graph.
-    pub fn validateChildren(self: GrantRecord, view: @import("loam_records").View) Error!void {
+    pub fn validateChildren(self: GrantRecord, view: records.View) Error!void {
         const root = self.children orelse return;
         if (root.store != view.id.store or root.incarnation == 0 or root.sequence == 0) return error.InvalidRecord;
         var edges = view.edges();
-        var last: ?@import("loam_records").Edge = null;
+        var last: ?records.Edge = null;
         while (edges.next()) |edge| last = edge;
         if (last == null or last.?.strength != .strong or !last.?.target.eql(root)) return error.InvalidRecord;
     }
 
     /// At most two exact-sized selection allocations. No input bytes survive
     /// the call; scalar/subtree scopes decode without allocation.
-    pub fn decodeOwned(allocator: std.mem.Allocator, bytes: []const u8) DecodeError!Owned {
+    pub fn decodeOwned(self: *GrantRecord, allocator: std.mem.Allocator, bytes: []const u8) DecodeError!void {
         if (bytes.len > max_encoded_bytes) return error.RecordTooLarge;
-        return decodeRecord(allocator, bytes) catch |err| switch (err) {
+        return self.decodeRecord(allocator, bytes) catch |err| switch (err) {
             error.OutOfMemory => error.OutOfMemory,
             error.UnsupportedVersion => error.UnsupportedVersion,
             error.InvalidRecord => error.InvalidRecord,
@@ -71,9 +82,7 @@ pub const GrantRecord = struct {
         try self.inventory.validate(@backingInt(g.revision));
         try self.lifecycle.validate(@backingInt(g.revision));
         if (g.id.generation == 0) return error.InvalidRecord;
-        if (g.parent) |parent| {
-            if (parent.owner != g.id.owner or parent.generation == 0 or parent.eql(g.id)) return error.InvalidRecord;
-        }
+        if (g.parent) |parent| if (!core.validParent(g.id, parent)) return error.InvalidRecord;
         try terms.validate(g.ceiling, g.id.owner);
         try terms.validate(g.configured, g.id.owner);
         if (g.ceiling.policy.schema != g.configured.policy.schema) return error.InvalidRecord;
@@ -97,13 +106,11 @@ pub const GrantRecord = struct {
         try self.inventory.write(sink);
         try self.lifecycle.write(sink);
         try syntax.writeBool(sink, self.children != null);
-        if (self.children) |id| try fields.writeWide(sink, @backingInt(id.store));
-        if (self.children) |id| try syntax.writePositiveInt(sink, id.incarnation);
-        if (self.children) |id| try syntax.writePositiveInt(sink, id.sequence);
+        if (self.children) |id| try fields.writeObject(sink, id);
         try syntax.endRecord(sink);
     }
 
-    fn decodeRecord(allocator: std.mem.Allocator, bytes: []const u8) !Owned {
+    fn decodeRecord(self: *GrantRecord, allocator: std.mem.Allocator, bytes: []const u8) !void {
         var cursor: usize = 0;
         try syntax.readByte(bytes, &cursor, '<');
         if (!std.mem.eql(u8, try syntax.readSymbol(bytes, &cursor), label)) return error.MalformedRecord;
@@ -112,21 +119,20 @@ pub const GrantRecord = struct {
         const revision: core.Revision = @fromBackingInt(try syntax.readPositiveInt(bytes, &cursor));
         const parent = try fields.readParent(core.GrantId, bytes, &cursor);
         const ceiling = try terms.readOwned(allocator, bytes, &cursor, id.owner);
-        errdefer terms.free(allocator, ceiling);
+        errdefer ceiling.deinitOwned(allocator);
         const configured = try terms.readOwned(allocator, bytes, &cursor, id.owner);
-        errdefer terms.free(allocator, configured);
+        errdefer configured.deinitOwned(allocator);
         const status = try fields.readStatus(bytes, &cursor);
         const depth = std.math.cast(u16, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.InvalidRecord;
         const children = std.math.cast(u32, try syntax.readPositiveInt(bytes, &cursor)) orelse return error.InvalidRecord;
-        const grant_label = @import("loam_access_core").GrantLedger.Label.init(try syntax.readBytes(bytes, &cursor)) catch return error.InvalidRecord;
+        const grant_label = core.GrantLedger.Label.init(try syntax.readBytes(bytes, &cursor)) catch return error.InvalidRecord;
         const authority = try Stamp.read(bytes, &cursor);
         const inventory = try Stamp.read(bytes, &cursor);
         const lifecycle = try Stamp.read(bytes, &cursor);
-        const child_root: ?@import("loam_records").ObjectId = if (try syntax.readBool(bytes, &cursor)) .{ .store = @fromBackingInt(try fields.readWide(bytes, &cursor)), .incarnation = try syntax.readPositiveInt(bytes, &cursor), .sequence = try syntax.readPositiveInt(bytes, &cursor) } else null;
+        const child_root: ?records.ObjectId = if (try syntax.readBool(bytes, &cursor)) try fields.readObject(bytes, &cursor) else null;
         try syntax.readByte(bytes, &cursor, '>');
         try syntax.expectEnd(bytes, cursor);
-        const value: GrantRecord = .{ .children = child_root, .authority = authority, .inventory = inventory, .lifecycle = lifecycle, .grant = .{ .label = grant_label, .id = id, .revision = revision, .parent = parent, .ceiling = ceiling, .configured = configured, .status = status, .delegation_depth = depth, .child_count = children } };
-        try value.validate();
-        return .{ .value = value };
+        self.* = .{ .children = child_root, .authority = authority, .inventory = inventory, .lifecycle = lifecycle, .grant = .{ .label = grant_label, .id = id, .revision = revision, .parent = parent, .ceiling = ceiling, .configured = configured, .status = status, .delegation_depth = depth, .child_count = children } };
+        try self.validate();
     }
 };

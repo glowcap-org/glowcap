@@ -149,7 +149,7 @@ test "keyed-tcp loopback: the dialed key designator is the partner's signed iden
     defer threaded.deinit();
     const io = threaded.io();
 
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x71)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x71)));
     const designator = secret.publicKey().toDesignator();
 
     var server = try listenKeyed(allocator, io, secret);
@@ -169,8 +169,8 @@ test "keyed-tcp negative: a listener claiming a different key than the dialed de
     defer threaded.deinit();
     const io = threaded.io();
 
-    const honest = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x72)));
-    const squatter = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x73)));
+    const honest = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x72)));
+    const squatter = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x73)));
     const dialed_designator = honest.publicKey().toDesignator();
 
     // The squatter answers the socket the hint names, holding a different key.
@@ -206,7 +206,7 @@ test "keyed-tcp restart: the same seed on a fresh port is reachable through the 
     defer threaded.deinit();
     const io = threaded.io();
 
-    const seed: [crypto.SEED_BYTES]u8 = @splat(0x74);
+    const seed: [crypto.seed_bytes]u8 = @splat(0x74);
     const secret = crypto.SecretKey.fromSeed(seed);
     const recorded_designator = secret.publicKey().toDesignator();
     const recorded_locator: model.PeerLocator = .{

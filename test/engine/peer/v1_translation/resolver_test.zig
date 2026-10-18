@@ -226,7 +226,7 @@ test "a rejected next answer reuse preserves the original resolver" {
     defer peer.deinit();
     try peer.session_state.registerImport(.from(7));
 
-    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const resolver = peer.session_state.exports.nextPosition();
     try peer.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(7) },
         .args = &.{},

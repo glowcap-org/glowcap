@@ -4,7 +4,7 @@ This benchmark asks what a client written in each supported language pays to run
 the same application against one Zig glowcap host.
 
 The host and task-board workload stay fixed, and the client changes between
-languages, with Spritely Goblins as a reference CapTP peer. The usage line in
+languages, with Spritely Goblins as a reference CapTP peer. The `Kind` enum in
 [`orchestrator.zig`](orchestrator.zig) names the clients.
 Each row measures a whole consumer stack: runtime, binding, garbage collector,
 and the application written in that language. The rows mix glowcap's wire cost
@@ -16,11 +16,16 @@ with that language's runtime, and results describe one machine and one run.
 zig build bench-langs                  # every available client
 zig build bench-langs -- --smoke       # small counts
 zig build bench-langs -- --client=zig  # one client
+zig build bench-langs -- --pin=2,3     # clients on core 2, the host on core 3
 ```
 
 The Zig host always runs. A normal run includes the Zig client, and a
 `--client` filter can select another row instead. Optional rows join when their
 runtimes are on `PATH`, and unavailable clients are reported and skipped.
+`--pin=A,B` holds every client on core A and the host on core B, the placement
+the site report uses, so two runs of one row do not differ by where the
+scheduler put each process. The `local` window's client carries its own host,
+so it gets both cores.
 
 Reports are written under `zig-out/bench-reports/` with a timestamp:
 
@@ -64,5 +69,6 @@ call shape, and loopback transport constant, use the separate
 | --- | --- |
 | [`host.zig`](host.zig) | Fixed Zig task-board host. |
 | [`orchestrator.zig`](orchestrator.zig) | Runs clients, samples processes, and writes reports. |
+| [`availability.zig`](availability.zig) | Which client rows join a run, and the builds and precompiles a row needs first. |
 | [`contract.md`](contract.md) | NDJSON schema and workload required of every client. |
 | [`clients/`](clients/) | One benchmark client per language. |

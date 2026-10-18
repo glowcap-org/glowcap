@@ -7,10 +7,7 @@ like. The [Rooms plan](rooms.md) builds it section by section, and this file is
 deleted with that plan.
 [ADR-0183](../decisions/adr/ADR-0183-rooms-scoped-sharing-and-recovery.md)
 settles the decision it carries out. The plan says what is built, in what
-order, and how each step is proved. This file says what the result is: the
-objects, the rules that hold everywhere, the sharing and content models, the
-permission keys, the editor, the storage records and budgets, and the
-scenarios that prove the whole. Code paths and owning crates are in the
+order, and how each step is proved. Code paths and owning crates are in the
 [reference](#reference) at the end.
 
 ## Boundaries
@@ -119,10 +116,9 @@ file, archive) supports two actions.
 
 Resource identity, access, persistence, and provenance are independent
 dimensions. A sturdyref recovers a capability without implying owner
-authority. A durable limited share recovers the limited facet. Scope (exact
-object, bounded set, owned subtree, or declared projection, per the
-[shared API](../loam/access-api.md#scope-and-policy)) is part of policy, and a
-preset never widens it.
+authority. A durable limited share recovers the limited facet. Scope is part of
+policy ([shared API](../loam/access-api.md#scope-and-policy)), and a preset
+never widens it.
 
 A facet over one message withholds siblings and parent administration. Its
 returned files, previews, search entries, and subscriptions keep the same
@@ -250,7 +246,7 @@ caller strings, and unknown or unsupported combinations fail before issuance.
 | Content and files | `ReadContent` selected objects. `ReadFile` bounded readers. `Upload` stages and posts files (requires Post and file storage). |
 | Room facilities | `SetSubject` (requires Receive). `Invite` creates offers within held delegable authority. `Moderate` removes live seats and changes no grant. |
 | Collection structure | `ListEntries`, `CreateChild`, `Rename`, `Reorganize`, `ArchiveConversation`, `EditContent`, `WithdrawContent`. |
-| Session workspace and custody | `ObserveWorkspace`, `InteractWorkspace`, `ReplaceWorkspace`, `ManageCustody`, `ResolvePending`, `UseOperations` (shipped, see the [effect contract](../rooms/session-effects.md)). |
+| Session workspace and custody | `ObserveWorkspace`, `InteractWorkspace`, `ReplaceWorkspace`, `ManageCustody`, `ShareCustody`, `ResolvePending`, `UseOperations` (shipped, see the [effect contract](../rooms/session-effects.md)). |
 | Archive storage | `RecordArchive`, `ReadArchive`. Returned files also need ReadFile. |
 | Resource administration | `ManagePublicOffer`, `ManagePublication`. Neither grants moderation or access control. |
 
@@ -423,7 +419,6 @@ room:
   self-revocation lands on the terminal status view.
 
 Sandstorm's permission bundles and E's caretaker pattern are the precedents.
-Explicit saved values are chosen so a preset edit cannot widen existing shares.
 
 ## Storage and budgets
 
@@ -546,8 +541,6 @@ commit, reconnects with exact retained terms, and keeps an independent
 capability usable on the same connection.
 
 ## Reference
-
-Who owns what, and where it lives.
 
 | Owner | Owns |
 | --- | --- |

@@ -368,7 +368,7 @@ async fn assemble(
 	let host = Host::from_seed_with_options(*server.authority.identity_seed(), rooms_glowcap::host_options())?;
 	owners.host = Some(host.clone());
 	// Retention is a stated policy: nothing records until the operator says
-	// so, and then listed rooms keep their last lines behind the state
+	// so, and then every room keeps its last lines behind the state
 	// directory, or in memory when there is none.
 	let (index, history) = if config.history {
 		let (backend, index) = match config.history_directory() {

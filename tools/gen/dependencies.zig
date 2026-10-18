@@ -51,7 +51,8 @@ const footer =
 const Kind = struct {
     title: []const u8,
     intro: []const u8,
-    /// A file basename, or a repository-relative path when it has a slash.
+    /// A file basename, a repository-relative path when it has a slash, or
+    /// every file under a directory when it ends in one.
     file: []const u8,
     leader: []const u8,
     /// Reads the declarations; null for a manifest whose lines do not map
@@ -75,6 +76,13 @@ const kinds = [_]Kind{
         .file = "build.zig.zon",
         .leader = "//",
         .declarations = zonDeclarations,
+    },
+    .{
+        .title = "Downloaded source",
+        .intro = "A fetch script under `tools/deps/` downloads each of these at a pinned version\nand checks its SHA-256 digest before a build uses it. None of their source is\ncommitted.",
+        .file = "tools/deps/",
+        .leader = "#",
+        .declarations = null,
     },
     .{
         .title = "Rust crates",
@@ -165,6 +173,7 @@ fn usage() noreturn {
 }
 
 fn matches(kind: Kind, path: []const u8) bool {
+    if (std.mem.endsWith(u8, kind.file, "/")) return std.mem.startsWith(u8, path, kind.file);
     if (std.mem.indexOfScalar(u8, kind.file, '/') != null) return std.mem.eql(u8, path, kind.file);
     return std.mem.eql(u8, std.fs.path.basename(path), kind.file);
 }
@@ -233,6 +242,11 @@ fn readManifest(
         try entries.append(gpa, .{ .name = std.mem.trim(u8, body[4..sep], " "), .purpose = purpose.items, .line = i });
     }
 
+    // Every file under a directory kind fetches something, so one with no
+    // `dep` comment would drop off the page unseen.
+    if (std.mem.endsWith(u8, kind.file, "/") and entries.items.len == 0) {
+        try report(failed, path, 0, "a file under `{s}` needs a `dep <name>: <purpose>` comment", .{kind.file});
+    }
     const read = kind.declarations orelse return entries.items;
     var decls: std.ArrayList(Decl) = .empty;
     try read(gpa, lines.items, &decls);

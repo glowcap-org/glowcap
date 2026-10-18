@@ -202,11 +202,11 @@ const Projection = struct {
         return null;
     }
 
-    fn project(ctx: ?*anyopaque, scope: engine.PeerHandle, target: u64) !engine.bootstrap.gifts.ProjectedLocalTarget {
+    fn project(ctx: ?*anyopaque, scope: engine.PeerHandle, target: u64) engine.bootstrap.gifts.LocalObjectProjection.Error!engine.bootstrap.gifts.ProjectedLocalTarget {
         const self: *Projection = @ptrCast(@alignCast(ctx.?));
         self.seen_scope = scope;
         self.seen_target = target;
-        if (self.fail) return error.ProjectionUnavailable;
+        if (self.fail) return error.NoSuchActor;
         return .{ .export_position = self.position, .created = false };
     }
 
@@ -360,7 +360,7 @@ test "withdraw queue failure preserves the gift and rolls back a fresh projectio
         fn capture(_: ?*anyopaque, _: engine.PeerHandle, _: model.ExportPosition) ?u64 {
             return null;
         }
-        fn project(ctx: ?*anyopaque, _: engine.PeerHandle, _: u64) !engine.bootstrap.gifts.ProjectedLocalTarget {
+        fn project(ctx: ?*anyopaque, _: engine.PeerHandle, _: u64) engine.bootstrap.gifts.LocalObjectProjection.Error!engine.bootstrap.gifts.ProjectedLocalTarget {
             const self: *@This() = @ptrCast(@alignCast(ctx.?));
             return .{ .export_position = self.position, .created = true };
         }

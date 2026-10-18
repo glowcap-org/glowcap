@@ -7,17 +7,20 @@ const c = h.c;
 const m = @import("management_fixture.zig");
 
 pub fn history(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectId) !records.ChangeHistoryRecord {
-    var read = try c.storage.Read.init(store.allocator, store, owner, 1);
+    var read: c.storage.Read = undefined;
+    try read.init(store.allocator, store, owner, 1, null);
     defer read.deinit() catch unreachable;
     read.history_requested = true;
     _ = try f.pump(&read, backend);
     return read.history;
 }
 
-pub fn batch(store: *h.loam.core.Store, backend: anytype, id: h.loam.core.ObjectId) !records.ChangeBatchRecord.Owned {
+pub fn batch(store: *h.loam.core.Store, backend: anytype, id: h.loam.core.ObjectId) !records.ChangeBatchRecord {
     const lease = try c.load(store, backend, id);
     defer store.release(lease) catch unreachable;
-    return records.ChangeBatchRecord.decodeOwned(store.allocator, try store.currentView(lease));
+    var value: records.ChangeBatchRecord = undefined;
+    try value.decodeOwned(store.allocator, try store.currentView(lease));
+    return value;
 }
 
 pub fn composed(store: *h.loam.core.Store, backend: anytype) !void {
@@ -38,7 +41,8 @@ pub fn composed(store: *h.loam.core.Store, backend: anytype) !void {
         defer if (store.phase == .staging) store.abort() catch unreachable;
         try std.testing.expect(try operation.stageControlRevocation());
         {
-            var read = try c.storage.Read.init(store.allocator, store, data.owner, 8);
+            var read: c.storage.Read = undefined;
+            try read.init(store.allocator, store, data.owner, 8, null);
             defer read.deinit() catch unreachable;
             _ = try f.pump(&read, backend);
             var child: c.core.ResourceId = undefined;
@@ -72,13 +76,14 @@ pub fn composed(store: *h.loam.core.Store, backend: anytype) !void {
             try c.storage.stage.contentChanged(&read, data.resource);
             try std.testing.expectEqual(before.next_sequence + 1, read.history.next_sequence);
             const proposed = (try store.proposed(read.history.batches[read.history.count - 1])).?;
-            var changes = try records.ChangeBatchRecord.decodeOwned(store.allocator, proposed.view);
+            var changes: records.ChangeBatchRecord = undefined;
+            try changes.decodeOwned(store.allocator, proposed.view);
             defer changes.deinit(store.allocator);
-            try std.testing.expectEqual(@as(usize, 4), changes.value.effects.len);
-            try std.testing.expect(changes.value.effects[0] == .control);
-            try std.testing.expect(changes.value.effects[1] == .resource);
-            try std.testing.expect(changes.value.effects[2] == .grant);
-            try std.testing.expect(changes.value.effects[3] == .content);
+            try std.testing.expectEqual(@as(usize, 4), changes.effects.len);
+            try std.testing.expect(changes.effects[0] == .control);
+            try std.testing.expect(changes.effects[1] == .resource);
+            try std.testing.expect(changes.effects[2] == .grant);
+            try std.testing.expect(changes.effects[3] == .content);
             if (commit) try f.commit(store, backend) else try store.abort();
             try std.testing.expectError(error.RevisionConflict, read.advance());
         }
@@ -90,7 +95,8 @@ pub fn composed(store: *h.loam.core.Store, backend: anytype) !void {
 pub fn capacity(store: *h.loam.core.Store, backend: anytype) !void {
     const owner = try f.create(store, backend, @fromBackingInt(43));
     const initial = store.metadata.objects;
-    var read = try c.storage.Read.init(store.allocator, store, owner, 8);
+    var read: c.storage.Read = undefined;
+    try read.init(store.allocator, store, owner, 8, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     try store.begin();
@@ -124,7 +130,7 @@ pub fn overflow(store: *h.loam.core.Store, backend: anytype, collect: anytype) !
     for (retained.batches[0..retained.count], 0..) |id, index| {
         var value = try batch(store, backend, id);
         defer value.deinit(store.allocator);
-        try std.testing.expectEqual(retained.firstSequence() + index, value.value.sequence);
-        try std.testing.expectEqual(@as(usize, 1), value.value.effects.len);
+        try std.testing.expectEqual(retained.firstSequence() + index, value.sequence);
+        try std.testing.expectEqual(@as(usize, 1), value.effects.len);
     }
 }

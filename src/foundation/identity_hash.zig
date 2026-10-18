@@ -39,6 +39,13 @@ pub fn isIdentity(comptime K: type) bool {
     };
 }
 
+/// Refuse a table over a key the hash cannot fold where the table is
+/// declared, naming the key, instead of inside `fold` at its first hash.
+fn assertIdentity(comptime K: type) void {
+    if (!isIdentity(K)) @compileError("identity_hash tables take an integer, an integer-backed enum, " ++
+        "an array of words, or a key declaring identityKey or identityWords: " ++ @typeName(K));
+}
+
 /// Whether `K` is an array of words: the words of some key, held as the key
 /// itself so a table over it hashes and compares words computed once.
 fn isWordArray(comptime K: type) bool {
@@ -157,6 +164,7 @@ pub fn saltedMultiplier(multiplier: u64, salt: u64) u64 {
 /// carries the table's multiplier, so the standard map's context-taking
 /// verbs are the ones `WireMap` calls.
 pub fn WireContext(comptime K: type) type {
+    comptime assertIdentity(K);
     return struct {
         multiplier: u64,
 
@@ -195,12 +203,20 @@ pub fn WireMap(comptime K: type, comptime V: type) type {
             return .{ .inner = .empty, .multiplier = multiplier };
         }
 
+        /// Re-key an empty map under the session's secret. A map with rows
+        /// in it could no longer find them, so emptiness is asserted.
+        pub fn keyWire(self: *Self, multiplier: u64) void {
+            std.debug.assert(self.inner.count() == 0);
+            self.multiplier = multiplier;
+        }
+
         fn ctx(self: *const Self) KeyContext {
             return .{ .multiplier = self.multiplier };
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             self.inner.deinit(allocator);
+            self.* = undefined;
         }
 
         pub fn count(self: *const Self) usize {
@@ -287,6 +303,7 @@ pub fn WireMap(comptime K: type, comptime V: type) type {
 
 /// The hash-map context for one identity key type.
 pub fn Context(comptime K: type) type {
+    comptime assertIdentity(K);
     return struct {
         pub fn hash(_: @This(), key: K) u64 {
             return identityHash(key);
@@ -301,6 +318,7 @@ pub fn Context(comptime K: type) type {
 /// The array-hash-map context for one identity key type: the same hash,
 /// narrowed to the 32 bits that map asks for.
 pub fn ArrayContext(comptime K: type) type {
+    comptime assertIdentity(K);
     return struct {
         pub fn hash(_: @This(), key: K) u32 {
             return @truncate(identityHash(key) >> 32);

@@ -50,13 +50,7 @@ pub const Netlayer = struct {
     }
 
     pub fn retain(self: *Netlayer) bool {
-        var current = self.references.load(.acquire);
-        while (current != 0) {
-            if (self.references.cmpxchgWeak(current, current + 1, .acq_rel, .acquire)) |observed| {
-                current = observed;
-            } else return true;
-        }
-        return false;
+        return c.transport_provider.retainLive(&self.references);
     }
 
     pub fn shutdown(self: *Netlayer) void {

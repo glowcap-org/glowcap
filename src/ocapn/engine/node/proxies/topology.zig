@@ -7,6 +7,7 @@
 const std = @import("std");
 
 const model = @import("model");
+const session = @import("session");
 const actions = @import("../actions.zig");
 const node_mod = @import("../../node.zig");
 
@@ -15,16 +16,17 @@ const PeerHandle = @import("../../peer_handle.zig").PeerHandle;
 
 pub const max_recipients: usize = 1_024;
 
-/// One recipient for an introducing-session foreign-promise proxy (ADR-0009).
-/// `row_id` is stamped at enroll so a GC/re-register between enroll and fire
-/// cannot satisfy a stale relay (same contract as `recordRelayedResolution`).
+/// One recipient of an introducing-session foreign-promise proxy: the local
+/// promise projection the recipient session minted for it. `target` carries
+/// the projection's answer stamp, so a release and reuse of the export
+/// between enroll and fire makes the fire moot instead of mis-settling.
 pub const Recipient = struct {
     peer: PeerHandle,
-    import_pos: u64,
-    row_id: u64,
+    export_position: model.ExportPosition,
+    target: session.AnswerTarget,
     /// Admission escrow for the one terminal break this recipient is owed.
     /// Once the home fire is consumed, allocator pressure must not leave the
-    /// relayed promise pending forever.
+    /// projected promise pending forever.
     failure_reason: ?[]u8,
 
     pub fn releaseFailure(self: *Recipient, allocator: std.mem.Allocator) void {
@@ -54,7 +56,7 @@ pub const ListenerKey = struct {
 };
 
 /// Armed introducing-session proxy: **one** home `op:listen`, one or more
-/// recipient third-party import rows. On fire the Host lifts once. Each
+/// recipient promise projections. On fire the Host lifts once. Each
 /// recipient then materializes its independently lowered tree through Node's
 /// bounded Passable transaction. Never N home listens.
 pub const Proxy = struct {
@@ -76,14 +78,7 @@ pub const Proxies = std.AutoHashMapUnmanaged(HomeKey, Proxy);
 pub const ByListener = std.AutoHashMapUnmanaged(ListenerKey, HomeKey);
 pub const BySource = std.AutoHashMapUnmanaged(HomeKey, HomeKey);
 
-pub fn prepareShortening(
-    self: *Node,
-    home: PeerHandle,
-    source: u64,
-    target: u64,
-    _: u64,
-    _: bool,
-) !void {
+pub fn prepareShortening(self: *Node, home: PeerHandle, source: u64, target: u64) !void {
     const source_root = self.proxy_by_source.get(.{ .home = home, .wire_pos = source }) orelse
         return error.UnexpectedMessage;
     const source_proxy = self.promise_proxies.get(source_root) orelse return error.UnexpectedMessage;
@@ -159,21 +154,24 @@ pub fn deinitProxy(self: *Node, key: HomeKey, proxy: *Proxy) void {
         }
         home_peer.session_state.retireNodeSettlingResolver(listener);
     }
-    const listener_key: ListenerKey = .{
-        .home = key.home,
-        .listener_export = proxy.listener_export,
-    };
-    std.debug.assert(self.proxy_by_listener.remove(listener_key));
-    std.debug.assert(self.proxy_by_source.remove(.{
-        .home = key.home,
-        .wire_pos = proxy.current_wire_pos,
-    }));
+    unindexProxy(self, key.home, proxy);
     deinitStorage(self, proxy);
 }
 
 pub fn deinitStorage(self: *Node, proxy: *Proxy) void {
-    for (proxy.recipients.items) |*recipient| {
-        if (recipient.failure_reason != null) actions.releaseProxyReservation(self);
-    }
+    for (proxy.recipients.items) |*recipient| retireEscrow(self, recipient);
     proxy.deinit(self.allocator);
+}
+
+/// Give back a recipient's unspent escrow: the reserved action seat and the
+/// reason it would have carried.
+pub fn retireEscrow(self: *Node, recipient: *Recipient) void {
+    if (recipient.failure_reason != null) actions.releaseProxyReservation(self);
+    recipient.releaseFailure(self.allocator);
+}
+
+/// Drop a proxy from both indexes before its storage goes.
+pub fn unindexProxy(self: *Node, home: PeerHandle, proxy: *const Proxy) void {
+    std.debug.assert(self.proxy_by_listener.remove(.{ .home = home, .listener_export = proxy.listener_export }));
+    std.debug.assert(self.proxy_by_source.remove(.{ .home = home, .wire_pos = proxy.current_wire_pos }));
 }

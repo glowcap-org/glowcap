@@ -65,13 +65,13 @@ const registered = [_]Table{
         .epoch = "The key is Session.nextStoreStamp's monotonic row id, never a reusable wire position; the store and counter die with the session.",
     },
     .{
-        .file = "ocapn/session/slot_table.zig",
+        .file = "ocapn/session/import_table.zig",
         .name = "rows",
-        .owner = "Reached only through ExportTable/ImportTable, whose Id types are distinct and whose export half admits a position only inside this session's range.",
-        .epoch = "Export positions are ours and monotonic. Import positions are the partner's and may be reused; readers that hold one across time are named in docs/boundaries.md.",
+        .owner = "Reached only through ImportTable, whose Id type is distinct from the export table's.",
+        .epoch = "Import positions are the partner's and may be reused; readers that hold one across time are named in docs/boundaries.md.",
     },
     .{
-        .file = "ocapn/session/slot_table.zig",
+        .file = "ocapn/session/import_table.zig",
         .name = "IdentityMap",
         .owner = "One map per import table, so Node tokens and Host refs are looked up only under the session that owns the import row.",
         .epoch = "The import row owns both identities and drops them when it goes; the Host target also carries a monotonic incarnation, so a reused position cannot revive either old handle.",

@@ -70,30 +70,14 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
     const rl = &wire.link;
     if (rl.parked.items.len > 0) {
         const parked = rl.parked.items;
-        self.core.feedBytes(wire.session, parked) catch |err| {
-            const failure = net.classifyApplyError(err);
-            self.drainActions() catch |drain_err| {
-                Internal.closeWire(self, wire, failure);
-                return drain_err;
-            };
-            Internal.closeWire(self, wire, failure);
-            return;
-        };
+        self.core.feedBytes(wire.session, parked) catch |err| return closeWireForRefusedFeed(self, wire, err);
         rl.parked.clearAndFree(self.allocator);
     }
     while (rl.parked_packets.items.len > 0) {
         const packet = rl.parked_packets.orderedRemove(0);
         defer self.allocator.free(packet);
         rl.parked_packet_bytes -= packet.len;
-        self.core.feedTransportPacket(wire.session, packet) catch |err| {
-            const failure = net.classifyApplyError(err);
-            self.drainActions() catch |drain_err| {
-                Internal.closeWire(self, wire, failure);
-                return drain_err;
-            };
-            Internal.closeWire(self, wire, failure);
-            return;
-        };
+        self.core.feedTransportPacket(wire.session, packet) catch |err| return closeWireForRefusedFeed(self, wire, err);
     }
     rl.parked_packets.clearAndFree(self.allocator);
     // A parked embedder must re-poll: the resumable tail is progress its
@@ -119,6 +103,15 @@ pub fn attendSession(self: *HostRuntime, session: *driver_core.HostSession) !voi
 /// owns, such as a listener arrival its accept observer has not yet taken.
 /// Resuming either would answer a pipelined fetch before the object it names
 /// exists.
+/// Close `wire` for a feed the core refused, after draining the actions the
+/// partial feed committed. The drain's own failure is the caller's.
+fn closeWireForRefusedFeed(self: *HostRuntime, wire: *Wire, err: anyerror) !void {
+    const failure = net.classifyApplyError(err);
+    const drained = self.drainActions();
+    Internal.closeWire(self, wire, failure);
+    return drained;
+}
+
 pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !void {
     var it = self.wires.valueIterator();
     while (it.next()) |entry| {
@@ -135,12 +128,7 @@ pub fn resumeFeedTails(self: *HostRuntime, skip: ?*driver_core.HostSession) !voi
         }
         if (wire.session.pausedInboundPending()) {
             wire.session.resumeFeed() catch |err| {
-                const failure = net.classifyApplyError(err);
-                self.drainActions() catch |drain_err| {
-                    Internal.closeWire(self, wire, failure);
-                    return drain_err;
-                };
-                Internal.closeWire(self, wire, failure);
+                try closeWireForRefusedFeed(self, wire, err);
                 continue;
             };
         }

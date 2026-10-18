@@ -7,25 +7,25 @@ const Read = @import("read.zig").Read;
 const op = @import("capability_operation.zig");
 const record = @import("record.zig");
 
-pub fn create(read: *Read, allocator: std.mem.Allocator, value: records.EndpointRecord, rooted: bool) !loam.ObjectId {
+pub fn create(read: *Read, allocator: std.mem.Allocator, value: records.EndpointRecord, rooting: record.Rooting) !loam.ObjectId {
     try validate(read, value);
     const store = read.store;
     errdefer if (store.phase == .staging) store.abort() catch unreachable;
     const object = try store.allocateId();
-    try stage(read, allocator, object, value, rooted);
+    try stage(read, allocator, object, value, rooting);
     return object;
 }
 
-pub fn createFromOperation(operation: *op.Operation, allocator: std.mem.Allocator, value: records.EndpointRecord, rooted: bool) !loam.ObjectId {
+pub fn createFromOperation(operation: *op.Operation, allocator: std.mem.Allocator, value: records.EndpointRecord, rooting: record.Rooting) !loam.ObjectId {
     const state = op.state(operation);
     try state.opened();
-    return create(&state.read.?, allocator, value, rooted);
+    return create(&state.read, allocator, value, rooting);
 }
 
-pub fn stageFromOperation(operation: *op.Operation, allocator: std.mem.Allocator, object: loam.ObjectId, value: records.EndpointRecord, rooted: bool) !void {
+pub fn stageFromOperation(operation: *op.Operation, allocator: std.mem.Allocator, object: loam.ObjectId, value: records.EndpointRecord, rooting: record.Rooting) !void {
     const state = op.state(operation);
     try state.opened();
-    try stage(&state.read.?, allocator, object, value, rooted);
+    try stage(&state.read, allocator, object, value, rooting);
 }
 
 fn validate(read: *Read, value: records.EndpointRecord) !void {
@@ -41,23 +41,24 @@ fn validate(read: *Read, value: records.EndpointRecord) !void {
     } else null;
     defer if (lease) |held| read.store.release(held) catch unreachable;
     const view = if (proposed) |row| row.view else try read.store.currentView(lease.?);
-    var descriptor = try records.CapabilityRecord.decodeOwned(fixed.allocator(), view);
+    var descriptor: records.CapabilityRecord = undefined;
+    try descriptor.decodeOwned(fixed.allocator(), view);
     defer descriptor.deinit(fixed.allocator());
-    if (!descriptor.value.owner.eql(read.owner_object)) return error.ForeignOwner;
+    if (!descriptor.owner.eql(read.owner_object)) return error.ForeignOwner;
     if (value.content) |content| {
-        if (descriptor.value.role != .use or content.resource.owner != read.header.owner) return error.WrongRole;
-    } else if (descriptor.value.role != .control) return error.WrongRole;
+        if (descriptor.role != .use or content.resource.owner != read.header.owner) return error.WrongRole;
+    } else if (descriptor.role != .control) return error.WrongRole;
     if (value.administration) |binding| {
-        if (descriptor.value.role != .control or binding.resource.owner != read.header.owner) return error.WrongRole;
+        if (descriptor.role != .control or binding.resource.owner != read.header.owner) return error.WrongRole;
     }
 }
 
-fn stage(read: *Read, allocator: std.mem.Allocator, object: loam.ObjectId, value: records.EndpointRecord, rooted: bool) !void {
+fn stage(read: *Read, allocator: std.mem.Allocator, object: loam.ObjectId, value: records.EndpointRecord, rooting: record.Rooting) !void {
     try validate(read, value);
     errdefer if (read.store.phase == .staging) read.store.abort() catch unreachable;
     _ = try read.stageIdentity(object);
     const payload = try value.encodeAlloc(allocator);
     defer allocator.free(payload);
     var edges: [records.EndpointRecord.max_edges]loam.Edge = undefined;
-    try record.put(read.store, object, records.profile.endpoint, payload, value.edges(&edges), null, rooted);
+    try record.put(read.store, object, records.profile.endpoint, payload, value.edges(&edges), null, rooting);
 }

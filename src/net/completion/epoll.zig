@@ -21,22 +21,7 @@ comptime {
 
 const tcp_os = socket_tcp.Os.linux;
 
-const PendingSend = struct { ud: u64, bytes: []const u8 };
-
-const Pending = struct {
-    read: union(enum) {
-        idle,
-        recv: u64,
-        accept: u64,
-        poll: u64,
-    } = .idle,
-    write: union(enum) {
-        idle,
-        send: PendingSend,
-        connect: u64,
-        poll: u64,
-    } = .idle,
-};
+const Pending = @import("readiness_pending.zig").Pending;
 
 pub const Backend = struct {
     pub const Fd = linux.fd_t;
@@ -342,18 +327,11 @@ pub const Backend = struct {
     }
 
     pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
-        try self.ready.ensureUnusedCapacity(self.allocator, 3);
-        if (self.pending.get(fd)) |pending| {
-            switch (pending.read) {
-                .idle => {},
-                .recv, .accept, .poll => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
-            }
-            switch (pending.write) {
-                .idle => {},
-                .send => |send| self.ready.appendAssumeCapacity(.{ .user_data = send.ud, .result = -1 }),
-                .connect, .poll => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
-            }
-        }
+        // Reserve every completion slot before touching any state: a failed
+        // append after the fd closes would strand the slot with ops still
+        // counted in flight.
+        try self.ready.ensureUnusedCapacity(self.allocator, Pending.max_cancellations + 1);
+        if (self.pending.get(fd)) |pending| pending.cancelInto(&self.ready);
         _ = self.pending.remove(fd); // tolerant: an idle fd has no submitted operation and therefore no row
         self.control(linux.EPOLL.CTL_DEL, fd, 0) catch {}; // best-effort: close below removes the kernel registration
         _ = linux.close(fd);
@@ -519,7 +497,7 @@ pub const Backend = struct {
         }
     }
 
-    fn completeSend(fd: Fd, pending: PendingSend) ?completion.Completion {
+    fn completeSend(fd: Fd, pending: Pending.Send) ?completion.Completion {
         const result = linux.sendto(
             fd,
             pending.bytes.ptr,

@@ -31,22 +31,20 @@ pub fn send(self: *Peer, message: model.Message) !void {
 }
 
 /// Commit a prepared bootstrap fetch onto the wire. A V1.0 fetch advertises
-/// its resolver export, so the resolver link and message publish or roll back
-/// together. Consumes `prepared.message` on every outcome.
+/// its resolver export, so the resolver pairing and message publish or roll
+/// back together: the send is the one fallible step, and the pairing is two
+/// row writes after it. Consumes `prepared.message` on every outcome.
 pub fn sendPreparedFetch(self: *Peer, prepared: fetch.PreparedFetch) !void {
     if (prepared.resolver_export) |resolver_export| {
-        self.session_state.installOutboundResolver(prepared.answer_position, resolver_export) catch |err| {
-            self.session_state.releaseUnsharedExport(resolver_export);
-            model.freeMessage(self.allocator, prepared.message);
-            return err;
-        };
         send(self, prepared.message) catch |err| {
             // The resolver mention never reached recordSend, so it still has
-            // only prepareFetchSwissnum's reservation retain. Retire the link
-            // and export together; a retry prepares a fresh pair.
-            self.session_state.abandonResolverExport(resolver_export);
+            // only prepareFetchSwissnum's reservation retain, and no purpose
+            // was set. Retire the export; a retry prepares a fresh pair.
+            self.session_state.releaseUnsharedExport(resolver_export);
             return err;
         };
+        // The send recorded the answer row the pairing binds.
+        self.session_state.installOutboundResolver(prepared.answer.position, resolver_export);
         return;
     }
     try send(self, prepared.message);
@@ -75,12 +73,15 @@ pub const sendAnswerTargetResolutionViewCopying = outbound_copying.answerTargetV
 /// Encode `message` for the wire profile its kind uses, as one owned frame.
 pub fn encodeOutbound(self: *Peer, message: model.Message) !foundation.Frame {
     const body = model.view.Body.fromOwned(&message);
-    return encodeOutboundBody(self, &body);
+    return encodeOutboundBody(self, &body, null);
 }
 
 /// Encode a borrowed `body` for the wire profile its kind uses, as one owned
-/// frame. The owned entry projects onto this one.
-pub fn encodeOutboundBody(self: *Peer, body: *const model.view.Body) !foundation.Frame {
+/// frame. The owned entry projects onto this one. `values` is what the
+/// body's value tree encodes to under the codec's meter when admission
+/// walked it (`outbound/encoded.zig`), and null when the encoder measures
+/// the tree itself.
+pub fn encodeOutboundBody(self: *Peer, body: *const model.view.Body, values: ?usize) !foundation.Frame {
     // A hello cannot use the profile it is negotiating, and deferred encoding
     // means the session may already be open when its queued hello reaches this
     // seam. A pre-open abort belongs to that same baseline envelope. After
@@ -103,6 +104,7 @@ pub fn encodeOutboundBody(self: *Peer, body: *const model.view.Body) !foundation
         self.allocator,
         wire.captp_version,
         body,
+        values,
     );
 }
 

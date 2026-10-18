@@ -10,7 +10,8 @@ The Racket binding gives you a Goblins-shaped `Runtime` and `session` API with
 Racket values
 ([`glowcap.rkt`](https://github.com/jimisaacs/glowcap/blob/main/bindings/racket/glowcap.rkt)).
 The transport modules are `glowcap-iroh.rkt`, `glowcap-onion.rkt`,
-`glowcap-relay.rkt`, `glowcap-tcp.rkt`, and `glowcap-inproc.rkt`. The
+`glowcap-relay.rkt`, `glowcap-tcp.rkt`, `glowcap-webrtc.rkt`, and
+`glowcap-inproc.rkt`. The
 [Bindings]($link.page('bindings')) page covers install, and
 [modules]($link.page('modules')) has the actor vocabulary.
 
@@ -128,11 +129,10 @@ From here, the CapTP workflow is the same for every transport:
 <!-- /site-examples:dial:racket -->
 ```
 
-The CapTP verbs stay the same across tabs. What changes is the locator helper
-and whether CapTP rides cleartext or Noise. The iroh tab needs
+The iroh tab needs
 `glowcap-iroh.rkt` and a discovery-reachable node id.
 
-# Hosting the other half
+# Listen
 
 `(accept (listen …))` hands back the same `session` that `runtime-connect` returns.
 Keyed and Noise listeners take a 32-byte seed so the advertised designator
@@ -246,7 +246,7 @@ existing Goblins program will not run unchanged. Inside `with-vat`, you:
 
 > **`$` and `<-`**, near-call and eventual-send, come straight from the
 > [E language](https://web.archive.org/web/20241231230559/http://erights.org/),
-> and [The modules]($link.page('modules')) page defines both. Across a session only `<-` works, since a partner's object
+> and [The modules]($link.page('modules')) page defines both. Across a session only `<-` and `<-np` work, since a partner's object
 > is never in your vat.
 
 # Async

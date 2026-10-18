@@ -56,7 +56,7 @@ test "access observation resolves a warm maximum depth path without a spurious w
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?;
     var caps = try storage.Capabilities.init(h.a, store, .{});
     defer caps.deinit() catch unreachable;
-    const descriptor = try h.c.descriptor(&caps, backend, owner, grant.grant, null, false);
+    const descriptor = try h.c.descriptor(&caps, backend, owner, grant.grant, null, .reachable);
     const held = try h.c.use(&caps, backend, descriptor);
     defer held.release();
     var context: h.loam.core.ObjectId = undefined;

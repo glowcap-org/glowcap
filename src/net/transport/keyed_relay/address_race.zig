@@ -6,6 +6,7 @@
 //! than scheduler order.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 pub const max_resolved_addresses = 32;
 pub const max_parallel_attempts = 8;
@@ -19,21 +20,12 @@ pub fn FailureLedger(comptime Failure: type) type {
 
         pub fn note(self: *Self, address_index: usize, failure: Failure) void {
             std.debug.assert(address_index < self.values.len);
-            const slot = &self.values[address_index];
-            if (slot.*) |*first|
-                first.chain.noteChain(failure.chain)
-            else
-                slot.* = failure;
+            foundation.latchFailure(&self.values[address_index], failure);
         }
 
         pub fn appendTo(self: *const Self, target: *?Failure, address_count: usize) void {
             std.debug.assert(address_count <= self.values.len);
-            for (self.values[0..address_count]) |attempt| if (attempt) |failure| {
-                if (target.*) |*first|
-                    first.chain.noteChain(failure.chain)
-                else
-                    target.* = failure;
-            };
+            for (self.values[0..address_count]) |attempt| if (attempt) |failure| foundation.latchFailure(target, failure);
         }
     };
 }

@@ -103,9 +103,9 @@ pub const Reply = struct {
 pub fn send(host: *host_mod.Host, lease: *const host_mod.Host.PendingWorkLease, target: value_mod.Capability, verb: []const u8, args: []const value_mod.Value) !u64 {
     try lease.checkHost(host);
     const charge = try local.inputCharge(host, verb, args);
-    try vows.ensureFreshVowId(host);
+    const id = try vows.peekVowId(host);
     const self = try host.allocator.create(Reply);
-    self.* = .{ .producer = .{ .host = host, .destination = .{ .public = self } }, .id = host.next_vow };
+    self.* = .{ .producer = .{ .host = host, .destination = .{ .public = self } }, .id = id };
     errdefer self.producer.release();
     self.producer.lease = try lease.fork();
     const row = try vows.reserveRow(host, null, .plain, .none, self.id);
@@ -118,7 +118,7 @@ pub fn send(host: *host_mod.Host, lease: *const host_mod.Host.PendingWorkLease, 
     row.vow = try local.enqueue(host, &self.producer, target, verb, args, charge, installed);
     row.pending_cancel = .{ .row_listener = installed };
     vows.publishRow(host, row);
-    host.next_vow += 1;
+    host.vow_ids.commit(id);
     return self.id;
 }
 
@@ -131,7 +131,6 @@ pub fn releasePending(host: *host_mod.Host, row: *settlement.VowRow) void {
     std.debug.assert(listener.ctx == installed.ctx and listener.func == installed.func);
     source.destination.public.cancel();
     settlement.markRowSettled(host, row);
-    std.debug.assert(host.vows.remove(row.id));
-    host.allocator.destroy(row);
+    settlement.retireRow(host, row);
     source.release();
 }

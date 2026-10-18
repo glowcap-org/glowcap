@@ -59,8 +59,8 @@ pub fn Machine(comptime Backend: type) type {
             const row = &(backend.listener orelse return error.ListenerClosed);
             if (row.closing) return error.ListenerClosed;
             if (row.ready_ud != null) return error.AlreadyAccepting;
-            try backend.reserveReady(1);
-            if (row.phase == .listening) return backend.appendReserved(.{ .user_data = user_data, .result = 0 });
+            try backend.ready.reserve(backend.allocator, 1);
+            if (row.phase == .listening) return backend.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
             row.ready_ud = user_data;
         }
 
@@ -68,8 +68,8 @@ pub fn Machine(comptime Backend: type) type {
             const row = &(backend.listener orelse return error.ListenerClosed);
             if (row.closing) return error.ListenerClosed;
             if (row.accept_ud != null) return error.AlreadyAccepting;
-            try backend.reserveReady(1);
-            errdefer backend.releaseReady(1);
+            try backend.ready.reserve(backend.allocator, 1);
+            errdefer backend.ready.release(1);
             if (row.phase == .listening and !row.poll) try armPoll(backend);
             row.accept_ud = user_data;
         }
@@ -126,7 +126,7 @@ pub fn Machine(comptime Backend: type) type {
                         row.fd = handle.fd;
                         if (row.ready_ud) |ud| {
                             row.ready_ud = null;
-                            backend.appendReserved(.{ .user_data = ud, .result = 0 });
+                            backend.ready.appendReserved(.{ .user_data = ud, .result = 0 });
                         }
                     },
                     .failed => |err| {
@@ -141,7 +141,7 @@ pub fn Machine(comptime Backend: type) type {
                     row.accept_ud = null;
                     switch (row.provider.vtable.accept.?(row.provider.ctx, listener)) {
                         .ready => |handle| bindAccepted(backend, ud, row.provider, handle),
-                        .failed => |err| backend.appendReserved(.{ .user_data = ud, .result = -1, .failure = err }),
+                        .failed => |err| backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err }),
                     }
                 },
             }
@@ -155,31 +155,31 @@ pub fn Machine(comptime Backend: type) type {
             const fd = backend.reserveFd() catch |err| return refuseAccepted(backend, ud, provider, handle, err);
             backend.conns.ensureUnusedCapacity(1) catch |err| return refuseAccepted(backend, ud, provider, handle, err);
             backend.conns.putAssumeCapacity(fd, Backend.openEntry(provider, handle));
-            backend.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });
+            backend.ready.appendReserved(.{ .user_data = ud, .result = 0, .accepted_fd = fd });
         }
 
         fn refuseAccepted(backend: *Backend, ud: u64, provider: *const Provider, handle: provider_mod.Handle, err: anyerror) void {
             provider.vtable.conn_close(provider.ctx, handle.ptr);
-            backend.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
+            backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
         }
 
         /// Fail every waiter: a parked accept and a setup wait.
         fn failSetup(backend: *Backend, err: anyerror) void {
             const row = &(backend.listener orelse return);
-            if (row.accept_ud) |ud| backend.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
-            if (row.ready_ud) |ud| backend.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
+            if (row.accept_ud) |ud| backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
+            if (row.ready_ud) |ud| backend.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
             row.accept_ud = null;
             row.ready_ud = null;
         }
 
         pub fn close(backend: *Backend, user_data: u64) !void {
-            try backend.reserveReady(1);
+            try backend.ready.reserve(backend.allocator, 1);
             const row = &(backend.listener orelse {
-                backend.appendReserved(.{ .user_data = user_data, .result = 0 });
+                backend.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
                 return;
             });
             if (row.closing) {
-                backend.releaseReady(1);
+                backend.ready.release(1);
                 return error.AlreadyClosing;
             }
             failSetup(backend, error.Canceled);
@@ -210,7 +210,7 @@ pub fn Machine(comptime Backend: type) type {
                 .listening => |listener| row.provider.vtable.listener_close.?(row.provider.ctx, listener),
             }
             backend.listener = null;
-            if (row.close_ud) |ud| backend.appendReserved(.{ .user_data = ud, .result = 0 });
+            if (row.close_ud) |ud| backend.ready.appendReserved(.{ .user_data = ud, .result = 0 });
         }
     };
 }

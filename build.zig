@@ -65,11 +65,11 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "loam_collections", .prefix = "loam/collections/", .imports = &.{}, .core = true },
     .{ .name = "actors", .prefix = "actors/", .imports = &.{ "foundation", "model", "engine" }, .core = true },
     .{ .name = "loam_records", .prefix = "loam/records/", .imports = &.{"syrup"}, .core = true },
-    .{ .name = "loam_core", .prefix = "loam/core/", .imports = &.{"loam_records"}, .core = true },
+    .{ .name = "loam_core", .prefix = "loam/core/", .imports = &.{ "foundation", "loam_records" }, .core = true },
     .{ .name = "loam_volatile", .prefix = "loam/engines/volatile/", .imports = &.{"loam_core"}, .core = true },
-    .{ .name = "loam_owner_lock", .prefix = "loam/engines/owner_lock/", .imports = &.{}, .core = false, .graph = false },
-    .{ .name = "loam_lmdb", .prefix = "loam/engines/lmdb/", .imports = &.{ "loam_core", "loam_owner_lock" }, .core = false, .graph = false },
-    .{ .name = "loam_sqlite", .prefix = "loam/engines/sqlite/", .imports = &.{ "loam_core", "loam_owner_lock" }, .core = false, .graph = false },
+    .{ .name = "loam_custody", .prefix = "loam/engines/custody/", .imports = &.{}, .core = false, .graph = false },
+    .{ .name = "loam_lmdb", .prefix = "loam/engines/lmdb/", .imports = &.{ "loam_core", "loam_custody" }, .core = false, .graph = false },
+    .{ .name = "loam_sqlite", .prefix = "loam/engines/sqlite/", .imports = &.{ "loam_core", "loam_custody" }, .core = false, .graph = false },
     .{ .name = "loam_access_core", .prefix = "loam/access/core/", .imports = &.{}, .core = true },
     .{ .name = "loam_access_records", .prefix = "loam/access/records/", .imports = &.{ "loam_access_core", "loam_records", "syrup" }, .core = true },
     .{ .name = "loam_access_storage", .prefix = "loam/access/storage/", .imports = &.{ "loam_access_core", "loam_access_records", "loam_core" }, .core = true },
@@ -264,7 +264,8 @@ pub fn build(b: *std.Build) void {
     // be loaded into a process that never ran Zig's executable startup, so Zig's
     // freestanding Linux thread implementation has no initialized TLS template
     // there. Use the host thread runtime for both static and shared consumers;
-    // this is also the ordinary threading contract a C library should expose.
+    // this is also the ordinary threading contract a C library should expose,
+    // and it is what lets the archive pin itself resident (ADR-0256).
     tcp_abi_mod.linkSystemLibrary("c", .{});
     onion_abi_mod.linkSystemLibrary("c", .{});
     // `libglowcap_host`: the byte-fed driver tier over the C ABI (ADR-0072).
@@ -473,6 +474,7 @@ pub fn build(b: *std.Build) void {
         .interop_harness_mod = interop_harness_mod,
         .check_step = check_step,
         .site_zig_examples_check = site_reg.zig_examples_check,
+        .profiles = profiles,
     });
     const iroh_resident_mod = iroh_reg.resident_mod;
     const iroh_sidecar_archive = iroh_reg.sidecar_archive;

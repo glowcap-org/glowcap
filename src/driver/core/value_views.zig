@@ -72,7 +72,7 @@ fn structEntry(entry: *const Value.StructEntry) ProjectError!view.StructEntry {
 /// path refuses it with its own reason.
 pub fn carriesCapability(values: []const Value) bool {
     const Probe = struct {
-        fn visit(_: void, _: value_mod.Capability) anyerror!void {
+        fn visit(_: void, _: value_mod.Capability) error{CapabilityFound}!void {
             return error.CapabilityFound;
         }
     };

@@ -90,6 +90,60 @@ fn peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release(
 }
 
 #[test]
+fn peer_stop_before_writer_observes_local_close_does_not_fail_endpoint_release() {
+	use crate::conn::glowcap_iroh_sidecar_conn_free;
+	use crate::{ALPN, AcceptedRaw, make_conn};
+
+	let client = direct_endpoint(5_000);
+	let server = direct_endpoint(5_000);
+	assert!(!client.is_null() && !server.is_null());
+	// SAFETY: as `peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release` above, `client` is the
+	// non-null live handle `direct_endpoint` returned and is freed only after the last use of `client_ref`.
+	let client_ref = unsafe { &*client };
+	// SAFETY: as `peer_close_before_writer_observes_local_close_does_not_fail_endpoint_release` above, `server` is the
+	// non-null live handle `direct_endpoint` returned and is freed only after the last use of `server_ref`.
+	let server_ref = unsafe { &*server };
+	let (raw, remote, reply) = client_ref.rt.block_on(async {
+		let (dialed, accepted) = tokio::join!(client_ref.ep.connect(server_ref.ep.addr(), ALPN), async {
+			server_ref.ep.accept().await.unwrap().await.unwrap()
+		});
+		let dialed = dialed.unwrap();
+		let (mut send, recv) = dialed.open_bi().await.unwrap();
+		send.write_all(b"open").await.unwrap();
+		let (reply, receive) = accepted.accept_bi().await.unwrap();
+		// The partner stops reading this stream without closing the connection,
+		// which is what its reader abort at connection release does.
+		drop(receive);
+		assert_eq!(send.stopped().await.unwrap(), Some(0u32.into()));
+		(
+			AcceptedRaw {
+				conn: dialed,
+				send,
+				recv,
+			},
+			accepted,
+			reply,
+		)
+	});
+	let conn = make_conn(client_ref, raw).unwrap();
+	assert_eq!(set_nonblocking(client, conn), 0);
+	// The application has not closed its handle yet. This write observes the
+	// partner's stop first, exactly the ordering a loaded server permits.
+	assert_eq!(try_write(conn, b"late"), 4);
+	let writer_result = client_ref.writers.wait();
+	assert_eq!(try_write(conn, b"x"), -1);
+	// SAFETY: `conn` is the owned handle `make_conn` returned for this endpoint; nothing has freed it, and it is not
+	// used after this call, which runs before either endpoint is freed.
+	unsafe { glowcap_iroh_sidecar_conn_free(conn) };
+	drop((reply, remote));
+	let client_result = free_endpoint(client);
+	let server_result = free_endpoint(server);
+	assert_eq!(writer_result, Ok(()));
+	assert_eq!(client_result, 0);
+	assert_eq!(server_result, 0);
+}
+
+#[test]
 fn nonblocking_release_delivers_the_complete_admitted_tail() {
 	use crate::conn::glowcap_iroh_sidecar_conn_free;
 	use crate::{ALPN, AcceptedRaw, make_conn};

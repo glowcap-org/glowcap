@@ -283,9 +283,9 @@ pub const Managed = struct {
         if (!prepared) return error.NoProgress;
         try setup.pump(self, operation);
         try self.store.begin();
-        const staged = try self.capabilities.stage(operation, false);
-        const use_endpoint = try access.hosting.stageDerivedEndpoint(operation, self.allocator, .{ .descriptor = staged.derived_use.?, .content = .{ .resource = item.resource, .object = item.content } }, true);
-        const control_endpoint = try access.hosting.stageDerivedEndpoint(operation, self.allocator, .{ .descriptor = staged.derived_control.? }, true);
+        const staged = try self.capabilities.stage(operation, .reachable);
+        const use_endpoint = try access.hosting.stageDerivedEndpoint(operation, self.allocator, .{ .descriptor = staged.derived_use.?, .content = .{ .resource = item.resource, .object = item.content } }, .rooted);
+        const control_endpoint = try access.hosting.stageDerivedEndpoint(operation, self.allocator, .{ .descriptor = staged.derived_control.? }, .rooted);
         try self.finish(try self.store.prepare());
         item.use = try self.restore(use_endpoint);
         errdefer self.host.releaseCapability(item.use, 1) catch unreachable;

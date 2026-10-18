@@ -7,6 +7,9 @@
 
 const std = @import("std");
 
+/// The widest decimal a `u64` takes.
+pub const max_width: usize = width(std.math.maxInt(u64));
+
 /// How many digits `value` takes in decimal. The count of binary digits in
 /// use fixes the decimal width to within one (a scaled multiply stands in
 /// for log10 of 2), and one compare against the power of ten settles it.

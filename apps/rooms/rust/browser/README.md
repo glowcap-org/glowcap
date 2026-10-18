@@ -51,7 +51,7 @@ reconnect, management and recovery.
   counter all commit in one transaction. A retained write checks its
   recording epoch in that same transaction, so an older tab cannot refill
   history that was erased.
-- `RoomsBrowserArchive` performs **Delete browser data**. It closes the
+- `RoomsBrowserArchive` performs **Delete browser data…** It closes the
   recorder and deletes the whole database, including the device identity.
   It finishes its cleanup even if the caller stops waiting.
 - Blob staging hashes `files::CHUNK_BYTES` chunks before building an immutable `Blob`. A

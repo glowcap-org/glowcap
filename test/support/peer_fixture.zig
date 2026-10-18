@@ -66,16 +66,7 @@ pub fn receiveListenerForAnswer(peer: *engine.Peer, answer: model.AnswerPosition
 /// Emulate the partner invoking the mandatory listener export bound to an
 /// outbound answer. The callback is consumed as a semantic resolve event.
 pub fn receiveResolverCallback(peer: *engine.Peer, answer: model.AnswerPosition, resolution: model.Resolution) !void {
-    var resolver: ?model.ExportPosition = null;
-    var position: u64 = 1;
-    while (position < peer.session_state.next_export_position) : (position += 1) {
-        const candidate = model.ExportPosition.from(position);
-        if (peer.session_state.answerForResolverExport(candidate) == answer) {
-            resolver = candidate;
-            break;
-        }
-    }
-    const target = resolver orelse return error.TestUnexpectedResult;
+    const target = peer.session_state.resolverExportForAnswer(answer) orelse return error.TestUnexpectedResult;
     var args: [2]model.Argument = switch (resolution) {
         .fulfill => |value| .{ .{ .symbol = "fulfill" }, value },
         .@"break" => |reason| .{ .{ .symbol = "break" }, .{ .symbol = reason.message } },

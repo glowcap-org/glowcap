@@ -135,6 +135,14 @@ pub const AnswerName = union(enum) {
         return .{ .virtual = answer };
     }
 
+    /// The answer a deliver names: its wire position, else the virtual
+    /// answer a resolver-only deliver was given, else none.
+    pub inline fn ofDeliver(wire: ?AnswerPosition, virtual: ?VirtualAnswer) ?AnswerName {
+        if (wire) |position| return .{ .wire = position };
+        if (virtual) |answer| return .{ .virtual = answer };
+        return null;
+    }
+
     /// The one word an identity-keyed table hashes: the position, with the
     /// low bit saying which arm named it.
     pub fn identityKey(self: AnswerName) u64 {

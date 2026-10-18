@@ -92,6 +92,11 @@ fails.
 
 ## Git Posture
 
+[`docs/maintaining.md`](../../docs/maintaining.md) owns the promotion and
+publication workflow. Local integration into `dev` is distinct from
+publication. Agents never merge into `main` or treat an agent review as human
+approval. Remote actions still require the maintainer's direction.
+
 Commit, rebase, or integrate within the user's authorized scope. A request to
 commit for another agent's handoff includes integration into local `dev`.
 

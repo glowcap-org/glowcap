@@ -36,7 +36,7 @@ test "op:gc-answers round-trips through the Cap'n Proto codec" {
 
     // A Cap'n Proto frame is word-shaped and a whole number of 8-byte words.
     try std.testing.expectEqual(glowcap.foundation.FrameShape.word, frame.view().shape);
-    try std.testing.expectEqual(@as(usize, 0), frame.bytes().len % wire.WORD_BYTES);
+    try std.testing.expectEqual(@as(usize, 0), frame.bytes().len % wire.word_bytes);
 
     const decoded = try capnp.decodeOwned(allocator, frame.view());
     defer model.freeMessage(allocator, decoded);
@@ -100,7 +100,8 @@ test "decodeBodyInto parses a deliver's argument tree once into lent views, nest
     // Room for the whole tree: the outer list claims three, the inner three.
     var views: [8]model.view.Argument = undefined;
     var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(&views));
-    const body = try capnp.decodeBodyInto(.v1_0, frame.view(), &slab);
+    var body: model.view.Body = undefined;
+    try capnp.decodeBodyInto(.v1_0, frame.view(), &slab, &body);
     try std.testing.expectEqual(@as(usize, 6) * @sizeOf(model.view.Argument), slab.used);
     try std.testing.expect(body.deliver.args.backingViews() != null);
     const inner = (try body.deliver.args.at(1)).list;
@@ -113,7 +114,8 @@ test "decodeBodyInto parses a deliver's argument tree once into lent views, nest
     // reads the same.
     var few: [4]model.view.Argument = undefined;
     var short = model.view.ValueSlab.init(std.mem.sliceAsBytes(&few));
-    const partial = try capnp.decodeBodyInto(.v1_0, frame.view(), &short);
+    var partial: model.view.Body = undefined;
+    try capnp.decodeBodyInto(.v1_0, frame.view(), &short, &partial);
     try std.testing.expectEqual(@as(usize, 3) * @sizeOf(model.view.Argument), short.used);
     try std.testing.expect(partial.deliver.args.backingViews() != null);
     const backed = (try partial.deliver.args.at(1)).list;
@@ -267,7 +269,7 @@ fn expectRoundTrip(message: model.Message) !void {
     var frame0 = try capnp.encodeMessage(allocator, message);
     defer frame0.deinit();
     try std.testing.expectEqual(glowcap.foundation.FrameShape.word, frame0.view().shape);
-    try std.testing.expectEqual(@as(usize, 0), frame0.bytes().len % wire.WORD_BYTES);
+    try std.testing.expectEqual(@as(usize, 0), frame0.bytes().len % wire.word_bytes);
 
     const owned1 = try capnp.decodeOwned(allocator, frame0.view());
     defer model.freeMessage(allocator, owned1);

@@ -15,6 +15,7 @@
 
 const std = @import("std");
 
+const codec = @import("codec");
 const foundation = @import("foundation");
 const model = @import("model");
 const session = @import("session");
@@ -72,36 +73,35 @@ pub fn admits(self: *const Peer, message: model.Message) bool {
 /// none of it, so the session certifies and measures it first, and the
 /// producer check charges the envelope and that measure together, as it
 /// charges an inventoried tree.
+///
+/// The inventory and the freight measure carry what the tree's values
+/// encode to under the session's codec, so the encoder reads the tree once
+/// (ADR-0253).
 pub fn admit(self: *Peer, message: model.Message, inventory: session.Inventory, freight: ?model.view.Args) !void {
     std.debug.assert(admits(self, message));
     std.debug.assert(freight == null or (message == .deliver and message.deliver.args.len == 0));
-    const freight_bytes: usize = if (freight) |args| try self.session_state.certifyFreight(args) else 0;
+    const freight_measure: session.Freight = if (freight) |args| try self.certifyFreight(args) else .{ .owned_bytes = 0, .wire_bytes = 0 };
     // The tree's retained bytes stand in for the frame's length, which the
     // exact reservation below takes once the frame exists.
-    const charge = std.math.add(usize, try outbound.messageCharge(message, inventory), freight_bytes) catch
+    const charge = std.math.add(usize, try outbound.messageCharge(message, inventory), freight_measure.owned_bytes) catch
         return error.MalformedView;
     try self.admitOutboundProducer(charge);
     try self.session_state.validateSendInventoried(message, inventory);
 
     const answer = passable.answerProducedBy(message);
     const wants_resolver = answer != null and (message != .deliver or message.deliver.resolve_me_desc == null);
-    const resolver: ?model.ExportPosition = if (wants_resolver)
+    const resolver: ?model.NearRef = if (wants_resolver)
         try self.session_state.mintMentionedResolverExport(answer.?, .object)
     else
         null;
-    errdefer if (resolver) |position| self.session_state.abandonMentionedResolverExport(position);
-    // Project the mention from the authoritative slot, never a hand-typed
-    // kind (ADR-0080).
-    const resolver_ref: ?model.Reference = if (resolver) |position|
-        session.slot.toReference(self.session_state.exportSlot(position).?).?
-    else
-        null;
+    errdefer if (resolver) |near| self.session_state.abandonMentionedResolverExport(near.export_position);
 
     var wire = message;
-    if (resolver_ref != null) wire.deliver.resolve_me_desc = resolver_ref;
+    if (resolver) |near| wire.deliver.resolve_me_desc = .{ .near = near };
     var body = model.view.Body.fromOwned(&wire);
     if (freight) |args| body.deliver.args = args;
-    var frame = try self.encodeOutboundBody(&body);
+    const values = try valueBytes(self, &wire, inventory, freight_measure.wire_bytes);
+    var frame = try self.encodeOutboundBody(&body, values);
     errdefer frame.deinit();
     const exports = try self.session_state.listSentExports(self.allocator, message, inventory);
     errdefer self.allocator.free(exports);
@@ -110,11 +110,31 @@ pub fn admit(self: *Peer, message: model.Message, inventory: session.Inventory, 
         .op = std.meta.activeTag(message),
         .frame = frame,
         .answer = answer,
-        .resolver = resolver,
+        .resolver = if (resolver) |near| near.export_position else null,
         .exports = exports,
     };
     const reservation = try self.reservePendingCharged(row.charge(), false);
     errdefer self.cancelPendingReservation(reservation);
-    try self.session_state.applyValidatedSend(message, inventory);
+    try self.session_state.applyValidatedSend(message, inventory, row.resolver);
     self.pushPendingAssume(reservation, .{ .encoded = row });
+}
+
+/// What the admitted tree's values encode to under the session's codec: the
+/// bytes its meter sized on the walk, each listed mention as lowering left
+/// it, and the freight. Null for a codec without a meter, which sizes its
+/// own frame. A value's wire bytes stay within a small factor of the bytes
+/// its owned slice retains, which the admitted charge bounds, so the sum
+/// cannot overflow.
+fn valueBytes(self: *Peer, message: *const model.Message, inventory: session.Inventory, freight_values: usize) !?usize {
+    inline for (codec.registry.active) |spec| if (self.session_state.codec == spec.id) {
+        const Meter = spec.module.meter orelse return null;
+        const root: ?*const model.Argument = if (message.* == .resolve and message.resolve.resolution == .fulfill)
+            &message.resolve.resolution.fulfill
+        else
+            null;
+        var total = inventory.wire_bytes + freight_values;
+        for (inventory.slots) |slot| total += try Meter.mention(self.allocator, slot.read(root));
+        return total;
+    };
+    return error.UnknownCodec;
 }

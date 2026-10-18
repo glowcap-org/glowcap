@@ -6,11 +6,13 @@ const driver = @import("driver_core");
 
 pub const Entropy = driver.Host.DurableSwiss.Entropy;
 pub const LookupOptions = @import("discovery.zig").Options;
+const discovery = @import("discovery.zig");
+const storage = @import("storage.zig");
 
 /// Enable bounded on-demand restoration for this Host's durable namespace.
 /// Call once after opening the Store. No publication or actor scan is needed.
 pub fn listen(attachment: *h.Attachment, options: LookupOptions) !void {
-    _ = try @import("discovery.zig").Discovery.create(attachment, options);
+    _ = try discovery.Discovery.create(attachment, options);
 }
 pub const schema: core.Schema = .{ .id = 0x4c4f414d50554201, .version = 1, .max_payload = @sizeOf(Entropy), .max_edges = 1, .name_offset = 0 };
 
@@ -38,7 +40,7 @@ pub fn restore(attachment: *h.Attachment, lease: core.Lease) !driver.Host.Durabl
     const target = try activeTarget(view);
     const ref = try h.restoreEdge(attachment, target);
     defer attachment.host.releaseCapability(ref, 1) catch unreachable;
-    return attachment.host.publishDurableCapability(view.payload[0..@sizeOf(Entropy)].*, ref);
+    return attachment.host.publishDurableCapability(entropyOf(view), ref);
 }
 
 /// Checked target of an active durable publication recipe. This is storage
@@ -53,6 +55,11 @@ pub fn activeTarget(view: core.RecordView) !core.ObjectId {
     return edge.target;
 }
 
+/// The recipe's secret, from a row `validate` or `activeTarget` accepted.
+pub fn entropyOf(view: core.RecordView) Entropy {
+    return view.payload[0..@sizeOf(Entropy)].*;
+}
+
 /// Stage discovery retirement, preserving a tombstone of the secret name.
 /// Commit this transaction through the attachment's write lane: its terminal
 /// outcome applies the registry transition (see `fenceRetirements`), so no
@@ -63,7 +70,7 @@ pub fn stageRetirement(attachment: *h.Attachment, lease: core.Lease) !void {
     const view = try attachment.store.currentView(lease);
     try validate(view);
     if (!view.rooted) return error.RetiredPublication;
-    try reserve(attachment, view.id, driver.Host.DurableSwiss.fromEntropy(view.payload[0..@sizeOf(Entropy)].*));
+    try reserve(attachment, view.id, driver.Host.DurableSwiss.fromEntropy(entropyOf(view)));
     try attachment.store.putCopying(.{ .id = view.id, .revision = 0, .schema = schema.id, .rooted = false, .payload = view.payload }, view.revision);
 }
 
@@ -83,7 +90,7 @@ fn tombstone(batch_change: core.Mutation, owner: *h.Attachment) ?struct { record
     const view = core.RecordView.decode(bytes, owner.store.limits.records, owner.store.cache.schemas) catch return null;
     if (view.schema != schema.id or view.schema_version != schema.version) return null;
     if (view.rooted or view.payload.len != @sizeOf(Entropy)) return null;
-    return .{ .record = batch_change.id, .swiss = driver.Host.DurableSwiss.fromEntropy(view.payload[0..@sizeOf(Entropy)].*) };
+    return .{ .record = batch_change.id, .swiss = driver.Host.DurableSwiss.fromEntropy(entropyOf(view)) };
 }
 
 fn removeFromRegistry(owner: *h.Attachment, swiss: driver.Host.DurableSwiss) !void {
@@ -125,12 +132,15 @@ pub fn dropRetirement(owner: *h.Attachment, record: core.ObjectId) !void {
     return error.UnknownRetirement;
 }
 
-/// Drop custody. `keep_fenced` preserves fenced slots across an unresolved
-/// unknown outcome. Deferred restoration survives every later transaction.
-pub fn releaseRetirements(owner: *h.Attachment, keep_fenced: bool) void {
+/// Whether a custody release keeps fenced slots across an unresolved unknown
+/// outcome.
+pub const Fenced = enum { keep_fenced, release_fenced };
+
+/// Drop custody. Deferred restoration survives every later transaction.
+pub fn releaseRetirements(owner: *h.Attachment, fenced: Fenced) void {
     for (owner.retirements) |*slot| {
         const held = slot.* orelse continue;
-        if (held.republish or (keep_fenced and held.fenced)) continue;
+        if (held.republish or (fenced == .keep_fenced and held.fenced)) continue;
         slot.* = null;
     }
 }
@@ -139,7 +149,7 @@ pub fn releaseRetirements(owner: *h.Attachment, keep_fenced: bool) void {
 /// Existing bounded retirement slots own retry custody until the name is back
 /// in Host or a later committed retirement makes restoration unnecessary.
 pub fn deferRepublish(owner: *h.Attachment) void {
-    releaseRetirements(owner, true);
+    releaseRetirements(owner, .keep_fenced);
     for (owner.retirements) |*slot| if (slot.*) |*held| if (held.fenced and !held.republish) {
         if (held.registered) held.republish = true else slot.* = null;
     };
@@ -171,7 +181,7 @@ pub fn advanceRepublish(owner: *h.Attachment) !bool {
                 progressed = true;
             },
             .read => |read| {
-                @import("storage.zig").retainRead(owner, read, .store);
+                storage.retainRead(owner, read, .store);
                 progressed = true;
             },
         }

@@ -28,9 +28,9 @@ pub fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, dep
     defer init.gpa.free(target_path);
     try std.Io.Dir.cwd().createDir(init.io, source_path, .default_dir);
     try std.Io.Dir.cwd().createDir(init.io, target_path, .default_dir);
-    var source_db = try w.Lmdb.open(source_path, .{ .mode = .{ .create = @fromBackingInt(76) } });
+    var source_db = try w.Lmdb.open(source_path, .{ .opening = .{ .id = @fromBackingInt(76), .mode = .create } });
     defer source_db.close() catch unreachable;
-    var target_db = try w.Lmdb.open(target_path, .{ .mode = .{ .create = @fromBackingInt(77) } });
+    var target_db = try w.Lmdb.open(target_path, .{ .opening = .{ .id = @fromBackingInt(77), .mode = .create } });
     defer target_db.close() catch unreachable;
     var bytes: metrics.LiveBytesAllocator = .{ .backing = init.gpa };
     var allocations: metrics.CountingAllocator = .{ .backing = bytes.allocator() };

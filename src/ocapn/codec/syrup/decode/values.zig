@@ -130,11 +130,11 @@ fn projectSturdyRef(ctx: model.view.LazySturdyRef.Ctx) model.view.ProjectError!m
 /// none, they project lazily as backed `model.view.Args` over their byte
 /// sub-region, the extent-only read every backed sequence uses when a
 /// consumer walks it.
-fn readNeutralArgument(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: *usize, depth: usize) Error!model.view.Argument {
+pub fn readNeutralArgument(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: *usize, depth: usize) Error!model.view.Argument {
     // The nesting cap is held where a collection is entered (`depth` is
     // already checked for this level, and each nested slicer checks its own
     // on entry), so no element pays a second compare here.
-    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
     return switch (bytes[cursor.*]) {
         '0'...'9' => blk: {
             // The digits are scanned once here to find the marker, and the
@@ -142,7 +142,7 @@ fn readNeutralArgument(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: 
             // scanning it again.
             const run = syntax.scanDecimal(bytes[cursor.*..]);
             const marker_index = cursor.* + run.len;
-            if (marker_index >= bytes.len) return Error.Incomplete;
+            if (marker_index >= bytes.len) return Error.MalformedFrame;
             break :blk switch (bytes[marker_index]) {
                 ':' => .{ .bytes = try syntax.readLeafScanned(bytes, cursor, run, ':') },
                 '"' => .{ .string = try syntax.readLeafScanned(bytes, cursor, run, '"') },
@@ -260,23 +260,13 @@ fn readElements(
     const body_start = cursor.*;
     var previous: ?[]const u8 = null;
     var elements: usize = 0;
-    var room = slab;
-    const used_before = if (slab) |s| s.used else 0;
-    var pushed: usize = 0;
+    var open = model.view.ValueSlab.OpenSequence(model.view.Argument).begin(slab);
     while (cursor.* < bytes.len and bytes[cursor.*] != close) {
         elements += 1;
         if (elements > syntax.max_collection_elements) return Error.MalformedFrame;
-        const slot = if (room) |r| r.reserve(model.view.Argument) else null;
-        if (slot != null) {
-            pushed += 1;
-        } else if (room) |r| {
-            r.drop(model.view.Argument, pushed);
-            r.used = used_before;
-            pushed = 0;
-            room = null;
-        }
+        const slot = open.push();
         const start = cursor.*;
-        const argument = try readNeutralArgument(room, bytes, cursor, depth);
+        const argument = try readNeutralArgument(open.room, bytes, cursor, depth);
         if (ordered) {
             const span = bytes[start..cursor.*];
             if (previous) |p| if (!codec_order.byteSliceBefore(p, span)) return Error.MalformedFrame;
@@ -284,8 +274,8 @@ fn readElements(
         }
         if (slot) |reserved| reserved.* = argument;
     }
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    if (room) |r| if (elements != 0) return .fromViews(r.settle(model.view.Argument, pushed));
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
+    if (open.settle()) |views| return .fromViews(views);
     return neutralArgs(.{ .body = bytes[body_start..cursor.*], .elements = elements });
 }
 
@@ -352,7 +342,7 @@ fn sliceElements(
             previous = span;
         }
     }
-    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
     return .{ .body = bytes[body_start..cursor.*], .elements = elements };
 }
 
@@ -374,7 +364,7 @@ fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize) Err
 /// remain cached for later readers (ADR-0231, ADR-0250). A list longer than
 /// the room releases its cached children and comes back wire-backed, so the
 /// slab bounds memory and never the list.
-pub fn readArgumentList(slab: *model.view.ValueSlab, bytes: []const u8, cursor: *usize) Error!model.view.Args {
+pub inline fn readArgumentList(slab: *model.view.ValueSlab, bytes: []const u8, cursor: *usize) Error!model.view.Args {
     return readDelimited(slab, bytes, cursor, 0, '[', ']', false);
 }
 
@@ -386,9 +376,7 @@ fn readStruct(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: *usize, d
     const body_start = cursor.*;
     var previous: ?[]const u8 = null;
     var elements: usize = 0;
-    var room = slab;
-    const used_before = if (slab) |s| s.used else 0;
-    var pushed: usize = 0;
+    var open = model.view.ValueSlab.OpenSequence(model.view.StructEntry).begin(slab);
     while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
         elements += 1;
         if (elements > syntax.max_collection_elements) return Error.MalformedFrame;
@@ -397,22 +385,14 @@ fn readStruct(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: *usize, d
         const span = bytes[start..cursor.*];
         if (previous) |prior| if (!codec_order.byteSliceBefore(prior, span)) return Error.MalformedFrame;
         previous = span;
-        const slot = if (room) |r| r.reserve(model.view.StructEntry) else null;
-        if (slot != null) {
-            pushed += 1;
-        } else if (room) |r| {
-            r.drop(model.view.StructEntry, pushed);
-            r.used = used_before;
-            pushed = 0;
-            room = null;
-        }
-        const value = try readNeutralArgument(room, bytes, cursor, depth);
+        const slot = open.push();
+        const value = try readNeutralArgument(open.room, bytes, cursor, depth);
         if (slot) |reserved| reserved.* = .{ .key = key, .value = value };
     }
-    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* >= bytes.len) return Error.MalformedFrame;
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
-    if (room) |r| if (elements != 0) return .fromViews(r.settle(model.view.StructEntry, pushed));
+    if (open.settle()) |views| return .fromViews(views);
     return neutralStructEntries(.{ .body = body, .elements = elements });
 }
 
@@ -426,17 +406,17 @@ fn readStructEntry(bytes: []const u8, cursor: *usize) Error!model.view.StructEnt
 
 pub fn readNeutralResolution(slab: *model.view.ValueSlab, bytes: []const u8, cursor: *usize) Error!model.view.Resolution {
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readLabel(bytes, cursor);
-    if (std.mem.eql(u8, tag, "resolve:fulfill")) {
+    if (syntax.readKnownLabel(bytes, cursor, "resolve:fulfill")) {
         const argument = try readNeutralArgument(slab, bytes, cursor, 0);
         try syntax.readByte(bytes, cursor, '>');
         return .{ .fulfill = argument };
     }
-    if (std.mem.eql(u8, tag, "resolve:break")) {
+    if (syntax.readKnownLabel(bytes, cursor, "resolve:break")) {
         const err = try readError(bytes, cursor);
         try syntax.readByte(bytes, cursor, '>');
         return .{ .@"break" = .{ .message = err.message } };
     }
+    _ = try syntax.readLabel(bytes, cursor);
     return Error.MalformedFrame;
 }
 
@@ -512,13 +492,11 @@ pub fn readOptionalReference(bytes: []const u8, cursor: *usize) Error!?Reference
 
 fn readError(bytes: []const u8, cursor: *usize) Error!model.BreakReason {
     try syntax.readByte(bytes, cursor, '<');
-    const tag = try syntax.readLabel(bytes, cursor);
-    if (!std.mem.eql(u8, tag, "error")) {
-        return Error.MalformedFrame;
-    }
+    try syntax.expectSymbol(bytes, cursor, "error");
     const message = try syntax.readString(bytes, cursor);
     try syntax.readByte(bytes, cursor, '>');
     return .{ .message = message };
 }
 
 pub const decodeSignedHandoffGiveOwned = handoff.decodeSignedHandoffGiveOwned;
+pub const signedGivePayload = handoff.signedGivePayload;

@@ -3,10 +3,10 @@
 //! claim rather than an assertion.
 //!
 //! What it proves: `b.dependency("glowcap", …)` resolves; `.module("glowcap")`
-//! imports, and so do the two optional modules the site's Zig tabs name,
-//! `glowcap_iroh` (which links the cargo-built sidecar) and
+//! imports, and so do the optional modules the site's Zig tabs name,
+//! `glowcap_iroh` and `glowcap_webrtc` (which link cargo-built sidecars) and
 //! `glowcap_relay_tls` (which builds Mbed TLS from source), and a program
-//! over all three compiles and links. Driven by `zig build consumer-check`
+//! over all of them compiles and links. Driven by `zig build consumer-check`
 //! from the repository root.
 
 const std = @import("std");
@@ -28,6 +28,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("glowcap", glowcap.module("glowcap"));
     exe.root_module.addImport("iroh", glowcap.module("glowcap_iroh"));
     exe.root_module.addImport("relay_tls", glowcap.module("glowcap_relay_tls"));
+    exe.root_module.addImport("webrtc", glowcap.module("glowcap_webrtc"));
     b.installArtifact(exe);
     b.getInstallStep().dependOn(&exe.step);
 }

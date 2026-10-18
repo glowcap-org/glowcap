@@ -1,5 +1,5 @@
-# Pull requests get a short Zig-only check. Main and dev pushes run the full
-# gate sequence in the canonical devcontainer image via ci/gates.sh, plus the
+# Every pull request gets Zig tests and source checks. PRs targeting main and
+# main/dev pushes run the full gate sequence via ci/gates.sh, plus the
 # host-side infrastructure and runtime checks on macOS. A nightly schedule
 # runs the mutation fuzzer a hundred times longer than a push does. The sequence itself is
 # forge-neutral, so this file is the only thing that would change if glowcap
@@ -35,6 +35,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install the pinned Zig
         run: |
@@ -47,17 +48,18 @@ jobs:
       - name: Run the Zig test suite in the shipped optimize mode
         run: zig build test -Doptimize=ReleaseSafe --test-timeout 30s --summary all
 
-      - name: Check Zig formatting
-        run: zig build fmt-check --summary all
+      - name: Check source, documentation, and Zig formatting
+        run: zig build source-check fmt-check --test-timeout 30s --summary all
 
   gates:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.base_ref == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
 
       # The CI action resolves Compose before it runs initializeCommand, so use
       # the same checkout configurator as a contributor and prepare the two
@@ -85,6 +87,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install the pinned Zig
         run: |
@@ -95,13 +98,14 @@ jobs:
         run: zig build fuzz -Dfuzz-runs=2500K --summary all
 
   macos-runtime:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.base_ref == 'main')
     runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install the pinned Zig
         run: |

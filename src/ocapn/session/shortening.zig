@@ -1,8 +1,8 @@
 //! Private next-profile promise-shortening subscriptions.
 //!
 //! These listeners are protocol maintenance, not application questions. Their
-//! resolver exports therefore live in a distinct table from answer resolvers:
-//! a callback advances an imported promise's forwarding target and never
+//! resolver exports carry a shortening purpose rather than an answer: a
+//! callback advances an imported promise's forwarding target and never
 //! surfaces a synthetic application answer.
 //!
 //! The advanced target also decides where the next outbound message is
@@ -16,6 +16,7 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 const session = @import("mod.zig");
 
@@ -39,8 +40,7 @@ pub fn nominate(self: *Session, source: model.ImportPosition) !?Nomination {
     const owns_metadata = self.findImportedPromise(source) == null;
     if (owns_metadata) {
         try self.imported_promises.put(self.allocator, source, .{
-            .host = null,
-            .cell = .{ .row_id = self.nextStoreStamp() },
+            .row_id = self.nextStoreStamp(),
             .shortening_target = source,
         });
     }
@@ -50,16 +50,15 @@ pub fn nominate(self: *Session, source: model.ImportPosition) !?Nomination {
         var removed = self.imported_promises.fetchRemove(source) orelse unreachable;
         session.deinitImportedPromise(self.allocator, &removed.value);
     };
+    const entry = self.findImportedPromise(source).?;
+    if (entry.shortening_subscribed) return null;
     const incarnation: session.PromiseIncarnation = .{
         .position = source,
-        .row_id = self.findImportedPromise(source).?.cell.row_id,
+        .row_id = entry.row_id,
     };
-    if (self.outbound_resolver_link.getByValue(.{ .shortening_pending = incarnation }) != null or
-        self.outbound_resolver_link.getByValue(.{ .shortening_complete = incarnation }) != null)
-        return null;
     const resolver_export = try self.allocateExport();
-    errdefer self.releaseUnsharedExport(resolver_export);
-    try self.outbound_resolver_link.put(self.allocator, resolver_export, .{ .shortening_pending = incarnation });
+    self.exports.setPurpose(resolver_export, .{ .shortening_pending = incarnation });
+    entry.shortening_subscribed = true;
     return .{
         .source = source,
         .incarnation = incarnation,
@@ -69,41 +68,46 @@ pub fn nominate(self: *Session, source: model.ImportPosition) !?Nomination {
 }
 
 pub fn sourceIsHeld(self: *const Session, resolver: model.ExportPosition) bool {
-    const purpose = self.outbound_resolver_link.getByKey(resolver) orelse return false;
+    const purpose = self.exports.purpose(resolver) orelse return false;
     const source = switch (purpose) {
         .shortening_pending => |source| source,
         .shortening_complete => |source| source,
-        .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => return false,
+        .none, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => return false,
     };
     return incarnationIsHeld(self, source);
 }
 
 pub fn abandon(self: *Session, nomination: Nomination) void {
-    std.debug.assert(self.outbound_resolver_link.removeByKey(nomination.resolver_export));
+    std.debug.assert(self.exports.clearPurpose(nomination.resolver_export) != null);
     if (nomination.owns_metadata) {
         // `nominate` recorded `owns_metadata` beside the `put` that created
         // the row, so the undo cannot miss.
         const removed = self.imported_promises.fetchRemove(nomination.source) orelse unreachable;
         var entry = removed.value;
         session.deinitImportedPromise(self.allocator, &entry);
+    } else {
+        // `nominate` set the flag on this incarnation's entry in this
+        // dispatch, so the undo cannot miss.
+        const entry = currentEntry(self, nomination.incarnation) orelse unreachable;
+        entry.shortening_subscribed = false;
     }
     self.releaseUnsharedExport(nomination.resolver_export);
 }
 
 pub fn sourceForResolver(self: *const Session, resolver: model.ExportPosition) ?CallbackState {
-    const purpose = self.outbound_resolver_link.getByKey(resolver) orelse return null;
+    const purpose = self.exports.purpose(resolver) orelse return null;
     return switch (purpose) {
         .shortening_pending => |source| .{ .pending = source },
         .shortening_complete => .complete,
         // `resolver` is a partner-named position, so this probe answers one
         // question: is it a shortening resolver? It returns null for every
-        // other purpose, and the deliver route's later probes
-        // (`isNodeSettlingResolver`, `retiredResolverState`,
-        // `answerForResolverExport`) each answer their own. Only the mint
-        // discipline keeps an answer purpose off a resolver key, and that
-        // discipline holds across dispatches, so the null return is the
-        // safe answer to a mint bug or a probing partner.
-        .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => null,
+        // other purpose; the deliver route reads the purpose itself and the
+        // other probes (`retiredResolverState`, `answerForResolverExport`)
+        // each answer their own. Only the mint discipline keeps an answer
+        // purpose off a resolver key, and that discipline holds across
+        // dispatches, so the null return is the safe answer to a mint bug or
+        // a probing partner.
+        .none, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => null,
     };
 }
 
@@ -111,27 +115,27 @@ pub fn sourceForResolver(self: *const Session, resolver: model.ExportPosition) ?
 /// includes pending targets and detects a partner-proposed cycle in bounded
 /// time. Every existing non-self link was admitted by this same check.
 /// The deliver route classifier reaches here only after
-/// `sourceForShorteningResolver` saw this resolver's pending link row in the
-/// same dispatch, so the lookup below can assert presence and a shortening
+/// `sourceForShorteningResolver` saw this resolver's pending purpose in the
+/// same dispatch, so the read below can assert presence and a shortening
 /// purpose rather than refuse a partner-named position.
 pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, target: model.FarRef) session.Error!void {
-    const purpose = self.outbound_resolver_link.getByKey(resolver) orelse unreachable;
+    const purpose = self.exports.purpose(resolver) orelse unreachable;
     const source = switch (purpose) {
         .shortening_pending => |incarnation| incarnation,
-        .shortening_complete => return session.Error.UnexpectedMessage,
-        .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
+        .shortening_complete => return error.UnexpectedMessage,
+        .none, .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => unreachable,
     };
     if (!incarnationIsCurrent(self, source)) return;
     var current = target.import_position;
     var remaining = self.imported_promises.count() + 1;
     while (remaining != 0) : (remaining -= 1) {
-        if (current == source.position) return session.Error.UnexpectedMessage;
+        if (current == source.position) return error.UnexpectedMessage;
         const entry = self.imported_promises.get(current) orelse return;
         const next = entry.shortening_target;
         if (next == current) return;
         current = next;
     }
-    return session.Error.UnexpectedMessage;
+    return error.UnexpectedMessage;
 }
 
 /// Commit a validated callback. Both rows already exist, so this is
@@ -145,7 +149,7 @@ pub fn validateCompletion(self: *const Session, resolver: model.ExportPosition, 
 /// reason to exist, and the engine releases the retain in the same
 /// transaction instead.
 pub fn complete(self: *Session, resolver: model.ExportPosition, target: model.FarRef, edge_owns_retain: bool) void {
-    const purpose = self.outbound_resolver_link.getByKey(resolver) orelse unreachable;
+    const purpose = self.exports.purpose(resolver) orelse unreachable;
     const source = switch (purpose) {
         .shortening_pending => |incarnation| incarnation,
         // `complete` runs only behind `validateCompletion`, which refuses a
@@ -158,74 +162,44 @@ pub fn complete(self: *Session, resolver: model.ExportPosition, target: model.Fa
         entry.shortening_target_retained = edge_owns_retain;
         if (edge_owns_retain) self.adoptImportRetain(target.import_position);
     }
-    self.outbound_resolver_link.replaceValueForKey(resolver, .{ .shortening_complete = source });
+    _ = self.exports.replacePurpose(resolver, .{ .shortening_complete = source });
 }
 
-/// Release source-owned state after its final import retain disappears. A
-/// pending callback keeps its row-stamped resolver purpose, not an empty map
-/// row. Any later reuse gets a fresh row stamp. A completed callback needs no
-/// row, while its resolver-purpose tombstone remains until the partner releases
-/// the exported resolver mention.
+/// Release source-owned state after its final import retain disappears. The
+/// entry goes unless a settling listener still claims it. A shortening
+/// resolver's purpose stays on its export row until the partner releases
+/// the mention, and names an incarnation no row holds from then on.
 pub fn releaseSourceAuthority(self: *Session, source: session.PromiseIncarnation) void {
     std.debug.assert(!incarnationIsHeld(self, source));
-    const pending_resolver = self.outbound_resolver_link.getByValue(.{ .shortening_pending = source });
-    const complete_resolver = self.outbound_resolver_link.getByValue(.{ .shortening_complete = source });
-
-    if (pending_resolver != null) {
-        if (currentEntry(self, source)) |entry| {
-            if (entry.settling_listener_claimed) return;
-            // `currentEntry` above found the row in this dispatch, so its
-            // undo cannot miss.
-            const removed = self.imported_promises.fetchRemove(source.position) orelse unreachable;
-            var removed_entry = removed.value;
-            session.deinitImportedPromise(self.allocator, &removed_entry);
-        }
-        return;
-    }
-
-    if (incarnationIsCurrent(self, source) and
-        !self.findImportedPromise(source.position).?.settling_listener_claimed)
-    {
-        if (self.imported_promises.fetchRemove(source.position)) |removed| {
-            var entry = removed.value;
-            session.deinitImportedPromise(self.allocator, &entry);
-        }
-    }
-    if (complete_resolver) |resolver| {
-        if (!self.exports.contains(resolver))
-            std.debug.assert(self.outbound_resolver_link.removeByKey(resolver));
-    }
+    const entry = currentEntry(self, source) orelse return;
+    if (entry.settling_listener_claimed) return;
+    // `currentEntry` above found the row in this dispatch, so its undo
+    // cannot miss.
+    const removed = self.imported_promises.fetchRemove(source.position) orelse unreachable;
+    var removed_entry = removed.value;
+    session.deinitImportedPromise(self.allocator, &removed_entry);
 }
 
 /// The partner released its shortening resolver mention. A pending listener
-/// therefore concluded without a shortening callback. Retain a completed
-/// tombstone while the source import remains so a later mention cannot install
-/// a second shortening listener for the same promise.
+/// therefore concluded without a shortening callback. The entry's
+/// `shortening_subscribed` flag outlives the export while the source import
+/// remains, so a later mention cannot install a second shortening listener
+/// for the same promise.
 pub fn releaseResolverExport(self: *Session, resolver: model.ExportPosition) void {
     @import("forwarding.zig").releaseIfUnmentioned(self, resolver);
-    if (self.outbound_resolver_link.getByKey(resolver)) |purpose| {
-        switch (purpose) {
-            .retired => {
-                self.releaseRetiredResolverIfUnmentioned(resolver);
-                return;
-            },
-            else => {},
-        }
-    }
-    if (!self.exports.contains(resolver) or self.exports.wireHeld(resolver) != 0) return;
-    const purpose = self.outbound_resolver_link.getByKey(resolver) orelse return;
+    const purpose = self.exports.purpose(resolver) orelse return;
     const source = switch (purpose) {
-        .shortening_pending => |incarnation| blk: {
-            self.outbound_resolver_link.replaceValueForKey(resolver, .{ .shortening_complete = incarnation });
-            break :blk incarnation;
+        .retired => {
+            self.releaseRetiredResolverIfUnmentioned(resolver);
+            return;
         },
-        .shortening_complete => |incarnation| incarnation,
-        .forwarding, .application_answer, .local_promise_answer, .node_settling, .retired => return,
+        .shortening_pending, .shortening_complete => |incarnation| incarnation,
+        .none, .forwarding, .application_answer, .local_promise_answer, .node_settling => return,
     };
+    if (self.exports.wireHeld(resolver) != 0) return;
 
     self.releaseUnsharedExport(resolver);
     if (!incarnationIsHeld(self, source)) {
-        std.debug.assert(self.outbound_resolver_link.removeByKey(resolver));
         if (incarnationIsCurrent(self, source)) {
             if (!self.findImportedPromise(source.position).?.settling_listener_claimed) {
                 if (self.imported_promises.fetchRemove(source.position)) |removed| {
@@ -239,17 +213,17 @@ pub fn releaseResolverExport(self: *Session, resolver: model.ExportPosition) voi
 
 pub fn incarnationForImport(self: *Session, position: model.ImportPosition) ?session.PromiseIncarnation {
     const entry = self.findImportedPromise(position) orelse return null;
-    return .{ .position = position, .row_id = entry.cell.row_id };
+    return .{ .position = position, .row_id = entry.row_id };
 }
 
 fn currentEntry(self: *Session, source: session.PromiseIncarnation) ?*session.ImportedPromise {
     const entry = self.findImportedPromise(source.position) orelse return null;
-    return if (entry.cell.row_id == source.row_id) entry else null;
+    return if (entry.row_id == source.row_id) entry else null;
 }
 
 fn incarnationIsCurrent(self: *const Session, source: session.PromiseIncarnation) bool {
     const entry = self.imported_promises.get(source.position) orelse return false;
-    return entry.cell.row_id == source.row_id;
+    return entry.row_id == source.row_id;
 }
 
 fn incarnationIsHeld(self: *const Session, source: session.PromiseIncarnation) bool {
@@ -260,6 +234,20 @@ const ReleaseState = struct {
     total: u64 = 0,
     processed: bool = false,
 };
+
+/// Closure scratch keyed by peer-chosen import positions (ADR-0223). A
+/// closure of a few positions stays inline.
+const ReleaseStates = foundation.inline_rows.Table(model.ImportPosition, ReleaseState, 8, .wire);
+
+/// Whether any released position is a shortening source whose stable edge
+/// owns a retain, the only shape that gives a release a closure.
+fn namesRetainedShorteningSource(self: *const Session, positions: []const u64) bool {
+    if (self.imported_promises.count() == 0) return false;
+    for (positions) |raw_position| {
+        if (retainedShorteningTarget(self, .from(raw_position)) != null) return true;
+    }
+    return false;
+}
 
 /// Extend one owned outbound GC operation with the import retains held by
 /// stable shortening edges whose sources this operation releases in full. The
@@ -288,8 +276,11 @@ pub fn expandSessionGcExportReleases(self: *Session, allocator: std.mem.Allocato
 
 fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_export: *model.GcExport, session_owned: bool) !usize {
     try session.validateGcExport(gc_export.*);
+    // `recordSend` owns every bound on the caller's entries, so an ordinary
+    // release returns here with nothing allocated.
+    if (!namesRetainedShorteningSource(self, gc_export.positions)) return 0;
 
-    var states: std.AutoHashMapUnmanaged(model.ImportPosition, ReleaseState) = .empty;
+    var states: ReleaseStates = .keyed(self.wire_hash_multiplier);
     defer states.deinit(allocator);
     var queue: std.ArrayListUnmanaged(model.ImportPosition) = .empty;
     defer queue.deinit(allocator);
@@ -297,17 +288,16 @@ fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_
     defer extra.deinit(allocator);
 
     for (gc_export.positions, gc_export.deltas) |raw_position, delta| {
-        if (raw_position == session.BOOTSTRAP_POSITION) return session.Error.GcUnderflow;
         const position = model.ImportPosition.from(raw_position);
         const gop = try states.getOrPut(allocator, position);
         if (!gop.found_existing) gop.value_ptr.* = .{};
         gop.value_ptr.total = std.math.add(u64, gop.value_ptr.total, delta) catch
-            return session.Error.GcUnderflow;
+            return error.GcUnderflow;
     }
 
     var state_it = states.iterator();
     while (state_it.next()) |entry| {
-        if (entry.value_ptr.total > (if (session_owned) self.imports.sessionHeld(entry.key_ptr.*) else self.imports.releasable(entry.key_ptr.*))) return session.Error.GcUnderflow;
+        if (entry.value_ptr.total > (if (session_owned) self.imports.sessionHeld(entry.key_ptr.*) else self.imports.releasable(entry.key_ptr.*))) return error.GcUnderflow;
         if (entry.value_ptr.total == self.imports.count(entry.key_ptr.*) and retainedShorteningTarget(self, entry.key_ptr.*) != null)
             try queue.append(allocator, entry.key_ptr.*);
     }
@@ -324,7 +314,7 @@ fn expandGcExportReleasesOwned(self: *Session, allocator: std.mem.Allocator, gc_
         const gop = try states.getOrPut(allocator, target);
         if (!gop.found_existing) gop.value_ptr.* = .{};
         gop.value_ptr.total = std.math.add(u64, gop.value_ptr.total, 1) catch
-            return session.Error.GcUnderflow;
+            return error.GcUnderflow;
         // The caller's entries on `target` were bounded by `releasable` above,
         // and every retained edge into it adopted one retain at `complete`,
         // so the running total cannot pass the row's count.
@@ -383,38 +373,15 @@ fn rewriteReference(self: *Session, reference: model.Reference) model.Reference 
     return .{ .far = model.FarRef.promise(current.int()) };
 }
 
-/// Rewrite the far promises the inventory lists, with `root` resolving its
-/// by-value root.
-fn rewriteSlots(self: *Session, inventory: session.Inventory, root: ?*model.Argument) void {
-    for (inventory.slots) |slot| {
-        const argument = slot.at(root);
-        if (argument.* == .reference) argument.* = .{ .reference = rewriteReference(self, argument.reference) };
-    }
-}
-
+/// `rewriteMessage` for a resolution held outside a message. Shortening never
+/// fails, so the walk's error set is empty and the switch proves it.
 pub fn rewriteResolution(self: *Session, resolution: *model.Resolution, inventory: session.Inventory) void {
-    const root: ?*model.Argument = if (resolution.* == .fulfill) &resolution.fulfill else null;
-    rewriteSlots(self, inventory, root);
+    session.inventory.mapResolutionReferences(resolution, inventory, self, rewriteReference) catch |err| switch (err) {};
 }
 
 /// Rewrite every far promise in one owned outbound message through the
 /// authoritative shortening forest. POD references change in place. No heap is
 /// allocated or copied.
 pub fn rewriteMessage(self: *Session, message: *model.Message, inventory: session.Inventory) void {
-    switch (message.*) {
-        .deliver => |*deliver| {
-            deliver.target = rewriteReference(self, deliver.target);
-            if (deliver.resolve_me_desc) |reference| deliver.resolve_me_desc = rewriteReference(self, reference);
-            rewriteSlots(self, inventory, null);
-        },
-        .resolve => |*resolve| rewriteResolution(self, &resolve.resolution, inventory),
-        .listen => |*listen| {
-            listen.target = rewriteReference(self, listen.target);
-            listen.listener = rewriteReference(self, listen.listener);
-        },
-        .get => |*get| get.receiver = rewriteReference(self, get.receiver),
-        .index => |*index| index.receiver = rewriteReference(self, index.receiver),
-        .untag => |*untag| untag.receiver = rewriteReference(self, untag.receiver),
-        .gc_export, .gc_answer, .start_session, .abort => {},
-    }
+    session.inventory.mapMessageReferences(message, inventory, self, rewriteReference) catch |err| switch (err) {};
 }

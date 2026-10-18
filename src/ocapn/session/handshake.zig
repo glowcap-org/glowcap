@@ -16,7 +16,7 @@ const model = @import("model");
 const session = @import("mod.zig");
 
 const Session = session.Session;
-const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const bootstrap_position = session.bootstrap_position;
 
 /// Both handshake halves observed, the precondition for `open`.
 pub fn handshakeComplete(self: *const Session) bool {
@@ -37,16 +37,11 @@ pub fn awaitsPartnerHello(self: *const Session) bool {
 
 /// Moves the session from `Negotiating` to `Open`. It installs the fixed
 /// bootstrap export at
-/// `BOOTSTRAP_POSITION` (the only fallible step) then flips state, so a
+/// `bootstrap_position` (the only fallible step) then flips state, so a
 /// failed registration leaves the session untouched. Called from the
 /// `start_session` apply arms once both handshake halves are observed.
 pub fn transitionToOpen(self: *Session) !void {
-    try self.exports.register(self.allocator, model.ExportPosition.from(BOOTSTRAP_POSITION));
-    // Reserve the bootstrap id: locally-allocated exports (resolver callbacks,
-    // promises, gifts) start past it so `allocateExport` never aliases it.
-    if (self.next_export_position <= BOOTSTRAP_POSITION) {
-        self.next_export_position = BOOTSTRAP_POSITION + 1;
-    }
+    try self.exports.register(self.allocator, model.ExportPosition.from(bootstrap_position));
     self.state = .open;
 }
 

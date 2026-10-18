@@ -2,6 +2,7 @@
 const core = @import("loam_core");
 const Scope = @import("live_scope.zig").Scope;
 const std = @import("std");
+const storage = @import("storage.zig");
 
 pub const Start = struct {
     prior: ?core.ObjectId,
@@ -45,7 +46,7 @@ pub const Start = struct {
             .ready => |lease| return lease,
             .read => |read| {
                 self.pending = read.ticket;
-                @import("storage.zig").retainRead(scope.owner.?, read, .store);
+                storage.retainRead(scope.owner.?, read, .store);
                 return null;
             },
         }

@@ -14,6 +14,7 @@ const LiveBytesAllocator = @import("../../../support/alloc_metrics.zig").LiveByt
 const Node = engine.Node;
 
 const harness = @import("../harness.zig");
+const projection_support = @import("../../../support/projection.zig");
 const pendingWithdrawAnswer = harness.pendingWithdrawAnswer;
 const peerUri = harness.peerUri;
 const peerUriWithAlternatives = harness.peerUriWithAlternatives;
@@ -24,7 +25,7 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "converging next proxy subscriptions merge recipient groups behind one listener" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x44)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x44)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{ .captp_version = .next });
@@ -36,7 +37,7 @@ test "converging next proxy subscriptions merge recipient groups behind one list
         allocator,
         &node,
         node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x45)),
+        @as([crypto.seed_bytes]u8, @splat(0x45)),
     );
     defer counterpart.deinit();
     const home_peer = node.peer(home).?;
@@ -44,15 +45,19 @@ test "converging next proxy subscriptions merge recipient groups behind one list
     const source: u64 = 4;
     const target: u64 = 6;
     try home_peer.session_state.registerImport(.from(source));
-    const source_shortening = model.ExportPosition.from(home_peer.session_state.next_export_position);
+    const source_shortening = home_peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(home_peer, .from(source));
-    const source_route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(source) });
+    const source_route = try node.enrollForeign(home, model.FarRef.promise(source));
     const source_ref = (try node.proxyForeignPromiseFulfill(recipient_a, source_route.routed.id)).?;
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient_a).?.session_state.exports.retain(.from(source_ref.near.export_position.int()));
 
     try home_peer.session_state.registerImport(.from(target));
     try engine.listen.ensureShorteningListener(home_peer, .from(target));
-    const target_route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(target) });
+    const target_route = try node.enrollForeign(home, model.FarRef.promise(target));
     const target_ref = (try node.proxyForeignPromiseFulfill(recipient_b, target_route.routed.id)).?;
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient_b).?.session_state.exports.retain(.from(target_ref.near.export_position.int()));
 
     while ((try home_peer.step()) != .idle) {}
     var source_shortening_frame = home_peer.takeOutbound().?;
@@ -91,6 +96,10 @@ test "converging next proxy subscriptions merge recipient groups behind one list
         recipient_d,
         target_route.routed.id,
     )).?;
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient_c).?.session_state.exports.retain(.from(source_late.near.export_position.int()));
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient_d).?.session_state.exports.retain(.from(target_late.near.export_position.int()));
     while ((try home_peer.step()) != .idle) {}
     try std.testing.expect(home_peer.takeOutbound() == null);
 
@@ -100,27 +109,19 @@ test "converging next proxy subscriptions merge recipient groups behind one list
     }));
     try std.testing.expectEqualStrings(
         "shared settlement",
-        node.peer(recipient_a).?.session_state.importedPromiseResolution(
-            .from(source_ref.near.export_position.int()),
-        ).?.fulfill.bytes,
+        projection_support.resolution(&node.peer(recipient_a).?.session_state, .from(source_ref.near.export_position.int())).?.fulfill.bytes,
     );
     try std.testing.expectEqualStrings(
         "shared settlement",
-        node.peer(recipient_b).?.session_state.importedPromiseResolution(
-            .from(target_ref.near.export_position.int()),
-        ).?.fulfill.bytes,
+        projection_support.resolution(&node.peer(recipient_b).?.session_state, .from(target_ref.near.export_position.int())).?.fulfill.bytes,
     );
     try std.testing.expectEqualStrings(
         "shared settlement",
-        node.peer(recipient_c).?.session_state.importedPromiseResolution(
-            .from(source_late.near.export_position.int()),
-        ).?.fulfill.bytes,
+        projection_support.resolution(&node.peer(recipient_c).?.session_state, .from(source_late.near.export_position.int())).?.fulfill.bytes,
     );
     try std.testing.expectEqualStrings(
         "shared settlement",
-        node.peer(recipient_d).?.session_state.importedPromiseResolution(
-            .from(target_late.near.export_position.int()),
-        ).?.fulfill.bytes,
+        projection_support.resolution(&node.peer(recipient_d).?.session_state, .from(target_late.near.export_position.int())).?.fulfill.bytes,
     );
 }
 
@@ -129,7 +130,7 @@ fn runMixedSettlingConvergence(
     source_is_node: bool,
     release_application_before_settlement: bool,
 ) !void {
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x46)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x46)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{ .captp_version = .next });
@@ -138,14 +139,14 @@ fn runMixedSettlingConvergence(
         allocator,
         &node,
         node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x47)),
+        @as([crypto.seed_bytes]u8, @splat(0x47)),
     );
     defer counterpart.deinit();
     const home_peer = node.peer(home).?;
     const source: u64 = 4;
     const target: u64 = 6;
     try home_peer.session_state.registerImport(.from(source));
-    const source_shortening = model.ExportPosition.from(home_peer.session_state.next_export_position);
+    const source_shortening = home_peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(home_peer, .from(source));
     try home_peer.session_state.registerImport(.from(target));
     try engine.listen.ensureShorteningListener(home_peer, .from(target));
@@ -153,15 +154,19 @@ fn runMixedSettlingConvergence(
     var application_answer: model.AnswerPosition = undefined;
     var recipient_import: u64 = undefined;
     if (source_is_node) {
-        const source_route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(source) });
+        const source_route = try node.enrollForeign(home, model.FarRef.promise(source));
         const recipient_ref = (try node.proxyForeignPromiseFulfill(recipient, source_route.routed.id)).?;
         recipient_import = recipient_ref.near.export_position.int();
-        application_answer = try engine.listen.listenOnFar(home_peer, .{ .far = model.FarRef.promise(target) });
+        // Hold the projection as the partner would once its message is sent.
+        node.peer(recipient).?.session_state.exports.retain(.from(recipient_import));
+        application_answer = (try engine.listen.listenOnFar(home_peer, .{ .far = model.FarRef.promise(target) })).position;
     } else {
-        application_answer = try engine.listen.listenOnFar(home_peer, .{ .far = model.FarRef.promise(source) });
-        const target_route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(target) });
+        application_answer = (try engine.listen.listenOnFar(home_peer, .{ .far = model.FarRef.promise(source) })).position;
+        const target_route = try node.enrollForeign(home, model.FarRef.promise(target));
         const recipient_ref = (try node.proxyForeignPromiseFulfill(recipient, target_route.routed.id)).?;
         recipient_import = recipient_ref.near.export_position.int();
+        // Hold the projection as the partner would once its message is sent.
+        node.peer(recipient).?.session_state.exports.retain(.from(recipient_import));
     }
     while ((try home_peer.step()) != .idle) {}
     while (home_peer.takeOutbound()) |frame_in| {
@@ -192,7 +197,7 @@ fn runMixedSettlingConvergence(
             frame.deinit();
         }
         try std.testing.expect(home_peer.session_state.outboundAnswer(application_answer) == null);
-        try std.testing.expect(home_peer.session_state.isNodeSettlingResolver(.from(target_listener)));
+        try std.testing.expect(home_peer.session_state.resolverPurpose(.from(target_listener)).? == .node_settling);
     }
     const settlement_args = [_]model.Argument{
         .{ .symbol = "fulfill" },
@@ -228,7 +233,7 @@ fn runMixedSettlingConvergence(
     }
     try std.testing.expectEqualStrings(
         "mixed settlement",
-        node.peer(recipient).?.session_state.importedPromiseResolution(.from(recipient_import)).?.fulfill.bytes,
+        projection_support.resolution(&node.peer(recipient).?.session_state, .from(recipient_import)).?.fulfill.bytes,
     );
 }
 

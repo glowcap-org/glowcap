@@ -74,25 +74,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 try backend.armPlatformRecv(c);
             }
 
-            pub fn idFromFd(fd: Fd) ?ConnId {
-                return Self.idFromFd(fd);
-            }
-
-            pub fn internalUd(op: InternalOp, id: ConnId) u64 {
-                return Self.internalUd(op, id);
-            }
-
-            pub fn internalId(user_data: u64) ConnId {
-                return Self.internalId(user_data);
-            }
-
-            pub fn internalOp(user_data: u64) InternalOp {
-                return Self.internalOp(user_data);
-            }
-
-            pub fn promoteParked(backend: *Self, c: *RelayConn) void {
-                Registration.promote(backend, c);
-            }
+            pub const idFromFd = Self.idFromFd;
+            pub const internalUd = Self.internalUd;
+            pub const internalId = Self.internalId;
+            pub const internalOp = Self.internalOp;
+            pub const promoteParked = Registration.promote;
 
             pub fn isRegistrationLeg(backend: *const Self, id: ConnId) bool {
                 return backend.registration.isLeg(id);
@@ -116,18 +102,9 @@ pub fn CompletionBackend(comptime Platform: type) type {
             pub const dialId = DialIdentity.id;
             pub const dialSlot = DialIdentity.slot;
             pub const dialOp = DialIdentity.op;
-
-            pub fn failureToken(id: ConnId) u32 {
-                return Namespace.borrowToken(id);
-            }
-
-            pub fn adoptWinner(backend: *Self, pending: *PendingDial, fd: Fd) void {
-                LegStart.adoptWinner(backend, pending, fd);
-            }
-
-            pub fn destroyPending(backend: *Self, pending: *PendingDial) void {
-                LegStart.destroyPending(backend, pending);
-            }
+            pub const failureToken = Namespace.borrowToken;
+            pub const adoptWinner = LegStart.adoptWinner;
+            pub const destroyPending = LegStart.destroyPending;
 
             pub fn retirePending(
                 backend: *Self,
@@ -151,41 +128,15 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 try backend.armPlatformRecv(c);
             }
 
-            pub fn retryPendingDialCloses(backend: *Self) void {
-                DialRace.retryPendingCloses(backend);
-            }
-
-            pub fn retryPendingSecureSends(backend: *Self) void {
-                Tls.retryPendingSends(backend);
-            }
-
-            pub fn retryPendingCloses(backend: *Self) void {
-                Lifecycle.retryPendingCloses(backend);
-            }
-
-            pub fn serviceRegistration(backend: *Self) void {
-                Registration.service(backend);
-            }
-
-            pub fn registrationWaitMs(backend: *const Self) ?i32 {
-                return Registration.waitMs(backend);
-            }
-
-            pub fn resolverCompleted(backend: *Self, job: *completion_resolver.Job) void {
-                DialRace.resolverCompleted(backend, job);
-            }
-
-            pub fn isDialInternal(user_data: u64) bool {
-                return DialIdentity.owns(user_data);
-            }
-
-            pub fn isInternal(user_data: u64) bool {
-                return Identity.owns(user_data);
-            }
-
-            pub fn dispatchDial(backend: *Self, comp: completion.Completion) void {
-                DialRace.dispatch(backend, comp);
-            }
+            pub const retryPendingDialCloses = DialRace.retryPendingCloses;
+            pub const retryPendingSecureSends = Tls.retryPendingSends;
+            pub const retryPendingCloses = Lifecycle.retryPendingCloses;
+            pub const serviceRegistration = Registration.service;
+            pub const registrationWaitMs = Registration.waitMs;
+            pub const resolverCompleted = DialRace.resolverCompleted;
+            pub const isDialInternal = DialIdentity.owns;
+            pub const isInternal = Identity.owns;
+            pub const dispatchDial = DialRace.dispatch;
 
             pub fn dispatchInternal(backend: *Self, comp: completion.Completion) void {
                 Dispatch.dispatch(backend, comp) catch |err| {
@@ -469,7 +420,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             };
         }
 
-        pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.PEER_KEY_BYTES]u8 {
+        pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.peer_key_bytes]u8 {
             if (idFromFd(fd) != null) return null;
             return self.platform.verifiedChannelKey(fd);
         }
@@ -558,9 +509,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             try self.platform.submitRecv(user_data, fd);
         }
 
-        pub fn submitSend(self: *Self, user_data: u64, fd: Fd, bytes: []const u8) !void {
-            try Send.submit(self, user_data, fd, bytes);
-        }
+        pub const submitSend = Send.submit;
 
         pub fn submitCancel(
             self: *Self,
@@ -603,13 +552,8 @@ pub fn CompletionBackend(comptime Platform: type) type {
             try Lifecycle.submitClose(self, user_data, fd);
         }
 
-        pub fn poll(self: *Self, out: []completion.Completion, timeout_ms: i32) !usize {
-            return Poll.poll(self, out, timeout_ms);
-        }
-
-        pub fn peek(self: *Self, out: []completion.Completion) !usize {
-            return Poll.peek(self, out);
-        }
+        pub const poll = Poll.poll;
+        pub const peek = Poll.peek;
 
         fn startRelayDial(self: *Self, user_data: u64, target: @FieldType(ConnectTarget, "keyed_relay")) !Fd {
             const relay_url = if (self.relay) |relay|

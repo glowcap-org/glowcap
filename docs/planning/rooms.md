@@ -93,7 +93,7 @@ numbers the proofs replace anyway.
 
 ## Steps
 
-The steps alternate between two kinds. A **seam** opens a mechanism nobody
+Steps come in two kinds. A **seam** opens a mechanism nobody
 has built yet and needs a planner who reads the design first. It lands in a
 few commits, and its test is the exit named below. A **sweep** applies a rule
 the seam settled to a counted list of places, one commit per row, and a
@@ -207,7 +207,7 @@ acceptance test for the whole, not for one step.
 
 ## Parallel work
 
-The steps before the proofs sweep split into three lanes along the seams. Each
+Steps 1 to 7 and 9 split into three lanes along the seams. Each
 seam names the exact files its sweep touches before the sweep starts.
 
 | Lane | Steps | Owns | Starts |

@@ -59,12 +59,13 @@ test "supported WebRTC type surfaces and footprints stay exact" {
     // The `Backend` footprint is stated under runtime safety, where each
     // embedded `std.ArrayList` header carries std's one-word
     // `pointer_stability` lock: 64 of these bytes, one fixed charge per loop.
-    // The readiness set is another 16, the cost of presenting a single
-    // readiness descriptor. The watch list and the park's poll set are 64,
+    // The readiness set is another 24, the cost of presenting a single
+    // readiness descriptor plus the held-seat count every ready queue
+    // carries for the backends that reserve. The watch list and the park's poll set are 64,
     // the cost of parking the runtime inside this backend. The signaling
     // authority is 32: its context and the three send verbs.
     if (!std.debug.runtime_safety) return error.SkipZigTest;
-    try std.testing.expectEqual(@as(usize, 848), @sizeOf(webrtc.Backend));
+    try std.testing.expectEqual(@as(usize, 856), @sizeOf(webrtc.Backend));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(webrtc.Backend));
 }
 
@@ -545,7 +546,7 @@ test "adopted peer reports the signaling-authorized channel key" {
     try backend.conns.put(fd, .{ .peer = peer });
 
     try std.testing.expectEqualSlices(u8, key.asBytes(), &(backend.verifiedChannelKey(fd) orelse return error.MissingChannelKey));
-    try std.testing.expectEqual(@as(?[foundation.crypto.PEER_KEY_BYTES]u8, null), backend.verifiedChannelKey(fd + 1));
+    try std.testing.expectEqual(@as(?[foundation.crypto.peer_key_bytes]u8, null), backend.verifiedChannelKey(fd + 1));
 }
 
 test "signal drain failure retires current row and retries the next exactly once" {

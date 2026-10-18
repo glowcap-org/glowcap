@@ -4,6 +4,7 @@
 //! `session/lifecycle.zig`. Turn-time verbs live in `turn.zig`.
 
 const std = @import("std");
+const driver_core = @import("driver_core");
 
 const model = @import("model");
 
@@ -208,18 +209,9 @@ pub fn glowcap_host_session_send(
     out_vow: ?*u64,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
     const slot = out_vow orelse return GLOWCAP_ERR_NULL_POINTER;
-    const inst = instOf(session.host);
-    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    slot.* = inst.core.sendValues(
-        session,
-        inst.core.capabilityFromRaw(target_ptr.id),
-        msg.verb,
-        msg.args,
-        inst.arg_scratch.allocator(),
-    ) catch |err| return errToCode(err);
+    const call = sessionCall(raw, target, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    slot.* = call.inst.core.sendValues(call.session, call.target, call.msg.verb, call.msg.args, call.inst.arg_scratch.allocator()) catch |err| return errToCode(err);
     return GLOWCAP_OK;
 }
 
@@ -234,18 +226,34 @@ pub fn glowcap_host_session_tell(
     args_len: usize,
 ) callconv(.c) i32 {
     shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    const target_ptr = target orelse return GLOWCAP_ERR_NULL_POINTER;
-    const inst = instOf(session.host);
-    const msg = valueMessageFromC(inst, verb, verb_len, args, args_len) catch |err| return errToCode(err);
-    inst.core.tellValues(
-        session,
-        inst.core.capabilityFromRaw(target_ptr.id),
-        msg.verb,
-        msg.args,
-        inst.arg_scratch.allocator(),
-    ) catch |err| return errToCode(err);
+    const call = sessionCall(raw, target, verb, verb_len, args, args_len) catch |err| return errToCode(err);
+    call.inst.core.tellValues(call.session, call.target, call.msg.verb, call.msg.args, call.inst.arg_scratch.allocator()) catch |err| return errToCode(err);
     return GLOWCAP_OK;
+}
+
+/// What every session message verb resolves before it acts: the session
+/// behind the handle, its instance, the target capability, and the decoded
+/// message. A null handle or target is `NullPointer`.
+const SessionCall = struct {
+    session: *common.HostSession,
+    inst: *common.Instance,
+    target: driver_core.Capability,
+    msg: common.ValueMessage,
+};
+
+fn sessionCall(
+    raw: ?*GlowcapHostSession,
+    target: ?*const shared.GlowcapReference,
+    verb: ?[*]const u8,
+    verb_len: usize,
+    args: ?[*]const shared.GlowcapArgument,
+    args_len: usize,
+) !SessionCall {
+    const session = sessionFrom(raw) orelse return error.NullPointer;
+    const target_ptr = target orelse return error.NullPointer;
+    const inst = instOf(session.host);
+    const msg = try valueMessageFromC(inst, verb, verb_len, args, args_len);
+    return .{ .session = session, .inst = inst, .target = inst.core.capabilityFromRaw(target_ptr.id), .msg = msg };
 }
 
 /// Promise pipelining: eventual-send to a host vow before it resolves,

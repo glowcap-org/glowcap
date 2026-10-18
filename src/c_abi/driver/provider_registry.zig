@@ -22,7 +22,6 @@ const Owner = owner_mod.Owner;
 
 const GLOWCAP_OK = shared.GLOWCAP_OK;
 const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
-const GLOWCAP_ERR_INVALID_ARGUMENT = shared.GLOWCAP_ERR_INVALID_ARGUMENT;
 
 pub const ProviderInstallOutcome = install_outcome.Outcome;
 
@@ -103,8 +102,7 @@ pub const Registry = struct {
             package.entry_count == 0 or package.entries == null or
             package.same_configuration == null or package.retain == null or package.release == null)
         {
-            shared.setLastError("driver: invalid transport provider package", .{});
-            return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
+            return refusePackage("driver: invalid transport provider package");
         }
 
         const entries = package.entries.?[0..package.entry_count];
@@ -112,10 +110,8 @@ pub const Registry = struct {
             return .fromError(error.OutOfMemory);
         defer self.owner.allocator.free(decoded_profiles);
         for (entries, decoded_profiles) |entry, *profile| {
-            const profile_table = entry.profile orelse {
-                shared.setLastError("driver: provider entry has no transport profile", .{});
-                return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
-            };
+            const profile_table = entry.profile orelse
+                return refusePackage("driver: provider entry has no transport profile");
             profile.* = validation.transportProfile(profile_table) catch |err| return errorOutcome(err);
         }
 
@@ -136,7 +132,7 @@ pub const Registry = struct {
                 )) |cleanup| failure.noteFailure(cleanup);
             }
             failure_output.setLastError("driver provider retain", failure);
-            return .{ .result = driver_error.code(failure.kind), .failure = failure };
+            return .{ .result = driver_error.code(failure.kind()), .failure = failure };
         }
 
         var lease_consumed = false;
@@ -175,51 +171,16 @@ pub const Registry = struct {
         };
 
         for (entries, prepared_entries, decoded_profiles) |entry, *prepared_entry, profile| {
-            const implementation = entry.implementation orelse {
-                shared.setLastError("driver: provider entry has no implementation table", .{});
-                return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
-            };
-            for (prepared_entries[0..prepared]) |prior| {
-                if (prior.implementation != implementation) continue;
-                const same_model = switch (prior.adapter) {
-                    .stream => entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM,
-                    .multiplexed => entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED,
-                };
-                if (!same_model) {
-                    shared.setLastError("driver: one implementation table cannot use two execution models", .{});
-                    return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
-                }
-                if (entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM) {
-                    shared.setLastError("driver: each stream profile requires its own implementation table", .{});
-                    return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
-                }
-            }
-
-            const adapter: Adapter = switch (entry.execution_model) {
-                shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM => blk: {
-                    const table = validation.implementationTable(shared.GlowcapStreamTransport, implementation, "stream") catch |err|
-                        return errorOutcome(err);
-                    const adapter = stream_adapter.prepare(&self.owner, profile, table) catch |err| return errorOutcome(err);
-                    owned_adapters[owned] = .{ .stream = adapter };
-                    owned += 1;
-                    break :blk .{ .stream = adapter };
-                },
-                shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED => blk: {
-                    for (prepared_entries[0..prepared]) |prior| {
-                        if (prior.implementation == implementation) break :blk prior.adapter;
-                    }
-                    const table = validation.implementationTable(shared.GlowcapMultiplexedTransport, implementation, "multiplexed") catch |err|
-                        return errorOutcome(err);
-                    const adapter = multiplexed_adapter.prepare(&self.owner, table) catch |err| return errorOutcome(err);
-                    owned_adapters[owned] = .{ .multiplexed = adapter };
-                    owned += 1;
-                    break :blk .{ .multiplexed = adapter };
-                },
-                else => {
-                    shared.setLastError("driver: provider entry has an unknown execution model", .{});
-                    return .fromCode(GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidProviderPackage);
-                },
-            };
+            const implementation = entry.implementation orelse
+                return refusePackage("driver: provider entry has no implementation table");
+            const adapter = self.prepareAdapter(
+                entry,
+                profile,
+                implementation,
+                prepared_entries[0..prepared],
+                owned_adapters,
+                &owned,
+            ) catch |err| return if (err == error.InvalidProviderPackage) .fromError(err) else errorOutcome(err);
             prepared_entry.* = .{
                 .profile = profile,
                 .adapter = adapter,
@@ -267,17 +228,76 @@ pub const Registry = struct {
             var failure = driver.OperationFailure.fromError(err);
             if (PreparedPackage.releaseOwner(prepared_package)) |cleanup| failure.noteFailure(cleanup);
             failure_output.setLastError("driver provider registration", failure);
-            return .{ .result = driver_error.code(failure.kind), .failure = failure };
+            return .{ .result = driver_error.code(failure.kind()), .failure = failure };
         };
         if (!installed) {
             if (PreparedPackage.releaseOwner(prepared_package)) |failure| {
                 failure_output.setLastError("driver provider release", failure);
-                return .{ .result = driver_error.code(failure.kind), .failure = failure };
+                return .{ .result = driver_error.code(failure.kind()), .failure = failure };
             }
         }
         return .{};
     }
+
+    /// Validate one entry's implementation table against the entries already
+    /// prepared and build its adapter. A stream profile owns its own table;
+    /// multiplexed profiles that name one table share one adapter, which is
+    /// prepared on first sight and appended to `owned_adapters`.
+    fn prepareAdapter(
+        self: *Registry,
+        entry: shared.GlowcapTransportProviderEntry,
+        profile: model.transport.Metadata,
+        implementation: *const anyopaque,
+        prior_entries: []const PreparedEntry,
+        owned_adapters: []Adapter,
+        owned: *usize,
+    ) !Adapter {
+        const stream = entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM;
+        for (prior_entries) |prior| {
+            if (prior.implementation != implementation) continue;
+            const same_model = switch (prior.adapter) {
+                .stream => stream,
+                .multiplexed => entry.execution_model == shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED,
+            };
+            if (!same_model) {
+                shared.setLastError("driver: one implementation table cannot use two execution models", .{});
+                return error.InvalidProviderPackage;
+            }
+            if (stream) {
+                shared.setLastError("driver: each stream profile requires its own implementation table", .{});
+                return error.InvalidProviderPackage;
+            }
+        }
+        switch (entry.execution_model) {
+            shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_STREAM => {
+                const table = try validation.implementationTable(shared.GlowcapStreamTransport, implementation, "stream");
+                const adapter = try stream_adapter.prepare(&self.owner, profile, table);
+                owned_adapters[owned.*] = .{ .stream = adapter };
+                owned.* += 1;
+                return .{ .stream = adapter };
+            },
+            shared.transport_provider.GLOWCAP_TRANSPORT_EXEC_MULTIPLEXED => {
+                for (prior_entries) |prior| {
+                    if (prior.implementation == implementation) return prior.adapter;
+                }
+                const table = try validation.implementationTable(shared.GlowcapMultiplexedTransport, implementation, "multiplexed");
+                const adapter = try multiplexed_adapter.prepare(&self.owner, table);
+                owned_adapters[owned.*] = .{ .multiplexed = adapter };
+                owned.* += 1;
+                return .{ .multiplexed = adapter };
+            },
+            else => {
+                shared.setLastError("driver: provider entry has an unknown execution model", .{});
+                return error.InvalidProviderPackage;
+            },
+        }
+    }
 };
+
+fn refusePackage(comptime message: []const u8) ProviderInstallOutcome {
+    shared.setLastError(message, .{});
+    return .fromError(error.InvalidProviderPackage);
+}
 
 fn errorOutcome(err: anyerror) ProviderInstallOutcome {
     if (err != error.InvalidArgument) shared.setLastError("driver provider: {s}", .{@errorName(err)});

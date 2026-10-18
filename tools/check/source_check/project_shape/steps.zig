@@ -36,6 +36,11 @@ const fixed_command_docs = [_][]const u8{
 const ci_command_dirs = [_][]const u8{".github/workflows"};
 const ci_command_files = [_][]const u8{"ci/gates.sh"};
 
+/// The one doc that lists every step. Other docs may cite a step, and each
+/// citation must name a real step, but only this index satisfies the reverse
+/// every-step-is-documented direction.
+const step_index_doc = "docs/build-steps.md";
+
 /// Appends each command-context region of a Markdown document to `out`: every
 /// line inside a fenced code block, and the text of every inline backtick span
 /// elsewhere. Regions are slices into `contents`, so they share its lifetime.
@@ -171,7 +176,7 @@ pub fn checkDocumentedBuildSteps(
 
     // Every `zig build <token>` token found across the corpus. Used both
     // forward (each documented token must name a real step) and in reverse
-    // (each real step must be documented somewhere). Keys are duped into an
+    // (each real step must be listed in the step index). Keys are duped into an
     // arena because each doc's `contents` is freed before the next iteration.
     var documented_arena = std.heap.ArenaAllocator.init(gpa);
     defer documented_arena.deinit();
@@ -194,6 +199,7 @@ pub fn checkDocumentedBuildSteps(
             .documented = &documented,
             .documented_arena = documented_arena.allocator(),
             .path = path,
+            .record_documented = std.mem.eql(u8, path, step_index_doc),
         };
 
         // A `zig build`/`bash` citation is a command claim only inside command
@@ -236,14 +242,14 @@ pub fn checkDocumentedBuildSteps(
         try scan.region(contents);
     }
 
-    // Reverse direction: every build.zig step must be documented as
-    // `zig build <name>` in at least one checked doc, so a new step cannot ship
+    // Reverse direction: every build.zig step must be listed as
+    // `zig build <name>` in the step index, so a new step cannot ship
     // undiscoverable. `build` is the implicit default alias and is exempt.
     var it = steps.keyIterator();
     while (it.next()) |name| {
         if (std.mem.eql(u8, name.*, "build")) continue;
         if (!documented.contains(name.*)) {
-            try appendViolation(gpa, violations, "build.zig: step `{s}` is not documented as `zig build {s}` in any checked doc", .{ name.*, name.* });
+            try appendViolation(gpa, violations, "build.zig: step `{s}` is not listed as `zig build {s}` in {s}", .{ name.*, name.*, step_index_doc });
         }
     }
 }

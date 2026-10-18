@@ -71,8 +71,8 @@ binding creates no executor of its own.
 - If the `LocalSet` ends, the next call that drives the Host finishes the
   waiting work.
 
-Writes that change permissions require the browser's strict durability
-setting. Rooms' private startup writes use the same setting and compare the
+Every Loam write requires the browser's strict durability setting, and a
+browser that cannot provide it refuses the write. Rooms' private startup writes use the same setting and compare the
 whole previous record in their transaction, so a slow preparation cannot
 replace a root another tab has already saved.
 

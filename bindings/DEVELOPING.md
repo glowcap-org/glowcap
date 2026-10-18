@@ -9,9 +9,7 @@ sources:
 
 # Developing a binding
 
-This page is for maintainers of the Rust, TypeScript, Python, and Racket
-bindings. Application authors should start with the
-[binding overview](README.md).
+Application authors should start with the [binding overview](README.md).
 
 The Host and driver are separate, symbol-disjoint archives. Every binding that
 loads the C libraries loads `libglowcap_host` for the `glowcap_host_*` family
@@ -47,6 +45,11 @@ one step plus the event queue. The byte-fed drain can request:
 - `FLUSH`: take outbound frames and write them.
 - `NEED_GIFT_ID`: provide 32 random bytes, or report that entropy failed.
 - `SETTLE` or `FAIL`: resolve the language promise named by the ticket.
+- `CLOSE`: write any queued last frame, close the session's transport, and
+  release the session.
+- `RESUME`: keep draining, because the Host yielded with work left.
+- `CANCEL_DIAL`: interrupt and join the dial named by the ticket, then report
+  that it was cancelled.
 
 A pump hook returning non-OK is a transactional refusal: it must have committed
 no external effect, and the same action remains first for the next drain call.

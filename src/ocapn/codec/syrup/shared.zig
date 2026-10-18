@@ -55,11 +55,6 @@ pub const Error = error{
     /// it typed still contains an encoder defect to the operation instead of
     /// terminating an embedding process.
     EncoderInvariantViolation,
-    /// The buffer ends inside a message, a leaf reader ran past the available
-    /// bytes. This is an internal signal, not a public decode failure: the
-    /// whole-frame `decodeBody` folds it into `MalformedFrame`, because a frame
-    /// must be complete. No structurally valid frame ever yields it.
-    Incomplete,
 };
 
 /// Shared UTF-8 validation for text entering or leaving Syrup.
@@ -71,10 +66,9 @@ pub const textValid = foundation.utf8.valid;
 /// around a recursive cycle, so
 /// these would otherwise have to fall back to the fully-erased error set and lose
 /// exhaustiveness at every call site. Naming the union, the codec's structural
-/// `Error`, the allocator's `OutOfMemory`, and `NoSpaceLeft`, keeps them
-/// typed. (`NoSpaceLeft` is unreachable: a sink lays a decimal down at its
-/// measured width. The name stays so WalkError callers do not churn.)
-pub const WalkError = Error || std.mem.Allocator.Error || error{NoSpaceLeft} || model.view.ProjectError;
+/// `Error`, the allocator's `OutOfMemory`, and the projection error, keeps them
+/// typed.
+pub const WalkError = Error || std.mem.Allocator.Error || model.view.ProjectError;
 
 /// The public encode entry points' error set: the recursive walk's `WalkError`
 /// plus the frame constructor's shape refusal, the same named-set posture as

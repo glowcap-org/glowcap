@@ -6,6 +6,7 @@ const shared = @import("c_abi_shared");
 
 const c = @import("../mod.zig");
 const common = @import("../common.zig");
+const driver_core = @import("driver_core");
 
 const sessionFrom = common.sessionFrom;
 const instOf = common.instOf;
@@ -116,22 +117,7 @@ pub fn glowcap_host_session_take_packet(
     prefix_cap: usize,
     out_prefix_len: ?*usize,
 ) callconv(.c) i32 {
-    shared.lastErrorClear();
-    const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_take_packet")) return GLOWCAP_ERR_INVALID_ARGUMENT;
-    const slot = out_frame orelse return GLOWCAP_ERR_NULL_POINTER;
-    const prefix = out_prefix orelse return GLOWCAP_ERR_NULL_POINTER;
-    const prefix_len = out_prefix_len orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (prefix_cap < c.GLOWCAP_HOST_OUTBOUND_PREFIX_CAP) {
-        prefix_len.* = c.GLOWCAP_HOST_OUTBOUND_PREFIX_CAP;
-        return shared.GLOWCAP_ERR_BUFFER_TOO_SMALL;
-    }
-    const popped = session.takeTransportOutbound() catch |err| return errToCode(err);
-    const outbound = popped orelse return GLOWCAP_ERR_WOULD_BLOCK;
-    @memcpy(prefix[0..outbound.prefix_len], outbound.prefixBytes());
-    prefix_len.* = outbound.prefix_len;
-    slot.* = shared.managedFrame(outbound.payload);
-    return GLOWCAP_OK;
+    return takeOutbound("session_take_packet", driver_core.HostSession.takeTransportOutbound, raw, out_frame, out_prefix, prefix_cap, out_prefix_len);
 }
 
 /// Drain one transport-ready byte-stream vector. Write
@@ -146,9 +132,23 @@ pub fn glowcap_host_session_take_outbound(
     prefix_cap: usize,
     out_prefix_len: ?*usize,
 ) callconv(.c) i32 {
+    return takeOutbound("session_take_outbound", driver_core.HostSession.takeStreamOutbound, raw, out_frame, out_prefix, prefix_cap, out_prefix_len);
+}
+
+/// The one drain protocol both verbs share: `take` pops the session's next
+/// outbound of its kind, and the prefix buffer must hold the canonical cap.
+fn takeOutbound(
+    comptime verb: []const u8,
+    comptime take: anytype,
+    raw: ?*GlowcapHostSession,
+    out_frame: ?*GlowcapManagedFrame,
+    out_prefix: ?[*]u8,
+    prefix_cap: usize,
+    out_prefix_len: ?*usize,
+) i32 {
     shared.lastErrorClear();
     const session = sessionFrom(raw) orelse return GLOWCAP_ERR_NULL_POINTER;
-    if (!common.embedderOwnsDrive(instOf(session.host), "session_take_outbound")) return GLOWCAP_ERR_INVALID_ARGUMENT;
+    if (!common.embedderOwnsDrive(instOf(session.host), verb)) return GLOWCAP_ERR_INVALID_ARGUMENT;
     const slot = out_frame orelse return GLOWCAP_ERR_NULL_POINTER;
     const prefix = out_prefix orelse return GLOWCAP_ERR_NULL_POINTER;
     const prefix_len = out_prefix_len orelse return GLOWCAP_ERR_NULL_POINTER;
@@ -156,7 +156,7 @@ pub fn glowcap_host_session_take_outbound(
         prefix_len.* = c.GLOWCAP_HOST_OUTBOUND_PREFIX_CAP;
         return shared.GLOWCAP_ERR_BUFFER_TOO_SMALL;
     }
-    const popped = session.takeStreamOutbound() catch |err| return errToCode(err);
+    const popped = take(session) catch |err| return errToCode(err);
     const outbound = popped orelse return GLOWCAP_ERR_WOULD_BLOCK;
     @memcpy(prefix[0..outbound.prefix_len], outbound.prefixBytes());
     prefix_len.* = outbound.prefix_len;

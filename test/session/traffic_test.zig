@@ -35,11 +35,11 @@ test "open session accepts an outbound deliver to the partner bootstrap without 
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
-    // No registerImport(BOOTSTRAP_POSITION): the partner bootstrap (import 0) is
+    // No registerImport(bootstrap_position): the partner bootstrap (import 0) is
     // always reachable on an open session, the bootstrap-fetch send target.
     const message = model.Message{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
             .args = &.{ .{ .symbol = "fetch" }, .{ .bytes = "swiss" } },
             .answer = .from(1),
         },
@@ -340,7 +340,7 @@ test "partner introductions accept the complete u64 import space" {
     const high_far = model.Argument{ .reference = .{ .far = .{ .import_position = .from(std.math.maxInt(u64)) } } };
     const high = model.Message{
         .deliver = .{
-            .target = .{ .near = model.NearRef.object(session.BOOTSTRAP_POSITION) },
+            .target = .{ .near = model.NearRef.object(session.bootstrap_position) },
             .args = &.{high_far},
             .answer = .from(1),
         },
@@ -351,7 +351,7 @@ test "partner introductions accept the complete u64 import space" {
     const old_boundary = model.Argument{ .reference = .{ .far = .{ .import_position = .from(@as(u64, 1) << 60) } } };
     const clean = model.Message{
         .deliver = .{
-            .target = .{ .near = model.NearRef.object(session.BOOTSTRAP_POSITION) },
+            .target = .{ .near = model.NearRef.object(session.bootstrap_position) },
             .args = &.{old_boundary},
             .answer = .from(2),
         },

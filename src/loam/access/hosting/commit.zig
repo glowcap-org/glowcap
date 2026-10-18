@@ -10,6 +10,8 @@ const driver = @import("driver_core");
 const service = @import("service.zig");
 const working = @import("working.zig");
 const ContentDelta = @import("content_delta.zig").ContentDelta;
+const descriptions = @import("description.zig");
+const inventory = @import("inventory.zig");
 const State = working.State;
 const state = working.state;
 
@@ -36,9 +38,9 @@ pub fn invoke(call: *hosting.Call, _: loam.RecordView, _: []const u8, _: []const
         .mutation_sequence => return .{ .integer = @intCast(value.endpoint.mutations.next) },
         .sequence => return .{ .integer = std.math.cast(i64, value.endpoint.derivations.next) orelse return error.SequenceExhausted },
         .durable_name => return .{ .string = value.swiss.slice() },
-        .describe_control => |description| return @import("description.zig").control(call.arena(), description.*),
-        .inspect_access => |inspection| return @import("inventory.zig").encode(call.arena(), &inspection.policy, inspection.item),
-        .describe, .inspect_fixed => |description| return @import("description.zig").encode(call.arena(), description.*),
+        .describe_control => |description| return descriptions.control(call.arena(), description.*),
+        .inspect_access => |inspection| return inventory.encode(call.arena(), &inspection.policy, inspection.item),
+        .describe, .inspect_fixed => |description| return descriptions.encode(call.arena(), description.*),
         .inventory => |page| return page.result.?,
         .content, .control => {},
     }
@@ -89,23 +91,20 @@ fn stage(context: *anyopaque, store: *loam.Store) !void {
     if (store != value.store()) return error.ForeignStore;
     if (value.creation) |*creation| {
         value.content_delta = try creation.stage(store, value.staging(), value.arena, value.call, value.content.?.lease, value.mutation);
-    } else if (value.content_delta) |delta| {
-        const view = try store.currentView(value.content.?.lease);
-        try store.putCopying(.{ .id = view.id, .revision = 0, .schema = view.schema, .schema_version = view.schema_version, .rooted = view.rooted, .payload = delta.payload, .edges = try delta.stageEdges(store, value.arena) }, view.revision);
-    }
+    } else if (value.content_delta) |delta| try delta.put(store, value.arena, try store.currentView(value.content.?.lease));
     if (value.participants) |*participants| try participants.stageRows(store, value.arena);
     if (value.graph_delta) |delta| try delta.stage(store);
     if (value.request == .control and value.request.control == .attenuate) {
-        const descriptor = try value.config.capabilities.stageAttenuatedControl(value.operation.?, false);
+        const descriptor = try value.config.capabilities.stageAttenuatedControl(value.operation.?, .reachable);
         const endpoint = try store.allocateId();
         const publication = try hosting.publication.stageTarget(store, value.request.control.attenuate.entropy.?, endpoint);
-        try storage.stage.endpointAtOperation(value.operation.?, value.arena, endpoint, .{ .descriptor = descriptor, .administration = value.endpoint.administration, .publication = publication }, false);
+        try storage.stage.endpointAtOperation(value.operation.?, value.arena, endpoint, .{ .descriptor = descriptor, .administration = value.endpoint.administration, .publication = publication }, .reachable);
         const mutation = value.mutation orelse return error.RetryRequired;
         value.request.control.attenuate.proposed = try mutation.call.propose(endpoint);
         try mutation.retainResult(.{ .capability = value.request.control.attenuate.proposed.? });
     } else if (value.request == .control and value.request.control == .revoke) {
         _ = try value.operation.?.stageControlRevocation();
-    } else if (value.changed and !value.resource_prepared) _ = try value.config.capabilities.stage(value.operation.?, false);
+    } else if (value.changed and !value.resource_prepared) _ = try value.config.capabilities.stage(value.operation.?, .reachable);
     if (value.content != null) try stageHistory(value);
     if (value.mutation) |mutation| try mutation.stage(store);
 }

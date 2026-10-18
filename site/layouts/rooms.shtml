@@ -16,7 +16,7 @@
 			<!-- The app's own lockup at hero scale: the logotype and its small
 			     caps keep the proportion the rail draws them at. -->
 			<h1 class="hero-lockup"><span>glowcap</span><small>rooms</small></h1>
-			<p class="hero-tagline">Everyone in a room is a peer, bots included. Talk to any of them directly, and take your session with you wherever you go.</p>
+			<p class="hero-tagline">Everyone in a room is a peer, bots included. Message any of them directly, and open your session on another device.</p>
 			<div class="hero-actions">
 				<a class="btn btn-primary" href="$site.page('rooms/start').link()">Run Rooms <svg class="btn-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg></a>
 				<a class="btn btn-secondary" href="$site.page('rooms/architecture').link()">How it works</a>
@@ -40,7 +40,7 @@
 		</a>
 		<a class="card" href="$site.page('rooms/architecture').link()">
 			<h2>How Rooms works</h2>
-			<p>Why a room is something you hold, what a click promises, how your browser is a peer, and how the code is divided.</p>
+			<p>Why a room is something you hold, what happens after a click, how your browser is a peer, and how the code is divided.</p>
 		</a>
 		<a class="card" href="$site.page('rooms/protocol').link()">
 			<h2>The protocol</h2>

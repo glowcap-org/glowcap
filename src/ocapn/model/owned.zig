@@ -114,9 +114,9 @@ pub fn cloneArgumentSlice(allocator: std.mem.Allocator, items: []const model.Arg
 /// heap-carrying model arm must state its charge here or fail to compile.
 pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.ProjectError!usize {
     var total: usize = 0;
-    try addProduct(&total, items.len, @sizeOf(model.Argument));
+    addProduct(&total, items.len, @sizeOf(model.Argument));
     for (items) |item| try measureArgument(&total, item, 0);
-    return total;
+    return settled(total);
 }
 
 /// Requested payload bytes an owned `Reference` retains, excluding allocator
@@ -124,8 +124,8 @@ pub fn measureArgumentSliceOwnedBytes(items: []const model.Argument) model.view.
 /// adoption so a bounded row count cannot hide variable-size reference trees.
 pub fn measureReferenceOwnedBytes(reference: model.Reference) model.view.ProjectError!usize {
     var total: usize = 0;
-    try measureReference(&total, reference);
-    return total;
+    measureReference(&total, reference);
+    return settled(total);
 }
 
 /// Requested payload bytes an owned `Message` retains, excluding allocator
@@ -135,11 +135,11 @@ pub fn measureReferenceOwnedBytes(reference: model.Reference) model.view.Project
 pub fn measureMessageOwnedBytes(message: model.Message) model.view.ProjectError!usize {
     var total = try measureMessageEnvelopeBytes(message);
     switch (message) {
-        .deliver => |deliver| try addBytes(&total, try measureArgumentSliceOwnedBytes(deliver.args)),
+        .deliver => |deliver| addBytes(&total, try measureArgumentSliceOwnedBytes(deliver.args)),
         .resolve => |resolve| try measureResolution(&total, resolve.resolution),
         else => {},
     }
-    return total;
+    return settled(total);
 }
 
 /// Bytes a `Message` retains outside the tree it carries: its own value, the
@@ -150,42 +150,42 @@ pub fn measureMessageEnvelopeBytes(message: model.Message) model.view.ProjectErr
     var total: usize = @sizeOf(model.Message);
     switch (message) {
         .deliver => |deliver| {
-            try measureReference(&total, deliver.target);
-            if (deliver.resolve_me_desc) |reference| try measureReference(&total, reference);
+            measureReference(&total, deliver.target);
+            if (deliver.resolve_me_desc) |reference| measureReference(&total, reference);
         },
         .resolve => {},
         .gc_export => |gc| {
-            try addProduct(&total, gc.positions.len, @sizeOf(u64));
-            try addProduct(&total, gc.deltas.len, @sizeOf(u64));
+            addProduct(&total, gc.positions.len, @sizeOf(u64));
+            addProduct(&total, gc.deltas.len, @sizeOf(u64));
         },
-        .gc_answer => |gc| try addProduct(&total, gc.positions.len, @sizeOf(u64)),
+        .gc_answer => |gc| addProduct(&total, gc.positions.len, @sizeOf(u64)),
         .start_session => |start| {
-            try addBytes(&total, start.session_pubkey.bytes.len);
-            try measurePeerLocator(&total, start.acceptable_location);
-            try addBytes(&total, start.acceptable_location_sig.bytes.len);
+            addBytes(&total, start.session_pubkey.bytes.len);
+            measurePeerLocator(&total, &start.acceptable_location);
+            addBytes(&total, start.acceptable_location_sig.bytes.len);
         },
-        .abort => |abort| try addBytes(&total, abort.message.len),
+        .abort => |abort| addBytes(&total, abort.message.len),
         .listen => |listen| {
-            try measureReference(&total, listen.target);
-            try measureReference(&total, listen.listener);
+            measureReference(&total, listen.target);
+            measureReference(&total, listen.listener);
         },
         .get => |get| {
-            try measureReference(&total, get.receiver);
-            try addBytes(&total, get.field.len);
+            measureReference(&total, get.receiver);
+            addBytes(&total, get.field.len);
         },
         .index => |index| {
-            try measureReference(&total, index.receiver);
+            measureReference(&total, index.receiver);
             switch (index.index) {
                 .integer => {},
-                .big_integer => |big| try addBytes(&total, big.digits.len),
+                .big_integer => |big| addBytes(&total, big.digits.len),
             }
         },
         .untag => |untag| {
-            try measureReference(&total, untag.receiver);
-            try addBytes(&total, untag.tag.len);
+            measureReference(&total, untag.receiver);
+            addBytes(&total, untag.tag.len);
         },
     }
-    return total;
+    return settled(total);
 }
 
 /// Requested payload bytes retained by one owned semantic resolution. The
@@ -194,19 +194,19 @@ pub fn measureMessageEnvelopeBytes(message: model.Message) model.view.ProjectErr
 pub fn measureResolutionOwnedBytes(resolution: model.Resolution) model.view.ProjectError!usize {
     var total: usize = @sizeOf(model.Resolution);
     try measureResolution(&total, resolution);
-    return total;
+    return settled(total);
 }
 
 fn measureResolution(total: *usize, resolution: model.Resolution) model.view.ProjectError!void {
     switch (resolution) {
         .fulfill => |value| try measureArgument(total, value, 0),
-        .@"break" => |reason| try addBytes(total, reason.message.len),
+        .@"break" => |reason| addBytes(total, reason.message.len),
     }
 }
 
 fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.view.ProjectError!void {
     if (depth > model.max_value_depth) return error.MalformedView;
-    try addShallowOwnedBytes(total, argument);
+    addShallowOwnedBytes(total, argument);
     switch (argument) {
         .list, .set => |items| try measureArgumentSlice(total, items, depth + 1),
         .tagged => |tagged| try measureArgumentSlice(total, tagged.value, depth + 1),
@@ -216,38 +216,44 @@ fn measureArgument(total: *usize, argument: model.Argument, depth: usize) model.
 }
 
 /// Bytes `argument` retains outside its children: a leaf's payload, or a
-/// container's own slice and keys. The session's inventory walk
-/// (`session/inventory.zig`) adds these as it descends, so one arm table
-/// serves both measures.
-pub fn addShallowOwnedBytes(total: *usize, argument: model.Argument) model.view.ProjectError!void {
+/// container's own slice and keys.
+pub inline fn addShallowOwnedBytes(total: *usize, argument: model.Argument) void {
     switch (argument) {
-        .bytes => |bytes| try addBytes(total, bytes.len),
-        .symbol => |symbol| try addBytes(total, symbol.len),
-        .reference => |reference| try measureReference(total, reference),
-        .@"error" => |err| try addBytes(total, err.message.len),
-        .handoff => |handoff| {
-            try addBytes(total, @sizeOf(model.Handoff));
-            try measureHandoff(total, handoff.*);
+        inline else => |*payload, tag| addShallowOwnedBytesOf(tag, total, payload),
+    }
+}
+
+/// `addShallowOwnedBytes` for one kind known at compile time, with the
+/// payload read where it lies. The session's inventory walk
+/// (`session/inventory.zig`) dispatches on the tag once and resolves this
+/// measure, the wire meter, and the descent from it, so one arm table
+/// serves both measures without a second dispatch per argument.
+pub inline fn addShallowOwnedBytesOf(comptime tag: std.meta.Tag(model.Argument), total: *usize, payload: anytype) void {
+    switch (tag) {
+        .bytes, .symbol, .string, .keyword => addBytes(total, payload.len),
+        .reference => measureReference(total, payload.*),
+        .@"error" => addBytes(total, payload.message.len),
+        .handoff => {
+            addBytes(total, @sizeOf(model.Handoff));
+            measureHandoff(total, payload.*);
         },
-        .string => |string| try addBytes(total, string.len),
-        .list, .set => |items| try addArgumentSliceOwnedBytes(total, items.len),
-        .tagged => |tagged| {
-            try addBytes(total, tagged.tag.len);
-            try addArgumentSliceOwnedBytes(total, tagged.value.len);
+        .list, .set => addArgumentSliceOwnedBytes(total, payload.len),
+        .tagged => {
+            addBytes(total, payload.tag.len);
+            addArgumentSliceOwnedBytes(total, payload.value.len);
         },
-        .keyword => |keyword| try addBytes(total, keyword.len),
-        .big_integer => |big| try addBytes(total, big.digits.len),
-        .@"struct" => |entries| {
-            try addProduct(total, entries.len, @sizeOf(model.StructEntry));
-            for (entries) |entry| try addBytes(total, entry.key.len);
+        .big_integer => addBytes(total, payload.digits.len),
+        .@"struct" => {
+            addProduct(total, payload.len, @sizeOf(model.StructEntry));
+            for (payload.*) |entry| addBytes(total, entry.key.len);
         },
         .integer, .boolean, .void, .float64 => {},
     }
 }
 
 /// The slice an argument vector itself occupies.
-pub fn addArgumentSliceOwnedBytes(total: *usize, len: usize) model.view.ProjectError!void {
-    try addProduct(total, len, @sizeOf(model.Argument));
+pub fn addArgumentSliceOwnedBytes(total: *usize, len: usize) void {
+    addProduct(total, len, @sizeOf(model.Argument));
 }
 
 fn measureArgumentSlice(total: *usize, items: []const model.Argument, depth: usize) model.view.ProjectError!void {
@@ -255,62 +261,73 @@ fn measureArgumentSlice(total: *usize, items: []const model.Argument, depth: usi
     for (items) |item| try measureArgument(total, item, depth);
 }
 
-fn measureReference(total: *usize, reference: model.Reference) model.view.ProjectError!void {
+fn measureReference(total: *usize, reference: model.Reference) void {
     switch (reference) {
         .near, .far, .routed => {},
-        .broken => |broken| try addBytes(total, broken.message.len),
+        .broken => |broken| addBytes(total, broken.message.len),
         .sturdy => |sturdy| {
-            try addBytes(total, @sizeOf(model.SturdyRef));
-            try measurePeerLocator(total, sturdy.peer);
-            try addBytes(total, sturdy.swissnum.len);
+            addBytes(total, @sizeOf(model.SturdyRef));
+            measurePeerLocator(total, &sturdy.peer);
+            addBytes(total, sturdy.swissnum.len);
         },
         .promise => {},
     }
 }
 
-fn measureHandoff(total: *usize, handoff: model.Handoff) model.view.ProjectError!void {
-    switch (handoff) {
-        .give => |give| try measureHandoffGive(total, give),
-        .receive => |receive| {
-            try addBytes(total, receive.receiving_session.len);
-            try addBytes(total, receive.receiving_side.len);
-            try measureHandoffGive(total, receive.signed_give);
-            try addBytes(total, receive.signature.len);
+/// A handoff is read where it lies: its box is about 200 bytes, and every
+/// argument's measure shares this function's frame.
+fn measureHandoff(total: *usize, handoff: *const model.Handoff) void {
+    switch (handoff.*) {
+        .give => |*give| measureHandoffGive(total, give),
+        .receive => |*receive| {
+            addBytes(total, receive.receiving_session.len);
+            addBytes(total, receive.receiving_side.len);
+            measureHandoffGive(total, &receive.signed_give);
+            addBytes(total, receive.signature.len);
         },
     }
 }
 
-fn measureHandoffGive(total: *usize, give: model.HandoffGive) model.view.ProjectError!void {
-    try addBytes(total, give.recipient_key.len);
-    try measurePeerLocator(total, give.exporter);
-    try addBytes(total, give.gifter_exporter_session.len);
-    try addBytes(total, give.gifter_side.len);
-    try addBytes(total, give.gift_id.len);
-    try addBytes(total, give.signature.len);
-    if (give.raw_signed) |raw| try addBytes(total, raw.len);
+fn measureHandoffGive(total: *usize, give: *const model.HandoffGive) void {
+    addBytes(total, give.recipient_key.len);
+    measurePeerLocator(total, &give.exporter);
+    addBytes(total, give.gifter_exporter_session.len);
+    addBytes(total, give.gifter_side.len);
+    addBytes(total, give.gift_id.len);
+    addBytes(total, give.signature.len);
+    if (give.raw_signed) |raw| addBytes(total, raw.len);
 }
 
-fn measurePeerLocator(total: *usize, locator: model.PeerLocator) model.view.ProjectError!void {
-    try addBytes(total, locator.transport.len);
-    try addBytes(total, locator.designator.len);
-    try addProduct(total, locator.hints.entries.len, @sizeOf(model.HintEntry));
+fn measurePeerLocator(total: *usize, locator: *const model.PeerLocator) void {
+    addBytes(total, locator.transport.len);
+    addBytes(total, locator.designator.len);
+    addProduct(total, locator.hints.entries.len, @sizeOf(model.HintEntry));
     for (locator.hints.entries) |entry| {
-        try addBytes(total, entry.name.len);
+        addBytes(total, entry.name.len);
         switch (entry.value) {
-            .string => |string| try addBytes(total, string.len),
-            .bytes => |bytes| try addBytes(total, bytes.len),
+            .string => |string| addBytes(total, string.len),
+            .bytes => |bytes| addBytes(total, bytes.len),
             .boolean, .integer => {},
         }
     }
 }
 
-fn addProduct(total: *usize, count: usize, size: usize) model.view.ProjectError!void {
-    const bytes = std.math.mul(usize, count, size) catch return error.MalformedView;
-    try addBytes(total, bytes);
+/// A measure saturates instead of checking every addition: the address
+/// space bounds what a live tree can add, and a total that reaches the
+/// ceiling names a tree no process holds, which `settled` refuses once.
+fn addProduct(total: *usize, count: usize, size: usize) void {
+    addBytes(total, count *| size);
 }
 
-fn addBytes(total: *usize, bytes: usize) model.view.ProjectError!void {
-    total.* = std.math.add(usize, total.*, bytes) catch return error.MalformedView;
+fn addBytes(total: *usize, bytes: usize) void {
+    total.* +|= bytes;
+}
+
+/// A measure's one refusal: a saturated total is malformed, as an
+/// overflowing addition was.
+fn settled(total: usize) model.view.ProjectError!usize {
+    if (total == std.math.maxInt(usize)) return error.MalformedView;
+    return total;
 }
 
 pub fn freeArgumentSlice(allocator: std.mem.Allocator, items: []const model.Argument) void {
@@ -327,11 +344,10 @@ pub fn freeResolution(allocator: std.mem.Allocator, resolution: model.Resolution
     }
 }
 
-/// Copy an owned resolution into a second durable store (a session import row).
-/// The fire owner keeps `resolution`. The caller moves the return into
-/// `recordRelayedResolution` or frees it. Named for the introducing-session
-/// proxy's one-home-listen → N recipient stores path, not a free-floating
-/// fan-out API (see memory.md).
+/// Copy an owned resolution into a second durable store (a recipient's answer
+/// row). The fire owner keeps `resolution`. The caller settles the return or
+/// frees it. Named for the introducing-session proxy's one-home-listen to N
+/// recipient stores path, not a free-floating fan-out API (see memory.md).
 pub fn materializeResolutionForStore(allocator: std.mem.Allocator, resolution: model.Resolution) model.view.Error!model.Resolution {
     return model.view.Resolution.fromOwned(&resolution).toOwned(allocator);
 }

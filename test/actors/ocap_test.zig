@@ -43,7 +43,7 @@ test "a caretaker forwards until revoked, then breaks every call" {
     defer vat.deinit();
 
     const target = try vat.spawn(Counter, .{ .n = 0 });
-    const care = try actors.caretaker(&vat, target);
+    const care = try actors.ocap.caretaker(&vat, target);
 
     // Live: the proxy forwards a near-call and returns the target's value.
     try std.testing.expectEqual(
@@ -52,12 +52,31 @@ test "a caretaker forwards until revoked, then breaks every call" {
     );
 
     // Revoked: every call through the proxy breaks, and the target is untouched.
-    care.revoke();
+    care.revoke(&vat);
     try std.testing.expectError(
         actors.ocap.Error.Revoked,
         vat.near(care.proxy, .{ .verb = "add", .args = &.{.{ .integer = 100 }} }),
     );
     try std.testing.expectEqual(@as(i64, 5), (try vat.near(target, .{ .verb = "get" })).integer);
+}
+
+test "revoking a caretaker whose proxy row a restore dropped is a no-op" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+    var before = try vat.snapshot();
+    defer before.deinit();
+
+    const target = try vat.spawn(Counter, .{ .n = 0 });
+    const care = try actors.ocap.caretaker(&vat, target);
+    // A clone-less mutable proxy keeps the vat from being snapshotted.
+    try std.testing.expectError(actors.Error.NotSnapshottable, vat.snapshot());
+
+    // The restore drops both rows, so the revoke finds nothing to sever
+    // instead of writing through freed state.
+    try vat.restore(&before);
+    care.revoke(&vat);
+    try std.testing.expectError(actors.Error.NoSuchActor, vat.near(care.proxy, .{ .verb = "get" }));
 }
 
 test "an attenuator forwards only its allowed verbs" {
@@ -66,7 +85,7 @@ test "an attenuator forwards only its allowed verbs" {
     defer vat.deinit();
 
     const target = try vat.spawn(Counter, .{ .n = 0 });
-    const view = try actors.attenuate(&vat, target, &.{ "get", "add" });
+    const view = try actors.ocap.attenuate(&vat, target, &.{ "get", "add" });
 
     try std.testing.expectEqual(@as(i64, 0), (try vat.near(view, .{ .verb = "get" })).integer);
     try std.testing.expectEqual(
@@ -86,8 +105,8 @@ test "a caretaker composes over an attenuator: a revocable read-only view" {
     defer vat.deinit();
 
     const target = try vat.spawn(Counter, .{ .n = 3 });
-    const readonly = try actors.attenuate(&vat, target, &.{"get"});
-    const care = try actors.caretaker(&vat, readonly);
+    const readonly = try actors.ocap.attenuate(&vat, target, &.{"get"});
+    const care = try actors.ocap.caretaker(&vat, readonly);
 
     // Read forwards through both proxies; write is refused by the attenuator.
     try std.testing.expectEqual(@as(i64, 3), (try vat.near(care.proxy, .{ .verb = "get" })).integer);
@@ -97,7 +116,7 @@ test "a caretaker composes over an attenuator: a revocable read-only view" {
     );
 
     // Revoke severs the outer caretaker before the attenuator is even consulted.
-    care.revoke();
+    care.revoke(&vat);
     try std.testing.expectError(
         actors.ocap.Error.Revoked,
         vat.near(care.proxy, .{ .verb = "get" }),
@@ -131,7 +150,7 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     var coord_port = actors.Port.init(allocator, coord_peer);
     defer coord_port.deinit(&coord_vat);
     const target = try coord_vat.spawn(Counter, .{ .n = 0 });
-    const care = try actors.caretaker(&coord_vat, target);
+    const care = try actors.ocap.caretaker(&coord_vat, target);
     try coord_port.bindExport(&coord_vat, care.proxy, 7);
     // Hand-wired pairing: the agent addresses position 7 out-of-band, so the
     // bound position takes an explicit grant.
@@ -158,7 +177,7 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
 
     // Revoked: the same call now breaks the agent's answer, and the forward
     // never reaches the target (its total stays 5).
-    care.revoke();
+    care.revoke(&coord_vat);
     const broken_promise = try agent_port.send(&agent_vat, .{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 100 }} });
     var broke = false;
     try agent_port.on(&agent_vat, broken_promise, .{ .ctx = &broke, .func = capture.captureBroken });
@@ -187,7 +206,7 @@ test "a local eventual proxy defers to a far target and preserves no-answer tell
     try remote_port.bindExport(&remote, target, 9);
     try pair.p2.exportObject(9);
     try pair.p1.importObject(9);
-    const proxy = try actors.caretaker(&local, .{ .far = model.FarRef.object(9) });
+    const proxy = try actors.ocap.caretaker(&local, .{ .far = model.FarRef.object(9) });
 
     // A synchronous caller still cannot cross the network.
     try std.testing.expectError(actors.Error.NotNearCallable, local.near(proxy.proxy, .{ .verb = "get" }));
@@ -225,7 +244,7 @@ test "a long local eventual forwarding chain settles without recursive listener 
     var vat = actors.Vat.init(std.testing.allocator);
     defer vat.deinit();
     var target = try vat.spawn(Counter, .{ .n = 42 });
-    for (0..4096) |_| target = (try actors.caretaker(&vat, target)).proxy;
+    for (0..4096) |_| target = (try actors.ocap.caretaker(&vat, target)).proxy;
     const answer = try vat.send(target, .{ .verb = "get" });
     var result: i64 = 0;
     try vat.on(answer, .{ .ctx = &result, .func = capture.captureInt });

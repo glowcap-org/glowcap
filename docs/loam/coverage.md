@@ -10,9 +10,8 @@ sources:
 # Managed access coverage
 
 Managed access is Loam's layer for resources, grants, and the references that
-use and control them. Zig exposes it as `glowcap.loam.access`. Each row names
-one part of managed access, the decision record or guide that defines it, and
-the tests that cover it. Portable tests live in [`test/loam/access/`](../../test/loam/access/).
+use and control them. Zig exposes it as `glowcap.loam.access`. Portable tests
+live in [`test/loam/access/`](../../test/loam/access/).
 The shared [engine scenarios](../../test/loam/engines/) run on both disk engines,
 with engine-specific tests under [`test/loam/sqlite/`](../../test/loam/sqlite/)
 and [`test/loam/lmdb/`](../../test/loam/lmdb/).

@@ -66,14 +66,15 @@ Composing a client:
 
 ## Backpressure
 
-Flow control is end to end only when both legs block their producer.
+Each leg of the relay must block its producer, or a slow reader cannot slow
+the sender.
 
 - The target leg blocks through the byte channel, either a socket write or the
   iroh channel's `WOULD_BLOCK`.
 - The browser-bound leg has no drain event, so `webSocketRelay` holds its next
   read until the socket's `bufferedAmount` falls below a high-water mark. A
   relay in another runtime must do the same: Python uses `websockets`' awaited
-  `send`, and Rust uses `SinkExt::poll_ready`. ADR-0086 requires it.
+  `send`, and Rust awaits `SinkExt::send`. ADR-0086 requires it.
 
 `zig build bindings-relay` stalls a reader through each runtime's relay and
 fails if the far sender is not backpressured.
@@ -95,5 +96,6 @@ glowcap session buffers. `zig build relay-scaling` (`test/scaling_bench.ts`) ope
 connections through the reference relay and divides the resident-memory increase by that count. The
 report prints the measured cost per connection. Each connection also uses two file descriptors, so a
 large deployment needs enough memory and a matching descriptor limit. The check fails if the cost passes the ceiling in `test/scaling_bench.ts`, which catches a large
-per-connection buffer. Matching the memory budget of a core session (`test/engine/footprint_budget_test.zig`)
-would take a different relay design, one built on a completion loop.
+per-connection buffer. A relay connection costs more than a core session's
+memory budget (`test/engine/footprint_budget_test.zig`), and closing that gap
+would need a relay built on a completion loop.

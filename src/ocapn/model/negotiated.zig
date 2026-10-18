@@ -7,9 +7,10 @@
 //! reads and returns. They carry no codec, no allocation, and no authority.
 
 const std = @import("std");
+const own_wire = @import("own_wire.zig");
 
-/// Which wire codec a direct session speaks. The two built-ins are `capnp` (the
-/// native word-aligned fast path) and `syrup` (the byte-record one everyone can
+/// Which wire codec a direct session speaks. The two built-ins are `capnp` (glowcap's
+/// word-aligned fast path) and `syrup` (the byte-record one everyone can
 /// fall back to). Negotiation lists them best-first and breaks ties on that
 /// order.
 ///
@@ -27,6 +28,47 @@ pub const CodecId = enum(u16) {
     capnp = 0,
     syrup = 1,
     _,
+
+    /// Whether glowcap alone defines this codec's bytes: Cap'n Proto is
+    /// glowcap's CapTP layout (ADR-0026), and Syrup is OCapN's.
+    pub fn ownedByGlowcap(self: CodecId) bool {
+        return self == .capnp;
+    }
+
+    /// A `hintToken` by value, so the hello that sends it owns its bytes.
+    pub const HintToken = struct {
+        bytes: [max_len]u8 = undefined,
+        len: std.math.IntFittingRange(0, max_len) = 0,
+
+        pub const max_len = std.fmt.count("{d}", .{std.math.maxInt(u16)}) + owned_suffix.len;
+
+        pub fn slice(self: *const HintToken) []const u8 {
+            return self.bytes[0..self.len];
+        }
+    };
+
+    const owned_suffix = "/" ++ own_wire.fingerprint;
+
+    /// The `glowcap/codec` hint: the decimal id, then `/` and the own-wire
+    /// fingerprint for a codec glowcap owns (ADR-0252).
+    pub fn hintToken(self: CodecId) HintToken {
+        var token: HintToken = .{};
+        const suffix: []const u8 = if (self.ownedByGlowcap()) owned_suffix else "";
+        const written = std.fmt.bufPrint(&token.bytes, "{d}{s}", .{ @backingInt(self), suffix }) catch
+            unreachable; // `max_len` fits the widest id and suffix.
+        token.len = @intCast(written.len);
+        return token;
+    }
+
+    /// The inverse of `hintToken`. An id that is not a decimal `u16` is
+    /// malformed, and a token this build does not write, such as another
+    /// build's Cap'n Proto, is null.
+    pub fn fromHintToken(token: []const u8) error{MalformedHintToken}!?CodecId {
+        const digits = token[0 .. std.mem.indexOfScalar(u8, token, '/') orelse token.len];
+        const id = std.fmt.parseInt(u16, digits, 10) catch return error.MalformedHintToken;
+        const codec_id: CodecId = @fromBackingInt(id);
+        return if (std.mem.eql(u8, codec_id.hintToken().slice(), token)) codec_id else null;
+    }
 };
 
 /// What one peer prefers for a session: one CapTP version, one codec, and the
@@ -66,6 +108,21 @@ pub const CaptpVersion = enum {
     v1_0,
     next,
 
+    /// Whether this profile has a wire form for a message kind, named by any
+    /// enum or union that mirrors `Message` (`view.Body`, a codec's wire
+    /// kind). The next profile sends no `op:resolve` (ADR-0111) and none of
+    /// the projection operations `op:get`, `op:index`, and `op:untag`. Every
+    /// codec refuses the others as `UnsupportedMessage` in both directions.
+    pub fn carries(self: CaptpVersion, kind: anytype) bool {
+        return switch (self) {
+            .v1_0 => true,
+            .next => switch (kind) {
+                .resolve, .get, .index, .untag => false,
+                else => true,
+            },
+        };
+    }
+
     pub fn wireString(self: CaptpVersion) []const u8 {
         return switch (self) {
             .v1_0 => "1.0",
@@ -80,6 +137,32 @@ pub const CaptpVersion = enum {
             .v1_0 => "ocapn-v1.0",
             .next => "glowcap-next",
         };
+    }
+
+    /// Whether glowcap alone defines this version's frames: `next` follows
+    /// glowcap's source, and OCapN pins `1.0`.
+    pub fn ownedByGlowcap(self: CaptpVersion) bool {
+        return self == .next;
+    }
+
+    /// The `glowcap/captp-version` hint: the wire string, then `/` and the
+    /// own-wire fingerprint for a version glowcap owns (ADR-0252).
+    pub fn hintToken(self: CaptpVersion) []const u8 {
+        return switch (self) {
+            inline else => |version| comptime if (version.ownedByGlowcap())
+                version.wireString() ++ "/" ++ own_wire.fingerprint
+            else
+                version.wireString(),
+        };
+    }
+
+    /// The inverse of `hintToken`. A token this build does not write, such as
+    /// another build's `next`, is null.
+    pub fn fromHintToken(token: []const u8) ?CaptpVersion {
+        inline for (comptime std.enums.values(CaptpVersion)) |version| {
+            if (std.mem.eql(u8, version.hintToken(), token)) return version;
+        }
+        return null;
     }
 
     /// The inverse of `wireString`, derived from it: every version is matched by
@@ -212,24 +295,21 @@ pub const FeatureSet = packed struct {
         return buf[0..len];
     }
 
-    /// Parse `toWireString`. Unknown, empty-token, or repeated names are
-    /// malformed: the feature hint is signed handshake authority, not an
-    /// advisory routing hint.
+    /// Parse a partner's `toWireString`. An empty name or a known name twice
+    /// is malformed, and a name this build does not know is dropped, as
+    /// `intersect` would drop it (ADR-0252).
     pub fn fromWireString(wire: []const u8) ?FeatureSet {
         var out: FeatureSet = .{};
         if (wire.len == 0) return out;
         var it = std.mem.splitScalar(u8, wire, ',');
         while (it.next()) |name| {
             if (name.len == 0) return null;
-            var matched = false;
             inline for (@typeInfo(FeatureSet).@"struct".field_names) |field_name| {
                 if (std.mem.eql(u8, name, field_name)) {
                     if (@field(out, field_name)) return null;
                     @field(out, field_name) = true;
-                    matched = true;
                 }
             }
-            if (!matched) return null;
         }
         return out;
     }

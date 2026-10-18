@@ -6,13 +6,13 @@ sources: []
 
 # What ships
 
-Everything on this page is implemented and checked in this repository. glowcap speaks signed CapTP 1.0 over Syrup to
-outside implementations, and its regular checks against
+Everything on this page is implemented in this repository, and
+[What you can depend on](stability.md) says how each part is checked. glowcap speaks signed CapTP 1.0 over Syrup to
+outside implementations, and most of its regular checks against
 [Spritely Goblins](https://spritely.institute/goblins/) use the cleartext `tcp`
 testing adapter.
 
-Read [known limitations](boundaries.md) before deploying, and [stability](stability.md) for the evidence behind each
-claim. If capabilities are new to you, [capabilities](capabilities.md) starts from zero.
+Read [known limitations](boundaries.md) before deploying. If capabilities are new to you, [capabilities](capabilities.md) starts from zero.
 
 Which OCapN draft sections each wire profile has adopted, deferred, or left
 pending is the [conformance manifest](ocapn-conformance.md).
@@ -79,7 +79,8 @@ listening, and events, over a Host it has adopted.
   [Multi-home peers](https://jimisaacs.github.io/glowcap/multihome/) explains the design, and
   [known limitations](boundaries.md#protocol-and-interop) gives the rules.
 - **Distributed garbage collection.** Zig and all four bindings release Goblins objects independently and
-  observe Goblins reclaim them. It is a per-session opt-in in every binding.
+  observe Goblins reclaim them. Rust releases on drop by default, set on the Host. TypeScript, Python, and Racket
+  keep a per-session opt-in.
 - **Three-party handoff.** A capability from one peer can be passed on to another, recursively. Outbound gives wait
   as one bounded transaction and keep their place in the recipient's queue. The Deno, Python, Rust, and Racket
   matrix proves nested gives against live Goblins, with Goblins in the gifter and exporter roles too
@@ -151,7 +152,7 @@ Cap'n Proto socket. Zig applications can register another codec.
 | Transport     | Use |
 | ------------- | --- |
 | `iroh`        | Encrypted QUIC with discovery, relays, and a node ID that also serves as the OCapN designator. |
-| `webrtc`      | An encrypted DataChannel reached through signaling, carrying a keyed OCapN session. Every binding dials it with `webrtc.provider(signaling)` and listens with `webrtc.listen` (`listen-webrtc` in Racket). A browser dials with `connector` and listens with `listener` over its own peer connection. |
+| `webrtc`      | An encrypted DataChannel reached through signaling, carrying a keyed OCapN session. The signaling service vouches for the peer's key. Every binding dials it with `webrtc.provider(signaling)` and listens with `webrtc.listen` (`listen-webrtc` in Racket). A browser dials with `connector` and listens with `listener` over its own peer connection. |
 | `noise-tcp`   | TCP sealed with Noise_XK between the two peers. Completing the handshake proves the dialed key ([ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)). |
 | `noise-relay` | A relay pipe sealed the same way. The relay only forwards ciphertext. Browsers and every binding that loads the C library can listen and dial. |
 | `onion`       | The standard OCapN Tor netlayer. Tor proves the service to the dialer but reveals no caller identity to the listener. |
@@ -226,7 +227,7 @@ so a peer with no listening socket can still reply and take part in a handoff.
 
 ## Tools and applications
 
-- `zig build` installs the `glowcap` command. It can listen, call, fetch, enliven, run an interactive CapTP lab, serve
+- `zig build` installs the `glowcap` command. It can listen, dial, call, fetch, run an interactive CapTP lab, serve
   an MCP interface, and join a Rooms session ([CLI guide](cli.md)).
 - The rooms, tasks, and tools examples run one server with clients written in several bindings.
 - The [Rooms application](../apps/rooms/) runs browser and terminal peers with durable sessions. Members hold rooms

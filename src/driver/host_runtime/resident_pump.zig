@@ -162,10 +162,7 @@ fn startAcceptedConn(
     errdefer observer.release(observer.ctx, observation.tag);
     const resident = self.residents.items[resident_index].resident;
     const session = try self.core.openAcceptedAdvertised(transport);
-    errdefer {
-        Internal.dropWire(self, session.peer_handle);
-        if (Internal.releaseCoreSession(self, session)) |failure| Internal.noteTerminalFailureChain(self, failure);
-    }
+    errdefer Internal.abandonFreshSession(self, session);
     const row = try self.allocator.create(PendingOpen);
     errdefer self.allocator.destroy(row);
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);

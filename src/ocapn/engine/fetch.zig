@@ -23,12 +23,13 @@ const session_mod = @import("session");
 const events = @import("events.zig");
 
 /// Sync bookkeeping from `prepareFetchSwissnum`: the adapter sends `message`,
-/// then passes every received message plus `answer_position` + `resolver_export` to
-/// `tryMatchFetchOutcome`. `message` is owned by the caller (move it into
-/// `Peer.send`).
+/// then passes every received message plus the answer's position and
+/// `resolver_export` to `tryMatchFetchOutcome`. `message` is owned by the
+/// caller (move it into `Peer.send`).
 pub const PreparedFetch = struct {
     message: model.Message,
-    answer_position: model.AnswerPosition,
+    /// The question the fetch asks, by identity.
+    answer: session_mod.OutboundAnswerTarget,
     /// V1.0's inline resolver export. Next mints its listener export when the
     /// answered operation is enqueued, so preparing a fetch reserves no export.
     resolver_export: ?model.ExportPosition,
@@ -61,9 +62,9 @@ pub const FetchMatch = union(enum) {
 ///
 /// Atomic on failure: the heap allocations run first (unwound by errdefer), the
 /// fallible session-state steps next (`allocateExport` unwound by errdefer), and
-/// `allocateOutboundAnswer` last, so an `error` leaves the session's export
-/// table and answer counter exactly as they were. A failed prepare never burns
-/// an export slot or an answer position.
+/// `allocateOutboundAnswer` last and its reservation unwound too, so an
+/// `error` leaves the session's export and answer tables exactly as they
+/// were. A failed prepare never burns an export slot or an answer position.
 pub fn prepareFetchSwissnum(
     allocator: std.mem.Allocator,
     session: *session_mod.Session,
@@ -87,24 +88,26 @@ pub fn prepareFetchSwissnum(
     else
         null;
     errdefer if (resolver_export) |position| session.releaseUnsharedExport(position);
-    const answer_position = try session.allocateOutboundAnswer();
+    const answer = try session.allocateOutboundAnswer();
+    errdefer session.abandonOutboundAnswer(answer.position);
+    const answer_position = answer.position;
 
     // Project the mention from the authoritative slot rather than hand-typing
     // the kind: the row was minted as a local object, so it renders as
     // `desc:import-object` by construction (ADR-0080).
-    const resolve_me_desc: ?model.Reference = if (session.needsV1_0Translation())
-        session_mod.slot.toReference(session.exportSlot(resolver_export.?).?)
+    const resolve_me_desc: ?model.Reference = if (resolver_export) |position|
+        session.exportReference(position)
     else
         null;
 
     return .{
         .message = .{ .deliver = .{
-            .target = .{ .far = model.FarRef.object(session_mod.BOOTSTRAP_POSITION) },
+            .target = .{ .far = model.FarRef.object(session_mod.bootstrap_position) },
             .args = args,
             .answer = answer_position,
             .resolve_me_desc = resolve_me_desc,
         } },
-        .answer_position = answer_position,
+        .answer = answer,
         .resolver_export = resolver_export,
     };
 }

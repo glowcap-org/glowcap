@@ -14,9 +14,8 @@ These diagrams follow the CapTP Specification sections Third Party Handoffs
 (depositing the gift, desc:handoff-give, desc:handoff-receive, validation) and
 The bootstrap Object (the `withdraw-gift` method). All certificates ride
 `desc:sig-envelope` (Ed25519 over the canonical bytes of the inner
-certificate). Settlement arrows below are resolver callbacks. Next obtains them
-through the mandatory listen after each answered withdrawal. V1.0 carries the
-resolver in the withdrawal deliver.
+certificate). Settlement arrows below are resolver callbacks. Both profiles carry the
+resolver in the withdrawal deliver, and next also carries the listen mode.
 
 ## HO-1: Roles and sessions
 

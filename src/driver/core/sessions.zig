@@ -31,6 +31,7 @@ const directory = @import("sessions/directory.zig");
 const secrets = @import("sessions/secrets.zig");
 const vow_release = @import("vows/release.zig");
 const handoff_mod = @import("handoff.zig");
+const interception = @import("host/interception.zig");
 
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
@@ -39,7 +40,10 @@ const SessionReleaseError = host_mod.SessionReleaseError;
 const DialTarget = host_mod.DialTarget;
 const Served = served_mod.Served;
 const crypto = foundation.crypto;
-const DialSource = union(enum) { mint: void, over: *engine.Peer };
+/// Who owns the peer a session shell is minted over: the node mints its own,
+/// or the embedder pins one at a stable address and the node only routes
+/// through it (`engine.Node.registerPeerOver`), never freeing it.
+const PeerSource = union(enum) { mint: void, over: *engine.Peer };
 
 /// Mint the dialing half of a session to the peer `locator` names:
 /// register the outbound with the crossed-hellos table, register the session
@@ -64,10 +68,7 @@ pub fn openDialedLocator(self: *Host, locator: model.PeerLocator) !*HostSession 
 /// permits minting its session while Host finish is sealed.
 pub fn openPendingDial(self: *Host, ticket: engine.Node.PendingId, route_index: usize) !?*HostSession {
     try self.refuseReentry();
-    switch (self.lifecyclePhase()) {
-        .active, .finishing => {},
-        .terminating, .closed => return null,
-    }
+    if (!self.lifecyclePhase().serving()) return null;
     const view = self.node.pendingDial(ticket, route_index) orelse return null;
     const locator = view.locator;
     // Wire-carried locators are bare on onion, so a redeem dial never has
@@ -110,7 +111,7 @@ pub fn openDialedOverPending(
 /// points cannot drift.
 pub fn openDialedKnowing(
     self: *Host,
-    source: DialSource,
+    source: PeerSource,
     transport: []const u8,
     partner_designator: []const u8,
     partner_known_glowcap: bool,
@@ -122,7 +123,7 @@ pub fn openDialedKnowing(
 
 fn openDialedCommitted(
     self: *Host,
-    source: DialSource,
+    source: PeerSource,
     transport: []const u8,
     partner_designator: []const u8,
     partner_known_glowcap: bool,
@@ -137,10 +138,7 @@ fn openDialedCommitted(
     // into the shell. One owner from birth: `freeSessionShell` is the only
     // free, so a refusal below can unwind the mint without this frame
     // holding an obligation to discharge as well.
-    const session = switch (source) {
-        .mint => try mint(self, .{ .dialed = partner_designator }, transport),
-        .over => |peer| try mintOver(self, peer, .{ .dialed = partner_designator }, transport),
-    };
+    const session = try mint(self, source, .{ .dialed = partner_designator }, transport);
     // Before the hello: the stamp reads this when it assembles the signed
     // location (ADR-0118).
     if (partner_known_glowcap) session.served.port.peer.noteKnownGlowcapPartner();
@@ -196,7 +194,7 @@ pub fn ensureAcceptAdvertisedLocator(
     transport: []const u8,
 ) !void {
     if ((try self.transportProfile(transport)).dial_shape == .route_bundle)
-        return HostError.UnknownTransport;
+        return error.UnknownTransport;
     const plan = dial_plan.planAccept(scheme, server_designator, accepted_local_addr);
     var hint_buf: [1]model.HintEntry = undefined;
     const candidate: model.PeerLocator = .{
@@ -213,30 +211,22 @@ pub fn ensureAcceptAdvertisedLocator(
 /// Mint the accepting half of a session using this node's selected acceptable
 /// location, which may use another transport (ADR-0109).
 pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession {
-    try self.refuseReentry();
-    try self.admitApplicationOperation();
-    const advertised = try requireAcceptableLocator(self);
-    const profile = try self.transportProfile(transport);
-    if (profile.dial_shape == .route_bundle) return HostError.UnknownTransport;
-    const session = try mint(self, .accepted, transport);
-    if (profile.sealed_channel) {
-        attachSealedChannel(self, session, .responder) catch |err| {
-            failOpen(self, session);
-            return err;
-        };
-    }
-    return acceptedHelloAndEnroll(self, session, advertised);
+    return openAccepted(self, .mint, transport);
 }
 
 /// `openAcceptedAdvertised` over an embedder-owned, pinned peer. The node
 /// routes through the peer but never frees it.
 pub fn openAcceptedAdvertisedOver(self: *Host, peer: *engine.Peer, transport: []const u8) !*HostSession {
+    return openAccepted(self, .{ .over = peer }, transport);
+}
+
+fn openAccepted(self: *Host, source: PeerSource, transport: []const u8) !*HostSession {
     try self.refuseReentry();
     try self.admitApplicationOperation();
     const advertised = try requireAcceptableLocator(self);
     const profile = try self.transportProfile(transport);
-    if (profile.dial_shape == .route_bundle) return HostError.UnknownTransport;
-    const session = try mintOver(self, peer, .accepted, transport);
+    if (profile.dial_shape == .route_bundle) return error.UnknownTransport;
+    const session = try mint(self, source, .accepted, transport);
     if (profile.sealed_channel) {
         attachSealedChannel(self, session, .responder) catch |err| {
             failOpen(self, session);
@@ -276,14 +266,14 @@ fn attachSealedChannel(self: *Host, session: *HostSession, role: enum { initiato
                 // A designator whose key is degenerate for Diffie-Hellman
                 // names a peer no handshake can reach: an undialable address.
                 error.InvalidRemoteKey, error.IdentityElement => return error.InvalidAddress,
-                else => return HostError.SealedChannelFailed,
+                else => return error.SealedChannelFailed,
             };
         },
         .responder => foundation.sealed.SealedChannel.initResponder(
             &identity,
             ephemeral_seed,
             session.transport,
-        ) catch return HostError.SealedChannelFailed,
+        ) catch return error.SealedChannelFailed,
     };
     session.sealed = channel;
 }
@@ -296,6 +286,7 @@ pub const liveSessionForDial = directory.liveSessionForDial;
 pub const refuseDuplicateDial = directory.refuseDuplicateDial;
 pub const refuseDuplicateDialForDemand = directory.refuseDuplicateDialForDemand;
 pub const refuseDuplicatePartnerKey = directory.refuseDuplicatePartnerKey;
+pub const DuplicatePartnerError = directory.DuplicatePartnerError;
 pub const indexPartnerKey = directory.indexPartnerKey;
 pub const unindexSession = directory.unindexSession;
 pub const liveIndexedSession = directory.liveIndexedSession;
@@ -342,7 +333,7 @@ pub fn helloAndEnroll(self: *Host, session: *HostSession, advertised: model.Peer
 /// upgraded profile defers its hello until the initiator's arrives, because
 /// only that hello can say whether the partner is glowcap and therefore
 /// which preference ours may state (ADR-0118). The before-serve hook
-/// answers it (`Host.hostBeforeServe`). A default-profile acceptor gains
+/// answers it (`interception.hostBeforeServe`). A default-profile acceptor gains
 /// nothing from waiting: its answer is bare either way, so it keeps the
 /// eager hello, and every other transport says hello at accept as
 /// the dial side does.
@@ -366,9 +357,9 @@ fn acceptedHelloAndEnroll(self: *Host, session: *HostSession, advertised: model.
 pub fn releaseSession(self: *Host, session: *HostSession) SessionReleaseError!void {
     try self.refuseReentry();
     try self.checkOwnedSession(session);
-    self.in_callback = true;
     {
-        defer self.in_callback = false;
+        const hold = self.callback_latch.hold();
+        defer hold.release();
         // Retire Vat admission before the one-way session transition. Failure
         // here mutates nothing and leaves the caller's handle valid. Once it
         // succeeds, every remaining release step is infallible or retains its
@@ -424,39 +415,30 @@ pub const RoleSpec = union(enum) {
     accepted,
 };
 
-/// One node-registered CapTP session shell over a node-owned peer: mint the
-/// peer, apply the host posture, and allocate the `HostSession`. The
+/// One node-registered CapTP session shell: register the peer `source`
+/// names, apply the host posture, and allocate the `HostSession`. The
 /// session's row is reserved here so `enroll` cannot fail. A caller that
-/// fails after this unwinds with `failOpen`.
-pub fn mint(self: *Host, spec: RoleSpec, transport: []const u8) !*HostSession {
+/// fails after this unwinds with `failOpen`. A pinned peer is routed through
+/// and served but never freed: `releaseSession` and `deinit` only
+/// unregister its slot, and the embedder frees it after `releaseSession`,
+/// which is how a peer-owning loop with fixed inline slots puts its sessions
+/// under one host.
+pub fn mint(self: *Host, source: PeerSource, spec: RoleSpec, transport: []const u8) !*HostSession {
     try self.pending_flush.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
     try self.held_releases.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
     // The session being minted owes a flush and a close of its own.
     try self.reserveActions(2);
     if (spec == .dialed) try self.dialed_by_target.ensureUnusedCapacity(self.allocator, 1);
-    const peer_handle = try self.node.registerPeer(negotiatingOptions(
-        self,
-    ));
+    const peer_handle = switch (source) {
+        .mint => try self.node.registerPeer(negotiatingOptions(self)),
+        .over => |peer| try self.node.registerPeerOver(peer),
+    };
     errdefer self.node.removePeer(peer_handle);
     try self.sessions.reserve(self.allocator, peer_handle);
-    return mintShell(self, self.node.peer(peer_handle).?, peer_handle, spec, transport);
-}
-
-/// `mint` over a peer the embedder already owns and pins at a stable
-/// address (`engine.Node.registerPeerOver`): the node routes through it
-/// and the host serves it, but neither ever frees it: `releaseSession` and
-/// `deinit` only unregister the slot, and the embedder frees the peer
-/// after `releaseSession`. This is how a peer-owning loop, whose fixed slots
-/// hold each peer inline, puts its sessions under one host.
-pub fn mintOver(self: *Host, peer: *engine.Peer, spec: RoleSpec, transport: []const u8) !*HostSession {
-    try self.pending_flush.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
-    try self.held_releases.ensureTotalCapacity(self.allocator, self.sessions.count() + 1);
-    // The session being minted owes a flush and a close of its own.
-    try self.reserveActions(2);
-    if (spec == .dialed) try self.dialed_by_target.ensureUnusedCapacity(self.allocator, 1);
-    const peer_handle = try self.node.registerPeerOver(peer);
-    errdefer self.node.removePeer(peer_handle);
-    try self.sessions.reserve(self.allocator, peer_handle);
+    const peer = switch (source) {
+        .mint => self.node.peer(peer_handle).?,
+        .over => |peer| peer,
+    };
     return mintShell(self, peer, peer_handle, spec, transport);
 }
 
@@ -544,14 +526,14 @@ fn resolveSessionTransport(ctx: ?*anyopaque, peer_handle: engine.PeerHandle) ?[]
     return session.transport;
 }
 
-const transport_resolver_vtable: engine.Node.RuntimeTransportResolver.VTable = .{
+const transport_resolver_vtable: engine.Node.TransportResolver.VTable = .{
     .designator_scheme = resolveTransportDesignator,
     .session_transport = resolveSessionTransport,
 };
 
 pub fn enroll(self: *Host, session: *HostSession) void {
-    session.served.serve_options = .{ .hook_ctx = session, .before_serve = Host.hostBeforeServe };
-    session.served.port.setResolveInterceptor(.{ .ctx = session, .func = Host.hostResolveInterceptor });
+    session.served.serve_options = .{ .hook_ctx = session, .before_serve = interception.hostBeforeServe };
+    session.served.port.setResolveInterceptor(.{ .ctx = session, .func = interception.hostResolveInterceptor });
     self.sessions.placeReserved(session.peer_handle, session);
     std.debug.assert(!session.control.open_pending);
     session.control.open_pending = true;

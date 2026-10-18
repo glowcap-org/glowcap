@@ -79,6 +79,10 @@ pub const NetlayerPayload = struct {
     multiplexed_transport: c.GlowcapMultiplexedTransport = undefined,
     provider_entry: c.GlowcapTransportProviderEntry = undefined,
     provider_initialized: bool = false,
+
+    pub fn retain(self: *NetlayerPayload) bool {
+        return c.transport_provider.retainLive(&self.references);
+    }
 };
 
 pub fn payloadFromOpaque(p: ?*GlowcapWebrtcPeer) ?*PeerPayload {
@@ -87,19 +91,6 @@ pub fn payloadFromOpaque(p: ?*GlowcapWebrtcPeer) ?*PeerPayload {
 
 pub fn netlayerFromOpaque(p: ?*GlowcapWebrtcNetlayer) ?*NetlayerPayload {
     return @ptrCast(@alignCast(p orelse return null));
-}
-
-/// Take one more reference, or refuse when the last one is already gone: a
-/// netlayer whose count reached zero is being torn down, and reviving it from
-/// a late retain would hand the caller a payload about to be destroyed.
-pub fn retainNetlayer(payload: *NetlayerPayload) bool {
-    var current = payload.references.load(.acquire);
-    while (current != 0) {
-        if (payload.references.cmpxchgWeak(current, current + 1, .acq_rel, .acquire)) |observed| {
-            current = observed;
-        } else return true;
-    }
-    return false;
 }
 
 /// Roll back an unpublished retain. The caller's original lease proves this
@@ -133,7 +124,7 @@ pub const CreatePeerError = error{ NetlayerReleased, OutOfMemory, PeerCreateFail
 /// refusal has nothing to unwind: a netlayer whose last reference is already
 /// gone admits no new peer.
 pub fn createPeer(alloc: std.mem.Allocator, nl: *NetlayerPayload, is_offerer: bool) CreatePeerError!*PeerPayload {
-    if (!retainNetlayer(nl)) return error.NetlayerReleased;
+    if (!nl.retain()) return error.NetlayerReleased;
     errdefer undoNetlayerRetain(nl);
     const payload = try alloc.create(PeerPayload);
     errdefer alloc.destroy(payload);

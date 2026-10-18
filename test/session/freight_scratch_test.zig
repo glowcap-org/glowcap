@@ -13,7 +13,7 @@ test "freight set certification releases spilled rows on success" {
     var members: [9]view.Argument = undefined;
     for (&members, 0..) |*member, i| member.* = .{ .integer = @intCast(i) };
     const args = [_]view.Argument{.{ .set = .fromViews(&members) }};
-    _ = try session.certifyFreight(.fromViews(&args));
+    _ = try session.certifyFreight(.fromViews(&args), g.ocapn.session.inventory.NoMeter);
     try std.testing.expect(failing.allocated_bytes > 0);
     try std.testing.expectEqual(failing.allocated_bytes, failing.freed_bytes);
 }
@@ -27,7 +27,7 @@ test "freight set certification releases rows and collision views on refusal and
         var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
         var session = Session.init(failing.allocator());
         defer session.deinit();
-        const result = session.certifyFreight(.fromViews(&args));
+        const result = session.certifyFreight(.fromViews(&args), g.ocapn.session.inventory.NoMeter);
         if (fail_index < 2) {
             try std.testing.expectError(error.OutOfMemory, result);
         } else {

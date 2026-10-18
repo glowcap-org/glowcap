@@ -21,7 +21,7 @@ with the bearer tokens and login tables you already use.
 [What about identity?]($link.page('identity')) covers where people, bots,
 and AI agents fit, and what keys can and cannot answer.
 
-[Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
+[Their program hands yours a reference to an object called "greeter." Holding that reference is what lets you call it.]($image.siteAsset('diagram-capability.svg'))
 
 [Rooms]($link.page('rooms')) is a chat app built on this idea. Pick a member in a
 room and press **Message *name* directly**, and your messages go straight to
@@ -62,7 +62,7 @@ from areas that still need outside testing.
 
 The protocol core does no I/O of its own. It is a synchronous state machine you
 feed bytes into and drain bytes out of, so sockets, threads, and scheduling stay
-in your program where you can see them. Peers can meet over encrypted discovery
+in your program. Peers can meet over encrypted discovery
 ([iroh]($link.page('transports/iroh'))), sealed TCP
 ([Noise]($link.page('transports/noise'))), a browser DataChannel
 ([WebRTC]($link.page('transports/webrtc'))), or Tor

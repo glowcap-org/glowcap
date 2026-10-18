@@ -30,7 +30,7 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
   fresh session key limits reconnects but does not stop a captured hello
   from being replayed. Prefer `noise-tcp` or `noise-relay` between glowcap
   peers, iroh when you need discovery or NAT traversal, and WebRTC for a direct
-  browser channel. An application with its own authenticated channel records the
+  browser channel when you trust its signaling. An application with its own authenticated channel records the
   proof through `glowcap_host_session_bind_verified_channel_key`.
 - **A TCP locator names a socket.** On plain TCP, the crossed-connection
   tiebreak trusts the location each peer declares. A peer that can connect and
@@ -53,7 +53,8 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
 - **Over onion, glowcap offers more than `1.0` only to a peer it knows is
   glowcap.** That means a peer that handed out the glowcap-hinted address, or
   one whose hello stated a preference. Pinned Goblins refuses a hinted onion
-  locator, so every onion locator on the wire stays bare. Goblins sessions and
+  locator, so glowcap sends onion locators bare, except in a give to a peer it
+  knows is glowcap. Goblins sessions and
   hosts on the default profile use `1.0`
   ([ADR-0108](decisions/adr/ADR-0108-onion-netlayer.md),
   [ADR-0118](decisions/adr/ADR-0118-onion-profile-by-knowledge.md)).
@@ -145,7 +146,7 @@ It has no recursive room or directory resources.
   [recovery](loam/store.md#when-a-writes-outcome-is-unknown) finds out.
 - **Engine memory.** LMDB and SQLite each keep a page cache outside the
   Store's memory limits. [LMDB operations](loam/lmdb.md#read-failures) says
-  what LMDB's costs.
+  what LMDB's page cache costs.
 - **Testing.** [Stability](stability.md) says which platforms and failures the
   crash tests cover.
 - **Capacity.** The Store and hosting defaults size a small program. An
@@ -206,13 +207,18 @@ contract.
 
 ### Rooms
 
-Limits that belong to the Rooms application, rather than to the library, are
-listed in [operating Rooms](../apps/rooms/operating.md#known-limitations).
+Limits that belong to the Rooms application are listed in [operating Rooms](../apps/rooms/operating.md#known-limitations).
 
 ### Host and ABI
 
 - **The public API and ABI are not stable.** There are no release tags or
   compatibility guarantees. Pin a commit.
+- **A libc-linked shared archive stays mapped until its process exits.** It
+  pins itself when the loader maps it (ADR-0256), so an embedder's close of
+  the library (Deno closes every FFI library at teardown) never unmaps code a
+  detached `std.Io.Threaded` worker is still leaving. ELF installs check it,
+  and macOS runs the same entry unchecked. A libc-free archive runs nothing
+  after its last call returns.
 - **Rust finalizer recovery belongs to the owning thread.** If that thread
   exits with refused C releases pending, their callbacks and Rust owners
   stay allocated for the process lifetime. Finish close and recovery before

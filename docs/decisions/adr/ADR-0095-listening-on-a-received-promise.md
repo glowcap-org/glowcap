@@ -6,7 +6,7 @@ tags: [engine, session, driver, handoff, promises]
 decision: "A peer asks how a far reference it holds settles with `engine.listen.listenOnFar`, and the notification is read back through one version-neutral resolver-export table shared with the V1.0 resolver callback."
 supersedes: []
 superseded_by: []
-amended_by: [ADR-0111]
+amended_by: [ADR-0111, ADR-0254, ADR-0255]
 ---
 
 # ADR-0095 Listening on a received promise
@@ -14,24 +14,26 @@ amended_by: [ADR-0111]
 ## Context
 
 The introducing-session proxy ([ADR-0009](ADR-0009-three-party-handoff-substrate.md))
-mints a third-party import-promise on a recipient session and relays the
-settlement to it, and when that settlement names a capability the node signs a
-give for each recipient. The recipient half needs a verb: a glowcap recipient needs to send an
+projects a promise on a recipient session and settles it when the home
+promise settles ([ADR-0255](ADR-0255-a-relayed-promise-is-a-projection-on-the-recipient-session.md)),
+and when that settlement names a capability the node signs a give for each
+recipient. The recipient half needs a verb: a glowcap recipient needs to send an
 `op:listen` for a promise received as a value, or it has nothing to wait on and
 the three-party promise shape cannot be driven end to end against itself.
 
 The engine carries the settlement machinery. A listener needs the question and a
 way to read the answer. CapTP delivers a listen notification to
 the listener export as a `fulfill` or `break` message, which is byte-for-byte
-the shape a V1.0 resolver callback carries. The engine has a table for that shape, `outbound_resolver_link`, and its
-probe must run on every profile, not behind a `needsV1_0Translation` gate.
+the shape a V1.0 resolver callback carries. The engine reads that shape off
+the export's own row (`ExportRow.purpose`, ADR-0254), and the read must run
+on every profile, not behind a `needsV1_0Translation` gate.
 
 ## Decision
 
 One table serves both mints, and the probe that reads it is version-neutral.
 `src/ocapn/session/resolver_export.zig` owns the link between a resolver export
 (an export of ours whose settlement is one of our outbound answers) and that
-answer. The field on `Session` is `outbound_resolver_link`. The probe lives in
+answer. The purpose sits on the export's row. The read lives in
 `engine.inbound.deliver_route.classify`, where it runs first on every session.
 `engine.v1_0.preparePartnerResolver` is profile-gated: it prepares the
 answer-to-import link for the resolver the partner advertised, and the inbound
@@ -67,7 +69,7 @@ Each profile asks for answer notification differently. On V1.0 an
 answered `op:deliver` is augmented with a synthesized resolver export and
 settles through a callback deliver
 (`engine.outbound.encoded.admit`,
-`engine.v1_0.encodeResolveAsCallback`,
+`engine.v1_0.encodeResolutionAsCallback`,
 `session.v1_0.mintOutboundResolver`). Next sends an
 answered operation with no inline resolver, then follows it with a mandatory
 `op:listen`. The listener callback settles the answer. Next has no wire
@@ -109,7 +111,7 @@ amendment.
 - **A second table keyed on listener exports.** Rejected because it keys
   the same wire shape twice, and a deliver matching both would need a
   precedence rule.
-- **Restrict the target to third-party imports.** Rejected because CapTP admits
+- **Restrict the target to projected promises.** Rejected because CapTP admits
   a listen on a settled capability and answers it immediately, as glowcap's
   inbound handler does (`engine.pipeline.fireLiveObjectExportListener`).
 - **Surface the notification as a deliver and let the application decode it.**
@@ -138,8 +140,9 @@ amendment.
 
 ## Notes
 
-[ADR-0009](ADR-0009-three-party-handoff-substrate.md) owns the relayed
-resolution and the give it settles with.
+[ADR-0255](ADR-0255-a-relayed-promise-is-a-projection-on-the-recipient-session.md)
+owns the projected promise's settlement, and
+[ADR-0009](ADR-0009-three-party-handoff-substrate.md) the give it settles with.
 [ADR-0007](ADR-0007-promise-pipelining-substrate.md) owns the `op:listen`
 substrate and the V1.0 resolver-callback translation whose table this
 generalizes. [ADR-0010](ADR-0010-payload-descriptor-discriminator.md) owns the

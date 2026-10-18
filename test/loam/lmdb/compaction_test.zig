@@ -9,7 +9,7 @@ extern "c" fn close(c_int) c_int;
 test "loam LMDB compaction preserves the complete store and shrinks reclaimed pages" {
     var tmp = try Temp.init();
     defer tmp.deinit();
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id }, .max_readers = 1 });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .create }, .max_readers = 1 });
     const metadata = try f.seed(std.testing.allocator, &db);
     const before = try tmp.dir.dir.statFile(std.testing.io, "data.mdb", .{});
     const lock = try tmp.dir.dir.statFile(std.testing.io, "loam-owner.lock", .{});
@@ -17,14 +17,14 @@ test "loam LMDB compaction preserves the complete store and shrinks reclaimed pa
     try std.testing.expectError(error.Busy, db.beginCompaction());
     try std.testing.expectError(error.Busy, db.inspect());
     try std.testing.expectError(error.WrongPhase, replacement.install());
-    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(tmp.path, .{ .mode = .{ .open = f.id } }));
+    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open } }));
     try replacement.prepare();
     try std.testing.expectError(error.WrongPhase, replacement.prepare());
     try std.testing.expectEqual(before.inode, (try tmp.dir.dir.statFile(std.testing.io, "data.mdb", .{})).inode);
     try replacement.install();
     try std.testing.expectError(error.Closed, db.inspect());
     try std.testing.expectError(error.Busy, db.close());
-    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(tmp.path, .{ .mode = .{ .open = f.id } }));
+    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open } }));
     // Refuse the LMDB directory sync after rename, then retry with a live
     // descriptor. This exercises the unknown-outcome contract without a
     // production test hook or re-running the copy/installation effects.
@@ -38,13 +38,13 @@ test "loam LMDB compaction preserves the complete store and shrinks reclaimed pa
     try replacement.finish();
     try std.testing.expectError(error.WrongPhase, replacement.finish());
     replacement.deinit();
-    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(tmp.path, .{ .mode = .{ .open = f.id } }));
+    try std.testing.expectError(error.CustodyUnavailable, Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open } }));
     try db.close();
     const after = try tmp.dir.dir.statFile(std.testing.io, "data.mdb", .{});
     try std.testing.expect(after.inode != before.inode);
     try std.testing.expect(after.size < before.size);
     try std.testing.expectEqual(lock.inode, (try tmp.dir.dir.statFile(std.testing.io, "loam-owner.lock", .{})).inode);
-    db = try Lmdb.open(tmp.path, .{ .mode = .{ .open = f.id }, .max_readers = 1 });
+    db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open }, .max_readers = 1 });
     defer db.close() catch unreachable;
     // Normal reopening clears the submission receipt and starts a new identity
     // allocation sequence; every other durable metadata fact remains exact.
@@ -56,7 +56,7 @@ test "loam LMDB compaction preserves the complete store and shrinks reclaimed pa
 test "loam LMDB canceled copies and failed installation retain the original authority" {
     var tmp = try Temp.init();
     defer tmp.deinit();
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id } });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .create } });
     _ = try f.seed(std.testing.allocator, &db);
     const before = try tmp.dir.dir.statFile(std.testing.io, "data.mdb", .{});
     var replacement = try db.beginCompaction();
@@ -73,7 +73,7 @@ test "loam LMDB canceled copies and failed installation retain the original auth
     replacement.deinit();
     try db.close();
     try std.testing.expectEqual(before.inode, (try tmp.dir.dir.statFile(std.testing.io, "data.mdb", .{})).inode);
-    db = try Lmdb.open(tmp.path, .{ .mode = .{ .open = f.id } });
+    db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .open } });
     defer db.close() catch unreachable;
     try f.verify(std.testing.allocator, &db);
 }

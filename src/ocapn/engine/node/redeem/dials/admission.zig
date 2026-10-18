@@ -7,6 +7,7 @@
 const std = @import("std");
 
 const model = @import("model");
+const session = @import("session");
 const codec = @import("codec");
 const crypto = @import("foundation").crypto;
 const node_mod = @import("../../../node.zig");
@@ -27,13 +28,13 @@ const conflicting_routes = "handoff give conflicts with an in-flight exporter ro
 pub fn acceptGive(
     self: *Node,
     recipient_peer: PeerHandle,
-    answer: u64,
+    answer: session.OutboundAnswerTarget,
     give: []const u8,
     exporter_locator: []const u8,
 ) !void {
     return acceptGiveTo(
         self,
-        .{ .answer = .{ .recipient_peer = recipient_peer, .answer = .from(answer) } },
+        .{ .answer = .{ .recipient_peer = recipient_peer, .answer = answer } },
         give,
         exporter_locator,
     );
@@ -61,11 +62,11 @@ fn acceptGiveTo(
     exporter_locator: []const u8,
 ) !void {
     if (exporter_locator.len == 0)
-        return withdrawals.queueFailure(self, dest, "handoff give names no dialable exporter locator");
+        return withdrawals.queueFailure(self, dest, "handoff give names no dialable exporter locator", null);
 
     const parsed_locator = model.uri.parsePeer(self.allocator, exporter_locator) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => return withdrawals.queueFailure(self, dest, "handoff give names unparseable exporter locator"),
+        else => return withdrawals.queueFailure(self, dest, "handoff give names unparseable exporter locator", null),
     };
     var parsed_locator_owned = true;
     defer if (parsed_locator_owned) model.freePeerLocator(self.allocator, parsed_locator);
@@ -74,23 +75,8 @@ fn acceptGiveTo(
     if (!is_id) try recipient.session_state.requireNegotiatedLocator(parsed_locator);
     const state = &self.redeems.dials;
 
-    var identity_buf: ["ocapn://".len + crypto.PeerKey.designator_len + ".id".len]u8 = undefined;
-    const id_identity = if (is_id) identity: {
-        const key = crypto.PeerKey.fromDesignator(parsed_locator.designator) orelse break :identity null;
-        const designator = key.toDesignator();
-        // Written through the one URI writer, because the exporter cache's
-        // keys are written the same way: byte equality of the lookup depends
-        // on both sides sharing that single shape owner. The buffer is sized
-        // for exactly this locator, and a key designator's fixed alphabet
-        // excludes every encode error, so incompleteness cannot arise.
-        const written = model.uri.writePeerBounded(.{
-            .transport = model.transport.id,
-            .designator = designator[0..],
-            .hints = model.Hints.emptyFalse(),
-        }, &identity_buf) catch unreachable;
-        std.debug.assert(written.complete);
-        break :identity identity_buf[0..written.len];
-    } else null;
+    var identity_buf: [id_identity_len]u8 = undefined;
+    const id_identity = if (is_id) idIdentity(parsed_locator.designator, &identity_buf) else null;
     if (id_identity) |identity| if (state.exporters.get(identity)) |exporter_peer| {
         try recipient.session_state.requireNegotiatedLocator(parsed_locator);
         const route_advice = if (gift_recipe.needsDiscovered(self, exporter_peer)) advice: {
@@ -100,13 +86,7 @@ fn acceptGiveTo(
             break :advice prepared;
         } else null;
         defer withdrawals.finishRouteAdviceSetup(self, route_advice);
-        const slot = self.peers.getPtr(exporter_peer);
-        const retire_on_failure = if (slot) |live| live.provisional_exporter and live.pending_withdraw_count == 0 else false;
-        if (retire_on_failure) try actions.reserve(self, 3);
-        try withdrawals.begin(self, exporter_peer, dest, give, route_advice);
-        if (retire_on_failure and slot.?.pending_withdraw_count == 0)
-            actions.pushReserved(self, .{ .retire_exporter = exporter_peer });
-        return;
+        return beginWithExporter(self, exporter_peer, dest, give, route_advice);
     };
 
     var staged: plan.Owned = if (is_id)
@@ -115,8 +95,8 @@ fn acceptGiveTo(
         parsed_locator_owned = false;
         break :owned plan.fromOwnedLocator(self.allocator, parsed_locator) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.UnparseableExporterLocator => return withdrawals.queueFailure(self, dest, "handoff give names unparseable exporter locator"),
-            error.UnsupportedId => return withdrawals.queueFailure(self, dest, unsupported_id),
+            error.UnparseableExporterLocator => return withdrawals.queueFailure(self, dest, "handoff give names unparseable exporter locator", null),
+            error.UnsupportedId => return withdrawals.queueFailure(self, dest, unsupported_id, null),
         };
     };
     var staged_owned = true;
@@ -124,21 +104,13 @@ fn acceptGiveTo(
 
     if (state.exporters.get(staged.identity)) |exporter_peer| {
         std.debug.assert(staged.source != .id);
-        const route_advice = null;
-        defer withdrawals.finishRouteAdviceSetup(self, route_advice);
-        const slot = self.peers.getPtr(exporter_peer);
-        const retire_on_failure = if (slot) |live| live.provisional_exporter and live.pending_withdraw_count == 0 else false;
-        if (retire_on_failure) try actions.reserve(self, 3);
-        try withdrawals.begin(self, exporter_peer, dest, give, route_advice);
-        if (retire_on_failure and slot.?.pending_withdraw_count == 0)
-            actions.pushReserved(self, .{ .retire_exporter = exporter_peer });
-        return;
+        return beginWithExporter(self, exporter_peer, dest, give, null);
     }
 
     if (state.by_identity.get(staged.identity)) |pending_id| {
         const entry = &state.pending.getPtr(pending_id).?.dialing;
         if (!model.route_bundle.samePaths(entry.plan, staged))
-            return withdrawals.queueFailure(self, dest, conflicting_routes);
+            return withdrawals.queueFailure(self, dest, conflicting_routes, null);
 
         const owned_give = try self.allocator.dupe(u8, give);
         errdefer self.allocator.free(owned_give);
@@ -152,37 +124,70 @@ fn acceptGiveTo(
         return;
     }
 
-    const owned_give = try self.allocator.dupe(u8, give);
-    errdefer self.allocator.free(owned_give);
-    const waiter: dials.Waiter = .{ .dest = dest, .give = owned_give };
-
-    try state.pending.ensureUnusedCapacity(self.allocator, 1);
-    try state.by_identity.ensureUnusedCapacity(self.allocator, 1);
-    const initial = attempts.State.initial(staged);
-    try actions.reserve(self, 1 + initial.len);
-    var pending: dials.Dialing = .{
-        .plan = staged,
-        .exporter_locator = if (is_id) parsed_locator else null,
-    };
-    if (is_id) parsed_locator_owned = false;
     staged_owned = false;
-    var pending_owned = true;
-    errdefer if (pending_owned) {
+    if (is_id) parsed_locator_owned = false;
+    return startDial(self, dest, give, staged, if (is_id) parsed_locator else null);
+}
+
+const id_identity_len = "ocapn://".len + crypto.PeerKey.designator_len + ".id".len;
+
+/// The canonical identity URI of a key-designated locator, written into
+/// `buf`, or null when the designator is not a peer key.
+fn idIdentity(designator: []const u8, buf: *[id_identity_len]u8) ?[]const u8 {
+    const key = crypto.PeerKey.fromDesignator(designator) orelse return null;
+    const key_designator = key.toDesignator();
+    // Written through the one URI writer, because the exporter cache's
+    // keys are written the same way: byte equality of the lookup depends
+    // on both sides sharing that single shape owner. The buffer is sized
+    // for exactly this locator, and a key designator's fixed alphabet
+    // excludes every encode error, so incompleteness cannot arise.
+    const written = model.uri.writePeerBounded(.hintless(model.transport.id, key_designator[0..]), buf) catch unreachable;
+    std.debug.assert(written.complete);
+    return buf[0..written.len];
+}
+
+/// Withdraw through a live exporter session. A provisional exporter with no
+/// other withdrawal in flight retires if this one fails.
+fn beginWithExporter(
+    self: *Node,
+    exporter_peer: PeerHandle,
+    dest: redeem.Destination,
+    give: []const u8,
+    route_advice: ?*withdrawals.RouteAdvice,
+) !void {
+    const slot = self.peers.getPtr(exporter_peer);
+    const retire_on_failure = if (slot) |live| live.provisional_exporter and live.pending_withdraw_count == 0 else false;
+    if (retire_on_failure) try actions.reserve(self, 3);
+    try withdrawals.begin(self, exporter_peer, dest, give, route_advice);
+    if (retire_on_failure and slot.?.pending_withdraw_count == 0)
+        actions.pushReserved(self, .{ .retire_exporter = exporter_peer });
+}
+
+/// Open the dial for a new exporter identity with this give as its first
+/// waiter. Owns `staged` and `locator` on every outcome.
+fn startDial(
+    self: *Node,
+    dest: redeem.Destination,
+    give: []const u8,
+    staged: plan.Owned,
+    locator: ?model.PeerLocator,
+) !void {
+    const state = &self.redeems.dials;
+    var pending: dials.Dialing = .{ .plan = staged, .exporter_locator = locator };
+    errdefer {
         pending.waiters.deinit(self.allocator);
         pending.plan.deinit(self.allocator);
-        if (pending.exporter_locator) |locator| model.freePeerLocator(self.allocator, locator);
-    };
-    try pending.waiters.append(self.allocator, waiter);
+        if (pending.exporter_locator) |held| model.freePeerLocator(self.allocator, held);
+    }
+    const owned_give = try self.allocator.dupe(u8, give);
+    errdefer self.allocator.free(owned_give);
+    try state.pending.ensureUnusedCapacity(self.allocator, 1);
+    try state.by_identity.ensureUnusedCapacity(self.allocator, 1);
+    const initial = attempts.State.initial(pending.plan);
+    try actions.reserve(self, 1 + initial.len);
+    try pending.waiters.append(self.allocator, .{ .dest = dest, .give = owned_give });
 
     const pending_id = try actions.claimTicketRange(self, 1);
-    const identity = pending.plan.identity;
-    state.pending.putAssumeCapacity(pending_id, .{ .dialing = pending });
-    pending_owned = false;
+    dials.publishFresh(self, pending_id, pending, initial);
     state.waiter_action_reservations += 1;
-    state.by_identity.putAssumeCapacity(identity, pending_id);
-    const entry = &state.pending.getPtr(pending_id).?.dialing;
-    for (initial.slice()) |route_index| {
-        entry.attempts.markScheduled(route_index);
-        actions.pushReserved(self, .{ .dial = .{ .pending = pending_id, .route_index = route_index } });
-    }
 }

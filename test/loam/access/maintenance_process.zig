@@ -61,7 +61,8 @@ pub fn create(server: anytype, client: *h.driver.Host, pair: pairs.Pair, use: mo
         const lease = try h.c.load(store, server.db, try owner(server));
         const value = try records.OwnerRecord.decode(try store.currentView(lease));
         try store.release(lease);
-        var read = try h.c.storage.Read.init(store.allocator, store, owner_id, 1);
+        var read: h.c.storage.Read = undefined;
+        try read.init(store.allocator, store, owner_id, 1, null);
         defer read.deinit() catch unreachable;
         _ = try h.f.pump(&read, server.db);
         const slot: u32 = @intCast(value.next_identity - 1);
@@ -78,7 +79,8 @@ pub fn create(server: anytype, client: *h.driver.Host, pair: pairs.Pair, use: mo
     const secret = (try store.currentView(pub_lease)).payload[0..16].*;
     try store.release(pub_lease);
     const descriptor_lease = try h.c.load(store, server.db, receipt_endpoint.descriptor);
-    var descriptor = try records.CapabilityRecord.decodeOwned(store.allocator, try store.currentView(descriptor_lease));
+    var descriptor: records.CapabilityRecord = undefined;
+    try descriptor.decodeOwned(store.allocator, try store.currentView(descriptor_lease));
     defer descriptor.deinit(store.allocator);
     try store.release(descriptor_lease);
     var bytes: [32]u8 = undefined;
@@ -88,7 +90,7 @@ pub fn create(server: anytype, client: *h.driver.Host, pair: pairs.Pair, use: mo
     const id = try store.allocateId();
     try store.putCopying(.{ .id = id, .revision = 0, .schema = schema.id, .rooted = true, .payload = &bytes }, null);
     try h.f.commit(store, server.db);
-    _ = try h.f.change(store, server.db, owner_id, .{ .revoke = descriptor.value.grant });
+    _ = try h.f.change(store, server.db, owner_id, .{ .revoke = descriptor.grant });
     var progress = try native.change(store, server.db, owner_id, .sweep, 0);
     // Stop immediately before the terminal endpoint/publication batch. Earlier
     // weak members and its descriptor have already advanced persisted progress.

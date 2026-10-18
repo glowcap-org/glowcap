@@ -188,7 +188,7 @@ test "secure routes fail closed before the clear carrier performs I/O" {
     );
     defer _ = resident.deinit();
     const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x72)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x72)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -252,7 +252,7 @@ test "secure relay keeps upgrade primary ahead of TLS cleanup refusal" {
         &tls_runtime,
     );
     const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x76)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x76)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -299,7 +299,7 @@ test "secure relay composes injected TLS below the one WebSocket upgrade" {
     );
     try std.testing.expect(provider.keyed_resident.configuration() == provider.noise_resident.configuration());
     const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x73)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x73)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);
@@ -351,10 +351,10 @@ test "relay configuration equivalence covers every initializer policy fact" {
     const route = "ws://relay.example/relay?blue=1&green=%32";
     const register = "ws://relay.example/register?deployment=one";
     const first_key = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x41)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x41)),
     ).publicKey();
     const other_key = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x42)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x42)),
     ).publicKey();
 
     var baseline = try keyed_relay.Resident.initRegisteredProfile(
@@ -483,7 +483,7 @@ test "resident DNS dial preserves the exact WebSocket refusal" {
     defer _ = resident.deinit();
 
     const identity = glowcap.foundation.crypto.SecretKey.fromSeed(
-        @as([glowcap.foundation.crypto.SEED_BYTES]u8, @splat(0x71)),
+        @as([glowcap.foundation.crypto.seed_bytes]u8, @splat(0x71)),
     );
     const designator = identity.publicKey().toDesignator();
     var stop = std.atomic.Value(bool).init(false);

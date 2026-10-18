@@ -16,7 +16,7 @@ const set_uniqueness = @import("set_uniqueness.zig");
 const Session = session.Session;
 const Error = session.Error;
 const RecvViewError = session.RecvViewError;
-const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const bootstrap_position = session.bootstrap_position;
 
 const inline_uniqueness_stack_cap = 8;
 
@@ -53,15 +53,15 @@ pub const IntroducedImports = struct {
     /// budget. Exact overflow counting is a cold prepare branch. The
     /// positions are the peer's words.
     seen: foundation.inline_rows.Table(model.ImportPosition, void, 4, .wire),
-    mentions: foundation.inline_rows.List(model.ImportPosition, 4) = .empty,
+    mentions: foundation.inline_rows.List(model.ImportPosition, 4),
     /// Index in `mentions` owned by the answer's inline V1.0 resolver link,
     /// not by the surfaced application arguments. Stateless event GC excludes
     /// this retain. Settlement releases it beside the resolver callback.
-    resolver_mention_index: ?usize = null,
+    resolver_mention_index: ?usize,
     /// Promise-shaped far mentions that require the next profile's one private
     /// shortening subscription. Repeats are retained here. The session table
     /// deduplicates by live import identity when the engine schedules them.
-    promise_mentions: foundation.inline_rows.List(model.ImportPosition, 2) = .empty,
+    promise_mentions: foundation.inline_rows.List(model.ImportPosition, 2),
     /// What is left of this message's equality-comparison allowance, spent by
     /// the set-uniqueness fold. It rides the per-turn record rather than the
     /// session because it is turn state: one record is built per recv entry
@@ -72,14 +72,18 @@ pub const IntroducedImports = struct {
     /// How many reference and handoff slots the walked arguments hold, at
     /// every depth. A deliver event carries it out so a Host handler whose
     /// delivery holds none reads the frame's views without a lift.
-    reference_slots: u32 = 0,
+    reference_slots: u32,
 
-    pub fn init(allocator: std.mem.Allocator, s: *const Session) IntroducedImports {
-        return .{
-            .allocator = allocator,
-            .seen = .keyed(s.wire_hash_multiplier),
-            .compare_budget = .init(s.limits.max_compare_visits),
-        };
+    /// Fill `self` in place: one record per turn, whose inline rows stay
+    /// unwritten until a mention lands.
+    pub fn init(self: *IntroducedImports, allocator: std.mem.Allocator, s: *const Session) void {
+        self.allocator = allocator;
+        self.seen.initKeyed(s.wire_hash_multiplier);
+        self.mentions.init();
+        self.resolver_mention_index = null;
+        self.promise_mentions.init();
+        self.compare_budget = .init(s.limits.max_compare_visits);
+        self.reference_slots = 0;
     }
 
     pub fn deinit(self: *IntroducedImports) void {
@@ -123,13 +127,13 @@ pub const IntroducedImports = struct {
     }
 
     fn noteIntroduction(self: *IntroducedImports, s: *Session, import_position: model.ImportPosition) RecvViewError!void {
-        if (import_position.int() == BOOTSTRAP_POSITION) return;
+        if (import_position.int() == bootstrap_position) return;
         try self.mentions.append(self.allocator, import_position);
         if (s.imports.contains(import_position)) return;
         const gop = try self.seen.getOrPut(self.allocator, import_position);
         if (gop.found_existing) return;
         if (s.imports.len() + self.seen.count() > s.limits.max_imports) {
-            return Error.ImportCapExceeded;
+            return error.ImportCapExceeded;
         }
     }
 };
@@ -180,19 +184,19 @@ pub fn validateDeliverOrListenTarget(
             .far => try validateReference(self, reference, .sent, .held_import),
             .promise => |promise| {
                 if (!self.outbound_answers.contains(promise.answer_position)) {
-                    return Error.InvalidReference;
+                    return error.InvalidReference;
                 }
             },
-            else => return Error.InvalidReference,
+            else => return error.InvalidReference,
         },
         .received => switch (reference) {
             .near => try validateReference(self, reference, .received, .held_import),
             .promise => |promise| {
                 if (!self.inbound_answers.contains(.fromWire(promise.answer_position))) {
-                    return Error.InvalidReference;
+                    return error.InvalidReference;
                 }
             },
-            else => return Error.InvalidReference,
+            else => return error.InvalidReference,
         },
     }
 }
@@ -210,11 +214,11 @@ pub fn validateListenListener(
     switch (perspective) {
         .sent => switch (reference) {
             .near => try validateReference(self, reference, .sent, .held_import),
-            else => return Error.InvalidReference,
+            else => return error.InvalidReference,
         },
         .received => switch (reference) {
             .far => try validateReference(self, reference, .received, .introduction),
-            else => return Error.InvalidReference,
+            else => return error.InvalidReference,
         },
     }
 }
@@ -241,22 +245,22 @@ pub fn validateReference(
 
 fn validateNearReference(self: *Session, near: model.NearRef, comptime perspective: Perspective) Error!void {
     switch (perspective) {
-        .sent => if (!self.exports.contains(near.export_position)) return Error.InvalidReference,
-        .received => if (near.export_position.int() != BOOTSTRAP_POSITION and
+        .sent => if (!self.exports.contains(near.export_position)) return error.InvalidReference,
+        .received => if (near.export_position.int() != bootstrap_position and
             self.exports.wireHeld(near.export_position) == 0)
-            return Error.InvalidReference,
+            return error.InvalidReference,
     }
 }
 
 fn validateFarReference(self: *Session, far: model.FarRef, comptime far_policy: FarPolicy) Error!void {
     switch (far_policy) {
-        .held_import => if (!self.holdsImport(far.import_position)) return Error.InvalidReference,
+        .held_import => if (!self.holdsImport(far.import_position)) return error.InvalidReference,
         .introduction => {},
     }
 }
 
 fn validateSturdyReference(self: *Session, sturdy: anytype) ReferenceError(@TypeOf(sturdy))!void {
-    if (!self.features.sturdyref) return Error.FeatureNotNegotiated;
+    if (!self.features.sturdyref) return error.FeatureNotNegotiated;
     const value = if (comptime @TypeOf(sturdy) == model.view.LazySturdyRef)
         try sturdy.project()
     else if (comptime @typeInfo(@TypeOf(sturdy)) == .pointer)
@@ -283,7 +287,7 @@ pub fn validateInboundArguments(
     depth: usize,
     introduced: *IntroducedImports,
 ) RecvViewError!void {
-    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
+    if (depth > self.limits.max_nesting_depth) return error.NestingTooDeep;
     if (comptime @TypeOf(args) == model.view.Args) {
         // A word run holds integers only, bounded by the codec that read
         // it, so there is no element here to visit.
@@ -297,7 +301,7 @@ pub fn validateInboundArguments(
     }
 }
 
-pub fn validateInboundArgument(
+pub inline fn validateInboundArgument(
     self: *Session,
     arg: anytype,
     depth: usize,
@@ -386,7 +390,7 @@ fn validateInboundStructEntries(
     depth: usize,
     introduced: *IntroducedImports,
 ) RecvViewError!void {
-    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
+    if (depth > self.limits.max_nesting_depth) return error.NestingTooDeep;
     if (comptime @TypeOf(entries) == model.view.StructEntries) {
         var it = entries.iterator();
         while (try it.nextRef()) |entry| try validateInboundArgument(self, &entry.value, depth, introduced);
@@ -399,7 +403,7 @@ fn validateInboundStructEntries(
 /// own operation. Enforce the negotiated gate and structural floor at that
 /// real entry point for both borrowed and owned argument trees.
 fn validateHandoffArgument(self: *const Session, handoff: anytype) Error!void {
-    if (!self.features.handoff) return Error.FeatureNotNegotiated;
+    if (!self.features.handoff) return error.FeatureNotNegotiated;
     const value = if (comptime @typeInfo(@TypeOf(handoff)) == .pointer)
         handoff.*
     else
@@ -416,8 +420,8 @@ fn validateHandoffArgument(self: *const Session, handoff: anytype) Error!void {
 /// Validate the profile-specific gift-id domain used by every nested handoff
 /// argument and by bootstrap admission before it retains an id.
 pub fn validateHandoffGiftId(captp_version: model.CaptpVersion, gift_id: []const u8) Error!void {
-    if (captp_version == .next and gift_id.len != model.HANDOFF_GIFT_ID_BYTES) {
-        return Error.MalformedMessage;
+    if (captp_version == .next and gift_id.len != model.handoff_gift_id_bytes) {
+        return error.MalformedMessage;
     }
 }
 
@@ -433,8 +437,8 @@ fn validateInboundHandoffArgument(self: *const Session, handoff: anytype) Error!
         handoff;
     switch (value) {
         .give => |give| {
-            const local_key = self.localSessionKey() orelse return Error.InvalidHandoffSession;
-            if (!std.mem.eql(u8, give.recipient_key, local_key)) return Error.InvalidGift;
+            const local_key = self.localSessionKey() orelse return error.InvalidHandoffSession;
+            if (!std.mem.eql(u8, give.recipient_key, local_key)) return error.InvalidGift;
         },
         .receive => {},
     }
@@ -447,8 +451,8 @@ fn validateOutboundHandoffArgument(self: *const Session, handoff: model.Handoff)
     try validateHandoffArgument(self, handoff);
     switch (handoff) {
         .give => |give| {
-            const partner_key = self.partnerSessionKey() orelse return Error.InvalidHandoffSession;
-            if (!std.mem.eql(u8, give.recipient_key, partner_key)) return Error.InvalidGift;
+            const partner_key = self.partnerSessionKey() orelse return error.InvalidHandoffSession;
+            if (!std.mem.eql(u8, give.recipient_key, partner_key)) return error.InvalidGift;
         },
         .receive => {},
     }
@@ -462,7 +466,7 @@ fn validateOutboundHandoffArgument(self: *const Session, handoff: model.Handoff)
 /// (`.near_may_be_first_export`), because resolving an answer with a `.near`
 /// is how the application exports that object for the first time: there is no
 /// export row yet, and `retainSentExportRef` mints one, admitting the position
-/// through `admitExportPositionForMarshal` so it must still be a name in this
+/// through `validateExportPositionForMarshal` so it must still be a name in this
 /// session's own range.
 ///
 /// The exemption stops at that arm. A `far` names the partner's export on
@@ -518,8 +522,8 @@ fn certifySentArgument(self: *Session, arg: model.Argument, comptime ref_check: 
             // patterns) refuse only here, as they would inbound. No
             // message-wide budget brackets a send, so each fold mints its own
             // allowance, per set rather than per message, which still bounds
-            // the one partner-influenced caller (`validateStoredResolution`, a
-            // relayed fulfillment) at the same rate the inbound fold charges.
+            // the one partner-influenced caller (`validateSentResolutionValue`
+            // on a proxied fulfillment) at the same rate the inbound fold charges.
             var compare_budget = model.equality.CompareBudget.init(self.limits.max_compare_visits);
             try set_uniqueness.checkOwned(self.allocator, items, &compare_budget);
         },

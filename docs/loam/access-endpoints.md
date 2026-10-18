@@ -8,7 +8,8 @@ sources:
 
 # Managed endpoints on the Host
 
-This guide serves managed use and control references as CapTP endpoints. The
+A Host can serve managed use and control references as CapTP endpoints, so a
+remote peer calls them like any other capability. The
 [managed access guide](access.md) covers resources, held references, and
 retries.
 

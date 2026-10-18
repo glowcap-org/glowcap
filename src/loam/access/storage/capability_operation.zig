@@ -14,6 +14,9 @@ const Append = @import("append.zig").Append;
 const ResourceChange = @import("resource_change.zig").ResourceChange;
 const Load = @import("load.zig").Load;
 const InspectedGrant = @import("inspected_grant.zig").InspectedGrant;
+const control_plan = @import("control_plan.zig");
+const children_mod = @import("children.zig");
+const inspected_grant = @import("inspected_grant.zig");
 
 /// One operation's heap allocation: its Read (`read.read_budget_bytes`), the
 /// control descriptor's selection scratch, the descriptor, and a prepared
@@ -31,25 +34,28 @@ pub const State = struct {
     snapshot: u64,
     incarnation: u64,
     capacity: usize,
-    load: Load = .{},
-    lease: ?loam.Lease = null,
-    descriptor: Descriptor = undefined,
-    control_cursor: ?loam.ObjectId = null,
-    control_ready: bool = false,
-    control_live: bool = true,
-    control_depth: usize = 0,
-    read: ?Read = null,
+    load: Load,
+    lease: ?loam.Lease,
+    descriptor: Descriptor,
+    control_cursor: ?loam.ObjectId,
+    control_ready: bool,
+    control_live: bool,
+    control_depth: usize,
+    /// Opened once the descriptor row loads. The Read stays inline and
+    /// unconditional because a `null` or void-arm store would zero its 20 KiB.
+    read: Read,
+    loaded: bool,
     prepared: union(enum) {
         none,
-        grant: struct { plan: core.GrantPlan, append: ?*Append = null, powers: ?@import("control_plan.zig").PowerCopy = null },
+        grant: struct { plan: core.GrantPlan, append: ?*Append = null, powers: ?control_plan.PowerCopy = null },
         resource: *ResourceChange,
         child: struct { append: *Append, parent: core.ResourceId },
-        control: @import("control_plan.zig").Plan,
-    } = .none,
-    children: usize = 0,
-    staged: bool = false,
-    cancelled: bool = false,
-    scratch: [records.CapabilityRecord.selection_bytes]u8 align(@alignOf(core.ResourceId)) = undefined,
+        control: control_plan.Plan,
+    },
+    children: usize,
+    staged: bool,
+    cancelled: bool,
+    scratch: [records.CapabilityRecord.selection_bytes]u8 align(@alignOf(core.ResourceId)),
 
     pub fn current(self: *State) !void {
         if (self.cancelled) return error.Cancelled;
@@ -69,13 +75,13 @@ pub const State = struct {
 
     pub fn opened(self: *State) !void {
         try self.current();
-        if (self.read == null) return error.RecordUnloaded;
-        try self.read.?.opened();
-        if (self.read.?.header.owner != self.descriptor.grant.owner) return error.ForeignOwner;
-        var grants = try self.read.?.grantView();
+        if (!self.loaded) return error.RecordUnloaded;
+        try self.read.opened();
+        if (self.read.header.owner != self.descriptor.grant.owner) return error.ForeignOwner;
+        var grants = try self.read.grantView();
         _ = try grants.borrow(self.descriptor.grant);
         grants.release();
-        const entry = (try self.read.?.binding(.{ .grant = self.descriptor.grant })).?;
+        const entry = (try self.read.binding(.{ .grant = self.descriptor.grant })).?;
         const found = try Read.rowFor(self.binding.owner.store, entry) orelse return error.InvalidRecord;
         if (!found.view.id.eql(self.descriptor.grant_object)) return error.InvalidRecord;
     }
@@ -89,7 +95,24 @@ pub fn begin(binding: *Binding, capacity: usize) !*Operation {
     try binding.retain();
     errdefer binding.release();
     const value = try owner.allocator.create(State);
-    value.* = .{ .binding = binding, .snapshot = owner.store.metadata.revision, .incarnation = owner.store.metadata.incarnation, .capacity = capacity };
+    // `begin` is the one constructor, so the initial values live here and
+    // land field by field: a struct literal stores the whole State, and the
+    // read, descriptor, and scratch it leaves undefined arrive as a memset.
+    value.binding = binding;
+    value.snapshot = owner.store.metadata.revision;
+    value.incarnation = owner.store.metadata.incarnation;
+    value.capacity = capacity;
+    value.load = .{};
+    value.lease = null;
+    value.control_cursor = null;
+    value.control_ready = false;
+    value.control_live = true;
+    value.control_depth = 0;
+    value.loaded = false;
+    value.prepared = .none;
+    value.children = 0;
+    value.staged = false;
+    value.cancelled = false;
     owner.operations += 1;
     return @ptrCast(value);
 }
@@ -113,13 +136,13 @@ pub const Operation = opaque {
         const value = state(self);
         if (value.binding.role != .use) return error.WrongRole;
         try value.opened();
-        var grants = try value.read.?.grantView();
+        var grants = try value.read.grantView();
         var path = grants.ancestry(value.descriptor.grant);
         defer path.close();
         var count: usize = 0;
         while (try path.next()) |grant| {
             if (count == buffer.len) return error.DepthLimit;
-            const binding = (try value.read.?.binding(.{ .grant = grant.id })).?;
+            const binding = (try value.read.binding(.{ .grant = grant.id })).?;
             buffer[count] = binding.object orelse return error.InvalidRecord;
             count += 1;
         }
@@ -134,9 +157,9 @@ pub const Operation = opaque {
         const value = state(self);
         if (value.binding.role != .use) return error.WrongRole;
         try value.opened();
-        var resources = try value.read.?.resourceView();
+        var resources = try value.read.resourceView();
         const resource = try resources.get(target);
-        const binding = (try value.read.?.binding(.{ .resource = target })).?;
+        const binding = (try value.read.binding(.{ .resource = target })).?;
         return .{ .id = resource.id, .kind = resource.kind, .object = binding.object orelse return error.InvalidRecord, .revision = resources.version.revision };
     }
 
@@ -146,9 +169,9 @@ pub const Operation = opaque {
         const value = state(self);
         if (value.binding.role != .use) return error.WrongRole;
         try value.opened();
-        var grants = try value.read.?.grantView();
-        var resources = try value.read.?.resourceView();
-        return .{ .access = try grants.describe(&resources, &value.read.?.header.policy, value.descriptor.grant, target), .policy = value.read.?.header.policy };
+        var grants = try value.read.grantView();
+        var resources = try value.read.resourceView();
+        return .{ .access = try grants.describe(&resources, &value.read.header.policy, value.descriptor.grant, target), .policy = value.read.header.policy };
     }
 
     pub fn advance(self: *Operation) !read_mod.Step {
@@ -169,21 +192,19 @@ pub const Operation = opaque {
                 return error.CapabilityRetired;
             }
             var fixed = std.heap.FixedBufferAllocator.init(&value.scratch);
-            const descriptor = (try Descriptor.decodeOwned(fixed.allocator(), view)).value;
+            try value.descriptor.decodeOwned(fixed.allocator(), view);
+            const descriptor = &value.descriptor;
             if (descriptor.role != value.binding.role) return error.WrongRole;
-            value.read = try Read.init(owner.allocator, owner.store, descriptor.owner, value.capacity);
-            value.descriptor = descriptor;
+            try value.read.init(owner.allocator, owner.store, descriptor.owner, value.capacity, owner.index);
+            value.loaded = true;
             value.control_cursor = descriptor.dependency;
             value.control_live = !descriptor.revoked;
             value.lease = lease;
         }
         for (0..128) |_| {
-            const result = try value.read.?.advance();
+            const result = try value.read.advance();
             if (result != .ready) return result;
-            value.opened() catch |err| {
-                if (err == error.RecordUnloaded) continue;
-                return err;
-            };
+            try loam.reload(value.opened()) orelse continue;
             if (value.binding.role == .control and !value.control_ready) {
                 const controls = try advanceControl(value);
                 if (controls != .ready) return controls;
@@ -194,10 +215,7 @@ pub const Operation = opaque {
                 .child => |child| {
                     const step = try child.append.advance();
                     if (step != .ready) return step;
-                    return child.append.prepareResource(child.parent) catch |err| {
-                        if (err == error.RecordUnloaded) continue;
-                        return err;
-                    };
+                    return try loam.reload(child.append.prepareResource(child.parent)) orelse continue;
                 },
                 else => {},
             }
@@ -209,7 +227,7 @@ pub const Operation = opaque {
     pub fn completeRead(self: *Operation, ticket: loam.Ticket, result: loam.ReadResult) !void {
         const value = state(self);
         if (value.load.pending != null) return value.load.complete(value.binding.owner.store, ticket, result);
-        if (value.read) |*read| if (read.hasPendingRead()) return read.completeRead(ticket, result);
+        if (value.loaded and value.read.hasPendingRead()) return value.read.completeRead(ticket, result);
         switch (value.prepared) {
             .grant => |grant| if (grant.append) |append| return append.completeRead(ticket, result),
             .resource => |resource| return resource.completeRead(ticket, result),
@@ -223,9 +241,9 @@ pub const Operation = opaque {
         const value = state(self);
         if (value.binding.role != .use) return error.WrongRole;
         try value.opened();
-        var grants = try value.read.?.grantView();
-        var resources = try value.read.?.resourceView();
-        try grants.require(&resources, &value.read.?.header.policy, value.descriptor.grant, target, requirement);
+        var grants = try value.read.grantView();
+        var resources = try value.read.resourceView();
+        try grants.require(&resources, &value.read.header.policy, value.descriptor.grant, target, requirement);
     }
 
     /// Admit a structural change of `target`: the source and both placement
@@ -233,7 +251,7 @@ pub const Operation = opaque {
     pub fn requireStructural(self: *Operation, target: core.ResourceId, action: ResourceChange.Action, requirement: core.Policy.Requirement) !void {
         const value = state(self);
         try self.require(target, requirement);
-        var resources = try value.read.?.resourceView();
+        var resources = try value.read.resourceView();
         const source = try resources.get(target);
         if (source.parent) |parent| try self.require(parent, requirement);
         if (action == .move) if (action.move) |parent| try self.require(parent, requirement);
@@ -248,7 +266,7 @@ pub const Operation = opaque {
         try self.requireStructural(target, action, requirement);
         const change = try value.binding.owner.allocator.create(ResourceChange);
         errdefer value.binding.owner.allocator.destroy(change);
-        change.* = try ResourceChange.init(&value.read.?, target, action);
+        change.* = try ResourceChange.init(&value.read, target, action);
         value.prepared = .{ .resource = change };
         return change.changed;
     }
@@ -260,10 +278,10 @@ pub const Operation = opaque {
         try value.current();
         try value.unprepared();
         try self.require(parent, requirement);
-        try value.read.?.prepareIdentities(1);
+        try value.read.prepareIdentities(1);
         const append = try value.binding.owner.allocator.create(Append);
         errdefer value.binding.owner.allocator.destroy(append);
-        append.* = try Append.init(&value.read.?, .resource);
+        append.* = try Append.init(&value.read, .resource);
         value.prepared = .{ .child = .{ .append = append, .parent = parent } };
     }
 
@@ -273,8 +291,8 @@ pub const Operation = opaque {
 
     /// The returned cursor retains this operation. It exposes authorized IDs,
     /// not index offsets, owner revisions, hidden counts or serialized cursors.
-    pub fn children(self: *Operation, parent: core.ResourceId, requirement: core.Policy.Requirement) !*@import("children.zig").Children {
-        return @import("children.zig").create(self, parent, requirement);
+    pub fn children(self: *Operation, parent: core.ResourceId, requirement: core.Policy.Requirement) !*children_mod.Children {
+        return children_mod.create(self, parent, requirement);
     }
 
     /// Copies a permitted edit after all demanded records are loaded. False
@@ -284,8 +302,8 @@ pub const Operation = opaque {
         if (value.binding.role != .control) return error.WrongRole;
         try requireControl(value);
         try value.unprepared();
-        var resources = try value.read.?.resourceView();
-        const command = try core.Control.command(&resources, &value.read.?.header.policy, value.descriptor.grant, value.descriptor.powers, edit);
+        var resources = try value.read.resourceView();
+        const command = try core.Control.command(&resources, &value.read.header.policy, value.descriptor.grant, value.descriptor.powers, edit);
         const plan = (try prepare(value, command)) orelse return false;
         value.prepared = .{ .grant = .{ .plan = plan } };
         return true;
@@ -300,7 +318,7 @@ pub const Operation = opaque {
         errdefer plan.deinit(value.binding.owner.allocator);
         const append = try value.binding.owner.allocator.create(Append);
         errdefer value.binding.owner.allocator.destroy(append);
-        append.* = try Append.init(&value.read.?, .grant);
+        append.* = try Append.init(&value.read, .grant);
         append.grant_parent = plan.delta.issue.parent;
         value.prepared = .{ .grant = .{ .plan = plan, .append = append } };
     }
@@ -308,7 +326,7 @@ pub const Operation = opaque {
     /// Report current availability, grant status, and this control's own
     /// immutable powers. Selected policy-ceiling IDs borrow the operation until
     /// `deinit`.
-    pub fn describeControl(self: *Operation) !@import("control_plan.zig").Description {
+    pub fn describeControl(self: *Operation) !control_plan.Description {
         return controlDescription(state(self));
     }
 
@@ -322,9 +340,9 @@ pub const Operation = opaque {
         const value = state(self);
         if (value.binding.role != .use) return error.WrongRole;
         try value.opened();
-        var grants = try value.read.?.grantView();
-        var resources = try value.read.?.resourceView();
-        try grants.requireRecovery(&resources, &value.read.?.header.policy, value.descriptor.grant, target);
+        var grants = try value.read.grantView();
+        var resources = try value.read.resourceView();
+        try grants.requireRecovery(&resources, &value.read.header.policy, value.descriptor.grant, target);
     }
 
     /// Decode fresh management commands from held powers, even when use is
@@ -356,9 +374,9 @@ pub const Operation = opaque {
         const value = state(self);
         try value.opened();
         try value.unprepared();
-        var resources = try value.read.?.resourceView();
-        try core.Control.validate(&resources, &value.read.?.header.policy, request.ceiling, powers);
-        var owned = try @import("control_plan.zig").PowerCopy.init(value.binding.owner.allocator, powers);
+        var resources = try value.read.resourceView();
+        try core.Control.validate(&resources, &value.read.header.policy, request.ceiling, powers);
+        var owned = try control_plan.PowerCopy.init(value.binding.owner.allocator, powers);
         errdefer owned.deinit(value.binding.owner.allocator);
         try self.prepareDeriveCopying(request);
         value.prepared.grant.powers = owned;
@@ -370,20 +388,20 @@ pub const Operation = opaque {
         const value = state(self);
         try requireControl(value);
         try value.unprepared();
-        var grants = try value.read.?.grantView();
+        var grants = try value.read.grantView();
         if (try currentRevision(&grants, value) != expected) return error.RevisionConflict;
         const ceiling = value.descriptor.powers.issue_ceiling orelse return error.Denied;
         if (!powers.empty() and !value.descriptor.powers.delegate_control) return error.Denied;
-        var resources = try value.read.?.resourceView();
-        try core.Control.validate(&resources, &value.read.?.header.policy, request.ceiling, powers);
-        try core.Control.attenuate(&resources, &value.read.?.header.policy, value.descriptor.powers, powers);
-        var owned = try @import("control_plan.zig").PowerCopy.init(value.binding.owner.allocator, powers);
+        var resources = try value.read.resourceView();
+        try core.Control.validate(&resources, &value.read.header.policy, request.ceiling, powers);
+        try core.Control.attenuate(&resources, &value.read.header.policy, value.descriptor.powers, powers);
+        var owned = try control_plan.PowerCopy.init(value.binding.owner.allocator, powers);
         errdefer owned.deinit(value.binding.owner.allocator);
         var plan = (try prepare(value, .{ .issue_control = .{ .parent = value.descriptor.grant, .ceiling = ceiling, .request = request } })).?;
         errdefer plan.deinit(value.binding.owner.allocator);
         const append = try value.binding.owner.allocator.create(Append);
         errdefer value.binding.owner.allocator.destroy(append);
-        append.* = try Append.init(&value.read.?, .grant);
+        append.* = try Append.init(&value.read, .grant);
         append.grant_parent = plan.delta.issue.parent;
         value.prepared = .{ .grant = .{ .plan = plan, .append = append, .powers = owned } };
     }
@@ -393,14 +411,14 @@ pub const Operation = opaque {
     pub fn expectRevision(self: *Operation, expected: core.Revision) !void {
         const value = state(self);
         try requireControl(value);
-        var grants = try value.read.?.grantView();
+        var grants = try value.read.grantView();
         if (try currentRevision(&grants, value) != expected) return error.RevisionConflict;
     }
 
     /// Inspect is independent of editing, issuance and use. The shared branch
     /// check applies to the immutable grant ancestry, including paused use.
     pub fn inspectGrant(self: *Operation, target: ?core.GrantId) !InspectedGrant {
-        return @import("inspected_grant.zig").inspect(self, target);
+        return inspected_grant.inspect(self, target);
     }
 
     /// An inspector can describe effective use at its immutable exact resource
@@ -410,7 +428,7 @@ pub const Operation = opaque {
     pub fn inspectFixedAccess(self: *Operation) !Description {
         _ = try self.inspectGrant(null);
         const value = state(self);
-        var grants = try value.read.?.grantView();
+        var grants = try value.read.grantView();
         const target = blk: {
             const own = try grants.borrow(value.descriptor.grant);
             defer grants.release();
@@ -419,14 +437,14 @@ pub const Operation = opaque {
                 .objects, .owned_subtree => return error.ExactResourceRequired,
             };
         };
-        var resources = try value.read.?.resourceView();
-        return .{ .access = try grants.describe(&resources, &value.read.?.header.policy, value.descriptor.grant, target), .policy = value.read.?.header.policy };
+        var resources = try value.read.resourceView();
+        return .{ .access = try grants.describe(&resources, &value.read.header.policy, value.descriptor.grant, target), .policy = value.read.header.policy };
     }
 
     pub fn cancel(self: *Operation) !void {
         const value = state(self);
         try value.load.cancel(value.binding.owner.store);
-        if (value.read) |*read| try read.cancel();
+        if (value.loaded) try value.read.cancel();
         switch (value.prepared) {
             .grant => |grant| if (grant.append) |append| try append.cancel(),
             .resource => |resource| try resource.cancel(),
@@ -439,7 +457,7 @@ pub const Operation = opaque {
     pub fn deinit(self: *Operation) !void {
         const value = state(self);
         if (value.load.pending != null) return error.Busy;
-        if (value.read) |read| if (read.hasPendingRead()) return error.Busy;
+        if (value.loaded and value.read.hasPendingRead()) return error.Busy;
         if (value.children != 0) return error.Busy;
         const owner = value.binding.owner;
         switch (value.prepared) {
@@ -462,7 +480,7 @@ pub const Operation = opaque {
             .control => |*plan| plan.deinit(owner.allocator),
             .none => {},
         }
-        if (value.read) |*read| try read.deinit();
+        if (value.loaded) try value.read.deinit();
         if (value.lease) |lease| try owner.store.release(lease);
         value.binding.release();
         owner.operations -= 1;
@@ -471,11 +489,11 @@ pub const Operation = opaque {
 };
 
 fn prepare(value: *State, command: core.GrantPlan.Command) !?core.GrantPlan {
-    const read = &value.read.?;
+    const read = &value.read;
     try read.prepareHistory();
     var grants = try read.grantView();
     var resources = try read.resourceView();
-    const fresh: ?core.GrantId = if (read.header.next_grant < records.OwnerRecord.max_slots) .{ .owner = read.header.owner, .slot = @intCast(read.header.next_grant), .generation = 1 } else null;
+    const fresh: ?core.GrantId = if (read.header.next_grant < records.OwnerRecord.max_slots) .{ .owner = read.header.owner, .slot = @intCast(read.header.next_grant), .generation = core.first_generation } else null;
     var plan = (try core.GrantPlan.prepareCopying(value.binding.owner.allocator, &grants, &resources, &read.header.policy, read.header.max_grant_children, fresh, command)) orelse return null;
     errdefer plan.deinit(value.binding.owner.allocator);
     if (plan.delta == .issue) try read.prepareIdentities(4);
@@ -489,9 +507,10 @@ fn advanceControl(value: *State) !read_mod.Step {
         // The descriptor may have loaded before the owner's header. Establish
         // both from the current composed state before walking dependencies.
         var fixed = std.heap.FixedBufferAllocator.init(&value.scratch);
-        const current = (try Descriptor.decodeOwned(fixed.allocator(), (try Read.rowForObject(store, value.binding.object, value.lease)).view)).value;
-        if (current.role != value.binding.role or !current.owner.eql(value.descriptor.owner) or !current.grant.eql(value.descriptor.grant) or !current.grant_object.eql(value.descriptor.grant_object)) return error.InvalidRecord;
-        value.descriptor = current;
+        const loaded = .{ .owner = value.descriptor.owner, .grant = value.descriptor.grant, .grant_object = value.descriptor.grant_object };
+        try value.descriptor.decodeOwned(fixed.allocator(), (try Read.rowForObject(store, value.binding.object, value.lease)).view);
+        const current = &value.descriptor;
+        if (current.role != value.binding.role or !current.owner.eql(loaded.owner) or !current.grant.eql(loaded.grant) or !current.grant_object.eql(loaded.grant_object)) return error.InvalidRecord;
         value.control_live = !current.revoked;
         value.control_cursor = current.dependency;
     }
@@ -502,7 +521,7 @@ fn advanceControl(value: *State) !read_mod.Step {
             value.control_ready = true;
             return .ready;
         };
-        if (value.control_depth >= value.read.?.header.max_grant_depth) return error.DepthLimit;
+        if (value.control_depth >= value.read.header.max_grant_depth) return error.DepthLimit;
         const lease = switch (try value.load.acquire(store, object)) {
             .read => |read| return .{ .read = read },
             .waiting => return .waiting,
@@ -517,11 +536,12 @@ fn advanceControl(value: *State) !read_mod.Step {
             value.control_ready = true;
             return .ready;
         }
-        var parent = try Descriptor.decodeOwned(value.binding.owner.allocator, (try Read.rowForObject(store, object, lease)).view);
+        var parent: Descriptor = undefined;
+        try parent.decodeOwned(value.binding.owner.allocator, view);
         defer parent.deinit(value.binding.owner.allocator);
-        if (parent.value.role != .control or !parent.value.owner.eql(value.descriptor.owner) or !parent.value.grant.eql(value.descriptor.grant)) return error.InvalidRecord;
-        value.control_live = value.control_live and !parent.value.revoked;
-        value.control_cursor = parent.value.dependency;
+        if (parent.role != .control or !parent.owner.eql(value.descriptor.owner) or !parent.grant.eql(value.descriptor.grant)) return error.InvalidRecord;
+        value.control_live = value.control_live and !parent.revoked;
+        value.control_cursor = parent.dependency;
         value.control_depth += 1;
     }
     return .waiting;
@@ -540,28 +560,28 @@ fn currentRevision(grants: *core.GrantView, value: *State) !core.Revision {
     return current.revision;
 }
 
-fn controlDescription(value: *State) !@import("control_plan.zig").Description {
+fn controlDescription(value: *State) !control_plan.Description {
     if (value.binding.role != .control) return error.WrongRole;
     try value.opened();
     if (!value.control_ready) return error.RecordUnloaded;
-    var grants = try value.read.?.grantView();
+    var grants = try value.read.grantView();
     const status = try grants.effectiveStatus(value.descriptor.grant);
     const revision = try currentRevision(&grants, value);
-    return .{ .available = value.control_live and status != .revoked, .grant_status = status, .powers = if (value.control_live and status != .revoked) value.descriptor.powers else .{}, .policy = value.read.?.header.policy, .revision = revision };
+    return .{ .available = value.control_live and status != .revoked, .grant_status = status, .powers = if (value.control_live and status != .revoked) value.descriptor.powers else .{}, .policy = value.read.header.policy, .revision = revision };
 }
 
 fn prepareAttenuation(value: *State, powers: core.Control.Powers) !void {
     try requireControl(value);
     try value.unprepared();
-    if (value.control_depth == value.read.?.header.max_grant_depth) return error.DepthLimit;
-    var grants = try value.read.?.grantView();
+    if (value.control_depth == value.read.header.max_grant_depth) return error.DepthLimit;
+    var grants = try value.read.grantView();
     if (try grants.effectiveStatus(value.descriptor.grant) == .revoked) return error.Revoked;
     if (!value.descriptor.powers.delegate_control) return error.Denied;
-    var resources = try value.read.?.resourceView();
-    try core.Control.attenuate(&resources, &value.read.?.header.policy, value.descriptor.powers, powers);
-    try value.read.?.prepareIdentities(2);
-    try value.read.?.prepareHistory();
-    value.prepared = .{ .control = .{ .attenuation = try @import("control_plan.zig").PowerCopy.init(value.binding.owner.allocator, powers) } };
+    var resources = try value.read.resourceView();
+    try core.Control.attenuate(&resources, &value.read.header.policy, value.descriptor.powers, powers);
+    try value.read.prepareIdentities(2);
+    try value.read.prepareHistory();
+    value.prepared = .{ .control = .{ .attenuation = try control_plan.PowerCopy.init(value.binding.owner.allocator, powers) } };
 }
 
 fn prepareRevocation(value: *State) !bool {
@@ -569,7 +589,7 @@ fn prepareRevocation(value: *State) !bool {
     try value.opened();
     if (!value.control_ready) return error.RecordUnloaded;
     try value.unprepared();
-    if (!value.descriptor.revoked) try value.read.?.prepareHistory();
+    if (!value.descriptor.revoked) try value.read.prepareHistory();
     // A revoked descriptor may repeat its own terminal edit, but cannot recover
     // capabilities or perform grant mutations through a dead dependency.
     value.prepared = .{ .control = .{ .revocation = !value.descriptor.revoked } };
@@ -586,20 +606,20 @@ fn stageRevocation(value: *State) !bool {
     const store = value.binding.owner.store;
     const old = try Read.rowForObject(store, value.binding.object, value.lease);
     errdefer if (store.phase == .staging) store.abort() catch unreachable;
-    var edges: [3]loam.Edge = undefined;
-    try record.putEncoded(store, old.view.id, records.profile.capability, descriptor, descriptor.edges(&edges), old.expected, old.view.rooted);
-    try staging.controlChanged(&value.read.?, value.binding.object, .revoked);
+    var edges: [records.CapabilityRecord.max_edges]loam.Edge = undefined;
+    try record.putEncoded(store, old.view.id, records.profile.capability, descriptor, descriptor.edges(&edges), old.expected, record.Rooting.ofStored(old.view.rooted));
+    try staging.controlChanged(&value.read, value.binding.object, .revoked);
     return true;
 }
 
-pub fn stageAttenuatedControl(value: *State, rooted: bool) !loam.ObjectId {
+pub fn stageAttenuatedControl(value: *State, rooting: record.Rooting) !loam.ObjectId {
     try requireControl(value);
     if (value.staged or value.prepared != .control or value.prepared.control != .attenuation) return error.WrongPhase;
     var descriptor = value.descriptor;
     descriptor.powers = value.prepared.control.attenuation.powers;
     descriptor.dependency = value.binding.object;
-    const id = try create.descriptor(&value.read.?, descriptor, rooted);
-    try staging.controlChanged(&value.read.?, id, .attenuated);
+    const id = try create.descriptor(&value.read, descriptor, rooting);
+    try staging.controlChanged(&value.read, id, .attenuated);
     value.staged = true;
     return id;
 }
@@ -609,7 +629,7 @@ pub fn stagePreparedResource(value: *State, content_changed: bool) !bool {
     if (value.staged) return error.WrongPhase;
     const resource = if (value.prepared == .resource) value.prepared.resource else return error.NoPreparedChange;
     resource.content_changed = content_changed;
-    if (content_changed and !resource.changed) try staging.contentChanged(&value.read.?, resource.original.resource.id);
+    if (content_changed and !resource.changed) try staging.contentChanged(&value.read, resource.original.resource.id);
     const changed = if (content_changed and !resource.changed) false else try resource.stage();
     value.staged = true;
     return changed;

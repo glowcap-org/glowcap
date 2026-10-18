@@ -6,8 +6,7 @@
 .draft = false,
 ---
 
-glowcap speaks [OCapN](https://github.com/ocapn/ocapn). If you know what a bearer
-token is, you have the background this page assumes.
+glowcap speaks [OCapN](https://github.com/ocapn/ocapn).
 
 # How common protocols authorize
 
@@ -23,12 +22,13 @@ of it, including every library you link.
 
 The model works until you need to hand part of your access to someone else. A
 bearer token rarely means one album, read only, for an hour. It usually means
-everything your account can do, until someone rotates it. Whatever you hand
-your credential to becomes you.
+everything your account can do, until someone rotates it, and any program you
+give it to can do all of that as you.
 
-# The same story twice
+# One job, delegated two ways
 
-First with a bearer token, then with capabilities.
+The steps below hand work to a thumbnailer, first with a bearer token and then
+with capabilities.
 
 ```=html
 <figure class="capwalk" id="capwalk">
@@ -199,12 +199,12 @@ First with a bearer token, then with capabilities.
 	<ol class="capwalk-steps">
 		<li>Every request carries a credential, and the credential names you, not the action. The service looks you up in its permission table and decides.</li>
 		<li>You want the thumbnailer to shrink one album. Your token is the smallest thing you have to hand it, so the thumbnailer now holds everything your account can do.</li>
-		<li>The thumbnailer has a bug, and it deletes your photos. The service allowed it, because every request looked like it came from you. This failure is old enough to have a name: the confused deputy.</li>
+		<li>The thumbnailer has a bug, and it deletes your photos. The service allowed it, because every request looked like it came from you. This is the confused deputy problem.</li>
 		<li>Under capability rules, signing in returns a live reference to your album. Holding that reference is the permission, and there is no permission table.</li>
-		<li>You pass the thumbnailer a reference to that one album. It never learns who you are, and it cannot reach anything else of yours. That single move, passing the reference, is delegation.</li>
-		<li>You would rather it could not delete anything, so you hand it a wrapper instead: an object of yours, running in your process, that forwards reads to the album and refuses the rest. The Photos service never knows the wrapper exists. This narrowed grant is attenuation.</li>
-		<li>When the job is done, you cut your wrapper, and every copy of that grant dies with it. Your own reference still works, and the service was never consulted. Revocation here cuts one grant and nothing else.</li>
-		<li>Later the thumbnailer needs your print service, so you send it a signed introduction. It presents the introduction to the print service, and the two talk over their own session from then on. This handoff takes you out of the path for good.</li>
+		<li>You pass the thumbnailer a reference to that one album. It never learns who you are, and it cannot reach anything else of yours. Passing a reference like this is delegation.</li>
+		<li>You would rather it could not delete anything, so you hand it a wrapper instead: an object of yours, running in your process, that forwards reads to the album and refuses the rest. The Photos service never knows the wrapper exists. Narrowing a grant this way is attenuation.</li>
+		<li>When the job is done, you switch the wrapper off, and every copy of it stops working. Your own reference still works, and the Photos service is not involved. This is revocation.</li>
+		<li>Later the thumbnailer needs your print service, so you send it a signed introduction. It presents the introduction to the print service, and the two talk over their own session from then on. This is a three-party handoff, and you are no longer in the path.</li>
 	</ol>
 </figure>
 ```
@@ -218,11 +218,12 @@ chosen to share, and your album travels as a position in that table, say
 slot 3. Slot 3 means your album only inside this one session. The table holds
 no identities and no rights, only which object each position means.
 
-A bearer token works for whoever presents it, anywhere. Record capability
-traffic and you hold a row number for a conversation you cannot join, and
-guessing does no better. The transport still protects the pipe, as it does for
-your tokens. What changes is the cost of a leak: a leaked token
-hands over your access, and a leaked table position is just a number.
+A bearer token works for whoever presents it, anywhere. Someone who records
+capability traffic gets row numbers for a session they cannot join, and
+guessing a row number gets them no further. The transport still has to
+protect the connection, as it does for your tokens. A
+leaked token hands over your access, and a leaked table position is useless
+outside its session.
 
 ```=html
 <figure class="tokref">
@@ -299,24 +300,22 @@ hands over your access, and a leaked table position is just a number.
 			</svg>
 		</div>
 	</div>
-	<figcaption>The bytes that travel are an index into a ledger that only the two ends of one session keep.</figcaption>
+	<figcaption>What crosses the wire is a position in a table that only the two ends of this session keep.</figcaption>
 </figure>
 ```
 
-The very first reference is the exception. It arrives the way trust already
-flows: you sign in once, or you redeem a durable link called a sturdyref, an
-unguessable address that names one published object. From then on, access
-moves by passing references inside sessions. The sturdyref is the one string
-that behaves like a bearer secret, and it names only what its maker chose to
-publish, never an account.
+You still need a first reference, and you get it the usual way. You sign in
+once, or you redeem a durable link called a sturdyref, an unguessable address
+that names one published object. After that, access moves by passing
+references inside sessions. A sturdyref does work like a bearer secret, but it
+names only what its maker chose to publish, never an account.
 
 # Where the idea comes from
 
-Every step above rests on one rule: holding a reference is the permission.
-Memory-safe languages already enforce it inside one process: an object
-reference works only for code it was given to, and nothing conjures a pointer
-to a private object. Object-capability security makes that guarantee the whole
-security model.
+Memory-safe languages already work this way inside one process. Code can use
+an object only if it was given a reference to it, and it cannot make a pointer
+to a private object out of nothing. Object-capability security builds the
+whole security model on that rule.
 
 The idea has been around since 1966, when
 [a paper](https://dl.acm.org/doi/10.1145/365230.365252) on programs sharing one
@@ -351,7 +350,7 @@ Syrup, OCapN's wire format.
 
 You can watch a three-party introduction in the
 [rooms demo]($link.page('examples')): asking a room to message a member gives
-you a direct reference to that member, and the room leaves the path.
+you a direct reference to that member, and the room is no longer involved.
 
 # Keep going
 

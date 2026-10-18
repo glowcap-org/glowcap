@@ -203,7 +203,7 @@ pub const AcceptOwnershipResident = struct {
         if (self.pending_connect == request_id) self.pending_connect = null;
         if (self.fail_cancel_connect) {
             var failure = glowcap.foundation.FailureChain.initNamed(error.ConnectionLost, "ResidentCancelFailed");
-            failure.noteNamed(error.OutOfMemory, "ResidentCancelCleanupFailed");
+            failure.noteChain(.initNamed(error.OutOfMemory, "ResidentCancelCleanupFailed"));
             return failure;
         }
         return null;

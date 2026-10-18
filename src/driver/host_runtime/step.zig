@@ -101,7 +101,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     try self.drainActions();
     try Internal.advancePendingOpens(self);
     Internal.advancePendingListeners(self);
-    if (self.terminal_failure) |failure| return failure.cause;
+    if (self.terminal_failure) |failure| return failure.chain.cause;
     // Immediate lifecycle work can satisfy a blocking convenience. Check its
     // barrier at the one boundary after which this step may park.
     if (goal.reached(self)) return null;
@@ -127,7 +127,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
     Internal.advancePendingListeners(self);
     try Internal.progressSessionCloses(self);
     try Internal.progressClose(self, .operational);
-    if (self.terminal_failure) |failure| return failure.cause;
+    if (self.terminal_failure) |failure| return failure.chain.cause;
     nudgeIfWorkRemains(self);
     return .idle;
 }
@@ -138,7 +138,7 @@ pub fn stepAnyOwned(self: *HostRuntime, timeout_ms: i32, goal: StepGoal) !?net.P
 /// live. The wake posted by close initiation is consumed here explicitly.
 /// Leaving it unread would turn accidental busy-spinning into liveness.
 pub fn stepAfterTerminalFailure(self: *HostRuntime, timeout_ms: i32, goal: StepGoal, failure: OperationFailure) !?net.Progress {
-    if (!terminalCleanupPending(self)) return failure.cause;
+    if (!terminalCleanupPending(self)) return failure.chain.cause;
     drainReadinessWake(self);
     carrier.forceClosingCarriers(self, failure);
 
@@ -298,6 +298,14 @@ pub fn stepWaitMs(self: *const HostRuntime) i32 {
     return clampTimeoutToPendingWork(self, -1);
 }
 
+/// Fold `deadline` into the nearest wait: zero once it has passed.
+fn noteDeadline(nearest_wait: *?i64, deadline: i64, now_ms: i64) void {
+    const wait = if (deadline <= now_ms) 0 else std.math.sub(i64, deadline, now_ms) catch std.math.maxInt(i64);
+    if (nearest_wait.*) |nearest| {
+        if (wait < nearest) nearest_wait.* = wait;
+    } else nearest_wait.* = wait;
+}
+
 /// Bound a park by the nearest pending operation deadline, so an expiry is
 /// noticed by the wait that spans it rather than the next external event.
 pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 {
@@ -315,28 +323,10 @@ pub fn clampTimeoutToPendingWork(self: *const HostRuntime, timeout_ms: i32) i32 
             else
                 due;
         }
-        const bound = deadline orelse continue;
-        const wait = if (bound <= now_ms)
-            0
-        else
-            std.math.sub(i64, bound, now_ms) catch std.math.maxInt(i64);
-        if (nearest_wait == null or wait < nearest_wait.?) nearest_wait = wait;
+        noteDeadline(&nearest_wait, deadline orelse continue, now_ms);
     }
-    if (self.nearest_carrier_close_ms) |deadline| {
-        const wait = if (deadline <= now_ms)
-            0
-        else
-            std.math.sub(i64, deadline, now_ms) catch std.math.maxInt(i64);
-        if (nearest_wait == null or wait < nearest_wait.?) nearest_wait = wait;
-    }
-    for (self.pending_listeners.items) |row| {
-        const deadline = row.deadline_ms orelse continue;
-        const wait = if (deadline <= now_ms)
-            0
-        else
-            std.math.sub(i64, deadline, now_ms) catch std.math.maxInt(i64);
-        if (nearest_wait == null or wait < nearest_wait.?) nearest_wait = wait;
-    }
+    if (self.nearest_carrier_close_ms) |deadline| noteDeadline(&nearest_wait, deadline, now_ms);
+    for (self.pending_listeners.items) |row| noteDeadline(&nearest_wait, row.deadline_ms orelse continue, now_ms);
     const wait = nearest_wait orelse return timeout_ms;
     const remaining = std.math.cast(i32, wait) orelse std.math.maxInt(i32);
     if (timeout_ms < 0) return remaining;

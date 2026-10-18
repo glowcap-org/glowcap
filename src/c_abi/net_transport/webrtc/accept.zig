@@ -168,7 +168,7 @@ pub fn stopListen(listener_ctx: ?*anyopaque, out_failure: ?*c.GlowcapProviderFai
     listener.ready.deinit(payload.allocator);
     var failure: ?anyerror = null;
     while (firstAccept(payload)) |peer| {
-        if (retire(payload, peer, true)) |err| failure = failure orelse err;
+        if (retire(payload, peer, .announced)) |err| failure = failure orelse err;
     }
     if (failure) |err| return failProvider(out_failure, GLOWCAP_ERR_IO, err);
     return GLOWCAP_OK;
@@ -237,7 +237,7 @@ pub export fn glowcap_webrtc_netlayer_provide_offer(
     // The provider lease pins the netlayer, so each release below frees the
     // peer alone and cannot fail.
     peer.peer.setRemoteOffer(offer) catch |err| {
-        std.debug.assert(retire(payload, peer, false) == null);
+        std.debug.assert(retire(payload, peer, .silent) == null);
         return switch (err) {
             error.SignalTooLarge => peer_signaling.signalOutputTooLarge("provide_offer", "SDP offer"),
             else => peer_signaling.ioError("provide_offer: the WebRTC library refused the offer"),
@@ -246,12 +246,12 @@ pub export fn glowcap_webrtc_netlayer_provide_offer(
     var answer_buf: [webrtc.max_signal_bytes]u8 = undefined;
     var answer_len: usize = 0;
     const answer = peer.peer.createAnswer(&answer_buf, &answer_len) catch {
-        std.debug.assert(retire(payload, peer, false) == null);
+        std.debug.assert(retire(payload, peer, .silent) == null);
         return peer_signaling.ioError("provide_offer: the WebRTC library produced no answer");
     };
     const signaling = payload.signaling;
     if (signaling.send_answer.?(signaling.ctx, id, designator_bytes.ptr, designator_bytes.len, answer.ptr, answer.len) != 0) {
-        std.debug.assert(retire(payload, peer, false) == null);
+        std.debug.assert(retire(payload, peer, .silent) == null);
         return peer_signaling.ioError("provide_offer: signaling refused the answer");
     }
     slot.* = id;

@@ -561,6 +561,6 @@ test "a wire lost mid-handshake fails the staged dial through the dial observer,
     try std.testing.expectEqual(@as(u64, 11), recorder.failed_tag);
     // The backend's exact cause, an I/O failure for policy.
     try std.testing.expectEqual(@as(?anyerror, error.ConnectionResetByPeer), recorder.failed_err);
-    try std.testing.expectEqual(driver.OperationFailure.Kind.io, recorder.failure.?.kind);
+    try std.testing.expectEqual(driver.OperationFailure.Kind.io, recorder.failure.?.kind());
     try std.testing.expect(!closed.load(.acquire));
 }

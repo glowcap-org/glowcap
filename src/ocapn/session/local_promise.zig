@@ -7,6 +7,9 @@
 const std = @import("std");
 const model = @import("model");
 const answers = @import("answers/store.zig");
+const session = @import("mod.zig");
+
+const Session = session.Session;
 
 /// Collection waits while an engine drain owns temporarily detached values.
 pub const CollectionState = enum { active, deferred };
@@ -29,7 +32,7 @@ pub const Projection = struct {
     answer_target: answers.AnswerTarget,
 };
 
-pub fn allocate(self: anytype) !Projection {
+pub fn allocate(self: *Session) !Projection {
     const created = self.local_promises == null;
     if (created) {
         const registry = try self.allocator.create(Registry);
@@ -41,13 +44,18 @@ pub fn allocate(self: anytype) !Projection {
     try registry.projections.ensureUnusedCapacity(self.allocator, 1);
     const export_position = try self.allocatePromiseExport();
     errdefer self.releaseUnsharedExport(export_position);
-    const answer_name = model.AnswerName.fromVirtual(try self.allocateInboundAnswer());
+    const answer = try self.allocateInboundAnswer();
+    const answer_name = model.AnswerName.fromVirtual(answer);
     try self.installInboundAnswerNamed(answer_name);
     errdefer self.abandonUnsharedInboundAnswerNamed(answer_name);
-    try self.outbound_resolver_link.put(self.allocator, export_position, .{
-        .local_promise_answer = .{ .name = answer_name },
-    });
+    // `installInboundAnswerNamed` above put the row in this dispatch. Its
+    // payload is created now, so a guaranteed settlement under allocation
+    // pressure (a Node's escrowed break) stores without allocating.
+    const row = self.inbound_answers.getPtr(answer_name) orelse unreachable;
+    _ = try answers.ensureAnswerPayload(self.allocator, row);
+    self.exports.setPurpose(export_position, .{ .local_promise_answer = .{ .answer = answer } });
     registry.projections.appendAssumeCapacity(export_position);
+    row.setResolverExport(export_position);
     return .{
         .export_position = export_position,
         .answer_name = answer_name,
@@ -55,10 +63,10 @@ pub fn allocate(self: anytype) !Projection {
     };
 }
 
-pub fn answerForExport(self: anytype, export_position: model.ExportPosition) ?model.AnswerName {
-    const purpose = self.outbound_resolver_link.getByKey(export_position) orelse return null;
+pub fn answerForExport(self: *Session, export_position: model.ExportPosition) ?model.AnswerName {
+    const purpose = self.exports.purpose(export_position) orelse return null;
     return switch (purpose) {
-        .local_promise_answer => |answer| answer.name,
+        .local_promise_answer => |answer| answer.name(),
         else => null,
     };
 }
@@ -66,7 +74,7 @@ pub fn answerForExport(self: anytype, export_position: model.ExportPosition) ?mo
 /// Capture the exact answer behind either spelling of a same-peer promise.
 /// A local export's live slot and explicit pairing own its meaning; descriptor
 /// kind or numeric coincidence with an answer cannot establish that authority.
-pub fn targetForResolution(self: anytype, resolution: model.Resolution) !?answers.AnswerTarget {
+pub fn targetForResolution(self: *Session, resolution: model.Resolution) !?answers.AnswerTarget {
     if (resolution != .fulfill or resolution.fulfill != .reference) return null;
     const name: model.AnswerName = switch (resolution.fulfill.reference) {
         .promise => |promise| .fromWire(promise.answer_position),
@@ -80,18 +88,24 @@ pub fn targetForResolution(self: anytype, resolution: model.Resolution) !?answer
     return self.answerTargetNamed(name) orelse error.InvalidReference;
 }
 
-pub fn isAnswer(self: anytype, answer_name: model.AnswerName) bool {
-    return self.outbound_resolver_link.getByValue(.{
-        .local_promise_answer = .{ .name = answer_name },
-    }) != null;
+pub fn isAnswer(self: *Session, answer_name: model.AnswerName) bool {
+    return projectionExport(self, answer_name) != null;
 }
 
-pub fn abandon(self: anytype, export_position: model.ExportPosition) void {
-    // Presence is certain because the only caller is the driver projection
-    // rollback (`projection.rollback`), which found the projection row it
-    // minted through `projection.prepare` in the same record.
+/// The projection export paired with `answer_name`, read from its row.
+pub fn projectionExport(self: *Session, answer_name: model.AnswerName) ?model.ExportPosition {
+    const row = self.inbound_answers.getPtr(answer_name) orelse return null;
+    const export_position = row.resolverExport() orelse return null;
+    std.debug.assert(answerForExport(self, export_position) != null);
+    return export_position;
+}
+
+/// Roll back a projection that never became observable: the Host's projection
+/// rollback and the Node's proxy-recipient abandon and withdraw. Each found
+/// the row it minted through `allocate` in the same record, so it is present.
+pub fn abandon(self: *Session, export_position: model.ExportPosition) void {
     const answer_name = answerForExport(self, export_position) orelse unreachable;
-    std.debug.assert(self.outbound_resolver_link.removeByKey(export_position));
+    std.debug.assert(self.exports.clearPurpose(export_position) != null);
     self.abandonUnsharedInboundAnswerNamed(answer_name);
     self.releaseUnsharedExport(export_position);
     const registry = self.local_promises.?;
@@ -103,7 +117,40 @@ pub fn abandon(self: anytype, export_position: model.ExportPosition) void {
     collect(self);
 }
 
-pub fn destroyRegistry(self: anytype) void {
+/// Mark the projection behind `target` as holding a stored settlement whose
+/// carrier outbound pressure refused. The Peer counts deferred settlements
+/// and retries from `deferredSettlement`.
+pub fn deferSettlement(self: *Session, target: answers.AnswerTarget) void {
+    const export_position = projectionExport(self, target.name) orelse unreachable;
+    const purpose = self.exports.purposePtr(export_position) orelse unreachable;
+    std.debug.assert(!purpose.local_promise_answer.settlement_deferred);
+    purpose.local_promise_answer.settlement_deferred = true;
+}
+
+/// One projection whose settlement carrier is still owed, or null.
+pub fn deferredSettlement(self: *Session) ?Projection {
+    const registry = self.local_promises orelse return null;
+    for (registry.projections.items) |position| {
+        const purpose = self.exports.purposePtr(position) orelse unreachable;
+        if (!purpose.local_promise_answer.settlement_deferred) continue;
+        const answer_name = purpose.local_promise_answer.name();
+        return .{
+            .export_position = position,
+            .answer_name = answer_name,
+            .answer_target = self.answerTargetNamed(answer_name) orelse unreachable,
+        };
+    }
+    return null;
+}
+
+/// The owed carrier for `export_position` is queued.
+pub fn clearDeferredSettlement(self: *Session, export_position: model.ExportPosition) void {
+    const purpose = self.exports.purposePtr(export_position) orelse unreachable;
+    std.debug.assert(purpose.local_promise_answer.settlement_deferred);
+    purpose.local_promise_answer.settlement_deferred = false;
+}
+
+pub fn destroyRegistry(self: *Session) void {
     const registry = self.local_promises orelse return;
     registry.projections.deinit(self.allocator);
     self.allocator.destroy(registry);
@@ -123,7 +170,7 @@ pub const Custody = struct {
     pub const CollectionPause = struct {
         resumes: bool,
 
-        pub fn deinit(self: CollectionPause, owner: anytype) void {
+        pub fn deinit(self: CollectionPause, owner: *Session) void {
             if (!self.resumes) return;
             // Collection alone frees the registry, and it waits while deferred.
             const registry = owner.local_promises.?;
@@ -133,27 +180,27 @@ pub const Custody = struct {
         }
     };
 
-    pub fn pauseCollection(owner: anytype) CollectionPause {
+    pub fn pauseCollection(owner: *Session) CollectionPause {
         const registry = owner.local_promises orelse return .{ .resumes = false };
         const resumes = registry.state == .active;
         if (resumes) registry.state = .deferred;
         return .{ .resumes = resumes };
     }
 
-    pub fn retain(owner: anytype, reference: model.Reference) error{QueueCapExceeded}!void {
+    pub fn retain(owner: *Session, reference: model.Reference) error{QueueCapExceeded}!void {
         if (reference != .near) return;
-        const purpose = owner.outbound_resolver_link.forward.getPtr(reference.near.export_position) orelse return;
+        const purpose = owner.exports.purposePtr(reference.near.export_position) orelse return;
         if (purpose.* != .local_promise_answer) return;
         const count = &purpose.local_promise_answer.staging_owners;
         count.* = std.math.add(u32, count.*, 1) catch return error.QueueCapExceeded;
     }
 
-    pub fn release(owner: anytype, reference: model.Reference) void {
+    pub fn release(owner: *Session, reference: model.Reference) void {
         if (reference != .near) return;
         // A failed turn may revoke its fresh, unshared Host projection before
         // withdrawing the provisional Node payload. Turn abort is synchronous:
         // that payload cannot publish, and its later custody release is spent.
-        const purpose = owner.outbound_resolver_link.forward.getPtr(reference.near.export_position) orelse return;
+        const purpose = owner.exports.purposePtr(reference.near.export_position) orelse return;
         if (purpose.* != .local_promise_answer) return;
         const count = &purpose.local_promise_answer.staging_owners;
         std.debug.assert(count.* != 0);

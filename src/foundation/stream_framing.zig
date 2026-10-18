@@ -7,8 +7,8 @@
 const std = @import("std");
 const decimal = @import("decimal.zig");
 
-/// Large enough for the decimal representation of any `usize`, plus `:`.
-pub const prefix_buffer_bytes: usize = 32;
+/// Room for the widest decimal length and its `:`.
+pub const prefix_buffer_bytes: usize = decimal.max_width + 1;
 
 pub const Prefix = union(enum) {
     decoded: struct {

@@ -8,6 +8,7 @@ const identity = @import("identity.zig");
 const StoredTerms = @import("terms.zig").StoredTerms;
 const Policy = @import("policy.zig").Policy;
 const Control = @import("control.zig").Control;
+const grant_view = @import("grant_view.zig");
 
 const Binding = struct {
     ledger: *Ledger,
@@ -64,7 +65,7 @@ pub const GrantUse = opaque {
         return binding.ledger.require(binding.grant, target, requirement);
     }
 
-    pub fn describe(self: *const GrantUse, target: identity.ResourceId) Ledger.Error!@import("grant_view.zig").GrantView.Access {
+    pub fn describe(self: *const GrantUse, target: identity.ResourceId) Ledger.Error!grant_view.GrantView.Access {
         const binding = &self.state().binding;
         return binding.ledger.describe(binding.grant, target);
     }
@@ -80,8 +81,12 @@ pub const GrantUse = opaque {
         } })).?;
     }
 
-    fn state(self: *const GrantUse) *UseState {
-        return @ptrCast(@alignCast(@constCast(self)));
+    fn state(self: anytype) switch (@TypeOf(self)) {
+        *GrantUse => *UseState,
+        *const GrantUse => *const UseState,
+        else => @compileError("a GrantUse pointer"),
+    } {
+        return @ptrCast(@alignCast(self));
     }
 };
 
@@ -132,8 +137,12 @@ pub const GrantControl = opaque {
         } })).?;
     }
 
-    fn state(self: *const GrantControl) *ControlState {
-        return @ptrCast(@alignCast(@constCast(self)));
+    fn state(self: anytype) switch (@TypeOf(self)) {
+        *GrantControl => *ControlState,
+        *const GrantControl => *const ControlState,
+        else => @compileError("a GrantControl pointer"),
+    } {
+        return @ptrCast(@alignCast(self));
     }
 };
 

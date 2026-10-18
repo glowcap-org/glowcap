@@ -171,8 +171,8 @@ pub fn main(init: std.process.Init) !void {
     try directory_future.await(io);
     try widget_future.await(io);
     hosts_joined = true;
-    if (directory_host.close()) |failure| return failure.cause;
-    if (widget_host.close()) |failure| return failure.cause;
+    if (directory_host.close()) |failure| return failure.chain.cause;
+    if (widget_host.close()) |failure| return failure.chain.cause;
 
     std.debug.print("02: introduced to a capability on another peer, redeemed inside the call\n", .{});
 }

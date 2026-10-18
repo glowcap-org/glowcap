@@ -27,9 +27,9 @@ test "loam LMDB foreign roles survive compaction and restore a later vat during 
     defer a.free(source_z);
     const target_z = try a.dupeSentinel(u8, target_path, 0);
     defer a.free(target_z);
-    var source_db = try Lmdb.open(source_z, .{ .mode = .{ .create = h.f.store_id } });
+    var source_db = try Lmdb.open(source_z, .{ .opening = .{ .id = h.f.store_id, .mode = .create } });
     defer source_db.close() catch unreachable;
-    var target_db = try Lmdb.open(target_z, .{ .mode = .{ .create = @fromBackingInt(95) } });
+    var target_db = try Lmdb.open(target_z, .{ .opening = .{ .id = @fromBackingInt(95), .mode = .create } });
     defer target_db.close() catch unreachable;
     var source_store = try h.loam.core.Store.init(a, source_db.metadata, &f.schemas, h.limits);
     defer source_store.deinit() catch unreachable;
@@ -78,8 +78,8 @@ test "loam LMDB foreign roles survive compaction and restore a later vat during 
     try target_db.compact();
     try source_db.close();
     try target_db.close();
-    source_db = try Lmdb.open(source_z, .{ .mode = .{ .open = h.f.store_id } });
-    target_db = try Lmdb.open(target_z, .{ .mode = .{ .open = @fromBackingInt(95) } });
+    source_db = try Lmdb.open(source_z, .{ .opening = .{ .id = h.f.store_id, .mode = .open } });
+    target_db = try Lmdb.open(target_z, .{ .opening = .{ .id = @fromBackingInt(95), .mode = .open } });
     source_store = try h.loam.core.Store.init(a, source_db.metadata, &f.schemas, h.limits);
     target_store = try h.loam.core.Store.init(a, target_db.metadata, &h.schemas, h.limits);
     var source: h.Hosted = undefined;

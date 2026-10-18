@@ -26,24 +26,7 @@ pub extern "c" fn close(fd: c_int) c_int;
 
 const EV_ERROR: u16 = 0x4000;
 
-/// What a registered fd is waiting to do, so `poll` can complete it on readiness.
-/// Read and write are tracked separately because one connection can have a recv
-/// and a send outstanding at the same time. Tagged unions carry the op kind so
-/// poll sites cannot misread a recv as an accept or a send as a connect.
-pub const Pending = struct {
-    read: union(enum) {
-        idle,
-        recv: u64,
-        accept: u64,
-        poll: u64,
-    } = .idle,
-    write: union(enum) {
-        idle,
-        send: struct { ud: u64, bytes: []const u8 },
-        connect: u64,
-        poll: u64,
-    } = .idle,
-};
+pub const Pending = @import("readiness_pending.zig").Pending;
 
 /// Complete `p`'s operation for readiness event `ev` on `fd`, appending at
 /// most one completion to `out[produced.*..]`.

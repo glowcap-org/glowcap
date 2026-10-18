@@ -46,10 +46,7 @@ pub fn connectLocator(
     defer admission.release();
     try self.core.ensureAdvertisedLocator(locator.transport);
     const session = try self.core.openDialedLocator(locator);
-    errdefer {
-        Internal.dropWire(self, session.peer_handle);
-        if (Internal.releaseCoreSession(self, session)) |failure| Internal.noteTerminalFailureChain(self, failure);
-    }
+    errdefer Internal.abandonFreshSession(self, session);
     try Internal.bindWire(self, session, locator, options);
     try Internal.pumpHandshake(self, session, self.opts.handshake);
     return session;
@@ -118,18 +115,11 @@ pub fn startAdoptExternal(
         .dialed => blk: {
             try self.core.ensureAdvertisedLocator(transport);
             designator_storage = key.toDesignator();
-            break :blk try self.core.openDialedLocator(.{
-                .transport = transport,
-                .designator = &designator_storage,
-                .hints = model.Hints.emptyFalse(),
-            });
+            break :blk try self.core.openDialedLocator(.hintless(transport, &designator_storage));
         },
         .accepted => try self.core.openAcceptedAdvertised(transport),
     };
-    errdefer {
-        Internal.dropWire(self, session.peer_handle);
-        if (Internal.releaseCoreSession(self, session)) |failure| Internal.noteTerminalFailureChain(self, failure);
-    }
+    errdefer Internal.abandonFreshSession(self, session);
     session.served.port.peer.bindVerifiedChannelKey(key);
     try Internal.adoptResidentConn(self, session, resident_index, &claimed);
     const row = try self.allocator.create(PendingOpen);
@@ -194,10 +184,7 @@ pub fn stageDial(
             };
         },
     };
-    errdefer {
-        Internal.dropWire(self, session.peer_handle);
-        if (Internal.releaseCoreSession(self, session)) |failure| Internal.noteTerminalFailureChain(self, failure);
-    }
+    errdefer Internal.abandonFreshSession(self, session);
     const row = try self.allocator.create(PendingOpen);
     errdefer self.allocator.destroy(row);
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
@@ -238,7 +225,7 @@ pub fn stageDial(
                 .dial_locator = dial_locator,
             };
             self.pending_opens.appendAssumeCapacity(row);
-            removePendingRow(self, row);
+            pending.remove(&self.pending_opens, row);
             try failPendingOpenFailure(self, row, .fromDialFailure(failure));
             return;
         },
@@ -363,6 +350,20 @@ pub fn advancePendingOpens(self: *HostRuntime) !void {
     }
 }
 
+/// Hand the opened session to its observer. A refusal releases the wire,
+/// latches any release failure onto the refusal, and reports it, and the row
+/// is then complete.
+fn reportOpened(self: *HostRuntime, observation: anytype, row: *PendingOpen) bool {
+    const obs = observation.observer;
+    obs.opened(obs.ctx, observation.tag, row.session) catch |err| {
+        var failure = self.operationFailure(err);
+        self.releaseWire(row.session) catch |cleanup| failure.noteFailure(self.operationFailure(cleanup));
+        obs.failed(obs.ctx, observation.tag, failure);
+        return false;
+    };
+    return true;
+}
+
 /// Report one completed session open. For a redeem row, a refused
 /// `exporterDialed` fails closed: the ticket's action was consumed at
 /// stage time, so there is no drain retry to lean on. The session
@@ -374,15 +375,7 @@ fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
         self.allocator.destroy(row);
     }
     switch (row.outcome) {
-        .operation => |observation| {
-            const obs = observation.observer;
-            obs.opened(obs.ctx, observation.tag, row.session) catch |err| {
-                var failure = self.operationFailure(err);
-                self.releaseWire(row.session) catch |cleanup| failure.noteFailure(self.operationFailure(cleanup));
-                obs.failed(obs.ctx, observation.tag, failure);
-                return;
-            };
-        },
+        .operation => |observation| if (!reportOpened(self, observation, row)) return,
         .redeem => |redeem| {
             const adopted = self.core.exporterDialed(redeem.ticket, redeem.route_index, row.session) catch |err| {
                 try self.releaseWire(row.session);
@@ -394,15 +387,7 @@ fn completePendingOpen(self: *HostRuntime, row: *PendingOpen) !void {
                 return;
             }
         },
-        .listener_accept => |observation| {
-            const obs = observation.observer;
-            obs.opened(obs.ctx, observation.tag, row.session) catch |err| {
-                var failure = self.operationFailure(err);
-                self.releaseWire(row.session) catch |cleanup| failure.noteFailure(self.operationFailure(cleanup));
-                obs.failed(obs.ctx, observation.tag, failure);
-                return;
-            };
-        },
+        .listener_accept => |observation| if (!reportOpened(self, observation, row)) return,
     }
     // The settle queued post-open work (withdraws, parked enlivens, the
     // observer's own effects); answer it before the next row's verdict.
@@ -426,7 +411,7 @@ fn failPendingOpenFailure(self: *HostRuntime, row: *PendingOpen, original_failur
             const obs = observation.observer;
             obs.failed(obs.ctx, observation.tag, failure);
         },
-        .redeem => |redeem| try self.core.dialFailed(redeem.ticket, redeem.route_index, failure.primaryName()),
+        .redeem => |redeem| try self.core.dialFailed(redeem.ticket, redeem.route_index, failure.chain.primaryName()),
         .listener_accept => |observation| {
             const obs = observation.observer;
             obs.abandoned(obs.ctx, observation.tag);
@@ -455,12 +440,7 @@ pub fn discardPendingOpen(self: *HostRuntime, row: *PendingOpen) DiscardedOpen {
         .handshake, .retry_wait => {},
     }
     Internal.dropWire(self, row.session.peer_handle);
-    if (Internal.releaseCoreSession(self, row.session)) |release_failure| {
-        if (cleanup) |*first|
-            first.noteChain(release_failure)
-        else
-            cleanup = release_failure;
-    }
+    if (Internal.releaseCoreSession(self, row.session)) |release_failure| foundation.latchFailure(&cleanup, release_failure);
     return .{ .admission = admission, .cleanup = cleanup };
 }
 
@@ -477,16 +457,6 @@ pub fn pendingOpenFor(self: *const HostRuntime, session: *driver_core.HostSessio
         if (row.session == session) return row;
     }
     return null;
-}
-
-fn removePendingRow(self: *HostRuntime, row: *PendingOpen) void {
-    for (self.pending_opens.items, 0..) |candidate, i| {
-        if (candidate == row) {
-            std.debug.assert(self.pending_opens.swapRemove(i) == row);
-            return;
-        }
-    }
-    unreachable; // the caller found the row in this list
 }
 
 fn reportDialOutcome(self: *HostRuntime, outcome: dial_retry.DialOutcome, attempt: u32) void {
@@ -523,7 +493,7 @@ fn retryOrFailResidentDial(
     const verdict: dial_retry.DialOutcome =
         if (!transient or !deadline_leaves_room) .permanent else .exhausted;
     reportDialOutcome(self, verdict, row.dial_attempt);
-    removePendingRow(self, row);
+    pending.remove(&self.pending_opens, row);
     return failPendingOpenFailure(self, row, .fromDialFailure(failure));
 }
 
@@ -537,7 +507,7 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !void {
     const runtime = &self.residents.items[wait.resident];
     const resident = runtime.resident;
     const dialer = resident.dialer() orelse {
-        removePendingRow(self, row);
+        pending.remove(&self.pending_opens, row);
         return failPendingOpen(self, row, Error.UnknownTransport);
     };
     const request_id = try Internal.mintRuntimeId(&runtime.next_request);
@@ -547,7 +517,7 @@ fn reissueRetryingDial(self: *HostRuntime, row: *PendingOpen) !void {
             .operation, .listener_accept => unreachable,
         };
         const view = self.core.node.pendingDial(redeem.ticket, redeem.route_index) orelse {
-            removePendingRow(self, row);
+            pending.remove(&self.pending_opens, row);
             return failPendingOpen(self, row, error.ProviderContract);
         };
         break :blk view.locator;
@@ -586,11 +556,11 @@ pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: 
     };
     defer if (conn.deinit()) |failure| Internal.noteTerminalFailureChain(self, failure);
     const conn_id = conn.borrow() orelse {
-        removePendingRow(self, row);
+        pending.remove(&self.pending_opens, row);
         return failPendingOpen(self, row, error.ProviderContract);
     };
     const remote_key = resident.connRemoteKey(conn_id) catch |err| {
-        removePendingRow(self, row);
+        pending.remove(&self.pending_opens, row);
         return failPendingOpen(self, row, err);
     };
     row.stage = .handshake;
@@ -598,7 +568,7 @@ pub fn adoptPendingResidentDial(self: *HostRuntime, resident_index: usize, row: 
         row.session.served.port.peer.bindVerifiedChannelKey(key);
     }
     Internal.adoptResidentConn(self, row.session, resident_index, &conn) catch |err| {
-        removePendingRow(self, row);
+        pending.remove(&self.pending_opens, row);
         return failPendingOpen(self, row, err);
     };
     // The hello's flush action drained to a no-op while the wire did not

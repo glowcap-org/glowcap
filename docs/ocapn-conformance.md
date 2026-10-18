@@ -113,9 +113,9 @@ This table covers every Python source in the separately pinned suite: test
 modules, shared session setup, message types, and netlayers. A shared hello
 change therefore fails the check even when no test module moved.
 
-The rows distinguish baseline and next coverage. The baseline TCP runner runs
+The baseline TCP runner runs
 all discovered test modules except `tests.op_abort`, replaced by the strict
-portable abort probe. Next consumes these rows as execution policy: every
+portable abort probe. The next lane consumes these rows as execution policy: every
 pending source blocks the run, a deferred module reports its decision, and an
 adopted module must run without skips. The onion runner has its own exclusions.
 
@@ -123,8 +123,6 @@ adopted module must run without skips. The onion runner has its own exclusions.
 adopted upstream assertions through a next wire fixture and local draft-native
 cases. The fixture verifies a signed next offer using the retained hello,
 requires draft delivery shapes, and chooses 32-byte gift IDs before signing.
-Shared upstream setup remains fingerprinted: a changed opening forces review
-and fixture adaptation even when its test module is deferred.
 
 | Suite source | Profile | State | Evidence | Decision | Text |
 | --- | --- | --- | --- | --- | --- |

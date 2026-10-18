@@ -1,5 +1,6 @@
 //! Internal C declarations for the pinned LMDB library. This is not a glowcap
 //! C ABI. The adapter alone owns these handles and borrowed values.
+const std = @import("std");
 pub const Env = opaque {};
 pub const Txn = opaque {};
 pub const Cursor = opaque {};
@@ -42,7 +43,7 @@ pub extern "c" fn mdb_env_create(env: *?*Env) c_int;
 pub extern "c" fn mdb_env_set_mapsize(env: *Env, size: usize) c_int;
 pub extern "c" fn mdb_env_set_maxreaders(env: *Env, readers: c_uint) c_int;
 pub extern "c" fn mdb_env_get_maxreaders(env: *Env, readers: *c_uint) c_int;
-pub extern "c" fn mdb_env_open(env: *Env, path: [*:0]const u8, flags: c_uint, mode: @import("std").c.mode_t) c_int;
+pub extern "c" fn mdb_env_open(env: *Env, path: [*:0]const u8, flags: c_uint, mode: std.c.mode_t) c_int;
 pub extern "c" fn mdb_env_close(env: *Env) void;
 pub extern "c" fn mdb_env_stat(env: *Env, stat: *Stat) c_int;
 pub extern "c" fn mdb_env_info(env: *Env, info: *Info) c_int;

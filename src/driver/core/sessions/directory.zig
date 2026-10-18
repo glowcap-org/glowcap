@@ -31,8 +31,7 @@ const DialTargetContext = struct {
     }
 
     pub fn eql(_: DialTargetContext, a: DialTarget, b: DialTarget) bool {
-        return std.mem.eql(u8, a.transport, b.transport) and
-            std.mem.eql(u8, a.designator, b.designator);
+        return a.eql(b);
     }
 };
 
@@ -75,7 +74,7 @@ pub fn liveSessionForDial(self: *const Host, transport: []const u8, partner_desi
 
 /// Refuse a new dial when a live session already reaches this partner.
 pub fn refuseDuplicateDial(self: *const Host, transport: []const u8, partner_designator: []const u8) HostError!void {
-    if (try liveSessionForDial(self, transport, partner_designator) != null) return HostError.SessionPairExists;
+    if (try liveSessionForDial(self, transport, partner_designator) != null) return error.SessionPairExists;
 }
 
 /// Refuse a new dial unless the caller is trying to prove a stricter durable
@@ -94,7 +93,7 @@ pub fn refuseDuplicateDialForDemand(
     const demanded_designator = demanded.toDesignator();
     if (existing.served.port.peer.partnerDurableProvenance(demanded_designator[0..]) != .authenticated_transport)
         return;
-    return HostError.SessionPairExists;
+    return error.SessionPairExists;
 }
 
 /// After crossed-hellos tiebreak, keep at most one non-condemned session to
@@ -107,14 +106,19 @@ pub fn refuseDuplicateDialForDemand(
 /// on both ends rather than condemning by local arrival order. Same-role
 /// duplicates (dual-accept) keep the already-indexed session and condemn
 /// the newcomer.
-pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.view.StartSession) !void {
+pub const DuplicatePartnerError = error{SessionPairExists} ||
+    foundation.error_sets.Of(crypto.PeerKey.fromSlice) ||
+    IndexPartnerKeyError ||
+    host_pump.CondemnError;
+
+pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.view.StartSession) DuplicatePartnerError!void {
     if (session.isTerminating()) return;
     // With signature verification disabled, `session_pubkey` is only a
     // partner assertion. It cannot identify a peer for deduplication or
     // authorize early handoff verification.
     if (!session.served.port.peer.verify_partner_handshake) return;
     const partner_key = try crypto.PeerKey.fromSlice(ss.session_pubkey);
-    const side = try engine.handoff_names.sideName(&partner_key.bytes);
+    const side = engine.handoff_names.sideNameForKey(partner_key);
     // Two questions, and only the second identifies a *peer* once each
     // session draws its own key (ADR-0097). A matching session key means
     // the same session incarnation, which is a duplicate of the narrowest
@@ -154,7 +158,7 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     {
         // A side-name collision is not partner-key equality. Refuse the
         // newcomer rather than replacing an unrelated live index row.
-        return HostError.SessionPairExists;
+        return error.SessionPairExists;
     }
 
     // Ordered by the two *session* identities, as crossed hellos are
@@ -184,8 +188,10 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
 /// Index a live session under its verified session key and, when proved, its
 /// durable key. Both maps reserve before either publishes, so allocation
 /// failure leaves no partial identity authority.
-pub fn indexPartnerKey(self: *Host, session: *HostSession, key: [crypto.PEER_KEY_BYTES]u8, designator: []const u8) !void {
-    const side = try engine.handoff_names.sideName(&key);
+pub const IndexPartnerKeyError = std.mem.Allocator.Error;
+
+pub fn indexPartnerKey(self: *Host, session: *HostSession, key: [crypto.peer_key_bytes]u8, designator: []const u8) IndexPartnerKeyError!void {
+    const side = engine.handoff_names.sideNameForKey(.fromBytes(key));
     const durable_key = durablePeerKeyFor(session, designator);
     try self.partner_by_side.ensureUnusedCapacity(self.allocator, 1);
     if (durable_key != null)
@@ -221,7 +227,7 @@ fn durablePeerName(session: *const HostSession) ?[]const u8 {
 /// pre-apply duplicate check can pass a borrowed hello's claim, and the
 /// post-apply teardown can pass the session's own retained bytes. Both
 /// reach the identical row because a session's claim is written once.
-pub fn durablePeerKeyFor(session: *const HostSession, designator: []const u8) ?[crypto.PEER_KEY_BYTES]u8 {
+pub fn durablePeerKeyFor(session: *const HostSession, designator: []const u8) ?[crypto.peer_key_bytes]u8 {
     const peer = session.served.port.peer;
     if (!peer.verify_partner_handshake) return null;
     if (Host.durableProvenance(peer, designator) == .unauthenticated) return null;
@@ -273,7 +279,7 @@ pub fn unindexSession(self: *Host, session: *HostSession) void {
 pub fn liveIndexedSession(self: *const Host, peer_handle: ?engine.PeerHandle) ?*HostSession {
     const pid = peer_handle orelse return null;
     const session = self.sessions.get(pid) orelse return null;
-    if (session.lifecyclePhase() != .active and session.lifecyclePhase() != .finishing) return null;
+    if (session.lifecyclePhase().condemned()) return null;
     return session;
 }
 

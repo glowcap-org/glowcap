@@ -171,7 +171,7 @@ pub fn Projection(
             };
             defer borrowed.deinit(runtime.allocator);
             runtime.startDial(request_id, borrowed.value) catch |err| {
-                const code = failure_projection.dial(err);
+                const code = c.netlayerFailureCode(err);
                 return c.transport_provider.failProvider(out_failure, code, err);
             };
             runtime.signalControl();
@@ -242,12 +242,12 @@ pub fn Projection(
             const listener = switch (runtime.listen(route_id, transport_bytes, requested, identity)) {
                 .admitted => |admitted| admitted,
                 .failed => |failure| {
-                    const code = failure_projection.listen(failure.cause);
+                    const code = c.netlayerFailureCode(failure.cause);
                     return c.transport_provider.failProviderChain(
                         out_failure,
                         code,
                         failure,
-                        failure_projection.listen,
+                        c.netlayerFailureCode,
                     );
                 },
             };
@@ -289,12 +289,12 @@ pub fn Projection(
             const listener = switch (runtime.finishListen(route_id)) {
                 .listener => |listener| listener,
                 .failed => |failure| {
-                    const code = failure_projection.listen(failure.cause);
+                    const code = c.netlayerFailureCode(failure.cause);
                     return c.transport_provider.failProviderChain(
                         out_failure,
                         code,
                         failure,
-                        failure_projection.listen,
+                        c.netlayerFailureCode,
                     );
                 },
             };

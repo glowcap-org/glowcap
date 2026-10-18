@@ -48,7 +48,7 @@ const Reader = struct {
 test "LMDB page cache keeps concurrent snapshots and updates reused large-value pages" {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id } });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .create } });
     defer db.close() catch unreachable;
     {
         var write = try db.beginWrite();
@@ -106,7 +106,7 @@ fn cycle(db: *Lmdb) !void {
 test "LMDB page cache eviction keeps a value another transaction borrowed" {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id }, .map_bytes = 1024 * 1024 * 1024 });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .create }, .map_bytes = 1024 * 1024 * 1024 });
     defer db.close() catch unreachable;
     const page = (try db.inspect()).page_bytes;
     // Above the inline-node limit, but small enough for one overflow page.

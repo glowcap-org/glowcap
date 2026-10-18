@@ -68,7 +68,8 @@ pub fn prepareResource(append: *storage.Append, read: *storage.Read, backend: an
 }
 
 pub fn resource(store: *loam.core.Store, backend: anytype, owner: loam.core.ObjectId, parent: ?core.ResourceId) !core.ResourceId {
-    var read = try storage.Read.init(store.allocator, store, owner, @min(6, store.limits.max_leases -| 1));
+    var read: storage.Read = undefined;
+    try read.init(store.allocator, store, owner, @min(6, store.limits.max_leases -| 1), null);
     defer read.deinit() catch unreachable;
     _ = try pump(&read, backend);
     var append = try storage.Append.init(&read, .resource);
@@ -133,7 +134,8 @@ pub fn prepare(read: *storage.Read, backend: anytype, command: core.GrantPlan.Co
 }
 
 pub fn change(store: *loam.core.Store, backend: anytype, owner: loam.core.ObjectId, command: core.GrantPlan.Command) !?core.GrantPlan.Change {
-    var read = try storage.Read.init(store.allocator, store, owner, @min(6, store.limits.max_leases -| 1));
+    var read: storage.Read = undefined;
+    try read.init(store.allocator, store, owner, @min(6, store.limits.max_leases -| 1), null);
     defer read.deinit() catch unreachable;
     _ = try pump(&read, backend);
     var plan = (try prepare(&read, backend, command)) orelse return null;
@@ -201,12 +203,13 @@ pub fn latestGrant(read: *storage.Read, backend: anytype) !core.GrantPlan.Change
             },
         };
         defer read.store.release(lease) catch unreachable;
-        var batch = try loam.access.records.ChangeBatchRecord.decodeOwned(read.allocator, try read.store.currentView(lease));
+        var batch: loam.access.records.ChangeBatchRecord = undefined;
+        try batch.decodeOwned(read.allocator, try read.store.currentView(lease));
         defer batch.deinit(read.allocator);
-        var effect = batch.value.effects.len;
+        var effect = batch.effects.len;
         while (effect != 0) {
             effect -= 1;
-            if (batch.value.effects[effect] == .grant) return batch.value.effects[effect].grant.change;
+            if (batch.effects[effect] == .grant) return batch.effects[effect].grant.change;
         }
     }
     return error.MissingGrantEvent;

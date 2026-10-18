@@ -1,6 +1,7 @@
 //! Shared scalar grammar for managed access records. No authority decisions.
 const std = @import("std");
 const core = @import("loam_access_core");
+const records = @import("loam_records");
 const syntax = @import("syrup").RecordSyntax;
 
 pub fn writeWide(sink: anytype, value: u128) !void {
@@ -51,9 +52,27 @@ pub fn readParent(comptime Id: type, bytes: []const u8, cursor: *usize) !?Id {
 }
 
 pub fn readStatus(bytes: []const u8, cursor: *usize) !core.GrantView.Status {
-    const symbol = try syntax.readSymbol(bytes, cursor);
-    inline for (std.meta.tags(core.GrantView.Status)) |tag| {
-        if (std.mem.eql(u8, symbol, @tagName(tag))) return tag;
-    }
-    return error.InvalidRecord;
+    return std.meta.stringToEnum(core.GrantView.Status, try syntax.readSymbol(bytes, cursor)) orelse error.InvalidRecord;
+}
+
+/// The next edge, which must be strong and point into `store`.
+pub fn readEdge(edges: *records.EdgeIterator, store: records.StoreId) error{InvalidRecord}!records.ObjectId {
+    const edge = edges.next() orelse return error.InvalidRecord;
+    if (edge.strength != .strong or edge.target.store != store) return error.InvalidRecord;
+    return edge.target;
+}
+
+/// A durable object name inside a payload, beside the edge that retains it.
+pub fn writeObject(sink: anytype, id: records.ObjectId) !void {
+    try writeWide(sink, @backingInt(id.store));
+    try syntax.writePositiveInt(sink, id.incarnation);
+    try syntax.writePositiveInt(sink, id.sequence);
+}
+
+pub fn readObject(bytes: []const u8, cursor: *usize) !records.ObjectId {
+    return .{
+        .store = @fromBackingInt(try readWide(bytes, cursor)),
+        .incarnation = try syntax.readPositiveInt(bytes, cursor),
+        .sequence = try syntax.readPositiveInt(bytes, cursor),
+    };
 }

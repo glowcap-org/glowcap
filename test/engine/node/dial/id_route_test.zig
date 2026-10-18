@@ -22,18 +22,18 @@ fn routeOptions() engine.Peer.NegotiatingOptions {
 
 test "id route bundles refuse carriers that cannot prove the canonical key" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2f)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x2f)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(routeOptions());
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x30))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x30))).publicKey().toDesignator();
     const unsafe = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.keyed-relay",
         .{ key[0..], key[0..] },
     );
     defer allocator.free(unsafe);
-    try std.testing.expectError(error.MalformedMessage, node.acceptGive(recipient, 34, "give-id", unsafe));
+    try std.testing.expectError(error.MalformedMessage, node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 34), "give-id", unsafe));
     try std.testing.expectEqual(@as(usize, 0), node.pendingDialCount());
     try std.testing.expect(node.nextAction() == null);
 
@@ -44,10 +44,10 @@ test "id route bundles refuse carriers that cannot prove the canonical key" {
 
 test "id route bundles race same-key proving carriers in order" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x31)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x31)));
     defer node.deinit();
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x32))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x32))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay",
@@ -81,11 +81,11 @@ test "id route bundles race same-key proving carriers in order" {
 
 test "id route rank fills a bounded strong window before serial weak fallback" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x33)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x33)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(routeOptions());
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x34))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x34))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay%7Cocapn%3A%2F%2F{s}.noise-tcp&alt-locators=ocapn%3A%2F%2Ffallback-one.onion%7Cocapn%3A%2F%2F127.0.0.1%253A7010.tcp",
@@ -95,7 +95,7 @@ test "id route rank fills a bounded strong window before serial weak fallback" {
     const give = try testGiveBytes(allocator);
     defer allocator.free(give);
 
-    try node.acceptGive(recipient, 40, give, id_locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 40), give, id_locator);
     const first = node.nextAction().?.dial;
     const second = node.nextAction().?.dial;
     try std.testing.expectEqual(first.pending, second.pending);
@@ -146,10 +146,10 @@ test "id route rank fills a bounded strong window before serial weak fallback" {
 
 test "first completed admitted id route wins and late losers are stale" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x35)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x35)));
     defer node.deinit();
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x36))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x36))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay",
@@ -184,11 +184,11 @@ test "first completed admitted id route wins and late losers are stale" {
 
 test "id route weak fallbacks redeem without claiming the outer identity" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x36)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x36)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(routeOptions());
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x37))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x37))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh&alt-locators=ocapn%3A%2F%2Fbaseline-service.onion",
@@ -196,7 +196,7 @@ test "id route weak fallbacks redeem without claiming the outer identity" {
     );
     defer allocator.free(id_locator);
 
-    try node.acceptGive(recipient, 35, "give-id", id_locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 35), "give-id", id_locator);
     const ticket = node.nextAction().?.dial.pending;
     const strong = node.pendingDial(ticket, 0).?;
     try std.testing.expectEqualStrings(model.transport.iroh, strong.locator.transport);
@@ -219,7 +219,7 @@ test "id route weak fallbacks redeem without claiming the outer identity" {
 
 test "verified id completion keeps one discovered route under explicit policy" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x38)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x38)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(routeOptions());
@@ -228,17 +228,17 @@ test "verified id completion keeps one discovered route under explicit policy" {
         allocator,
         &node,
         node.peer(recipient).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x3e)),
+        @as([crypto.seed_bytes]u8, @splat(0x3e)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         node.peer(exporter).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x3f)),
+        @as([crypto.seed_bytes]u8, @splat(0x3f)),
     );
     defer exporter_counterpart.deinit();
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x39))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x39))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh%7Cocapn%3A%2F%2F{s}.noise-relay&alt-locators=ocapn%3A%2F%2Fbaseline-service.onion",
@@ -252,7 +252,7 @@ test "verified id completion keeps one discovered route under explicit policy" {
 
     const give = try testGiveBytes(allocator);
     defer allocator.free(give);
-    try node.acceptGive(recipient, 36, give, id_locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 36), give, id_locator);
     const ticket = node.nextAction().?.dial.pending;
     const second = node.nextAction().?.dial;
     try std.testing.expectEqual(ticket, second.pending);
@@ -283,7 +283,7 @@ test "verified id completion keeps one discovered route under explicit policy" {
         .{ key[0..], key[0..] },
     );
     defer allocator.free(later);
-    try node.acceptGive(recipient, 37, "later-give", later);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 37), "later-give", later);
     try std.testing.expectEqualSlices(
         u8,
         canonical,
@@ -293,7 +293,7 @@ test "verified id completion keeps one discovered route under explicit policy" {
 
 test "weak id completion retains route advice only after withdrawal without caching identity" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x3a)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x3a)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(routeOptions());
@@ -302,17 +302,17 @@ test "weak id completion retains route advice only after withdrawal without cach
         allocator,
         &node,
         node.peer(recipient).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x40)),
+        @as([crypto.seed_bytes]u8, @splat(0x40)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         node.peer(exporter).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x41)),
+        @as([crypto.seed_bytes]u8, @splat(0x41)),
     );
     defer exporter_counterpart.deinit();
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x3b))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x3b))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh&alt-locators=ocapn%3A%2F%2Fbaseline-service.onion",
@@ -326,7 +326,7 @@ test "weak id completion retains route advice only after withdrawal without cach
     const give = try testGiveBytes(allocator);
     defer allocator.free(give);
 
-    try node.acceptGive(recipient, 38, give, id_locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 38), give, id_locator);
     const ticket = node.nextAction().?.dial.pending;
     try std.testing.expectEqual(engine.Node.DialFailure.retry, try node.dialFailed(ticket, 0, "iroh unavailable"));
     try std.testing.expectEqual(ticket, node.nextAction().?.dial.pending);
@@ -343,7 +343,7 @@ test "weak id completion retains route advice only after withdrawal without cach
 
 test "broken id withdrawal cannot publish route advice" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x3c)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x3c)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(routeOptions());
@@ -352,17 +352,17 @@ test "broken id withdrawal cannot publish route advice" {
         allocator,
         &node,
         node.peer(recipient).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x42)),
+        @as([crypto.seed_bytes]u8, @splat(0x42)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         node.peer(exporter).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x43)),
+        @as([crypto.seed_bytes]u8, @splat(0x43)),
     );
     defer exporter_counterpart.deinit();
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x3d))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x3d))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",
@@ -372,7 +372,7 @@ test "broken id withdrawal cannot publish route advice" {
     const give = try testGiveBytes(allocator);
     defer allocator.free(give);
 
-    try node.acceptGive(recipient, 39, give, id_locator);
+    try node.acceptGive(recipient, try harness.holdAnswer(&node, recipient, 39), give, id_locator);
     const ticket = node.nextAction().?.dial.pending;
     node.peer(exporter).?.bindVerifiedChannelKey(crypto.PeerKey.fromDesignator(&key).?);
     _ = try node.exporterCompleted(ticket, 0, exporter, .dialed);
@@ -383,7 +383,7 @@ test "broken id withdrawal cannot publish route advice" {
 
 test "exporter completion refuses an unknown peer without consuming the pending dial" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x44)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x44)));
     defer node.deinit();
 
     const staged = try node.stageDial("ocapn://127.0.0.1%3A9044.tcp");
@@ -398,11 +398,11 @@ test "exporter completion refuses an unknown peer without consuming the pending 
 
 test "id route bundles refuse routes that prove a different key" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x33)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x33)));
     defer node.deinit();
 
-    const id_key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x34))).publicKey().toDesignator();
-    const route_key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x35))).publicKey().toDesignator();
+    const id_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x34))).publicKey().toDesignator();
+    const route_key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x35))).publicKey().toDesignator();
     const id_locator = try std.fmt.allocPrint(
         allocator,
         "ocapn://{s}.id?via=ocapn%3A%2F%2F{s}.iroh",

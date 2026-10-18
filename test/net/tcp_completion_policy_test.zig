@@ -14,7 +14,7 @@ const supported = builtin.os.tag == .linux or builtin.os.tag.isDarwin();
 const Policy = if (supported) net.tcp.CompletionPolicy(net.Backend) else void;
 
 fn identity() crypto.PeerKey {
-    return crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5c))).publicKey();
+    return crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x5c))).publicKey();
 }
 
 test "tcp completion policy binds only the backend's interface" {
@@ -91,7 +91,7 @@ test "tcp completion policy keeps a key listener's identity in what it advertise
     defer model.freePeerLocator(allocator, forwarded);
     try std.testing.expectEqualStrings(&designator, forwarded.designator);
 
-    const other = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x5d))).publicKey().toDesignator();
+    const other = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x5d))).publicKey().toDesignator();
     try std.testing.expectError(error.InvalidAddress, Policy.canonicalizeLocator(&backend, -1, model.transport.noise_tcp, identity(), allocator, .{
         .transport = model.transport.noise_tcp,
         .designator = &other,

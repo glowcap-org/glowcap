@@ -47,7 +47,7 @@ pub fn prepareCopying(self: *Ledger, base: types.Version, command: Command) Erro
     if (self.graph.reservation != null) return error.Busy;
     var grants = self.readView();
     var resources = self.graph.readView();
-    const fresh: ?GrantId = if (self.used == self.limits.capacity) null else .{ .owner = self.graph.owner, .slot = self.used, .generation = 1 };
+    const fresh: ?GrantId = if (self.used == self.limits.capacity) null else .{ .owner = self.graph.owner, .slot = self.used, .generation = identity.first_generation };
     var plan = try Plan.prepareCopying(self.allocator, &grants, &resources, &self.policy, self.limits.max_children, fresh, command) orelse return null;
     errdefer plan.deinit(self.allocator);
     if (self.transaction_sequence == std.math.maxInt(u64)) return error.TransactionExhausted;
@@ -135,7 +135,7 @@ fn writeView(self: *const Ledger, pending: *const Pending) Error!Write {
 
 fn commit(self: *Ledger, pending: *Pending) types.Change {
     const plan = &pending.plan;
-    const next: identity.Revision = @fromBackingInt(@backingInt(pending.ticket.base.grants) + 1);
+    const next = pending.ticket.base.grants.next().?;
     switch (plan.delta) {
         .issue => |record| {
             self.records[plan.grant.slot] = record;
@@ -170,6 +170,6 @@ fn discard(self: *Ledger, pending: *Pending) void {
 pub fn lookup(self: *const Ledger, id: GrantId) Error!*const types.Record {
     if (id.owner != self.graph.owner) return error.ForeignOwner;
     if (id.slot >= self.used) return error.UnknownGrant;
-    if (id.generation != 1) return error.Gone;
+    if (id.generation != identity.first_generation) return error.Gone;
     return &self.records[id.slot];
 }

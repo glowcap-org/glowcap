@@ -9,8 +9,8 @@ sources:
 
 # Managed access records
 
-This guide builds managed access in Zig: its records, the use and control
-references people hold, hosted endpoints, and safe retries. Storage engines and
+Managed access in Zig gives you records, the use and control references people
+hold, hosted endpoints, and safe retries. Storage engines and
 attaching a Store to a Host are in the [store and actor guide](../loam.md).
 
 ## What managed access is for
@@ -57,9 +57,9 @@ defines the limits and how long borrowed views live.
 ## Policy and interface support
 
 A policy lists every permission the application has.
-`Policy.Descriptor.kinds` says, for each kind of resource, whether a grant can
-cover one object and whether it can cover a subtree, including children added
-later. An empty table applies the policy to every kind, and a nonempty one
+`Policy.Descriptor.kinds` gives each kind of resource two permission masks:
+what a grant on one object may hold, and what a grant on its subtree may hold,
+including children added later. An empty table applies the policy to every kind, and a nonempty one
 refuses kinds it does not list.
 
 - `Terms.validate` checks support for the chosen scope, and
@@ -81,13 +81,13 @@ records the limits and the alternatives.
 `access.storage` connects these views to a Store. Register
 `access.records.profile.schemas` alongside the application's schemas.
 
-- Managed access needs a record limit of at least 64 KiB and <!-- value ../../src/loam/access/records/grant_record.zig max_edges -->515<!-- /value --> edges.
-- The managed record format may still change, so use a fresh directory.
+- Managed access needs a record limit of at least 64 KiB and <!-- value ../../src/loam/access/records/grant_record.zig max_edges -->514<!-- /value --> edges.
+- The managed record format has no migration, so use a fresh directory.
 - Inside a transaction, `storage.stage.createOwner` returns a reference to the
   owner's header record. Keep it after the commit is confirmed, to reopen the
   owner. The header saves the policy, revisions, ID counters, directory roots,
   and the root of a bounded change history.
-- Resources and grants nest at most <!-- value ../../src/loam/access/storage/stage.zig max_depth -->64<!-- /value --> deep.
+- Resources and grants nest at most <!-- value ../../src/loam/access/core/bounds.zig max_depth -->64<!-- /value --> deep.
 
 ### Reading
 
@@ -121,8 +121,8 @@ capacity each fail with their own error.
    batch.
 6. Publish new identities and events only after the commit is confirmed.
 
-Plans check the model, not the caller, so your owner code must confirm the
-caller may manage access before preparing one. A failure after managed
+Your owner code must confirm the caller may manage access before preparing a
+plan. A failure after managed
 writing starts aborts the whole batch, content included.
 
 ### Several changes in one transaction
@@ -155,8 +155,8 @@ expects.
   cache misses. Its path is at most four directory records plus the target.
 - The record count must fit within `max_leases - 1`, with cache room for the
   pinned records and one directory or history read.
-- A Read holds at most <!-- value ../../src/loam/access/storage/read.zig read_budget_bytes bytes -->21 KiB<!-- /value --> of state inside itself plus one allocation: a
-  decoded grant record beside 16 KiB of scratch for its resource list. An
+- A Read holds at most <!-- value ../../src/loam/access/storage/read.zig read_budget_bytes bytes -->21 KiB<!-- /value --> of state inside itself, including one decoded
+  grant record and 16 KiB of scratch for its resource list. An
   Append holds at most 52 KiB of path state, and adding a resource also
   allocates one child-list path of the same size.
 - A Read lends one grant record at a time (ADR-0230). A lookup while a record
@@ -176,9 +176,9 @@ outstanding.
 ### Change history
 
 The owner keeps every indexed record, including revoked grants. The header
-keeps a history of at most **<!-- value ../../src/loam/access/records/change_history_record.zig capacity -->32<!-- /value -->** change batches, oldest first.
+keeps a history of at most <!-- value ../../src/loam/access/records/change_history_record.zig capacity -->32<!-- /value --> change batches, oldest first.
 
-- An owner gets one batch per Store transaction, holding at most **<!-- value ../../src/loam/access/records/change_batch_record.zig max_effects -->16<!-- /value -->**
+- An owner gets one batch per Store transaction, holding at most <!-- value ../../src/loam/access/records/change_batch_record.zig max_effects -->16<!-- /value -->
   grant, resource, content, or control changes in order. A seventeenth fails
   with `ChangeCapacity` and aborts the whole transaction.
 - A batch keeps no application payload or grant links, and once it falls out
@@ -248,8 +248,9 @@ references and operations.
    from a current owner Read. Control powers are `core.Control.Powers`:
    separate Inspect, Issue, Edit, and DelegateControl powers beside pause,
    resume, and revoke. Issue and Edit each carry their own copied limit.
-2. After the commit is confirmed, `restoreUse` or `restoreControl` checks a
-   lease on the grant and creates an opaque Zig reference. Release the lease.
+2. After the commit is confirmed, pass a lease on the stored capability record
+   to `restoreUse` or `restoreControl`, which checks its role and creates an
+   opaque Zig reference. Release the lease.
 
 The reference keeps the grant alive through Loam's live roots without pinning
 it in memory.
@@ -288,7 +289,7 @@ copy while work is pending.
 
 Memory:
 
-- Each reference allocates at most 96 bytes.
+- Each reference allocates at most <!-- value ../../src/loam/access/storage/capabilities.zig binding_budget_bytes bytes -->96 bytes<!-- /value -->.
 - Starting an operation allocates at most <!-- value ../../src/loam/access/storage/capability_operation.zig state_budget_bytes bytes -->40 KiB<!-- /value -->, including its Read and
   scratch for control terms, plus the Read's bounded binding array. Sharing
   adds the Append and the copied plan terms.
@@ -325,7 +326,7 @@ after the permission check and before the method runs. Call
 `mutation-sequence()` to get the next sequence, starting at one. Everyone
 holding the endpoint shares that sequence and must coordinate new requests.
 
-The endpoint keeps eight edit receipts, apart from its sharing receipts. Each
+The endpoint keeps <!-- value ../../src/loam/access/records/retry_window.zig capacity -->8<!-- /value --> edit receipts, apart from its sharing receipts. Each
 receipt records the method, the arguments, any dependent target, and the
 first committed result. Capabilities in it are saved as strong edges. A
 dependent facet argument is recorded by the endpoint it names, and a reply can
@@ -346,17 +347,17 @@ retry.
 A wrapped pause, resume, or revoke keeps its first Boolean result, even when a
 later bare call would return false, and a wrapped call that changes nothing
 still commits its receipt. Content, reference edits, tree changes, control
-state, and receipts all share the attachment's transaction. Receipts recover
-local results only. They do not deliver a remote message exactly once or save
-outside effects.
+state, and receipts all share the attachment's transaction. A receipt recovers
+only the local result. A remote message can still arrive twice, and outside
+effects are not saved.
 
 Receipt limits:
 
 - Each value holds at most <!-- value ../../src/loam/access/records/value_record.zig max_bytes bytes -->32 KiB<!-- /value -->, nests at most <!-- value ../../src/loam/access/records/value_record.zig max_depth -->64<!-- /value --> deep, and the request and
   result together hold at most <!-- value ../../src/loam/access/records/mutation_record.zig max_edges -->64<!-- /value --> distinct capabilities.
 - A whole encoded receipt fits in <!-- value ../../src/loam/access/records/mutation_record.zig max_encoded_bytes bytes -->64 KiB<!-- /value -->.
-- Only capabilities need extra storage, and calls with plain values fit the
-  workload's 4 KiB of call memory.
+- Only capabilities need extra storage. In the managed bench workload, calls
+  with plain values fit in 4 KiB of call memory.
 - Encoding measures before allocating. Decoded containers are owned, while
   byte strings borrow the receipt's lease.
 
@@ -388,7 +389,8 @@ current powers and returns the powers requested, and the shared rules decide.
 
 An active `access:control` description holds its status, its pause, resume,
 and revoke Booleans, its policy limit or false, and whether that limit covers
-a subtree. An unavailable control's reply holds its status alone. No
+a subtree. Then come its inspect Boolean, its issue limit or false, its
+delegate-control Boolean, and its revision. An unavailable control's reply holds its status alone. No
 resource, owner, or ancestor identity is revealed.
 
 ## Inspecting held access
@@ -403,8 +405,8 @@ The tagged `access:description` reply uses stable permission and constraint
 keys, laid out as
 [ADR-0171](../decisions/adr/ADR-0171-scoped-access-descriptions.md) defines. It
 reveals no ancestor identity, other resources, owner revision, or unrelated
-event counter. The reply allows no later change on its own, and each
-protected call still checks current permissions.
+event counter. Holding a description grants nothing, and each protected call
+checks current permissions.
 
 Zig code uses `GrantUse.describe(target)` or
 `storage.Operation.describe(target)`. The second returns owned values with
@@ -412,7 +414,7 @@ their policy's fixed vocabulary.
 
 - Run missing reads as for `require`. Stale operations and unknown writes
   refuse, and hosted calls retry a stale snapshot before running.
-- Describing access loads permission records and leaves the content asleep.
+- Describing access loads permission records and no content.
 - Encoding and the reply share the call's bounded memory, so larger
   vocabularies need enough call and frame capacity.
 - The largest-policy test uses all <!-- value ../../src/loam/access/core/policy.zig max_permissions -->64<!-- /value --> permissions and <!-- value ../../src/loam/access/core/policy.zig max_constraints -->16<!-- /value --> constraints across the
@@ -469,7 +471,7 @@ commit in one Store batch.
 - Move durable name reservations along, then commit or cancel them, before
   tearing down the Host.
 
-The source keeps its last **eight** receipts, found directly by sequence
+The source keeps its last <!-- value ../../src/loam/access/records/retry_window.zig capacity -->8<!-- /value --> receipts, found directly by sequence
 through ordered strong edges.
 
 - A matching request returns the same child.
@@ -488,7 +490,7 @@ receipt can also restore its exact child and durable name after a reopen.
 
 Costs and limits:
 
-- Endpoint format version <!-- value ../../src/loam/access/records/endpoint_record.zig version -->2<!-- /value --> reserves edges for the grant, optional content,
+- Endpoint format version <!-- value ../../src/loam/access/records/endpoint_record.zig format_version -->2<!-- /value --> reserves edges for the grant, optional content,
   optional owner administration, an optional durable name, and <!-- value ../../src/loam/access/records/retry_window.zig capacity -->8<!-- /value --> receipts
   for each kind of sequence.
 - A sharing receipt holds at most <!-- value ../../src/loam/access/records/derivation_record.zig max_encoded_bytes bytes -->64 KiB<!-- /value --> of encoded request and two edges, or
@@ -573,7 +575,7 @@ anything a stored strong reference reaches, and old versions a lease still
 holds, and frees disconnected pages and payloads once nothing holds them.
 
 - Each durable name keeps its index entry forever: 25 key bytes plus 33
-  object identity bytes, **58 bytes per name**, before engine overhead.
+  object identity bytes, 58 bytes per name, before engine overhead.
 - Retiring things does not shrink the database file. Compacting it is a
   separate step on each [disk engine](sqlite.md#shrinking-the-file).
 - Creating a new identity reserves at most four identity paths, and ordinary
@@ -587,5 +589,4 @@ these rules, and the
 
 ## C and Rust resources
 
-The [C and Rust guide](c-and-rust.md) covers the C and Rust API, shutting
-down workers, startup, and shutdown.
+The [C and Rust guide](c-and-rust.md) covers the C and Rust API, startup, and shutdown.

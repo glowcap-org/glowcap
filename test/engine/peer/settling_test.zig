@@ -128,7 +128,7 @@ test "an application settling listener follows a remote promise shortening" {
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
@@ -136,10 +136,8 @@ test "an application settling listener follows a remote promise shortening" {
         frame.deinit();
     }
 
-    const answer = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
-    const settling_resolver = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer,
-    }).?;
+    const answer = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) })).position;
+    const settling_resolver = peer.session_state.resolverExportForAnswer(answer).?;
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -192,9 +190,9 @@ test "converging remote promises share one settling callback across local answer
     try peer.session_state.registerImport(.from(5));
     try peer.session_state.registerImport(.from(6));
 
-    const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_five = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
-    const shortening_six = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_six = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(6));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
@@ -202,14 +200,10 @@ test "converging remote promises share one settling callback across local answer
         frame.deinit();
     }
 
-    const answer_five = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
-    const resolver_five = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_five,
-    }).?;
-    const answer_six = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) });
-    const resolver_six = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_six,
-    }).?;
+    const answer_five = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) })).position;
+    const resolver_five = peer.session_state.resolverExportForAnswer(answer_five).?;
+    const answer_six = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) })).position;
+    const resolver_six = peer.session_state.resolverExportForAnswer(answer_six).?;
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -232,12 +226,8 @@ test "converging remote promises share one settling callback across local answer
     // local fan-out change and emits no second settling listener.
     try std.testing.expect(peer.takeOutbound() == null);
     try std.testing.expect(peer.session_state.sourceForShorteningResolver(shortening_six) != null);
-    try std.testing.expect(peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_five,
-    }) == null);
-    try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_six,
-    }).?);
+    try std.testing.expect(peer.session_state.resolverExportForAnswer(answer_five) == null);
+    try std.testing.expectEqual(resolver_six, peer.session_state.resolverExportForAnswer(answer_six).?);
     try std.testing.expect(peer.session_state.exportSlot(resolver_five) != null);
 
     const settlement_args = [_]model.Argument{
@@ -254,7 +244,8 @@ test "converging remote promises share one settling callback across local answer
     defer event.deinit();
     const resolved = event.view();
     try std.testing.expectEqual(answer_six, resolved.resolve.answer);
-    try std.testing.expectEqualSlices(model.AnswerPosition, &.{answer_five}, event.resolveAliases());
+    try std.testing.expectEqual(@as(usize, 1), event.resolveAliases().len);
+    try std.testing.expectEqual(answer_five, event.resolveAliases()[0].position);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.outboundAnswer(answer_five).?.status);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.outboundAnswer(answer_six).?.status);
     try std.testing.expect(peer.pollEvent() == null);
@@ -268,7 +259,7 @@ test "converged settling callback promotes or removes a released local answer" {
         try peer.session_state.registerImport(.from(5));
         try peer.session_state.registerImport(.from(6));
 
-        const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
+        const shortening_five = peer.session_state.exports.nextPosition();
         try engine.listen.ensureShorteningListener(&peer, .from(5));
         try engine.listen.ensureShorteningListener(&peer, .from(6));
         while ((try peer.step()) != .idle) {}
@@ -277,11 +268,9 @@ test "converged settling callback promotes or removes a released local answer" {
             frame.deinit();
         }
 
-        const answer_five = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
-        const answer_six = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) });
-        const resolver_six = peer.session_state.outbound_resolver_link.getByValue(.{
-            .application_answer = answer_six,
-        }).?;
+        const answer_five = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) })).position;
+        const answer_six = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) })).position;
+        const resolver_six = peer.session_state.resolverExportForAnswer(answer_six).?;
         while ((try peer.step()) != .idle) {}
         while (peer.takeOutbound()) |frame_in| {
             var frame = frame_in;
@@ -312,9 +301,7 @@ test "converged settling callback promotes or removes a released local answer" {
             frame.deinit();
         }
         try std.testing.expect(peer.session_state.outboundAnswer(released) == null);
-        try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
-            .application_answer = survivor,
-        }).?);
+        try std.testing.expectEqual(resolver_six, peer.session_state.resolverExportForAnswer(survivor).?);
 
         var settlement = try codec.syrup.encodeMessageForProfile(allocator, .next, .{ .deliver = .{
             .target = .{ .far = model.FarRef.object(resolver_six.int()) },
@@ -342,10 +329,8 @@ test "a settling callback racing answer release is consumed and its imports are 
         var frame = frame_in;
         frame.deinit();
     }
-    const answer = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
-    const resolver = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer,
-    }).?;
+    const answer = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) })).position;
+    const resolver = peer.session_state.resolverExportForAnswer(answer).?;
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -392,7 +377,7 @@ test "settling convergence OOM closes without partially shortening either subscr
     try peer.session_state.registerImport(.from(5));
     try peer.session_state.registerImport(.from(6));
 
-    const shortening_five = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_five = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     try engine.listen.ensureShorteningListener(&peer, .from(6));
     while ((try peer.step()) != .idle) {}
@@ -400,14 +385,10 @@ test "settling convergence OOM closes without partially shortening either subscr
         var frame = frame_in;
         frame.deinit();
     }
-    const answer_five = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
-    const resolver_five = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_five,
-    }).?;
-    const answer_six = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) });
-    const resolver_six = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_six,
-    }).?;
+    const answer_five = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) })).position;
+    const resolver_five = peer.session_state.resolverExportForAnswer(answer_five).?;
+    const answer_six = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(6) })).position;
+    const resolver_six = peer.session_state.resolverExportForAnswer(answer_six).?;
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -430,12 +411,8 @@ test "settling convergence OOM closes without partially shortening either subscr
     failing.fail_index = std.math.maxInt(usize);
     try std.testing.expectEqual(session.State.closed, peer.session_state.state);
 
-    try std.testing.expectEqual(resolver_five, peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_five,
-    }).?);
-    try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_six,
-    }).?);
+    try std.testing.expectEqual(resolver_five, peer.session_state.resolverExportForAnswer(answer_five).?);
+    try std.testing.expectEqual(resolver_six, peer.session_state.resolverExportForAnswer(answer_six).?);
     try std.testing.expectEqual(
         model.ImportPosition.from(5),
         peer.session_state.shortenedPromiseTarget(.from(5)),
@@ -446,12 +423,8 @@ test "settling convergence OOM closes without partially shortening either subscr
     // borrow on the same session would invent retry semantics the receive
     // boundary cannot honor.
     try std.testing.expectError(session.Error.SessionClosed, peer.recvBorrowed(failed_frame.view()));
-    try std.testing.expectEqual(resolver_five, peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_five,
-    }).?);
-    try std.testing.expectEqual(resolver_six, peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer_six,
-    }).?);
+    try std.testing.expectEqual(resolver_five, peer.session_state.resolverExportForAnswer(answer_five).?);
+    try std.testing.expectEqual(resolver_six, peer.session_state.resolverExportForAnswer(answer_six).?);
 }
 
 test "an application settling listener starts at an already-shortened promise" {
@@ -460,7 +433,7 @@ test "an application settling listener starts at an already-shortened promise" {
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
@@ -499,12 +472,10 @@ test "a settling listener follows shortening after its source import is released
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
-    const answer = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
-    const settling_resolver = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer,
-    }).?;
+    const answer = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) })).position;
+    const settling_resolver = peer.session_state.resolverExportForAnswer(answer).?;
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -569,12 +540,10 @@ test "shortening does not rearm a settling listener after its answer is released
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const shortening_resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const shortening_resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
-    const answer = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
-    const settling_resolver = peer.session_state.outbound_resolver_link.getByValue(.{
-        .application_answer = answer,
-    }).?;
+    const answer = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) })).position;
+    const settling_resolver = peer.session_state.resolverExportForAnswer(answer).?;
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
         var frame = frame_in;
@@ -614,7 +583,7 @@ test "a discarded shortening listener remains deduplicated until source release"
     defer peer.deinit();
     try peer.session_state.registerImport(.from(5));
 
-    const resolver = model.ExportPosition.from(peer.session_state.next_export_position);
+    const resolver = peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_in| {
@@ -633,7 +602,10 @@ test "a discarded shortening listener remains deduplicated until source release"
     var gc_event = peer.pollEvent().?;
     gc_event.deinit();
     try std.testing.expect(peer.session_state.exportSlot(resolver) == null);
-    try std.testing.expect(peer.session_state.sourceForShorteningResolver(resolver).? == .complete);
+    // The purpose left with the export row; the promise entry carries the
+    // subscription until the source import is released.
+    try std.testing.expect(peer.session_state.sourceForShorteningResolver(resolver) == null);
+    try std.testing.expect(peer.session_state.findImportedPromise(.from(5)).?.shortening_subscribed);
 
     try engine.listen.ensureShorteningListener(&peer, .from(5));
     try std.testing.expect((try peer.step()) == .idle);
@@ -642,5 +614,5 @@ test "a discarded shortening listener remains deduplicated until source release"
     const source_positions = [_]u64{5};
     const source_deltas = [_]u64{1};
     try peer.sendBorrowed(.{ .gc_export = .{ .positions = &source_positions, .deltas = &source_deltas } });
-    try std.testing.expect(peer.session_state.sourceForShorteningResolver(resolver) == null);
+    try std.testing.expect(peer.session_state.findImportedPromise(.from(5)) == null);
 }

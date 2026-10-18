@@ -1,49 +1,42 @@
 //! The vat's wire-hosting family: serving inbound events and settling far vows.
 //!
-//! `serve` dispatches one inbound peer event, a deliver to a bound export
+//! `serve` dispatches one inbound peer event. A deliver to a bound export
 //! runs the actor's turn through the shared frame spine and resolves the
-//! answer. A resolve fires the far vow's one-shot listener, projecting a
+//! answer, and a resolve fires the far vow's one-shot listener, projecting a
 //! handoff give typed. `settleFar` is the byte-fed host's counterpart to the
-//! same settle, `forwardTurn` drives `Turn.forward`, and export binding
-//! (`Port.bindExport`/`refForExport`) plus disconnect breaks (`breakFarVows`) live
-//! beside them. `Port` re-binds the session public verbs. The turn module runs the
-//! same frame spine for local calls.
+//! same settle, and `breakFarVows` is the disconnect break. `Port` binds the
+//! session public verbs onto them.
 
 const std = @import("std");
 const engine = @import("engine");
 const model = @import("model");
 
-const boxed = @import("boxed.zig");
-const turn_mod = @import("turn.zig");
+const frame = @import("frame.zig");
 const turn_commit = @import("turn_commit.zig");
 const vat_mod = @import("mod.zig");
+const vows = @import("vows.zig");
 
 const Error = vat_mod.Error;
-const FarOutcome = vat_mod.FarOutcome;
+const Outcome = vat_mod.Outcome;
 const Listener = vat_mod.Listener;
 const Delivery = vat_mod.Delivery;
-const Ref = vat_mod.Ref;
-const Resolution = vat_mod.Resolution;
 const Turn = vat_mod.Turn;
 const Vat = vat_mod.Vat;
 const Port = vat_mod.Port;
-const releaseBox = boxed.releaseBox;
 
 /// Dispatch one inbound peer event: a deliver to a published actor runs its
 /// turn and resolves the answer (`serveDeliver`). A resolve for a far vow
 /// fires its listener (`serveResolve`). Returns whether the event belonged
 /// to this vat. If it did not, the caller handles it. The application polls
 /// the peer and hands events here.
-pub fn serveFromIngress(self: *Vat, port: *Port, ingress: vat_mod.IngressId, event: *engine.Event) !bool {
+pub fn serve(self: *Vat, port: *Port, event: *engine.Event) !bool {
     const body = event.view();
     return switch (body.*) {
-        .deliver => |deliver| serveDeliver(self, port, ingress, deliver, event.deliverAnswerTarget(), event.reference_slots),
+        .deliver => |deliver| serveDeliver(self, port, deliver, event.deliverAnswerTarget(), event.reference_slots),
         .resolve => |resolve| blk: {
-            var handled = try serveResolve(self, port, resolve);
-            for (event.resolveAliases()) |answer| {
-                var alias = resolve;
-                alias.answer = answer;
-                handled = (try serveResolve(self, port, alias)) or handled;
+            var handled = try serveResolve(self, port, resolve, event.resolveTarget());
+            for (event.resolveAliases()) |alias| {
+                handled = (try serveResolve(self, port, resolve, alias)) or handled;
             }
             break :blk handled;
         },
@@ -57,7 +50,6 @@ pub fn serveFromIngress(self: *Vat, port: *Port, ingress: vat_mod.IngressId, eve
 fn serveDeliver(
     self: *Vat,
     port: *Port,
-    ingress: vat_mod.IngressId,
     deliver: model.view.Deliver,
     answer: ?engine.AnswerTarget,
     reference_slots: ?u32,
@@ -73,7 +65,7 @@ fn serveDeliver(
         // auto-answers its delivers (`fetch`, gift deposit /
         // withdraw) and only surfaces the event for observation,
         // so the vat must not race a break onto its answer.
-        if (export_position.int() == engine.BOOTSTRAP_POSITION) return false;
+        if (export_position.int() == engine.bootstrap_position) return false;
         // The engine admitted the deliver, so the position IS a
         // granted export at peer level, but no actor is bound
         // (no `Port.bindExport`). An answered call must
@@ -89,19 +81,19 @@ fn serveDeliver(
     // A dispatch refusal (depth, missing actor) breaks the answer
     // instead of failing the serve; `openTurnFrame` orders the checks
     // before the arena resets or the frame is marked running.
-    const frame = turn_mod.openTurnFrame(self, local_id) catch |err| switch (err) {
+    const opened = frame.openTurnFrame(self, local_id) catch |err| switch (err) {
         Error.NearCallTooDeep, Error.NoSuchActor => {
             try resolveBreak(port, answer, @errorName(err));
             return true;
         },
         else => |other| return other,
     };
-    const box = frame.box;
-    const arena = frame.arena;
+    const box = opened.box;
+    const arena = opened.arena;
     // The reply and the interceptor both read `value` while
     // `running >= 1`, so the box `value` may alias is never freed
     // before the fulfill is sent.
-    defer turn_mod.closeTurnFrame(self, local_id);
+    defer frame.closeTurnFrame(self, local_id);
     // The handler reads the frame's views where they lie. The frame
     // outlives this call, and the reply is copied onto the wire below,
     // inside the turn, so a reply that aliases an argument is still
@@ -109,14 +101,13 @@ fn serveDeliver(
     // value past its turn copies it (module header).
     var delivery = try deliveryFor(deliver.args);
     delivery.reference_slots = reference_slots;
-    var turn = Turn{ .vat = self, .port = port, .self_ref = .{ .local = local_id }, .ingress = ingress, .arena = arena, .origin = .{ .served = answer } };
+    var turn = Turn{ .vat = self, .source = .{ .port = port }, .self_id = local_id, .arena = arena, .origin = .{ .served = answer } };
     switch (box.handle(box.ptr, &turn, delivery)) {
         inline .returned, .viewed => |result| {
             const value = if (@TypeOf(result) == model.Argument) model.view.Argument.fromOwned(&result) else result;
-            if (turn.pending_become) |pending| boxed.promoteBecome(self, pending);
             // The turn's local sends are queued before its reply (ADR-0191).
             // Promotion may run a discarded state's destructor and stage sends.
-            if (self.turn_depth == 1) turn_commit.commit(self);
+            frame.commitFrame(self, &turn);
             // A moved reply (`Turn.moveOut`) needs nothing here: the vat
             // already holds its bytes, and `resolveFulfill` copies the
             // reply onto the wire inside this turn, before the deferred
@@ -126,44 +117,42 @@ fn serveDeliver(
             // A forwarding actor handed its answer to another send's
             // vow; that vow resolves it, not this return.
             if (turn.forwarded) return true;
-            // The interceptor runs inside the turn (`turn_depth >= 1`), so
-            // any top-level turn it opens is nested and never resets the
-            // arena `value` may live in, the value is turn-borrowed,
-            // exactly like a handler's own reply.
-            if (port.resolve_interceptor) |interceptor| {
-                if (answer) |ans| {
-                    const intercepted = interceptor.func(interceptor.ctx, ans, value);
-                    // The handler already committed. Finish nested callback
-                    // effects before handling either its result or refusal.
-                    if (self.turn_depth == 1) turn_commit.commit(self);
-                    const outcome = intercepted catch |err| {
-                        try resolveBreak(port, answer, @errorName(err));
-                        return true;
-                    };
-                    switch (outcome) {
-                        // The interceptor resolved the answer itself
-                        // (an originated give); the vat sends nothing.
-                        .claimed => {},
-                        // Resolve with what it returned, the original
-                        // value, or a token rewritten to its wire
-                        // reference.
-                        .resolve => |reply| try resolveFulfillView(port, answer, reply),
-                    }
-                    return true;
-                }
-            }
-            try resolveFulfillView(port, answer, value);
+            try fulfillServed(self, port, answer, value);
             return true;
         },
         .refused => |failure| {
-            if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
-            if (self.turn_depth == 1) self.turn_failure = failure.name;
+            frame.failFrame(self, &turn, failure.name);
             // Forwarding or an explicit break already owns this answer.
             if (turn.forwarded) return true;
             try resolveBreak(port, answer, failure.name);
             return true;
         },
     }
+}
+
+/// Resolve a served answer with the handler's reply, letting the port's
+/// resolve interceptor claim or rewrite it first. The interceptor runs inside
+/// the turn, so any top-level turn it opens is nested and never resets the
+/// arena the value may live in.
+fn fulfillServed(self: *Vat, port: *Port, answer: ?engine.AnswerTarget, value: model.view.Argument) !void {
+    if (port.resolve_interceptor) |interceptor| if (answer) |ans| {
+        const intercepted = interceptor.func(interceptor.ctx, ans, value);
+        // The handler already committed. Finish nested callback
+        // effects before handling either its result or refusal.
+        if (self.turn_depth == 1) turn_commit.commit(self);
+        const outcome = intercepted catch |err| return resolveBreak(port, answer, @errorName(err));
+        switch (outcome) {
+            // The interceptor resolved the answer itself
+            // (an originated give); the vat sends nothing.
+            .claimed => {},
+            // Resolve with what it returned, the original
+            // value, or a token rewritten to its wire
+            // reference.
+            .resolve => |reply| try resolveFulfillView(port, answer, reply),
+        }
+        return;
+    };
+    try resolveFulfillView(port, answer, value);
 }
 
 /// The fulfilled-arm settle spine shared by `serveResolve` and
@@ -178,20 +167,12 @@ fn serveDeliver(
 /// open to the far arms only because their producer survives the refusal: a
 /// Host action stays parked for a retry, and a refused frame retires the
 /// session, whose release runs `breakFarVows`. A local turn has no such
-/// producer, so `settleLocal` breaks its waiter instead. `value` is either a borrowed
-/// `model.view.Argument` (the wire path) or an owned `model.Argument`
-/// (the byte-fed host path). The clone verb is the only difference.
-fn fireFulfilledFar(self: *Vat, port: *Port, answer: model.AnswerPosition, listener: Listener, value: anytype) !void {
-    self.settle_depth += 1;
-    defer {
-        self.settle_depth -= 1;
-        if (self.settle_depth == 0) _ = self.settle_arena.reset(.{ .retain_with_limit = vat_mod.steady_settle_arena_bytes });
-    }
-    const arena = self.settle_arena.allocator();
-    const owned = if (@TypeOf(value) == model.Argument)
-        try model.cloneArgument(arena, value)
-    else
-        try value.toOwned(arena);
+/// producer, so `settleLocal` breaks its waiter instead. `value` is borrowed
+/// for the call.
+fn fireFulfilledFar(self: *Vat, port: *Port, answer: engine.OutboundAnswerTarget, listener: Listener, value: model.view.Argument) !void {
+    const arena = vows.beginSettle(self);
+    defer vows.endSettle(self);
+    const owned = try value.toOwned(arena);
     std.debug.assert(port.far_listeners.fetchSwapRemove(answer) != null);
     port.peer.session_state.consumeOutboundAnswerNotification(answer);
     listener.func(listener.ctx, .{ .fulfilled = owned });
@@ -199,7 +180,7 @@ fn fireFulfilledFar(self: *Vat, port: *Port, answer: model.AnswerPosition, liste
 
 /// The broken-arm sibling: remove-before-fire, reason borrowed for the
 /// call.
-fn fireBrokenFar(port: *Port, answer: model.AnswerPosition, listener: Listener, reason: []const u8) void {
+fn fireBrokenFar(port: *Port, answer: engine.OutboundAnswerTarget, listener: Listener, reason: []const u8) void {
     std.debug.assert(port.far_listeners.fetchSwapRemove(answer) != null);
     port.peer.session_state.consumeOutboundAnswerNotification(answer);
     listener.func(listener.ctx, .{ .broken = reason });
@@ -210,7 +191,9 @@ fn fireBrokenFar(port: *Port, answer: model.AnswerPosition, listener: Listener, 
 /// carries a signed handoff give (`event` is here for exactly that: the
 /// verbatim envelope span lives only in the event's frame), an owned clone
 /// on the plain fulfilled path, or the break reason.
-fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
+/// `answer` is the question `resolve` settles, by identity: the event's own
+/// target or one of its aliases.
+fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve, answer: engine.OutboundAnswerTarget) !bool {
     // Peek the listener rather than remove it: the fulfilled and give
     // arms do fallible allocation before firing, and an error return
     // must leave the entry in the map so teardown
@@ -219,8 +202,8 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
     // when it fires. Each arm removes the entry immediately before it
     // fires, preserving the remove-before-fire order a listener that
     // registers a new far vow relies on.
-    const listener = port.far_listeners.get(resolve.answer) orelse {
-        port.peer.session_state.consumeOutboundAnswerNotification(resolve.answer);
+    const listener = port.far_listeners.get(answer) orelse {
+        port.peer.session_state.consumeOutboundAnswerNotification(answer);
         return false;
     };
     switch (resolve.resolution) {
@@ -240,8 +223,8 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
                 if (projected.bytes()) |give_bytes| {
                     if (projected.locator == .uri) {
                         const locator_uri = projected.locator.uri;
-                        std.debug.assert(port.far_listeners.fetchSwapRemove(resolve.answer) != null);
-                        port.peer.session_state.consumeOutboundAnswerNotification(resolve.answer);
+                        std.debug.assert(port.far_listeners.fetchSwapRemove(answer) != null);
+                        port.peer.session_state.consumeOutboundAnswerNotification(answer);
                         listener.func(listener.ctx, .{ .give = .{
                             .give_bytes = give_bytes,
                             .exporter_locator_uri = locator_uri,
@@ -251,9 +234,9 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
                     }
                 }
             }
-            try fireFulfilledFar(self, port, resolve.answer, listener, value);
+            try fireFulfilledFar(self, port, answer, listener, value);
         },
-        .@"break" => |reason| fireBrokenFar(port, resolve.answer, listener, reason.message),
+        .@"break" => |reason| fireBrokenFar(port, answer, listener, reason.message),
     }
     return true;
 }
@@ -271,13 +254,13 @@ fn serveResolve(self: *Vat, port: *Port, resolve: model.view.Resolve) !bool {
 /// executor that calls this exists to redeem gives before the vat sees
 /// them, and the narrower type makes that contract unrepresentable rather
 /// than a runtime trap an external caller could hit.
-pub fn settleFar(self: *Vat, port: *Port, answer: model.AnswerPosition, outcome: FarOutcome) Error!void {
+pub fn settleFar(self: *Vat, port: *Port, answer: engine.OutboundAnswerTarget, outcome: Outcome) Error!void {
     const listener = port.far_listeners.get(answer) orelse {
         port.peer.session_state.consumeOutboundAnswerNotification(answer);
         return;
     };
     switch (outcome) {
-        .fulfilled => |value| try fireFulfilledFar(self, port, answer, listener, value),
+        .fulfilled => |*value| try fireFulfilledFar(self, port, answer, listener, .fromOwned(value)),
         .broken => |reason| fireBrokenFar(port, answer, listener, reason),
     }
 }
@@ -298,59 +281,12 @@ pub fn breakFarVows(port: *Port, message: []const u8) void {
     // map. Each iteration also consumes all answers minted so far, preventing
     // a callback from observing an old vow again. Fresh sends remain usable.
     while (port.far_listeners.pop()) |entry| {
-        port.far_broken_before = port.peer.session_state.next_outbound_answer;
+        port.far_broken_stamp = port.peer.session_state.store_stamp_counter;
         entry.value.func(entry.value.ctx, .{ .broken = message });
     }
-    port.far_broken_before = port.peer.session_state.next_outbound_answer;
+    port.far_broken_stamp = port.peer.session_state.store_stamp_counter;
     port.far_listeners.deinit(port.allocator);
     port.far_listeners = .{};
-}
-
-/// Bind an already-spawned local actor to export `position` so a partner's
-/// deliveries to that position run the actor (dispatched by `serve`). Requires
-/// a session `Port`. This is the numeric-position primitive. The by-name publish
-/// verb one layer up (`Served.publish`, `driver.Session.publish`) rides on
-/// it. Binding *reserves* the position, it does not grant it: the partner
-/// can address the actor only once its reference first marshals onto the
-/// wire, or after an explicit `peer.exportObject` grant (ADR-0074). Only a
-/// local actor can be bound, a far ref already lives elsewhere, so a far
-/// ref returns `NotLocal`.
-pub fn bindExport(port: *Port, vat: *Vat, actor: Ref, position: u64) !void {
-    const local_id = switch (actor) {
-        .local => |a| a,
-        .far => return Error.NotLocal,
-    };
-    const peer = port.peer;
-    // Reject a collision before touching the peer: the export to actor map is
-    // authority (it decides which local object a partner reaches), so a second
-    // bind to the same position fails loud rather than orphaning the first.
-    try port.reverse_exports.ensureUnusedCapacity(port.allocator, 1);
-    const gop = try port.exports.getOrPut(port.allocator, position);
-    if (gop.found_existing) return Error.AlreadyPublished;
-    // getOrPut inserted the key with an undefined value; if registering the
-    // export fails, drop the half-inserted entry so the map never holds a
-    // position the peer doesn't actually export.
-    errdefer std.debug.assert(port.exports.remove(position));
-    try peer.reserveExport(position);
-    gop.value_ptr.* = local_id;
-    if (!port.reverse_exports.contains(local_id)) {
-        port.reverse_exports.putAssumeCapacity(local_id, position);
-        // The actor's first binding on this Port is a rooting relationship
-        // (ADR-0101), released by rollback of the last binding or Port
-        // teardown.
-        vat.retainActor(local_id);
-    }
-}
-
-/// The local `Ref` bound to wire export `position`, or null when no actor is
-/// exported there, the inverse of `Port.bindExport`'s position-to-actor map. A
-/// surface that receives a near reference (which names an object by its wire
-/// export position, not its vat-local actor id) resolves it through here so a
-/// position is never mistaken for an actor id. `Vat.serve` resolves an inbound
-/// deliver's target the same way.
-pub fn refForExport(port: *const Port, position: u64) ?Ref {
-    const local_id = port.exports.get(position) orelse return null;
-    return .{ .local = local_id };
 }
 
 pub fn resolveFulfill(port: *Port, answer: ?engine.AnswerTarget, reply: model.Argument) !void {

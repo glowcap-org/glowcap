@@ -95,7 +95,7 @@ pub const Instance = struct {
     /// turn verb or drive, the same lifetime the underlying near reply has.
     turn_scratch: std.heap.ArenaAllocator,
     /// Scratch owning a SETTLE action's projected `value` sub-structure
-    /// (`argumentToCWith`'s child arrays), reset at the head of each
+    /// (`valueToC`'s child arrays), reset at the head of each
     /// `glowcap_host_next_action`. The C children and the model value in the
     /// popped action row both die at the next `next_action` call, one
     /// lifetime sentence, the one DIAL already carries.
@@ -409,105 +409,20 @@ pub fn valueProjectionBound(comptime Bound: type, values: usize, entries: usize)
     return bound;
 }
 
-pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) anyerror!shared.GlowcapArgument {
-    var out = shared.zero_argument;
-    switch (value) {
-        .integer => |v| {
-            out.kind = shared.GLOWCAP_ARG_INTEGER;
-            out.integer = v;
-        },
-        .float64 => |v| {
-            out.kind = shared.GLOWCAP_ARG_FLOAT64;
-            out.float64 = v;
-        },
-        .boolean => |v| {
-            out.kind = shared.GLOWCAP_ARG_BOOLEAN;
-            out.boolean = if (v) 1 else 0;
-        },
-        .bytes => |bytes| {
-            out.kind = shared.GLOWCAP_ARG_BYTES;
-            out.bytes = bytes.ptr;
-            out.bytes_len = bytes.len;
-        },
-        .string => |bytes| {
-            out.kind = shared.GLOWCAP_ARG_STRING;
-            out.bytes = bytes.ptr;
-            out.bytes_len = bytes.len;
-        },
-        .symbol => |bytes| {
-            out.kind = shared.GLOWCAP_ARG_SYMBOL;
-            out.bytes = bytes.ptr;
-            out.bytes_len = bytes.len;
-        },
-        .@"error" => |reason| {
-            out.kind = shared.GLOWCAP_ARG_ERROR;
-            out.bytes = reason.message.ptr;
-            out.bytes_len = reason.message.len;
-        },
-        .void => out.kind = shared.GLOWCAP_ARG_VOID,
-        .capability => |capability| {
-            out.kind = shared.GLOWCAP_ARG_REFERENCE;
-            out.reference = .{ .id = capability.raw() };
-        },
-        .integers => |words| {
-            out.kind = shared.GLOWCAP_ARG_INTEGERS;
-            const bytes = std.mem.sliceAsBytes(words);
-            out.bytes = bytes.ptr;
-            out.bytes_len = bytes.len;
-        },
-        .list => |items| {
-            out.kind = shared.GLOWCAP_ARG_LIST;
-            const projected = try valuesToC(arena, items);
-            out.items = projected.ptr;
-            out.items_len = projected.len;
-        },
-        .set => |items| {
-            out.kind = shared.GLOWCAP_ARG_SET;
-            const projected = try valuesToC(arena, items);
-            out.items = projected.ptr;
-            out.items_len = projected.len;
-        },
-        .tagged => |tagged| {
-            out.kind = shared.GLOWCAP_ARG_TAGGED;
-            out.bytes = tagged.tag.ptr;
-            out.bytes_len = tagged.tag.len;
-            const projected = try valuesToC(arena, tagged.value);
-            out.items = projected.ptr;
-            out.items_len = projected.len;
-        },
-        .keyword => |keyword| {
-            out.kind = shared.GLOWCAP_ARG_KEYWORD;
-            out.bytes = keyword.ptr;
-            out.bytes_len = keyword.len;
-        },
-        .big_integer => |big| {
-            out.kind = shared.GLOWCAP_ARG_BIG_INTEGER;
-            out.boolean = if (big.negative) 1 else 0;
-            out.bytes = big.digits.ptr;
-            out.bytes_len = big.digits.len;
-        },
-        .@"struct" => |entries| {
-            out.kind = shared.GLOWCAP_ARG_STRUCT;
-            const projected = try arena.alloc(shared.GlowcapArgument, entries.len * 2);
-            for (entries, 0..) |entry, i| {
-                var key = shared.zero_argument;
-                key.kind = shared.GLOWCAP_ARG_STRING;
-                key.bytes = entry.key.ptr;
-                key.bytes_len = entry.key.len;
-                projected[i * 2] = key;
-                projected[i * 2 + 1] = try valueToC(arena, entry.value);
-            }
-            out.items = projected.ptr;
-            out.items_len = projected.len;
-        },
-    }
-    return out;
+/// The Host's capability leaf on the C argument layout: the opaque id, which
+/// the embedder hands back through `decodeHostCapability`.
+fn capabilityToC(_: void, capability: driver_core.Capability) error{}!shared.GlowcapReference {
+    return .{ .id = capability.raw() };
 }
 
-fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) anyerror![]shared.GlowcapArgument {
-    const out = try arena.alloc(shared.GlowcapArgument, values.len);
-    for (values, out) |value, *slot| slot.* = try valueToC(arena, value);
-    return out;
+/// Project one Host value onto the C argument layout. Children land in
+/// `arena`, and byte leaves are lent from the value where they lie.
+pub fn valueToC(arena: std.mem.Allocator, value: driver_core.Value) shared.MarshalError!shared.GlowcapArgument {
+    return shared.valueToCWith(driver_core.Value, error{}, {}, capabilityToC, arena, value);
+}
+
+fn valuesToC(arena: std.mem.Allocator, values: []const driver_core.Value) shared.MarshalError![]shared.GlowcapArgument {
+    return shared.valuesToCWith(driver_core.Value, error{}, {}, capabilityToC, arena, values);
 }
 
 pub fn hostArgsToC(inst: *Instance, session: *HostSession, arena: std.mem.Allocator, args: model.view.Args) ![]shared.GlowcapArgument {

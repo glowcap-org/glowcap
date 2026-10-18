@@ -7,10 +7,15 @@ decision: "Every `op:start-session` is the baseline, in both its grammar and its
 supersedes: []
 superseded_by: []
 amends: [ADR-0003]
-amended_by: []
+amended_by: [ADR-0252]
 ---
 
 # ADR-0103 Hello-carried profile offers
+
+[ADR-0252](ADR-0252-own-wire-identity-in-profile-offers.md) makes the
+tokens of glowcap's own tracks name the exact wire a build writes, reads a
+token this build does not write as the baseline, and drops an unknown feature
+name.
 
 ## Status
 

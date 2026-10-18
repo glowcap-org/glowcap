@@ -100,8 +100,7 @@ Four linked actions make up the signature chain:
 The ephemeral key is not derived from the KERI key. The KERI key signs the
 ephemeral public key. After the AID is revoked, past ephemeral signatures verify
 only for the time window before revocation. A compromised ephemeral key puts one
-Episode at risk. This is the atomic accountability property the kernel
-demonstrates.
+Episode at risk.
 
 ### Step 7: Episode persisted
 
@@ -133,7 +132,7 @@ signature against the ephemeral public key.
 ## What the kernel shows about the substrate
 
 - **The accountability loop works at the smallest scale.** Invocation, Decision,
-  Effect, and Episode are each implemented, not stubbed. Episodes are signed and
+  Effect, and Episode are each implemented. Episodes are signed and
   queryable.
 - **The capability shape holds end to end.** No out-of-band path bypasses
   authority. Episode emission, signing, and transparency-log registration stay

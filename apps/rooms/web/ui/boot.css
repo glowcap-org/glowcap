@@ -70,7 +70,7 @@
    brim, then the lantern lights. It holds, fades, and plays again. A
    loop, because nothing here knows how far along the wait is and a bar
    that filled would be making that up. The play is the shader mark's own
-   (ui/mark_gpu_live.ts), drawn into the box below once the bundle is
+   (ui/mark/live.ts), drawn into the box below once the bundle is
    running. Until then the box is empty, and the mark growing up out of
    the ground is how the code's arrival reads. ui/boot.ts asks the mark
    when one play has assembled before it hands over. */

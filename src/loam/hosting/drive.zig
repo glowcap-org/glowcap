@@ -17,6 +17,7 @@ const calls = @import("calls.zig");
 const values = @import("values.zig");
 const storage = @import("storage.zig");
 const forwarding = @import("forwarding.zig");
+const publication = @import("publication.zig");
 
 /// Storage completions only change eligibility. Ready invocations run as
 /// ordinary Vat turns. Settlement runs here at a top-level owner boundary.
@@ -42,20 +43,27 @@ pub fn advanceProgress(owner: *h.Attachment) !bool {
     progressed = (try advanceOperations(owner)) or progressed;
     // Settlement releases leases before deferred publication tries to acquire
     // them. Host publication runs outside the retained-operation callback guard.
-    progressed = (try @import("publication.zig").advanceRepublish(owner)) or progressed;
+    progressed = (try publication.advanceRepublish(owner)) or progressed;
     // Preparation can emit a fetch or dial while its operation stays waiting.
     // The embedder must drain that Host work before parking for its reply.
     return progressed or owner.host.hasRunnableWork();
 }
+
+/// Where one phase block leaves its operation for the rest of the pass: the
+/// next block in the cascade, or the next operation when this one parked,
+/// failed, or restarted and must not advance further this pass.
+const Flow = enum { fall_through, next_operation };
 
 fn advanceOperations(owner: *h.Attachment) !bool {
     var progressed = false;
     owner.advancing = true;
     defer owner.advancing = false;
     for (owner.operations, 0..) |*op, index| {
+        // The slice is the call capacity, not the live calls, so a free slot
+        // leaves before the ladder.
+        if (op.phase == .free or op.pending_read) continue;
         const prior_phase = op.phase;
         defer progressed = progressed or op.phase != prior_phase;
-        if (op.pending_read) continue;
         // Retire uninvoked preparations; committed writes and effects keep custody.
         if ((op.phase == .waiting or op.phase == .restarting) and !owner.host.vat.hasIngress(op.ingress)) {
             op.failure = error.UnknownIngress;
@@ -67,26 +75,7 @@ fn advanceOperations(owner: *h.Attachment) !bool {
             op.phase = .waiting;
             continue;
         }
-        if (op.phase == .forwarding) {
-            if (owner.store.phase != .idle or op.snapshot_revision != owner.store.metadata.revision) {
-                reset(owner, op);
-                op.phase = .waiting;
-                continue;
-            }
-            const action = op.call.?.forward.?;
-            // Source callbacks establish admission; private execution retains
-            // the selected request rather than accepting rewritten arguments.
-            const request = if (op.completion != .protected) op.dispatch.? else h.Call.Intent{ .verb = action.verb, .args = action.args };
-            const arena = op.memory.input.allocator();
-            op.forwarded.begin(&op.lifetime, action.target, request.verb, request.args, arena, owner.options.forward_reply_bytes) catch |err| {
-                op.failure = err;
-                op.phase = .failed;
-                continue;
-            };
-            if (op.completion == .receipt) op.completion.receipt.admitted = true;
-            retirePreparation(owner, op);
-            op.phase = .forwarded;
-        }
+        if (op.phase == .forwarding and beginForwarding(owner, op) == .next_operation) continue;
         if (op.phase == .forwarded) switch (op.forwarded.poll()) {
             .pending => continue,
             .failed => |failed| {
@@ -110,21 +99,7 @@ fn advanceOperations(owner: *h.Attachment) !bool {
             op.disclosure = .pending;
             op.phase = .disclosing;
         }
-        if (op.phase == .disclosing) {
-            if (owner.store.phase != .idle) continue;
-            const ready = prepareCurrent(owner, op, index) catch |err| {
-                op.failure = err;
-                op.failure_reason = null;
-                op.forwarded_failure = false;
-                op.failure_kind = .broken;
-                op.disclosure = .none;
-                op.phase = .failed;
-                continue;
-            };
-            if (!ready) continue;
-            op.disclosure = .checked;
-            op.phase = if (op.forwarded_failure) .failed else .settling;
-        }
+        if (op.phase == .disclosing and disclose(owner, op, index) == .next_operation) continue;
         if (op.phase == .settling and op.completion != .receipt and op.forwarded.call != null) retainPublicResult(op) catch |err| {
             op.failure = err;
             op.failure_reason = null;
@@ -140,53 +115,97 @@ fn advanceOperations(owner: *h.Attachment) !bool {
         if (op.phase == .materializing) finishInvocation(owner, index) catch |err| {
             if (owner.store.phase == .staging or owner.store.phase == .prepared) {
                 owner.store.abort() catch unreachable;
-                @import("publication.zig").releaseRetirements(owner, false);
+                publication.releaseRetirements(owner, .release_fenced);
             }
             op.failure = err;
             op.phase = .failed;
         };
         if (op.phase == .settling or op.phase == .failed) try settle(owner, op);
-        if (op.phase != .waiting or owner.store.phase != .idle) continue;
-        var earlier = false;
-        for (owner.operations) |other| {
-            // Forwarded calls hold immutable intent/result custody, not the
-            // source's preparation or storage lease. Waiting on their target
-            // cannot exclude that target's own invocation of this entry.
-            if (other.phase != .free and other.phase != .forwarded and other.entry == op.entry and other.sequence < op.sequence) {
-                earlier = true;
-                break;
-            }
-        }
-        if (earlier) continue;
-        const ready = prepareCurrent(owner, op, index) catch |err| {
-            op.failure = err;
-            op.phase = .failed;
-            continue;
-        };
-        if (!ready) continue;
-        _ = owner.host.vat.sendObservedFromIngress(op.ingress, owner.runner, .{
-            .verb = "invoke",
-            .args = &.{ .{ .integer = @intCast(index) }, .{ .integer = @intCast(op.sequence) } },
-        }, .{ .ctx = op, .func = dispatched }) catch |err| {
-            reset(owner, op);
-            if (err == error.UnknownIngress) {
-                // Session cancellation removes admission while this call may
-                // still own storage preparation. Retire its exact operation;
-                // a disconnected caller cannot condemn unrelated Host work.
-                op.failure = err;
-                op.phase = .failed;
-                continue;
-            }
-            return err;
-        };
-        op.phase = .scheduled;
-        // Wake through the owning Host lane: its session quantum and
-        // close verdict still govern deferred application work.
-        if (op.peer) |peer| {
-            if (owner.host.sessionForPeer(peer)) |session| try owner.host.flushSession(session);
-        }
+        if (op.phase == .waiting and owner.store.phase == .idle) try schedule(owner, op, index);
     }
     return progressed;
+}
+
+/// Hand a prepared call to its forwarding target. The preparation retires
+/// once the forwarded call owns the intent, and a store that moved under the
+/// snapshot restarts the operation instead.
+fn beginForwarding(owner: *h.Attachment, op: *calls.Operation) Flow {
+    if (owner.store.phase != .idle or op.snapshot_revision != owner.store.metadata.revision) {
+        reset(owner, op);
+        op.phase = .waiting;
+        return .next_operation;
+    }
+    const action = op.call.?.forward.?;
+    // Source callbacks establish admission; private execution retains
+    // the selected request rather than accepting rewritten arguments.
+    const request = if (op.completion != .protected) op.dispatch.? else h.Call.Intent{ .verb = action.verb, .args = action.args };
+    const arena = op.memory.input.allocator();
+    op.forwarded.begin(&op.lifetime, action.target, request.verb, request.args, arena, owner.options.forward_reply_bytes) catch |err| {
+        op.failure = err;
+        op.phase = .failed;
+        return .next_operation;
+    };
+    if (op.completion == .receipt) op.completion.receipt.admitted = true;
+    retirePreparation(owner, op);
+    op.phase = .forwarded;
+    return .fall_through;
+}
+
+/// Re-admit a forwarded result against a fresh preparation before it is
+/// disclosed to the caller.
+fn disclose(owner: *h.Attachment, op: *calls.Operation, index: usize) Flow {
+    if (owner.store.phase != .idle) return .next_operation;
+    const ready = prepareCurrent(owner, op, index) catch |err| {
+        op.failure = err;
+        op.failure_reason = null;
+        op.forwarded_failure = false;
+        op.failure_kind = .broken;
+        op.disclosure = .none;
+        op.phase = .failed;
+        return .next_operation;
+    };
+    if (!ready) return .next_operation;
+    op.disclosure = .checked;
+    op.phase = if (op.forwarded_failure) .failed else .settling;
+    return .fall_through;
+}
+
+/// Prepare a waiting operation and send its invocation through the owning
+/// ingress once no earlier operation on the same entry still holds it.
+fn schedule(owner: *h.Attachment, op: *calls.Operation, index: usize) !void {
+    for (owner.operations) |other| {
+        // Forwarded calls hold immutable intent/result custody, not the
+        // source's preparation or storage lease. Waiting on their target
+        // cannot exclude that target's own invocation of this entry.
+        if (other.phase != .free and other.phase != .forwarded and other.entry == op.entry and other.sequence < op.sequence) return;
+    }
+    const ready = prepareCurrent(owner, op, index) catch |err| {
+        op.failure = err;
+        op.phase = .failed;
+        return;
+    };
+    if (!ready) return;
+    _ = owner.host.vat.sendObservedFromIngress(op.ingress, owner.runner, .{
+        .verb = "invoke",
+        .args = &.{ .{ .integer = @intCast(index) }, .{ .integer = @intCast(op.sequence) } },
+    }, .{ .ctx = op, .func = dispatched }) catch |err| {
+        reset(owner, op);
+        if (err == error.UnknownIngress) {
+            // Session cancellation removes admission while this call may
+            // still own storage preparation. Retire its exact operation;
+            // a disconnected caller cannot condemn unrelated Host work.
+            op.failure = err;
+            op.phase = .failed;
+            return;
+        }
+        return err;
+    };
+    op.phase = .scheduled;
+    // Wake through the owning Host lane: its session quantum and
+    // close verdict still govern deferred application work.
+    if (op.peer) |peer| {
+        if (owner.host.sessionForPeer(peer)) |session| try owner.host.flushSession(session);
+    }
 }
 
 fn prepare(owner: *h.Attachment, op: *calls.Operation) !void {
@@ -254,12 +273,11 @@ fn prepareCurrent(owner: *h.Attachment, op: *calls.Operation, index: usize) !boo
     return true;
 }
 
-fn dispatched(ctx: ?*anyopaque, result: actors.Resolution) void {
+fn dispatched(ctx: ?*anyopaque, _: actors.Resolution) void {
     const op: *calls.Operation = @ptrCast(@alignCast(ctx.?));
     if (op.phase != .scheduled) return;
     // The runner normally changes phase before resolving. A still-scheduled
     // operation was canceled or refused before invoking its behavior.
-    _ = result;
     op.failure = error.ActivationCanceled;
     op.phase = .failed;
 }
@@ -318,7 +336,7 @@ fn invoke(owner: *h.Attachment, index: usize) !void {
         try owner.store.begin();
         errdefer {
             if (owner.store.phase == .staging or owner.store.phase == .prepared) owner.store.abort() catch unreachable;
-            @import("publication.zig").releaseRetirements(owner, false);
+            publication.releaseRetirements(owner, .release_fenced);
         }
         if (op.call.?.replacement) |payload| {
             const edges = try arena.alloc(core.Edge, view.edge_count);

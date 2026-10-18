@@ -1,8 +1,33 @@
 //! Bounded record residency with checked leases and retained read completions.
+//!
+//! A demand read asks for one record at one revision. `index` maps each
+//! record to the slot that holds it, and the rare second slot holding an
+//! older pinned snapshot of the same record hangs off the first by `chain`,
+//! so a hit costs one hash probe however many slots the store was given and
+//! a commit, which only moves revisions, touches no key. The slot inventory
+//! stays the authority for what is resident; the index changes only where
+//! slot contents do, in `place` and `discard`.
 const std = @import("std");
+const identity_hash = @import("foundation").identity_hash;
 const records = @import("loam_records");
 const tx = @import("transaction.zig");
 const custody = @import("collection_custody.zig");
+
+/// `result` with a `RecordUnloaded` read as null: the Store evicted a record
+/// this step depends on, and the caller's activation loop reacquires it on
+/// its next turn. Every other error is the step's own.
+pub fn reload(result: anytype) Reloaded(@TypeOf(result)) {
+    return result catch |err| {
+        if (err == error.RecordUnloaded) return null;
+        return err;
+    };
+}
+
+fn Reloaded(comptime Result: type) type {
+    const info = @typeInfo(Result).error_union;
+    return info.error_set!?info.payload;
+}
+
 pub const Lease = struct { store: records.StoreId, incarnation: u64, slot: usize, sequence: u64 };
 pub const Read = struct { ticket: tx.Ticket, id: records.ObjectId, buffer: []u8 };
 pub const ReadResult = union(enum) { found: struct { length: usize, metadata: tx.Metadata }, missing, failed: anyerror };
@@ -16,7 +41,13 @@ pub const Ahead = union(enum) { read: Read, held, full };
 /// copies no record bytes and never repeats checksum or edge validation. A resident
 /// snapshot may advance independently of the record and its historical leases.
 const Slot = struct {
-    contents: union(enum) {
+    contents: Contents = .empty,
+    pins: usize = 0,
+    used: u64 = 0,
+    /// The next slot holding the same record at another revision.
+    chain: u32 = no_slot,
+
+    const Contents = union(enum) {
         empty,
         /// `ahead` marks a read-ahead load: demand that finds no room waits
         /// for it to land instead of refusing.
@@ -34,9 +65,11 @@ const Slot = struct {
             /// demand arrives. A stale one is ordinary free room.
             ahead: bool = false,
         },
-    } = .empty,
-    pins: usize = 0,
-    used: u64 = 0,
+    };
+
+    pub fn holds(self: *const Slot, object: records.ObjectId) bool {
+        return if (self.id()) |own| own.eql(object) else false;
+    }
 
     pub fn id(self: *const Slot) ?records.ObjectId {
         return switch (self.contents) {
@@ -63,10 +96,16 @@ const Slot = struct {
     }
 };
 const Pin = struct { sequence: u64 = 0, slot: usize = 0, revision: u64 = 0 };
+const no_slot = std.math.maxInt(u32);
+
 pub const Cache = struct {
     allocator: std.mem.Allocator,
     slots: []Slot,
     pins: []Pin,
+    /// The newest-placed slot holding each record; its `chain` reaches any
+    /// older snapshot still resident. Sized to the slot count at `init`, so
+    /// no later operation allocates for it.
+    index: identity_hash.ArrayMap(records.ObjectId, u32),
     limits: records.Limits,
     schemas: []const records.Schema,
     next: u64 = 0,
@@ -80,17 +119,24 @@ pub const Cache = struct {
 
     pub fn init(allocator: std.mem.Allocator, slots: usize, read_ahead: usize, leases: usize, budget: usize, limits: records.Limits, schemas: []const records.Schema) !Cache {
         try validateLimits(slots, leases, budget, limits);
+        const slot_count = std.math.cast(u32, slots) orelse return error.InvalidLimits;
         const entries = try allocator.alloc(Slot, slots);
         errdefer allocator.free(entries);
         const pins = try allocator.alloc(Pin, leases);
+        errdefer allocator.free(pins);
+        var index: identity_hash.ArrayMap(records.ObjectId, u32) = .{};
+        errdefer index.deinit(allocator);
+        try index.ensureTotalCapacity(allocator, slot_count);
         @memset(entries, .{});
         @memset(pins, .{});
-        return .{ .allocator = allocator, .slots = entries, .pins = pins, .limits = limits, .schemas = schemas, .budget = budget, .read_ahead = read_ahead };
+        return .{ .allocator = allocator, .slots = entries, .pins = pins, .index = index, .limits = limits, .schemas = schemas, .budget = budget, .read_ahead = read_ahead };
     }
 
     pub fn deinit(self: *Cache) !void {
         for (self.slots) |*slot| if (slot.pins != 0 or slot.contents == .loading) return error.Busy;
         self.evict();
+        std.debug.assert(self.index.count() == 0);
+        self.index.deinit(self.allocator);
         self.allocator.free(self.slots);
         self.allocator.free(self.pins);
         self.* = undefined;
@@ -102,20 +148,18 @@ pub const Cache = struct {
 
     pub fn resident(self: *Cache, meta: tx.Metadata, id: records.ObjectId, collector: ?*custody.Custody) !Lease {
         if (id.store != meta.store) return error.ForeignObject;
-        for (self.slots, 0..) |*slot, index| {
-            if (slot.contents == .resident and slot.contents.resident.view.id.eql(id) and slot.contents.resident.snapshot == meta.revision)
-                return self.pin(meta, index, collector);
-        }
-        return error.ResidencyRequired;
+        const index = self.lookup(id, meta.revision) orelse return error.ResidencyRequired;
+        if (self.slots[index].contents != .resident) return error.ResidencyRequired;
+        return self.pin(meta, index, collector);
     }
 
     pub fn evictObject(self: *Cache, id: records.ObjectId) !bool {
         for (self.slots) |*slot| {
-            if (slot.id() != null and slot.id().?.eql(id) and (slot.contents == .loading or slot.pins != 0)) return error.Busy;
+            if (slot.holds(id) and (slot.contents == .loading or slot.pins != 0)) return error.Busy;
         }
         var removed = false;
         for (self.slots) |*slot| {
-            if (slot.id() != null and slot.id().?.eql(id)) {
+            if (slot.holds(id)) {
                 self.discard(slot);
                 removed = true;
             }
@@ -131,8 +175,9 @@ pub const Cache = struct {
         if (collecting and previous.objects != current.objects) return;
         for (self.slots) |*slot| {
             if (slot.contents != .resident or slot.contents.resident.snapshot != previous.revision) continue;
+            const id = slot.contents.resident.view.id;
             const changed = for (changes) |change| {
-                if (change.id.eql(slot.id().?)) break true;
+                if (change.id.eql(id)) break true;
             } else false;
             if (!changed) slot.contents.resident.snapshot = current.revision;
         }
@@ -145,7 +190,7 @@ pub const Cache = struct {
         var victim: ?usize = null;
         for (self.slots, 0..) |*slot, index| {
             if (slot.pins != 0 or slot.contents == .loading) continue;
-            if (slot.id() != null and slot.id().?.eql(id)) {
+            if (slot.holds(id)) {
                 victim = index;
                 break;
             }
@@ -158,7 +203,8 @@ pub const Cache = struct {
             const prior_stale = prior.contents == .empty or prior.revision() != meta.revision;
             if ((stale and !prior_stale) or (stale == prior_stale and slot.used < prior.used)) victim = index;
         }
-        const slot = &self.slots[victim orelse return false];
+        const index = victim orelse return false;
+        const slot = &self.slots[index];
         const used = self.sequence() catch return false;
         self.discard(slot);
         while (self.allocated_bytes > self.budget - bytes.len) {
@@ -168,17 +214,16 @@ pub const Cache = struct {
         // its checked envelope once when the buffer enters resident custody.
         const view_value = records.View.decode(bytes, self.limits, self.schemas) catch unreachable;
         std.debug.assert(view_value.id.eql(id) and view_value.revision == meta.revision);
-        slot.* = .{ .contents = .{ .resident = .{ .bytes = bytes, .view = view_value, .snapshot = meta.revision } }, .used = used };
+        self.place(index, .{ .resident = .{ .bytes = bytes, .view = view_value, .snapshot = meta.revision } }, used);
         self.allocated_bytes += bytes.len;
         return true;
     }
 
     pub fn acquire(self: *Cache, meta: tx.Metadata, id: records.ObjectId, collector: ?*custody.Custody) !Acquisition {
         if (id.store != meta.store) return error.ForeignObject;
-        for (self.slots, 0..) |*slot, i| {
-            if (slot.id() == null or !slot.id().?.eql(id) or slot.revision() != meta.revision) continue;
-            if (slot.contents == .loading) return error.PendingRead;
-            return .{ .ready = try self.pin(meta, i, collector) };
+        if (self.lookup(id, meta.revision)) |index| {
+            if (self.slots[index].contents == .loading) return error.PendingRead;
+            return .{ .ready = try self.pin(meta, index, collector) };
         }
         return .{ .read = try self.load(meta, id, collector, false) };
     }
@@ -190,11 +235,11 @@ pub const Cache = struct {
     /// land, so read-ahead never makes demand refuse.
     pub fn acquireAhead(self: *Cache, meta: tx.Metadata, id: records.ObjectId, collector: ?*custody.Custody) !Ahead {
         if (id.store != meta.store) return error.ForeignObject;
+        if (self.lookup(id, meta.revision) != null) return .held;
         var held: usize = 0;
         var held_bytes: usize = 0;
         var ahead: usize = 0;
         for (self.slots) |*slot| {
-            if (slot.id() != null and slot.id().?.eql(id) and slot.revision() == meta.revision) return .held;
             const read_ahead = aheadOf(slot, meta.revision);
             if (read_ahead) ahead += 1;
             if (read_ahead or slot.pins != 0 or slot.contents == .loading) {
@@ -228,7 +273,7 @@ pub const Cache = struct {
         const bytes = try self.allocator.alloc(u8, self.limits.max_record_bytes);
         self.allocated_bytes += bytes.len;
         const ticket: tx.Ticket = .{ .store = meta.store, .incarnation = meta.incarnation, .sequence = read_sequence, .revision = meta.revision };
-        slot.* = .{ .contents = .{ .loading = .{ .bytes = bytes, .id = id, .ticket = ticket, .ahead = ahead } }, .used = read_sequence };
+        self.place(index, .{ .loading = .{ .bytes = bytes, .id = id, .ticket = ticket, .ahead = ahead } }, read_sequence);
         if (collector) |work| work.append(id);
         return .{ .ticket = ticket, .id = id, .buffer = bytes };
     }
@@ -364,7 +409,45 @@ pub const Cache = struct {
         };
     }
 
+    /// The slot holding `id` at `revision`, loading or resident.
+    fn lookup(self: *const Cache, id: records.ObjectId, revision: u64) ?u32 {
+        var index = self.index.get(id) orelse return null;
+        while (index != no_slot) : (index = self.slots[index].chain) {
+            if (self.slots[index].revision().? == revision) return index;
+        }
+        return null;
+    }
+
+    /// Fill an empty slot and index what it now holds, ahead of any older
+    /// snapshot of the same record.
+    fn place(self: *Cache, index: usize, contents: Slot.Contents, used: u64) void {
+        const slot = &self.slots[index];
+        std.debug.assert(slot.contents == .empty);
+        slot.* = .{ .contents = contents, .used = used };
+        const head = self.index.getOrPutAssumeCapacity(slot.id().?);
+        slot.chain = if (head.found_existing) head.value_ptr.* else no_slot;
+        head.value_ptr.* = @intCast(index);
+    }
+
+    /// Take `slot` out of its record's chain, dropping the record's key with
+    /// its last slot.
+    fn unlink(self: *Cache, slot: *Slot) void {
+        const id = slot.id() orelse return;
+        const me: u32 = @intCast((@intFromPtr(slot) - @intFromPtr(self.slots.ptr)) / @sizeOf(Slot));
+        const head = self.index.getPtr(id).?;
+        if (head.* == me) {
+            if (slot.chain == no_slot) {
+                std.debug.assert(self.index.swapRemove(id));
+            } else head.* = slot.chain;
+            return;
+        }
+        var prev = &self.slots[head.*];
+        while (prev.chain != me) prev = &self.slots[prev.chain];
+        prev.chain = slot.chain;
+    }
+
     fn discard(self: *Cache, slot: *Slot) void {
+        self.unlink(slot);
         if (slot.bytes()) |bytes| {
             self.allocated_bytes -= bytes.len;
             self.allocator.free(bytes);

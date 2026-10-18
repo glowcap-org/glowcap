@@ -28,7 +28,7 @@ test "originated handoff transaction requires distinct peer sessions" {
         "gift",
         .{ .far = model.FarRef.object(1) },
         "give",
-        .{ .answer = .{ .name = .fromWire(.from(1)), .row_id = 1 } },
+        .{ .name = .fromWire(.from(1)), .row_id = 1 },
     ));
 }
 
@@ -36,7 +36,7 @@ test "failed withdraw construction does not consume its handoff count" {
     const allocator = std.testing.allocator;
     var pair = try engine.pairing.pairedV1_0Syrup(allocator);
     defer pair.deinit();
-    const recipient_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.SEED_BYTES]u8, @splat(0x35)));
+    const recipient_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.seed_bytes]u8, @splat(0x35)));
 
     try std.testing.expectError(
         codec.syrup.Error.MalformedFrame,
@@ -50,7 +50,7 @@ test "failed withdraw construction does not consume its handoff count" {
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(exporter_location);
-    const gifter_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.SEED_BYTES]u8, @splat(0x36)));
+    const gifter_secret = foundation.crypto.SecretKey.fromSeed(@as([foundation.crypto.seed_bytes]u8, @splat(0x36)));
     const give = try engine.handoff_gifter.buildSignedGive(
         allocator,
         gifter_secret,
@@ -58,7 +58,7 @@ test "failed withdraw construction does not consume its handoff count" {
         exporter_location,
         &(@as([32]u8, @splat(0x37))),
         &(@as([32]u8, @splat(0x38))),
-        &(@as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0x39))),
+        &(@as([model.handoff_gift_id_bytes]u8, @splat(0x39))),
     );
     defer allocator.free(give);
 
@@ -236,7 +236,7 @@ test "borrowed inbound retains its own copy of the wire bytes exactly once" {
 
     // The one block holds the parse's head and its argument views in front
     // of the copied bytes.
-    counter.count_size = glowcap.foundation.Frame.headedBlockLen(
+    counter.count_size = try glowcap.foundation.Frame.headedBlockLen(
         engine.events.Head,
         model.view.Argument,
         engine.events.headViewsFor(deliver_bytes.len),

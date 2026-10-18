@@ -65,7 +65,7 @@ only that use's cursor moves with those changes. A narrower grant sees the
 target alone.
 
 One reply can sum up several commits along with a current snapshot of what
-you may see. A snapshot does not authorize any later call.
+you may see. Each later call still checks current permissions.
 
 The cursor belongs to one receiver and grants nothing by itself. To resume
 after a disconnect or restart, keep the receiver's durable name and the
@@ -107,13 +107,13 @@ covers how long history is kept, privacy, and replay.
 Limits on bindings, cache, leases, retentions, call memory, incoming calls,
 and the transport are all separate. A receiver waiting in `receive` releases
 its managed operation and leases, and a reply ready to send releases them
-once it has copied its snapshot. The 32 receiver slots alone do not promise
-32 waiting receivers at once, and deep resource paths need larger binding
-limits. Smaller limits are refused.
+once it has copied its snapshot. How many receivers can wait at once depends
+on all of those limits together, so deep resource paths need larger binding
+limits, and limits too small to work are refused.
 
 The largest-fanout test (`access observation maximum parked fanout` in
 [observation_hosted_test.zig](../../test/loam/access/observation_hosted_test.zig))
-keeps 32 receivers waiting, all with state on disk, using:
+keeps 32 receivers waiting with a cold cache, using:
 
 - eight bindings per call
 - 296 leases and 80 cache slots

@@ -27,7 +27,7 @@ test "intersect with minimum yields minimum" {
     try std.testing.expectEqual(model.FeatureSet.minimum(), intersected);
 }
 
-test "FeatureSet wire hint round-trips and rejects ambiguous spellings" {
+test "FeatureSet wire hint round-trips, refuses ambiguous forms, and drops unknown names" {
     var buf: [64]u8 = undefined;
 
     try std.testing.expectEqualStrings("", try model.FeatureSet.minimum().toWireString(&buf));
@@ -38,7 +38,13 @@ test "FeatureSet wire hint round-trips and rejects ambiguous spellings" {
 
     try std.testing.expect(model.FeatureSet.fromWireString("pipelining,pipelining") == null);
     try std.testing.expect(model.FeatureSet.fromWireString("pipelining,") == null);
-    try std.testing.expect(model.FeatureSet.fromWireString("sturdy") == null);
+    // A name this build does not know is a feature it cannot use, so a newer
+    // build's addition narrows the shared set rather than refusing the hello.
+    try std.testing.expectEqual(model.FeatureSet.minimum(), model.FeatureSet.fromWireString("sturdy").?);
+    try std.testing.expectEqual(
+        model.FeatureSet{ .pipelining = true },
+        model.FeatureSet.fromWireString("a_later_feature,pipelining").?,
+    );
 }
 
 test "default offer excludes private identity-route vocabulary" {

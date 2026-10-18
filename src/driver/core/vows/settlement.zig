@@ -8,6 +8,7 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const actors = @import("actors");
 const engine = @import("engine");
 
@@ -18,6 +19,8 @@ const completion = @import("completion.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const asFarRef = @import("../host/capabilities/identity.zig").asFarRef;
+const capability = @import("../capability.zig");
+const host_admission = @import("../host/admission.zig");
 
 /// One live public host-vow handle. The row holds the vow's single Vat
 /// listener slot from mint (`fire`). Settlement records the outcome and ends
@@ -105,17 +108,26 @@ pub const PendingCancel = union(enum) {
         func: *const fn (*Host, vow_id: u64, owner: u64) void,
     };
 
-    /// Vow settlement's fallible half. Implementors are unknown at this
-    /// declaration, so `func` keeps an `anyerror` return set.
+    /// Vow settlement's fallible half.
     pub const Fallible = struct {
         owner: u64,
-        func: *const fn (*Host, vow_id: u64, owner: u64) anyerror!void,
+        func: *const fn (*Host, vow_id: u64, owner: u64) CancelError!void,
         terminal_func: *const fn (*Host, vow_id: u64, owner: u64) void,
     };
 
     comptime {
         std.debug.assert(@sizeOf(actors.Listener) <= @sizeOf(Fallible));
     }
+
+    /// A queued producer cancels by releasing the capabilities it retained, so
+    /// its set is `releaseCapability`'s. That function's inferred set cannot be
+    /// named here without a dependency loop through this type, so it is
+    /// spelled from its steps. An implementor that raises anything else fails
+    /// to compile.
+    pub const CancelError = error{ UnknownCapability, ReleaseExceedsRetains } ||
+        foundation.error_sets.Of(capability.Registry.release) ||
+        foundation.error_sets.Of(host_admission.checkOwnedSession) ||
+        foundation.error_sets.Of(engine.Peer.sendBorrowed);
 };
 
 /// Host-core settlement accounting shared with resolver-pair ownership.
@@ -124,6 +136,16 @@ pub fn markRowSettled(self: *Host, row: *VowRow) void {
     std.debug.assert(self.pending_vow_count != 0);
     row.settled = true;
     self.pending_vow_count -= 1;
+}
+
+/// Host-core row retirement seam, the inverse of `publishRow`. Only a settled
+/// row retires, so a retired row never strands the pending count that close
+/// waits on.
+pub fn retireRow(self: *Host, row: *VowRow) void {
+    std.debug.assert(row.settled);
+    const removed = self.vows.fetchRemove(row.id) orelse unreachable;
+    std.debug.assert(removed.value == row);
+    self.allocator.destroy(row);
 }
 
 /// Claim the wire answer a peer-visible row will eventually release.
@@ -159,7 +181,8 @@ pub fn retireAnswerInSession(row: *const VowRow, session: *HostSession) void {
         .far => |value| value,
         .local => unreachable,
     };
-    session.served.port.peer.session_state.releaseOutboundAnswer(answer) catch unreachable;
+    std.debug.assert(session.served.port.peer.session_state.hasLiveOutboundAnswer(answer));
+    session.served.port.peer.session_state.releaseOutboundAnswer(answer.position) catch unreachable;
 }
 
 /// The row's single terminal transition. An in-process listener consumes the
@@ -176,8 +199,7 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
         source.settle(resolution);
         markRowSettled(self, row);
         if (!public) {
-            std.debug.assert(self.vows.remove(row.id));
-            self.allocator.destroy(row);
+            retireRow(self, row);
         }
         source.release();
         return;
@@ -201,8 +223,7 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
     // this arm keeps the callback defensive.
     const peer_handle = maybe_peer orelse {
         markRowSettled(self, row);
-        std.debug.assert(self.vows.remove(id));
-        self.allocator.destroy(row);
+        retireRow(self, row);
         if (inner) |listener| listener.func(listener.ctx, resolution);
         return;
     };
@@ -211,8 +232,7 @@ fn settleRow(self: *Host, row: *VowRow, resolution: actors.Resolution) void {
         const session = self.sessions.get(peer_handle) orelse unreachable;
         settleObservedAnswer(self, row, session);
         markRowSettled(self, row);
-        std.debug.assert(self.vows.remove(id));
-        self.allocator.destroy(row);
+        retireRow(self, row);
         listener.func(listener.ctx, routed);
         return;
     }
@@ -235,11 +255,8 @@ pub fn settleObservedAnswer(self: *Host, row: *VowRow, session: *HostSession) vo
                 .local => unreachable,
             };
             const peer = session.served.port.peer;
-            const answer_live = peer.session_state.outboundAnswer(answer) != null or peer.canObserveAnswer(answer);
-            if (answer_live and session.sessionOpen() and switch (session.lifecyclePhase()) {
-                .active, .finishing => true,
-                .cancel_pending, .terminating => false,
-            }) {
+            const answer_live = peer.session_state.hasLiveOutboundAnswer(answer) or peer.canObserveAnswer(answer);
+            if (answer_live and session.wireLive()) {
                 session.served.port.peer.publishAnswerRelease(reservation, answer);
                 host_pump.markDirty(self, session.peer_handle);
             } else {
@@ -257,7 +274,7 @@ fn enrollFetched(self: *Host, peer_handle: engine.PeerHandle, resolution: actors
     if (resolution == .fulfilled and resolution.fulfilled == .reference and
         resolution.fulfilled.reference == .routed) return resolution;
     if (resolution == .fulfilled) if (asFarRef(resolution.fulfilled)) |far| {
-        const route = self.node.enrollForeign(peer_handle, .{ .far = far }) catch |err| {
+        const route = self.node.enrollForeign(peer_handle, far) catch |err| {
             return .{ .broken = @errorName(err) };
         };
         return .{ .fulfilled = .{ .reference = route } };

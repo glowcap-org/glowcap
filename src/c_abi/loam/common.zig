@@ -114,7 +114,7 @@ pub fn code(err: anyerror) i32 {
     shared.setLastError("loam: {s}", .{@errorName(err)});
     return switch (err) {
         error.NullPointer => shared.GLOWCAP_ERR_NULL_POINTER,
-        error.Busy, error.CustodyUnavailable, error.RecordUnloaded, error.PendingRead, error.ReaderCapacity => shared.GLOWCAP_ERR_WOULD_BLOCK,
+        error.Busy, error.CustodyUnavailable, error.RecordUnloaded, error.PendingRead, error.ReaderCapacity, error.StartupPending => shared.GLOWCAP_ERR_WOULD_BLOCK,
         error.OutOfMemory => shared.GLOWCAP_ERR_INTERNAL,
         // The engine stopped admitting work, so close and reopen it.
         error.StorageFailure, error.OpenOutcomeUnknown, error.ReopenRequired, error.Closed => shared.GLOWCAP_ERR_IO,
@@ -147,7 +147,4 @@ pub fn policy(raw: c.GlowcapLoamPolicy) !access.core.Policy {
     return result;
 }
 
-pub fn slice(comptime T: type, ptr: ?[*]const T, len: usize) ![]const T {
-    if (len == 0) return &.{};
-    return (ptr orelse return error.NullPointer)[0..len];
-}
+pub const slice = shared.itemsFromC;

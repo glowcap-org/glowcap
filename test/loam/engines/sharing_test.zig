@@ -68,7 +68,8 @@ test "loam engine sharing recovers a lost reply without duplicate grants after r
         const original = try client.host.liftCapability(client.pair.a, child);
         const restored = try client.host.liftCapability(client.pair.a, try fetched.require());
         try std.testing.expect(original.eql(restored));
-        var read = try h.c.storage.Read.init(h.a, &store, data.owner, 8);
+        var read: h.c.storage.Read = undefined;
+        try read.init(h.a, &store, data.owner, 8, null);
         defer read.deinit() catch unreachable;
         _ = try h.f.pump(&read, &db);
         try std.testing.expectEqual(@as(u64, 2), read.header.next_grant);

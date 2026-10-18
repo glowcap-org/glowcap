@@ -19,9 +19,7 @@ If you hold a capability to an object, you may call it. If you do not, you
 cannot forge or guess one. Passing the reference passes that permission.
 
 Capability systems can still use roles or policy where an application needs
-them. The important change is at the object boundary: permission arrives as a
-reference, rather than being inferred from a process identity or a global
-namespace.
+them, but at the object boundary permission arrives as a reference.
 
 This avoids *ambient authority*, where a program and every library it loads can
 draw from one shared pool of permissions. In a capability design, permission
@@ -53,8 +51,8 @@ through a global object namespace.
 
 Remote calls return promises. A caller may send the next operation to a promise
 before its answer arrives. CapTP forwards that operation when the promise
-settles (is fulfilled or broken). This is *promise pipelining*, and it can turn a chain of dependent calls
-into one network flight.
+settles (is fulfilled or broken). This is *promise pipelining*, and it can
+turn a chain of dependent calls into one network flight.
 
 CapTP also supports three-party handoff. If Alice holds a capability to Carol's
 object and wants Bob to have it, Alice introduces them. Bob redeems that

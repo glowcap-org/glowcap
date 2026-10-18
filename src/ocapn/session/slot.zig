@@ -1,7 +1,7 @@
 //! CapTP unified reference slot (ADR-0080).
 //!
 //! Name plate: this file is the CapTP `Slot` **sum type** (mint × binding). It is
-//! not `slot_table.zig` (export/import rows: cell + wire-delta count). CapTP
+//! not `export_table.zig` or `import_table.zig` (rows with wire-delta counts). CapTP
 //! keeps export, import, and answer as separate position namespaces. The sum is
 //! shared, the tables are not one map.
 //!
@@ -63,6 +63,28 @@ pub fn position(slot: Slot) Position {
         .local_value => |p| p,
         .remote_value => |p| p,
         .broken => |b| b.position,
+    };
+}
+
+/// Binding axis of a slot: what the position is bound to.
+pub const Binding = enum(u8) { unresolved, value, broken };
+
+pub fn bindingOf(slot: Slot) Binding {
+    return switch (slot) {
+        .local_unresolved, .remote_unresolved => .unresolved,
+        .local_value, .remote_value => .value,
+        .broken => .broken,
+    };
+}
+
+/// The local-mint slot with `binding` at `position`. An export row keeps
+/// only the binding, because its position is its index and its mint is
+/// local (`export_table.ExportRow`).
+pub fn local(binding: Binding, pos: Position) Slot {
+    return switch (binding) {
+        .unresolved => .{ .local_unresolved = pos },
+        .value => .{ .local_value = pos },
+        .broken => .{ .broken = .{ .mint = .local, .position = pos } },
     };
 }
 

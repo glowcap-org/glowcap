@@ -12,10 +12,10 @@ const crypto = glowcap.foundation.crypto;
 
 pub fn init(
     allocator: std.mem.Allocator,
-    durable_seed: [crypto.SEED_BYTES]u8,
+    durable_seed: [crypto.seed_bytes]u8,
     options: Host.Options,
 ) Host {
-    var root: [crypto.SEED_BYTES]u8 = undefined;
+    var root: [crypto.seed_bytes]u8 = undefined;
     var hasher = std.crypto.hash.Blake3.initKdf("glowcap deterministic test session root v1", .{});
     hasher.update(&durable_seed);
     hasher.final(&root);
@@ -24,8 +24,8 @@ pub fn init(
 
 pub fn initWithRoot(
     allocator: std.mem.Allocator,
-    durable_seed: [crypto.SEED_BYTES]u8,
-    session_seed_root: [crypto.SEED_BYTES]u8,
+    durable_seed: [crypto.seed_bytes]u8,
+    session_seed_root: [crypto.seed_bytes]u8,
     options: Host.Options,
 ) Host {
     return Host.init(allocator, durable_seed, session_seed_root, options) catch unreachable;

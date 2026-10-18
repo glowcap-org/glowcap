@@ -20,8 +20,8 @@ test "prepareFetchSwissnum builds the canonical bootstrap-fetch deliver (next)" 
     try std.testing.expect(prepared.message == .deliver);
     const deliver = prepared.message.deliver;
     try std.testing.expect(deliver.target == .far);
-    try std.testing.expectEqual(session.BOOTSTRAP_POSITION, deliver.target.far.import_position.int());
-    try std.testing.expectEqual(@as(?model.AnswerPosition, prepared.answer_position), deliver.answer);
+    try std.testing.expectEqual(session.bootstrap_position, deliver.target.far.import_position.int());
+    try std.testing.expectEqual(@as(?model.AnswerPosition, prepared.answer.position), deliver.answer);
     try std.testing.expect(deliver.resolve_me_desc == null);
     try std.testing.expectEqual(@as(usize, 2), deliver.args.len);
     try std.testing.expectEqualStrings("fetch", deliver.args[0].symbol);
@@ -59,9 +59,7 @@ test "sendPreparedFetch rolls back an unpublished V1.0 resolver on backpressure"
     try std.testing.expect(!peer.session_state.hasExport(resolver_export));
     try std.testing.expectEqual(
         @as(?model.ExportPosition, null),
-        peer.session_state.outbound_resolver_link.getByValue(.{
-            .application_answer = prepared.answer_position,
-        }),
+        peer.session_state.resolverExportForAnswer(prepared.answer.position),
     );
     try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
 }
@@ -157,13 +155,13 @@ test "bootstrap fetch round-trips: prepare, send, partner resolves, match" {
 
     // p1 addresses p2's bootstrap (import 0), always reachable on an open
     // session, no explicit import needed; p2 holds it as export 0.
-    try p2.session_state.registerExport(.from(session.BOOTSTRAP_POSITION));
+    try p2.session_state.registerExport(.from(session.bootstrap_position));
     // Register the cap the fetch looks up so the runtime's auto-serve fulfills
     // (rather than `break`s) the inbound bootstrap-fetch.
     const cap_export = try p2.registerBootstrapCap("swiss");
 
     const prepared = try fetch.prepareFetchSwissnum(allocator, &p1.session_state, "swiss");
-    const answer_position = prepared.answer_position;
+    const answer_position = prepared.answer.position;
     const resolver_export = prepared.resolver_export;
     try p1.send(prepared.message);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
@@ -205,13 +203,13 @@ test "a pipelined call to an already-resolved inbound answer redirects to the re
     var p2 = engine.Peer.init(allocator);
     defer p2.deinit();
 
-    try p2.session_state.registerExport(.from(session.BOOTSTRAP_POSITION));
+    try p2.session_state.registerExport(.from(session.bootstrap_position));
     const cap_export = try p2.registerBootstrapCap("swiss");
 
     // p1 fetches; p2 auto-serves and resolves the fetch answer to the cap export,
     // keeping the resolution so a later pipelined call can redirect to it.
     const prepared = try fetch.prepareFetchSwissnum(allocator, &p1.session_state, "swiss");
-    const fetch_answer = prepared.answer_position;
+    const fetch_answer = prepared.answer.position;
     try p1.send(prepared.message);
     _ = try p1.step();
     try p2.feedOwned(p1.takeOutbound().?);

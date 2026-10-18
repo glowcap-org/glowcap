@@ -80,9 +80,16 @@ pub fn refuse(slot: *GlowcapDriverFailure, result: i32, cause: anyerror) i32 {
 
 pub fn operationCode(runtime: anytype, err: anyerror) i32 {
     const failure = runtime.operationFailure(err);
-    if (failure.cause != error.InvalidArgument or failure.secondary_cause != null)
+    if (failure.chain.cause != error.InvalidArgument or failure.chain.secondary_cause != null)
         setLastError("driver", failure);
-    return driver_error.code(failure.kind);
+    return driver_error.code(failure.kind());
+}
+
+/// The C result of the first consequence, or `GLOWCAP_OK` when the chain
+/// recorded none.
+pub fn secondaryResult(failure: driver.OperationFailure) i32 {
+    const cause = failure.chain.secondary_cause orelse return shared.GLOWCAP_OK;
+    return if (failure.chain.secondary_classification) |kind| driver_error.code(kind) else driver_error.fromError(cause);
 }
 
 pub fn project(
@@ -90,38 +97,34 @@ pub fn project(
     primary_result: i32,
     failure: driver.OperationFailure,
 ) void {
-    const primary_name = failure.primaryName();
+    const primary_name = failure.chain.primaryName();
     slot.primary_result = primary_result;
     slot.primary_name = primary_name.ptr;
     slot.primary_name_len = primary_name.len;
-    slot.secondary_count = failure.secondary_count;
+    slot.secondary_count = failure.chain.secondary_count;
     const carrier = carrier_phase.project(failure.carrier_phase, failure.carrier_detail);
     slot.carrier_phase = carrier.phase;
     slot.carrier_detail_flags = carrier.detail_flags;
     slot.carrier_verification_flags = carrier.verification_flags;
     slot.carrier_peer_alert = carrier.peer_alert;
     slot.carrier_engine_code = carrier.engine_code;
-    if (failure.secondary_cause) |cause| {
-        const secondary_name = failure.secondaryName().?;
-        slot.secondary_result = if (failure.secondary_kind) |kind|
-            driver_error.code(kind)
-        else
-            driver_error.fromError(cause);
+    if (failure.chain.secondaryName()) |secondary_name| {
+        slot.secondary_result = secondaryResult(failure);
         slot.secondary_name = secondary_name.ptr;
         slot.secondary_name_len = secondary_name.len;
     }
 }
 
 pub fn setLastError(prefix: []const u8, failure: driver.OperationFailure) void {
-    if (failure.secondary_cause != null) {
+    if (failure.chain.secondary_cause != null) {
         shared.setLastError("{s}: {s}; cleanup: {s} ({d} secondary failures)", .{
             prefix,
-            failure.primaryName(),
-            failure.secondaryName().?,
-            failure.secondary_count,
+            failure.chain.primaryName(),
+            failure.chain.secondaryName().?,
+            failure.chain.secondary_count,
         });
     } else {
-        shared.setLastError("{s}: {s}", .{ prefix, failure.primaryName() });
+        shared.setLastError("{s}: {s}", .{ prefix, failure.chain.primaryName() });
     }
 }
 

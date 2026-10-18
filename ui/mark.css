@@ -1,6 +1,6 @@
 /* The glowcap mark as the documentation site draws it in masks, and the
    logotype lockup the site and rooms share. Rooms draws its mark with a
-   shader (apps/rooms/web/ui/mark_gpu_live.ts) and takes only the lockup from
+   shader (apps/rooms/web/ui/mark/live.ts) and takes only the lockup from
    here. This drawing is what a browser with no device to run that shader on
    gets instead, and it is the same mushroom because it was traced from it. */
 
@@ -48,7 +48,7 @@
 
 /* Every piece is the same box in the same place, so the four masks register.
    The drawing is wider than tall and stands larger than the box it is given,
-   the way the shader's canvas does: `GROW` in mark_gpu_live.ts opens the
+   the way the shader's canvas does: `GROW` in mark/live.ts opens the
    shader's frame by a fifth about the box's centre, and these four numbers are
    that same frame in percentages. They move together with `GROW` and with the
    traced frame, or not at all. Getting them right is what lets the still mark

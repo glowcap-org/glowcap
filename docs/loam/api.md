@@ -9,10 +9,9 @@ sources:
 
 # Loam record, transaction, and hosting API
 
-This page describes what Loam promises about records, transactions, and
-hosting, using sketch notation rather than exact code. The
+The code below is sketch notation. The
 [Loam guide](../loam.md) has the real type and method names, and the
-[managed access API](access-api.md) adds resource management.
+[managed access model](access-api.md) covers resource management.
 
 ## How an application uses it
 
@@ -198,7 +197,7 @@ outstanding storage work before it releases callbacks or store memory.
 Managed endpoints keep a bounded set of receipts through the shared
 `RetryWindow`:
 
-- Each endpoint keeps eight receipts for derivations and eight for edits.
+- Each endpoint keeps <!-- value ../../src/loam/access/records/retry_window.zig capacity -->8<!-- /value --> receipts for derivations and <!-- value ../../src/loam/access/records/retry_window.zig capacity -->8<!-- /value --> for edits.
   `derive` and `derive-managed` share the first set, and
   `mutate(sequence, method, args...)` uses the second.
 - Each application method declares whether it is read-only, safe to repeat,
@@ -217,11 +216,7 @@ recovery details.
 
 A receipt makes one local change safe to retry. It ties the request's identity
 and arguments to the committed result, including any durable name it issued.
-Loam keeps receipts for a bounded number of requests and records which ones
-have expired, so a resent request from an expired range is refused instead of
-running again. A request it still remembers returns its saved result, subject
-to what the caller may see now. Changing the arguments needs a new request
-identity. A receipt does not make a change on another peer happen exactly
+A receipt does not make a change on another peer happen exactly
 once.
 
 ## Storage work and failure

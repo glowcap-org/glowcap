@@ -126,7 +126,11 @@ pub const CrossedHellos = struct {
 /// partner, the not-lower side condemns its accepted session, and the strictly
 /// lower side condemns its own dialed one. Both act immediately with no
 /// deferred flag, because one thread drives the host.
-pub fn tiebreakInbound(self: *host_mod.Host, session: *host_mod.HostSession, ss: model.view.StartSession) !void {
+pub const TiebreakError = foundation.error_sets.Of(crypto.PeerKey.fromSlice) ||
+    host_mod.HostError ||
+    host_pump.CondemnError;
+
+pub fn tiebreakInbound(self: *host_mod.Host, session: *host_mod.HostSession, ss: model.view.StartSession) TiebreakError!void {
     const partner_key = try crypto.PeerKey.fromSlice(ss.session_pubkey);
     const partner_pid = crypto.derivePublicIdentifier(partner_key);
     const designator = ss.acceptable_location.designator;

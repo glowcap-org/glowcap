@@ -8,6 +8,7 @@
 //! that cross an inline-Passable staging window.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 const model = @import("model");
 const engine = @import("engine");
@@ -41,35 +42,7 @@ comptime {
         @compileError("capability lowering rollback receipt exceeded its five-word stack budget");
 }
 
-const CapabilityLoweringReceipts = struct {
-    const inline_capacity = 8;
-
-    inline_items: [inline_capacity]CapabilityLoweringReceipt = undefined,
-    len: usize = 0,
-    spill: std.ArrayListUnmanaged(CapabilityLoweringReceipt) = .empty,
-
-    fn ensureOne(self: *CapabilityLoweringReceipts, arena: std.mem.Allocator) !void {
-        if (self.spill.capacity != 0) {
-            try self.spill.ensureUnusedCapacity(arena, 1);
-            return;
-        }
-        if (self.len < inline_capacity) return;
-        try self.spill.ensureTotalCapacityPrecise(arena, inline_capacity + 1);
-        self.spill.appendSliceAssumeCapacity(self.inline_items[0..self.len]);
-    }
-
-    fn appendAssumeCapacity(self: *CapabilityLoweringReceipts, receipt: CapabilityLoweringReceipt) void {
-        if (self.spill.capacity != 0)
-            self.spill.appendAssumeCapacity(receipt)
-        else
-            self.inline_items[self.len] = receipt;
-        self.len += 1;
-    }
-
-    fn items(self: *const CapabilityLoweringReceipts) []const CapabilityLoweringReceipt {
-        return if (self.spill.capacity != 0) self.spill.items else self.inline_items[0..self.len];
-    }
-};
+const CapabilityLoweringReceipts = @import("receipt_list.zig").ReceiptList(CapabilityLoweringReceipt, 8);
 
 const LoweredCapability = struct {
     reference: model.Reference,
@@ -415,7 +388,7 @@ fn lowerTargetTracked(
     try self.checkSession(session);
     return switch (target) {
         .local => |actor_id| blk: {
-            if (!self.vat.hasActor(actor_id)) return actors.Error.NoSuchActor;
+            if (!self.vat.hasActor(actor_id)) return error.NoSuchActor;
             const actor: actors.Ref = .{ .local = actor_id };
             const projection = try session.served.port.prepareProjection(&self.vat, actor);
             break :blk .{
@@ -434,7 +407,7 @@ fn lowerTargetTracked(
             if (home.served.port.peer.session_state.hostCapabilityFor(remote.far.import_position) != ref.raw())
                 return error.UnknownCapability;
             if (remote.peer_handle != session.peer_handle) {
-                const enrollment = try self.node.prepareForeignEnrollment(remote.peer_handle, .{ .far = remote.far });
+                const enrollment = try self.node.prepareForeignEnrollment(remote.peer_handle, remote.far);
                 break :blk .{
                     .reference = enrollment.reference,
                     .receipt = if (enrollment.abandon) |abandon| .{ .foreign = abandon } else null,
@@ -486,16 +459,13 @@ pub fn prepareCapability(self: *Host, session: *HostSession, ref: capability.Ref
 /// session's Port and a cross-home capability becomes a routable Node
 /// reference. Spine containers are allocated in `arena`. Leaf bytes stay
 /// borrowed. A stale, foreign, or overdeep value fails the whole transaction
-/// closed and rolls back every projection it created. The lowering walk keeps
-/// `anyerror`: `lowerValueInner` and `lowerValuesInner` are mutually recursive,
-/// which this toolchain refuses to resolve as inferred sets, and the walk's
-/// true set mirrors the capability machinery's inferred sets.
+/// closed and rolls back every projection it created.
 pub fn lowerValue(
     self: *Host,
     session: *HostSession,
     arena: std.mem.Allocator,
     value: value_mod.Value,
-) anyerror!model.Argument {
+) LowerError!model.Argument {
     var prepared: PreparedValues = .{ .host = self, .arena = arena };
     defer prepared.deinit();
     var out: model.Argument = undefined;
@@ -514,7 +484,7 @@ fn lowerValueInner(
     value: *const value_mod.Value,
     depth: usize,
     out: *model.Argument,
-) anyerror!void {
+) LowerError!void {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     const arena = prepared.arena;
     out.* = switch (value.*) {
@@ -562,13 +532,21 @@ fn lowerValueInner(
     };
 }
 
+/// Everything the value lowering walk can refuse. The walk is recursive, so
+/// its set is spelled from the non-recursive steps it takes.
+pub const LowerError = error{ NestingTooDeep, UnknownCapability } ||
+    std.mem.Allocator.Error ||
+    foundation.error_sets.Of(lowerTargetTracked) ||
+    foundation.error_sets.Of(CapabilityLoweringReceipts.ensureOne) ||
+    foundation.error_sets.Of(PreparedValues.stageLease);
+
 /// `lowerValue` over a whole argument list (see it for the contract).
 pub fn lowerValues(
     self: *Host,
     session: *HostSession,
     arena: std.mem.Allocator,
     values: []const value_mod.Value,
-) anyerror![]model.Argument {
+) LowerError![]model.Argument {
     var prepared = try prepareValues(self, session, arena, values);
     defer prepared.deinit();
     return prepared.commit();
@@ -581,7 +559,7 @@ pub fn prepareValues(
     session: *HostSession,
     arena: std.mem.Allocator,
     values: []const value_mod.Value,
-) anyerror!PreparedValues {
+) LowerError!PreparedValues {
     var prepared: PreparedValues = .{ .host = self, .arena = arena };
     errdefer prepared.deinit();
     prepared.values = try lowerValuesInner(self, session, &prepared, values, 0);
@@ -594,7 +572,7 @@ fn lowerValuesInner(
     prepared: *PreparedValues,
     values: []const value_mod.Value,
     depth: usize,
-) anyerror![]model.Argument {
+) LowerError![]model.Argument {
     if (depth > model.max_value_depth) return error.NestingTooDeep;
     const out = try prepared.arena.alloc(model.Argument, values.len);
     for (values, 0..) |*value, i|

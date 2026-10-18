@@ -13,7 +13,7 @@ import type { Bands } from "./line.ts";
 
 /** How much larger the mushroom stands than the box it is given. The live
  * shader mark grows by this about the box's center (GROW in
- * apps/rooms/web/ui/mark_gpu_live.ts), so anything that has to sit where the
+ * apps/rooms/web/ui/mark/live.ts), so anything that has to sit where the
  * shader sits grows the same way. */
 const GROW = 1.2;
 
@@ -35,7 +35,7 @@ export function markSvg(trace: Trace): string {
      anything else that needs the mushroom as a picture is cut from it.
 
      It was traced from the shader mark, whose geometry lives in
-     apps/rooms/web/ui/mark_gpu_field.ts, in its settled pose with the lamps
+     apps/rooms/web/ui/mark/field.ts, in its settled pose with the lamps
      at zero. The render is a cel drawing rather than a shaded one, so these
      four flat tones are its own structure and not a reduction of it. The
      tones are measured from the render's core pixels rather than picked by

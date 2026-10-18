@@ -32,9 +32,10 @@ console.log(await session.send(greeter, "greet", ["world"]));
 | `@glowcap/abi` | Generated ABI constants used by the other packages. |
 
 An adapter selected at load time holds the runtime-specific FFI and socket
-code, so Deno never loads Bun FFI and Bun never loads Deno FFI.
+code.
 
-On Deno, TCP, iroh, and WebRTC connections run on glowcap's driver loop. Bun, the
+On Deno, TCP, iroh, onion, WebRTC, and relay connections run on glowcap's
+driver loop. Bun, the
 browser, and explicit keyed-relay channels use the byte-fed Host instead.
 [Developing a binding](../DEVELOPING.md) explains both paths.
 
@@ -54,5 +55,5 @@ zig build wasm-import-check
 `zig build bindings` runs the binding checks together. The
 [binding overview](../README.md) describes the shared session API.
 
-`@glowcap/web` uses the same byte-fed Host as Deno and Bun. JavaScript supplies
+`@glowcap/web` uses the same byte-fed Host as Bun. JavaScript supplies
 the channel, either a WebSocket relay or a WebRTC DataChannel.

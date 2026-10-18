@@ -5,6 +5,7 @@
 //! never tears down sessions already yielded to the application.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 const model = @import("model");
 const engine = @import("engine");
@@ -173,7 +174,7 @@ pub const Server = struct {
         if (self.popAccepted()) |session| return session;
         if (self.accept_failure) |failure| {
             self.accept_failure = null;
-            return failure.cause;
+            return failure.chain.cause;
         }
         return error.ServerClosed;
     }
@@ -241,7 +242,7 @@ pub const Server = struct {
     }
 
     fn noteCloseFailure(self: *Server, failure: driver.OperationFailure) void {
-        if (self.close_failure) |*first| first.noteFailure(failure) else self.close_failure = failure;
+        foundation.latchFailure(&self.close_failure, failure);
     }
 
     fn claimAcceptFailure(self: *Server) void {

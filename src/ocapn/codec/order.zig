@@ -12,48 +12,10 @@ pub fn byteSliceBefore(a: []const u8, b: []const u8) bool {
     return std.mem.lessThan(u8, a, b);
 }
 
-/// Byte-slice total order used as the canonical sort key comparator. `Key` is
-/// `[]const u8` or `[]u8` (the Syrup set encoder sorts owned buffers in
-/// place). One definition serves both so the two cannot drift.
-pub fn lessByteSlice(comptime Key: type) fn (void, Key, Key) bool {
-    return struct {
-        fn less(_: void, a: Key, b: Key) bool {
-            return byteSliceBefore(a, b);
-        }
-    }.less;
-}
-
-/// Refuse two equal adjacent keys. Callers pass keys already in sorted order
-/// (or the sorted index order for `sortIndicesByKeys`). `Err` must include
-/// `error.UnsupportedArgument`. `keys` is a slice of `[]const u8` or `[]u8`.
-pub fn refuseAdjacentEqualKeys(comptime Err: type, keys: anytype) Err!void {
-    if (keys.len < 2) return;
-    for (keys[1..], 1..) |key, i| {
-        if (std.mem.eql(u8, keys[i - 1], key)) return error.UnsupportedArgument;
-    }
-}
-
-/// Sort `order` (indices into `keys`) by `keys[order[i]]`. When
-/// `refuse_dupes`, refuse adjacent equal keys after the sort.
-pub fn sortIndicesByKeys(
-    comptime Err: type,
-    order: []usize,
-    keys: []const []const u8,
-    comptime refuse_dupes: bool,
-) Err!void {
-    std.mem.sort(usize, order, keys, struct {
-        fn less(ks: []const []const u8, a: usize, b: usize) bool {
-            return std.mem.lessThan(u8, ks[a], ks[b]);
-        }
-    }.less);
-    if (!refuse_dupes or order.len < 2) return;
-    for (order[1..], 1..) |src, i| {
-        if (std.mem.eql(u8, keys[order[i - 1]], keys[src])) return error.UnsupportedArgument;
-    }
-}
-
-/// Sort `ordered` in place by `keyFn`, optionally refusing adjacent equal
-/// keys.
+/// Sort `ordered` in place by the key `keyFn` reads from each element, and
+/// with `refuse_dupes` refuse two elements with one key as
+/// `UnsupportedArgument`, which `Err` holds. The one sort both codecs use for
+/// a set or a dictionary.
 pub fn orderByKey(
     comptime T: type,
     comptime Err: type,
@@ -63,14 +25,16 @@ pub fn orderByKey(
 ) Err!void {
     std.mem.sort(T, ordered, {}, struct {
         fn less(_: void, a: T, b: T) bool {
-            return std.mem.lessThan(u8, keyFn(a), keyFn(b));
+            return byteSliceBefore(keyFn(a), keyFn(b));
         }
     }.less);
-    if (refuse_dupes and ordered.len >= 2) {
-        var i: usize = 1;
-        while (i < ordered.len) : (i += 1) {
-            if (std.mem.eql(u8, keyFn(ordered[i - 1]), keyFn(ordered[i])))
-                return error.UnsupportedArgument;
-        }
+    if (!refuse_dupes or ordered.len < 2) return;
+    for (ordered[1..], 1..) |element, i| {
+        if (std.mem.eql(u8, keyFn(ordered[i - 1]), keyFn(element))) return error.UnsupportedArgument;
     }
+}
+
+/// The key of an element that is its own encoded bytes.
+pub fn ownBytes(bytes: []u8) []const u8 {
+    return bytes;
 }

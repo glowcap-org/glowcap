@@ -13,10 +13,10 @@ zig build examples
 
 ## Complete applications
 
-For whole programs rather than lessons, see [`apps/`](../apps/README.md). It
+For whole programs, see [`apps/`](../apps/README.md). It
 lists each application, often written in several languages, with the command
-that runs it. The biggest is Rooms, a chat app over encrypted iroh that opens
-in your browser with `zig build rooms-web`.
+that runs it. The biggest is Rooms, a chat app over encrypted iroh.
+`zig build rooms-web` serves it and prints the address to open in your browser.
 
 ## Zig chapters
 
@@ -31,8 +31,8 @@ in your browser with `zig build rooms-web`.
 | [07: durable card](zig/07_durable_card.zig) | Keep a sleepy actor in Loam's SQLite store, restart everything, and find its state still there. |
 
 The source of each chapter begins with a longer explanation of the scenario.
-Chapter 01 is the smallest application template. Chapter 05 is for programs
-that run the event loop and the protocol peer themselves.
+Copy chapter 01 to start an application. Read chapter 05 if your program runs
+the event loop and the protocol peer itself.
 
 For the command line instead of Zig, use the [CLI guide](../docs/cli.md).
 
@@ -59,7 +59,7 @@ For the command line instead of Zig, use the [CLI guide](../docs/cli.md).
 The [C guide](../docs/consuming-from-c.md) explains which API and libraries to
 choose before you adapt one of these programs.
 
-## Nearby, but different
+## Related directories
 
 | Path | Role |
 | --- | --- |

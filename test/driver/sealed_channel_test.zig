@@ -37,7 +37,7 @@ const SealedPair = sealed_pair.SealedPair;
 const pumpSealedPair = sealed_pair.pumpSealedPair;
 const openSealedPair = sealed_pair.openSealedPair;
 
-fn sealedHost(allocator: std.mem.Allocator, durable_seed: [crypto.SEED_BYTES]u8, root_byte: u8) Host {
+fn sealedHost(allocator: std.mem.Allocator, durable_seed: [crypto.seed_bytes]u8, root_byte: u8) Host {
     return sealed_pair.sealedHost(allocator, durable_seed, root_byte, Host.Options.withFrameCap(frame_cap));
 }
 
@@ -111,7 +111,7 @@ test "sealed host consumes a coalesced read larger than one Noise record" {
     // ingestion test. Its plaintext crosses two Noise records, and both records
     // arrive in one borrowed Host.feedBytes call.
     const declared_len = 90_000;
-    const body_len = noise.MAX_RECORD_PLAINTEXT_BYTES + 137;
+    const body_len = noise.max_record_plaintext_bytes + 137;
     var plaintext: std.ArrayList(u8) = .empty;
     defer plaintext.deinit(allocator);
     var prefix_buf: [32]u8 = undefined;
@@ -122,7 +122,7 @@ test "sealed host consumes a coalesced read larger than one Noise record" {
     var wire: std.ArrayList(u8) = .empty;
     defer wire.deinit(allocator);
     try pair.a.sealed.?.sealBytes(allocator, &wire, plaintext.items);
-    try std.testing.expect(wire.items.len > noise.RECORD_HEADER_BYTES + noise.MAX_RECORD_BYTES);
+    try std.testing.expect(wire.items.len > noise.record_header_bytes + noise.max_record_bytes);
 
     try b.feedBytes(pair.b, wire.items);
     try std.testing.expectEqual(plaintext.items.len, pair.b.feed_tail.len);
@@ -294,7 +294,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
     defer responder.deinit(allocator);
 
     var wire: [glowcap.foundation.sealed.msg3_wire_bytes]u8 = undefined;
-    var payload: [crypto.PEER_KEY_BYTES + crypto.SIGNATURE_BYTES]u8 = undefined;
+    var payload: [crypto.peer_key_bytes + crypto.signature_bytes]u8 = undefined;
     const msg1 = try other_hs.writeMessage(&.{}, &wire);
     const first = try responder.ingest(allocator, msg1);
     try std.testing.expectEqual(msg1.len, first.consumed);
@@ -308,7 +308,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
 
     const actual = initiator_identity.publicKey();
     var alias = actual;
-    alias.bytes[crypto.PEER_KEY_BYTES - 1] ^= 0x80;
+    alias.bytes[crypto.peer_key_bytes - 1] ^= 0x80;
     try std.testing.expect(!actual.eql(alias));
     try std.testing.expectEqualSlices(
         u8,
@@ -316,7 +316,7 @@ test "sealed channel: an Ed25519 sign-bit alias cannot claim the initiator stati
         &crypto.x25519FromPeerKey(alias).?,
     );
     payload = @splat(0);
-    payload[0..crypto.PEER_KEY_BYTES].* = alias.bytes;
+    payload[0..crypto.peer_key_bytes].* = alias.bytes;
     const msg3 = try other_hs.writeMessage(&payload, &wire);
     try std.testing.expectError(error.IdentityMismatch, responder.ingest(allocator, msg3));
     try std.testing.expect(!responder.isOpen());
@@ -414,7 +414,7 @@ test "sealed channel: a frame larger than one record spans records intact" {
     try std.testing.expect(responder.isOpen());
     try std.testing.expect(initiator.isOpen());
 
-    const big_len = noise.MAX_RECORD_PLAINTEXT_BYTES + 4321;
+    const big_len = noise.max_record_plaintext_bytes + 4321;
     const big = try allocator.alloc(u8, big_len);
     defer allocator.free(big);
     for (big, 0..) |*byte, i| byte.* = @truncate(i *% 31);

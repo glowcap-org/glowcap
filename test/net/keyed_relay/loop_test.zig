@@ -42,7 +42,7 @@ const LoopClientCtx = struct {
         const self: *LoopClientCtx = @ptrCast(@alignCast(conn_ctx.?));
         if (!self.fetch_sent and peer.sessionIsOpen()) {
             const prepared = try engine.fetch.prepareFetchSwissnum(self.allocator, &peer.session_state, "thermostat");
-            self.answer_position = prepared.answer_position;
+            self.answer_position = prepared.answer.position;
             self.resolver_export = prepared.resolver_export;
             self.fetch_sent = true;
             try peer.send(prepared.message);
@@ -164,7 +164,7 @@ test "keyed-relay completion loop: evented cold dial fetches through relay" {
     var register_url_buf: [64]u8 = undefined;
     const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://127.0.0.1:{d}/register", .{port});
 
-    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x71)));
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x71)));
 
     var registered = try keyed_relay.Resident.initRegistered(
         allocator,

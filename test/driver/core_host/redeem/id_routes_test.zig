@@ -208,7 +208,7 @@ test "core host: id sturdyrefs require opt-in before select-or-dial" {
     var host = test_host.init(allocator, @as([32]u8, @splat(0x0e)), Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x11))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x11))).publicKey().toDesignator();
     const id_routes = [_]model.HintEntry{.{
         .name = model.transport.hint_via,
         .value = .{ .string = "ocapn://127.0.0.1%3A7814.tcp" },
@@ -230,7 +230,7 @@ test "core host: id sturdyrefs stage the selected concrete route when opted in" 
     var host = test_host.init(allocator, @as([32]u8, @splat(0x10)), nextRouteOptions());
     defer host.deinit();
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x12))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x12))).publicKey().toDesignator();
     const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route);
     const id_routes = [_]model.HintEntry{.{
@@ -259,7 +259,7 @@ test "core host: id sturdyrefs validate but never dial weak fallback paths" {
     var host = test_host.init(allocator, @as([32]u8, @splat(0x13)), nextRouteOptions());
     defer host.deinit();
 
-    const key = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x14))).publicKey().toDesignator();
+    const key = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x14))).publicKey().toDesignator();
     const route = try std.fmt.allocPrint(allocator, "ocapn://{s}.iroh", .{key[0..]});
     defer allocator.free(route);
     const hints = [_]model.HintEntry{

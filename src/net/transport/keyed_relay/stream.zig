@@ -202,7 +202,7 @@ pub const RelayStream = struct {
     }
 
     pub fn noteFailure(rs: *RelayStream, cause: anyerror) void {
-        if (rs.failure) |*failure| failure.note(cause) else rs.failure = .init(cause);
+        foundation.latchFailure(&rs.failure, .init(cause));
     }
 
     pub fn noteSourceFailure(rs: *RelayStream, fallback: anyerror) void {

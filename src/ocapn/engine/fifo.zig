@@ -6,7 +6,7 @@
 //! backing without bound, and capacity a burst grew above the caller's steady
 //! bound is returned at the drain rather than pinned for the owner's life.
 //!
-//! `popHead` and `compactHead` are those rules, once. Both queue types in this
+//! `popHead`, `compactHead`, and `reclaimDrained` are those rules, once. Both queue types in this
 //! engine ride them: the peer's four per-connection queues and the reserved
 //! FIFO below. They are separate types because their surfaces differ, one needs
 //! `peek` and `backPtr` for the outbound spine, the other needs `unpopped` for
@@ -58,25 +58,35 @@ pub fn popHead(
     allocator: std.mem.Allocator,
     steady_bytes: usize,
 ) ?T {
-    // The queue is empty. Keep its buffer between messages so steady traffic
-    // allocates nothing. Give the buffer back only when it grew past the
-    // steady size, so one burst cannot pin that memory for the life of the
-    // connection. The cost is one new allocation when the next burst arrives.
     if (head.* >= list.items.len) {
-        list.clearRetainingCapacity();
-        head.* = 0;
-        if (list.capacity * @sizeOf(T) > steady_bytes) list.clearAndFree(allocator);
+        reclaimDrained(T, list, head, allocator, steady_bytes);
         return null;
     }
     const row = list.items[head.*];
     head.* += 1;
-    if (head.* >= 64 and head.* * 2 >= list.items.len) {
-        const live = list.items.len - head.*;
-        std.mem.copyForwards(T, list.items[0..live], list.items[head.*..]);
-        list.shrinkRetainingCapacity(live);
-        head.* = 0;
-    }
+    if (head.* >= dead_prefix_rows_min and head.* * 2 >= list.items.len) compactHead(T, list, head);
     return row;
+}
+
+/// The dead prefix a pop lets grow before sliding the live rows forward.
+/// Shorter, and a queue popped near its head would copy on most pops.
+const dead_prefix_rows_min = 64;
+
+/// Rewind a drained queue. The buffer stays between messages so steady
+/// traffic allocates nothing, and goes back only when it grew past
+/// `steady_bytes`, so one burst cannot pin that memory for the life of the
+/// connection. The cost is one new allocation when the next burst arrives.
+pub fn reclaimDrained(
+    comptime T: type,
+    list: *std.ArrayListUnmanaged(T),
+    head: *usize,
+    allocator: std.mem.Allocator,
+    steady_bytes: usize,
+) void {
+    std.debug.assert(head.* >= list.items.len);
+    list.clearRetainingCapacity();
+    head.* = 0;
+    if (list.capacity * @sizeOf(T) > steady_bytes) list.clearAndFree(allocator);
 }
 
 /// A steady bound that never sheds: the drain keeps whatever capacity it has.

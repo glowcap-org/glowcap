@@ -17,8 +17,8 @@ test "access stored capabilities separate roles and enforce management ceilings"
     const wide = try f.vocabulary.terms(.{ .object = resource }, &.{ f.vocabulary.read, f.vocabulary.post }, null);
     const narrow = try f.vocabulary.terms(.{ .objects = &.{resource} }, &.{f.vocabulary.read}, 100);
     const grant = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(wide, 1) })).?.grant;
-    const use_id = try c.descriptor(&caps, backend, owner, grant, null, true);
-    const control_id = try c.descriptor(&caps, backend, owner, grant, .{ .pause = true, .resume_access = true, .policy_ceiling = narrow }, true);
+    const use_id = try c.descriptor(&caps, backend, owner, grant, null, .rooted);
+    const control_id = try c.descriptor(&caps, backend, owner, grant, .{ .pause = true, .resume_access = true, .policy_ceiling = narrow }, .rooted);
     const wrong_role = c.control(&caps, backend, use_id);
     if (wrong_role) |unexpected| unexpected.release() else |_| {}
     try std.testing.expectError(error.WrongRole, wrong_role);
@@ -40,7 +40,7 @@ test "access stored capabilities separate roles and enforce management ceilings"
         try std.testing.expectError(error.CeilingExceeded, c.edit(op, backend, .{ .set_policy = wide }));
         try std.testing.expect(try c.edit(op, backend, .pause));
         try store.begin();
-        _ = try caps.stage(op, false);
+        _ = try caps.stage(op, .reachable);
         try f.commit(store, backend);
     }
     try std.testing.expectError(error.RevisionConflict, current.require(resource, req));
@@ -54,7 +54,7 @@ test "access stored capabilities separate roles and enforce management ceilings"
         defer op.deinit() catch unreachable;
         try std.testing.expect(try c.edit(op, backend, .resume_access));
         try store.begin();
-        _ = try caps.stage(op, false);
+        _ = try caps.stage(op, .reachable);
         try f.commit(store, backend);
     }
     {
@@ -62,7 +62,7 @@ test "access stored capabilities separate roles and enforce management ceilings"
         defer op.deinit() catch unreachable;
         try std.testing.expect(try c.edit(op, backend, .{ .set_policy = narrow }));
         try store.begin();
-        _ = try caps.stage(op, false);
+        _ = try caps.stage(op, .reachable);
         try f.commit(store, backend);
     }
     const checked = try use.begin(4);
@@ -82,7 +82,7 @@ test "access stored derivation atomically creates its exact use descriptor and p
     const resource = try f.resource(store, backend, owner, null);
     const terms = try f.vocabulary.terms(.{ .objects = &.{resource} }, &.{f.vocabulary.read}, null);
     const root = (try f.change(store, backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 1) })).?.grant;
-    const use = try c.use(&caps, backend, try c.descriptor(&caps, backend, owner, root, null, true));
+    const use = try c.use(&caps, backend, try c.descriptor(&caps, backend, owner, root, null, .rooted));
     defer use.release();
     for ([_]bool{ false, true }) |commit| {
         var proposed: f.loam.core.ObjectId = undefined;
@@ -91,7 +91,7 @@ test "access stored derivation atomically creates its exact use descriptor and p
             defer operation.deinit() catch unreachable;
             try c.derive(operation, backend, f.vocabulary.issue(terms, 0));
             try store.begin();
-            proposed = (try caps.stage(operation, true)).derived_use.?;
+            proposed = (try caps.stage(operation, .rooted)).derived_use.?;
             if (commit) try f.commit(store, backend) else try store.abort();
         }
         if (!commit) {
@@ -122,7 +122,7 @@ test "access stored operation owns custody and pending buffers after its holder 
     const grant = (try f.change(&fixture.store, &fixture.backend, owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?.grant;
     var caps = try c.storage.Capabilities.init(a, &fixture.store, .{ .max_references = 1, .max_operations = 1 });
     defer caps.deinit() catch unreachable;
-    const id = try c.descriptor(&caps, &fixture.backend, owner, grant, null, true);
+    const id = try c.descriptor(&caps, &fixture.backend, owner, grant, null, .rooted);
     const use = try c.use(&caps, &fixture.backend, id);
     try std.testing.expectError(error.CapabilityCapacity, c.use(&caps, &fixture.backend, id));
     const alias = try use.retain();

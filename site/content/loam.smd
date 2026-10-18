@@ -10,14 +10,13 @@ Picture a task board shared over CapTP. Your program hosts the board, its
 columns, and its cards as live objects. Bob holds a reference to the "to do"
 column. Carol keeps a sturdyref to the board.
 
-Then your program restarts, and every one of those references points at
-nothing.
+When your program restarts, all of those references break.
 
-Saving the cards' text is easy. The hard part is the references: which column
-holds which card, and which object Bob was holding. A capability is a live
-connection, not a value you can write down.
+Saving the cards' text is easy. Saving the references is harder: which column
+holds which card, and which object Bob was holding. A live reference exists
+only in the running program, so it cannot simply be written to disk.
 
-**Loam saves the objects together with the references between them.** After a
+Loam saves the objects together with the references between them. After a
 restart the same objects come back and the same references reach them. Objects
 nobody is calling stay on disk, so the board can be far bigger than memory.
 
@@ -34,12 +33,13 @@ records. "The to-do column holds card #12" is an edge. An edge names a record,
 not a memory address, which is why it survives a restart.
 
 A **strong** edge keeps its target alive. A **weak** one doesn't. A **root**
-is kept no matter what. So the rule for what to keep is simple: anything you
-can reach from a root along strong edges.
+is kept no matter what. Loam keeps anything you can reach from a root along
+strong edges.
 
 [Kept: the board is a root and holds two columns strongly, and both columns hold the same card. Reclaimed: a preview that only a weak edge reaches, and an old card and an old column that point at each other but hang from no root.]($image.siteAsset('diagram-loam-graph.svg'))
 
-Everything else is garbage, even two records that point at each other.
+Everything else is garbage once the running program stops holding it, even two
+records that point at each other.
 **Collection** deletes it in small batches you schedule.
 
 Changes are **transactions**. Moving a card touches two columns, and both
@@ -102,7 +102,7 @@ saved.
 
 # Sharing with people
 
-Usually, sharing is just handing over a reference. Some applications also need
+Usually, sharing is handing over a reference. Some applications also need
 to see who has access and change it later. **Managed access** keeps that
 record for you, beside the objects.
 
@@ -115,8 +115,8 @@ can use his access but not change it.
 
 If Bob shares onward, the new grant sits under his and is never wider. Every
 use is checked against all the grants above it, so revoking Bob's grant cuts
-off everyone he shared with. Objects that don't use managed access pay
-nothing for it.
+off everyone he shared with. Managed access adds no cost to objects that do
+not use it.
 
 # [Limits]($section.id('limits'))
 
@@ -137,14 +137,12 @@ nothing for it.
 [What ships](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md#resource-models)
 tracks what is built.
 
-# Reading the whole story
+# Further reading
 
 Chapter 07,
 [durable card](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/07_durable_card.zig),
 runs this page's restart as one short program: it moves a card, shuts
 everything down, and reopens the store to find the move still there.
-
-The guides below go from the model to every contract.
 
 1. [Loam guide](https://github.com/jimisaacs/glowcap/blob/main/docs/loam.md):
    the model, a walkthrough of chapter 07, the words used throughout, and how

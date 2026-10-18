@@ -101,7 +101,7 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
     const samples: usize = if (smoke) 8 else 128;
     var first: w.core.ObjectId = undefined;
     {
-        var db = try w.Lmdb.open(path, .{ .mode = .{ .create = store_id } });
+        var db = try w.Lmdb.open(path, .{ .opening = .{ .id = store_id, .mode = .create } });
         defer db.close() catch unreachable;
         var workload: w.Workload = undefined;
         try workload.init(allocations.allocator(), &db, count, size);
@@ -211,7 +211,7 @@ fn run(init: std.process.Init, report: *std.ArrayList(u8), count: usize, size: u
 fn restart(init: std.process.Init, report: *std.ArrayList(u8), path: [:0]const u8, store_id: w.core.StoreId, allocator: std.mem.Allocator, count: usize, size: usize, first: w.core.ObjectId, edits: usize) !void {
     const io = init.io;
     const start = now(io);
-    var db = try w.Lmdb.open(path, .{ .mode = .{ .open = store_id } });
+    var db = try w.Lmdb.open(path, .{ .opening = .{ .id = store_id, .mode = .open } });
     defer db.close() catch unreachable;
     var workload: w.Workload = undefined;
     try workload.open(allocator, &db, count);

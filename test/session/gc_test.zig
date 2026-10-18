@@ -162,12 +162,12 @@ test "re-sending an export retains its wire-delta so a matching gc-exports does 
     // Introduce export 7 to the partner twice (two distinct outbound delivers,
     // export 7 named as an argument each time). Each wire crossing must retain.
     try s.recordSend(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+        .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
         .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
         .answer = .from(1),
     } });
     try s.recordSend(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+        .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
         .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
         .answer = .from(2),
     } });
@@ -259,11 +259,11 @@ test "inbound gc-exports naming the pinned bootstrap position is a no-op" {
     // wire-delta accounting, so the release is skipped, it neither kills the
     // bootstrap export nor underflows.
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{0}, .deltas = &.{1} } });
-    try std.testing.expect(s.hasExport(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expect(s.hasExport(.from(session.bootstrap_position)));
 
     // A later bootstrap fetch still has its target.
     try s.recordRecv(.{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(session.BOOTSTRAP_POSITION) } },
+        .target = .{ .near = .{ .export_position = .from(session.bootstrap_position) } },
         .args = &.{ .{ .symbol = "fetch" }, .{ .bytes = "swiss" } },
         .answer = .from(1),
     } });
@@ -281,7 +281,7 @@ test "inbound gc-exports naming the pinned bootstrap position is a no-op" {
     // export 7's mention is released even though it rides beside the pinned
     // bootstrap position.
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{ 0, 7 }, .deltas = &.{ 5, 1 } } });
-    try std.testing.expect(s.hasExport(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expect(s.hasExport(.from(session.bootstrap_position)));
     try std.testing.expectEqual(held - 1, s.exportRefcount(.from(7)));
 }
 
@@ -298,15 +298,15 @@ test "mentioning the bootstrap export then receiving its gc never underflows" {
     // inbound release of position 0 must be a pinned no-op, never arithmetic.
     try s.recordSend(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(3) } },
-        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(session.BOOTSTRAP_POSITION) } } }},
+        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(session.bootstrap_position) } } }},
         .answer = .from(1),
     } });
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(session.bootstrap_position)));
 
     // The partner received the bootstrap mention and releases with its own
     // delta. No underflow, no spurious abort, bootstrap intact.
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{0}, .deltas = &.{2} } });
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(session.bootstrap_position)));
 }
 
 test "outbound gc-exports naming the partner bootstrap is refused" {
@@ -394,7 +394,7 @@ test "a send refused for memory takes no export retain" {
 
         failing.fail_index = failing.alloc_index + fail_after;
         s.recordSend(.{ .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
             .args = &args,
             .answer = .from(1),
         } }) catch |err| {

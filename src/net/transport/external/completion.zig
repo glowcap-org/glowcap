@@ -81,11 +81,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
 
             pub fn reserveSeats(backend: *Self, count: usize) !void {
-                try backend.reserveReady(count);
+                try backend.ready.reserve(backend.allocator, count);
             }
 
             pub fn publish(backend: *Self, item: completion.Completion) void {
-                backend.appendReserved(item);
+                backend.ready.appendReserved(item);
             }
         };
         const TryIo = completion.HintedTryIo(Self, TryIoOps);
@@ -97,7 +97,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
         listener: ?ListenerRow = null,
         conns: std.AutoHashMap(Fd, Entry),
         ready: completion.ReadyQueue = .{},
-        ready_reserved: usize = 0,
         next_id: u32 = 1,
         buffer_pool: completion.BufferPool,
 
@@ -204,14 +203,14 @@ pub fn CompletionBackend(comptime Platform: type) type {
                 .external => |locator| locator,
             };
             const provider = try self.providerFor(locator.transport);
-            try self.reserveReady(1);
-            errdefer self.releaseReady(1);
+            try self.ready.reserve(self.allocator, 1);
+            errdefer self.ready.release(1);
             const fd = try self.reserveFd();
             try self.conns.ensureUnusedCapacity(1);
             switch (provider.vtable.start_connect(provider.ctx, locator)) {
                 .ready => |handle| {
                     self.conns.putAssumeCapacity(fd, openEntry(provider, handle));
-                    self.appendReserved(.{ .user_data = user_data, .result = 0 });
+                    self.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
                 },
                 .pending => |handle| {
                     self.conns.putAssumeCapacity(fd, .{
@@ -287,16 +286,16 @@ pub fn CompletionBackend(comptime Platform: type) type {
             if (!Namespace.ownsFd(fd)) return self.platform.submitClose(user_data, fd);
             if (fd == listen_fd) return Listening.close(self, user_data);
             const entry = self.conns.getPtr(fd) orelse {
-                try self.reserveReady(1);
-                self.appendReserved(.{ .user_data = user_data, .result = 0 });
+                try self.ready.reserve(self.allocator, 1);
+                self.ready.appendReserved(.{ .user_data = user_data, .result = 0 });
                 return;
             };
             if (entry.closing) return error.AlreadyClosing;
             // Pending operations already hold their seats; reserve the close's.
-            try self.reserveReady(1);
-            if (entry.connect_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
-            if (entry.pending.read_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
-            if (entry.pending.write_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = -1 });
+            try self.ready.reserve(self.allocator, 1);
+            if (entry.connect_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
+            if (entry.pending.read_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
+            if (entry.pending.write_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = -1 });
             entry.connect_ud = null;
             entry.pending = .{};
             entry.close_ud = user_data;
@@ -406,11 +405,11 @@ pub fn CompletionBackend(comptime Platform: type) type {
             switch (entry.provider.vtable.finish_connect(entry.provider.ctx, attempt)) {
                 .ready => |handle| {
                     entry.* = openEntry(entry.provider, handle);
-                    self.appendReserved(.{ .user_data = ud, .result = 0 });
+                    self.ready.appendReserved(.{ .user_data = ud, .result = 0 });
                 },
                 .failed => |err| {
                     entry.phase = .failed;
-                    self.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
+                    self.ready.appendReserved(.{ .user_data = ud, .result = -1, .failure = err });
                 },
             }
         }
@@ -460,7 +459,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
             }
             const close_ud = entry.close_ud;
             std.debug.assert(self.conns.remove(fd));
-            if (close_ud) |ud| self.appendReserved(.{ .user_data = ud, .result = 0 });
+            if (close_ud) |ud| self.ready.appendReserved(.{ .user_data = ud, .result = 0 });
         }
 
         fn requireOpen(self: *Self, fd: Fd) !void {
@@ -488,22 +487,6 @@ pub fn CompletionBackend(comptime Platform: type) type {
             const id = self.next_id;
             self.next_id += 1;
             return Namespace.fdFromId(id);
-        }
-
-        pub fn reserveReady(self: *Self, count: usize) !void {
-            const total = std.math.add(usize, self.ready_reserved, count) catch return error.OutOfMemory;
-            try self.ready.ensureUnusedCapacity(self.allocator, total);
-            self.ready_reserved = total;
-        }
-
-        pub fn releaseReady(self: *Self, count: usize) void {
-            std.debug.assert(self.ready_reserved >= count);
-            self.ready_reserved -= count;
-        }
-
-        pub fn appendReserved(self: *Self, item: completion.Completion) void {
-            self.releaseReady(1);
-            self.ready.appendAssumeCapacity(item);
         }
     };
 }

@@ -97,7 +97,7 @@ fn ctxFromComposite(reader: Reader, clist: CompositeList) model.view.Args.Ctx {
 fn wordRun(reader: Reader, list: ListLoc) Error![]const u8 {
     if (list.count == 0) return &.{};
     if (list.elem != .eight_bytes) return Error.InvalidPointer;
-    const len = std.math.mul(usize, list.count, wire.WORD_BYTES) catch return Error.Truncated;
+    const len = std.math.mul(usize, list.count, wire.word_bytes) catch return Error.Truncated;
     return reader.byteSlice(list.data_idx, len);
 }
 
@@ -392,20 +392,13 @@ pub fn hintEntry(reader: Reader, loc: StructLoc) Error!model.HintEntry {
 fn neutralPeerLocator(reader: Reader, loc: StructLoc, comptime observe_hints: ?HintListObserver) Error!model.view.PeerLocator {
     const empty_false = (try reader.dataWord(loc, 0)) & 1 != 0;
     const wire_form: model.Hints.WireForm = if (empty_false) .boolean_false else .map;
-    const clist = (try compositeList(reader, loc, 2)) orelse {
-        return .{
-            .transport = try borrowedText(reader, loc, 0),
-            .designator = try borrowedText(reader, loc, 1),
-            .hints = .{ .empty = wire_form },
-        };
+    // `compositeList` is null for an empty list, so a list it returns has
+    // at least one entry.
+    const clist = (try compositeList(reader, loc, 2)) orelse return .{
+        .transport = try borrowedText(reader, loc, 0),
+        .designator = try borrowedText(reader, loc, 1),
+        .hints = .{ .empty = wire_form },
     };
-    if (clist.element_count == 0) {
-        return .{
-            .transport = try borrowedText(reader, loc, 0),
-            .designator = try borrowedText(reader, loc, 1),
-            .hints = .{ .empty = wire_form },
-        };
-    }
     if (clist.element_count > model.max_locator_hint_count)
         return Error.MalformedFrame;
     // The eager pass supplies an observer that owns enumeration and budget

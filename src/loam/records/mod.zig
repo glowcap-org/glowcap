@@ -11,7 +11,7 @@ pub const ObjectId = struct {
     sequence: u64,
 
     pub fn eql(a: ObjectId, b: ObjectId) bool {
-        return std.meta.eql(a, b);
+        return a.store == b.store and a.incarnation == b.incarnation and a.sequence == b.sequence;
     }
 
     /// The words an identity-keyed table hashes and compares: the store in
@@ -21,21 +21,27 @@ pub const ObjectId = struct {
         return .{ @truncate(store >> 64), @truncate(store), self.incarnation, self.sequence };
     }
 
-    pub fn key(self: ObjectId) [33]u8 {
-        var bytes: [33]u8 = undefined;
+    /// The key: a tag byte, then the store, the incarnation, and the
+    /// sequence, each big-endian.
+    const store_end = 1 + @sizeOf(u128);
+    const incarnation_end = store_end + @sizeOf(u64);
+    pub const key_bytes = incarnation_end + @sizeOf(u64);
+
+    pub fn key(self: ObjectId) [key_bytes]u8 {
+        var bytes: [key_bytes]u8 = undefined;
         bytes[0] = 'o';
-        std.mem.writeInt(u128, bytes[1..17], @backingInt(self.store), .big);
-        std.mem.writeInt(u64, bytes[17..25], self.incarnation, .big);
-        std.mem.writeInt(u64, bytes[25..33], self.sequence, .big);
+        std.mem.writeInt(u128, bytes[1..store_end], @backingInt(self.store), .big);
+        std.mem.writeInt(u64, bytes[store_end..incarnation_end], self.incarnation, .big);
+        std.mem.writeInt(u64, bytes[incarnation_end..key_bytes], self.sequence, .big);
         return bytes;
     }
 
     pub fn fromKey(bytes: []const u8) Error!ObjectId {
-        if (bytes.len != 33 or bytes[0] != 'o') return error.Corrupt;
+        if (bytes.len != key_bytes or bytes[0] != 'o') return error.Corrupt;
         const id: ObjectId = .{
-            .store = @fromBackingInt(std.mem.readInt(u128, bytes[1..17], .big)),
-            .incarnation = std.mem.readInt(u64, bytes[17..25], .big),
-            .sequence = std.mem.readInt(u64, bytes[25..33], .big),
+            .store = @fromBackingInt(std.mem.readInt(u128, bytes[1..store_end], .big)),
+            .incarnation = std.mem.readInt(u64, bytes[store_end..incarnation_end], .big),
+            .sequence = std.mem.readInt(u64, bytes[incarnation_end..key_bytes], .big),
         };
         if (id.incarnation == 0 or id.sequence == 0) return error.Corrupt;
         return id;

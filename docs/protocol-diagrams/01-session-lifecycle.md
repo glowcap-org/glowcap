@@ -10,9 +10,8 @@ sources:
 
 # Session lifecycle
 
-Diagrams of how a session starts, runs, and ends, following the CapTP
-Specification sections CapTP Overview, op:start-session, Ending a session,
-and Crossed Hellos Resolution.
+These diagrams follow the CapTP Specification sections CapTP Overview,
+op:start-session, Ending a session, and Crossed Hellos Resolution.
 
 ## SL-1: Session state machine
 
@@ -67,9 +66,9 @@ sequenceDiagram
 ## SL-4: Crossed hellos
 
 Anchor: CapTP Specification § Crossed hellos. Two peers dialing each other
-simultaneously produce two half-open sessions for one peer pair. A deterministic
-tie-break over the two sessions' key material selects the survivor. The losing
-session is aborted.
+simultaneously produce two half-open sessions for one peer pair. Each side
+compares the public identifiers of the two sessions byte by byte, and the
+session with the lower identifier is aborted.
 
 ```mermaid
 sequenceDiagram
@@ -81,8 +80,8 @@ sequenceDiagram
         B->>A: op:start-session
     end
     Note over A,B: two sessions now exist for one peer pair
-    Note over A,B: deterministic tie-break over session key material
-    A--xB: op:abort on the losing session
+    Note over A,B: compare the two sessions' public identifiers bytewise
+    A--xB: op:abort on the session with the lower identifier
     Note over A,B: the surviving session opens normally
 ```
 
@@ -108,8 +107,7 @@ flowchart TD
 Anchor: CapTP Specification § Ending a session. `op:abort` (in either direction)
 severs an open session: all imports and exports release, unresolved promises
 break, and per-session key material is discarded. An unrecognized wire record
-reaches the same teardown: a record the receiver does not recognize is a
-protocol error, and a protocol error aborts the session. A handshake
+is a protocol error, and a protocol error aborts the session. A handshake
 refusal while still `negotiating` (version mismatch, bad signature, partner-key
 pin) queues an outbound `op:abort` and then closes the session
 ([ADR-0083](../decisions/adr/ADR-0083-outbound-abort-closes-session.md)).

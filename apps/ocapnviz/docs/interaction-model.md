@@ -9,11 +9,7 @@ sources:
 
 # Interaction architecture
 
-Use this page to trace an input from pointer or keyboard event to its state
-change. Modules under `src/interactions/` cite the section numbers, so keep
-them stable. Cursor precedence is in [`cursor.md`](cursor.md).
-
-The visualizer has one semantic vocabulary and one resolver, not one physical event loop. The Stage's empty canvas uses
+The visualizer has one semantic vocabulary and one resolver. The Stage's empty canvas uses
 the pure pointer machine. Stage sprites use Pixi listeners because they already own exact display-object hit geometry.
 The Timeline's Overview and Scrubber use DOM adapters because their drags mutate different view and document structures.
 All three paths share:
@@ -24,6 +20,9 @@ All three paths share:
 - the process-wide gesture lease in `gesture-router.ts`
 - `cursorFor`, so the offered cursor and the next pointer-down use the same
   decision
+
+Modules under `src/interactions/` cite the section numbers below, so keep them
+stable. Cursor precedence is in [`cursor.md`](cursor.md).
 
 `ScrubInput` is a plain DOM control, and its click-to-type and drag-to-adjust behavior is outside the canvas
 gesture vocabulary.
@@ -44,7 +43,7 @@ commands. It has no separate pointer-selection meaning.
 edits change camera, zoom, playhead, row expansion, or the visible time window. Tool changes choose an interpreter.
 Selection changes choose the entities a selection-aware command will act on. None writes another as a side effect.
 
-**Mode is a product state, not a gesture primitive.** The resolver and pointer machine read `activeTool`, never Live,
+**Mode is a product state.** The resolver and pointer machine read `activeTool`, never Live,
 Play, or Build. `toolsForMode` decides which tools the current product state offers.
 
 | Mode  | Source                              | Editable | Tools                                              |
@@ -232,7 +231,7 @@ carries its pointer-up hit, so no second hit test is needed.
 
 ## 6. Selection store
 
-`selectionReducer` is pure. The action union is small:
+`selectionReducer` is pure. Its actions:
 
 | Action                  | Meaning                                                  |
 | ----------------------- | -------------------------------------------------------- |
@@ -244,7 +243,7 @@ carries its pointer-up hit, so no second hit test is needed.
 | `clear-all`             | return `EMPTY_SELECTION`                                 |
 | `clear-on-empty-click`  | return `EMPTY_SELECTION`                                 |
 
-Every non-empty selection has an anchor inside it. Every write returns a fresh `Set`, because rendering and selectors
+Every write returns a fresh `Set`, because rendering and selectors
 use reference identity as their cheap change signal. `allEntityKeys` allocates only for the explicit Cmd/Ctrl-A command,
 never on render or wire paths.
 

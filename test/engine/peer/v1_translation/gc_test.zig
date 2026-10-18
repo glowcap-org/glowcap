@@ -18,7 +18,7 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
     // resolver export at admission (`outbound/encoded.zig`) and puts its
     // mention on the wire, which must carry the same wire-delta retain
     // `recordSend` would have added: local reference + one wire mention.
-    const resolver_export = p1.session_state.next_export_position;
+    const resolver_export = p1.session_state.exports.nextPosition().int();
     try p1.sendBorrowed(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
@@ -33,8 +33,8 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
 
     // The partner releases the one wire mention. The local reference keeps the
     // export row alive, without the encode-time retain this gc would drive the
-    // count to zero and remove the row while `outbound_resolver_link` still
-    // points at it.
+    // count to zero and remove the row, and its resolver purpose with it,
+    // while the answer row still names the export.
     {
         const positions = [_]u64{resolver_export};
         const deltas = [_]u64{1};
@@ -74,12 +74,12 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
 }
 
 test "a gc wave over many answered delivers drops every V1.0 resolver link" {
-    // The outbound resolver link map is pruned per released answer through its
-    // answer side of the `outbound_resolver_link` BiMap, two O(1) keyed
-    // removals per position instead of a scan of every outstanding link. This
-    // pins the correctness half of that shape: after a full release wave every
-    // link, and only the released links, is gone, and both map directions
-    // agree. The linear-vs-quadratic win itself is a bench concern.
+    // The resolver pairing is retired per released answer through the
+    // export its answer row holds, two O(1) row writes per position instead
+    // of a scan of every outstanding pairing. This pins the correctness
+    // half of that shape: after a full release wave every pairing, and only the
+    // released pairings, is gone, and the answer and export rows agree. The
+    // linear-vs-quadratic win itself is a bench concern.
     const allocator = std.testing.allocator;
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
@@ -88,7 +88,7 @@ test "a gc wave over many answered delivers drops every V1.0 resolver link" {
     // Send a wave of answered delivers; admitting each mints its resolver
     // export in order (`outbound/encoded.zig`).
     const wave = 64;
-    const first_resolver = peer.session_state.next_export_position;
+    const first_resolver = peer.session_state.exports.nextPosition().int();
     for (0..wave) |i| {
         try peer.sendBorrowed(.{ .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },

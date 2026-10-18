@@ -134,7 +134,7 @@ const Stager = struct {
     input: *Input,
 
     pub fn handle(self: *Stager, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
-        _ = try turn.vat.sendOpaqueFromIngress(turn.ingress, self.target, self.input.message(), self.input.trace.listener());
+        _ = try turn.vat.sendOpaqueFromIngress(turn.ingress(), self.target, self.input.message(), self.input.trace.listener());
         try turn.vat.drive();
         try std.testing.expectEqual(@as(usize, 0), self.input.trace.calls);
         if (std.mem.eql(u8, msg.verb, "fail")) return error.Refused;

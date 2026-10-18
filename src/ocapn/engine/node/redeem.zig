@@ -7,6 +7,7 @@
 
 const std = @import("std");
 
+const node_actions = @import("actions.zig");
 const node_mod = @import("../node.zig");
 const dials = @import("redeem/dials.zig");
 const withdrawals = @import("redeem/withdrawals.zig");
@@ -15,13 +16,11 @@ const model = @import("model");
 const Node = node_mod.Node;
 const PeerHandle = @import("../peer_handle.zig").PeerHandle;
 
-/// Where one redeemed give settles. An answer is the traditional returned
-/// handoff. A deferred id is Host-owned promise authority for a give found
-/// inline in a Passable value. The sans-I/O node carries the opaque id back in
-/// exactly one terminal action.
+/// Where one redeemed give settles. The sans-I/O node carries a deferred
+/// id back in exactly one terminal action.
 pub const Destination = union(enum) {
-    answer: struct { recipient_peer: PeerHandle, answer: model.AnswerPosition },
-    deferred: struct { recipient_peer: PeerHandle, id: u64 },
+    answer: node_actions.AnswerDestination,
+    deferred: node_actions.DeferredDestination,
 };
 
 pub fn recipientPeer(dest: Destination) PeerHandle {
@@ -34,16 +33,16 @@ pub fn recipientPeer(dest: Destination) PeerHandle {
 /// Project a redeem settlement target into the action-owned failure shape.
 /// This is cross-file vocabulary only. `Node.FailureDestination` remains the
 /// supported action type.
+/// Format a redeem failure's reason for its waiters: the transport detail
+/// when it fits `buf`, the bare failure otherwise.
+pub fn failureMessage(buf: *[256]u8, reason: []const u8) []const u8 {
+    return std.fmt.bufPrint(buf, "handoff redeem failed: {s}", .{reason}) catch "handoff redeem failed";
+}
+
 pub fn failureDestination(dest: Destination) Node.FailureDestination {
     return switch (dest) {
-        .answer => |answer| .{ .answer = .{
-            .recipient_peer = answer.recipient_peer,
-            .answer = answer.answer,
-        } },
-        .deferred => |deferred| .{ .deferred = .{
-            .recipient_peer = deferred.recipient_peer,
-            .id = deferred.id,
-        } },
+        .answer => |answer| .{ .answer = answer },
+        .deferred => |deferred| .{ .deferred = deferred },
     };
 }
 
@@ -54,12 +53,8 @@ pub const State = struct {
     withdrawals: withdrawals.State = .{},
 
     /// Future terminal action seats already promised by admitted redeems.
-    pub fn promisedActions(self: *const State) error{OutOfMemory}!usize {
-        return std.math.add(
-            usize,
-            self.dials.waiter_action_reservations,
-            self.withdrawals.rows.count(),
-        ) catch error.OutOfMemory;
+    pub fn promisedActions(self: *const State) usize {
+        return self.dials.waiter_action_reservations + self.withdrawals.rows.count();
     }
 };
 

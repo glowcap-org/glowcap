@@ -62,12 +62,18 @@ pub fn peerLocatorsEqual(a: model.PeerLocator, b: model.PeerLocator) bool {
 /// semantic value). Runs over the borrowed spine via `fromOwned`. See the
 /// one-spine note at the top of this file.
 pub fn argumentsEqual(a: model.Argument, b: model.Argument) bool {
+    return equalUnbounded(.fromOwned(&a), .fromOwned(&b));
+}
+
+/// The owned entry points' comparison: no scratch and no budget, because
+/// both trees are this process's own and the walk is bounded by their size.
+fn equalUnbounded(a: model.view.Argument, b: model.view.Argument) bool {
     var budget = CompareBudget.init(unbounded_visits);
     var no_scratch_buf: [0]u8 = .{};
     var no_scratch = std.heap.FixedBufferAllocator.init(&no_scratch_buf);
     return viewArgumentsEqualBounded(
-        .fromOwned(&a),
-        .fromOwned(&b),
+        a,
+        b,
         .{ .scratch = no_scratch.allocator(), .budget = &budget },
     ) catch unreachable;
 }
@@ -474,30 +480,14 @@ fn float64Equal(x: f64, y: f64) bool {
 /// Structural equality on two owned handoffs, over the same spine as the
 /// borrowed comparison.
 pub fn handoffsEqual(a: model.Handoff, b: model.Handoff) bool {
-    var budget = CompareBudget.init(unbounded_visits);
-    var no_scratch_buf: [0]u8 = .{};
-    var no_scratch = std.heap.FixedBufferAllocator.init(&no_scratch_buf);
-    return viewArgumentsEqualBounded(
-        .{ .handoff = .fromOwned(&a) },
-        .{ .handoff = .fromOwned(&b) },
-        .{ .scratch = no_scratch.allocator(), .budget = &budget },
-    ) catch unreachable;
+    return equalUnbounded(.{ .handoff = .fromOwned(&a) }, .{ .handoff = .fromOwned(&b) });
 }
 
 fn hintsEqual(a: model.Hints, b: model.Hints) bool {
     if (a.wire_form != b.wire_form or a.entries.len != b.entries.len) return false;
     for (a.entries, b.entries) |ae, be| {
         if (!std.mem.eql(u8, ae.name, be.name)) return false;
-        if (!hintValuesEqual(ae.value, be.value)) return false;
+        if (!ae.value.eql(be.value)) return false;
     }
     return true;
-}
-
-fn hintValuesEqual(a: model.HintValue, b: model.HintValue) bool {
-    return switch (a) {
-        .string => |x| b == .string and std.mem.eql(u8, x, b.string),
-        .bytes => |x| b == .bytes and std.mem.eql(u8, x, b.bytes),
-        .boolean => |x| b == .boolean and x == b.boolean,
-        .integer => |x| b == .integer and x == b.integer,
-    };
 }

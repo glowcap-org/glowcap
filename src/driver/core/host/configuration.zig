@@ -144,7 +144,7 @@ pub fn setIngressLimits(self: *Host, limits: actors.QueueLimits) error{ Reentere
     try admission.admitConfigurationMutation(self);
     if (limits.max_pending_turns == 0 or limits.max_chunk_bytes == 0 or
         limits.max_chunk_bytes > limits.max_pending_bytes) return error.InvalidArgument;
-    if (self.vat.ingresses.rowCount() != 0 or self.next_vow != 1 or self.vat.next_vow != 1)
+    if (self.vat.ingresses.rowCount() != 0 or !self.vow_ids.untouched() or !self.vat.vow_ids.untouched())
         return error.HostNotQuiescent;
     self.vat.queue_limits = limits;
 }

@@ -118,7 +118,7 @@ pub const designator_buf_len = profile_listener.designator_buf_len;
 /// `driver.connect` takes the returned locator directly.
 pub fn locatorFromAddress(buf: *[designator_buf_len]u8, address: IpAddress) model.PeerLocator {
     const designator = std.fmt.bufPrint(buf, "{f}", .{address}) catch unreachable;
-    return .{ .transport = transport_name, .designator = designator, .hints = model.Hints.emptyFalse() };
+    return .hintless(transport_name, designator);
 }
 
 /// Build a `tcp` locator from a `host:port` `designator` string the caller
@@ -131,7 +131,7 @@ pub fn locatorFromAddress(buf: *[designator_buf_len]u8, address: IpAddress) mode
 /// unchanged. `designator` is borrowed: it must outlive the dial that copies what
 /// the session retains.
 pub fn locator(designator: []const u8) model.PeerLocator {
-    return .{ .transport = transport_name, .designator = designator, .hints = model.Hints.emptyFalse() };
+    return .hintless(transport_name, designator);
 }
 
 /// As `connectAddress`, resolving `locator`'s `host:port` designator (the

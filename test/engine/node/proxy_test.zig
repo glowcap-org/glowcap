@@ -15,6 +15,7 @@ const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesA
 const Node = engine.Node;
 
 const harness = @import("harness.zig");
+const projection_support = @import("../../support/projection.zig");
 const pendingWithdrawAnswer = harness.pendingWithdrawAnswer;
 const peerUri = harness.peerUri;
 const peerUriWithAlternatives = harness.peerUriWithAlternatives;
@@ -25,7 +26,7 @@ const openKeyedSessionWithCounterpart = harness.openKeyedSessionWithCounterpart;
 
 test "inline handoff redemption preserves its Host promise destination" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x4a)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x4a)));
     defer node.deinit();
 
     const recipient = try node.registerPeer(.{});
@@ -50,12 +51,12 @@ test "inline handoff redemption preserves its Host promise destination" {
 
 test "a redeemed route routes to its exporter with the real reference swapped in" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(9)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(9)));
     defer node.deinit();
 
     const recipient_conn = try node.registerPeer(.{});
     const exporter_conn = try node.registerPeer(.{});
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter_conn).?, @as([crypto.SEED_BYTES]u8, @splat(16)));
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter_conn).?, @as([crypto.seed_bytes]u8, @splat(16)));
     defer counterpart.deinit();
 
     // Redeem a give against the live exporter; the claimed resolve enrolls the
@@ -83,76 +84,78 @@ test "a redeemed route routes to its exporter with the real reference swapped in
 
 test "enrollForeign preserves promise RefKind on the route" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(3)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(3)));
     defer node.deinit();
     const home = try node.registerPeer(.{});
     try node.peer(home).?.session_state.registerImport(.from(8));
     try node.peer(home).?.session_state.registerImport(.from(9));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(8) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(8));
     try std.testing.expectEqual(model.RefKind.promise, route.routed.kind);
-    const object_route = try node.enrollForeign(home, .{ .far = model.FarRef.object(9) });
+    const object_route = try node.enrollForeign(home, model.FarRef.object(9));
     try std.testing.expectEqual(model.RefKind.object, object_route.routed.kind);
 }
 
 test "proxyForeignPromiseFulfill refuses when the home session is not open" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(11)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(11)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const recipient = try node.registerPeer(.{});
     try node.peer(home).?.session_state.registerImport(.from(4));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(4) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(4));
     try std.testing.expectError(
-        error.session_not_open,
+        error.SessionNotOpen,
         node.proxyForeignPromiseFulfill(recipient, route.routed.id),
     );
 }
 
 test "proxyForeignPromiseFulfill mints a third-party import-promise on the recipient peer" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(11)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(11)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const recipient = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.SEED_BYTES]u8, @splat(19)));
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.seed_bytes]u8, @splat(19)));
     defer home_counterpart.deinit();
 
     const wire_pos: u64 = 4;
     try node.peer(home).?.session_state.registerImport(.from(wire_pos));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(wire_pos));
     const far_id = route.routed.id;
 
     const rewritten = (try node.proxyForeignPromiseFulfill(recipient, far_id)).?;
     try std.testing.expectEqual(model.RefKind.promise, rewritten.near.kind);
     const pos = rewritten.near.export_position;
     const peer = node.peer(recipient).?;
-    try std.testing.expect(peer.session_state.isThirdPartyImport(.from(pos.int())));
+    try std.testing.expect(peer.session_state.answerForLocalPromiseExport(pos) != null);
 
     try node.peer(home).?.session_state.registerImport(.from(5));
-    const obj = try node.enrollForeign(home, .{ .far = model.FarRef.object(5) });
+    const obj = try node.enrollForeign(home, model.FarRef.object(5));
     try std.testing.expect((try node.proxyForeignPromiseFulfill(recipient, obj.routed.id)) == null);
     try std.testing.expect((try node.proxyForeignPromiseFulfill(home, far_id)) == null);
 }
 
 test "proxyForeignPromise home listen relays settlement to the recipient third-party import" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(13)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(13)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const recipient = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.SEED_BYTES]u8, @splat(21)));
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.seed_bytes]u8, @splat(21)));
     defer home_counterpart.deinit();
 
     const wire_pos: u64 = 4;
     try node.peer(home).?.session_state.registerImport(.from(wire_pos));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(wire_pos));
     const far_id = route.routed.id;
 
     const rewritten = (try node.proxyForeignPromiseFulfill(recipient, far_id)).?;
     const import_pos = rewritten.near.export_position.int();
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient).?.session_state.exports.retain(.from(import_pos));
 
     // Home listen is queued; step encodes it. The listener export is what Host
     // will match on an inbound fire deliver.
@@ -170,7 +173,7 @@ test "proxyForeignPromise home listen relays settlement to the recipient third-p
     try std.testing.expect(node.consumeProjectedProxyListenerFire(home, listener, .{ .fulfill = .{ .bytes = payload } }));
 
     const recip = node.peer(recipient).?;
-    try std.testing.expectEqualStrings("relayed", recip.session_state.importedPromiseResolution(.from(import_pos)).?.fulfill.bytes);
+    try std.testing.expectEqualStrings("relayed", projection_support.resolution(&recip.session_state, .from(import_pos)).?.fulfill.bytes);
 
     // After settle the proxy is torn down; a second deliver is not claimed
     // (resolve-once lives in the import store, not a zombie Node index).
@@ -181,7 +184,7 @@ test "proxyForeignPromise home listen relays settlement to the recipient third-p
 
 test "a next proxy settling listener follows shortening on its home session" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x42)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x42)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{ .captp_version = .next });
@@ -190,7 +193,7 @@ test "a next proxy settling listener follows shortening on its home session" {
         allocator,
         &node,
         node.peer(home).?,
-        @as([crypto.SEED_BYTES]u8, @splat(0x43)),
+        @as([crypto.seed_bytes]u8, @splat(0x43)),
     );
     defer home_counterpart.deinit();
 
@@ -198,12 +201,14 @@ test "a next proxy settling listener follows shortening on its home session" {
     const target: u64 = 6;
     const home_peer = node.peer(home).?;
     try home_peer.session_state.registerImport(.from(source));
-    const shortening_resolver = model.ExportPosition.from(home_peer.session_state.next_export_position);
+    const shortening_resolver = home_peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(home_peer, .from(source));
 
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(source) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(source));
     const rewritten = (try node.proxyForeignPromiseFulfill(recipient, route.routed.id)).?;
     const recipient_import = rewritten.near.export_position.int();
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient).?.session_state.exports.retain(.from(recipient_import));
 
     while ((try home_peer.step()) != .idle) {}
     var initial_shortening = home_peer.takeOutbound().?;
@@ -247,7 +252,7 @@ test "a next proxy settling listener follows shortening on its home session" {
     }));
     try std.testing.expectEqualStrings(
         "shortened relay",
-        node.peer(recipient).?.session_state.importedPromiseResolution(.from(recipient_import)).?.fulfill.bytes,
+        projection_support.resolution(&node.peer(recipient).?.session_state, .from(recipient_import)).?.fulfill.bytes,
     );
 
     // A proxy first requested after shortening starts at the current target;
@@ -255,7 +260,7 @@ test "a next proxy settling listener follows shortening on its home session" {
     const late_source: u64 = 8;
     const late_target: u64 = 9;
     try home_peer.session_state.registerImport(.from(late_source));
-    const late_shortening_resolver = model.ExportPosition.from(home_peer.session_state.next_export_position);
+    const late_shortening_resolver = home_peer.session_state.exports.nextPosition();
     try engine.listen.ensureShorteningListener(home_peer, .from(late_source));
     while ((try home_peer.step()) != .idle) {}
     while (home_peer.takeOutbound()) |frame_in| {
@@ -279,7 +284,7 @@ test "a next proxy settling listener follows shortening on its home session" {
         frame.deinit();
     }
 
-    const late_route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(late_source) });
+    const late_route = try node.enrollForeign(home, model.FarRef.promise(late_source));
     _ = (try node.proxyForeignPromiseFulfill(recipient, late_route.routed.id)).?;
     while ((try home_peer.step()) != .idle) {}
     var late_settling = home_peer.takeOutbound().?;
@@ -291,24 +296,28 @@ test "a next proxy settling listener follows shortening on its home session" {
 
 test "proxyForeignPromise multi-introduce shares one home listen and materializes into each store" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(15)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(15)));
     defer node.deinit();
 
     const home = try node.registerPeer(.{});
     const recipient_a = try node.registerPeer(.{});
     const recipient_b = try node.registerPeer(.{});
-    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.SEED_BYTES]u8, @splat(23)));
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, @as([crypto.seed_bytes]u8, @splat(23)));
     defer home_counterpart.deinit();
 
     const wire_pos: u64 = 4;
     try node.peer(home).?.session_state.registerImport(.from(wire_pos));
-    const route = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const route = try node.enrollForeign(home, model.FarRef.promise(wire_pos));
     const far_id = route.routed.id;
 
     const rewritten_a = (try node.proxyForeignPromiseFulfill(recipient_a, far_id)).?;
     const rewritten_b = (try node.proxyForeignPromiseFulfill(recipient_b, far_id)).?;
     const import_a = rewritten_a.near.export_position.int();
     const import_b = rewritten_b.near.export_position.int();
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient_a).?.session_state.exports.retain(.from(import_a));
+    // Hold the projection as the partner would once its message is sent.
+    node.peer(recipient_b).?.session_state.exports.retain(.from(import_b));
 
     // Exactly one home listen for both introduces.
     try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
@@ -326,17 +335,17 @@ test "proxyForeignPromise multi-introduce shares one home listen and materialize
 
     try std.testing.expectEqualStrings(
         "shared",
-        node.peer(recipient_a).?.session_state.importedPromiseResolution(.from(import_a)).?.fulfill.bytes,
+        projection_support.resolution(&node.peer(recipient_a).?.session_state, .from(import_a)).?.fulfill.bytes,
     );
     try std.testing.expectEqualStrings(
         "shared",
-        node.peer(recipient_b).?.session_state.importedPromiseResolution(.from(import_b)).?.fulfill.bytes,
+        projection_support.resolution(&node.peer(recipient_b).?.session_state, .from(import_b)).?.fulfill.bytes,
     );
 }
 
 test "raw send-argument routability distinguishes a route's home" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(3)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(3)));
     defer node.deinit();
 
     const here = try node.registerPeer(.{});
@@ -345,7 +354,7 @@ test "raw send-argument routability distinguishes a route's home" {
     // Raw/model Host verbs ask this one Node verdict because they have no
     // application retain to transfer into delayed inline handoff (ADR-0116).
     try node.peer(elsewhere).?.session_state.registerImport(.from(8));
-    const import = try node.enrollForeign(elsewhere, .{ .far = model.FarRef.object(8) });
+    const import = try node.enrollForeign(elsewhere, model.FarRef.object(8));
     // Foreign when sent from `here` (it lives on `elsewhere`)…
     try std.testing.expect(node.argIsForeign(here, import));
     // …native when sent from its own home.
@@ -359,7 +368,7 @@ test "raw send-argument routability distinguishes a route's home" {
     // A redeemed route is foreign from any connection of the node, its home
     // included: it has no wire home, so it can only be re-routed as a send target,
     // never marshalled as an argument.
-    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(elsewhere).?, @as([crypto.SEED_BYTES]u8, @splat(17)));
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(elsewhere).?, @as([crypto.seed_bytes]u8, @splat(17)));
     defer counterpart.deinit();
     const route_id = try mintRedeemedRoute(&node, here, elsewhere, 81, 1, "ocapn://127.0.0.1%3A9056.tcp");
     const route: model.Reference = .{ .routed = .{ .id = route_id } };
@@ -369,7 +378,7 @@ test "raw send-argument routability distinguishes a route's home" {
 
 fn runNestedForeignArguments(codec_id: model.CodecId) !void {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, @as([crypto.SEED_BYTES]u8, @splat(0x2d)));
+    var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(0x2d)));
     defer node.deinit();
 
     const recipient_id = try node.registerPeer(.{ .captp_version = .next, .codec = codec_id });
@@ -380,14 +389,14 @@ fn runNestedForeignArguments(codec_id: model.CodecId) !void {
         allocator,
         &node,
         recipient,
-        @as([crypto.SEED_BYTES]u8, @splat(0x2e)),
+        @as([crypto.seed_bytes]u8, @splat(0x2e)),
     );
     defer recipient_counterpart.deinit();
     var exporter_counterpart = try openKeyedSessionWithCounterpart(
         allocator,
         &node,
         exporter,
-        @as([crypto.SEED_BYTES]u8, @splat(0x2f)),
+        @as([crypto.seed_bytes]u8, @splat(0x2f)),
     );
     defer exporter_counterpart.deinit();
 
@@ -395,7 +404,7 @@ fn runNestedForeignArguments(codec_id: model.CodecId) !void {
     try exporter.session_state.registerImport(.from(4));
     const foreign = try node.enrollForeign(
         exporter_id,
-        .{ .far = model.FarRef.object(4) },
+        model.FarRef.object(4),
     );
     const list = [_]model.Argument{
         .{ .reference = foreign },
@@ -412,13 +421,13 @@ fn runNestedForeignArguments(codec_id: model.CodecId) !void {
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
     const first = node.nextAction().?.need_gift_id.ticket;
     const second = node.nextAction().?.need_gift_id.ticket;
-    const first_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xa1));
+    const first_id = @as([model.handoff_gift_id_bytes]u8, @splat(0xa1));
     try node.provideGiftId(second, &first_id);
     try std.testing.expect(node.nextAction() == null);
     try std.testing.expectEqual(engine.StepOutcome.idle, try recipient.step());
     try std.testing.expectEqual(engine.StepOutcome.idle, try exporter.step());
 
-    const second_id = @as([model.HANDOFF_GIFT_ID_BYTES]u8, @splat(0xa2));
+    const second_id = @as([model.handoff_gift_id_bytes]u8, @splat(0xa2));
     try node.provideGiftId(first, &second_id);
     try std.testing.expectEqual(@as(usize, 0), node.pendingGiftEffects());
     var flushes: usize = 0;

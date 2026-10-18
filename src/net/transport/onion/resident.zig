@@ -17,6 +17,7 @@
 //! out, and `listen` refuses rather than silently succeeding.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 const engine = @import("engine");
 const model = @import("model");
@@ -53,11 +54,7 @@ pub const transport_name = known_transport.metadata().symbol;
 /// has copied or retained it. Onion locators use the Goblins-compatible empty
 /// false hint spelling. Direct-address hints have no meaning here.
 pub fn locator(service_id: []const u8) model.PeerLocator {
-    return .{
-        .transport = transport_name,
-        .designator = service_id,
-        .hints = model.Hints.emptyFalse(),
-    };
+    return .hintless(transport_name, service_id);
 }
 
 /// The unframed byte-stream seam shared by Zig connections and the C
@@ -491,12 +488,7 @@ pub const Listener = struct {
         // what lets this take the absolute form and name no directory.
         if (self.unix_path) |path| std.Io.Dir.deleteFileAbsolute(self.io, path) catch |err| switch (err) {
             error.FileNotFound => {},
-            else => {
-                if (failure) |*first|
-                    first.note(err)
-                else
-                    failure = .init(err);
-            },
+            else => foundation.latchFailure(&failure, .init(err)),
         };
         self.allocator.destroy(self);
         return failure;

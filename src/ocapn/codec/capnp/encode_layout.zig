@@ -14,6 +14,38 @@ const StructLoc = shared.StructLoc;
 
 pub const ListContent = struct { data_idx: usize, elem: wire.ElementSize, count: usize };
 
+/// A composite list reserved as one run of words: its tag, then `count`
+/// elements of one struct shape.
+pub const Composite = struct {
+    tag_idx: usize,
+    data_words: u16,
+    ptr_words: u16,
+    count: usize,
+
+    pub fn elem(self: Composite, index: usize) StructLoc {
+        std.debug.assert(index < self.count);
+        return .{ .data_idx = self.tag_idx + 1 + index * self.stride(), .data_words = self.data_words, .ptr_words = self.ptr_words };
+    }
+
+    pub fn content(self: Composite) ListContent {
+        return .{ .data_idx = self.tag_idx, .elem = .composite, .count = self.count * self.stride() };
+    }
+
+    fn stride(self: Composite) usize {
+        return @as(usize, self.data_words) + self.ptr_words;
+    }
+};
+
+/// Reserve a composite list and write its tag. The tag counts elements in 30
+/// bits, so a longer list has no wire form here and is refused whole.
+pub fn allocComposite(b: *wire.Builder, allocator: std.mem.Allocator, count: usize, comptime data_words: u16, comptime ptr_words: u16) EncodeError!Composite {
+    const element_count = std.math.cast(u30, count) orelse return Error.UnsupportedArgument;
+    const body_words = std.math.mul(usize, count, @as(usize, data_words) + ptr_words) catch return Error.UnsupportedArgument;
+    const tag_idx = try b.allocWords(allocator, 1 + body_words);
+    b.set(tag_idx, wire.Builder.compositeTag(element_count, data_words, ptr_words));
+    return .{ .tag_idx = tag_idx, .data_words = data_words, .ptr_words = ptr_words, .count = count };
+}
+
 /// Schema dimensions are fixed by the writer, never by the input value.
 pub fn allocStruct(b: *wire.Builder, allocator: std.mem.Allocator, comptime data_words: u16, comptime ptr_words: u16) std.mem.Allocator.Error!StructLoc {
     const idx = try b.allocWords(allocator, @as(usize, data_words) + ptr_words);

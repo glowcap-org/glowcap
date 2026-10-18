@@ -219,10 +219,11 @@ pub const hint_alt_locators = "alt-locators";
 pub const hint_via = "via";
 
 /// Hint entry names that carry a peer's preferred wire profile: the CapTP
-/// version in the same representation the version field uses
-/// (`CaptpVersion.wireString`), the codec by the stable `u16` identity
-/// `CodecId` declares, in decimal, and the optional feature set as a
-/// comma-separated list of `FeatureSet` field names.
+/// version as `CaptpVersion.hintToken`, the codec as `CodecId.hintToken`, and
+/// the optional feature set as a comma-separated list of `FeatureSet` field
+/// names. A token for a version or codec glowcap owns carries this build's
+/// own-wire fingerprint (ADR-0252), and a token this build does not write
+/// reads as the baseline on its axis.
 ///
 /// They ride the locator a hello signs, the sender's own `acceptable_location`
 /// beside `direct-addresses`, so a peer states its profile the same way it

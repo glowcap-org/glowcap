@@ -8,12 +8,13 @@ pub fn composedTraversal(store: *r.h.loam.core.Store, backend: anytype) !void {
     const destination = try f.resource(store, backend, seeded.data.owner, seeded.root);
     var caps = try r.storage.Capabilities.init(r.a, store, .{});
     defer caps.deinit() catch unreachable;
-    const descriptor = try r.h.c.descriptor(&caps, backend, seeded.data.owner, seeded.data.grant, null, false);
+    const descriptor = try r.h.c.descriptor(&caps, backend, seeded.data.owner, seeded.data.grant, null, .reachable);
     try store.begin();
     defer if (store.phase == .staging) store.abort() catch unreachable;
     var child: r.core.ResourceId = undefined;
     {
-        var read = try r.storage.Read.init(r.a, store, seeded.data.owner, 8);
+        var read: r.storage.Read = undefined;
+        try read.init(r.a, store, seeded.data.owner, 8, null);
         defer read.deinit() catch unreachable;
         _ = try r.pump(&read, backend);
         var append = try r.storage.Append.init(&read, .resource);
@@ -22,7 +23,8 @@ pub fn composedTraversal(store: *r.h.loam.core.Store, backend: anytype) !void {
         child = try f.stageResource(&append, &read, backend, f.vocabulary.kind, seeded.leaf);
     }
     {
-        var read = try r.storage.Read.init(r.a, store, seeded.data.owner, 8);
+        var read: r.storage.Read = undefined;
+        try read.init(r.a, store, seeded.data.owner, 8, null);
         defer read.deinit() catch unreachable;
         _ = try r.pump(&read, backend);
         var move = try r.prepare(&read, backend, seeded.leaf, .{ .move = destination });
@@ -41,9 +43,11 @@ pub fn composedTraversal(store: *r.h.loam.core.Store, backend: anytype) !void {
 pub fn independentPreparations(store: *r.h.loam.core.Store, backend: anytype) !void {
     const seeded = try r.seed(store, backend);
     const sibling = try f.resource(store, backend, seeded.data.owner, seeded.root);
-    var first = try r.storage.Read.init(r.a, store, seeded.data.owner, 8);
+    var first: r.storage.Read = undefined;
+    try first.init(r.a, store, seeded.data.owner, 8, null);
     defer first.deinit() catch unreachable;
-    var second = try r.storage.Read.init(r.a, store, seeded.data.owner, 8);
+    var second: r.storage.Read = undefined;
+    try second.init(r.a, store, seeded.data.owner, 8, null);
     defer second.deinit() catch unreachable;
     _ = try r.pump(&first, backend);
     _ = try r.pump(&second, backend);
@@ -63,7 +67,7 @@ pub fn independentPreparations(store: *r.h.loam.core.Store, backend: anytype) !v
     try std.testing.expectEqual(revision, store.metadata.revision);
     var caps = try r.storage.Capabilities.init(r.a, store, .{});
     defer caps.deinit() catch unreachable;
-    const descriptor = try r.h.c.descriptor(&caps, backend, seeded.data.owner, seeded.data.grant, null, false);
+    const descriptor = try r.h.c.descriptor(&caps, backend, seeded.data.owner, seeded.data.grant, null, .reachable);
     try r.children(&caps, backend, descriptor, seeded.root, &.{ seeded.leaf, sibling });
     const use = try r.h.c.use(&caps, backend, descriptor);
     defer use.release();
@@ -122,7 +126,7 @@ fn cursorReads(store: *r.h.loam.core.Store, backend: anytype, cancel: bool) !voi
     _ = try f.resource(store, backend, seeded.data.owner, seeded.root);
     var caps = try r.storage.Capabilities.init(r.a, store, .{});
     defer caps.deinit() catch unreachable;
-    const descriptor = try r.h.c.descriptor(&caps, backend, seeded.data.owner, seeded.data.grant, null, false);
+    const descriptor = try r.h.c.descriptor(&caps, backend, seeded.data.owner, seeded.data.grant, null, .reachable);
     const use = try r.h.c.use(&caps, backend, descriptor);
     defer use.release();
     const header_lease = try r.h.c.load(store, backend, seeded.data.owner);
@@ -175,10 +179,11 @@ pub fn structure(store: *r.h.loam.core.Store, backend: anytype) !void {
     const child = try f.resource(store, backend, data.owner, seeded.leaf);
     var caps = try r.storage.Capabilities.init(r.a, store, .{});
     defer caps.deinit() catch unreachable;
-    var read = try r.storage.Read.init(r.a, store, data.owner, 6);
+    var read: r.storage.Read = undefined;
+    try read.init(r.a, store, data.owner, 6, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
-    const descriptor = try r.h.c.descriptor(&caps, backend, data.owner, data.grant, null, false);
+    const descriptor = try r.h.c.descriptor(&caps, backend, data.owner, data.grant, null, .reachable);
     try r.children(&caps, backend, descriptor, seeded.root, &.{seeded.leaf});
     try std.testing.expectError(error.ContainmentCycle, r.change(store, backend, data.owner, seeded.leaf, .{ .move = child }));
     try std.testing.expectError(error.HasChildren, r.change(store, backend, data.owner, seeded.leaf, .delete_leaf));
@@ -215,7 +220,7 @@ pub fn visibility(store: *r.h.loam.core.Store, backend: anytype) !void {
     const limited = (try f.change(store, backend, seeded.data.owner, .{ .issue_root = f.vocabulary.issue(terms, 0) })).?.grant;
     var caps = try r.storage.Capabilities.init(r.a, store, .{});
     defer caps.deinit() catch unreachable;
-    const descriptor = try r.h.c.descriptor(&caps, backend, seeded.data.owner, limited, null, false);
+    const descriptor = try r.h.c.descriptor(&caps, backend, seeded.data.owner, limited, null, .reachable);
     try r.children(&caps, backend, descriptor, seeded.root, &.{visible});
     // A continuation keeps an exact snapshot; an intervening mutation requires
     // fresh admission, never a raw owner revision passed back as authority.
@@ -251,7 +256,8 @@ pub fn rollback(store: *r.h.loam.core.Store, backend: anytype) !void {
     const other = try f.resource(store, backend, owner, null);
     const destination = try f.resource(store, backend, owner, other);
     try std.testing.expectError(error.DepthLimit, r.change(store, backend, owner, branch, .{ .move = destination }));
-    var read = try r.storage.Read.init(r.a, store, owner, 8);
+    var read: r.storage.Read = undefined;
+    try read.init(r.a, store, owner, 8, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     var edit = try r.prepare(&read, backend, leaf, .{ .move = other });
@@ -262,7 +268,8 @@ pub fn rollback(store: *r.h.loam.core.Store, backend: anytype) !void {
     const content = try store.allocateId();
     try store.putCopying(.{ .id = content, .revision = 0, .schema = 7, .payload = "abort" }, null);
     try store.abort();
-    var fresh = try r.storage.Read.init(r.a, store, owner, 8);
+    var fresh: r.storage.Read = undefined;
+    try fresh.init(r.a, store, owner, 8, null);
     defer fresh.deinit() catch unreachable;
     _ = try f.pump(&fresh, backend);
     var resources = try fresh.resourceView();

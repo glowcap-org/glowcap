@@ -35,11 +35,12 @@ an argument and the access moves with it.
 returns a session whose handshake is complete.
 
 In the browser, `@glowcap/web` compiles the same `Session` API to WebAssembly.
-A browser dials but never listens. See
+A page cannot listen on a socket, so it accepts peers over WebRTC or through a
+relay instead. See
 [In the browser]($link.page('bindings/browser')).
 
-Stay at the level you need: synchronous verbs, the language's own async sockets,
-or the Goblins-shaped actor layer on top with near-call and eventual-send
+You can use synchronous verbs, the language's own async sockets, or the
+Goblins-shaped actor layer on top with near-call and eventual-send
 ([modules]($link.page('modules'))).
 
 # Use a binding from a checkout
@@ -56,5 +57,5 @@ has the path for each language. Compose
 [onion]($link.page('transports/onion')),
 [Noise]($link.page('transports/noise')), or
 [WebRTC]($link.page('transports/webrtc'))
-from their archives. The TCP archive carries Noise over TCP, plus the `tcp`
-and `inproc` transports used for testing.
+from their archives. The TCP archive carries Noise over TCP and the testing
+`tcp`, and `inproc` has its own archive.

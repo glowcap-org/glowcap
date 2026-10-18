@@ -84,8 +84,8 @@ test "next Syrup peers authenticate start-session before opening" {
 
     const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:11", .hints = model.Hints.emptyFalse() };
     const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:12", .hints = model.Hints.emptyFalse() };
-    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x77)));
-    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x88)));
+    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x77)));
+    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x88)));
 
     try p1.sendKeyedStartSession(loc1, secret1);
     try p2.sendKeyedStartSession(loc2, secret2);
@@ -119,8 +119,8 @@ test "next Cap'n Proto peers authenticate start-session before opening" {
 
     const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:21", .hints = model.Hints.emptyFalse() };
     const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:22", .hints = model.Hints.emptyFalse() };
-    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x99)));
-    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0xaa)));
+    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x99)));
+    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0xaa)));
 
     try p1.sendKeyedStartSession(loc1, secret1);
     try p2.sendKeyedStartSession(loc2, secret2);
@@ -171,7 +171,7 @@ test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
 
     try pair.p1.sendBorrowed(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
             .args = &.{.{ .bytes = "ping" }},
             .answer = null,
             .resolve_me_desc = null,
@@ -206,7 +206,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
 
     try pair.p1.sendBorrowed(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+            .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
             .args = &.{.{ .bytes = "ping" }},
             .answer = .from(42),
             .resolve_me_desc = null,
@@ -214,7 +214,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
     });
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
 
-    const resolver_export = pair.p1.session_state.next_export_position - 1;
+    const resolver_export = pair.p1.session_state.exports.nextPosition().int() - 1;
     const deliver_frame = pair.p1.takeOutbound().?;
     try pair.p2.feedOwned(deliver_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
@@ -250,8 +250,8 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
 
 test "pairedWithKeys verifies real Ed25519 start-session signatures" {
     const allocator = std.testing.allocator;
-    const p1_seed = @as([crypto.SEED_BYTES]u8, @splat(0x11));
-    const p2_seed = @as([crypto.SEED_BYTES]u8, @splat(0x22));
+    const p1_seed = @as([crypto.seed_bytes]u8, @splat(0x11));
+    const p2_seed = @as([crypto.seed_bytes]u8, @splat(0x22));
 
     // Returning without `InvalidStartSessionSignature` means each side's
     // partner signature verified over the real sign → encode → wire → decode

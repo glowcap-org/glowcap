@@ -2,6 +2,7 @@
 
 const std = @import("std");
 const core = @import("diagnostics");
+const c_values = @import("value.zig");
 
 pub const abi_version: u32 = 1;
 pub const Layer = core.Layer;
@@ -78,13 +79,8 @@ fn scopeFromInt(value: u32) ReportError!ScopeKind {
     };
 }
 
-fn view(ptr: ?[*]const u8, len: usize) ReportError![]const u8 {
-    if (len == 0) return &.{};
-    return (ptr orelse return error.NullPointer)[0..len];
-}
-
 fn text(ptr: ?[*]const u8, len: usize) ReportError![]const u8 {
-    const bytes = try view(ptr, len);
+    const bytes = try c_values.sliceFromC(ptr, len);
     if (!std.unicode.utf8ValidateSlice(bytes)) return error.InvalidUtf8;
     return bytes;
 }

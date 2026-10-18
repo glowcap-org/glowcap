@@ -51,7 +51,7 @@ test "keyed-relay loopback: register, ping in the park, cold dial, fetch round-t
     var register_url_buf: [64]u8 = undefined;
     const register_url = try std.fmt.bufPrint(&register_url_buf, "ws://LOCALHOST:{d}/register", .{port});
 
-    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x6e)));
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x6e)));
 
     var registered = try keyed_relay.Resident.initRegistered(
         allocator,
@@ -157,7 +157,7 @@ test "keyed-relay routes a cold dial through the target's other relay" {
         .{target_port},
     );
 
-    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x7a)));
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x7a)));
     var registered = try keyed_relay.Resident.initRegistered(
         allocator,
         io,
@@ -223,7 +223,7 @@ test "keyed-relay refuses malformed, typed, duplicate, and oversized relay hints
     var resident = try keyed_relay.Resident.init(allocator, threaded.io(), "ws://127.0.0.1:1/relay");
     defer _ = resident.deinit();
 
-    const identity = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x7b)));
+    const identity = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x7b)));
     const designator = identity.publicKey().toDesignator();
 
     // A listener cannot truthfully advertise the dial URL when registration

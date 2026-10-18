@@ -1,6 +1,6 @@
 //! The still mark, generated from the shader that draws the live one.
 //!
-//! The mushroom has one authority, `apps/rooms/web/ui/mark_gpu_field.ts`, and
+//! The mushroom has one authority, `apps/rooms/web/ui/mark/field.ts`, and
 //! everything still is traced out of a render of it: the artwork under
 //! `site/assets/`, the favicon and the square icon cut from the same trace,
 //! the lit reading the README carries, and the masks, line drawing, tones,

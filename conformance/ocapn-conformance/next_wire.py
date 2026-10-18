@@ -5,6 +5,8 @@ Assertions remain upstream-owned. Native draft cases inspect wire_kind and
 listen_mode so conversion cannot conceal a legacy record from the peer.
 The opening and crypto representations intentionally remain the baseline.
 """
+from pathlib import Path
+import re
 import time
 
 from contrib import syrup
@@ -16,6 +18,22 @@ from utils.netstrings import Netstring
 
 Symbol = syrup.Symbol
 Record = syrup.Record
+
+
+def next_hint_token():
+    """The `glowcap/captp-version` token this checkout's glowcap writes for next.
+
+    The token names the exact build of glowcap's own wire (ADR-0252), and the
+    generated fingerprint in the model is its one source.
+    """
+    source = Path(__file__).resolve().parents[2] / "src/ocapn/model/own_wire.zig"
+    found = re.search(r'^pub const fingerprint = "([0-9a-f]{16})";$', source.read_text(), re.MULTILINE)
+    if found is None:
+        raise RuntimeError(f"no own-wire fingerprint in {source}")
+    return "glowcap-next/" + found.group(1)
+
+
+NEXT_HINT = next_hint_token()
 
 
 def key(record):
@@ -73,7 +91,7 @@ class NextSocket(CapTPSocket):
         if label == "op:start-session":
             assert len(args) == 4, "the deferred crypto transition needs explicit fixture review"
             assert args[0] == "1.0"
-            assert args[2].args[2].get("glowcap/captp-version") == "glowcap-next"
+            assert args[2].args[2].get("glowcap/captp-version") == NEXT_HINT
         else:
             assert self.negotiated, "operation before verified next negotiation"
         if label == "op:deliver" and len(args) == 4:
@@ -113,7 +131,7 @@ class NextSocket(CapTPSocket):
                 assert len(raw.args) == 4, "unexpected crypto transition"
                 hello = types.OpStartSession.from_syrup_record(raw)
                 assert hello.captp_version == "1.0" and hello.valid
-                assert hello.location.hints.get("glowcap/captp-version") == "glowcap-next"
+                assert hello.location.hints.get("glowcap/captp-version") == NEXT_HINT
                 assert hello.location.hints.get("glowcap/codec", "1") == "1"
                 self.negotiated = True
                 return hello
@@ -152,7 +170,7 @@ class NextSocket(CapTPSocket):
 class NextNetlayer(TestingOnlyTCPNetlayer):
     def __init__(self):
         super().__init__()
-        self.location.hints["glowcap/captp-version"] = "glowcap-next"
+        self.location.hints["glowcap/captp-version"] = NEXT_HINT
 
     def upgrade(self, session):
         connection = NextSocket.from_socket(session.connection)

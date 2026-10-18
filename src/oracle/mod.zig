@@ -83,6 +83,24 @@ pub fn runDrivenAbort(allocator: std.mem.Allocator) ![]u8 {
     return out.toOwnedSlice(allocator);
 }
 
+/// Carry `from`'s one outbound frame to `to`, step it, and trace the event
+/// that surfaced under `to_name`.
+fn relayAndTrace(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    from: *engine.Peer,
+    to: *engine.Peer,
+    to_name: []const u8,
+) !void {
+    try to.feedOwned(from.takeOutbound().?);
+    _ = try to.step();
+    if (to.pollEvent()) |event_value| {
+        var event = event_value;
+        defer event.deinit();
+        try appendTraceLine(allocator, out, "{s}=event:{s}\n", .{ to_name, @tagName(event.kind()) });
+    }
+}
+
 /// A full deliver-then-resolve round-trip across an in-process paired session
 /// (ADR-0010 V1.0 resolver-callback translation under the hood): p1 asks p2's
 /// bootstrap a question, p2 resolves it, and the resolution surfaces back at p1
@@ -106,16 +124,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:deliver:answer=42\n");
 
-    {
-        const frame = pair.p1.takeOutbound().?;
-        try pair.p2.feedOwned(frame);
-    }
-    _ = try pair.p2.step();
-    if (pair.p2.pollEvent()) |event_value| {
-        var event = event_value;
-        defer event.deinit();
-        try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
-    }
+    try relayAndTrace(allocator, &out, &pair.p1, &pair.p2, "p2");
 
     try pair.p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
@@ -166,16 +175,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
     } });
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:deliver:answer=42\n");
-    {
-        const frame = pair.p1.takeOutbound().?;
-        try pair.p2.feedOwned(frame);
-    }
-    _ = try pair.p2.step();
-    if (pair.p2.pollEvent()) |event_value| {
-        var event = event_value;
-        defer event.deinit();
-        try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
-    }
+    try relayAndTrace(allocator, &out, &pair.p1, &pair.p2, "p2");
 
     try pair.p1.sendBorrowed(.{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(42) } },
@@ -184,16 +184,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
     } });
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:listen:answer=42\n");
-    {
-        const frame = pair.p1.takeOutbound().?;
-        try pair.p2.feedOwned(frame);
-    }
-    _ = try pair.p2.step();
-    if (pair.p2.pollEvent()) |event_value| {
-        var event = event_value;
-        defer event.deinit();
-        try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
-    }
+    try relayAndTrace(allocator, &out, &pair.p1, &pair.p2, "p2");
 
     try pair.p2.sendBorrowed(.{ .resolve = .{
         .answer = .from(42),
@@ -243,18 +234,9 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:fetch\n");
 
-    {
-        const frame = pair.p1.takeOutbound().?;
-        try pair.p2.feedOwned(frame);
-    }
     // The deliver surfaces as an event on the first step; the synthesized
     // resolve encodes on the second.
-    _ = try pair.p2.step();
-    if (pair.p2.pollEvent()) |event_value| {
-        var event = event_value;
-        defer event.deinit();
-        try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
-    }
+    try relayAndTrace(allocator, &out, &pair.p1, &pair.p2, "p2");
     _ = try pair.p2.step();
     try out.appendSlice(allocator, "p2=auto:resolved\n");
 
@@ -267,7 +249,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
         var settle = pair.p1.pollEvent().?;
         defer settle.deinit();
         const owned = try settle.decodeOwned(allocator);
-        const match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_position, owned);
+        const match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer.position, owned);
         switch (match) {
             .settled => |outcome| switch (outcome) {
                 .fulfilled => |reference| {

@@ -14,11 +14,12 @@ const LiveBytesAllocator = @import("../../support/alloc_metrics.zig").LiveBytesA
 const Node = engine.Node;
 
 /// The answer position the node assigned the one withdraw it has parked on
-/// `exporter`. In production the exporter echoes this id on its resolve frame,
-/// so a host reads it off the wire. A white-box test drives `claimResolve`
-/// directly and recovers it from the node's single pending withdraw. Asserts
-/// exactly one withdraw is parked, on `exporter`.
-pub fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerHandle) u64 {
+/// `exporter`. In production the exporter echoes this position on its resolve
+/// frame, so a host reads it off the wire and the session names the question.
+/// A white-box test drives `claimResolve` directly and recovers it from the
+/// node's single pending withdraw. Asserts exactly one withdraw is parked, on
+/// `exporter`.
+pub fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerHandle) engine.OutboundAnswerTarget {
     std.testing.expectEqual(
         @as(usize, 1),
         node.redeems.withdrawals.rows.count(),
@@ -26,7 +27,12 @@ pub fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerHandle) u64 {
     var it = node.redeems.withdrawals.rows.keyIterator();
     const key = it.next().?.*;
     std.testing.expectEqual(exporter, key.peer_handle) catch unreachable;
-    return key.answer;
+    return withdrawTarget(node, exporter, key.answer);
+}
+
+/// Name the question a parked withdraw asked on `exporter`'s session.
+pub fn withdrawTarget(node: *Node, exporter: engine.PeerHandle, position: u64) engine.OutboundAnswerTarget {
+    return node.peer(exporter).?.session_state.outboundAnswerTarget(.from(position)).?;
 }
 
 pub fn peerUri(allocator: std.mem.Allocator, designator: []const u8) ![]u8 {
@@ -78,7 +84,7 @@ pub fn testGiveBytes(allocator: std.mem.Allocator) ![]u8 {
         .hints = model.Hints.emptyFalse(),
     });
     defer allocator.free(location);
-    const secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x77)));
+    const secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x77)));
     return engine.handoff_gifter.buildSignedGive(
         allocator,
         secret,
@@ -104,15 +110,26 @@ pub fn mintRedeemedRoute(
 ) !model.CapabilityRouteId {
     const give = try testGiveBytes(node.allocator);
     defer node.allocator.free(give);
-    try node.acceptGive(recipient, answer, give, locator);
+    try node.acceptGive(recipient, try holdAnswer(node, recipient, answer), give, locator);
     const dial = node.nextAction().?;
     _ = try node.exporterDialed(dial.dial.pending, 0, exporter);
     _ = node.nextAction().?; // the withdraw flush
     const withdraw_answer = pendingWithdrawAnswer(node, exporter);
     if (!try node.claimResolve(exporter, withdraw_answer, .{ .far = far_id })) return error.NotClaimed;
     const settle = node.nextAction().?;
-    if (settle.settle.dest.answer.answer.int() != answer) return error.WrongAnswerSettled;
+    if (settle.settle.dest.answer.answer.position.int() != answer) return error.WrongAnswerSettled;
     return settle.settle.route_id;
+}
+
+/// Hold the outbound answer at `position` in `recipient`'s session, the
+/// pending question a give answers, and name it the way the node is told. A
+/// position already held names the question it holds, so a retried give
+/// names the same question.
+pub fn holdAnswer(node: *Node, recipient: engine.PeerHandle, position: u64) !engine.OutboundAnswerTarget {
+    const state = &node.peer(recipient).?.session_state;
+    if (state.outboundAnswerTarget(.from(position))) |held| return held;
+    try state.installOutboundAnswer(.from(position));
+    return state.outboundAnswerTarget(.from(position)).?;
 }
 
 /// Open a keyed session between the node-owned peer `p` (signing with the
@@ -123,7 +140,7 @@ pub fn openKeyedSessionWithCounterpart(
     allocator: std.mem.Allocator,
     node: *Node,
     p: *engine.Peer,
-    counterpart_seed: [crypto.SEED_BYTES]u8,
+    counterpart_seed: [crypto.seed_bytes]u8,
 ) !engine.Peer {
     var counterpart = engine.Peer.initNegotiatingWith(allocator, .{
         .captp_version = p.session_state.captp_version,

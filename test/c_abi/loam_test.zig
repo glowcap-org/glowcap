@@ -381,9 +381,9 @@ fn checkOwnershipAndWorkers(backend: *n.GlowcapLoamLmdb, store: *c.GlowcapLoamSt
     try std.testing.expectEqual(shared.GLOWCAP_OK, n.glowcap_loam_lmdb_work_run(backend, work));
     try std.testing.expectEqual(c.GLOWCAP_LOAM_ERR_STALE_COMPLETION, n.glowcap_loam_lmdb_work_run(backend, work));
     var completed: u32 = 1;
-    owner.host_borrow.core().in_callback = true;
+    const hold = owner.host_borrow.core().callback_latch.hold();
     const reentered = c.glowcap_loam_work_complete(work, &completed);
-    owner.host_borrow.core().in_callback = false;
+    hold.release();
     try std.testing.expectEqual(shared.GLOWCAP_ERR_INVALID_ARGUMENT, reentered);
     try std.testing.expectEqual(@as(u32, 0), completed);
     try std.testing.expectEqual(shared.GLOWCAP_ERR_WOULD_BLOCK, c.glowcap_loam_work_release(work));

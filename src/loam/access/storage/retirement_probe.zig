@@ -41,9 +41,9 @@ pub const Probe = struct {
             }
             var scratch: [records.CapabilityRecord.selection_bytes]u8 align(@alignOf(core.ResourceId)) = undefined;
             var fixed = std.heap.FixedBufferAllocator.init(&scratch);
-            var decoded = try records.CapabilityRecord.decodeOwned(fixed.allocator(), loaded.view);
-            defer decoded.deinit(fixed.allocator());
-            const descriptor = decoded.value;
+            var descriptor: records.CapabilityRecord = undefined;
+            try descriptor.decodeOwned(fixed.allocator(), loaded.view);
+            defer descriptor.deinit(fixed.allocator());
             if (!descriptor.owner.eql(self.read.owner_object) or descriptor.grant.owner != self.read.header.owner) return error.InvalidRecord;
             if (self.grant) |grant| if (!grant.eql(descriptor.grant) or descriptor.role != .control or self.role != .control) return error.InvalidRecord;
             self.grant = descriptor.grant;

@@ -41,11 +41,7 @@ pub fn ResidentPolicy(comptime Backend: type) type {
             allocator: std.mem.Allocator,
         ) !model.PeerLocator {
             const designator = (identity orelse return error.InvalidAddress).toDesignator();
-            return model.clonePeerLocator(allocator, .{
-                .transport = transport,
-                .designator = &designator,
-                .hints = model.Hints.emptyFalse(),
-            });
+            return model.clonePeerLocator(allocator, .hintless(transport, &designator));
         }
 
         /// The listener answers only to its Host's key.
@@ -57,11 +53,8 @@ pub fn ResidentPolicy(comptime Backend: type) type {
             allocator: std.mem.Allocator,
             candidate: model.PeerLocator,
         ) !model.PeerLocator {
-            model.validatePeerLocator(candidate) catch return error.InvalidAddress;
             const expected = (identity orelse return error.InvalidAddress).toDesignator();
-            if (!std.mem.eql(u8, candidate.transport, transport) or !std.mem.eql(u8, candidate.designator, &expected))
-                return error.InvalidAddress;
-            return model.clonePeerLocator(allocator, candidate);
+            return net.netlayer.canonicalizeFixedLocator(allocator, candidate, transport, &expected);
         }
     };
 }

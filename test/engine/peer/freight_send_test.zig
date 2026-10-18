@@ -121,7 +121,7 @@ test "a refused freight admission commits nothing and the same send retries" {
                 try std.testing.expect(peer.session_state.outboundAnswer(.from(42)) == null);
                 try std.testing.expectEqual(
                     @as(?model.ExportPosition, null),
-                    peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = .from(42) }),
+                    peer.session_state.resolverExportForAnswer(.from(42)),
                 );
                 try peer.sendFreight(target, .fromViews(&views), .from(42));
             }

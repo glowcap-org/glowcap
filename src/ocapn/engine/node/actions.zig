@@ -16,10 +16,15 @@ const PeerHandle = @import("../peer_handle.zig").PeerHandle;
 /// originating a give. Success for that path is published directly by the
 /// two-peer transaction, so it is not a `redeem.Destination` and
 /// cannot appear in a `.settle` action.
+/// A redeemed give's traditional returned-handoff answer.
+pub const AnswerDestination = struct { recipient_peer: PeerHandle, answer: session.OutboundAnswerTarget };
+/// Host-owned promise authority for a give found inline in a Passable value.
+pub const DeferredDestination = struct { recipient_peer: PeerHandle, id: u64 };
+
 pub const FailureDestination = union(enum) {
-    answer: struct { recipient_peer: PeerHandle, answer: model.AnswerPosition },
+    answer: AnswerDestination,
     served_answer: struct { recipient_peer: PeerHandle, answer: session.AnswerTarget },
-    deferred: struct { recipient_peer: PeerHandle, id: u64 },
+    deferred: DeferredDestination,
 };
 
 pub const FailureReason = union(enum) {
@@ -119,24 +124,11 @@ fn free(self: *Node, action: Action) void {
 /// actions the caller is about to publish. The FIFO reuses a dead prefix before
 /// growing its backing.
 pub fn reserve(self: *Node, immediate: usize) !void {
-    const redeem_promised = try self.redeems.promisedActions();
-    const handoff_promised = std.math.add(
-        usize,
-        self.actions.proxy_reservations,
-        redeem_promised,
-    ) catch return error.OutOfMemory;
-    const with_inline = std.math.add(
-        usize,
-        handoff_promised,
-        self.inline_passable_batches.action_reservations,
-    ) catch return error.OutOfMemory;
-    const with_parked = std.math.add(
-        usize,
-        with_inline,
-        self.actions.parked_reservations,
-    ) catch return error.OutOfMemory;
-    const total = std.math.add(usize, with_parked, immediate) catch
-        return error.OutOfMemory;
+    const total = self.actions.proxy_reservations +
+        self.redeems.promisedActions() +
+        self.inline_passable_batches.action_reservations +
+        self.actions.parked_reservations +
+        immediate;
     try self.actions.queue.reserve(self.allocator, total);
 }
 
@@ -203,9 +195,9 @@ pub fn releaseProxyReservation(self: *Node) void {
     self.actions.proxy_reservations -= 1;
 }
 
-/// Spend one proxy's held action seat to drive the recipient Peer. This is
-/// required even for a plain relayed value: listener fires are queued on a
-/// sibling session that the home-session feed would not otherwise touch.
+/// Spend one proxy's held action seat to drive the recipient Peer: the
+/// settlement carrier is queued on a sibling session that the home-session
+/// feed would not otherwise touch.
 pub fn queueProxyFlush(self: *Node, peer_handle: PeerHandle) void {
     releaseProxyReservation(self);
     pushReserved(self, .{ .flush = peer_handle });

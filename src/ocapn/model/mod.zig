@@ -59,6 +59,9 @@ pub const freeHintValue = owned.freeHintValue;
 /// See `view`.
 pub const view = @import("view.zig");
 
+/// One element of an integer run on the wire: a little-endian 64-bit word.
+pub const run_word_bytes: usize = @sizeOf(i64);
+
 /// Whether two reference representations are structurally equal. Far and
 /// promise positions are meaningful only in their session. This does not
 /// canonicalize targets across sessions or arbitrary network paths.
@@ -87,7 +90,6 @@ pub const transport = @import("transport.zig");
 /// their own seams.
 pub const route_bundle = @import("route_bundle.zig");
 pub const RouteBundle = route_bundle.Owned;
-pub const RoutePath = route_bundle.Path;
 pub const parseExporterRouteBundleUri = route_bundle.fromExporterUri;
 pub const parseRouteBundleLocator = route_bundle.fromPeerLocator;
 pub const parseIdRouteBundle = route_bundle.fromIdLocator;
@@ -287,7 +289,7 @@ pub const Argument = union(enum) {
     /// `freeArgument` destroys it there. A stack-boxed handoff is legal only
     /// behind `Peer.sendBorrowed`, which re-boxes it onto the heap when it
     /// keeps the tree.
-    handoff: *Handoff,
+    handoff: *const Handoff,
     string: []const u8,
     integer: i64,
     boolean: bool,
@@ -374,6 +376,18 @@ pub const Integer = union(enum) {
 pub const Resolution = union(enum) {
     fulfill: Argument,
     @"break": BreakReason,
+
+    /// The same-peer promise a fulfillment names, or null for every other
+    /// resolution.
+    pub fn promiseAnswer(self: Resolution) ?AnswerPosition {
+        return switch (self) {
+            .fulfill => |value| if (value == .reference and value.reference == .promise)
+                value.reference.promise.answer_position
+            else
+                null,
+            .@"break" => null,
+        };
+    }
 };
 
 comptime {
@@ -468,7 +482,7 @@ pub const GcAnswer = struct {
 pub const HandoffGive = handoff_types.HandoffGive;
 pub const HandoffReceive = handoff_types.HandoffReceive;
 pub const Handoff = handoff_types.Handoff;
-pub const HANDOFF_GIFT_ID_BYTES = handoff_types.GIFT_ID_BYTES;
+pub const handoff_gift_id_bytes = handoff_types.gift_id_bytes;
 
 pub const StartSession = struct {
     /// Optional for one reason: this type is also what a decoded hello

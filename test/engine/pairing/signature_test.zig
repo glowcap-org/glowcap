@@ -32,8 +32,8 @@ test "a verifying peer aborts an op:start-session whose signature does not match
     defer sender.deinit();
 
     const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:9", .hints = model.Hints.emptyFalse() };
-    const honest = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x33)));
-    const imposter = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x44)));
+    const honest = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x33)));
+    const imposter = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x44)));
 
     const signed = try codec.syrup.canonicalLocationSignedBytes(allocator, loc);
     defer allocator.free(signed);
@@ -68,8 +68,8 @@ test "a pinned peer opens when the partner's start-session carries exactly the e
     var p2 = engine.Peer.initNegotiating(allocator);
     defer p2.deinit();
 
-    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x11)));
-    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x22)));
+    const secret1 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x11)));
+    const secret2 = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x22)));
     // Each side's realizer proved the other's durable identity, and each
     // advertises its own: both handshakes must still open.
     p1.bindVerifiedChannelKey(secret2.publicKey());
@@ -137,8 +137,8 @@ test "a verifying peer accepts a hinted-locator handshake (signature checked on 
     defer verifier.deinit();
     verifier.verify_partner_handshake = true;
 
-    const partner_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x55)));
-    const verifier_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x66)));
+    const partner_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x55)));
+    const verifier_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x66)));
     const verifier_loc: model.PeerLocator = .{
         .transport = "tcp",
         .designator = "127.0.0.1:9002",
@@ -166,8 +166,8 @@ test "a verifying peer refuses a hinted-locator handshake whose hint bytes were 
     defer verifier.deinit();
     verifier.verify_partner_handshake = true;
 
-    const partner_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x55)));
-    const verifier_secret = crypto.SecretKey.fromSeed(@as([crypto.SEED_BYTES]u8, @splat(0x66)));
+    const partner_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x55)));
+    const verifier_secret = crypto.SecretKey.fromSeed(@as([crypto.seed_bytes]u8, @splat(0x66)));
     const verifier_loc: model.PeerLocator = .{
         .transport = "tcp",
         .designator = "127.0.0.1:9002",
@@ -193,8 +193,8 @@ test "a verifying peer refuses a hinted-locator handshake whose hint bytes were 
 
 test "the handshake records each partner's session key for later signature checks" {
     const allocator = std.testing.allocator;
-    const p1_seed = @as([crypto.SEED_BYTES]u8, @splat(0x11));
-    const p2_seed = @as([crypto.SEED_BYTES]u8, @splat(0x22));
+    const p1_seed = @as([crypto.seed_bytes]u8, @splat(0x11));
+    const p2_seed = @as([crypto.seed_bytes]u8, @splat(0x22));
 
     var pair = try pairing.pairedWithKeys(allocator, p1_seed, p2_seed);
     defer pair.deinit();
@@ -219,13 +219,13 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
 
     // p1 calls the partner bootstrap, allocating answer 42 and a resolver export.
     try pair.p1.sendBorrowed(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
+        .target = .{ .far = .{ .import_position = .from(session.bootstrap_position) } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = .from(42),
         .resolve_me_desc = null,
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
-    const resolver_export = pair.p1.session_state.next_export_position - 1;
+    const resolver_export = pair.p1.session_state.exports.nextPosition().int() - 1;
 
     const deliver_frame = pair.p1.takeOutbound().?;
     try pair.p2.feedOwned(deliver_frame);

@@ -88,20 +88,14 @@ const State = struct {
             if (step == .ready and !op.state(operation).descriptor.owner.eql(self.context.owner)) return error.InvalidRecord;
             if (step != .ready) return step;
             if (self.prepared == null) {
-                self.prepared = snapshots.prepare(operation, self.context.target) catch |err| {
-                    if (err == error.RecordUnloaded) continue;
-                    return err;
-                };
+                self.prepared = try loam.reload(snapshots.prepare(operation, self.context.target)) orelse continue;
                 if (self.position) |position| if (std.mem.eql(u8, &position.digest, &self.prepared.?.digest)) {
                     self.result = .{ .cursor = self.input.?, .snapshot = self.prepared.?.snapshot, .changed = false };
                     return .ready;
                 };
             }
-            const read = &op.state(operation).read.?;
-            read.prepareHistory() catch |err| {
-                if (err == error.RecordUnloaded) continue;
-                return err;
-            };
+            const read = &op.state(operation).read;
+            try loam.reload(read.prepareHistory()) orelse continue;
             const history = &read.history;
             if (self.position) |position| {
                 if (position.sequence >= history.next_sequence) return error.InvalidCursor;
@@ -120,10 +114,11 @@ const State = struct {
                     .ready => |row| row,
                 };
                 defer row.release(store);
-                var batch = try records.ChangeBatchRecord.decodeOwned(store.allocator, row.view);
+                var batch: records.ChangeBatchRecord = undefined;
+                try batch.decodeOwned(store.allocator, row.view);
                 defer batch.deinit(store.allocator);
-                if (batch.value.sequence != sequence or batch.value.owner != read.header.owner) return error.InvalidRecord;
-                for (batch.value.effects) |effect| self.project(effect);
+                if (batch.sequence != sequence or batch.owner != read.header.owner) return error.InvalidRecord;
+                for (batch.effects) |effect| self.project(effect);
                 self.batch_index += 1;
             }
             const empty = !self.flags.access and !self.flags.target and !self.flags.inventory and !self.flags.management and !self.flags.subtree;
@@ -140,7 +135,7 @@ const State = struct {
     fn finish(self: *State, resync: bool) !Step {
         const input_position = if (self.position) |input| input.sequence else 0;
         const position = @max(self.context.started, @max(input_position, self.prepared.?.position));
-        if (position >= op.state(self.operation.?).read.?.history.next_sequence) return error.InvalidRecord;
+        if (position >= op.state(self.operation.?).read.history.next_sequence) return error.InvalidRecord;
         self.result = .{ .cursor = cursors.seal(self.context.key, self.context_id, .{ .sequence = position, .digest = self.prepared.?.digest }), .snapshot = self.prepared.?.snapshot, .notices = self.flags, .resync = resync };
         return .ready;
     }

@@ -63,7 +63,7 @@ fn installRemotePromise(peer: *engine.Peer, position: model.ImportPosition) !voi
 /// import, so the listener position read back is the export the sender minted.
 fn listenOnImportFive(peer: *engine.Peer) !Listening {
     try installRemotePromise(peer, .from(5));
-    const answer = try engine.listen.listenOnFar(peer, .{ .far = model.FarRef.promise(5) });
+    const answer = (try engine.listen.listenOnFar(peer, .{ .far = model.FarRef.promise(5) })).position;
     try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
     const frame = peer.takeOutbound().?;
     const view = try codec.syrup.decodeBodyForProfile(peer.session_state.captp_version, frame.view());
@@ -274,7 +274,7 @@ test "the listen's answer is installed before the op:listen is encoded" {
         defer pair.deinit();
 
         try installRemotePromise(&pair.p1, .from(5));
-        const answer = try engine.listen.listenOnFar(&pair.p1, .{ .far = model.FarRef.promise(5) });
+        const answer = (try engine.listen.listenOnFar(&pair.p1, .{ .far = model.FarRef.promise(5) })).position;
 
         // Nothing has been encoded yet, and the answer is already one we hold,
         // so the notification cannot arrive on an answer we do not.
@@ -292,10 +292,11 @@ test "a notification naming an answer the session does not hold is refused loudl
     var pair = try syrupPair(allocator, .next);
     defer pair.deinit();
 
-    // The hazard the install ordering exists for, built by hand: a listener
+    // The hazard the install ordering exists for, built by hand straight into
+    // the purpose rows because the verb binds an installed answer: a listener
     // export bound to an answer nothing ever installed.
     try pair.p1.session_state.registerExport(.from(7));
-    try pair.p1.session_state.installOutboundResolver(.from(4242), .from(7));
+    pair.p1.session_state.exports.setPurpose(.from(7), .{ .application_answer = .from(4242) });
 
     try pair.p2.session_state.registerImport(.from(7));
     try pair.p2.sendBorrowed(.{ .deliver = .{
@@ -348,8 +349,8 @@ test "every allocation failure inside listenOnFar rolls the whole nomination bac
 
             // The two rows the attempt is about to reserve, read off the
             // session's own allocators before it runs.
-            const listener = model.ExportPosition.from(peer.session_state.next_export_position);
-            const answer = model.AnswerPosition.from(peer.session_state.next_outbound_answer);
+            const listener = peer.session_state.exports.nextPosition();
+            const answer = peer.session_state.outbound_answers.nextPosition();
 
             failing.fail_index = failing.alloc_index + offset;
             const attempt = engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
@@ -357,7 +358,7 @@ test "every allocation failure inside listenOnFar rolls the whole nomination bac
 
             if (attempt) |returned| {
                 successes += 1;
-                try std.testing.expectEqual(answer, returned);
+                try std.testing.expectEqual(answer, returned.position);
                 try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
                 var frame = peer.takeOutbound().?;
                 frame.deinit();
@@ -377,16 +378,18 @@ test "every allocation failure inside listenOnFar rolls the whole nomination bac
             );
             try std.testing.expectEqual(
                 @as(?model.ExportPosition, null),
-                peer.session_state.outbound_resolver_link.getByValue(.{ .application_answer = answer }),
+                peer.session_state.resolverExportForAnswer(answer),
             );
             try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
             try std.testing.expect(peer.takeOutbound() == null);
 
             // And the session still listens: the retry gets its own export and
-            // a fresh answer, bound to each other.
-            const retry_listener = model.ExportPosition.from(peer.session_state.next_export_position);
-            const retry = try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) });
-            try std.testing.expect(retry.int() > answer.int());
+            // a fresh question, bound to each other. The abandoned rows went
+            // back to their slabs, so the retry takes the same positions.
+            const retry_listener = peer.session_state.exports.nextPosition();
+            try std.testing.expectEqual(listener, retry_listener);
+            const retry = (try engine.listen.listenOnFar(&peer, .{ .far = model.FarRef.promise(5) })).position;
+            try std.testing.expectEqual(answer, retry);
             try std.testing.expectEqual(retry, peer.session_state.answerForResolverExport(retry_listener).?);
             try std.testing.expect(peer.session_state.outbound_answers.contains(retry));
             try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());

@@ -46,5 +46,3 @@ pub const IngressCancellationError = vat.IngressCancellationError;
 /// Object-capability forwarding proxies, a revocable caretaker and a verb
 /// allow-list attenuator, over any local or far reference.
 pub const ocap = ocap_mod;
-pub const caretaker = ocap_mod.caretaker;
-pub const attenuate = ocap_mod.attenuate;

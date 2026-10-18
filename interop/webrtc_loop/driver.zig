@@ -362,7 +362,7 @@ const Server = struct {
 
     fn failed(ctx: *anyopaque, _: u64, failure: driver.OperationFailure) void {
         const self: *Server = @ptrCast(@alignCast(ctx));
-        if (self.failure == null) self.failure = failure.cause;
+        if (self.failure == null) self.failure = failure.chain.cause;
     }
 
     fn listen(self: *Server, runtime: *driver.HostRuntime, allocator: std.mem.Allocator) !void {

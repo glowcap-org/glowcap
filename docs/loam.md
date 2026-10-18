@@ -41,7 +41,7 @@ flowchart TB
     Host --> Attachment["Loam attachment<br/>wakes actors, saves state before replying,<br/>serves durable names"]
     Attachment --> Store["core.Store<br/>records, transactions, bounded cache"]
     Store -->|"read requests, write batches"| Worker["Your storage worker<br/>your threads, your executor"]
-    Worker --> Engine[("SQLite, LMDB, IndexedDB,<br/>or in-memory Volatile")]
+    Worker --> Engine[("SQLite, LMDB, in-memory Volatile,<br/>or IndexedDB from Rust in a browser")]
 ```
 
 **Records and edges.** Loam stores each object as a record: its data, in a
@@ -168,7 +168,7 @@ restart. Run the example with `zig build examples`.
 | [Record, transaction, and hosting API](loam/api.md) | How objects, reference fields, leases, transactions, and backend outcomes are represented. |
 | [Sleepy actors](loam/actors.md) | How actors sleep, wake, keep call order, and release memory. |
 | [Managed access architecture](loam/access-architecture.md) | How resources, facets, grant mutation, and change events are enforced. |
-| [Managed access API](loam/access-api.md) | What an application uses from Zig or a binding to define and manage resources. |
+| [Managed access model](loam/access-api.md) | The rules every managed access call keeps and the C ABI boundary. |
 | [Managed access storage](loam/access-storage.md) | What storage guarantees for grants, protected queries, restoration, and recovery. |
 | [Coverage](loam/coverage.md) | Which tests cover managed access in Zig, C, Rust, and the browser. |
 | [Research](loam/research/memory-persistence.md) | The prior-art survey, the [persistence reuse review](loam/research/persistence-reuse.md), and the measurement program. |
@@ -332,10 +332,10 @@ taken from the Vat's queue limits and counted apart from its run queue. The
 cache, pending writes, endpoint bookkeeping, capabilities the Host holds, and
 engine and OS pages are separate costs.
 
-Endpoint, call, and cache lookups scan bounded tables, and keeping each
-actor's calls in order can cost time quadratic in the call table's size. A
-commit checks the cache's slots against the records it changed. Measure before
-raising these limits.
+Call lookups scan bounded tables, and keeping each actor's calls in order
+can cost time quadratic in the call table's size. A cache or endpoint lookup
+is one hash probe, and a commit checks the cache's slots against the records
+it changed. Measure before raising these limits.
 
 ### Durable names and shutdown
 
@@ -356,9 +356,9 @@ attachment.
 | `"glowcap_loam_lmdb"` | Optional module exposing `Lmdb`, the same engine contract over LMDB ([LMDB operations](loam/lmdb.md)). |
 | `glowcap.loam.access` | Managed access: resources, grants, use and control references, their storage and hosting, scoped change feeds, and owner cleanup. |
 
-The collections module uses "persistent" in the data-structure sense: old
-versions stay available because new ones share their structure. Disk storage
-saves explicit records, never process pointers or allocator state.
+The collections are persistent in the data-structure sense: old versions stay
+available because new ones share their structure. Disk storage saves explicit
+records, never process pointers or allocator state.
 
 ## Limits
 

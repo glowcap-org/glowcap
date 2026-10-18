@@ -52,7 +52,7 @@ fn expectRefused(codec: model.CodecId, profile: model.CaptpVersion, args: view.A
 }
 
 fn expectBodyRefused(codec: model.CodecId, profile: model.CaptpVersion, body: view.Body) !void {
-    if (dispatch.encodeBodyForProfile(codec, std.testing.allocator, profile, &body)) |encoded| {
+    if (dispatch.encodeBodyForProfile(codec, std.testing.allocator, profile, &body, null)) |encoded| {
         var frame = encoded;
         defer frame.deinit();
         return error.TestExpectedError;

@@ -6,6 +6,7 @@
 //! retains the first address failure plus later cleanup/attempt consequences.
 
 const std = @import("std");
+const foundation = @import("foundation");
 
 const carrier_failure = @import("../../../carrier_failure.zig");
 const completion = @import("../../../completion/loop.zig");
@@ -408,10 +409,7 @@ pub fn Machine(
                 .{ .phase = comp.borrowed.carrierPhase() orelse .shutdown, .chain = chain.* }
             else
                 .init(.shutdown, comp.failure orelse fallback);
-            if (pending.cleanup_failure) |*first|
-                first.chain.noteChain(failure.chain)
-            else
-                pending.cleanup_failure = failure;
+            foundation.latchFailure(&pending.cleanup_failure, failure);
         }
 
         fn noteAttempt(
@@ -429,10 +427,7 @@ pub fn Machine(
         }
 
         fn noteFailure(pending: *PendingDial, failure: carrier_failure.Failure) void {
-            if (pending.failure) |*first|
-                first.chain.noteChain(failure.chain)
-            else
-                pending.failure = failure;
+            foundation.latchFailure(&pending.failure, failure);
         }
     };
 }

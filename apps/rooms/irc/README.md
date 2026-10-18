@@ -3,8 +3,7 @@
 Rooms connects to IRC in two directions, and each is a Rust executable. The
 bridge shows an IRC channel as an ordinary Rooms room. The IRC server lets an
 ordinary IRC client enter the rooms on a Rooms directory. Both talk to Rooms
-over CapTP like any other client, so IRC is only how people see Rooms, not a
-second protocol inside it.
+over CapTP like any other client.
 
 ## The bridge: an IRC channel as a room
 
@@ -18,7 +17,7 @@ The command builds and runs the `rooms-irc-bridge` executable.
 By default it follows Libera's `#ocapn` over TLS and offers a `libera/#ocapn`
 room on a CapTP listener bound to the loopback address. The command prints the
 listener port and the room name. Join them with any Rooms client. IRC members
-appear as `irc/<nick>`, which keeps their origin visible everywhere.
+appear as `irc/<nick>`.
 
 ### Identifying the bot
 
@@ -36,9 +35,7 @@ bridge cannot check any of the following for you:
 
 - An administrator must get channel-operator permission for every configured
   channel, including permission for the history the bridge makes visible in
-  Rooms. The join form on the operations **IRC** page records the operator's statement that
-  permission was given before it adds a channel, but the bridge cannot get
-  or verify that permission itself.
+  Rooms. The bridge cannot get or verify that permission itself.
 - A bridge administrator must be connected directly to Libera.
 - Channel operators must tell IRC users before making history public, and
   should offer the unlogged-comment and removal options that Libera's
@@ -65,8 +62,7 @@ cannot detect or enforce any of this.
 
 The shared feed is the deployment's automated bot and uses the configured bot
 identity. A participant who chooses to speak on IRC opens a separate client
-connection under their own nick and, optionally, their own account. That
-connection is theirs, not another copy of the shared bot. Operators are still
+connection under their own nick and, optionally, their own account. Operators are still
 responsible for confirming that this use, and each account, follows the
 network's rules.
 
@@ -75,7 +71,7 @@ network's rules.
 The bridge is read-only by default, and the room says so in terms every Rooms
 client already understands. A read-only bridge seats each reader as an
 observer, so the browser's message box shows the room is read-only before
-anything is typed, rather than refusing a line afterwards.
+anything is typed.
 
 In either mode, the room offers no file upload, because IRC cannot carry
 files, and it says it keeps no link previews and relays no typing. The page
@@ -197,8 +193,8 @@ the vat answers.
 
 ## Files
 
-The two edges point opposite ways, so each has its own directory and the
-vocabulary they share stays between them.
+The bridge and the IRC server each have their own directory, and the IRC
+policy they share lives in `../rust/application/src/server/irc/`.
 
 - `../rust/services/src/irc_bridge/`: the standalone bridge executable
   adapter, configuration, capability serving and outbound ownership.

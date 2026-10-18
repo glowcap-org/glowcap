@@ -50,7 +50,7 @@ a Tokio `LocalSet` and engine jobs on a blocking executor. The
 [browser guide](browser.md) uses the same resource model with IndexedDB, where
 those steps are asynchronous.
 
-Each storage work runs as its own task on the `LocalSet`, so the Host goes on
+Each piece of storage work runs as its own task on the `LocalSet`, so the Host goes on
 sending and receiving while it runs, and no caller's future holds it. When the
 work finishes, its task drives the Host again. A failure that the finished
 work cannot hand to an operation becomes the Host's background failure.
@@ -164,8 +164,8 @@ never `WOULD_BLOCK`.
 7. Close sessions, then the attachment and the Store. Host shutdown detaches
    idle registrations before it frees its C side. Callback contexts are
    dropped only after a successful detach. Releasing the Store is refused
-   while anything still borrows from it. Dropping an LMDB progress observer
-   waits for its worker to finish, which can block the thread.
+   while anything still borrows from it. Dropping a storage work task waits
+   for its worker to finish, which can block the thread.
 
 ## Sharing and managing access from C
 

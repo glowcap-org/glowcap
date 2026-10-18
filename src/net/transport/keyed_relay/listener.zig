@@ -129,7 +129,7 @@ pub const Box = struct {
     fn noteRepairFailure(box: *Box, later: foundation.FailureChain) void {
         box.repair_failure_mutex.lock();
         defer box.repair_failure_mutex.unlock();
-        if (box.repair_failure) |*failure| failure.noteChain(later) else box.repair_failure = later;
+        foundation.latchFailure(&box.repair_failure, later);
     }
 
     pub fn claimRepairFailure(box: *Box) ?foundation.FailureChain {

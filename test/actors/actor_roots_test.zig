@@ -195,7 +195,7 @@ const SelfReleaser = struct {
 
     pub fn handle(self: *SelfReleaser, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = msg;
-        turn.vat.releaseActor(turn.self_ref.local);
+        turn.vat.releaseActor(turn.self_id);
         // The reply borrows this box; the retire must wait for the unwind and
         // the box free for the boundary, or this dangles.
         return .{ .string = try turn.arena.dupe(u8, &self.note) };

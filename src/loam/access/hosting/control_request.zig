@@ -29,12 +29,7 @@ pub const Request = union(enum) {
             .attenuate => result: {
                 self.attenuate.powers = try service.decode_attenuation.?(service.context, arena, powers, args);
                 try operation.prepareAttenuationCopying(self.attenuate.powers.?);
-                if (self.attenuate.entropy == null) {
-                    const source = self.attenuate.entropy_source orelse return error.EntropyRequired;
-                    var bytes: driver.Host.DurableSwiss.Entropy = undefined;
-                    try source.fill(source.context, &bytes);
-                    self.attenuate.entropy = bytes;
-                }
+                if (self.attenuate.entropy == null) self.attenuate.entropy = try (self.attenuate.entropy_source orelse return error.EntropyRequired).draw();
                 break :result true;
             },
             .revoke => unreachable,

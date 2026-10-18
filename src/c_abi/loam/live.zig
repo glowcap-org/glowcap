@@ -34,14 +34,8 @@ pub fn glowcap_loam_live_marker(raw: ?*c.GlowcapLoamAttachment, out_marker: ?*c.
     common.shared.lastErrorClear();
     const output = out_marker orelse return common.shared.GLOWCAP_ERR_NULL_POINTER;
     output.* = .{ .key = @splat(0) };
-    const owner = attached.attachment(raw) catch |err| return common.code(err);
-    owner.value.topLevel() catch |err| return common.code(err);
-    const scope = owner.live_scope orelse return common.code(error.LiveScopeNotStarted);
-    switch (scope.result()) {
-        .pending => return common.shared.GLOWCAP_ERR_WOULD_BLOCK,
-        .failed => |err| return common.code(err),
-        .ready => |epoch| output.* = common.objectToC(epoch.object),
-    }
+    const epoch = confirmedEpoch(raw) catch |err| return common.code(err);
+    output.* = common.objectToC(epoch.object);
     return common.shared.GLOWCAP_OK;
 }
 
@@ -51,13 +45,21 @@ pub fn glowcap_loam_live_generation(raw: ?*c.GlowcapLoamAttachment, out_generati
     common.shared.lastErrorClear();
     const output = out_generation orelse return common.shared.GLOWCAP_ERR_NULL_POINTER;
     output.* = 0;
-    const owner = attached.attachment(raw) catch |err| return common.code(err);
-    owner.value.topLevel() catch |err| return common.code(err);
-    const scope = owner.live_scope orelse return common.code(error.LiveScopeNotStarted);
-    switch (scope.result()) {
-        .pending => return common.shared.GLOWCAP_ERR_WOULD_BLOCK,
-        .failed => |err| return common.code(err),
-        .ready => |epoch| output.* = epoch.generation,
-    }
+    const epoch = confirmedEpoch(raw) catch |err| return common.code(err);
+    output.* = epoch.generation;
     return common.shared.GLOWCAP_OK;
+}
+
+/// The confirmed epoch once startup has one. `StartupPending` (would block)
+/// while storage work or exact recovery still runs, the startup's own failure
+/// when it failed.
+fn confirmedEpoch(raw: ?*c.GlowcapLoamAttachment) !common.hosting.LiveEpoch {
+    const owner = try attached.attachment(raw);
+    try owner.value.topLevel();
+    const scope = owner.live_scope orelse return error.LiveScopeNotStarted;
+    return switch (scope.result()) {
+        .pending => error.StartupPending,
+        .failed => |err| err,
+        .ready => |epoch| epoch,
+    };
 }

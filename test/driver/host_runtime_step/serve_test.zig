@@ -76,23 +76,24 @@ test "Zig operation failures classify at the I/O-owning driver" {
 }
 
 test "Zig operation failures can retain archive-crossing cause names" {
-    var failure = driver.OperationFailure.fromError(error.ProviderIo);
-    failure.namePrimary("TcpReadFailed");
+    var failure = driver.OperationFailure.fromChain(.initNamed(error.ProviderIo, "TcpReadFailed"));
     failure.noteNamed(error.ProviderInternal, "SocketReleaseFailed");
-    try std.testing.expectEqualStrings("TcpReadFailed", failure.primaryName());
-    try std.testing.expectEqualStrings("SocketReleaseFailed", failure.secondaryName().?);
+    try std.testing.expectEqualStrings("TcpReadFailed", failure.chain.primaryName());
+    try std.testing.expectEqualStrings("SocketReleaseFailed", failure.chain.secondaryName().?);
+    try std.testing.expectEqual(driver.OperationFailure.classify(error.ProviderInternal), failure.chain.secondary_classification.?);
 
     var outer = driver.OperationFailure.fromError(error.ConnectionLost);
     outer.noteFailure(failure);
-    try std.testing.expectEqualStrings("TcpReadFailed", outer.secondaryName().?);
-    try std.testing.expectEqual(@as(u16, 2), outer.secondary_count);
+    try std.testing.expectEqualStrings("TcpReadFailed", outer.chain.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 2), outer.chain.secondary_count);
 
     var chain = glowcap.foundation.FailureChain.initNamed(error.ProviderIo, "ProviderListenerCloseFailed");
-    chain.noteNamed(error.ProviderInternal, "ProviderLeaseReleaseFailed");
+    chain.noteChain(.initNamed(error.ProviderInternal, "ProviderLeaseReleaseFailed"));
     const projected = driver.OperationFailure.fromChain(chain);
-    try std.testing.expectEqualStrings("ProviderListenerCloseFailed", projected.primaryName());
-    try std.testing.expectEqualStrings("ProviderLeaseReleaseFailed", projected.secondaryName().?);
-    try std.testing.expectEqual(@as(u16, 1), projected.secondary_count);
+    try std.testing.expectEqualStrings("ProviderListenerCloseFailed", projected.chain.primaryName());
+    try std.testing.expectEqualStrings("ProviderLeaseReleaseFailed", projected.chain.secondaryName().?);
+    try std.testing.expectEqual(@as(u16, 1), projected.chain.secondary_count);
+    try std.testing.expectEqual(driver.OperationFailure.Kind.io, projected.kind());
 }
 
 test "server close returns final runtime failure and implicit deinit reports it" {
@@ -115,8 +116,8 @@ test "server close returns final runtime failure and implicit deinit reports it"
     explicit.runtime.leaveDriver();
     explicit.runtime.noteTerminalFailure(error.ConnectionLost);
     const first = explicit.close().?;
-    try std.testing.expectEqual(error.ConnectionLost, first.cause);
-    try std.testing.expectEqual(error.ConnectionLost, explicit.close().?.cause);
+    try std.testing.expectEqual(error.ConnectionLost, first.chain.cause);
+    try std.testing.expectEqual(error.ConnectionLost, explicit.close().?.chain.cause);
     explicit.deinit();
 
     var capture = FailureCapture{};
@@ -133,7 +134,7 @@ test "server close returns final runtime failure and implicit deinit reports it"
     );
     implicit.runtime.noteTerminalFailure(error.ConnectionLost);
     implicit.deinit();
-    try std.testing.expectEqual(error.ConnectionLost, capture.failure.?.cause);
+    try std.testing.expectEqual(error.ConnectionLost, capture.failure.?.chain.cause);
 }
 
 test "server close stops admission while a yielded session retains the Host runtime" {

@@ -25,7 +25,7 @@ test "LMDB next preserves a prefix borrowed from its preceding key" {
 fn check(operation: enum { get, floor, prefix }) !void {
     var tmp = try fixture.Temp.init();
     defer tmp.deinit();
-    var db = try Lmdb.open(tmp.path, .{ .mode = .{ .create = f.id } });
+    var db = try Lmdb.open(tmp.path, .{ .opening = .{ .id = f.id, .mode = .create } });
     defer db.close() catch unreachable;
     {
         var write = try db.beginWrite();

@@ -87,8 +87,14 @@ you to use or pass on, and the inbox is the one you make yourself.
 <article class="object" data-tone="warm">
 <p class="object-name">seat</p>
 <p class="object-from"><code>subscribe</code>, with your <b>inbox</b>.</p>
-<p class="object-calls"><code>post</code> <code>postFiles</code> <code>attach</code> <code>history</code> <code>typing</code> <code>away</code> <code>leave</code> <code>membershipKind</code> <code>mintInvitation</code></p>
-<p class="object-back">Hands back a <b>line</b>, an <b>upload</b>, an <b>invitation</b>, or the lines the room kept.</p>
+<p class="object-calls"><code>post</code> <code>history</code> <code>typing</code> <code>away</code> <code>leave</code> <code>membershipKind</code> <code>mintInvitation</code></p>
+<p class="object-back">Hands back a <b>line</b>, an <b>invitation</b>, or the lines the room kept.</p>
+</article>
+<article class="object" data-tone="warm">
+<p class="object-name">files</p>
+<p class="object-from">The fourth slot of <code>subscribe</code>'s answer, in a room that can hold files.</p>
+<p class="object-calls"><code>attach</code> <code>postFiles</code></p>
+<p class="object-back">Hands back an <b>upload</b> per file, and posts a line with its files.</p>
 </article>
 <article class="object" data-tone="warm">
 <p class="object-name">subject</p>
@@ -97,7 +103,7 @@ you to use or pass on, and the inbox is the one you make yourself.
 <p class="object-back">Hands back nothing. The room tells everyone.</p>
 </article>
 </div>
-<p class="objects-tier">Handed back by your seat</p>
+<p class="objects-tier">Handed back by your seat and files</p>
 <div class="objects-row">
 <article class="object" data-tone="warm">
 <p class="object-name">line</p>
@@ -130,8 +136,8 @@ you to use or pass on, and the inbox is the one you make yourself.
 </div>
 ```
 
-Nothing checks who is calling: a member without the line reference cannot
-form the `edit` at all. And a reference can be handed on. Give your
+No code checks who is calling. A member without the line reference has
+nothing to send `edit` to. A reference can also be handed on. Give your
 line's reference to someone and they can take the line down. Give the subject
 reference to a bot and it can keep the subject, without the room learning what
 a bot is.
@@ -195,7 +201,7 @@ bot:
 | 1 | Both, earlier | `register` on the directory, then `offerInbox` | Each has a name and has offered the server an inbox for introductions |
 | 2 | Mira | `introduce` on the directory, naming the bot | The server hands Mira a reference to the inbox the bot offered |
 | 3 | Mira's peer | Redeems that reference with the bot's peer | A connection opens between the two peers. The server is not on it |
-| 4 | Mira | `dm` on the bot's inbox, with her own reply inbox alongside | The first line arrives, and the bot's replies come back to that inbox. When Mira's side cannot be dialed, `directReady` hands the reply inbox over instead |
+| 4 | Mira | `dm` on the bot's inbox, with her own reply inbox alongside | The first line arrives, and the bot's replies come back to that inbox. When the bot cannot dial Mira's side, it dials the other way and sends `directReady` to set up the reply route with no chat message |
 | 5 | Either | `handRoom`, `offerRoom`, `handArchive`, `offerArchive` | References move between them over the same connection, as live handoffs or as durable links |
 
 When the two peers are browsers, WebRTC's connection details travel through
@@ -208,8 +214,8 @@ reason, and the offering peer hears it right away.
 
 | Step | Call | On | What happens |
 | --- | --- | --- | --- |
-| 1 | `attach` | your seat | One **upload** reference per file |
-| 2 | `postFiles` | your seat | The line is posted with its file records, and every member gets a **blob** per file at once |
+| 1 | `attach` | your **files** reference | One **upload** reference per file |
+| 2 | `postFiles` | your **files** reference | The line is posted with its file records, and every member gets a **blob** per file at once |
 | 3 | `write`, chunk by chunk | the upload | Bytes arrive at the room |
 | 4 | `read` with offset and length | the blob | A member reads. A read that reaches bytes still on their way in waits for them |
 
@@ -233,8 +239,8 @@ and the other side reads it the same way. The room never sees those bytes.
 
 Clients in Zig, Rust, Python, Racket, TypeScript, and the browser all speak
 this protocol. So does a [Spritely Goblins](https://spritely.institute/)
-program: it can sit in a room and answer a direct message, with nothing in
-Goblins changed to allow it, because the protocol is only OCapN.
+program: it can sit in a room and answer a direct message without any change
+to Goblins, because Rooms uses only OCapN.
 
 The readable specification, with the reasoning behind every verb, is
 [`protocol.ts`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol.ts)

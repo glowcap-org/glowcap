@@ -8,8 +8,10 @@
 //! neither imports the other, the same argument that homes `spill`.
 //! `stream_framing` is the outer length-prefix syntax a byte stream wraps
 //! around each frame, and `failure_chain` is the plain first-and-consequence
-//! failure record a cleanup path retains. Nothing down here knows a thing
-//! about the message model above it.
+//! failure record a cleanup path retains. `error_sets` spells an exact error
+//! set where Zig cannot infer one, and `id_issuer` spends an in-memory id only
+//! when the operation it names commits. Nothing down here knows a thing about the
+//! message model above it.
 
 pub const id = @import("id.zig");
 pub const handle_table = @import("handle_table.zig");
@@ -17,6 +19,8 @@ pub const bearer_table = @import("bearer_table.zig");
 pub const frame = @import("frame.zig");
 pub const spill = @import("spill.zig");
 pub const failure_chain = @import("failure_chain.zig");
+pub const error_sets = @import("error_sets.zig");
+pub const id_issuer = @import("id_issuer.zig");
 pub const stream_framing = @import("stream_framing.zig");
 pub const decimal = @import("decimal.zig");
 pub const utf8 = @import("utf8.zig");
@@ -33,6 +37,7 @@ pub const FrameView = frame.FrameView;
 pub const Spill = spill.Spill;
 pub const FailureChain = failure_chain.FailureChain;
 pub const FailureClassification = failure_chain.Classification;
+pub const latchFailure = failure_chain.latch;
 pub const PeerId = id.PeerId;
 pub const SessionId = id.SessionId;
 pub const PeerKey = crypto.PeerKey;

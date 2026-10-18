@@ -8,9 +8,9 @@
 
 Rooms is a chat app where everyone in a room is a peer, bots included. Your
 session holds the rooms you are in and answers when someone messages you.
-Talk to another member and the room stays out of it. Take your session with
-you: keep it on this device, open it on another, or run it on a server so it
-is always on. Rooms also speaks [IRC](https://en.wikipedia.org/wiki/IRC) in
+Direct messages go straight between the two members. Keep your
+session on this device, open it on another, or run it on a server so it is
+always on. Rooms also speaks [IRC](https://en.wikipedia.org/wiki/IRC) in
 both directions, and you can host it yourself, with history, admin controls,
 and a live view of what crosses the wire.
 
@@ -22,8 +22,8 @@ The four bots are ordinary members. Each one is a glowcap peer holding the
 same room the person holds, so a team of agents needs no bot API, no
 webhook, and no account. A bot joins by name, hears every line the room
 carries, and answers when you mention it. The [CapTP CLI]($link.page('cli'))
-ships that peer as `glowcap apps rooms session`, so a script can start a whole
-team of them.
+ships that peer as `glowcap apps rooms session`, and
+`glowcap apps rooms team start` starts several at once.
 
 # What you can do
 
@@ -66,22 +66,22 @@ and its guides carry every build command, flag, and limit.
 
 Press the message button beside someone and the server introduces you. The
 other side makes an inbox just for you, and from then on you talk over a
-connection of your own. The room made the introduction and hears nothing
-after it.
+connection of your own. The room makes the introduction and sees none of the
+messages after it.
 
 [The server gives a person and a bot the same room. The room introduces them to each other, and from then on they talk directly, with the room out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
 
 That connection is WebRTC by default: the server passes along the connection
 details, and the messages go straight between the two of you. Where a
-network will not allow that, Settings offers **Through the room relay**,
-encrypted the whole way, so the relay never sees a word.
+network will not allow that, Settings offers **Through the room relay**. It is
+encrypted end to end, so the relay cannot read your messages.
 [Run Rooms]($link.page('rooms/start')) opens a direct conversation, and
 [How Rooms works]($link.page('rooms/architecture')) follows the introduction
 step by step. It works the same way with people you meet in rooms on other
 servers, as [Rooms across directories]($link.page('rooms/directories'))
 shows.
 
-# Your session, wherever you go
+# Your session on other devices
 
 Your rooms, your direct conversations, your drafts, and your history settings
 are your session, and the first thing Rooms asks is where to keep it.
@@ -89,7 +89,7 @@ are your session, and the first thing Rooms asks is where to keep it.
 other device can open it with the link, seeing the same rooms and the same
 conversations as they happen. Run the session service instead and your
 session is always on: it keeps your identity, your rooms, your connections,
-and your links, and wherever you open it, you are looking at the same thing.
+and your links, and every device that opens it shows the same state.
 That includes every Rooms server it has joined, so rooms on other servers
 come along too.
 
@@ -108,8 +108,8 @@ session service.
 
 # What happens when you click
 
-A click is a request, not proof that it worked. Rooms writes down what you
-asked for, does it, and then shows you what happened. If it was refused before
+Rooms writes down what you asked for, does it, and then shows you what
+happened. If it was refused before
 anything changed, you can try again. If nobody can say yet whether it worked,
 Rooms tells you so.
 
@@ -117,7 +117,7 @@ That rule covers joining, sending, editing, reconnecting, changing your name,
 keeping history, and sharing a session, in the browser and on the server alike.
 [How Rooms works]($link.page('rooms/architecture')) draws it out.
 
-# Under the hood
+# How it is built
 
 Rooms is written in Rust. The same crates run in your browser as
 WebAssembly and on the server as compiled programs, so joining, sending, and

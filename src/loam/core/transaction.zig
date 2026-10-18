@@ -8,6 +8,8 @@ pub const ObjectId = records.ObjectId;
 pub const StoreId = records.StoreId;
 pub const metadata_key = "m";
 pub const OpenMode = enum(u32) { open = 0, create = 1, bootstrap = 2 };
+/// How an engine opens a store and the identity it expects there.
+pub const Opening = struct { id: StoreId, mode: OpenMode };
 
 pub const Metadata = struct {
     store: StoreId,
@@ -18,7 +20,14 @@ pub const Metadata = struct {
     roots: u64 = 0,
     last_sequence: u64 = 0,
     collection: collection.Progress = .{},
-    pub const encoded_size = 142;
+
+    const magic = "LOAM\x00\x00\x00\x03";
+    const scalars = [_][]const u8{ "incarnation", "revision", "objects", "record_bytes", "roots", "last_sequence" };
+    const store_offset = magic.len;
+    const scalars_offset = store_offset + @sizeOf(u128);
+    const collection_offset = scalars_offset + scalars.len * @sizeOf(u64);
+    const checksum_offset = collection_offset + collection.Progress.encoded_size;
+    pub const encoded_size = checksum_offset + @sizeOf(u32);
 
     /// Select metadata inside the adapter's exclusively held atomic opening.
     /// Bootstrap admits known absence, preserving every existing identity and
@@ -37,28 +46,22 @@ pub const Metadata = struct {
 
     pub fn encode(self: Metadata) [encoded_size]u8 {
         var bytes: [encoded_size]u8 = undefined;
-        @memcpy(bytes[0..8], "LOAM\x00\x00\x00\x03");
-        std.mem.writeInt(u128, bytes[8..24], @backingInt(self.store), .big);
-        const values = [_]u64{ self.incarnation, self.revision, self.objects, self.record_bytes, self.roots, self.last_sequence };
-        for (values, 0..) |value, i| std.mem.writeInt(u64, bytes[24 + i * 8 ..][0..8], value, .big);
-        @memcpy(bytes[72..138], &self.collection.encode());
-        std.mem.writeInt(u32, bytes[138..142], std.hash.Crc32.hash(bytes[0..138]), .big);
+        bytes[0..magic.len].* = magic.*;
+        std.mem.writeInt(u128, bytes[store_offset..][0..@sizeOf(u128)], @backingInt(self.store), .big);
+        inline for (scalars, 0..) |name, i| std.mem.writeInt(u64, bytes[scalars_offset + i * @sizeOf(u64) ..][0..@sizeOf(u64)], @field(self, name), .big);
+        bytes[collection_offset..checksum_offset].* = self.collection.encode();
+        std.mem.writeInt(u32, bytes[checksum_offset..][0..@sizeOf(u32)], std.hash.Crc32.hash(bytes[0..checksum_offset]), .big);
         return bytes;
     }
 
     pub fn decode(bytes: []const u8) !Metadata {
-        if (bytes.len != encoded_size or !std.mem.eql(u8, bytes[0..8], "LOAM\x00\x00\x00\x03")) return error.Corrupt;
-        if (std.hash.Crc32.hash(bytes[0..138]) != std.mem.readInt(u32, bytes[138..142], .big)) return error.Corrupt;
-        const result: Metadata = .{
-            .store = @fromBackingInt(std.mem.readInt(u128, bytes[8..24], .big)),
-            .incarnation = std.mem.readInt(u64, bytes[24..32], .big),
-            .revision = std.mem.readInt(u64, bytes[32..40], .big),
-            .objects = std.mem.readInt(u64, bytes[40..48], .big),
-            .record_bytes = std.mem.readInt(u64, bytes[48..56], .big),
-            .roots = std.mem.readInt(u64, bytes[56..64], .big),
-            .last_sequence = std.mem.readInt(u64, bytes[64..72], .big),
-            .collection = try collection.Progress.decode(bytes[72..138]),
+        if (bytes.len != encoded_size or !std.mem.eql(u8, bytes[0..magic.len], magic)) return error.Corrupt;
+        if (std.hash.Crc32.hash(bytes[0..checksum_offset]) != std.mem.readInt(u32, bytes[checksum_offset..][0..@sizeOf(u32)], .big)) return error.Corrupt;
+        var result: Metadata = .{
+            .store = @fromBackingInt(std.mem.readInt(u128, bytes[store_offset..][0..@sizeOf(u128)], .big)),
+            .collection = try collection.Progress.decode(bytes[collection_offset..][0..collection.Progress.encoded_size]),
         };
+        inline for (scalars, 0..) |name, i| @field(result, name) = std.mem.readInt(u64, bytes[scalars_offset + i * @sizeOf(u64) ..][0..@sizeOf(u64)], .big);
         if (result.roots > result.objects) return error.Corrupt;
         return result;
     }
@@ -83,7 +86,7 @@ pub const Mutation = struct {
     expected: ?u64,
     /// Null destroys a non-root record. Incoming references then resolve gone.
     /// This explicit deletion is distinct from tracing garbage collection.
-    bytes: ?[]const u8,
+    bytes: ?[]u8,
 };
 pub const Batch = struct {
     ticket: Ticket,

@@ -148,7 +148,8 @@ fn benchDecodeInto(
     var i: usize = 0;
     while (i < iters) : (i += 1) {
         var slab = model.view.ValueSlab.init(std.mem.sliceAsBytes(views));
-        const body = try codec.dispatch.decodeBodyInto(codec_id, model.CaptpVersion.v1_0, view, &slab);
+        var body: model.view.Body = undefined;
+        try codec.dispatch.decodeBodyInto(codec_id, model.CaptpVersion.v1_0, view, &slab, &body);
         std.mem.doNotOptimizeAway(&body);
     }
     report("decode-into", codec_id, call, iters, frame_len, nowNs(io) - start);
@@ -184,12 +185,14 @@ fn driveOneTurn(peer: *engine.Peer, frame_bytes: []const u8) !void {
     }
 }
 
-/// Populate the export table with `count` *sparse* positions (stride well above
-/// 1 so a flat backing store would balloon) and time the inserts. The tables are
-/// integer-keyed hashes so an untrusted peer naming sparse positions
-/// cannot force O(position) memory or scan cost (see docs/architecture.md),
-/// this keeps that cost a measured constant, not a claim.
-fn benchSparseExportTable(io: std.Io, allocator: std.mem.Allocator, count: usize) !void {
+/// Populate the import table with `count` *sparse* positions (stride well above
+/// 1 so a flat backing store would balloon) and time the inserts. The partner
+/// chooses import positions, so that table is an integer-keyed hash and a
+/// peer naming sparse positions cannot force O(position) memory or scan cost
+/// (see docs/architecture.md). This keeps that cost a measured constant, not
+/// a claim. Export positions are this side's own and live in a slab, so a
+/// sparse export is the chooser's cost, not an attack.
+fn benchSparseImportTable(io: std.Io, allocator: std.mem.Allocator, count: usize) !void {
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
 
@@ -197,12 +200,12 @@ fn benchSparseExportTable(io: std.Io, allocator: std.mem.Allocator, count: usize
     const start = nowNs(io);
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        try peer.exportObject(@as(u64, i) * stride + 1);
+        try peer.session_state.registerImport(.from(@as(u64, i) * stride + 1));
     }
     const ns_per = (nowNs(io) - start) / @as(f64, @floatFromInt(count));
 
     std.debug.print(
-        "sparse_export_table inserts={d} ns_per_insert={d:.1}\n",
+        "sparse_import_table inserts={d} ns_per_insert={d:.1}\n",
         .{ count, ns_per },
     );
 }
@@ -240,5 +243,5 @@ pub fn main() !void {
     }
 
     try benchDispatch(io, allocator, 50_000);
-    try benchSparseExportTable(io, allocator, 100_000);
+    try benchSparseImportTable(io, allocator, 100_000);
 }

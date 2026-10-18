@@ -13,7 +13,7 @@ const peer_locator = @import("peer_locator.zig");
 /// `glowcap-next`, where both ends are glowcap's own, and admits a wider domain
 /// on `1.0`, which has to interoperate with peers that mint narrower ids
 /// (`conformance/ocapn-findings`, gift-id width).
-pub const GIFT_ID_BYTES: usize = 32;
+pub const gift_id_bytes: usize = 32;
 
 /// The gifter's signed gift: who may redeem it (`recipient_key`), where the
 /// exporter lives (`exporter`), and the bookkeeping that ties the gift to one

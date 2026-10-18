@@ -32,7 +32,7 @@ test "V1.0 outbound resolver export is reclaimed when its answer is gc'd, not le
 
     // Mint the V1.0 resolver export for that answer: `allocateExport`'s base
     // count-1 plus the wire mention's retain is count 2.
-    const resolver = try s.mintOutboundResolver(.from(42));
+    const resolver = (try s.mintOutboundResolver(.from(42))).export_position;
     try std.testing.expectEqual(@as(u64, 2), s.exports.count(resolver));
 
     // The partner GCs its one wire mention. The base reference still floats, so
@@ -62,7 +62,9 @@ test "v1.0 session records and queries resolver-callback links" {
     try std.testing.expect(s.needsV1_0Translation());
 
     // Outbound: our answer 42 resolves via our local resolver export 7.
-    try s.installOutboundResolver(.from(42), .from(7));
+    try s.installOutboundAnswer(.from(42));
+    try s.registerExport(.from(7));
+    s.installOutboundResolver(.from(42), .from(7));
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(42)), s.answerForResolverExport(.from(7)));
     try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.answerForResolverExport(.from(8)));
 
@@ -119,7 +121,7 @@ test "nominateResolverExport installs the answer it hands back, so no caller can
     );
     try std.testing.expectEqual(
         @as(?model.ExportPosition, nomination.resolver_export),
-        s.outbound_resolver_link.getByValue(.{ .application_answer = nomination.answer }),
+        s.resolverExportForAnswer(nomination.answer),
     );
 
     // A second nomination shares nothing with the first.
@@ -320,16 +322,21 @@ test "gc-answers retires a resolver until its wire mention is released" {
     defer s.deinit();
     try s.registerImport(.from(7));
 
-    // Send a question (answer 5) and commit its resolver export, as the runtime
-    // does when augmenting the outbound deliver.
-    try s.recordSend(.{
+    // Mint the resolver export for a question (answer 5), then record the
+    // deliver carrying it, as the admitting peer does: the answer row the
+    // record installs takes the export.
+    const resolver = (try s.mintMentionedResolverExport(.from(5), .object)).export_position;
+    const question: model.Message = .{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(7) } },
             .args = &.{.{ .bytes = "hello" }},
             .answer = .from(5),
         },
-    });
-    const resolver = try s.mintMentionedResolverExport(.from(5), .object);
+    };
+    const inventory = try s.inventoryMessage(question, session.inventory.NoMeter);
+    defer inventory.deinit(allocator);
+    try s.validateSendInventoried(question, inventory);
+    try s.applyValidatedSend(question, inventory, resolver);
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.answerForResolverExport(resolver));
     try std.testing.expectEqual(@as(u64, 2), s.exportRefcount(resolver));
 
@@ -365,11 +372,11 @@ test "Node listener teardown releases an already returned wire mention" {
         .captp_version = .next,
     });
     defer s.deinit();
-    try s.installThirdPartyImport(.from(5), "home");
+    try s.registerImport(.from(5));
 
     try sendRequiredShortening(&s, .from(5));
     const listener = try s.allocateExport();
-    try std.testing.expect(try s.claimPromiseSettlingListener(.from(5), listener, null));
+    try std.testing.expect(s.claimPromiseSettlingListener(.from(5), listener, null));
     try s.recordSend(.{ .listen = .{
         .target = .{ .far = model.FarRef.promise(5) },
         .listener = session.slot.toReference(s.exportSlot(listener).?).?,
@@ -396,13 +403,13 @@ test "settling convergence releases an already returned source listener" {
         .captp_version = .next,
     });
     defer s.deinit();
-    try s.installThirdPartyImport(.from(5), "home");
-    try s.installThirdPartyImport(.from(6), "home");
+    try s.registerImport(.from(5));
+    try s.registerImport(.from(6));
 
     try sendRequiredShortening(&s, .from(5));
     try sendRequiredShortening(&s, .from(6));
     const source_nomination = try s.nominateResolverExport();
-    try std.testing.expect(try s.claimPromiseSettlingListener(
+    try std.testing.expect(s.claimPromiseSettlingListener(
         .from(5),
         source_nomination.resolver_export,
         source_nomination.answer,
@@ -414,7 +421,7 @@ test "settling convergence releases an already returned source listener" {
     } });
 
     const target_nomination = try s.nominateResolverExport();
-    try std.testing.expect(try s.claimPromiseSettlingListener(
+    try std.testing.expect(s.claimPromiseSettlingListener(
         .from(6),
         target_nomination.resolver_export,
         target_nomination.answer,
@@ -440,7 +447,7 @@ test "settling convergence releases an already returned source listener" {
     try std.testing.expect(s.retiredResolverState(source_nomination.resolver_export) == null);
     try std.testing.expectEqual(
         target_nomination.resolver_export,
-        s.outbound_resolver_link.getByValue(.{ .application_answer = target_nomination.answer }).?,
+        s.resolverExportForAnswer(target_nomination.answer).?,
     );
 }
 
@@ -473,83 +480,40 @@ test "V1.0 accepts inbound untag but requires explicit peer support outbound" {
     try std.testing.expect(s.outboundAnswer(.from(7)) != null);
 }
 
-test "resolver purpose replacement evicts a colliding resolver in both directions" {
+test "a resolver purpose lives on its export row and leaves with it" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
 
-    const first = try s.allocateExport();
-    const second = try s.allocateExport();
-    const source_five: session.PromiseIncarnation = .{ .position = .from(5), .row_id = 1 };
-    const source_six: session.PromiseIncarnation = .{ .position = .from(6), .row_id = 2 };
-    try s.outbound_resolver_link.put(allocator, first, .{ .shortening_pending = source_five });
-    try s.outbound_resolver_link.put(allocator, second, .{ .shortening_pending = source_six });
+    const resolver = try s.allocateExport();
+    const source: session.PromiseIncarnation = .{ .position = .from(5), .row_id = 1 };
+    try std.testing.expect(s.resolverPurpose(resolver) == null);
+    s.exports.setPurpose(resolver, .{ .shortening_pending = source });
+    try std.testing.expectEqual(session.ResolverPurpose{ .shortening_pending = source }, s.resolverPurpose(resolver).?);
 
-    s.outbound_resolver_link.replaceValueForKey(first, .{ .shortening_pending = source_six });
-
+    // A transition in place keeps the row and replaces the purpose.
     try std.testing.expectEqual(
-        session.ResolverPurpose{ .shortening_pending = source_six },
-        s.outbound_resolver_link.getByKey(first).?,
+        session.ResolverPurpose{ .shortening_pending = source },
+        s.exports.replacePurpose(resolver, .{ .shortening_complete = source }),
     );
-    try std.testing.expectEqual(
-        @as(?model.ExportPosition, first),
-        s.outbound_resolver_link.getByValue(.{ .shortening_pending = source_six }),
-    );
-    try std.testing.expect(s.outbound_resolver_link.getByKey(second) == null);
-    try std.testing.expect(s.outbound_resolver_link.getByValue(.{ .shortening_pending = source_five }) == null);
-}
+    try std.testing.expectEqual(session.ResolverPurpose{ .shortening_complete = source }, s.resolverPurpose(resolver).?);
 
-test "resolver purpose identity preserves authority and excludes lifetime bookkeeping" {
-    // The purpose side of the outbound link is keyed on these words, so two
-    // purposes that differ in authority must differ in some word, or the
-    // table answers one purpose's lookup with the other's export.
-    const one: session.PromiseIncarnation = .{ .position = .from(1), .row_id = 1 };
-    const one_reincarnated: session.PromiseIncarnation = .{ .position = .from(1), .row_id = 2 };
-    const two: session.PromiseIncarnation = .{ .position = .from(2), .row_id = 1 };
-    const distinct = [_]session.ResolverPurpose{
-        .{ .application_answer = .from(1) },
-        .{ .application_answer = .from(2) },
-        .{ .local_promise_answer = .{ .name = .{ .wire = .from(1) } } },
-        .{ .local_promise_answer = .{ .name = .{ .virtual = .from(1) } } },
-        .{ .node_settling = .{ .resolver_export = .from(1) } },
-        .{ .node_settling = .{ .resolver_export = .from(2) } },
-        .{ .node_settling = .{ .resolver_export = .from(1), .settling_source = one } },
-        .{ .node_settling = .{ .resolver_export = .from(1), .settling_source = one_reincarnated } },
-        .{ .node_settling = .{ .resolver_export = .from(1), .settling_source = two } },
-        .{ .retired = .{ .resolver_export = .from(1), .state = .pending } },
-        .{ .retired = .{ .resolver_export = .from(1), .state = .complete } },
-        .{ .retired = .{ .resolver_export = .from(2), .state = .pending } },
-        .{ .retired = .{ .resolver_export = .from(1), .settling_source = one, .state = .pending } },
-        .{ .retired = .{ .resolver_export = .from(1), .settling_source = one_reincarnated, .state = .pending } },
-        .{ .retired = .{ .resolver_export = .from(1), .settling_source = one, .state = .complete } },
-        .{ .shortening_pending = one },
-        .{ .shortening_pending = one_reincarnated },
-        .{ .shortening_pending = two },
-        .{ .shortening_complete = one },
-        .{ .shortening_complete = one_reincarnated },
-    };
-    const identity_hash = glowcap.foundation.identity_hash;
-    const pristine: session.ResolverPurpose = .{ .local_promise_answer = .{ .name = .{ .virtual = .from(1) } } };
-    var tracing = pristine;
-    tracing.local_promise_answer.gc_mark = true;
-    tracing.local_promise_answer.gc_next = .from(123);
-    tracing.local_promise_answer.staging_owners = 2;
-    try std.testing.expect(identity_hash.eql(pristine, tracing));
-    try std.testing.expectEqualSlices(u64, &identity_hash.words(pristine), &identity_hash.words(tracing));
-    for (distinct, 0..) |left, i| {
-        try std.testing.expect(identity_hash.eql(left, left));
-        for (distinct[i + 1 ..]) |right| {
-            try std.testing.expect(!identity_hash.eql(left, right));
-            try std.testing.expect(!std.mem.eql(u64, &identity_hash.words(left), &identity_hash.words(right)));
-        }
-    }
+    // The row's removal takes the purpose: nothing names the export after.
+    s.releaseUnsharedExport(resolver);
+    try std.testing.expect(!s.exports.contains(resolver));
+    try std.testing.expect(s.resolverPurpose(resolver) == null);
+    try std.testing.expect(s.exports.clearPurpose(resolver) == null);
+
+    // The bootstrap export is never a resolver.
+    try std.testing.expect(s.resolverPurpose(.from(0)) == null);
 }
 
 test "next sender subscriptions enforce disjoint modes for each promise incarnation" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{ .captp_version = .next });
     defer s.deinit();
-    try s.installThirdPartyImport(.from(7), "remote");
+    try s.registerImport(.from(7));
+    _ = try s.nominateShorteningResolver(.from(7));
     try s.registerExport(.from(9));
     var listen = model.Message{ .listen = .{
         .target = .{ .far = model.FarRef.promise(7) },
@@ -570,7 +534,8 @@ test "next sender subscriptions enforce disjoint modes for each promise incarnat
     // Co-eviction ends the promise incarnation, permitting a fresh mode-3
     // subscription when the same position is introduced again.
     try s.recordSend(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{1} } });
-    try s.installThirdPartyImport(.from(7), "remote");
+    try s.registerImport(.from(7));
+    _ = try s.nominateShorteningResolver(.from(7));
     listen.listen.mode = .shortening_or_settling;
     try s.recordSend(listen);
     try std.testing.expectError(error.UnexpectedMessage, s.recordSend(listen));
@@ -600,7 +565,8 @@ test "next sender subscriptions enforce disjoint modes for each promise incarnat
 test "withdrawing an unsent next listener returns only its subscription claim" {
     var s = session.Session.initWith(std.testing.allocator, .{ .captp_version = .next });
     defer s.deinit();
-    try s.installThirdPartyImport(.from(7), "remote");
+    try s.registerImport(.from(7));
+    _ = try s.nominateShorteningResolver(.from(7));
     try s.registerExport(.from(9));
     var listen = model.Message{ .listen = .{
         .target = .{ .far = model.FarRef.promise(7) },

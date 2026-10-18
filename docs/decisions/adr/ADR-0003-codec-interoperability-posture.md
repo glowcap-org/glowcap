@@ -7,10 +7,14 @@ decision: Codecs encode one codec-neutral model. Codec functions are stateless a
 supersedes: []
 superseded_by: []
 amends: []
-amended_by: [ADR-0103]
+amended_by: [ADR-0103, ADR-0252]
 ---
 
 # ADR-0003 Codec and interoperability posture
+
+[ADR-0252](ADR-0252-own-wire-identity-in-profile-offers.md) gives each
+glowcap build's `next` and Cap'n Proto wires their own identity in the offer,
+so two builds that write them differently settle on the baseline.
 
 ## Context
 

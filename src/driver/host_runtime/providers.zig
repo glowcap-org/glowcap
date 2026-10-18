@@ -46,17 +46,17 @@ pub fn init(
     if (opts.frame_cap == 0 or opts.wire_buffer_bytes == 0 or opts.max_pending_opens == 0)
         return Error.InvalidBufferConfiguration;
     if (opts.busy_poll_ns > HostRuntime.max_busy_poll_ns) return Error.BusyPollWindowTooLong;
-    const seed: [foundation.crypto.SEED_BYTES]u8 = switch (identity) {
+    const seed: [foundation.crypto.seed_bytes]u8 = switch (identity) {
         .keyed => |keyed| keyed.secret.seed(),
         .ephemeral => blk: {
-            var value: [foundation.crypto.SEED_BYTES]u8 = undefined;
+            var value: [foundation.crypto.seed_bytes]u8 = undefined;
             io.randomSecure(&value) catch return Error.HandshakeEntropyFailed;
             break :blk value;
         },
     };
     // Session signing roots belong at this I/O entropy boundary; the sans-io
     // core draws none and a restarted Host must not recreate handoff names.
-    var session_root: [foundation.crypto.SEED_BYTES]u8 = undefined;
+    var session_root: [foundation.crypto.seed_bytes]u8 = undefined;
     io.randomSecure(&session_root) catch return Error.HandshakeEntropyFailed;
     const core = try allocator.create(driver_core.Host);
     var core_opts = driver_core.Host.Options{

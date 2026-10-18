@@ -16,7 +16,8 @@ pub const depth_limits: h.loam.core.Store.Limits = blk: {
 };
 
 fn resource(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectId, id: f.core.ResourceId) !records.ResourceRecord {
-    var read = try f.storage.Read.init(store.allocator, store, owner, 1);
+    var read: f.storage.Read = undefined;
+    try read.init(store.allocator, store, owner, 1, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     for (0..128) |_| {
@@ -35,7 +36,8 @@ fn resource(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.Obje
 const GrantStamps = struct { authority: u64, inventory: u64 };
 
 fn grant(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectId, id: f.core.GrantId) !GrantStamps {
-    var read = try f.storage.Read.init(store.allocator, store, owner, 1);
+    var read: f.storage.Read = undefined;
+    try read.init(store.allocator, store, owner, 1, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     for (0..128) |_| {
@@ -123,8 +125,9 @@ pub fn depth(store: *h.loam.core.Store, backend: anytype) !void {
     const retained = try cases.history(store, backend, owner);
     var last = try cases.batch(store, backend, retained.batches[retained.count - 1]);
     defer last.deinit(store.allocator);
-    try std.testing.expectEqual(@as(usize, 65), last.value.effects[0].resource.after.len);
-    var read = try f.storage.Read.init(store.allocator, store, owner, 70);
+    try std.testing.expectEqual(@as(usize, 65), last.effects[0].resource.after.len);
+    var read: f.storage.Read = undefined;
+    try read.init(store.allocator, store, owner, 70, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     var append = try f.storage.Append.init(&read, .resource);
@@ -137,7 +140,8 @@ pub fn depth(store: *h.loam.core.Store, backend: anytype) !void {
 /// Maximum-depth scenarios reserve the complete path instead of the ordinary
 /// fixture's six bindings. The Store limits still own admission.
 pub fn appendDepthResource(store: *h.loam.core.Store, backend: anytype, owner: h.loam.core.ObjectId, parent: ?f.core.ResourceId) !f.core.ResourceId {
-    var read = try f.storage.Read.init(store.allocator, store, owner, 70);
+    var read: f.storage.Read = undefined;
+    try read.init(store.allocator, store, owner, 70, null);
     defer read.deinit() catch unreachable;
     _ = try f.pump(&read, backend);
     var append = try f.storage.Append.init(&read, .resource);

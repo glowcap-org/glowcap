@@ -15,7 +15,7 @@ const limits = @import("limits.zig");
 const local_promise = @import("local_promise.zig");
 const session = @import("mod.zig");
 
-const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const bootstrap_position = session.bootstrap_position;
 const Session = session.Session;
 const SessionLimits = limits.SessionLimits;
 
@@ -41,7 +41,7 @@ pub const Options = struct {
     /// to whatever that session keeps there. Disjoint host-assigned ranges make
     /// the foreign position absent instead of ambiguous, so the held-export
     /// check refuses it. Bootstrap remains position zero (ADR-0006).
-    export_base: u64 = BOOTSTRAP_POSITION + 1,
+    export_base: u64 = bootstrap_position + 1,
     /// Positions available past `export_base`. Unbounded without a host range.
     export_span: u64 = std.math.maxInt(u64),
     /// The secret the tables keyed by peer-chosen positions hash under. A
@@ -55,10 +55,7 @@ pub const Options = struct {
 /// out an export. Asserted rather than tolerated: moving a live range would
 /// rename a position the partner already holds.
 pub fn setExportBase(self: *Session, base: u64, span: u64) void {
-    std.debug.assert(self.exports.len() == 0);
-    self.export_base = base;
-    self.next_export_position = base;
-    self.export_position_end = base +| span;
+    self.exports.setRange(base, span);
 }
 
 /// Open V1.0 session with all defaults, equivalent to `initWith(allocator, .{})`.
@@ -95,15 +92,9 @@ pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
         .preferred = preferenceOf(options.captp_version, options.codec, options.features),
         .features = options.features,
         .limits = options.limits,
-        // Start past bootstrap at construction, not only once transition to
-        // open runs, so a capability registered before open still gets a fresh
-        // export rather than colliding with export zero.
-        .export_base = options.export_base,
-        .next_export_position = options.export_base,
-        .export_position_end = options.export_base +| options.export_span,
         .key_arena = std.heap.ArenaAllocator.init(allocator),
         .recv_scratch = std.heap.ArenaAllocator.init(allocator),
-        .exports = .empty,
+        .exports = .ranged(options.export_base, options.export_span),
         .imports = .keyed(options.wire_hash_multiplier),
         .inbound_answers = .keyed(options.wire_hash_multiplier),
         .outbound_answers = .empty,
@@ -115,7 +106,6 @@ pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
         .local_session_key = &.{},
         .partner_designator = &.{},
         .partner_acceptable_location_raw = &.{},
-        .outbound_resolver_link = .empty,
         .v1_0_inbound_resolver_link = .keyed(options.wire_hash_multiplier),
         .sturdyref_cache = .empty,
         .sturdyref_cache_index = .empty,
@@ -129,18 +119,12 @@ pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
 /// peer-chosen position is held. Asserted rather than tolerated: a table
 /// re-keyed with rows in it could no longer find them.
 pub fn keyWireTables(self: *Session, multiplier: u64) void {
-    std.debug.assert(self.imports.len() == 0 and self.imports.identities == null);
-    std.debug.assert(self.inbound_answers.rows.count() == 0 and self.detached_inbound_answers == null);
-    std.debug.assert(self.imported_promises.count() == 0);
-    std.debug.assert(self.v1_0_inbound_resolver_link.forward.count() == 0);
-    std.debug.assert(self.outbound_resolver_link.forward.count() == 0);
+    std.debug.assert(self.detached_inbound_answers == null);
     self.wire_hash_multiplier = multiplier;
-    self.imports.slots.rows.multiplier = multiplier;
-    self.inbound_answers.rows.multiplier = multiplier;
-    self.imported_promises.multiplier = multiplier;
-    self.v1_0_inbound_resolver_link.forward.multiplier = multiplier;
-    self.v1_0_inbound_resolver_link.reverse.multiplier = multiplier;
-    self.outbound_resolver_link.reverse.multiplier = multiplier;
+    self.imports.keyWire(multiplier);
+    self.inbound_answers.keyWire(multiplier);
+    self.imported_promises.keyWire(multiplier);
+    self.v1_0_inbound_resolver_link.keyWire(multiplier);
 }
 
 /// Retire every Session-owned allocation exactly once.
@@ -157,7 +141,6 @@ pub fn deinit(self: *Session) void {
     var imported_it = self.imported_promises.valueIterator();
     while (imported_it.next()) |entry| imported_promises.deinitImportedPromise(self.allocator, entry);
     self.imported_promises.deinit(self.allocator);
-    self.outbound_resolver_link.deinit(self.allocator);
     self.v1_0_inbound_resolver_link.deinit(self.allocator);
     // Drop the index before row swissnums because its keys alias those slices.
     self.sturdyref_cache_index.deinit(self.allocator);
