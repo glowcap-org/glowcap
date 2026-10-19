@@ -6,7 +6,8 @@ playback clock, so a timeline plays the same way every time, and PixiJS draws
 them. Each peer records which implementation it runs (`goblins`, `glowcap`, and so on),
 and each session carries its codec, CapTP version, and lifecycle state.
 
-ocapnviz replays timelines that `glowcap griddle run` produces, converted by
+ocapnviz replays timelines that `glowcap griddle run` (the CLI's deterministic
+simulator) produces, converted by
 `scripts/griddle-import.ts`, and reads the same schema live from a running
 glowcap host. It runs on its own Deno toolchain under `apps/ocapnviz/`. The
 [roadmap](../../docs/roadmap.md) tracks remaining work, and measured performance
@@ -38,9 +39,9 @@ Host headers, so a laptop run is not a LAN service. The devcontainer binds
 `0.0.0.0` inside the container and answers any Host header, so Compose's
 host-loopback publish reaches Vite. Open that published port as localhost.
 
-Hit **Play** and watch Alice introduce Bob to Carol. The new Bob-to-Carol
-session lands on `syrup/v1_0` because Bob is Goblins-flavored, so codec and
-CapTP version negotiate per session.
+Press **Play** to watch Alice introduce Bob to Carol. Bob runs Goblins, so the
+Bob-to-Carol session uses Syrup over CapTP 1.0 (`syrup/v1_0`). Each session
+negotiates its own codec and CapTP version.
 
 `dev.sh`, the body of `zig build ocapnviz-dev`, supervises vite so that Ctrl-C
 and closing the terminal stop the dev server. A bare `deno run -A npm:vite` can
@@ -57,7 +58,7 @@ with `--trace` (see
 its WebAssembly Host on demand and connects to the trace. The endpoint accepts a
 socket only from a viewer that presents the sturdyref's secret part (its
 swissnum) on the socket itself, so the pasted announcement is the whole setup. Other peers publish their own traces
-to the convergence endpoint with the same secret, so sessions the room
+to the same live timeline endpoint with the same secret, so sessions the room
 server never carries still appear.
 
 Live connects as soon as you enter it. The badge under the sturdyref says
@@ -110,16 +111,19 @@ panel leaves an empty `[data-region]` marker div where its scene should appear.
 `src/render/RegionRegistry.ts` tracks where the markers land so
 `src/render/UnifiedCanvas.tsx` can position each scene and set its hit area.
 
-The shared UI patterns, and where each one is defined, are in
-[`docs/design-principles.md`](docs/design-principles.md). The gesture pipeline
-is described in
-[`docs/interaction-model.md`](docs/interaction-model.md). The cursor rules are in
-[`docs/cursor.md`](docs/cursor.md). The document itself is described in
-[`docs/data-model.md`](docs/data-model.md) and
-[`docs/temporal-model.md`](docs/temporal-model.md), the reasoning behind the
-three top-level modes in [`docs/three-mode-design.md`](docs/three-mode-design.md),
-and the timeline authoring verbs in
-[`docs/timeline-design.md`](docs/timeline-design.md).
+The design notes:
+
+- [`docs/design-principles.md`](docs/design-principles.md): the shared UI
+  patterns and where each one is defined
+- [`docs/interaction-model.md`](docs/interaction-model.md): the gesture
+  pipeline
+- [`docs/cursor.md`](docs/cursor.md): the cursor rules
+- [`docs/data-model.md`](docs/data-model.md) and
+  [`docs/temporal-model.md`](docs/temporal-model.md): the timeline document
+- [`docs/three-mode-design.md`](docs/three-mode-design.md): the reasoning
+  behind the three top-level modes
+- [`docs/timeline-design.md`](docs/timeline-design.md): the timeline authoring
+  verbs
 
 ## Troubleshooting
 

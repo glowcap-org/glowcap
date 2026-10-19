@@ -27,17 +27,17 @@ one archive and includes only the shared definitions it needs.
 | Archive | Header | What it carries |
 | --- | --- | --- |
 | `libglowcap_ocapn` | [`glowcap_ocapn.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_ocapn.h) | shared contexts, frames, values, locators, and URI helpers |
-| `libglowcap_host` | [`glowcap_host.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_host.h) | the byte-fed host tier (`glowcap_host_*`) |
-| `libglowcap_driver` | [`glowcap_driver.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_driver.h) | the C driver loop. It exports only `glowcap_driver_*` and adopts a Host from `libglowcap_host` through `glowcap_driver_take_host` |
-| `libglowcap_loam` | `glowcap_loam.h` | portable persistence for objects and names on an existing Host |
-| `libglowcap_loam_lmdb` | `glowcap_loam_lmdb.h` | optional LMDB storage for Loam. It creates or reopens the database at startup and runs the storage work you hand it |
-| `libglowcap_loam_sqlite` | `glowcap_loam_sqlite.h` | optional SQLite storage for Loam, with the same verbs as the LMDB archive. It creates or reopens the database file at startup and runs the storage work you hand it |
-| `libglowcap_loam_volatile` | `glowcap_loam_volatile.h` | optional in-memory storage for Loam, with the same verbs as the LMDB archive. It takes no path, and its store ends at release |
+| `libglowcap_host` | [`glowcap_host.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_host.h) | the Host, which your program feeds bytes (`glowcap_host_*`) |
+| `libglowcap_driver` | [`glowcap_driver.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_driver.h) | the C driver loop, which adopts a Host from `libglowcap_host` through `glowcap_driver_take_host`. It exports only `glowcap_driver_*` |
+| `libglowcap_loam` | [`glowcap_loam.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_loam.h) | portable persistence for objects and names on an existing Host |
+| `libglowcap_loam_lmdb` | [`glowcap_loam_lmdb.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_loam_lmdb.h) | optional LMDB storage for Loam. It creates or reopens the database at startup and runs the storage work you hand it |
+| `libglowcap_loam_sqlite` | [`glowcap_loam_sqlite.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_loam_sqlite.h) | optional SQLite storage for Loam, with the same verbs as the LMDB archive. It creates or reopens the database file at startup and runs the storage work you hand it |
+| `libglowcap_loam_volatile` | [`glowcap_loam_volatile.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_loam_volatile.h) | optional in-memory storage for Loam, with the same verbs as the LMDB archive. It takes no path, and its store ends at release |
 | `libglowcap_net_transport_iroh` | [`glowcap_net_transport_iroh.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_iroh.h) | encrypted QUIC. It is optional and links a Rust library. |
 | `libglowcap_net_transport_webrtc` | [`glowcap_net_transport_webrtc.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_webrtc.h) | peer-to-peer WebRTC DataChannel. It is optional and links a Rust library. |
 | `libglowcap_net_transport_onion` | [`glowcap_net_transport_onion.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_onion.h) | Tor onion services over a daemon you run |
-| `libglowcap_net_transport_relay` | [`glowcap_net_transport_relay.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_relay.h) | Zig `keyed-relay` and end-to-end sealed `noise-relay` provider package |
-| `libglowcap_net_transport_tcp` | [`glowcap_net_transport_tcp.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_tcp.h) | the `noise-tcp`, `keyed-tcp`, and testing `tcp` provider package plus low-level framed TCP endpoints |
+| `libglowcap_net_transport_relay` | [`glowcap_net_transport_relay.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_relay.h) | the `keyed-relay` and end-to-end sealed `noise-relay` transports |
+| `libglowcap_net_transport_tcp` | [`glowcap_net_transport_tcp.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_tcp.h) | the `noise-tcp`, `keyed-tcp`, and testing `tcp` transports, plus low-level framed TCP endpoints |
 | `libglowcap_net_transport_inproc` | [`glowcap_net_transport_inproc.h`](https://github.com/jimisaacs/glowcap/blob/main/include/glowcap_net_transport_inproc.h) | in-process byte pipes, no sockets |
 
 Each driver and transport header `#include`s `glowcap_ocapn.h`, declares only its own functions, and expects its archive to be linked alongside `libglowcap_ocapn`.

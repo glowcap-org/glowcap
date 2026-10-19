@@ -9,7 +9,9 @@ sources:
 
 # Managed access architecture
 
-`glowcap.loam.access` is Loam's module for resource access and lifecycle.
+`glowcap.loam.access` is the [Loam](architecture.md) module that implements
+managed access: resources, the grants over them, and how both are stored and
+restored. The decision records below give the reasoning behind each part.
 [What ships](../shipped.md#resource-models) says which parts exist.
 
 | Decision record | Covers |
@@ -40,8 +42,9 @@ The module lives at `src/loam/access/`. It tracks how resources relate, the
 grants that cover them, sharing onward, editable access, and each resource's
 lifecycle. Applications define the content, what each permission means, and
 which operations exist. Loam stores the tree, decides what stays in memory,
-and runs atomic transactions. Actors and the Host run the code and hold the
-capabilities.
+and runs atomic transactions. Actors, the objects that handle calls, and the
+[Host](../architecture.md#from-a-peer-to-an-application) that registers them
+run the code and hold the capabilities.
 
 A plain Loam object needs no managed access record, and managed resources and
 plain objects can share one Loam transaction.
@@ -58,7 +61,8 @@ The module reuses Loam's cache, storage executor, and actor wake-up.
 
 ## Actors, resources, and access
 
-Rooms serves actor behaviors through the Rust Host binding. Its
+Rooms, glowcap's chat application, is the worked example. It serves actor
+behaviors through the Rust Host binding. Its
 [session grant publisher](../../apps/rooms/rust/runtime/src/session/managed/opening.rs)
 registers checked behaviors through
 [durable Host publication](../../bindings/rust/src/host/publication.rs), and
@@ -313,8 +317,8 @@ outcome.
 ## Locators and restoring
 
 The core records resource and grant identities, durable name recipes, and
-dependency keys. Host and runtime APIs own locators, publication, recovery,
-and connections. Managed access adds no locator format, transport registry,
+dependency keys. Host and runtime APIs own locators (the `ocapn://` addresses
+of peers and their objects), publication, recovery, and connections. Managed access adds no locator format, transport registry,
 connection pool, or sturdyref resolver.
 
 Publishing a message facet ties a durable Host name to that message's grant,
@@ -418,10 +422,13 @@ up within what the watcher may see, and opaque cursors.
 
 Grant changes are prepared as bounded changes, with room reserved in the tree
 and an exact result from storage. The owner's transaction ties
-fixed-resource content changes to the permission check (ADR-0169) and adds
-atomic sharing and bounded receipts (ADR-0170). One hosted call can also
-create a child or change other resources of the same owner, and the change
-batch it commits is the record of that operation (ADR-0227). Zig use and
+fixed-resource content changes to the permission check
+([ADR-0169](../decisions/adr/ADR-0169-managed-host-turns.md)) and adds
+atomic sharing and bounded receipts
+([ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md)). One
+hosted call can also create a child or change other resources of the same
+owner, and the change batch it commits is the record of that operation
+([ADR-0227](../decisions/adr/ADR-0227-hosted-calls-create-share-and-change-several-resources.md)). Zig use and
 control references enforce their grants and control limits through the same
 preparation. [Managed endpoints](access-endpoints.md) covers how to call them
 and how long they live.
@@ -480,7 +487,8 @@ Rooms fixtures test its content-specific requirements on top of them.
 ## Zig, C, and browser builds
 
 The model is its own build module. Hosting depends on it, the actor layer,
-and the byte-fed Host, and none of them needs the I/O driver, sockets, or a
+and the byte-fed Host (which takes bytes from the program and owns no
+sockets), and none of them needs the I/O driver, sockets, or a
 particular transport.
 
 The [C and Rust guide](c-and-rust.md) offers opaque Store, Attachment, Call,
@@ -537,6 +545,8 @@ nothing and waits in no application queue.
 
 ## Tests
 
+Each name in the last column is a test file or a `zig build` step that
+[build steps](../build-steps.md) describes.
 [Stability](../stability.md) lists what Loam's tests leave out.
 
 | Property | What the tests show | Where |

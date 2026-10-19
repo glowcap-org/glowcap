@@ -67,7 +67,8 @@ Everything travels with your session. Share it with your phone and
 every room on every directory is there, along with the same direct
 conversations. Reply to someone from the phone and it reaches them on their
 own directory, even though the phone never connected to it. Run your
-session on a server with the session service and it stays in all of those
+session on a server with the
+[session service]($link.page('rooms/operations')) and it stays in all of those
 places while your laptop is closed.
 
 [The same session opened on a phone. The phone only loaded the page from the first directory, but all three rooms and all three direct conversations came with the session, each still marked with its directory.]($image.siteAsset('rooms-directories-phone-dark.webp'))

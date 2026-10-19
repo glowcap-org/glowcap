@@ -1,8 +1,10 @@
 # TypeScript binding
 
-This workspace runs one TypeScript API on Deno and Bun, with a WebAssembly
-entry for browsers. Pin a checkout, run `zig build`, and use the packages from
-the tree.
+These packages let TypeScript and JavaScript connect to OCapN peers, call their
+objects, and host objects of their own. One API runs on Deno and Bun, with a
+WebAssembly entry for browsers. The packages are not published, so use a
+checkout of the repository: run `zig build`, then import the packages from the
+tree.
 
 ```ts
 import { Runtime } from "@glowcap/runtime";
@@ -27,19 +29,20 @@ console.log(await session.send(greeter, "greet", ["world"]));
 | [`@glowcap/relay`](relay/README.md) | A byte-transparent relay for browser peers that cannot open sockets. |
 | [`@glowcap/webrtc`](webrtc/README.md) | A WebRTC DataChannel opened through a signaling capability. `/driver` is the Deno provider and listener: it dials a `webrtc` locator and accepts offers on the driver loop. |
 | [`@glowcap/web`](web/README.md) | The same host and session API compiled to WebAssembly. |
-| `@glowcap/tcp` | TCP-profile locator constructors and C driver listeners. `/transport` exposes provider installation and blocking frame handles. |
+| `@glowcap/tcp` | TCP locators and listeners. `/transport` exposes provider installation and blocking frame handles. |
 | `@glowcap/inproc` | Socket-free in-process frame transport for tests and programs that keep every peer in one process. |
 | `@glowcap/abi` | Generated ABI constants used by the other packages. |
 
-An adapter selected at load time holds the runtime-specific FFI and socket
-code.
+Deno, Bun, and the browser each need their own way to call C library code and open
+sockets. The runtime picks the matching adapter when it loads.
 
 On Deno, TCP, iroh, onion, WebRTC, and relay connections run on glowcap's
-driver loop. Bun, the
-browser, and explicit keyed-relay channels use the byte-fed Host instead.
-[Developing a binding](../DEVELOPING.md) explains both paths.
+driver loop, an event loop in the C library that owns the sockets. Bun, the
+browser, and explicit keyed-relay channels use the byte-fed Host instead, where
+your JavaScript supplies the bytes. [Developing a binding](../DEVELOPING.md)
+explains both paths.
 
-## Run the checks
+## Run the tests
 
 [Stability](../../docs/stability.md) says what is checked on Deno, Bun, and
 the browser.

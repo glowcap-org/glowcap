@@ -195,7 +195,7 @@ and results can hold durable capabilities from the same attachment, and other
 kinds of capability are refused before any content is written. Unresolved
 promises, subscriptions, timers, and OS handles cannot be saved in a field.
 
-## Limits and tests
+## Limits
 
 Attachment options limit saves in progress (`max_reference_saves`, default
 <!-- value ../../src/loam/hosting/attachment.zig max_reference_saves -->64<!-- /value -->) and forwarded reply storage (`forward_reply_bytes`, default
@@ -206,6 +206,8 @@ plus one byte. Store read buffers,
 retentions, and the Host's limits for reviving and dialing sturdyrefs are
 separate.
 
+## Calling a held capability
+
 `Host.callCapability(allocator, session, target, verb, values, reply_bytes)`
 returns an opaque `Host.Call` that owns bounded storage for its result.
 
@@ -215,6 +217,8 @@ returns an opaque `Host.Call` that owns bounded storage for its result.
 - Canceling a pending call detaches its observer without allocating.
 - The call never takes from the Host's public action queue, and an unresolved
   target is refused before anything is sent.
+
+## Tests
 
 The `reference_test.zig` files under `test/loam/hosting/`, `test/loam/access/`
 and `test/loam/lmdb/` cover restoring references, managed identities and

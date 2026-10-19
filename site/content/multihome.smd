@@ -7,7 +7,8 @@
 ---
 
 A program reachable over more than one transport can keep its sturdyrefs
-working when those transports change.
+(long-lived `ocapn://` references to a published object, explained in
+[Concepts]($link.page('concepts'))) working when those transports change.
 
 A standard OCapN locator names one transport and one designator. So a program
 that listens on two transports looks like two separate peers, and a sturdyref
@@ -19,7 +20,7 @@ it as hints. Its wire names are not part of OCapN yet, so they live in
 # One peer, several routes
 
 An `id` locator puts the peer's durable public key in the designator. `id` is
-not a byte path of its own but a bundle of routes, each a real transport.
+not a transport itself. It bundles routes, and each route is a real transport.
 Dialing it tries the routes in order. A route does not identify the peer. The
 peer is whoever proves, over the route's channel, that it holds the key the
 locator names.
@@ -54,19 +55,21 @@ directions. A weak route can complete one handoff that a signed gift already
 authorized, and nothing more. It never establishes the peer's identity, it
 never enters the identity cache, and a sturdyref never dials it.
 
-Each list is capped in length, and the two together have a small size limit. Every `via` route must name the same key as the designator, so
-an untrusted locator cannot cause unbounded work or slip in a second identity.
+Each list is capped in length, and the two together have a small size limit.
+Every `via` route must name the same key as the designator, so an untrusted
+locator cannot cause unbounded work or slip in a second identity.
 
 # What the other peer sees
 
 Routes are a negotiated feature called `multi_location`. glowcap offers it
 under its own `glowcap-next` version, and both sides must record it in their
-signed hellos before either may use it. A first hello never includes it.
+signed hellos (`op:start-session`, the message that opens a session) before
+either may use it. A first hello never includes it.
 
 The decision is made per session. One process can use routes with another
 glowcap host while its session with a
-[Spritely Goblins](https://spritely.institute/) vat stays on the standard
-version.
+[Spritely Goblins](https://spritely.institute/goblins/) vat stays on the
+standard version and sees the same wire whether or not multi-homing is in use.
 
 [A negotiated partner receives the id bundle intact. A baseline partner gets one concrete route it can dial, with the private vocabulary stripped, and when no such route exists the give is refused before anything is sent.]($image.siteAsset('diagram-multihome-lowering.svg'))
 
@@ -77,10 +80,6 @@ routes only when both sessions negotiated `multi_location`. Otherwise glowcap
 gives the recipient one concrete route on a transport that recipient is known
 to use, with the private fields removed. If no such route exists, glowcap
 refuses the give before sending anything.
-
-glowcap does not send experimental fields to a peer that has not negotiated
-them, so a Goblins peer sees the same wire whether or not multi-homing is in
-use.
 
 # Sturdyrefs that survive a transport change
 
@@ -104,8 +103,10 @@ draw each of these flows.
 
 # Rooms uses it
 
-Directory peering in the [Rooms app]($link.page('examples')) uses multi-homing. A Rooms server started with `--peering` can list one of
-its durable rooms in another server's directory under a single `id` locator. Its iroh and
+Directory peering in [Rooms]($link.page('rooms')) uses multi-homing. A Rooms
+server started with `--peering` can list one of its durable rooms in another
+Rooms server's directory, the list of rooms people find there, under a single
+`id` locator. Its iroh and
 Noise listeners, which prove the key, go under `via`. Its onion and plain
 socket listeners go under `alt-locators` as weak fallbacks.
 
@@ -118,7 +119,7 @@ stays live.
 # [Standing]($section.id('standing'))
 
 OCapN has not specified multi-homing yet. Its meeting notes discuss ideas from
-locators that name several netlayers to a vat id that does not depend on any
+locators that name several netlayers (OCapN's word for a transport) to a vat id that does not depend on any
 transport. Everything described here is built and checked
 ([ADR-0125](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md)).
 The open part is the wire format, which stays a `glowcap-next` extension until

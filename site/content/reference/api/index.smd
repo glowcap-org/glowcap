@@ -7,7 +7,7 @@
 ---
 
 The generated Zig API reference for the public `glowcap` module normally
-appears here. If you are reading this text instead, the site was built without
-the autodoc step. The [API reference]($link.page('reference'))
+appears here. If you are reading this text instead, this build of the site did
+not generate it. The [API reference]($link.page('reference'))
 page describes the Zig and C entry points. [Start building]($link.page('start'))
 gives you a complete client before you read declaration-level detail.

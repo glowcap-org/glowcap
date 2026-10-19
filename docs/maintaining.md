@@ -8,6 +8,7 @@ sources:
   - resource: /tools/check/publication-integration-test.sh
   - resource: /tools/check/require-main-check.py
   - resource: /.github/rulesets/
+  - resource: /tools/deps/fetch-mbedtls.sh
 ---
 
 # Maintaining glowcap
@@ -149,3 +150,33 @@ Confirm on GitHub that an unchecked candidate cannot merge and a checked
 candidate can. Keep fork workflows on GitHub-hosted runners with a read-only
 token and no repository secrets. Review unfamiliar contributors' workflows
 before approving their execution.
+
+## Relay TLS maintenance
+
+The optional `wss` carrier compiles a private, minimal Mbed TLS release.
+[`tools/deps/fetch-mbedtls.sh`](../tools/deps/fetch-mbedtls.sh) is the single
+version, release URL, archive-size ceiling, and SHA-256 authority. Updating it
+is a security-sensitive dependency change:
+
+1. Select an upstream-supported official release and read its security and
+   migration notes, including the bundled TF-PSA-Crypto version.
+2. Update the version and archive digest together, then review the extracted
+   directory allowlist, the compiled source inventory in
+   `tools/build/mbedtls.zig`, and both minimal configuration headers under
+   `src/net/tls/` for newly required or newly reachable code.
+3. Run `zig build relay-tls-build` and `zig build check`, then run the static
+   and shared packaging checks on every supported platform. The
+   TLS check must retain exact success, hostname, CA, expiry, alert, malformed
+   record, truncation, close-notify, and symbol-isolation evidence.
+4. Update `LICENSE-THIRD-PARTY`, build-step documentation, and the public pin
+   description in the same change. Never silently float the release or accept
+   an unverified archive.
+
+The committed localhost certificate chain is test-only. The TLS check
+verifies its authority and fails when the leaf nears expiry.
+Renew the entire root and leaf together into a new directory with
+`tools/check/generate-relay-tls-fixture.sh`, inspect the subjects, SAN,
+validity, and private-key diff, then replace the three files under
+`test/net/fixtures/` in one reviewed commit. Generate a fresh root key each
+time, and use these keys only in tests. Never weaken the expiry check to buy
+time.

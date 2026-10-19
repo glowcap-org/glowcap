@@ -18,9 +18,10 @@ browser, use a smaller part of Loam, covered in the
 
 ## What Loam is for
 
-Picture a task board shared over CapTP. Your program hosts the board, its
-columns, and its cards as live objects. Bob holds a reference to one column,
-and Carol keeps a sturdyref to the board. When your program restarts, every
+Picture a task board shared over CapTP, the protocol glowcap peers use to call
+each other's objects. Your program hosts the board, its columns, and its cards
+as live objects. Bob holds a reference to one column, and Carol keeps a
+sturdyref, a saved reference she can use to reach the board again later. When your program restarts, every
 one of those objects is gone, and so is everything Bob and Carol were
 holding.
 
@@ -298,7 +299,8 @@ accept capabilities nested in arguments and keep them while a call reads,
 runs again, and replies. A capability a call receives is not saved on its own.
 `capture` saves one that points into the same attachment, and
 `hosting.references.beginSave` saves a local or remote reference it can check.
-Raw local Vat references and handoffs are unsupported as arguments. Outside a
+Raw local Vat references and handoffs (references introduced by a third peer)
+are unsupported as arguments. Outside a
 call, a transaction can change edges with `capture` while no actor calls are
 waiting.
 

@@ -1,8 +1,9 @@
 # Tasks
 
 Tasks is a shared board built on glowcap. A board holds lists and a list holds
-tasks. The server saves all of it in Loam, so the board, its lists, and every
-task come back after a restart, reached by the same name.
+tasks. The server saves all of it in [Loam](../../docs/loam.md), glowcap's storage
+layer, so the board, its lists, and every task come back after a restart,
+reached by the same name.
 
 Try it in two terminals. Build and start the server on a directory of its own:
 
@@ -70,6 +71,7 @@ the methods every Loam resource answers:
   capability. It takes its number from the board's `derivation-sequence()`.
   The scope is `object` for one list or task, or `subtree` for it and
   everything under it, including tasks added later.
+  [Managed access](../../docs/loam/access.md) describes the other arguments.
 - A read-only share reads and is refused every change. Its `durable-name()`
   keeps working after a restart, and a shared task stays reachable after it
   moves to another list.

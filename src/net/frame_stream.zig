@@ -1,6 +1,6 @@
 //! Moving whole frames over a `std.Io` byte stream, without a peer involved.
 //!
-//! A `Connection` reads frames straight into a `engine.Peer` and applies them.
+//! A `Connection` reads frames straight into an `engine.Peer` and applies them.
 //! A `FrameStream` sits one level lower: read one whole frame off the wire as an
 //! owned `Frame`, or write one, and that's it. It's what the host-driven C ABI
 //! endpoint is built on. There, the C host owns the peer and runs the loop itself

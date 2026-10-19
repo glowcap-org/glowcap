@@ -107,7 +107,8 @@ pub const Batch = struct {
     pub fn resolve(self: Batch, current: Metadata) !Resolution {
         if (current.store != self.ticket.store or current.incarnation != self.ticket.incarnation) return error.StaleWriter;
         if (current.revision == self.ticket.revision and current.last_sequence < self.ticket.sequence) return .unchanged;
-        if (current.revision == self.ticket.revision + 1 and current.last_sequence == self.ticket.sequence) return .{ .committed = current };
+        const committed_revision = std.math.add(u64, self.ticket.revision, 1) catch return error.RecoveryRequired;
+        if (current.revision == committed_revision and current.last_sequence == self.ticket.sequence) return .{ .committed = current };
         return error.RecoveryRequired;
     }
 };

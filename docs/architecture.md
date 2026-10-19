@@ -283,15 +283,10 @@ release can never spend a retain the session still needs
 decides which messages are legal while negotiating, open, or closed, and an
 invalid transition is refused before it can mutate a table.
 
-Export and outbound answer positions index a dense slab, and a released
-position is the next one minted
-([ADR-0254](decisions/adr/ADR-0254-an-own-side-position-is-a-row-that-holds-its-facts.md)).
-A reader that outlives a turn holds the question's position with its row
-stamp, so a stale reader misses the row that reuses the position. A partner
-may reuse an import position after release. The final decrement removes
-every sturdyref cache entry and clears the import row's routing generation.
-An old host route then fails closed even if its map row is reclaimed after
-the partner reuses the position.
+A partner may reuse an import position after release. The final decrement
+removes every sturdyref cache entry and clears the import row's routing
+generation, so an old host route fails closed even if its map row is
+reclaimed after the partner reuses the position.
 
 ## Frame ownership and copies
 

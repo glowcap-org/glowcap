@@ -1,19 +1,19 @@
 # @glowcap/relay
 
-This byte-transparent relay lets a peer that cannot open a socket itself,
-such as a browser, hold a CapTP session with another peer. The relay forwards the raw session
-bytes without parsing them, so the keyed or Noise handshake and the session run end to end
-and the relay holds no capability. The contract every runtime's relay obeys is
-[ADR-0086](../../../docs/decisions/adr/ADR-0086-byte-transparent-relay.md). This package is its
-TypeScript implementation.
+Run this relay when a peer that cannot open a socket itself, such as a browser, needs a CapTP
+session with another peer. The relay forwards the raw session bytes without parsing them, so the
+keyed or Noise handshake and the session run end to end and the relay holds no capability. Every
+runtime's relay follows the same contract,
+[ADR-0086](../../../docs/decisions/adr/ADR-0086-byte-transparent-relay.md), and this package is
+the TypeScript implementation.
 
 ## Parts of a relay
 
-A relay in any runtime has these pieces. This package ships the pump and WebSocket wiring, which
-work across JavaScript runtimes. Your application supplies the rest.
+A relay in any runtime has these parts. This package ships the pump and the WebSocket adapter,
+which work across JavaScript runtimes. Your application supplies the rest.
 
-1. **A raw byte channel** to the target: `read() → Uint8Array | null`,
-   `write(bytes) → Promise<void>`, and `close() → Promise<void>`. Calling `close` more than once is
+1. **A raw byte channel** to the target, with `read(): Promise<Uint8Array | null>`,
+   `write(chunk: Uint8Array): Promise<void>`, and `close(): Promise<void>`. Calling `close` more than once is
    safe. For an iroh target, `@glowcap/iroh` supplies the channel through
    `dialLocatorForRelay`. A TCP target uses the runtime's own socket. One channel request makes one
    dial attempt, and your application owns retry.
@@ -24,10 +24,10 @@ work across JavaScript runtimes. Your application supplies the rest.
    config, options?)`, wires an accepted WebSocket to the pump. It buffers the browser's first handshake bytes while the
    target connection opens, bounds that queue, and slows outbound reads when the
    socket's send buffer is full. Your application supplies the accepted socket from its own HTTP server.
-4. **A dial dispatcher** from your application. This reference opens a socket for `?to=host:port` and an
-   iroh channel for `?locator=<uri>`. It loads iroh only for the locator path. The production Rooms
-   relay uses `glowcap_host_plan_dial` instead, so its target allow-list and dial plan cannot
-   disagree (ADR-0086).
+4. **A dial dispatcher** from your application, which maps the request to a channel. The reference
+   relay opens a socket for `?to=host:port` and an iroh channel for `?locator=<uri>`, and loads
+   iroh only for the locator path. The production Rooms relay uses `glowcap_host_plan_dial`
+   instead, so its target allow-list and dial plan cannot disagree.
 5. **Config:** `{ idleTimeoutMs, maxBytesPerSession }`. Your application separately decides which
    targets to allow.
 
@@ -51,7 +51,7 @@ webSocketRelay(
 );
 ```
 
-Composing a client:
+## Connecting a client
 
 - Browser and other managed-WebSocket runtimes compose `connector()`. It
   accepts both `keyed-relay` and `noise-relay`. The connector moves bytes, and
@@ -77,7 +77,7 @@ the sender.
   `send`, and Rust awaits `SinkExt::send`. ADR-0086 requires it.
 
 `zig build bindings-relay` stalls a reader through each runtime's relay and
-fails if the far sender is not backpressured.
+fails if the far sender keeps sending.
 
 The browser-to-relay direction has a different problem. An accepted WebSocket can deliver the first
 handshake bytes before the target connection opens, and browser WebSockets cannot be paused. The
@@ -92,10 +92,12 @@ WebSocket code 1003, and only binary `ArrayBuffer` messages enter the byte chann
 ## Scaling
 
 The relay holds no CapTP session state, so each connection costs runtime and socket overhead and no
-glowcap session buffers. `zig build relay-scaling` (`test/scaling_bench.ts`) opens thousands of
-connections through the reference relay and divides the resident-memory increase by that count. The
-report prints the measured cost per connection. Each connection also uses two file descriptors, so a
-large deployment needs enough memory and a matching descriptor limit. The check fails if the cost passes the ceiling in `test/scaling_bench.ts`, which catches a large
-per-connection buffer. A relay connection costs more than a core session's
-memory budget (`test/engine/footprint_budget_test.zig`), and closing that gap
-would need a relay built on a completion loop.
+glowcap session buffers. Each connection uses two file descriptors, so a large deployment needs
+enough memory and a matching descriptor limit. A relay connection costs more memory than a core
+glowcap session's budget (`test/engine/footprint_budget_test.zig`), and closing that gap would need
+a relay built on a completion loop.
+
+`zig build relay-scaling` (`test/scaling_bench.ts`) opens thousands of connections through the
+reference relay, divides the resident-memory increase by that count, and prints the cost per
+connection. It fails if the cost passes the ceiling in `test/scaling_bench.ts`, which catches a
+large per-connection buffer.

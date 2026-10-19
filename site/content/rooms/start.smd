@@ -20,7 +20,8 @@ zig build rooms-web
 
 This builds the services, the browser's WebAssembly, and the interface, then
 serves the page at `http://localhost:8080`. Peers reach the server over
-encrypted iroh, so the build needs Zig, Cargo, and Deno.
+encrypted [iroh]($link.page('transports/iroh')). The build needs Zig, Cargo,
+and Deno.
 
 To stay on your own machine with no iroh at all, use:
 

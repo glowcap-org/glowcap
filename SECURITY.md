@@ -36,8 +36,10 @@ days. Reports of broken protocol invariants take priority.
 
 ## What counts as a security issue
 
-A report showing any of these rules broken is a security issue, even if it
-needs an unusual configuration to trigger:
+A session keeps tables of the references it has exported and imported and the
+answers it owes, and a codec turns frames into positions in those tables. A
+report showing any of these rules broken is a security issue, even if it needs
+an unusual configuration to trigger:
 
 | Rule | What breaking it looks like |
 | --- | --- |
@@ -71,38 +73,16 @@ handoffs itself through the `SignatureVerifier` hook and installs the stub
 accepts unverified certificates, so a report about that belongs to the
 embedder.
 
-## Relay TLS maintenance
+## Relay TLS dependency
 
-The optional `wss` carrier compiles a private, minimal Mbed TLS release.
-[`tools/deps/fetch-mbedtls.sh`](tools/deps/fetch-mbedtls.sh) is the single
-version, release URL, archive-size ceiling, and SHA-256 authority. Updating it
-is a security-sensitive dependency change:
-
-1. Select an upstream-supported official release and read its security and
-   migration notes, including the bundled TF-PSA-Crypto version.
-2. Update the version and archive digest together, then review the extracted
-   directory allowlist, the compiled source inventory in
-   `tools/build/mbedtls.zig`, and both minimal configuration headers under
-   `src/net/tls/` for newly required or newly reachable code.
-3. Run `zig build relay-tls-build` and `zig build check`, then run the static
-   and shared packaging checks on every supported platform. The
-   TLS check must retain exact success, hostname, CA, expiry, alert, malformed
-   record, truncation, close-notify, and symbol-isolation evidence.
-4. Update `LICENSE-THIRD-PARTY`, build-step documentation, and the public pin
-   description in the same change. Never silently float the release or accept
-   an unverified archive.
-
-The committed localhost certificate chain is test-only. The TLS check
-verifies its authority and fails when the leaf nears expiry.
-Renew the entire root and leaf together into a new directory with
-`tools/check/generate-relay-tls-fixture.sh`, inspect the subjects, SAN,
-validity, and private-key diff, then replace the three files under
-`test/net/fixtures/` in one reviewed commit. Generate a fresh root key each
-time, and use these keys only in tests. Never weaken the expiry check to buy
-time.
+The optional `wss` carrier compiles a private, minimal Mbed TLS release, pinned
+by version, release URL, archive-size ceiling, and SHA-256 in
+[`tools/deps/fetch-mbedtls.sh`](tools/deps/fetch-mbedtls.sh). Updating the pin
+is a security-sensitive dependency change, and
+[Maintaining glowcap](docs/maintaining.md#relay-tls-maintenance) has the
+procedure.
 
 ## Acknowledgements
 
-Reporters of valid security issues are credited in the corresponding release
-notes once a fix lands and disclosure is appropriate, unless they request
-otherwise.
+Reporters of valid security issues are credited in the advisory or commit that
+lands the fix, once disclosure is appropriate, unless they request otherwise.

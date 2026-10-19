@@ -7,8 +7,9 @@
 ---
 
 Call a capability from your shell, host a peer, inspect a live session in the
-REPL, or expose CapTP tools over MCP, with the same Host and transports as the
-library. The [CLI guide](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md)
+REPL, or expose CapTP tools over MCP (Model Context Protocol, which AI
+assistants use to call tools), with the same [Host]($link.page('modules')) and
+transports as the library. The [CLI guide](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md)
 is the complete reference.
 
 ```sh
@@ -19,7 +20,9 @@ glowcap help
 
 # Join a room over iroh
 
-Rooms traffic between glowcap peers rides [iroh]($link.page('transports/iroh')):
+Rooms is glowcap's chat application. This command runs your Rooms workspace
+from the shell, and its peers talk over [iroh]($link.page('transports/iroh')),
+an encrypted QUIC transport:
 
 ```sh
 glowcap apps rooms session
@@ -28,15 +31,15 @@ glowcap apps rooms session
 # A local round-trip
 
 `ocapn listen` binds loopback `tcp`, the testing transport: a cleartext
-`host:port` with no identity proof.
+`host:port` with no identity proof. The CLI's demo greeter answers the verb
+`greet` with `Hello, <arg>`.
 
-The CLI's demo greeter answers the verb `greet` with `Hello, <arg>`.
-`--publish` serves one partner and then exits, and `Ctrl+C` or `SIGTERM` stops
-a waiting or serving `listen` cleanly with exit 0. Run terminal A first, then
-paste its printed locator (the peer's dialable `ocapn://` address) into `LOC`
-in terminal B. `init` creates the identity keys a peer signs its sessions with,
-stored under `GLOWCAP_STATE`. Each terminal gets its own directory so it acts
-as its own peer.
+Each terminal sets its own `GLOWCAP_STATE` directory, so it acts as its own
+peer, and `init` creates the identity keys that peer signs its sessions with.
+Run terminal A first, then paste its printed locator (the peer's dialable
+`ocapn://` address) into `LOC` in terminal B. `--publish` serves one partner
+and then exits, and `Ctrl+C` or `SIGTERM` stops a waiting or serving `listen`
+cleanly with exit 0.
 
 ```sh
 # terminal A

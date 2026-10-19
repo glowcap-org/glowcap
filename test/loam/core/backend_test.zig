@@ -36,3 +36,24 @@ test "loam backend check names the first absent operation" {
     };
     try std.testing.expectEqualStrings("backend lacks lookup", core.backend.missingBackendOperation(Partial).?);
 }
+
+test "loam recovery classifies the revision boundary without wrapping" {
+    // Batch.resolve owns receipt classification, including batches supplied
+    // directly to a backend rather than minted through Store.begin.
+    const last = std.math.maxInt(u64);
+    var batch: core.Batch = .{
+        .ticket = .{ .store = @fromBackingInt(1), .incarnation = 1, .sequence = 2, .revision = last - 1 },
+        .changes = &.{},
+        .limits = .{},
+        .schemas = &.{},
+    };
+    var current: core.Metadata = .{ .store = @fromBackingInt(1), .incarnation = 1, .last_sequence = 2, .revision = last };
+    try std.testing.expectEqualDeep(core.Resolution{ .committed = current }, try batch.resolve(current));
+    batch.ticket.revision = last;
+    current.last_sequence = 1;
+    try std.testing.expect((try batch.resolve(current)) == .unchanged);
+    current.last_sequence = 2;
+    try std.testing.expectError(error.RecoveryRequired, batch.resolve(current));
+    current.revision = 0;
+    try std.testing.expectError(error.RecoveryRequired, batch.resolve(current));
+}

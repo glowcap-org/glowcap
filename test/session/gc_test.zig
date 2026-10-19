@@ -1,5 +1,6 @@
 //! Wire-delta GC: refcounts move by direction, zero deltas are refused
-//! before any mutation in both profiles and codecs, underflow is loud, a
+//! before any mutation in both profiles and codecs, underflow and overflow
+//! are loud, a
 //! re-sent export retains its delta, the local baseline and the pinned
 //! bootstrap position are never releasable, scratch OOM reports itself, and a
 //! send refused for memory takes no export retain.
@@ -405,4 +406,18 @@ test "a send refused for memory takes no export retain" {
         for (7..24) |position| try std.testing.expectEqual(baseline + 1, s.exportRefcount(.from(position)));
         break;
     }
+}
+
+test "an import retain past u64 is GcOverflow, never underflow" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(3));
+    s.imports.rows.getPtr(3).?.count = std.math.maxInt(u64);
+
+    // An already-held id is never cap-checked, so a cap of one isolates the
+    // count refusal on both the direct and the prepared retain.
+    try std.testing.expectError(error.GcOverflow, s.imports.retain(allocator, .from(3), 1));
+    try std.testing.expectError(error.GcOverflow, s.imports.prepareRetain(allocator, .from(3), 1));
+    try std.testing.expectEqual(std.math.maxInt(u64), s.importRefcount(.from(3)));
 }

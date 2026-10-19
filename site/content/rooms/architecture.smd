@@ -98,7 +98,7 @@ the screen and turns what you do into requests.
 
 Your browser reaches the room server through the web server's byte relay. The
 relay forwards bytes without parsing them and holds nothing of yours. It could
-still read them, and on an iroh route it checks the room server's key on your
+still read them, and on an [iroh]($link.page('transports/iroh')) route it checks the room server's key on your
 behalf, so you are trusting the web server that gave you the page. For a direct
 message, WebRTC puts the two peers on one channel, and the server only passes
 along the connection details.

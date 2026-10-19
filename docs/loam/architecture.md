@@ -17,8 +17,9 @@ records the design, the [Loam guide](../loam.md) covers the Zig API, and the
 
 ## Who owns what
 
-glowcap supplies capability networking, actors, a Vat, a Host, and optional
-storage. Applications can use those directly, or use Loam's access module for
+glowcap supplies capability networking, actors, a
+[Host and its Vat](../architecture.md) (one CapTP identity, and where its
+actors run), and optional storage. Applications can use those directly, or use Loam's access module for
 resources with managed grants. Rooms builds directories, rooms,
 conversations, messages, and memberships on top of them.
 
@@ -42,9 +43,9 @@ flowchart TB
     Engine --> Browser[IndexedDB in the browser]
 ```
 
-The arrows show which part relies on which. A storage root keeps objects
-alive. It is different from the access module's owner of a resource tree, and
-from whatever directory an interface shows at the top.
+An arrow points from a part to a part it relies on. A storage root keeps
+objects alive. It is not the access module's owner of a resource tree, or the
+directory an interface shows at the top.
 
 | Part | What it owns |
 | --- | --- |

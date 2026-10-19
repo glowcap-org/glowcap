@@ -279,11 +279,12 @@ pub fn register(ctx: Context) Registered {
     const site_step = b.step("site", "Build and validate the documentation site (Zine + autodoc) under zig-out/site/");
     site_step.dependOn(&run_site_output_check.step);
 
-    // Render the built pages in the pinned headless Chromium at phone width.
+    // Render the built pages in the pinned headless Chromium at four widths.
     // The source checks and the output checker cannot see layout, and the
     // site's real regressions have been layout: a page a wide code listing
     // stretched past the viewport, a tab strip that widened the whole page,
-    // and module doc prose that could not wrap inside the autodoc reference.
+    // module doc prose that could not wrap inside the autodoc reference, and
+    // a last line stranding one word.
     // On-demand like every browser proof.
     const site_render_check = execution.addSystemCommand(b, .{ .browser_proof = 240 }, &.{
         "deno", "run", "--allow-all", "tools/check/site_render.ts", common.rootPath(b, "zig-out/site"),
@@ -292,7 +293,7 @@ pub fn register(ctx: Context) Registered {
     site_render_check.has_side_effects = true;
     site_render_check.step.dependOn(&autodoc_access.step);
     site_render_check.step.dependOn(ctx.browser_preflight);
-    const site_render_check_step = b.step("site-render-check", "Render every built site page at phone width in the pinned Chromium (fails on console errors or horizontal overflow)");
+    const site_render_check_step = b.step("site-render-check", "Render every built site page at four widths in the pinned Chromium (fails on console errors, horizontal overflow, or widows)");
     site_render_check_step.dependOn(&site_render_check.step);
 
     // Press the code-tabs on every built page and prove the example switches.

@@ -10,9 +10,11 @@ sources:
 
 # Install glowcap and run Rooms
 
-The glowcap installation includes its CapTP CLI and REPL, the Rooms browser
-application, directory, durable peers, terminal chat, IRC bridge and IRC server,
-and skill files that teach an AI agent to join a room, alone or as a team.
+Rooms is a chat application built on glowcap, where every member is a peer.
+The glowcap installation includes its CapTP command line and REPL and the Rooms
+browser application. It also includes the directory (the server that lists and
+hosts rooms), durable peers, terminal chat, an IRC bridge and IRC server, and skill files
+that teach an AI agent to join a room, alone or as a team.
 On Linux or macOS you can run Rooms locally or join a deployed service, and
 nothing else needs to be installed.
 
@@ -124,12 +126,15 @@ The other `glowcap apps rooms` commands:
 Read each command's help before configuring network access or credentials.
 
 The generic `glowcap ocapn` commands and REPL support TCP and configured relay
-routes, but not iroh or WebRTC. The Rooms session commands do support iroh, so
+routes, but not [iroh](https://www.iroh.computer/) (encrypted peer-to-peer QUIC) or
+WebRTC. The Rooms session commands do support iroh, so
 use them to join an iroh deployment.
 
 ## Connect to deployed Rooms
 
-Ask the deployment's operator for its externally reachable `/locator` URL.
+Ask the deployment's operator for its externally reachable `/locator` URL. It
+returns the directory's `ocapn://` address as plain text, which the commands
+below dial.
 
 - Use the public HTTPS address, or the published localhost port when Docker
   runs on this machine. Container service names such as
@@ -205,8 +210,8 @@ failure.
 For direct messages with browsers:
 
 - The browser relay also needs a route the agent can reach.
-- In the browser, choose **Through the room relay**. The HTTP bootstrap works
-  out the relay URL. Pass `--relay-url` if the operator serves it somewhere
+- In the browser, choose **Through the room relay**. The session finds the
+  relay URL from the locator endpoint. Pass `--relay-url` if the operator serves it somewhere
   else.
 - With `--dial-transports=webrtc`, the session and a browser that uses WebRTC
   reach each other directly, whichever opens the conversation. Signaling goes
@@ -214,8 +219,10 @@ For direct messages with browsers:
   servers the session gathers candidates through.
 
 File events are descriptions only, and transferring file bytes needs an attached
-browser. When the inbox reports a gap, inspect it and accept it. Accepting a
-gap does not recover the missed events.
+browser. The inbox reports a gap when it could
+not record some events. [Operating Rooms](operating.md#the-session-service)
+explains how to clear one, and accepting a gap does not recover the missed
+events.
 
 ## Upgrade and stop
 

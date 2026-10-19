@@ -57,10 +57,9 @@ pub fn peerLocatorsEqual(a: model.PeerLocator, b: model.PeerLocator) bool {
 }
 
 /// Structural equality on two argument value trees. Recurses through lists,
-/// sets, tagged values, and nested references. The `Hints.wire_form`
-/// hint-encoding marker is *not* compared (it is a wire-shape artifact, not a
-/// semantic value). Runs over the borrowed spine via `fromOwned`. See the
-/// one-spine note at the top of this file.
+/// sets, tagged values, and nested references. Locator references ignore
+/// connection hints. Handoff payloads compare hint entries and their wire
+/// form. Runs over the borrowed spine via `fromOwned`.
 pub fn argumentsEqual(a: model.Argument, b: model.Argument) bool {
     return equalUnbounded(.fromOwned(&a), .fromOwned(&b));
 }
@@ -261,9 +260,9 @@ pub const CompareBudget = struct {
     }
 };
 
-/// What a borrowed comparison carries down the tree: `scratch` materializes
-/// lazy hint lists for handoff comparison (turn-scratch is the intended
-/// owner), and `budget` bounds the total work.
+/// What a borrowed comparison carries down the tree: `scratch` backs temporary
+/// lazy hint lists for handoff comparison, released before return, and `budget`
+/// bounds the total work.
 pub const CompareCtx = struct {
     scratch: std.mem.Allocator,
     budget: *CompareBudget,
@@ -455,7 +454,11 @@ fn viewHintsEqual(
 ) model.view.Error!bool {
     if (a.wireForm() != b.wireForm()) return false;
     const ah = try materializeBorrowedHints(a, scratch);
+    // Only a lazy projection allocates. Release it here, including when the
+    // second materialization refuses, without freeing borrowed owned hints.
+    defer if (a == .lazy) model.freeHints(scratch, ah);
     const bh = try materializeBorrowedHints(b, scratch);
+    defer if (b == .lazy) model.freeHints(scratch, bh);
     return hintsEqual(ah, bh);
 }
 

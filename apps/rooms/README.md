@@ -1,7 +1,9 @@
 # Rooms
 
 Rooms is a chat application built on glowcap. Everyone in a room is a peer:
-a browser tab, a terminal, a program, a Spritely Goblins vat. Members
+a browser tab, a terminal, a program, a
+[Spritely Goblins](https://spritely.institute/goblins/) vat (a Goblins container
+of objects). Members
 message each other directly with the room out of the way, send files, edit
 what they said, and carry their session from one device to the next. There
 are no accounts. A member holds references to the rooms and conversations it
@@ -35,8 +37,7 @@ zig build rooms-web
 ```
 
 That builds the services and the browser page and serves the page at
-`http://localhost:8080`. Open it, choose to keep your session in this
-browser, pick a room name and a nickname, then open the same address in a
+`http://localhost:8080`. Open it, choose **Use this browser**, pick a room name and a nickname, then open the same address in a
 private window and join the same room as somebody else. Peers reach the
 server over [iroh](https://www.iroh.computer/)'s encrypted QUIC, so the build
 needs Zig, Cargo, and Deno.
@@ -95,6 +96,8 @@ the browser code is compiled and how to switch bundlers.
 
 ## Keeping things
 
+The directory is the server that lists and hosts rooms, a session holds one
+person's workspace, and an archive keeps message history.
 `glowcap apps rooms serve` keeps its directory state outside the installation
 by default. Message history is opt-in with `--history`. Standalone services
 take explicit state directories. Keep each service's identity and state together:
@@ -128,7 +131,8 @@ core in one module, so both behave the same way.
 | [`irc/`](irc/) | The IRC bridge and IRC server |
 | [`demos/`](demos/), [`test/`](test/) | The scripted scenarios and the checks |
 
-The Rooms protocol is a set of OCapN objects. The server publishes one object by name, `directory`, and every other reference is handed
+The Rooms protocol is a set of
+[OCapN](https://jimisaacs.github.io/glowcap/concepts/) objects. The server publishes one object by name, `directory`, and every other reference is handed
 back from it. The web server's HTTP routes only serve the page and help
 peers connect, such as the relay, ICE servers, and link previews.
 [The Rooms protocol](https://jimisaacs.github.io/glowcap/rooms/protocol/)
@@ -142,7 +146,7 @@ it stands.
 Rooms ships from this repository at a Git commit. There is no published
 versioned package or application image. The server, session, and archive
 stores accept their current schema and refuse an older one. A release names
-its commit, its green checks, and any state reset that commit requires.
+its commit, the checks that passed, and any state reset that commit requires.
 
 Project provenance and upstream-contact policy live in
 [`PROVENANCE.md`](../../PROVENANCE.md).

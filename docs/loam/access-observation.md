@@ -9,8 +9,10 @@ sources:
 
 # Observing managed access
 
-Whoever holds a managed use or control endpoint can register a receiver,
-read the changes to their access with a cursor, and cancel it. The
+Whoever holds a managed use or control endpoint can learn when its access
+changes, for example when it is paused or revoked. The holder registers a
+receiver, reads the changes through it with a cursor that marks where it last
+read, and cancels the receiver when done. The
 [managed access guide](access.md) covers use, control, and how edits are
 checked.
 
@@ -20,7 +22,8 @@ Call `mutate(sequence, "observe")` on a managed use or control endpoint to
 watch its grant. The result holds two items: a receiver and a separate
 canceler.
 
-- Registering shares the endpoint's eight edit receipts. Resending the request
+- Registering shares the endpoint's eight mutation receipts
+  ([retrying mutations](access.md#retrying-mutations)). Resending the request
   returns the same receiver and canceler instead of creating another.
 - Set `Service.entropy.fill` before registering.
 - Facets made at run time, such as dependent facets, do not accept this
@@ -29,7 +32,7 @@ canceler.
   and read `durable-name()`, so reopening a paused view uses no content. These
   calls are still refused once access is revoked or out of scope.
 
-Code that only lives as long as the process registers with
+A receiver that should end with the Host process registers with
 `mutate(sequence, "observe-live", identity)`.
 
 - The identity is 16 opaque bytes kept with the original request. It tells
@@ -37,8 +40,9 @@ Code that only lives as long as the process registers with
 - Only `OperationConflict`, which means another request owns that sequence,
   lets you pick a new sequence. After a lost answer, resend the original
   request.
-- The attachment must have started a live scope and confirmed it. That scope's
-  saved marker closes these receivers when it moves on at the next restart.
+- The attachment must have started and confirmed a live scope, which marks one
+  run of the Host. When the next run starts a new scope, the previous scope's
+  receivers close.
 - Each new live registration frees one receiver left over from an old marker,
   clearing its access and retiring its durable names in the same transaction
   that adds the new one.

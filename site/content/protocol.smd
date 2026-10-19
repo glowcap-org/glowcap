@@ -13,6 +13,8 @@ Every glowcap session uses a small vocabulary from the
 draw the flows.
 
 The operation and descriptor names below are checked against the Syrup codec.
+In the tables, *1.0* means CapTP 1.0, the version Goblins speaks, and *Next*
+means `glowcap-next`, glowcap's own experimental version.
 
 # Operations
 
@@ -43,16 +45,17 @@ promises this way.
 
 `glowcap-next` tracks the draft's operation contracts while keeping the shared
 Goblins-compatible hello and crypto formats. A call carries its resolver and a
-listen mode inline: mode 1 requests shortening, and mode 3 requests shortening
-or settlement. A separate `op:listen` can add a mode-2 settling subscription
+listen mode inline: mode 1 requests shortening (later messages to the promise
+go straight to what it resolves to), and mode 3 requests shortening or
+settlement. A separate `op:listen` can add a mode-2 settling subscription
 after mode 1. Notifications use `op:deliver-only`. Next refuses `op:get`,
-`op:index`, and `op:untag`. Those wire projections remain on 1.0.
+`op:index`, and `op:untag`, which exist only on 1.0.
 
 # What a CapTP 1.0 peer sees from glowcap
 
 A Goblins peer, or any other CapTP 1.0 implementation, sees plain CapTP 1.0
 over Syrup. glowcap's preferences travel as three hints on the location its
-hello signs: `glowcap/captp-version`, `glowcap/codec`, and `glowcap/features`.
+`op:start-session` signs: `glowcap/captp-version`, `glowcap/codec`, and `glowcap/features`.
 A peer that doesn't know them ignores them, and the session uses the 1.0
 baseline. The version and codec hints for glowcap's own tracks also name the
 exact wire a build writes, so two glowcap builds that write it differently use
@@ -96,10 +99,9 @@ another a long-lived reference to bring back to life later. The
 | `ocapn-peer` | A peer's location: its transport (`iroh`, `noise-tcp`, `tcp`, and the rest), the designator to reach it at, and any connection hints. An `ocapn://<designator>.<transport>` URI is this record. |
 | `ocapn-sturdyref` | A peer location plus a swiss number: a restorable, long-lived reference to one object, the thing an `ocapn://…/s/<swiss>` URI names. |
 
-Examples, as the URIs print. Reserved characters inside a designator are
-URI-encoded, which is why a `tcp` peer's `host:port` shows a `%3A` where the
-colon is. `noise-tcp` seals a direct route. Plain `tcp` is
-testing-only:
+Reserved characters inside a designator are URI-encoded, so a `tcp` peer's
+`host:port` shows `%3A` where the colon is. The first two examples are sealed
+(iroh and `noise-tcp`), and plain `tcp` is testing-only:
 
 ```
 ocapn://<64 hex chars>.iroh

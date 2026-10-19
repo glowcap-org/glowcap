@@ -20,7 +20,7 @@ explains the design.
 [Spritely Goblins](https://spritely.institute/goblins/) ships no Noise
 netlayer, so these transports connect glowcap to glowcap. To meet Goblins, use
 [onion]($link.page('transports/onion')), [iroh]($link.page('transports/iroh'))
-with this repository's Goblins adapter, or cleartext `tcp` for testing. Prefer
+with glowcap's Goblins adapter, or cleartext `tcp` for testing. Prefer
 `noise-tcp` when two glowcap peers already share a TCP route and only need the
 stream sealed, and iroh when they also need discovery or NAT traversal.
 [Choosing a transport]($link.page('transports/choosing')) compares them all.
@@ -410,8 +410,8 @@ ocapn://<64 hex chars>.noise-tcp?direct-addresses=127.0.0.1%3A9099
 ```
 
 A listener binds a durable key, and the advertised locator is what partners
-dial. In Zig the profile is `glowcap.net.tcp.noise`, and `driver.connect` and
-`driver.listen` open sealed sessions. The C driver loop and the Rust, Python,
+dial. In Zig, pass the `glowcap.net.tcp.noise` profile to `driver.connect` or
+`driver.listen` to open sealed sessions. The C driver loop and the Rust, Python,
 TypeScript, and Racket bindings dial and listen through the TCP provider
 package, which owns `noise-tcp`, `keyed-tcp`, and testing `tcp` together.
 

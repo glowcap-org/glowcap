@@ -6,21 +6,22 @@
 .draft = false,
 ---
 
-Changing transports does not change the CapTP session. It changes who you can
+Changing transports does not change the [CapTP]($link.page('concepts'))
+session. It changes who you can
 reach and what the path between you proves.
 **Implemented** means glowcap has the path, not that it is released, audited,
 or fit for irreplaceable data.
 
 | Transport | Status | Use it for | What the path proves |
 | --- | --- | --- | --- |
-| `iroh` | Implemented | Peers outside the browser that need discovery or NAT traversal, and Goblins through this repository's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
+| `iroh` | Implemented | Peers outside the browser that need discovery or NAT traversal, and [Spritely Goblins](https://spritely.institute/goblins/) through glowcap's adapter | The node id is a key, so dialing it proves who answered. QUIC encrypts the channel. |
 | `webrtc` | Implemented | Browsers talking directly | The DataChannel is encrypted. Who the peer is is vouched for by the signaling service that introduced it. |
 | `noise-tcp` | Implemented | glowcap peers with a direct TCP route | The Noise handshake proves the dialed key and seals the stream end to end. It works only between glowcap peers. |
 | `noise-relay` | Implemented | glowcap peers, sealed, through a relay | The same Noise handshake, peer to peer. The relay only sees ciphertext. |
-| `onion` | Implemented | Meeting Goblins as it ships, on the standardized path | Tor proves you reached the service you dialed and hides where both ends are. That proof happens inside the Tor daemon, and only for the side that dialed, so glowcap does not count it as proof of who the CapTP peer is. |
+| `onion` | Implemented | Meeting Goblins as it ships, on the standardized path | Tor proves you reached the service you dialed and hides where both ends are. It proves this only to the dialing side, inside the Tor daemon, so glowcap does not treat it as proof of who the CapTP peer is. |
 | `keyed-tcp` | Trusted network only | A stable key name on a network you already trust | Dialing demands that key, but nothing proves possession, and the frames are cleartext. |
 | `keyed-relay` | Trusted network only | Peers through a relay, cleartext | Same key demand. The relay reads every frame, and nothing proves who is on the far side. |
-| `tcp` | Testing only | Cleartext Goblins testing (adapter this repository wrote) | A host:port. Nothing is proved and nothing is encrypted. |
+| `tcp` | Testing only | Cleartext testing against Goblins, through glowcap's adapter | A host:port. Nothing is proved and nothing is encrypted. |
 | `inproc` | Testing only | Both peers in one process | No network between them, so nothing to prove and nothing to encrypt. |
 
 [What you can depend on]($link.page('stability')) lists the checks.
@@ -29,9 +30,11 @@ or fit for irreplaceable data.
 
 A browser cannot open raw TCP or iroh QUIC. It has two choices:
 
-- **WebRTC** opens a direct encrypted DataChannel, usually between two
-  browsers. Both peers need a shared signaling capability, and ICE must find a
-  path. Across the open internet it may also need STUN or TURN servers.
+- **[WebRTC]($link.page('transports/webrtc'))** opens a direct encrypted
+  DataChannel, usually between two browsers. Both peers need a shared
+  signaling capability to trade connection details, and ICE (the browser's
+  path finding) must find a route. Across the open internet it may also need
+  STUN or TURN servers, which help cross a NAT.
 - **The [relay]($link.page('relay'))** carries a browser's WebSocket bytes to a
   non-browser peer over TCP or iroh, and CapTP stays between the two peers. Use it
   for browser-to-server traffic, and as a fallback when WebRTC cannot connect.
@@ -48,9 +51,9 @@ traffic is worth the extra signaling and NAT work.
   path. WebRTC is the browser path.
 - `tcp` and `keyed-tcp` use the same sockets. `tcp` names an address.
   `keyed-tcp` names an identity and carries the address as a hint.
-- Three paths reach Goblins. `onion` is the transport the draft standardizes
-  and the one Goblins ships. `tcp` and `iroh` meet the vat through adapters this repository
-  wrote: cleartext loopback, and encrypted QUIC.
+- Three paths reach Goblins. `onion` is the transport the OCapN draft
+  standardizes and the one Goblins ships. `tcp` and `iroh` reach Goblins
+  through adapters glowcap provides: cleartext loopback, and encrypted QUIC.
 
 `id` has no row because it is not a path of its own. It bundles several of
 these routes under one durable key.

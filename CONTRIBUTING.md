@@ -120,6 +120,10 @@ source and documentation checks, and formatting. Pull requests targeting `main` 
 to `main` or `dev` also run [`ci/gates.sh`](ci/gates.sh) and the macOS checks.
 A nightly run searches longer with the mutation fuzzer.
 
+Coding-agent installation has a [separate workflow](.github/workflows/agent-tools.yml)
+for devcontainer changes and manual runs. Product checks do not wait for
+coding-agent downloads.
+
 Execution requires available GitHub-hosted runners. Local checks remain the
 way to validate a change when hosted runs are unavailable.
 The commands are in the [checks workflow](.github/workflows/check.yml).

@@ -156,7 +156,7 @@ inherited descriptors before exec.
 ## Measuring a workload
 
 Follow the [workload guide](../../bench/loam/README.md) to measure actors,
-managed resources, collection, and Tasks on the relevant engine. The
+managed resources, collection, and the Tasks board app on the relevant engine. The
 [recorded results](../../bench/loam/results.md) name each revision, workload,
 durability setting, and measurement limit. A result from stock LMDB, which
 reads through a memory map, does not measure this build's page cache.

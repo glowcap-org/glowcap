@@ -36,7 +36,8 @@ return `Busy`. This keeps borrowed rows valid without copying them.
 ## From C and Rust
 
 `libglowcap_loam_volatile` is the C archive, with the header
-`glowcap_loam_volatile.h`. It exports the same verbs as the LMDB archive.
+`glowcap_loam_volatile.h`. It exports the same functions as the SQLite and LMDB
+archives, which [C and Rust](c-and-rust.md) walks through.
 The open verb takes no path, because there is no directory to name. Each open
 makes a new store, so two opens with one identity give two separate stores.
 `create=0` returns `GLOWCAP_ERR_NOT_FOUND` since no store exists before it is

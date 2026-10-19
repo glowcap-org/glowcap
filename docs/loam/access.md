@@ -344,9 +344,9 @@ Other requests fail as follows:
 A revocation, deletion, or loss of scope since the first attempt can stop a
 retry.
 
-A wrapped pause, resume, or revoke keeps its first Boolean result, even when a
-later bare call would return false, and a wrapped call that changes nothing
-still commits its receipt. Content, reference edits, tree changes, control
+A pause, resume, or revoke sent through `mutate` keeps its first Boolean
+result, even when a later bare call would return false. A `mutate` call that
+changes nothing still commits its receipt. Content, reference edits, tree changes, control
 state, and receipts all share the attachment's transaction. A receipt recovers
 only the local result. A remote message can still arrive twice, and outside
 effects are not saved.
@@ -387,11 +387,19 @@ Hosted controls accept `describe-control()`, `revoke-control()`, and
 Service supplies `decode_attenuation`. The decoder receives the control's
 current powers and returns the powers requested, and the shared rules decide.
 
-An active `access:control` description holds its status, its pause, resume,
-and revoke Booleans, its policy limit or false, and whether that limit covers
-a subtree. Then come its inspect Boolean, its issue limit or false, its
-delegate-control Boolean, and its revision. An unavailable control's reply holds its status alone. No
-resource, owner, or ancestor identity is revealed.
+An active `access:control` description holds these values, in order:
+
+1. its status
+2. its pause, resume, and revoke Booleans
+3. its policy limit, or false
+4. whether that limit covers a subtree
+5. its inspect Boolean
+6. its issue limit, or false
+7. its delegate-control Boolean
+8. its revision
+
+An unavailable control's reply holds its status alone. No resource, owner, or
+ancestor identity is revealed.
 
 ## Inspecting held access
 

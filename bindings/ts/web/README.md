@@ -1,13 +1,17 @@
 # @glowcap/web
 
-The browser entry for the glowcap runtime. It runs a browser tab as an OCapN peer: the same I/O-free
-protocol core the Zig archives link, compiled to `wasm32`, with the byte channel on a WebSocket.
-It offers the same `@glowcap/runtime` API that Deno and Bun use, through a browser adapter, and
-the protocol stays in Wasm ([ADR-0070]). The build check covers
-the keyed handshake, fetch and call, a call back into a wasm-hosted object, both wire grammars
-(Syrup and Cap'n Proto), and a non-browser peer cold-dialing a Chromium-hosted object over
-`noise-relay`. `zig build rooms-web-dm-noise` also has one browser redeem a room introduction by
-dialing another browser over that sealed relay path, then carry the reply back.
+Use this package to run a browser tab as an OCapN peer. It is the same protocol core the Zig
+libraries use, compiled to WebAssembly (`wasm32`), with the byte channel on a WebSocket. It offers
+the same `@glowcap/runtime` API that Deno and Bun use, through a browser adapter, and the protocol
+stays in Wasm ([ADR-0070]).
+
+The tests cover:
+
+- the keyed handshake, fetch and call, and a call back into an object hosted in Wasm
+- both wire encodings, Syrup and Cap'n Proto
+- a non-browser peer dialing a Chromium-hosted object over `noise-relay`
+- `zig build rooms-web-dm-noise`, which has one browser follow a room introduction by dialing
+  another browser over that encrypted relay path and then carry the reply back
 
 [ADR-0070]: ../../../docs/decisions/adr/ADR-0070-browser-binding-via-wasm.md
 
@@ -22,23 +26,22 @@ const greeter = await session.fetch("greeter");
 console.log(await session.send(greeter, "greet", ["world"]));
 ```
 
-`init` instantiates `glowcap_host.wasm` (built by `zig build wasm-driver`), builds the runtime
-adapter over it, installs the adapter, and only then loads `@glowcap/runtime`, which binds to the
-adapter instead of probing for Deno or Bun. The returned value is the runtime module plus its managed
-default `Runtime`, so [`@glowcap/runtime`'s README](../runtime/README.md) applies in full: `Session`,
-`spawn`, `publish`, pipelining, proxies, three-party redemption.
+`init` loads `glowcap_host.wasm` (built by `zig build wasm-driver`), installs the browser adapter
+over it, and only then loads `@glowcap/runtime`, which uses that adapter instead of probing for
+Deno or Bun. It returns the runtime module plus a default `Runtime`, so
+[`@glowcap/runtime`'s README](../runtime/README.md) applies in full: `Session`, `spawn`, `publish`,
+promise pipelining, proxies, and three-party handoffs.
 
-## The adapter
+## How the adapter works
 
-[`adapter.ts`](adapter.ts) connects the shared runtime to the browser. It
-supplies what Deno and Bun get from the operating system:
+[`adapter.ts`](adapter.ts) connects the
+shared runtime to the browser. It supplies what Deno and Bun get from the operating system:
 
-- **FFI over linear memory.** The Wasm module exports the same `glowcap_*` C
-  ABI that Deno and Bun load. JavaScript cannot lend Wasm a view of its
-  own buffers, so every buffer argument is copied into linear memory before a
-  call and copied back afterwards, which is also how C out-parameters return.
-  Staged copies live in an arena that is freed two calls later, because a
-  call's returned views may point into its staged inputs.
+- **Calls into Wasm.** The Wasm module exports the same `glowcap_*` C functions that Deno and Bun
+  load. JavaScript cannot lend Wasm a view of its own buffers, so each buffer argument is copied
+  into Wasm memory before a call and copied back afterwards, which is also how out-parameters
+  return. Those copies live in a scratch area that is freed two calls later, because a call's
+  returned views may point into its copied inputs.
 - **Struct layout from the module itself.** Field offsets differ between the
   64-bit targets and wasm32, so the adapter reads the module's own
   layout descriptor (`glowcap_wasm_abi_layout`) and gives the runtime a layout
@@ -75,14 +78,16 @@ own port for TCP targets, checks the `Origin` header on the upgrade, caps live s
 idle pairs, and bounds bytes per session. `zig build deno-relay-test` checks a keyed OCapN session
 from this binding through that relay to a TCP host.
 
-## What the checks cover
+## What the tests cover
 
-`zig build web-peer-test` runs [`test/web_peer_test.ts`](test/web_peer_test.ts): a dlopen-runtime host
-([`test/serve_ws_host.ts`](test/serve_ws_host.ts)) accepts WebSocket connections straight into
-`Session.establishAccepted`, and a second process loads the runtime through `@glowcap/web` (wasm
-module, linear-memory FFI, WebSocket channel, and no `Deno.dlopen` anywhere in its graph). That peer
-completes the keyed handshake, fetches and calls a published object, and receives a call back into
-an object it hosts. The same check then launches Chromium, registers the page's Wasm Host at the
+`zig build web-peer-test` runs [`test/web_peer_test.ts`](test/web_peer_test.ts) in three steps:
+
+1. A Deno host ([`test/serve_ws_host.ts`](test/serve_ws_host.ts)) accepts WebSocket connections
+   straight into `Session.establishAccepted`.
+2. A second process loads the runtime through `@glowcap/web`, with the Wasm module and a WebSocket
+   channel and no `Deno.dlopen` anywhere in its graph.
+3. That peer completes the keyed handshake, fetches and calls a published object, and receives a
+   call back into an object it hosts. The same check then launches Chromium, registers the page's Wasm Host at the
 reference relay under `noise-relay`, and has the installed CLI cold-dial and call it.
 That rendezvous leg is WSS with a test certificate authority supplied independently to the browser and the CLI
 process. The relay also audits a plaintext canary.
@@ -92,19 +97,17 @@ wasm-driver-test`) is the layer
 below: two wasm Hosts complete the keyed handshake over an in-memory byte pipe, driven through raw
 exports with no binding at all.
 
-## What a real page needs
+## Shipping a page
 
-1. Serve `glowcap_host.wasm` from `zig-out/wasm/` or a release.
+1. Serve `glowcap_host.wasm` from `zig-out/wasm/` after `zig build wasm-driver`.
 2. Bundle this package with `@glowcap/runtime` and `@glowcap/abi`. Start from
    the adapter-only [`browser-bundle.json`](browser-bundle.json) and add the
    application's framework and data dependencies to it.
 
-The browser mapping points `@glowcap/runtime/ffi` at the Wasm adapter's
-stem-only resolver, so the archive-resolution cascade for local archives stays
-out of the browser module graph. The remaining host stubs cover non-browser
-adapters a bundler may find through a dynamic import, and the web adapter never
-selects them. Rooms is different: it uses its linked Rust application Wasm and
-a separate presentation-only bundle map.
+The browser mapping in `browser-bundle.json` points `@glowcap/runtime/ffi` at the Wasm adapter, so
+the code that looks up local C libraries stays out of the browser bundle. The remaining stubs cover
+Deno and Bun adapters that a bundler may find through a dynamic import, and the web adapter never
+selects them. Rooms uses its own Rust Wasm and a separate bundle map.
 
 Keep module-level top-level `await` out of the runtime. `deno bundle` (esbuild)
 flattens every module's top-level await into one file, and the runtime's import

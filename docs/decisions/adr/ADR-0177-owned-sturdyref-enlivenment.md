@@ -105,6 +105,6 @@ transferred is covered by a regression case.
 
 This is a public Zig Host operation. Loam's foreign recipe format, preparation,
 and dependent disclosure remain with the
-[access API contract](../../loam/access-api.md#the-foreign-language-boundary). This operation alone does
+[access API contract](../../loam/access-api.md#c-and-rust-bindings). This operation alone does
 not implement foreign durable fields or establish that a supplied sturdyref
 designates a separately held capability.

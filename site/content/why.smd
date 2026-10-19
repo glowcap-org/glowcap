@@ -6,7 +6,8 @@
 .draft = false,
 ---
 
-glowcap speaks [OCapN](https://github.com/ocapn/ocapn).
+glowcap speaks [OCapN](https://github.com/ocapn/ocapn), a protocol in which
+holding a reference to an object is the permission to use it.
 
 # How common protocols authorize
 
@@ -218,12 +219,11 @@ chosen to share, and your album travels as a position in that table, say
 slot 3. Slot 3 means your album only inside this one session. The table holds
 no identities and no rights, only which object each position means.
 
-A bearer token works for whoever presents it, anywhere. Someone who records
-capability traffic gets row numbers for a session they cannot join, and
-guessing a row number gets them no further. The transport still has to
-protect the connection, as it does for your tokens. A
-leaked token hands over your access, and a leaked table position is useless
-outside its session.
+A bearer token works for whoever presents it, anywhere, so a leaked token
+hands over your access. Someone who records capability traffic gets slot
+numbers for a session they cannot join, and guessing a slot number gets them
+no further. The transport still has to protect the connection, as it does for
+your tokens.
 
 ```=html
 <figure class="tokref">
@@ -328,8 +328,8 @@ proof. The
 [E language](https://web.archive.org/web/20241231230559/http://erights.org/)
 took it onto a network and produced
 [CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
-along with [vats]($link.page('modules')) and
-[promise pipelining]($link.page('concepts')).
+along with [vats]($link.page('modules')), containers that run their objects
+one call at a time, and [promise pipelining]($link.page('concepts')).
 
 [Sandstorm](https://sandstorm.org/) runs web applications this way, giving every
 document its own isolated sandbox. [Agoric](https://agoric.com/) runs financial
@@ -346,11 +346,11 @@ the same references travel over encrypted QUIC, a sealed TCP stream, or a
 browser DataChannel. Calls return promises you can keep calling through, so a
 chain of dependent calls crosses the network once instead of once per call.
 glowcap checks that it works with Spritely Goblins over CapTP 1.0, encoded in
-Syrup, OCapN's wire format.
+[Syrup](https://github.com/ocapn/syrup), OCapN's wire format.
 
-You can watch a three-party introduction in the
-[rooms demo]($link.page('examples')): asking a room to message a member gives
-you a direct reference to that member, and the room is no longer involved.
+You can watch a three-party introduction in [Rooms]($link.page('rooms')):
+choosing **Message *name* directly** gives you a direct reference to that
+member, and the room is no longer involved.
 
 # Keep going
 
@@ -362,8 +362,8 @@ you a direct reference to that member, and the room is no longer involved.
 - The [CapTP CLI]($link.page('cli')) ships a REPL with a guided mode: run
   `glowcap repl`, then type `guide`, and it walks these ideas against a live
   session while you type the verbs.
-- [Start building]($link.page('start')) is the client, line by line, in Zig,
-  C, and every binding.
+- [Start building]($link.page('start')) walks a client line by line in Zig
+  and links the C ABI and every binding.
 - The glossary in
   [capabilities](https://github.com/jimisaacs/glowcap/blob/main/docs/capabilities.md)
   gives every term here a one-line definition.

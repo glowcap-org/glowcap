@@ -328,14 +328,12 @@ test "view equality and hash agree with the owned spine across every argument ar
     var budget = model.equality.CompareBudget.init(1 << 20);
     const ctx = model.equality.CompareCtx{ .scratch = scratch, .budget = &budget };
 
-    // Per element: every arm is reflexively equal on both spines, which also
-    // runs both hashers on every arm. The two hashers seed on their own union's
-    // tag order, so their numeric values are not comparable across
-    // representations; only agreement within a representation is a contract.
+    // Owned and borrowed entry points share one comparison and hash spine.
     for (args, 0..) |owned_arg, i| {
         const view_arg = try view_args.at(i);
         try std.testing.expect(model.equality.argumentsEqual(owned_arg, owned_arg));
         try std.testing.expect(try model.equality.viewArgumentsEqualBounded(view_arg, view_arg, ctx));
+        try std.testing.expectEqual(model.equality.argumentHash(owned_arg), try model.equality.viewArgumentHash(view_arg));
     }
 
     // Per pair: the two equality predicates agree, and an equal pair hashes
@@ -470,4 +468,58 @@ fn backedGive(give: *const model.view.HandoffGive) model.view.LazyHandoff {
 fn projectBackedGive(ctx: model.view.LazyHandoff.Ctx) model.view.ProjectError!model.view.Handoff {
     const give: *const model.view.HandoffGive = @ptrCast(@alignCast(ctx.bytes.ptr));
     return .{ .give = give.* };
+}
+
+test "handoff equality releases lazy hints on success mismatch and allocator refusal" {
+    // Model ownership is the authority: comparison borrows both arguments and
+    // releases its temporary materializations even without a receive arena.
+    var give: model.Handoff = .{ .give = .{
+        .recipient_key = "recipient",
+        .exporter = .{
+            .transport = "tcp",
+            .designator = "exporter",
+            .hints = .{ .entries = &.{
+                .{ .name = "address", .value = .{ .string = "127.0.0.1:9" } },
+                .{ .name = "enabled", .value = .{ .boolean = true } },
+            } },
+        },
+        .gifter_exporter_session = "session",
+        .gifter_side = "side",
+        .gift_id = "gift",
+        .signature = &(@as([64]u8, @splat(0xaa))),
+    } };
+    const argument: model.Argument = .{ .handoff = &give };
+    const message: model.Message = .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{argument},
+    } };
+    inline for (.{ glowcap.ocapn.codec.syrup, glowcap.ocapn.codec.capnp }) |codec| {
+        var frame = try codec.encodeMessage(std.testing.allocator, message);
+        defer frame.deinit();
+        const body = try codec.decodeBody(frame.view());
+        const lazy = try body.deliver.args.at(0);
+        try std.testing.expect((try lazy.handoff.project()).give.exporter.hints == .lazy);
+        const projected = model.view.Argument.fromOwned(&argument);
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, compareHintedHandoffs, .{ lazy, lazy, true });
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, compareHintedHandoffs, .{ lazy, projected, true });
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, compareHintedHandoffs, .{ projected, lazy, true });
+        // This field compares after hints, so a mismatch must release both.
+        give.give.gifter_side = "other-side";
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, compareHintedHandoffs, .{ lazy, projected, false });
+        give.give.gifter_side = "side";
+    }
+}
+
+fn compareHintedHandoffs(
+    allocator: std.mem.Allocator,
+    a: model.view.Argument,
+    b: model.view.Argument,
+    expected: bool,
+) !void {
+    var budget = model.equality.CompareBudget.init(1024);
+    try std.testing.expectEqual(expected, try model.equality.viewArgumentsEqualBounded(
+        a,
+        b,
+        .{ .scratch = allocator, .budget = &budget },
+    ));
 }

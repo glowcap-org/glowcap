@@ -47,7 +47,7 @@ you can test it without a host runtime.
 
 # Above the core
 
-- **actors** is a `Vat` shaped like Goblins': `$` calls an object in the same
+- **actors** is a `Vat` (see **Vat** below) shaped like Goblins': `$` calls an object in the same
   process right away, `<-` sends to one that may be remote and returns a
   promise. It adds nothing to the protocol that the engine lacks.
 - **driver/core** serves many sessions at once, with no sockets of its own.
@@ -86,8 +86,8 @@ Zig does not prove memory safety, so glowcap covers it with tests: leak checks, 
 [Choose an API]($link.page('surfaces')) compares the entry points available to
 applications.
 
-- **c_abi** is opaque handles, fixed-width codes, `ptr + len`, and explicit
-  release. `libglowcap_host` is the CapTP host the bindings wrap. The Rust,
+- **c_abi** is the C interface: opaque handles, fixed-width return codes,
+  `ptr + len` byte views, and explicit release functions. `libglowcap_host` is the CapTP host the bindings wrap. The Rust,
   Python, TypeScript, and Racket bindings also load `libglowcap_driver` to run the loop.
 - **driver** is Zig above `driver/core`: `Session`, `Server`, and
   `HostRuntime`.

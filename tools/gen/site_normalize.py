@@ -44,6 +44,7 @@ fix-up, and is skipped for page-byte normalization.
 
 import re
 import sys
+from html.parser import HTMLParser
 from pathlib import Path
 
 HEADER_ROW = re.compile(r"<table><tr>((?:<th>.*?</th>)+)</tr>")
@@ -140,6 +141,127 @@ def normalize(text: str, path: Path, root: Path) -> str:
             f"but found {closes} '</tr></table>' closes; the renderer changed shape"
         )
     text = text.replace("</tr></table>", "</tr></tbody></table>")
+    return bindWidows(text)
+
+
+# A widow is a block's last line holding one word. CSS `text-wrap: pretty`
+# avoids most of them, but it is a best-effort hint, and `balance` still splits
+# a three-word heading two and one. So this pass keeps each block's last two
+# words together, the typesetter's fix, which holds at every width.
+#
+# Body text binds them with a no-break space, capped so the pair always fits a
+# 320px phone column (a table scrolls inside itself, so its cells share the
+# cap). A heading is set large, so a pair that fits at one width can overflow
+# at another. A heading's pair goes in an inline block instead, which stays
+# whole when it fits and wraps inside itself when it does not. A pair split
+# across markup in a heading is left alone. `site_render.ts` measures what is
+# left at every width it renders.
+WIDOW_BODY = {"p", "li", "dd", "dt", "figcaption", "summary", "caption", "blockquote", "td", "th"}
+WIDOW_HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+WIDOW_PAIR_LIMIT = 26
+# A two-word table cell reads whole or splits evenly, and binding it would
+# only widen its column.
+WIDOW_MIN_WORDS = {"td": 3, "th": 3}
+# Text the reader may copy keeps its ordinary spaces, and raw text is not prose.
+WIDOW_SKIP = {"pre", "code", "kbd", "samp", "script", "style", "svg", "math", "textarea"}
+
+
+class WidowBinder(HTMLParser):
+    """Find each block's last two words and how to keep them together."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self.text = text
+        self.line_starts = [0]
+        for line in text.splitlines(keepends=True):
+            self.line_starts.append(self.line_starts[-1] + len(line))
+        self.blocks: list[dict] = []
+        self.skip = 0
+        self.events = 0
+        # (start, end, replacement), applied from the end of the page back.
+        self.edits: list[tuple[int, int, str]] = []
+
+    def position(self) -> int:
+        line, column = self.getpos()
+        return self.line_starts[line - 1] + column
+
+    def begin(self, tag: str) -> None:
+        self.blocks.append({"tag": tag, "words": [], "gap": None, "gaps": []})
+
+    def finish(self) -> None:
+        block = self.blocks[-1]
+        tag, words, gaps = block["tag"], block["words"], block["gaps"]
+        if len(words) >= max(2, WIDOW_MIN_WORDS.get(tag, 2)) and gaps and gaps[-1][2] == len(words) - 1:
+            before, last = words[-2], words[-1]
+            start, end, _ = gaps[-1]
+            if tag in WIDOW_HEADINGS:
+                if before["event"] == last["end_event"]:
+                    pair = self.text[before["start"]:last["end"]]
+                    self.edits.append((before["start"], last["end"], f'<span class="keep">{pair}</span>'))
+            elif before["chars"] + 1 + last["chars"] <= WIDOW_PAIR_LIMIT:
+                self.edits.append((start, end, "&nbsp;"))
+        block.update(words=[], gaps=[])
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        self.events += 1
+        if tag in WIDOW_SKIP:
+            self.skip += 1
+        elif tag in WIDOW_BODY or tag in WIDOW_HEADINGS:
+            if self.blocks:
+                self.finish()
+            self.begin(tag)
+        elif tag == "br" and self.blocks:
+            self.finish()
+
+    def handle_endtag(self, tag: str) -> None:
+        self.events += 1
+        if tag in WIDOW_SKIP:
+            self.skip = max(0, self.skip - 1)
+        elif (tag in WIDOW_BODY or tag in WIDOW_HEADINGS) and self.blocks and self.blocks[-1]["tag"] == tag:
+            self.finish()
+            self.blocks.pop()
+
+    def visible(self, start: int, end: int, chars: int) -> None:
+        block = self.blocks[-1]
+        words = block["words"]
+        joined = words and not block["gaps"] or words and block["gaps"][-1][2] < len(words)
+        if words and joined:
+            words[-1].update(end=end, end_event=self.events, chars=words[-1]["chars"] + chars)
+        else:
+            words.append({"start": start, "end": end, "event": self.events,
+                          "end_event": self.events, "chars": chars})
+
+    def handle_data(self, data: str) -> None:
+        self.events += 1
+        if not self.blocks:
+            return
+        block = self.blocks[-1]
+        base = self.position()
+        for match in re.finditer(r"\s+|\S+", data):
+            if not match[0].isspace():
+                self.visible(base + match.start(), base + match.end(), len(match[0]))
+            elif block["words"] and not self.skip:
+                block["gaps"].append((base + match.start(), base + match.end(), len(block["words"])))
+
+    def handle_entityref(self, name: str) -> None:
+        self.events += 1
+        if self.blocks:
+            at = self.position()
+            self.visible(at, at + len(name) + 2, 1)
+
+    def handle_charref(self, name: str) -> None:
+        self.events += 1
+        if self.blocks:
+            at = self.position()
+            self.visible(at, at + len(name) + 3, 1)
+
+
+def bindWidows(text: str) -> str:
+    binder = WidowBinder(text)
+    binder.feed(text)
+    binder.close()
+    for start, end, replacement in sorted(binder.edits, reverse=True):
+        text = text[:start] + replacement + text[end:]
     return text
 
 

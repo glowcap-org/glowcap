@@ -71,9 +71,10 @@ binding creates no executor of its own.
 - If the `LocalSet` ends, the next call that drives the Host finishes the
   waiting work.
 
-Every Loam write requires the browser's strict durability setting, and a
-browser that cannot provide it refuses the write. Rooms' private startup writes use the same setting and compare the
-whole previous record in their transaction, so a slow preparation cannot
+Every Loam write requires IndexedDB's `strict` durability setting, and a
+browser that cannot provide it refuses the write. Rooms, glowcap's chat
+application, writes its private startup record with the same setting and
+compares the whole previous record in that transaction, so a slow preparation cannot
 replace a root another tab has already saved.
 
 - A refusal from Loam keeps its Rust error code through the final abort event,
@@ -98,8 +99,8 @@ Save resource metadata only after a successful commit or recovery.
 
 ## Limits and tests
 
-Loam's batch planner remembers where it stopped when it needs a row it has
-not read yet. It checks the batch once, then writes straight into the open
+When Loam checks a write batch and needs a row it has not read yet, it
+remembers where it stopped and resumes once the row arrives. It checks the batch once, then writes straight into the open
 IndexedDB transaction.
 
 - Rust keeps the metadata, one row passed in, and one row being walked, each
@@ -182,4 +183,4 @@ production session storage.
 The browser supports single-resource content, the use and control methods,
 and bounded collection steps. Owner-only operations and general operations on
 resource trees stay in Zig, as the
-[managed access API](access-api.md#the-foreign-language-boundary) describes.
+[managed access API](access-api.md#c-and-rust-bindings) describes.

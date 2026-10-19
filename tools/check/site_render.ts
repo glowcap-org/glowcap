@@ -1,9 +1,16 @@
 /// <reference lib="dom" />
 // Render every built documentation-site page at phone width and fail on what
-// the source checks cannot see: a console or page error, or document-level
-// horizontal overflow. The site's layout regressions have arrived exactly
-// here (a grid column whose bare `1fr` meant `minmax(auto, 1fr)`, a tab strip
-// that widened the page), and only a real layout engine can measure them.
+// the source checks cannot see: a console or page error, document-level
+// horizontal overflow, or a widow. The site's layout regressions have arrived
+// exactly here (a grid column whose bare `1fr` meant `minmax(auto, 1fr)`, a
+// tab strip that widened the page), and only a real layout engine can measure
+// them.
+//
+// A widow is a text block whose last line holds one word when that word and
+// the one before it would fit together on the line. `tools/gen/site_normalize.py`
+// binds each block's last two words to prevent it, and this measures what the
+// binding left. A pair wider than its column breaks anyway and is not counted,
+// and neither is a run of code chips, which wraps as a row of tokens.
 //
 // The autodoc under reference/api/ is covered too: its viewer is Zig's, but
 // what overflowed there in practice was glowcap's own module doc prose (an
@@ -74,6 +81,50 @@ if (pages.length < 20) {
 	Deno.exit(1);
 }
 
+// Runs in the page. Returns the text of each block whose last line holds one
+// word that could have shared the line with the word before it.
+function findWidows(): string[] {
+	const blocks = "p, li, dd, dt, figcaption, blockquote, caption, h1, h2, h3, h4, h5, h6, td, th";
+	const found: string[] = [];
+	for (const block of Array.from(document.querySelectorAll<HTMLElement>(blocks))) {
+		if (block.closest("pre, nav")) continue;
+		const words: { rect: DOMRect; width: number; code: boolean }[] = [];
+		const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			const parent = node.parentElement;
+			if (parent == null || parent.closest(blocks) !== block) continue;
+			const text = node.textContent ?? "";
+			for (const match of text.matchAll(/\S+/g)) {
+				const range = document.createRange();
+				range.setStart(node, match.index);
+				range.setEnd(node, match.index + match[0].length);
+				const rects = range.getClientRects();
+				const rect = rects[rects.length - 1];
+				if (rect == null || rect.width === 0) continue;
+				// A word hyphenated across lines sits on the last line it reaches,
+				// but needs its whole width to move.
+				const width = Array.from(rects).reduce((sum, part) => sum + part.width, 0);
+				words.push({ rect, width, code: parent.closest("code, kbd, samp") != null });
+			}
+		}
+		const cell = block.tagName === "TD" || block.tagName === "TH";
+		if (words.length < (cell ? 3 : 2) || words.every((word) => word.code)) continue;
+		const lineHeight = Math.min(...words.map((word) => word.rect.height));
+		const bottom = Math.max(...words.map((word) => word.rect.bottom));
+		const lastLine = words.filter((word) => word.rect.bottom > bottom - lineHeight / 2);
+		if (lastLine.length !== 1 || lastLine.length === words.length) continue;
+		const last = lastLine[0];
+		const before = words[words.length - 2];
+		const style = getComputedStyle(block);
+		const column = block.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+		const space = parseFloat(style.fontSize) * 0.3;
+		if (before.width + space + last.width <= column) {
+			found.push((block.textContent ?? "").replace(/\s+/g, " ").trim().slice(-60));
+		}
+	}
+	return found;
+}
+
 // Four sample widths spanning the fluid layout's range: 390 the common
 // phone, 320 the narrowest still in use (each has caught an overflow the
 // other missed), 768 a tablet, 1600 a wide desktop. Console and page errors
@@ -99,6 +150,11 @@ for (const [i, width] of widths.entries()) {
 				document.documentElement.scrollWidth - document.documentElement.clientWidth
 			);
 			if (overflow > 0) failures.push(`${p}: ${overflow}px of horizontal overflow at ${width}px width`);
+			if (!p.includes("/reference/api/")) {
+				for (const widow of await page.evaluate(findWidows)) {
+					failures.push(`${p}: widow at ${width}px width: "${widow}"`);
+				}
+			}
 		} catch (e) {
 			failures.push(`${p}: ${e}`);
 		}

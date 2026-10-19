@@ -14,13 +14,15 @@ testing adapter.
 
 Read [known limitations](boundaries.md) before deploying. If capabilities are new to you, [capabilities](capabilities.md) starts from zero.
 
-Which OCapN draft sections each wire profile has adopted, deferred, or left
-pending is the [conformance manifest](ocapn-conformance.md).
-Next uses the merged five-operand delivery, deliver-only, and integer listen
-modes, and refuses the removed projection operations. Its shared hello and
-crypto representations stay on the Goblins-compatible baseline. The recurring
-next conformance lane checks that combination alongside the unchanged baseline
-suite ([ADR-0251](decisions/adr/ADR-0251-next-operations-with-retained-crypto.md)).
+glowcap speaks two wire profiles. `1.0` is pinned to what Goblins ships, and
+is the profile those regular checks exercise. `next` tracks current OCapN
+direction: it uses the merged five-operand delivery, deliver-only, and integer
+listen modes, refuses the removed projection operations, and keeps the
+Goblins-compatible hello and crypto representations. The
+[conformance manifest](ocapn-conformance.md) says which draft sections each
+profile has adopted, deferred, or left pending, and the recurring next
+conformance lane checks `next` beside the unchanged `1.0` suite
+([ADR-0251](decisions/adr/ADR-0251-next-operations-with-retained-crypto.md)).
 
 ## Application APIs
 

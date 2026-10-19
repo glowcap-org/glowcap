@@ -15,7 +15,7 @@ change how sessions are shared.
 # Choose the shape
 
 For local development, `zig build rooms-web` serves the page on your machine
-and runs the room server over encrypted iroh in a temporary data directory.
+and runs the room server over encrypted [iroh]($link.page('transports/iroh')) in a temporary data directory.
 `zig build rooms-dev` keeps its state between runs and turns on every
 admin capability.
 
@@ -60,7 +60,8 @@ server over a WebSocket on the page's own address. The same relay lets another
 peer reach that session, and Noise encrypts that connection end to end, so
 the relay sees only ciphertext.
 
-Direct messages over WebRTC need ICE servers. STUN helps two peers find a
+Direct messages over [WebRTC]($link.page('transports/webrtc')) need ICE
+servers, which help two peers find a network path. STUN helps them find a
 direct route, and TURN carries the traffic when a network will not allow
 one. Rooms can take a fixed list of STUN servers, and ask a TLS service for
 short-lived TURN credentials without giving the page that service's
@@ -161,6 +162,6 @@ after it was ready, and a cleanup that also failed. Docker restarts services
 according to its Compose policy, while `status` and `logs` show the current
 state and reason.
 
-Your session does the same. A request still in progress stays marked in
+Your session reports its requests the same way. A request still in progress stays marked in
 progress, a known refusal offers the next step, and a request nobody can
 confirm stays marked unconfirmed.

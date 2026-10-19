@@ -25,12 +25,12 @@ const bootstrap_position = session.bootstrap_position;
 const PendingFold = foundation.inline_rows.Table(u64, u64, 8, .wire);
 
 /// Add `delta` into the running total for `pos`, returning the new total.
-/// Overflow of the u64 accumulator is `GcUnderflow`. Spilling the record into
+/// Overflow of the u64 accumulator is `GcOverflow`. Spilling the record into
 /// its map may return OOM.
 fn foldDelta(pending: *PendingFold, allocator: std.mem.Allocator, pos: u64, delta: u64) (Error || std.mem.Allocator.Error)!u64 {
     const row = try pending.getOrPut(allocator, pos);
     if (!row.found_existing) row.value_ptr.* = 0;
-    row.value_ptr.* = std.math.add(u64, row.value_ptr.*, delta) catch return error.GcUnderflow;
+    row.value_ptr.* = std.math.add(u64, row.value_ptr.*, delta) catch return error.GcOverflow;
     return row.value_ptr.*;
 }
 

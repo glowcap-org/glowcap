@@ -1,18 +1,18 @@
 # @glowcap/webrtc
 
-WebRTC for the glowcap JavaScript/TypeScript runtime. A browser dials and
-listens with `RtcPeer`, and Deno does the same through the WebRTC C library.
-Each keyed session runs over one `RTCDataChannel`, one bare CapTP frame per
-packet.
+Use this package to connect two peers directly over WebRTC, for example two browsers. A browser
+dials and listens with `RtcPeer`, and Deno does the same through the WebRTC C library. Each keyed
+session runs over one `RTCDataChannel`, with one CapTP frame per packet.
 
-Your application carries the signaling, usually through an OCapN capability such as a
-room. The same `SignalingAuthority` serves every side: `offer` sends an offer
+WebRTC peers cannot find each other alone. Your application supplies signaling, the exchange of
+offers, answers, and network candidates that sets up the connection, usually through an OCapN
+capability such as a room. Once the channel opens, bytes flow directly between the peers. The same
+`SignalingAuthority` serves every side: `offer` sends an offer
 and resolves with the answer, `answer` sends an answer, `candidate` sends a
 local candidate, and `onCandidate` subscribes the far peer's candidates. Every
 call names its exchange by id. `offer`, `answer`, and `onCandidate` also
 receive a `SignalingTarget` whose `designator` names the peer, and `candidate`
-takes only the id. Once the channel opens, bytes flow directly between the
-peers.
+takes only the id.
 
 ## Dial and listen in a browser
 
@@ -33,12 +33,13 @@ for await (const accepted of answering) {
 }
 ```
 
-`provideOffer` takes the offerer's key, which the accepted session names as its
-authenticated partner. It refuses an offer when the listener is closed, the
-key is malformed, or too many accepts are in flight. A failure after it returns
-ends that accept and is kept as a callerless failure on the Host.
-`failExchange` gives up an accept whose offerer went quiet. Pass `iceServers` in `options` as a list, or as a function that fetches
-short-lived TURN credentials for each connection.
+- `provideOffer` takes the offerer's key, which the accepted session names as its authenticated
+  partner. It refuses an offer when the listener is closed, the key is malformed, or too many
+  accepts are in flight. A failure after it returns ends that accept and is recorded on the Host,
+  where `Host.takeFailures()` reads it (see the [runtime README](../runtime/README.md#the-transports)).
+- `failExchange` gives up an accept whose offerer went quiet.
+- Pass `iceServers` in `options` as a list, or as a function that fetches short-lived TURN
+  credentials for each connection. ICE servers help two peers find a route to each other.
 
 The public API is [`mod.ts`](mod.ts). `zig build webrtc-browser-to-browser`
 runs two Chromium peers, one dialing and one listening.
@@ -82,17 +83,18 @@ for await (const session of server) {
 }
 ```
 
-The entry loads the WebRTC C library on first use (`zig build webrtc-abi`), so
-the browser API in `mod.ts` never imports it. A dial whose answer never
-arrives fails at the handshake deadline. When `offer` or `candidate` rejects,
-the error is kept as a callerless failure on the loop's host and the dial is
-given up, so it fails at the driver's next step. An answer the library refuses
-gives the dial up the same way. An `answer` that throws refuses the offer, and
-one whose promise rejects gives the accept up.
+The entry loads the WebRTC C library on first use (`zig build webrtc-abi`), so the browser API in
+`mod.ts` never imports it. Failures behave as follows:
 
-Candidates route by exchange id, so a dial to a peer and that peer's own offer
-run side by side as two exchanges in a browser and in Deno alike. CapTP's
-crossed-hellos rule keeps one session. Your signaling object keys its candidate sinks
-by the id, never by designator. Two peers on one machine need
+- A dial whose answer never arrives fails at the handshake deadline.
+- When `offer` or `candidate` rejects, the dial is given up and fails at the driver's next step. The
+  error is recorded on the loop's Host.
+- An answer the library refuses gives the dial up the same way.
+- An `answer` that throws refuses the offer, and one whose promise rejects gives the accept up.
+
+Candidates route by exchange id, so a dial to a peer and that peer's own offer run side by side
+as two exchanges in a browser and in Deno alike. When two peers dial each other at once, CapTP
+keeps one of the two sessions. Your signaling object must key its candidate handlers by exchange
+id and never by designator. Two peers on one machine need
 `includeLoopbackCandidates: true`. `zig build deno-webrtc-driver-provider`
 dials the Zig answerer and accepts the Zig offerer this way.

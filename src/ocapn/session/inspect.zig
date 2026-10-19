@@ -68,7 +68,7 @@ pub fn forEachExport(self: *const Session, ctx: anytype, comptime f: *const fn (
 /// Walk every live import row, projecting each to `ImportView`. The callback
 /// must not mutate the table.
 pub fn forEachImport(self: *const Session, ctx: anytype, comptime f: *const fn (@TypeOf(ctx), ImportView) void) void {
-    var it = self.imports.slots.rows.iterator();
+    var it = self.imports.rows.iterator();
     while (it.next()) |entry| {
         f(ctx, .{
             .position = .from(entry.key_ptr.*),

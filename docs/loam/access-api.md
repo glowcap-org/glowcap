@@ -9,18 +9,20 @@ sources:
 
 # Managed access model
 
-Managed access gives an application a tree of resources, grants that cover
-parts of it, and use and control references that keep every held facet within
-its grant. These are the rules every call keeps. The
+Managed access lets an application keep its data as a tree of resources and
+hand out narrowed, revocable access to parts of it. A grant covers part of the
+tree. A use reference calls a resource, a control reference manages a grant,
+and each reference held under a grant (a facet) stays within that grant. These are the rules every call keeps. The
 [managed access guide](access.md) lists the Zig calls, and the
 [C and Rust guide](c-and-rust.md) lists the binding calls.
 
 ## What an application gets
 
 The application supplies the content, what each operation means, and its
-policies. The Host turns those decisions into local or remote capabilities.
-Loam stores everything and decides what stays in memory, and the Host, Vat,
-and your program's executor do the scheduling.
+policies. The [Host](../architecture.md#from-a-peer-to-an-application) turns those
+decisions into local or remote capabilities. Loam stores everything and
+decides what stays in memory. The Host, its Vat (where its actors run, one
+message at a time), and your program's executor do the scheduling.
 
 Three kinds of code call into it:
 
@@ -32,11 +34,13 @@ Three kinds of code call into it:
 
 The model does no I/O and keeps no global list of grants. Hosting uses
 glowcap's public reference and actor interfaces. Passing an ordinary reference
-is an ordinary capability handoff, and managed access leaves CapTP's
-identities, reference counts, and handoff tables alone.
+is an ordinary capability handoff, and managed access leaves the identities,
+reference counts, and handoff tables of [CapTP](../capabilities.md#glossary),
+the session protocol, alone.
 
 ## Resources and identities
 
+An owner is one managed access domain, with its own tree, grants, and policy.
 Owner, resource, and grant IDs are names you can compare and save. They carry
 no authority. Authority comes only from a use or control reference you hold.
 
@@ -96,10 +100,12 @@ code is trusted to declare all of its effects.
 
 Storage runs outside the synchronous model. While a durable change is
 pending, other conflicting changes to that owner return busy or wait in the
-application's bounded command queue. Managed access owns no work queue. The
-Loam transaction takes the storage result when it succeeds. An unknown write
-stops the owner until recovery, and a write known to have changed nothing
-keeps the earlier committed state. Canceling cannot release a store while it
+application's bounded command queue. Managed access owns no work queue.
+
+The Loam transaction takes the storage result when it succeeds. A write whose
+outcome is unknown, such as one whose confirmation was lost, stops the owner
+until recovery. A write known to have changed nothing keeps the earlier
+committed state. Canceling cannot release a store while it
 is still writing.
 
 The store commits content, tree, and grant changes that must happen together
@@ -123,8 +129,10 @@ permissions. A queued notification is also checked when it is delivered.
 Revoking a grant does not take back bytes already delivered or undo an
 earlier committed change.
 
-Receipts make sharing and policy changes safe to retry without creating
-extra access, and a retry with different arguments is refused. Quotas limit
+Receipts, the saved results of completed requests, make sharing and policy
+changes safe to retry without creating extra access
+([retrying mutations](access.md#retrying-mutations)). A retry with different
+arguments is refused. Quotas limit
 receipts, removed-record markers, tree size, nesting, child grants, pending
 changes, and listing pages. A grant or owner generation is never reused to
 bring back a revoked link. Error details are scoped, so a refused lookup
@@ -132,6 +140,8 @@ cannot reveal private siblings.
 
 ## Returned references
 
+A method can return a capability its resource's content keeps in a strong
+field, a declared field that keeps its reference alive.
 `ContentCall.discloseExact` returns a strong field the call declared and
 refuses capabilities it did not declare
 ([ADR-0172](../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)).
@@ -153,7 +163,7 @@ Capability fields in content use the shared
 so the payload, the exact access, and the edges that keep things alive
 change together.
 
-## The foreign-language boundary
+## C and Rust bindings
 
 Rust uses the Zig implementation through a C ABI. The ABI converts data and
 hands over ownership, and every permission decision stays in Zig.

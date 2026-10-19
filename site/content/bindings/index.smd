@@ -8,8 +8,8 @@
 
 Pick a binding to use glowcap from your language. Each one exposes the same
 operations over the C ABI. The Rust, Python, TypeScript, and Racket bindings
-load the Host and the driver loop, then add transport archives as needed. The
-browser package runs the Host as WebAssembly. [Choose an API]($link.page('surfaces'))
+load glowcap's compiled libraries, then add transport libraries as needed. The
+browser package runs the same code as WebAssembly. [Choose an API]($link.page('surfaces'))
 compares these bindings with the Zig package, C ABI, CLI, and browser package,
 and [Concepts]($link.page('concepts')) explains the capability model behind
 them.
@@ -18,8 +18,9 @@ them.
 
 # One contract, each language's idioms
 
-A `Session` gives you the verbs in the
-[bindings contract](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md).
+A `Session` is one connection to a peer, with the operations in the
+[bindings contract](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md),
+such as `fetch`, `send`, `publish`, and `serve`.
 A `Host` manages many sessions and the introductions between them
 ([modules]($link.page('modules'))). A `Ref` is a capability in hand: pass it as
 an argument and the access moves with it.
@@ -29,7 +30,7 @@ an argument and the access moves with it.
 | [Rust]($link.page('bindings/rust')) | `Runtime`, `Session`, typed enums | tokio (opt-in `async`) | `spawn` over closures |
 | [TypeScript]($link.page('bindings/ts')) | `Runtime`, `Session` class | JavaScript promises | `spawn` over callbacks |
 | [Python]($link.page('bindings/python')) | `Runtime`, `Session`, Python values | `asyncio` | `spawn` over callables |
-| [Racket]($link.page('bindings/racket')) | `Runtime`, `session`, event structs | green threads + ports | Goblins-faithful |
+| [Racket]($link.page('bindings/racket')) | `Runtime`, `session`, event structs | green threads + ports | Goblins-style `spawn`, `$`, `<-` |
 
 `Runtime.open(...)` installs transports once. `runtime.connect(locator)`
 returns a session whose handshake is complete.
@@ -39,8 +40,9 @@ A page cannot listen on a socket, so it accepts peers over WebRTC or through a
 relay instead. See
 [In the browser]($link.page('bindings/browser')).
 
-You can use synchronous verbs, the language's own async sockets, or the
-Goblins-shaped actor layer on top with near-call and eventual-send
+You can use synchronous calls, the language's own async sockets, or the
+Goblins-style actor layer on top, with near calls that run at once and
+eventual sends that queue and return a promise
 ([modules]($link.page('modules'))).
 
 # Use a binding from a checkout
@@ -57,5 +59,5 @@ has the path for each language. Compose
 [onion]($link.page('transports/onion')),
 [Noise]($link.page('transports/noise')), or
 [WebRTC]($link.page('transports/webrtc'))
-from their archives. The TCP archive carries Noise over TCP and the testing
-`tcp`, and `inproc` has its own archive.
+from their archives. The TCP archive carries Noise over TCP, keyed TCP, and the
+testing `tcp`. `inproc` has its own archive.

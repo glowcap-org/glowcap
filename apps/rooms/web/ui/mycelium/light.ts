@@ -18,7 +18,7 @@ import type { Links, Network } from "./network.ts";
 /** How many growth steps behind the front still glow. */
 export const FRONT = 18;
 /** How fast a wave travels along the threads, in pixels per ms. */
-export const WAVE_SPEED = 0.4;
+export const WAVE_SPEED = 1.4;
 /** How far through the network a wave from a touch reaches. */
 export const WAVE_REACH = 720;
 /** The width of the lit band at a wave's edge, in pixels of thread. */

@@ -106,7 +106,7 @@ zig build gen-capnp-fixtures   # regenerate Cap'n Proto golden fixtures under te
 zig build racket-test          # Racket unit tests, file by file through `raco test` (needs racket + goblins)
 zig build docs                 # generate the Zig API reference (autodoc) under zig-out/docs/
 zig build site                 # build the documentation site (Zine + autodoc) under zig-out/site/
-zig build site-render-check    # render every built site page at phone width in the pinned Chromium; fails on console errors or horizontal overflow (needs deno + the image-baked browser)
+zig build site-render-check    # render every built site page at four widths in the pinned Chromium; fails on console errors, horizontal overflow, or widows (needs deno + the image-baked browser)
 zig build site-tabs-check      # press the code-tabs on every built site page in the pinned Chromium; fails when a tab does not open its own panel (needs deno + the image-baked browser)
 zig build docs-serve           # serve the documentation site and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes)
 zig build release-pack -Doptimize=ReleaseSafe -Dcpu=baseline # package the C SDK under zig-out/release/ and exercise extracted static/shared consumers (needs cargo; Debug and cross-target builds are refused)

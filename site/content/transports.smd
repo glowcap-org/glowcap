@@ -6,8 +6,10 @@
 .draft = false,
 ---
 
-A transport, or *netlayer*, is the byte path under a CapTP session. Fetch,
-call, promises, and handoffs stay the same no matter which one you pick.
+A transport, or *netlayer*, is the byte path under a
+[CapTP]($link.page('concepts')) session, the connection that carries calls
+between two peers. Fetch, call, promises, and handoffs behave the same on
+every transport.
 The transport decides how you name a peer and how the bytes get there: encrypted
 QUIC, a sealed TCP stream, a Tor circuit, a browser DataChannel, or a
 cleartext testing socket.
@@ -29,12 +31,13 @@ The **designator** is the peer's name for that transport:
 
 Optional hints can carry routing help, such as the bound address for a
 key-addressed listener, but a hint is never permission.
-[Concepts]($link.page('concepts')) covers locators and sturdyrefs in full.
+[Concepts]($link.page('concepts')) covers locators and sturdyrefs (locators
+you can save and redeem later) in full.
 
 # What proves who answered
 
-Every CapTP session signs its hello with a fresh key. That signature holds the
-handshake together but does not prove who the durable peer is. The channel has
+Every CapTP session signs its opening message (the hello) with a fresh key.
+That signature holds the handshake together but does not prove who the durable peer is. The channel has
 to supply that:
 
 - On [Noise]($link.page('transports/noise')), completing the handshake proves the dialed key.

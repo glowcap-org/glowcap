@@ -19,14 +19,14 @@ the budgets the build pins.
 
 # [A call beside Cap'n Proto RPC]($section.id('a-call-beside-capn-proto-rpc'))
 
-[Cap'n Proto](https://capnproto.org/) RPC grew from the same ideas as CapTP:
+[Cap'n Proto](https://capnproto.org/) RPC grew from the same ideas as CapTP, the protocol glowcap implements:
 calls pass object references, and a call can go to an answer that has not
 arrived yet. `bench-capnp` times two calls in the C++ reference library and
 in the `capnp-rpc` Rust crate. `greet` is the smallest message that is still
 a call. `report` is one application batch of a name, eight tags, and
 sixty-four readings, which the server sums. glowcap's bars are the same two
-calls over its `tcp` transport, under its Syrup codec and under its Cap'n
-Proto codec.
+calls over its `tcp` transport, once under its [Syrup](https://github.com/ocapn/syrup)
+codec and once under its Cap'n Proto codec.
 
 Every bench runs a client thread and a server thread in one process over
 loopback TCP. The client makes one call at a time, and both threads sleep
@@ -40,7 +40,7 @@ the Cap'n Proto library it links keeps its own build settings. The Rust row
 runs the `capnp-rpc` crate on a current-thread tokio runtime through the
 futures compat layer.
 
-Each figure is the p50 of 3,000 calls from the run the stamp at the top
+Each figure is the median (p50) of 3,000 calls from the run the stamp at the top
 names. The
 [benchmarks README](https://github.com/jimisaacs/glowcap/blob/main/bench/README.md#against-capn-proto)
 holds the repeated-run figures, their spread, and the system calls and
@@ -111,8 +111,9 @@ instructions behind one round trip.
 
 # [The same app on glowcap and Goblins]($section.id('the-same-app-on-glowcap-and-goblins'))
 
-One Racket application runs unchanged on glowcap's Racket binding and
-[Spritely Goblins](https://spritely.institute/goblins/), timed head to head
+The same Racket application code runs on glowcap's Racket binding and on
+[Spritely Goblins](https://spritely.institute/goblins/), each through a small
+backend module, timed head to head
 across several small applications. The actors run in the Racket binding's vat.
 It does not measure glowcap's Zig actor runtime or concurrent load.
 “glowcap + time-travel” enables snapshot support but does not take snapshots.
@@ -204,7 +205,8 @@ explains what is held constant.
 
 # [Time-travel: snapshot and restore]($section.id('time-travel-snapshot-and-restore'))
 
-This run varies actor count and bytes per actor. glowcap and Goblins run on
+A snapshot saves every actor's state, and a restore rewinds them to it. This
+run varies actor count and bytes per actor. glowcap and Goblins run on
 different runtimes, so compare how cost scales with actor count rather than
 their absolute times.
 

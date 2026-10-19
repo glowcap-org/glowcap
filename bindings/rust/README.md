@@ -1,7 +1,9 @@
 # Rust binding
 
-This crate is an in-tree consumer of glowcap's C ABI (`publish = false`). Pin
-a checkout, run `zig build`, and use it from the tree.
+This crate lets Rust connect to OCapN peers, call their objects, and host objects of its own. It
+is not published, so use a checkout of the repository: run `zig build`, then add the crate by
+path. Terms such as locator, Host, and sturdyref are defined in the
+[glossary](../../docs/capabilities.md#glossary).
 
 Enable the `async` feature for the application session API:
 
@@ -24,17 +26,15 @@ session.close(PendingWork::Cancel).await?;
 runtime.close(PendingWork::Cancel).await?;
 ```
 
-`Runtime` holds the Host and transport provider for all of its sessions. Call
-`Runtime::close` when you are done with it. The handshake budget is
-Runtime-wide: set it with `RuntimeConfig::with_handshake_timeout`.
+`Runtime` holds the Host (the object that owns your identity and published objects) and the
+transport for all of its sessions. Call `Runtime::close` when you are done with it. The handshake
+time limit applies to the whole Runtime. Set it with `RuntimeConfig::with_handshake_timeout`.
 
-An `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial or listener
-runs on the driver archive (`libglowcap_driver`, ADR-0112). Its loop waits on
-the sockets, accepts handshakes, moves bytes, and releases finished sessions. A
-`Host` the application supplies must be idle, and it moves to that loop before
-its first network operation. A routed relay locator adds the relay provider to
-the same loop. An integration that feeds bytes itself installs connectors
-instead.
+An `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial or listener runs on glowcap's
+driver loop, which lives in the `libglowcap_driver` C library. The loop waits on the sockets,
+accepts handshakes, moves bytes, and releases finished sessions. A `Host` you supply must be idle,
+and it moves to that loop before its first network operation. A routed relay locator adds the
+relay transport to the same loop. If your code feeds bytes itself, install connectors instead.
 
 `tcp::listen`, `tcp::keyed::listen`, and `tcp::noise::listen` return the same
 `tcp::Server`. Its `locator()` and `uri()` report what partners dial, and a
@@ -55,18 +55,19 @@ keep a session and its actors on that task.
 
 ## Sessions and actors
 
-A `Session` can fetch, publish, spawn, send, tell, and enliven.
+A `Session` can fetch, publish, spawn, send, tell, and enliven (turn a sturdyref back into a live
+reference).
 
-- `send` returns a `RemotePromise`, which can be the target of another send for
-  promise pipelining. Pipelining and indexing into the result work for
+- `send` returns a `RemotePromise`, which can be the target of another send before it settles
+  (promise pipelining, which saves a round trip). Pipelining and indexing into the result work for
   remote answers. Local answers must be awaited.
 - A send is checked and queued when you call it, and awaiting it gives the
   result. `RemotePromise::into_admitted` reports a refused send at once, before
   the application publishes anything that depends on it.
 - `caretaker` creates a revocable forwarder. `attenuate` restricts a reference
   to selected methods.
-- Local sends, tells, and proxy forwarding run through the Zig Host, which tracks
-  which actors are alive and routes messages.
+- Local sends, tells, and proxy forwarding run through the Host, which tracks which actors are
+  alive and routes messages. A `tell` is a send that expects no reply.
 - `Session::resolve` accepts an object or a promise through the same opaque
   reference, so callers need not inspect reference kinds. The wire-level
   `Session::listen` follows the promise rules of the CapTP version in use.
@@ -99,11 +100,10 @@ limit as a transport's own listen and dial.
 
 ### Sharing a Host
 
-Several sessions can share a `Host` through
-`RuntimeConfig::providers([provider]).adopt_host(host)` and the listener's
-`ListenerIdentity::Host(host)` option. The shared host carries one identity and
-handles three-party introductions. Use `send_redeeming` when you also need the
-direct exporter session returned as `via`.
+Several sessions can share a `Host` through `RuntimeConfig::providers([provider]).adopt_host(host)`
+and the listener's `ListenerIdentity::Host(host)` option. The shared Host has one identity and
+handles handoffs, where a peer introduces you to an object hosted by a third peer. Use
+`send_redeeming` when you also need the session to that third peer, returned as `via`.
 
 `Host::application_state` shares one typed Rust value across all handles of a
 Host and adds no protocol state or lifecycle hook.
@@ -116,21 +116,20 @@ Host and adds no protocol state or lifecycle hook.
 
 ### Inside a behavior
 
-`current_session()` returns the session that delivered the current turn, including a
-redeemed exporter route. Retain the view for replies. It returns `None` outside
-a callback, and a local eventual call can carry a session too, so it does not
-prove the caller is remote.
+`current_session()` returns the session that delivered the current call, including a session
+reached through a handoff. Keep the returned view to send replies. It returns `None` outside a
+callback. A local call can carry a session too, so a `Some` does not prove the caller is remote.
 
-`Host::defer_turn` returns the sole resolver for a deferred reply.
+`Host::defer_turn` lets a behavior reply later. It returns the one resolver that settles the reply.
 
-- Dropping the resolver before settlement schedules a broken answer through the
-  Host's progress loop, so the caller never waits for an answer whose owner is
-  gone. Cleanup also succeeds if session shutdown already retired that answer.
-- Explicit fulfillment and break calls refuse an already-consumed resolver.
-- `Resolver::fulfill_value` can return owning-thread capabilities through the
-  original caller session, preparing the usual handoff for capabilities
-  hosted by other peers. Failed preparation leaves the resolver available for retry.
-  `fulfill` is the capability-free data path.
+- Dropping the resolver before settling it schedules a broken answer, so the caller never waits for
+  an answer whose owner is gone. Cleanup also succeeds if session shutdown already retired that
+  answer.
+- Fulfilling or breaking a resolver that was already used is refused.
+- `Resolver::fulfill_value` can reply with capabilities hosted on the owning thread, and
+  prepares the handoff for capabilities hosted by other peers. If preparation fails, the resolver
+  stays available for retry.
+- `fulfill` replies with plain data only.
 
 ### Durable names
 
@@ -168,9 +167,8 @@ exporter.
 
 ## Browser and Wasm
 
-The base binding supports `wasm32-unknown-unknown` with default features
-disabled. Build its archives and generated layout expectations with
-`zig build gen-rust-wasm-layouts`. `GLOWCAP_LIB_DIR` selects the Wasm archive
+The base binding supports `wasm32-unknown-unknown` with default features disabled. Build the
+Wasm libraries and the generated struct-layout checks with `zig build gen-rust-wasm-layouts`. `GLOWCAP_LIB_DIR` selects the Wasm archive
 directory when consuming outside the checkout. Compile-time layout assertions
 and runtime archive fingerprint checks stay enabled.
 
@@ -190,12 +188,11 @@ Chromium.
 
 ### Channels
 
-`Channel::stream` carries a byte stream. `Channel::packets` carries whole
-messages, handing each one over, and closes with an explicit `ChannelClose`.
-The core frames packets through `feed_packet` and `take_packet`. Rust keeps
-each received message whole and lends outgoing frames to the write instead of
-copying them. An accepted channel carries the provider's reading of its
-address and key, and can carry proof that the channel was verified.
+Use a `Channel` when your code opens the connection itself, such as a WebSocket. `Channel::stream`
+carries a byte stream. `Channel::packets` carries whole messages and closes with an explicit
+`ChannelClose`. For packets, Rust keeps each received message whole and lends outgoing frames to
+the write instead of copying them. An accepted channel carries the transport's reading of the
+peer's address and key, and can carry proof that the channel was verified.
 
 Once the Host takes a channel, it closes as part of the Host's task:
 
@@ -251,12 +248,10 @@ between that SDP and the expected key before supplying Session identity proof.
   callbacks to retire, even when the browser leaves the original WebRTC
   operation unfinished.
 
-The Chromium scenario reaches the installed `rooms-web` directory over a real
-WebSocket and exchanges calls between two Rust Hosts over local
-RTCDataChannels. Rust also signals its own local RTC pair, covering dropped SDP
-observers, shutdown during ICE and createOffer, failure callbacks outside Tokio
-polling, and close ordering. Browser storage, production page integration,
-transport pressure, and deadline expiry are not covered. The
+The Chromium test loads the `rooms-web` build over a real WebSocket and exchanges calls between
+two Rust Hosts over local RTCDataChannels. It also covers dropped SDP observers, shutdown during
+ICE and `createOffer`, failure callbacks outside Tokio polling, and close ordering. It does not
+cover browser storage, production page integration, transport pressure, or deadline expiry. The
 [Rooms build setup](../../apps/rooms/rust/README.md) lists the required Wasm
 tools.
 
@@ -266,7 +261,8 @@ tools.
 | --- | --- | --- |
 | `tcp` | Blocking TCP netlayer handles. | yes |
 | `inproc` | Blocking in-process netlayer handles. | yes |
-| `onion` | Tor provider and raw netlayer handles through a Tor daemon you run. With `async`, also adds `onion::Server` and Session dial/listen helpers. | no |
+| `onion` | Tor transport through a Tor daemon you run, and raw frame handles. With `async`, also adds `onion::Server` and Session dial and listen helpers. | no |
+| `loam` | Durable shared resources on the Host, stored in SQLite, LMDB, memory, or the browser. It implies `async`. | no |
 | `async` | Tokio `Session`, `Host`, and managed `Runtime`. | no |
 | `iroh` | Encrypted iroh transport and `iroh::Server`. It implies `async`. | no |
 | `relay` | `keyed-relay`/`noise-relay` provider package and managed listeners. It implies `async`. | no |
@@ -286,8 +282,8 @@ raw frame handle.
 
 `zig build rust-dogfood` uses a fake daemon and does not test live Tor.
 Repository-level on-demand checks cross Tor with two glowcap peers, Goblins in
-both directions, upstream conformance, service restoration, and Rooms. They
-need Tor and outbound network access.
+both directions, the upstream conformance suite, service restoration, and
+Rooms. They need Tor and outbound network access.
 
 iroh requires `zig build iroh-abi`. Construct a `Runtime` with an iroh provider
 and use its `connect` method. A TCP-only build links no iroh provider.
@@ -309,18 +305,18 @@ thread that steps the loop. A dial whose answer never arrives fails at the
 handshake deadline, and one whose signaling fails is given up at the driver's
 next step.
 
-Closing a server:
-
-- `Server::close()` on each transport module stops the listener accepting new connections
-  and preserves sessions already returned by `accept`.
-- `server.host().close(PendingWork::Cancel).await` is the terminal barrier. It
-  releases those sessions, joins the driver loop, and releases the endpoint.
-- A directly owned `Stream` has its own `close().await` barrier.
-
 The wire codec belongs to the host. `Host::with_codec(Codec::Capnp)?` creates a
 host whose sessions negotiate Cap'n Proto. The default is Syrup. Host
 construction and publication verbs return `Result`, including entropy,
 allocation, lifecycle, and refusal diagnostics.
+
+### Closing a server
+
+- `Server::close()` on each transport module stops the listener accepting new connections
+  and preserves sessions already returned by `accept`.
+- `server.host().close(PendingWork::Cancel).await` shuts the server down for
+  good. It releases those sessions, joins the driver loop, and releases the endpoint.
+- A `Stream` you own directly closes with its own `close().await`.
 
 ## Checks
 
@@ -333,10 +329,9 @@ cargo build --no-default-features --features tcp
 cargo build --features async
 ```
 
-The iroh path has live checks for handoff, many connections, and redemption
-policy. The crate's ordinary unit tests do not cover it. The WebRTC dial and listen have
-`zig build rust-webrtc-driver-provider`, which dials the Zig answerer and
-accepts the Zig offerer.
+The iroh path has live tests for handoffs, many connections, and handoff policy, and the crate's
+ordinary unit tests do not cover it. For WebRTC dial and listen, `zig build
+rust-webrtc-driver-provider` dials the Zig answerer and accepts the Zig offerer.
 
 For the shared API, read the [binding overview](../README.md). Maintainers of
 the C pump and generated FFI should read
@@ -344,9 +339,10 @@ the C pump and generated FFI should read
 
 ## Persistent resources
 
-Enable the optional `loam` feature for `loam::{Store, Attachment, Content, Policy}`.
-On desktop and server targets, it links the portable Loam archive and the
-SQLite, LMDB, and in-memory companions, reusing `Host`, `Ref`, and Session.
+Enable the optional `loam` feature for `loam::{Store, Attachment, Content, Policy}`. Loam is
+glowcap's storage layer for durable shared resources. On desktop and server targets the feature
+links Loam and its SQLite, LMDB, and in-memory storage backends, and reuses `Host`, `Ref`, and
+Session.
 
 - Opening, creation, and privileged restoration are blocking startup
   operations.

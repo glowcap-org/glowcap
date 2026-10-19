@@ -321,9 +321,11 @@ Use [`bin/update-pins.sh`](bin/update-pins.sh) to update a tool:
 It fetches versions and hashes from each dependency's release channel and
 validates every edit before replacing a file. Rebuild the container when an
 updated tool is installed there. The harness seeds are not image content, so
-their check is the cold-seed smoke run (`test/tool-install.sh <name>`), and the
-running cache adopts a bumped seed on the next `tools.sh ensure` or cold first
-use. The report also lists the checks each dependency requires: Zig requires
+their check is the cold-seed smoke run (`test/tool-install.sh <name>`) in the
+[agent-tools workflow](../.github/workflows/agent-tools.yml), separate from
+product checks. The running cache adopts a bumped seed on the next
+`tools.sh ensure` or cold first use. The report also lists the checks each
+dependency requires: Zig requires
 `zig build check`, Racket and Goblins require `zig build check-external`, and
 the Distroless base lists the release workflow's image proofs.
 

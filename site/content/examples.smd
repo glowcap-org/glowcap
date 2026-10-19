@@ -6,7 +6,7 @@
 .draft = false,
 ---
 
-Every program below uses the same CapTP API. For a first call in code, use
+Every program below speaks the same protocol, CapTP. For a first call in code, use
 [Start building]($link.page('start')).
 
 # A complete application

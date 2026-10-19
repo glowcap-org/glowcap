@@ -148,6 +148,7 @@ pub fn classify(err: anyerror) Classification {
         error.FeatureNotNegotiated,
         error.InvalidGift,
         error.GcUnderflow,
+        error.GcOverflow,
         error.UnexpectedMessage,
         error.DuplicateStartSession,
         => .{ .domain = .session, .abort = .{

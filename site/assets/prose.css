@@ -45,6 +45,13 @@ h1, h2, h3, h4 {
   text-wrap: balance;
 }
 
+/* A heading's last two words, kept together by the site build so the last
+   line never holds one word. An inline block stays whole when it fits and
+   wraps inside itself when it does not, so it cannot push the page wider. */
+.keep {
+  display: inline-block;
+}
+
 /* Display sizes use Plex's semibold weight. Body emphasis keeps the stronger
    bold, so page structure and emphasis remain distinct. */
 h1 {

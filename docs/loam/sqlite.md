@@ -25,8 +25,9 @@ exe.root_module.addImport("glowcap_loam_sqlite", dependency.module("glowcap_loam
 
 The module exposes `Sqlite`, which runs blocking storage work on the thread
 that calls it. It compiles the SQLite amalgamation pinned in `build.zig.zon`,
-so no system library is needed. Open it with a store directory, a capacity in
-bytes, and the number of reader connections to keep.
+so no system library is needed. Open it with a store directory. Options set
+the capacity in bytes and the number of reader connections, and both have
+defaults.
 
 The file is `loam.sqlite`. It carries the application id `LOAM` and a user
 version that names the row format, so a tool can tell it is a Loam store.
@@ -122,6 +123,7 @@ While it runs, the vacuum writes a copy of the live rows to a temporary file
 and another to the log, so it needs about twice their size in free disk.
 The temporary file goes in the directory `SQLITE_TMPDIR` or `TMPDIR` names,
 or else the system's temporary directory.
+
 `zig build loam-sqlite-compaction-crash-test` kills the process during and
 after a vacuum and checks every live row in a fresh process.
 

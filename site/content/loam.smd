@@ -6,9 +6,10 @@
 .draft = false,
 ---
 
-Picture a task board shared over CapTP. Your program hosts the board, its
-columns, and its cards as live objects. Bob holds a reference to the "to do"
-column. Carol keeps a sturdyref to the board.
+Picture a task board shared over CapTP, the protocol peers use to call each
+other's objects. Your program hosts the board, its columns, and its cards as
+live objects. Bob holds a reference to the "to do" column. Carol keeps a
+sturdyref to the board, a saved reference that fetches it by name.
 
 When your program restarts, all of those references break.
 
@@ -58,8 +59,8 @@ replies.
 The reply waits for the save so nobody is told about a change a crash could
 undo. A crash can still land between the save and the reply, so the change
 is kept but the caller never hears back. If the caller retries, the change
-happens twice. Write methods that are safe to repeat, or use managed access,
-which keeps receipts for its changes.
+happens twice. Write methods that are safe to repeat, or use managed access
+(described below), which keeps receipts for its changes.
 
 Loam decides what to read and write but never touches the disk itself, the
 same way glowcap's protocol core never opens a socket. Your worker does the
@@ -71,7 +72,7 @@ store for tests.
 Calls travel down from peers to the disk, and replies travel back up. The two
 Loam layers decide what happens. The two below them are yours and do the
 work. The **attachment** is the piece that joins a store to the Host you
-already run.
+already run, the object that serves your program's objects to peers.
 
 A card's code is a plain function from its saved record and a call to a
 reply. It can propose new state, and it does no I/O, because a proposal that

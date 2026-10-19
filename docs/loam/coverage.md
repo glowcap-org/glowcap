@@ -9,14 +9,15 @@ sources:
 
 # Managed access coverage
 
-Managed access is Loam's layer for resources, grants, and the references that
-use and control them. Zig exposes it as `glowcap.loam.access`. Portable tests
-live in [`test/loam/access/`](../../test/loam/access/).
-The shared [engine scenarios](../../test/loam/engines/) run on both disk engines,
+Each row names a managed access feature, the design record that explains it,
+and its tests. Managed access is Loam's layer for resources, grants, and the
+references that use and control them, exposed in Zig as `glowcap.loam.access`.
+Tests that need no storage engine live in [`test/loam/access/`](../../test/loam/access/).
+Rows marked "engine" are shared [engine scenarios](../../test/loam/engines/) that run on both disk engines,
 with engine-specific tests under [`test/loam/sqlite/`](../../test/loam/sqlite/)
 and [`test/loam/lmdb/`](../../test/loam/lmdb/).
 
-| Part | Defined in | Tests |
+| Part | Design record | Tests |
 | --- | --- | --- |
 | Resource graph | [ADR-0153](../decisions/adr/ADR-0153-access-resource-core.md) | [`graph_test.zig`](../../test/loam/access/graph_test.zig), [`scope_test.zig`](../../test/loam/access/scope_test.zig) |
 | Grant ledger and prepared writes | [ADR-0154](../decisions/adr/ADR-0154-access-local-grant-lifecycle.md), [ADR-0155](../decisions/adr/ADR-0155-access-prepared-grant-writes.md), [ADR-0190](../decisions/adr/ADR-0190-declarative-permission-dependencies.md), [ADR-0197](../decisions/adr/ADR-0197-scope-aware-permission-applicability.md) | [`grants_test.zig`](../../test/loam/access/grants_test.zig), [`grant_transaction_test.zig`](../../test/loam/access/grant_transaction_test.zig), [`applicability_test.zig`](../../test/loam/access/applicability_test.zig) |

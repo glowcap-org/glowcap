@@ -1,8 +1,13 @@
 # Python binding
 
-This package uses `ctypes`, `asyncio`, and the standard library. It needs the
-CPython version `pyproject.toml` declares, on an LP64 platform. Pin a
-checkout, run `zig build`, and import it from the tree.
+This package lets Python connect to OCapN peers, call their objects, and host
+objects of its own. It is not published, so use a checkout of the repository:
+run `zig build`, then import the package from the tree. It uses `ctypes`,
+`asyncio`, and the standard library, and needs the CPython version
+`pyproject.toml` declares on an LP64 (64-bit Unix)
+platform. Terms such as
+locator, vat, and sturdyref are defined in the
+[glossary](../../docs/capabilities.md#glossary).
 
 ```python
 import asyncio
@@ -26,12 +31,13 @@ async def main():
 asyncio.run(main())
 ```
 
-`fetch` and `send` start the inbound loop on demand, so a client that only
-makes calls does not need `session.serve()`. `await session.closed()` waits for
-the session to end without asking it to close or starting that loop. Cancelling the
-waiter leaves the session running. `Host.publish_durable(behavior, entropy=None)`
-mints a durable swiss name. Pass the same entropy to a Host reconstructed from
-the same seed to restore that name.
+- `fetch` and `send` start the inbound loop when first used, so a client that
+  only makes calls does not need `session.serve()`.
+- `await session.closed()` waits for the session to end without closing it or
+  starting that loop. Cancelling the waiter leaves the session running.
+- `Host.publish_durable(behavior, entropy=None)` publishes `behavior` under a
+  durable swiss number, the secret name a peer uses to fetch it later. Pass the
+  same entropy to a Host reconstructed from the same seed to restore that name.
 
 ## Sessions and actors
 
@@ -47,35 +53,39 @@ callables. `send` returns a `RemotePromise`, implemented as an
 `asyncio.Future`, and that promise can be the target of another send.
 
 Under `Runtime` and `listen`, an `iroh`, `noise-tcp`, `keyed-tcp`, or `tcp`
-connection runs on glowcap's driver loop. Python loads the separate Host and
-driver archives. Python steps one loop that runs the provider, frames and
-moves bytes, and releases finished sessions, while asyncio waits on a file
-descriptor that signals when the loop has work.
+connection runs on glowcap's driver loop, one event loop in the C library that
+owns the sockets, frames and moves bytes, and releases finished sessions.
+Python loads the separate Host and driver libraries and steps the loop, while
+asyncio waits on a file descriptor that signals when the loop has work.
 
-The application passes `iroh.provider(config)`, `tcp.provider(config)`, or
-another transport package. The driver starts with no providers and receives
-the chosen package through the common provider ABI. A routed `keyed-relay` or
-`noise-relay` locator likewise loads the relay archive and installs its
-provider package.
+Pass `iroh.provider(config)`, `tcp.provider(config)`, or another transport
+package to choose a transport. The driver starts with no transports and
+installs the one you pass. A routed `keyed-relay` or `noise-relay` locator
+likewise loads the relay library and installs its provider.
 
 `Runtime.open(adopt_host=host, ...)` transfers an existing Host into the
 Runtime. `await runtime.close()` then shuts that Host down for good.
 
 `tcp.listen`, `tcp.keyed.listen`, and `tcp.noise.listen` return the same
-`tcp.Server` surface. Its canonical `locator` and `uri` are ready to hand to
-`Runtime.connect`. Pass a 32-byte `seed` to keep a durable designator across restarts.
-The driver loop accepts incoming connections and limits concurrent handshakes. A wildcard `bind_host` requires
-`advertised_host`, the dialable name or address placed in the Host locator,
-because glowcap cannot infer reachability from the bind.
+`tcp.Server`. Its `locator` and `uri` are ready to hand to `Runtime.connect`.
+
+- Pass a 32-byte `seed` to keep the same identity (the designator in the
+  locator) across restarts.
+- The driver loop accepts incoming connections and limits concurrent
+  handshakes.
+- A wildcard `bind_host` requires `advertised_host`, the name or address
+  partners dial. glowcap puts it in the locator because it cannot infer
+  reachability from the bind.
 
 `relay.keyed.listen` and `relay.noise.listen` return the same `DriverServer`
 shape over a registered relay route. Their `locator` and `uri` carry the
 durable key and the rendezvous relay that partners dial.
 
-With one Host shared across sessions, a handoff needs no extra code. The less
-common `send_redeeming` call returns both the answer and `via`, the direct
-exporter session. Host a reply capability on `via`. A local reference is valid
-only in the session where it was exported.
+A handoff is how one peer gives you a reference to an object hosted by a third
+peer. With one Host shared across sessions, a handoff needs no extra code. The
+less common `send_redeeming` call returns both the answer and `via`, the
+session to the peer that hosts the object. Host a reply capability on `via`. A
+local reference is valid only in the session where it was exported.
 
 ## Transports
 
@@ -86,8 +96,13 @@ only in the session where it was exported.
 | `glowcap.inproc` | Blocking in-process connections. |
 | `glowcap.onion` | Configured `listen` through a Tor daemon you run, plus raw Netlayer handles for a program that owns its own loop. |
 | `glowcap.iroh` | Optional encrypted QUIC and `listen`. |
-| `glowcap.webrtc` | Optional WebRTC dial and listen. `webrtc.provider(signaling)` installs the dial, `await webrtc.listen(signaling)` returns a `Server` you iterate for sessions, and your `SignalingAuthority` carries each exchange's offer, answer, and candidates. You hand each inbound offer to `server.provide_offer(designator, sdp)`. |
+| `glowcap.webrtc` | Optional WebRTC dial and listen. See below. |
 | `glowcap.relay` | `keyed-relay`/`noise-relay` provider composition and managed listeners. |
+
+WebRTC needs a `SignalingAuthority` that you write to carry each exchange's
+offer, answer, and candidates. `webrtc.provider(signaling)` installs the dial.
+`await webrtc.listen(signaling)` returns a `Server` you iterate for sessions.
+Hand each inbound offer to `server.provide_offer(designator, sdp)`.
 
 The application imports only the transport modules it composes. A TCP-only
 program never loads the iroh or WebRTC library.
@@ -115,15 +130,15 @@ with TcpNetlayer() as netlayer:
     connection = netlayer.connect("127.0.0.1", listener.port())
 ```
 
-## Checks
+## Tests
 
 ```sh
-zig build python-dogfood
-zig build python-goblins-interop
+zig build python-dogfood         # the package against a glowcap peer
+zig build python-goblins-interop # the package against a Spritely Goblins peer
 ```
 
-`zig build bindings` builds the archives and runs every language binding.
-[`zig_smoke.py`](zig_smoke.py) is this package's complete in-tree consumer.
+`zig build bindings` builds the libraries and runs the tests for every
+language binding. [`zig_smoke.py`](zig_smoke.py) is a complete example program.
 
 For the shared API, read the [binding overview](../README.md). Maintainers of
 the private FFI loaders and pump should read

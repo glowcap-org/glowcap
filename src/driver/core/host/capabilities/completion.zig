@@ -32,19 +32,27 @@ const Retains = struct {
     }
 
     fn rollback(self: *Retains, ref: value_mod.Capability) !void {
-        if (self.count == 0) return;
+        std.debug.assert(self.count != 0);
         self.count -= 1;
         // The action still owns its occurrence, so undoing this application
         // retain cannot retire authority or send wire GC.
         const retired = self.host.capabilities.release(ref, 1) catch unreachable;
         std.debug.assert(retired == null);
+        if (self.count == 0) return error.RollbackComplete;
     }
 };
 
 pub fn projectOwnedValue(self: *Host, value: value_mod.Value, context: anytype, comptime project: anytype) !projectedValueType(project) {
     self.assertOwner();
     var retained = Retains{ .host = self };
-    errdefer value.forEachCapability(&retained, Retains.rollback) catch unreachable;
+    errdefer if (retained.count != 0) {
+        // Only the acquired prefix is a rollback receipt. The suffix may be
+        // overdeep or invalid, which is why acquisition refused in the first
+        // place. Stop at the last released occurrence instead of visiting it.
+        value.forEachCapability(&retained, Retains.rollback) catch |err| {
+            std.debug.assert(err == error.RollbackComplete);
+        };
+    };
     try value.forEachCapability(&retained, Retains.acquire);
     return try project(context, value);
 }

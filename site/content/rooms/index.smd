@@ -71,7 +71,7 @@ messages after it.
 
 [The server gives a person and a bot the same room. The room introduces them to each other, and from then on they talk directly, with the room out of the way.]($image.siteAsset('diagram-rooms-capabilities.svg'))
 
-That connection is WebRTC by default: the server passes along the connection
+That connection is [WebRTC]($link.page('transports/webrtc')) by default: the server passes along the connection
 details, and the messages go straight between the two of you. Where a
 network will not allow that, Settings offers **Through the room relay**. It is
 encrypted end to end, so the relay cannot read your messages.
@@ -123,7 +123,7 @@ Rooms is written in Rust. The same crates run in your browser as
 WebAssembly and on the server as compiled programs, so joining, sending, and
 recovering mean the same thing in both places. Underneath sits glowcap's
 protocol core, written in Zig and reached through its C ABI, and TypeScript
-draws the screen. There is no API beyond OCapN itself: the server publishes
+draws the screen. There is no API beyond [OCapN](https://ocapn.org/), the capability protocol glowcap implements: the server publishes
 one object by name, and every other reference is handed back from it.
 [How Rooms works]($link.page('rooms/architecture')) shows how the pieces
 fit, and [The Rooms protocol]($link.page('rooms/protocol')) walks through

@@ -3,7 +3,7 @@ id: ADR-0078
 status: accepted
 date: 2026-07-12
 tags: [bindings, c-abi, dial, netlayer, layer-separation]
-decision: "A byte-fed embedder may resolve a dial through glowcap_host_plan_dial and interpret its generic host_port, peer_id, signaling, or rendezvous result without re-deriving core policy. Native bindings do not project that plan: they pass typed locators through the generic driver to registered transport packages, which own locator interpretation and concrete I/O. The accept side resolves inside glowcap_host_session_open_accepted: the embedder passes the provider-declared designator scheme and listener facts, and the Host derives, retains, and signs the locator itself, never displacing one the embedder explicitly published."
+decision: "A byte-fed embedder may resolve a dial through glowcap_host_plan_dial and interpret its generic host_port, peer_id, signaling, or rendezvous result without re-deriving core policy. Bindings on the generic driver do not project that plan: they pass typed locators through libglowcap_driver to registered transport packages, which own locator interpretation and concrete I/O. The accept side resolves inside glowcap_host_session_open_accepted: the embedder passes the provider-declared designator scheme and listener facts, and the Host derives, retains, and signs the locator itself, never displacing one the embedder explicitly published."
 supersedes: []
 superseded_by: []
 amended_by: [ADR-0112]
@@ -11,12 +11,13 @@ amended_by: [ADR-0112]
 
 # ADR-0078 Dial is a core-resolved plan. Bindings are thin interpreters
 
-> **Native-provider amendment (ADR-0112).** Native bindings pass a typed locator
-> to the generic driver through the `libglowcap_driver` provider seam. Each
-> registered transport package owns its locator interpretation and concrete I/O.
-> The generic binding runtimes therefore expose neither `GlowcapDialPlan` nor its
-> shape, reach, and posture constants. `glowcap_host_plan_dial` is the primitive
-> for a direct byte-fed C embedder that owns the channel.
+> **Provider-seam amendment (ADR-0112).** A language binding passes a typed
+> locator to the generic driver through the `libglowcap_driver` provider seam.
+> Each registered transport package owns its locator interpretation and
+> concrete I/O. The generic binding runtimes therefore expose neither
+> `GlowcapDialPlan` nor its shape, reach, and posture constants.
+> `glowcap_host_plan_dial` is the primitive for a direct byte-fed C embedder
+> that owns the channel.
 
 ## Context
 
@@ -46,7 +47,7 @@ marshals posture policy, calls `glowcap_host_plan_dial`, and executes the
 returned integration shape. No such embedder needs to carry transport grammar,
 the hint rule, the reachability decision, or dial error strings.
 
-A native binding takes the provider path added by ADR-0112 instead. Its runtime
+A language binding takes the provider path added by ADR-0112 instead. Its runtime
 passes the complete typed locator through `libglowcap_driver`. The registered
 transport package interprets the locator and owns the concrete dial. Generic
 runtime code knows only providers and connectors, never concrete transports or
@@ -55,7 +56,7 @@ the byte-fed plan vocabulary.
 `connect` and handoff-redeem are one path. Both funnel through the same generic
 driver and registered provider. A DIAL action carries only `ticket`. The binding
 clones the complete typed locator projected by `glowcap_host_pending_dial` and
-resolves through `plan_dial` as `connect` does, with no URI re-parse and no
+hands it to the generic driver as `connect` does, with no URI re-parse and no
 discarded hint.
 
 For a direct byte-fed embedder, `GlowcapDialPlan` crosses the ABI: a plain-data
@@ -112,7 +113,7 @@ a doomed dial never touches the network on either spine.
   provider artifact can require one composition-root registration and no
   binding-local policy dispatcher.
 - The C header and ABI tests hold `GlowcapDialPlan` for direct byte-fed
-  embedders. Binding generators omit it and `glowcap_host_plan_dial`. Native
+  embedders. Binding generators omit it and `glowcap_host_plan_dial`. Language
   binding fronts reach transport dispatch through the generic driver and
   registered provider packages.
 - The accept-side resolver has no separate C export or plan struct. Listener

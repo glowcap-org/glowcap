@@ -5,6 +5,7 @@
 # downloads, real verification, and answers its seed version. A warm no-op
 # proves nothing here; this gate exists because post-create only checks
 # wiring and cannot establish that a seed bump is installable.
+# Called by .github/workflows/agent-tools.yml, separately from product checks.
 #
 #   tool-install.sh <tool>...     (claude codex cursor-agent opencode)
 #

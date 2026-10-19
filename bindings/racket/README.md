@@ -1,7 +1,10 @@
 # Racket binding
 
-This binding uses glowcap's C ABI with Racket threads and ports. Pin a
-checkout, run `zig build`, and use the modules from the tree.
+This binding lets Racket connect to OCapN peers, call their objects, and host
+objects of its own, using Racket threads and ports. It is not published, so use
+a checkout of the repository: run `zig build`, then `require` the modules from
+the tree. Terms such as locator and sturdyref are defined in the
+[glossary](../../docs/capabilities.md#glossary).
 
 ```racket
 (require "glowcap.rkt"
@@ -16,13 +19,17 @@ checkout, run `zig build`, and use the modules from the tree.
 (runtime-close! runtime)
 ```
 
-`glowcap.rkt` provides sessions, hosts, values, locators, and the actor
-API. Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
-`on`, `bcom`, and `methods`. `host-publish-durable` mints a durable swiss name.
-The optional second argument is retained entropy, and the same bytes restore
-the same name on a Host reconstructed from the same seed.
-`session-wait-closed` waits for the session to end without asking it to close
-or starting `session-serve`. Breaking the waiting thread leaves the session running.
+`glowcap.rkt` provides sessions, hosts, values, locators, and the actor API.
+Its actor vocabulary follows Racket and Goblins style: `spawn`, `$`, `<-`,
+`on`, `bcom`, and `methods`.
+
+- `host-publish-durable` publishes a behavior under a durable swiss number, the
+  secret name a peer uses to fetch it later. The optional second argument is
+  retained entropy, and the same bytes restore the same name on a Host
+  reconstructed from the same seed.
+- `session-wait-closed` waits for the session to end without closing it or
+  starting `session-serve`. Breaking the waiting thread leaves the session
+  running.
 
 ## Modules
 
@@ -30,18 +37,24 @@ or starting `session-serve`. Breaking the waiting thread leaves the session runn
 | --- | --- |
 | [`glowcap.rkt`](glowcap.rkt) | Sessions, hosts, actors, generic connection management, locators, and values. |
 | [`glowcap-iroh.rkt`](glowcap-iroh.rkt) | Optional encrypted QUIC provider/connector and `listen-iroh`. |
-| [`glowcap-webrtc.rkt`](glowcap-webrtc.rkt) | Optional WebRTC dial and listen. `webrtc-provider` dials a `webrtc` locator and `listen-webrtc` answers inbound offers, both through signaling the application supplies with `make-webrtc-signaling`. Each signaling procedure takes the exchange id first, and the calls that open a route also take a `webrtc-target` naming the peer and the session that introduced it. |
+| [`glowcap-webrtc.rkt`](glowcap-webrtc.rkt) | Optional WebRTC dial and listen. See below. |
 | [`glowcap-onion.rkt`](glowcap-onion.rkt) | Tor-backed provider/connector, `listen-onion` / `connect-onion`, and raw onion netlayer handles. |
 | [`glowcap-relay.rkt`](glowcap-relay.rkt) | Explicit `keyed-relay`/`noise-relay` providers, managed listeners, and keyed byte connector. |
 | [`glowcap-tcp.rkt`](glowcap-tcp.rkt) | TCP locators, explicit provider/connector values, driver-backed listeners, and blocking netlayer handles. |
 | [`glowcap-inproc.rkt`](glowcap-inproc.rkt) | Explicit in-process byte connector and blocking connections. |
 
+WebRTC needs signaling you supply with `make-webrtc-signaling`, to carry each
+exchange's offer, answer, and candidates. `webrtc-provider` dials a `webrtc`
+locator and `listen-webrtc` answers inbound offers. Each signaling procedure
+takes the exchange id first. The calls that open a route also take a
+`webrtc-target` naming the peer and the session that introduced it.
+
 The wire codec is chosen for a host. `open-runtime` and every listener accept
 `#:codec`. The default is `'syrup`, and both peers must agree before using
 `'capnp`. Goblins interop uses CapTP 1.0 over Syrup.
 
-A `keyed-relay` locator names a peer that opens no socket and holds inbound
-connections at a relay under its key. Install the provider with
+A `keyed-relay` locator names a peer that opens no socket of its own. A relay
+server holds its inbound connections under the peer's key. Install the provider with
 `(relay-provider)`, or pass `(relay-connector)` when an application owns the
 byte-fed Host. Only the relay value the application selected interprets a
 `rendezvous-relay` hint. `runtime-connect` does not fall back to a WebSocket
@@ -58,9 +71,9 @@ certificate. They also take `#:options`, with the refusal rule under
 ## The driver loop
 
 Every `runtime-connect` and `listen` that uses a transport provider runs on
-glowcap's driver loop, which owns the socket and the pumping of every accepted
-session. The binding parks one green thread until the loop has work, then
-steps it. [Developing a binding](../DEVELOPING.md)
+glowcap's driver loop, one event loop in the C library that owns the sockets
+and moves bytes for every accepted session. The binding parks one green thread
+until the loop has work, then steps it. [Developing a binding](../DEVELOPING.md)
 explains the loop.
 
 - A bare `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, or routed relay dial creates
@@ -92,11 +105,11 @@ locator as text, and `server-port` returns the port the provider bound.
 
 ## Hosted behavior rules
 
-A hosted method runs on the pumping thread inside the current feed. It must not
-drive that same host again or block waiting for work that only another green
-thread can perform. Doing so can deadlock Racket CS while the callback is atomic. Return a value,
-`bcom`, or a forward. Hand longer work to another thread and settle it through
-an eventual send.
+A method you publish on a Host runs on the thread that steps the driver loop.
+It must not call back into that same Host or block waiting for work that only
+another green thread can perform, because that can deadlock Racket CS. Return a
+value, `bcom`, or a forward. Hand longer work to another thread and settle it
+through an eventual send (`<-`).
 
 For a deferred reply obtained with `host-defer-turn`, use `resolver-fulfill!`
 or `resolver-break!` once the worker completes. If the worker gives up, use
@@ -108,15 +121,19 @@ itself alive.
 
 ## Limits
 
-The actor API uses Goblins vocabulary (`spawn`, `$`, `<-`), but an existing
-Goblins program still needs glowcap's module names and Host wiring.
+An existing Goblins program needs glowcap's module names and Host wiring even
+though the actor API uses the same words (`spawn`, `$`, `<-`).
 
-An inner actor state change is not rolled back when an outer actor later fails.
-Local time travel is available only on the TCP and onion listeners through the
-listener's `#:time-travel?` policy. Dialing sessions, iroh, and the relay
-listeners do not expose it. `listen` and `listen-keyed-tcp` accept connections
-under the driver's limits. A wildcard bind requires `#:advertised-host`, the Host route
-partners dial.
+- An inner actor state change is not rolled back when an outer actor later
+  fails.
+- Local time travel rewinds actor state to an earlier snapshot. It is
+  available only on the TCP and onion listeners, through the listener's
+  `#:time-travel?` policy. Dialing sessions, iroh, and the relay listeners do
+  not expose it.
+- `listen` and `listen-keyed-tcp` accept connections under the driver loop's
+  limits.
+- A wildcard bind requires `#:advertised-host`, the name or address partners
+  dial.
 
 ## Checks
 
@@ -126,10 +143,10 @@ zig build racket-test
 zig build racket-goblins-interop
 ```
 
-[`zig-smoke.rkt`](zig-smoke.rkt) aggregates the independently loadable
-scenario families under `test/zig-smoke/`, which the package omits. Together
-they exercise handshakes, pipelining, result indexing, proxies,
-Cap'n Proto, garbage collection, and the TCP, in-process, and onion transports.
+[`zig-smoke.rkt`](zig-smoke.rkt) runs the test scenarios under
+`test/zig-smoke/`, which the package does not ship. Together they exercise
+handshakes, promise pipelining, result indexing, proxies, Cap'n Proto, garbage
+collection, and the TCP, in-process, and onion transports.
 Racket must be on `PATH`. The devcontainer includes it. The onion section needs
 no Tor: [`zig-smoke-fake-tor.rkt`](zig-smoke-fake-tor.rkt) answers the requests
 the transport sends, and it runs as a child process because a blocking foreign

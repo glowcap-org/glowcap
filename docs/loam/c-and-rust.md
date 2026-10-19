@@ -120,7 +120,10 @@ never `WOULD_BLOCK`.
      opening, so a first open creates the store and later opens reuse it.
 3. Register content behavior for each schema and version.
    - Each method declares how a retry behaves: `ReadOnly`, `Idempotent`, or
-     `Receipt`. It also lists the permission keys and content facts it needs,
+     `Receipt`. A `Receipt` method saves its first result under the caller's
+     sequence number, so a resent request gets the same answer
+     ([retrying mutations](access.md#retrying-mutations)). A method also lists
+     the permission keys and content facts it needs,
      and Zig checks them before the call runs. Receipt methods take the form
      `mutate(sequence, verb, args...)`.
    - `Content::invoke` returns a value that can be sent and may call
@@ -221,8 +224,9 @@ the caller still holds management and an unrevoked source, then returns the
 original pair instead of comparing the old revision as if the request were
 new. A resent edit likewise finds its receipt first, while a new edit that
 changes nothing still checks the expected revision. Application-specific
-management data and Rooms behavior are not part of this shared model. The
-[session guide](../rooms/session.md) describes how Rooms uses it.
+management data and behavior are not part of this shared model. Rooms, a chat
+application built on glowcap, keeps its own, and its
+[session guide](../rooms/session.md) describes how.
 
 Rust reads management replies through the borrowed views
 `ControlDescription`, `PolicyDescription`, `GrantDescription` and

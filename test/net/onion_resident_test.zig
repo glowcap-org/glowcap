@@ -349,6 +349,17 @@ test "onion listener returns Unix-socket removal failure" {
     defer threaded.deinit();
     const io = threaded.io();
 
+    // Unix socket paths are OS-bounded, regardless of checkout depth. Keep the
+    // private fixture under a short absolute parent rather than .zig-cache.
+    var random: [12]u8 = undefined;
+    io.random(&random);
+    var tmp_path_buf: [64]u8 = undefined;
+    const tmp_path = try std.fmt.bufPrint(&tmp_path_buf, "/tmp/glowcap-{x}", .{random});
+    try std.Io.Dir.createDirAbsolute(io, tmp_path, .fromMode(0o700));
+    defer std.Io.Dir.cwd().deleteTree(io, tmp_path) catch @panic("cannot remove onion test directory");
+    var socket_path_buf: [96]u8 = undefined;
+    const socket_path = try std.fmt.bufPrint(&socket_path_buf, "{s}/forward.sock", .{tmp_path});
+
     var ctrl_listener = try glowcap.net.tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer ctrl_listener.deinit();
     var ctrl_text: [64]u8 = undefined;
@@ -356,13 +367,9 @@ test "onion listener returns Unix-socket removal failure" {
     var observed: FakeControlResult = .{ .lines = .empty, .allocator = allocator };
     defer observed.deinit();
     var control_server = try io.concurrent(fakeControlServe, .{ io, &ctrl_listener, &observed });
+    // Cancellation is expected when setup or an assertion fails before await.
+    defer _ = control_server.cancel(io) catch {};
 
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-    const tmp_path = try std.Io.Dir.realPathFileAlloc(tmp.dir, io, ".", allocator);
-    defer allocator.free(tmp_path);
-    var socket_path_buf: [108]u8 = undefined;
-    const socket_path = try std.fmt.bufPrint(&socket_path_buf, "{s}/forward.sock", .{tmp_path});
     const listener = switch (onion.Listener.create(allocator, io, .{
         .socks = "127.0.0.1:1",
         .control_endpoint = ctrl,
@@ -376,9 +383,13 @@ test "onion listener returns Unix-socket removal failure" {
     // directory. Deleting a directory through deleteFileAbsolute must fail,
     // deterministically exercising the returned cleanup-only outcome without
     // leaking the real forward socket.
-    try std.Io.Dir.deleteFileAbsolute(io, listener.unix_path.?);
-    listener.unix_path = tmp_path;
-    const failure = listener.deinit() orelse return error.ExpectedCleanupFailure;
+    const cleanup = cleanup: {
+        errdefer _ = listener.deinit();
+        try std.Io.Dir.deleteFileAbsolute(io, listener.unix_path.?);
+        listener.unix_path = tmp_path;
+        break :cleanup listener.deinit();
+    };
+    const failure = cleanup orelse return error.ExpectedCleanupFailure;
     try std.testing.expect(failure.cause != error.FileNotFound);
     try std.testing.expectEqual(@as(u16, 0), failure.secondary_count);
     try control_server.await(io);

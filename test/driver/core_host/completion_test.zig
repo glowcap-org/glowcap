@@ -16,6 +16,36 @@ fn refuse(_: void, _: core.Value) !core.Value {
     return error.Refused;
 }
 
+test "Host projection rollback stops at its acquired prefix before an invalid suffix" {
+    var failing = std.testing.FailingAllocator.init(a, .{});
+    var host = test_host.init(failing.allocator(), @splat(0x5a), .{});
+    defer host.deinit();
+    const session = try h.publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7917", &.{});
+    const held = try host.spawn(session, h.Widget, .{});
+    defer host.releaseCapabilityTerminal(held, null);
+
+    var deep: [core.Value.max_depth + 2][1]core.Value = undefined;
+    deep[core.Value.max_depth + 1][0] = .{ .void = {} };
+    var depth: usize = core.Value.max_depth + 1;
+    while (depth != 0) {
+        depth -= 1;
+        deep[depth][0] = .{ .list = &deep[depth + 1] };
+    }
+    const invalid: core.Value = deep[0][0];
+    const fields = [_]core.Value{ .{ .capability = held }, .{ .capability = held }, invalid };
+    failing.fail_index = failing.alloc_index;
+    // Both an empty rollback and one holding repeated occurrences must return
+    // the original typed refusal. Neither cleanup may allocate or panic.
+    try std.testing.expectError(error.ValueTooDeep, host.projectOwnedValue(invalid, {}, identity));
+    try std.testing.expectError(error.ValueTooDeep, host.projectOwnedValue(.{ .list = &fields }, {}, identity));
+    const stale: core.Value = .{ .capability = host.capabilities.refFromRaw(0) };
+    const stale_fields = [_]core.Value{ fields[0], fields[1], stale, invalid };
+    try std.testing.expectError(error.UnknownCapability, host.projectOwnedValue(.{ .list = &stale_fields }, {}, identity));
+    try std.testing.expectEqual(@as(?u64, 1), host.capabilities.retainCount(held));
+    try std.testing.expect(!failing.has_induced_failure);
+    failing.fail_index = std.math.maxInt(usize);
+}
+
 const Nested = struct {
     fields: [2]model.Argument,
 

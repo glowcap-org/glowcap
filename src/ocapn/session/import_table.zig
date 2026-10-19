@@ -52,81 +52,6 @@ pub const ImportRow = struct {
     session_held: u64 = 0,
 };
 
-/// Wire-delta table (ADR-0008) keyed by CapTP position. Each position is
-/// installed live at count 1 with its `Row`. The owning table's release verb
-/// decrements by the wire delta and retires the row at zero. Underflow or an
-/// unknown position is a loud error, never a silent clamp.
-fn WireDeltaTable(comptime Row: type) type {
-    return struct {
-        rows: foundation.identity_hash.MapOf(.wire, u64, Row),
-
-        const Self = @This();
-
-        pub const Error = error{
-            /// A decrement drove a count below zero, or named a position the table
-            /// never held, surfaced loudly per ADR-0008 wire-delta accounting.
-            GcUnderflow,
-        };
-
-        /// Positions the peer chooses hash under `multiplier` (ADR-0223).
-        pub fn keyed(multiplier: u64) Self {
-            return .{ .rows = .keyed(multiplier) };
-        }
-
-        /// Key an empty table under the session's secret.
-        pub fn keyWire(self: *Self, multiplier: u64) void {
-            self.rows.keyWire(multiplier);
-        }
-
-        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            self.rows.deinit(allocator);
-        }
-
-        /// Number of live positions, the row count the resilience caps bound.
-        pub fn len(self: *const Self) usize {
-            return self.rows.count();
-        }
-
-        pub fn contains(self: *const Self, position: u64) bool {
-            return self.rows.contains(position);
-        }
-
-        /// Current refcount for `position`, or 0 if the position is not live.
-        pub fn count(self: *const Self, position: u64) u64 {
-            const row = self.rows.get(position) orelse return 0;
-            return row.count;
-        }
-
-        /// Retain one wire reference to `position`: insert `fresh`, or increment
-        /// an already-live row (everything but its count unchanged).
-        pub fn retain(self: *Self, allocator: std.mem.Allocator, position: u64, fresh: Row) !void {
-            const gop = try self.rows.getOrPut(allocator, position);
-            if (gop.found_existing) {
-                gop.value_ptr.count = std.math.add(u64, gop.value_ptr.count, 1) catch
-                    return error.GcUnderflow;
-            } else {
-                gop.value_ptr.* = fresh;
-            }
-        }
-
-        /// Retain after capacity and refcount overflow were checked separately.
-        pub fn retainAssumeCapacity(self: *Self, position: u64, fresh: Row) void {
-            if (self.rows.getPtr(position)) |row| {
-                std.debug.assert(row.count != std.math.maxInt(u64));
-                row.count += 1;
-                return;
-            }
-            self.rows.putAssumeCapacity(position, fresh);
-        }
-
-        /// Remove a row whose count reached zero.
-        fn retire(self: *Self, position: u64) void {
-            std.debug.assert(self.rows.get(position).?.count == 0);
-            std.debug.assert(self.rows.remove(position));
-        }
-    };
-}
-
 /// Import rows: wire-delta counts split by holder, plus optional identities.
 ///
 /// Unlike an export, an import position is partner-allocated, so an untrusted peer
@@ -136,7 +61,11 @@ fn WireDeltaTable(comptime Row: type) type {
 /// a refcount bump and never trips the cap, because it adds no row. There is no
 /// `register`: imports are only ever retained.
 pub const ImportTable = struct {
-    slots: WireDeltaTable(ImportRow),
+    /// Live rows keyed by the partner's position (ADR-0008). A row is
+    /// installed at count 1, a release decrements by the wire delta and
+    /// retires the row at zero, and underflow, overflow, or an unknown
+    /// position is a loud error, never a silent clamp.
+    rows: foundation.identity_hash.MapOf(.wire, u64, ImportRow),
     /// Optional identities attached to live import rows: the Node routing
     /// route id (ADR-0069) and the opaque Host capability id (ADR-0096). Both die
     /// with the import row, so partner reuse of one numeric position cannot
@@ -161,7 +90,14 @@ pub const ImportTable = struct {
     }
     pub const IdentityMap = foundation.identity_hash.MapOf(.wire, u64, Identity);
     pub const Id = model.ImportPosition;
-    pub const Error = WireDeltaTable(ImportRow).Error;
+    pub const Error = error{
+        /// A decrement drove a count below zero, or named a position the
+        /// table never held, surfaced loudly per ADR-0008 wire-delta
+        /// accounting.
+        GcUnderflow,
+        /// A retain would carry a count past what its `u64` holds.
+        GcOverflow,
+    };
     /// Adding a new import row can hit the partner-import cap. Everything else
     /// an import table does (decrement, lookup) shares the wire-delta errors.
     pub const RetainError = std.mem.Allocator.Error || Error || error{ImportCapExceeded};
@@ -169,17 +105,17 @@ pub const ImportTable = struct {
     /// An import position is the peer's export position, so the table hashes
     /// under the session's wire multiplier.
     pub fn keyed(wire_hash_multiplier: u64) ImportTable {
-        return .{ .slots = .keyed(wire_hash_multiplier) };
+        return .{ .rows = .keyed(wire_hash_multiplier) };
     }
 
     /// Key an empty table under the session's secret.
     pub fn keyWire(self: *ImportTable, wire_hash_multiplier: u64) void {
         std.debug.assert(self.identities == null);
-        self.slots.keyWire(wire_hash_multiplier);
+        self.rows.keyWire(wire_hash_multiplier);
     }
 
     pub fn deinit(self: *ImportTable, allocator: std.mem.Allocator) void {
-        self.slots.deinit(allocator);
+        self.rows.deinit(allocator);
         if (self.identities) |map| {
             map.deinit(allocator);
             allocator.destroy(map);
@@ -286,22 +222,24 @@ pub const ImportTable = struct {
         if (identity.node_route_id == 0) std.debug.assert(map.remove(position.int()));
     }
 
+    /// Number of live positions, the row count the resilience caps bound.
     pub fn len(self: *const ImportTable) usize {
-        return self.slots.len();
+        return self.rows.count();
     }
 
     pub fn contains(self: *const ImportTable, position: Id) bool {
-        return self.slots.contains(position.int());
+        return self.rows.contains(position.int());
     }
 
     /// Every wire retain on `position`, whoever holds it, or 0 if not live.
     pub fn count(self: *const ImportTable, position: Id) u64 {
-        return self.slots.count(position.int());
+        const row = self.rows.get(position.int()) orelse return 0;
+        return row.count;
     }
 
     /// How many of `position`'s retains the session keeps for its own release.
     pub fn sessionHeld(self: *const ImportTable, position: Id) u64 {
-        const row = self.slots.rows.get(position.int()) orelse return 0;
+        const row = self.rows.get(position.int()) orelse return 0;
         return row.session_held;
     }
 
@@ -309,20 +247,26 @@ pub const ImportTable = struct {
     /// the shared GC validator reads across both tables: the retains the
     /// session is not keeping for a release of its own.
     pub fn releasable(self: *const ImportTable, position: Id) u64 {
-        const row = self.slots.rows.get(position.int()) orelse return 0;
+        const row = self.rows.get(position.int()) orelse return 0;
         return row.count - row.session_held;
     }
 
     /// Retain one wire reference to a partner-introduced import. A *new* id is
     /// bounded by `max` (`SessionLimits.max_imports`). An already-held id only
-    /// increments its wire-delta refcount and is never refused, since a partner
-    /// may reference the same export repeatedly and our later `op:gc-exports`
-    /// must release the same total delta.
+    /// increments its wire-delta refcount, refused only at `GcOverflow`, since
+    /// a partner may reference the same export repeatedly and our later
+    /// `op:gc-exports` must release the same total delta.
     pub fn retain(self: *ImportTable, allocator: std.mem.Allocator, position: Id, max: usize) RetainError!void {
-        if (!self.slots.contains(position.int()) and self.slots.len() >= max) {
+        if (!self.rows.contains(position.int()) and self.rows.count() >= max) {
             return error.ImportCapExceeded;
         }
-        return self.slots.retain(allocator, position.int(), .{ .count = 1 });
+        const gop = try self.rows.getOrPut(allocator, position.int());
+        if (gop.found_existing) {
+            gop.value_ptr.count = std.math.add(u64, gop.value_ptr.count, 1) catch
+                return error.GcOverflow;
+        } else {
+            gop.value_ptr.* = .{ .count = 1 };
+        }
     }
 
     /// Reserve one retain without changing authority. A fresh partner-chosen
@@ -334,13 +278,12 @@ pub const ImportTable = struct {
         position: Id,
         max: usize,
     ) RetainError!void {
-        if (self.slots.contains(position.int())) {
-            if (self.slots.count(position.int()) == std.math.maxInt(u64))
-                return error.GcUnderflow;
+        if (self.rows.get(position.int())) |row| {
+            if (row.count == std.math.maxInt(u64)) return error.GcOverflow;
             return;
         }
-        if (self.slots.len() >= max) return error.ImportCapExceeded;
-        try self.slots.rows.ensureUnusedCapacity(allocator, 1);
+        if (self.rows.count() >= max) return error.ImportCapExceeded;
+        try self.rows.ensureUnusedCapacity(allocator, 1);
     }
 
     /// Reserve rows for a validated batch of distinct new imports. The
@@ -353,13 +296,18 @@ pub const ImportTable = struct {
         additional: usize,
     ) !void {
         const count32 = std.math.cast(u32, additional) orelse return error.OutOfMemory;
-        try self.slots.rows.ensureUnusedCapacity(allocator, count32);
+        try self.rows.ensureUnusedCapacity(allocator, count32);
     }
 
     /// Commit one retain after `prepareRetain` and before any intervening
     /// insertion into this table.
     pub fn retainAssumeCapacity(self: *ImportTable, position: Id) void {
-        self.slots.retainAssumeCapacity(position.int(), .{ .count = 1 });
+        if (self.rows.getPtr(position.int())) |row| {
+            std.debug.assert(row.count != std.math.maxInt(u64));
+            row.count += 1;
+            return;
+        }
+        self.rows.putAssumeCapacity(position.int(), .{ .count = 1 });
     }
 
     /// The live row behind the session's own adopts and releases. Presence is
@@ -370,7 +318,7 @@ pub const ImportTable = struct {
     /// `ImportTable.retain`. The session's release spends only what it
     /// adopted (`applySessionImportRelease`, `releaseSessionImportRetain`).
     fn liveRow(self: *ImportTable, position: Id) *ImportRow {
-        return self.slots.rows.getPtr(position.int()) orelse unreachable;
+        return self.rows.getPtr(position.int()) orelse unreachable;
     }
 
     /// Take one of `position`'s counted retains as the session's own: it will
@@ -387,7 +335,7 @@ pub const ImportTable = struct {
     /// `releasable`, or an unknown position with `delta > 0`, is
     /// `Error.GcUnderflow`.
     pub fn decrement(self: *ImportTable, position: Id, delta: u64) Error!void {
-        const row = self.slots.rows.getPtr(position.int()) orelse {
+        const row = self.rows.getPtr(position.int()) orelse {
             if (delta == 0) return;
             return error.GcUnderflow;
         };
@@ -406,8 +354,10 @@ pub const ImportTable = struct {
         if (row.count == 0) self.retire(position);
     }
 
+    /// Remove a row whose count reached zero, with any identity memo on it.
     fn retire(self: *ImportTable, position: Id) void {
-        self.slots.retire(position.int());
+        std.debug.assert(self.rows.get(position.int()).?.count == 0);
+        std.debug.assert(self.rows.remove(position.int()));
         // tolerant: only an identity-bearing import has a memo to drop.
         if (self.identities) |map| _ = map.remove(position.int());
     }
@@ -415,7 +365,7 @@ pub const ImportTable = struct {
     fn identityMap(self: *ImportTable, allocator: std.mem.Allocator) !*IdentityMap {
         return self.identities orelse map: {
             const fresh = try allocator.create(IdentityMap);
-            fresh.* = .keyed(self.slots.rows.multiplier);
+            fresh.* = .keyed(self.rows.multiplier);
             self.identities = fresh;
             break :map fresh;
         };

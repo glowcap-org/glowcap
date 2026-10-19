@@ -15,7 +15,8 @@ zig build examples
 
 For whole programs, see [`apps/`](../apps/README.md). It
 lists each application, often written in several languages, with the command
-that runs it. The biggest is Rooms, a chat app over encrypted iroh.
+that runs it. The biggest is Rooms, a chat app over [iroh](https://www.iroh.computer/),
+encrypted peer-to-peer QUIC.
 `zig build rooms-web` serves it and prints the address to open in your browser.
 
 ## Zig chapters
@@ -25,10 +26,10 @@ that runs it. The biggest is Rooms, a chat app over encrypted iroh.
 | [01: connect and serve](zig/01_connect_and_serve.zig) | Listen, publish a greeter, connect, fetch it by name, and call it through `driver.Session`. |
 | [02: introduce and redeem](zig/02_introduce_and_redeem.zig) | Let one peer introduce two others, then make the direct call without keeping the introducer in the path. |
 | [03: actor far send](zig/03_actor_far_send.zig) | Export an actor, send to it from another peer, and settle the promise it returns (Goblins calls it a vow). |
-| [04: look up by name](zig/04_look_up_by_name.zig) | See how `fetch("name")` uses the bootstrap object and a swiss number underneath. |
+| [04: look up by name](zig/04_look_up_by_name.zig) | See how `fetch("name")` works underneath: the peer's bootstrap object maps a secret swiss number to a published capability. |
 | [05: call a remote method](zig/05_call_a_remote_method.zig) | Drive the raw engine one step at a time: exports, imports, delivery, and how promises resolve. |
 | [06: pipeline and attenuate](zig/06_pipeline_and_attenuate.zig) | Send dependent calls before the first answer arrives, then restrict the returned capability to selected methods. |
-| [07: durable card](zig/07_durable_card.zig) | Keep a sleepy actor in Loam's SQLite store, restart everything, and find its state still there. |
+| [07: durable card](zig/07_durable_card.zig) | Keep an actor that sleeps between messages in a [Loam](../docs/loam.md) SQLite store, restart everything, and find its state still there. |
 
 The source of each chapter begins with a longer explanation of the scenario.
 Copy chapter 01 to start an application. Read chapter 05 if your program runs

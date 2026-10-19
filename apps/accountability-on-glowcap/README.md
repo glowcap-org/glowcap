@@ -31,7 +31,8 @@ roots under `.data/`, which is generated and gitignored.
 5. The run audits the records, then confirms that a tampered signature and a
    retired key are both refused.
 
-The identity scheme follows a small KERI-shaped model. Its self-certifying
+The identity scheme follows a small model shaped after KERI (Key Event Receipt
+Infrastructure, a design for self-certifying identifiers). Its self-certifying
 identifier is an AID, and the service being invoked is an Affordance. Both are
 part of this application, and glowcap carries only the call and its result.
 
@@ -48,8 +49,9 @@ re-derives the caller's AID, accepts a current-key request, and refuses both a
 bad signature (`UnattestedCaller`) and a retired key (`UnboundCaller`).
 
 The command needs Deno. Python is optional and is reported as skipped when
-PyNaCl is unavailable. `-Dport=9099` pins the port, but attach mode is not
-supported: each host serves one caller and exits.
+PyNaCl is unavailable. `-Dport=9099` pins the port. The `-Dattach=true` option, which runs the
+clients against an existing server, is not supported here: each host serves one
+caller and exits.
 
 ## Attribution after an introduction
 

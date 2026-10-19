@@ -30,6 +30,10 @@ pub const Error = error{
     /// wire-delta reference counting this is a loud protocol error, never a
     /// silent clamp.
     GcUnderflow,
+    /// A wire retain or a summed delta would carry a count past what its
+    /// `u64` holds. The same loud refusal as underflow, since the accounting
+    /// can no longer be exact.
+    GcOverflow,
     /// A message arrived (or was sent) in a state that does not admit it:
     /// `op:start-session` outside `negotiating`, or non-handshake traffic
     /// before the session reaches `open` (ADR-0006).

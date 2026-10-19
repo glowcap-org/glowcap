@@ -16,10 +16,10 @@ The code below is sketch notation. The
 ## How an application uses it
 
 An application opens a store with an identity, its schemas, an engine, and
-memory limits. It attaches the store to the Host it already runs when it needs
+memory limits. It attaches the store to the [Host](../architecture.md) it already runs when it needs
 callable objects, or uses records locally with no Host at all. Managed access
 registers its schemas and checked behaviors on that same store and Host. None
-of these steps creates another Vat or executor.
+of these steps creates another Vat (where the Host's actors run) or executor.
 
 ```text
 store = Loam.open(identity, schemas, engine, limits)
@@ -221,7 +221,7 @@ once.
 
 ## Storage work and failure
 
-The core asks for three kinds of work, each with bounded input and one owner
+The Store asks your storage worker for three kinds of work, each with bounded input and one owner
 for its completion: read, commit, and recover. In Zig, your worker runs the
 blocking engine calls on your own executor. In the browser, the worker runs
 each prepared batch inside one IndexedDB transaction and reports the result

@@ -21,14 +21,15 @@ zig build rooms-irc-bridge -- \
 ```
 
 The bridge will not start without `--irc-realname`, which names the bot and a
-Libera nick that answers for it. It follows Libera's `#ocapn` over TLS and
+nick on Libera.Chat, the IRC network it joins, that answers for it. It follows
+`#ocapn` there over TLS and
 offers it as a room
 called `libera/#ocapn` on your machine. The command prints the port and the
 room name, and any Rooms client can join. People on the IRC side appear as
 `irc/<nick>`, so you can always see where a line came from.
 
 The bridge only reads until a registered nick opts in to two-way mode with
-a SASL password. Two-way mode needs TLS, sends at a measured pace, and keeps
+a SASL password (the login IRC networks use for registered nicks). Two-way mode needs TLS, sends at a measured pace, and keeps
 only a short backlog across reconnects. A line that may or may not have
 reached IRC is refused rather than sent again, so nothing lands on the
 channel twice.

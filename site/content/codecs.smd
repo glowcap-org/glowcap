@@ -29,9 +29,10 @@ compact. The decoder can find a frame boundary and decode it in one forward
 pass. Random access is the tradeoff: reaching item *i* requires walking the
 records before it.
 
-Syrup is also glowcap's signing format. Session location signatures and
-three-party handoff certificates use canonical Syrup bytes even when two
-glowcap peers exchange their messages with Cap'n Proto.
+Syrup is also glowcap's signing format. The signature on a peer's announced
+location and the certificates that authorize a
+[three-party handoff]($link.page('protocol')) are made over canonical Syrup
+bytes, even when two glowcap peers exchange their messages with Cap'n Proto.
 
 # Cap'n Proto
 
@@ -41,7 +42,7 @@ small messages larger.
 
 It works only between two glowcap peers, since Goblins does not speak it. Codec
 and CapTP version are separate choices. glowcap's own profile pairs Cap'n
-Proto with `glowcap-next`, and Cap'n Proto can also carry CapTP 1.0 between
+Proto with `glowcap-next` (glowcap's own experimental CapTP version), and Cap'n Proto can also carry CapTP 1.0 between
 glowcap peers. Set
 `codec = .capnp` and the version you need in Zig `SessionOptions`, or use the
 matching Host or binding preference.

@@ -1,0 +1,46 @@
+# Coding-agent downloads have their own result so a vendor outage cannot
+# prevent the product and interoperability checks in check.yml from running.
+name: agent-tools
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - ".devcontainer/**"
+      - ".github/workflows/agent-tools.yml"
+      - "tools/run-with-timeout.py"
+  pull_request:
+    paths:
+      - ".devcontainer/**"
+      - ".github/workflows/agent-tools.yml"
+      - "tools/run-with-timeout.py"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Prepare the devcontainer's external networks
+        run: |
+          bash .devcontainer/bin/configure.sh
+          docker network create glowcap-rooms-net 2>/dev/null || true
+          docker network create glowcap-dev-main-egress 2>/dev/null || true
+
+      - name: Cold-install the pinned coding agents
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
+        with:
+          push: never
+          runCmd: python3 tools/run-with-timeout.py --kill-after 30s 20m bash .devcontainer/test/tool-install.sh claude codex cursor-agent opencode

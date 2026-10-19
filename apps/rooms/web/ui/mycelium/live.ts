@@ -51,13 +51,13 @@ import { GroundRenderer, type PlaneLook, type Sheet } from "./renderer.ts";
 import { RUN_SLOTS, WAVE_SLOTS } from "./shader.ts";
 
 /** First visit to a tab: how long the network takes to grow in, in ms. */
-const GROW_MS = 1700;
+const GROW_MS = 800;
 /** How long the growing front takes to cool once growth ends, in ms. */
-const COOL_MS = 1000;
+const COOL_MS = 500;
 /** How long the threads take to fade in when the page is an arrival, and
  * when it is one more page in a tab that has seen them. */
-const ARRIVE_MS = 2600;
-const RETURN_MS = 500;
+const ARRIVE_MS = 1200;
+const RETURN_MS = 300;
 /** One slow breath of the threads, in and out, in ms. */
 const BREATH_MS = 18000;
 /** How often a breath moves the threads' opacity. At its fastest a breath
@@ -81,11 +81,11 @@ const AMBIENT_MS = [2200, 6000] as const;
 const RUN_SHARE = 0.55;
 /** A run of light: the shortest thread it runs on, how much of the thread it
  * covers, and its speed in pixels per ms, all in CSS pixels. */
-const RUN = { shortest: 200, length: 900, speed: [0.22, 0.32] } as const;
+const RUN = { shortest: 200, length: 900, speed: [0.45, 0.65] } as const;
 /** A run surges as it goes, the way cytoplasm streams: its speed swings this
  * share above and below its own on a period of 2π × SURGE_MS. */
 const SURGE = 0.35;
-const SURGE_MS = 260;
+const SURGE_MS = 130;
 /** Ambient light starts outside this ellipse around the reading, as a share
  * of the half window, on threads at least this wide. */
 const OUTSKIRT = 0.55;
@@ -99,7 +99,7 @@ const RESIZE_QUIET = 220;
 /** How much of their light the threads keep while dimmed, and how long
  * they take to dim, in ms. */
 const DIM = 0.3;
-const DIM_MS = 1600;
+const DIM_MS = 800;
 
 /** The planes of threads, far to near. Each grows for a window `grown` times
  * the real one and is drawn shrunk to fit, so a far plane is finer and
@@ -298,7 +298,7 @@ export async function startMycelium(options: MyceliumOptions = {}): Promise<Myce
 				continue;
 			}
 			// A short swell at the start, so a wave arrives instead of popping on.
-			alight.push({ slot: wave.slot, edge, reach: wave.reach, strength: wave.peak * Math.min(1, elapsed / 90) });
+			alight.push({ slot: wave.slot, edge, reach: wave.reach, strength: wave.peak * Math.min(1, elapsed / 60) });
 			busy = true;
 		}
 		const running = [];

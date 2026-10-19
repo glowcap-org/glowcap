@@ -13,7 +13,8 @@ attach options are in the [app index](../README.md#how-the-cross-language-demos-
 
 ## Delegation
 
-The coordinator creates a tool object and returns a reference to it:
+The coordinator creates a tool object, either `clock` or `files` (an in-memory
+file store), and returns a reference to it:
 
 ```typescript
 if (verb === GRANT) return session.spawn(toolFor(name));

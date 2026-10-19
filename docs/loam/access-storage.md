@@ -99,9 +99,10 @@ field can hold a capability. Opaque bytes cannot tell managed access which
 references must survive or when they can be freed, so the content declares
 its capability fields in the same transaction as its payload changes.
 
-The sketch call `tx.store_ref(held_capability)` saves the local recipe for
-restoring the capability, or a remote sturdyref it already has, and returns a
-typed stored-reference value for that field. It never builds a reference from
+A `.save` entry in a method's declared references
+([preparing and editing fields](references.md#preparing-and-editing-fields))
+stores the local recipe for restoring a held capability, or a remote sturdyref
+the program already has. It never builds a reference from
 resource and grant IDs. Typed bindings use it instead of serializing run-time
 handle bytes. Loading the field rebuilds the reference under the field's
 declared rules for returning it, and copying it creates no grant.
@@ -163,7 +164,7 @@ transactions.
 | --- | --- |
 | Checking grants, scope, and status, preparing changes, and what recovery means for access | The managed access core, one Zig implementation for Zig and every binding. |
 | Keeping records in memory, storage leases, and counting bytes | Loam's core, shared with ordinary records and actor storage. |
-| Encoding records and connecting them to storage | `access/records` encodes owners, directories, resources, grants, and events with Syrup. `access/storage` connects views and writes to Loam, which owns general records and engine work. |
+| Encoding records and connecting them to storage | `access/records` encodes owners, directories, resources, grants, and events with [Syrup](https://github.com/ocapn/syrup). `access/storage` connects views and writes to Loam, which owns general records and engine work. |
 | Running LMDB | The optional LMDB engine, run on your program's executor for blocking work. |
 | Running the browser database | The optional Rust IndexedDB executor applies the shared storage batches. There is no separate browser grant checker. |
 | Calls, promises, holding references, and active durable names | The existing actors, Vat, Host, and their public APIs. |
@@ -177,11 +178,12 @@ SQLite. The portable `loam_access_records` and `loam_access_storage` modules
 exist beside the optional LMDB and SQLite engines, which block. The C archive
 keeps each engine's symbols separate.
 
-The [document worker](../../apps/rooms/rust/services/src/documents.rs) keeps
+Rooms shows both patterns. Its
+[document worker](../../apps/rooms/rust/services/src/documents.rs) keeps
 blocking work until it completes, even if its watcher cancels, and the
 [browser transaction owner](../../apps/rooms/rust/browser/src/storage/transaction.rs)
 keeps callbacks until the transaction's final event. Reuse those patterns,
-not their document and archive formats.
+not Rooms' document and archive formats.
 
 The Host is not a database executor, so your program supplies one. Workers
 receive fixed inputs and return completions, and never change a live owner
@@ -210,7 +212,7 @@ Owner, resource, grant, and bounded
 change-batch records are stored as ordinary Loam records. Sparse four-level directories
 map resource and grant slots to Loam object references. The owner header
 keeps the directory roots and saves the full policy. Strong edges between
-records let Loam's collection see what is still in use. The volatile, LMDB,
+records let Loam's [collection](collection.md) see what is still in use. The volatile, LMDB,
 and SQLite engines all run this layout.
 
 The directories add a bounded number of lookups above the engine's own index,
@@ -298,14 +300,14 @@ application.
 
 ### Browser IndexedDB
 
-Put every owner record and content store an operation touches in one
-IndexedDB database and one readwrite transaction. Separate localStorage
-checkpoints or archive transactions could commit half of the operation.
-Prepare inputs before the transaction, issue dependent requests inside active
-request callbacks (see the
-[transaction lifecycle](https://www.w3.org/TR/IndexedDB/#transaction-lifecycle)),
-and report a commit only on the completion event. Never hold a transaction
-open across a network wait or user interaction.
+- Put every owner record and content store an operation touches in one
+  IndexedDB database and one readwrite transaction. Separate localStorage
+  checkpoints or archive transactions could commit half of the operation.
+- Prepare inputs before the transaction.
+- Issue dependent requests inside active request callbacks (see the
+  [transaction lifecycle](https://www.w3.org/TR/IndexedDB/#transaction-lifecycle)).
+- Report a commit only on the completion event.
+- Never hold a transaction open across a network wait or user interaction.
 
 Ask for strict durability on writes that change access, and report what the
 engine promises. The browser can still evict storage, and a durability hint
@@ -415,14 +417,15 @@ language's future or promise, and the Zig API returns storage requests.
 | Long read or listing | Use bounded chunks or pages and check current permissions on each delivery. Release database snapshots between pages. A scoped cursor may report a conflict after the tree changes. |
 | Remote dependency | Use the existing send, forward, and deferred-answer operations. Never hold a local database transaction while waiting on the network, and never report a remote timeout as a successful revoke. |
 
-Local hosted calls use near calls and eventual sends. An operation with its
+Local hosted calls use near calls (direct and synchronous) and eventual sends
+(queued, answered by a promise). An operation with its
 records in memory may finish in its turn, and one that needs storage defers
 through the Host's answer mechanism. Direct Zig calls outside hosting use the
 same core and storage requests without connecting to anyone. Blocking helper
 APIs say so in their names and are forbidden on the Host's thread. No
 synchronous core lookup hides an I/O wait.
 
-Clients may pipeline CapTP promises. A promise for a capability resolves only
+Clients may pipeline CapTP promises, sending calls to one before it settles. A promise for a capability resolves only
 after its access is committed and applied, so a pipelined call can never use
 an uncommitted grant. Host and promise queue limits apply alongside managed
 access limits on pending calls. A bounded command that touches several
@@ -527,8 +530,9 @@ and the final commit make no general-purpose allocations in managed access.
 Loading from disk and issuing grants have allocation limits set by their
 tests.
 
-The numbers below are test inputs.
-`zig build bench-loam -- --scale-only` measures indexed reads from disk.
+The workload sizes below are test inputs.
+`zig build bench-loam -Doptimize=ReleaseFast -- --scale-only` measures
+indexed reads from disk.
 `zig build loam-browser-test` checks atomic browser storage, ownership,
 cancellation, sharing, and restoring after a page reload. The
 [roadmap](../roadmap.md#durable-applications) tracks the rest.

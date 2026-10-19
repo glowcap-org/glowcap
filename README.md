@@ -27,8 +27,8 @@ You link glowcap into your program and own its memory, and the Zig API names
 each place a frame is copied, allocated, or borrowed. The protocol
 core is synchronous and does no I/O, so sockets, scheduling, and encryption
 live in the transport adapters. Sessions speak
-[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/)
-and encode it in [Syrup](https://github.com/ocapn/syrup), OCapN's canonical
+[CapTP](https://web.archive.org/web/20250114141521/http://erights.org/elib/distrib/captp/),
+OCapN's session protocol, and encode it in [Syrup](https://github.com/ocapn/syrup), OCapN's canonical
 format.
 
 For an encrypted session, use [iroh](https://www.iroh.computer/), which is
@@ -129,11 +129,11 @@ The Rust, TypeScript, Python, and Racket bindings live in
 
 ## Conformance
 
-glowcap is tested against the upstream
-[OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and holds live
-sessions with [Spritely Goblins](https://spritely.institute/goblins/) over
-TCP on every push, and over iroh and Tor on demand. Both speak CapTP 1.0,
-encoded in Syrup:
+The checks for `main` and `dev` pushes include the upstream
+[OCapN test suite](https://github.com/ocapn/ocapn-test-suite) and live sessions
+with [Spritely Goblins](https://spritely.institute/goblins/) over TCP.
+Additional iroh and Tor checks run on demand. Check the successful run for the
+commit you intend to use. The baseline is CapTP 1.0 encoded in Syrup:
 
 ```sh
 zig build ocapn-conformance  # the upstream OCapN test suite, against a glowcap peer

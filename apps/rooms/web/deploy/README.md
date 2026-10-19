@@ -9,7 +9,7 @@ sources:
 
 # Deploy Rooms
 
-`glowcap apps rooms deployment` runs the web page, directory, and one shared session under Docker Compose. Docker keeps
+`glowcap apps rooms deployment` runs the web page, the directory (the server that lists and hosts rooms), and one shared session (a workspace several browsers can open) under Docker Compose. Docker keeps
 them running after the terminal closes and restarts them after a host reboot. The directory and session run the same
 product CLI as a host installation.
 
@@ -32,7 +32,8 @@ glowcap apps rooms deployment up --image ghcr.io/jimisaacs/glowcap-rooms:vVERSIO
 
 An installed executable defaults to `ghcr.io/jimisaacs/glowcap-rooms:vVERSION`, with the version from the installed
 CLI. The first `up` resolves the image to an immutable ID, writes the managed Compose file, creates the network, waits
-for service health, and prints the directory and shared-session capabilities. Open `http://127.0.0.1:8080`. The
+for service health, and prints the directory and shared-session capabilities. These are the secret `ocapn://` links that grant access
+([operator capabilities](../../operating.md#operator-capabilities)). Open `http://127.0.0.1:8080`. The
 [work admission guide](../../../../docs/rooms/admission.md#deployment) covers rate, capacity and HTTP source overrides
 for this deployment, and startup reports the effective profile.
 
@@ -55,7 +56,7 @@ discovery separately, so a loopback HTTP port does not restrict membership in th
 ### A relay behind a browser login
 
 When public ingress requires a login, such as Cloudflare Access, a shared-session server cannot use the browser's
-login cookie. Its DM dial follows the other browser's advertised `/relay` route and receives a login redirect.
+login cookie. When it connects for a direct message, it follows the other browser's advertised `/relay` route and receives a login redirect.
 Configure an alias when that public route reaches this deployment's directory relay:
 
 ```yaml
@@ -92,8 +93,8 @@ On a Linux contributor host, run:
 ./glowcap apps rooms deployment up
 ```
 
-Each checkout `up` prepares the current source, including uncommitted edits, with the `rooms-release` preset: the shared
-`rooms-build` graph with ReleaseSafe and baseline CPU settings, in the matching devcontainer when available. It then
+Each checkout `up` prepares the current source, including uncommitted edits, with the `rooms-release` build: the shared
+`rooms-build` step with ReleaseSafe and baseline CPU settings, in the matching devcontainer when available. It then
 builds an immutable image from the complete product.
 
 - Checkout `reset` uses the same preparation before asking for confirmation.
@@ -174,11 +175,13 @@ docker exec glowcap-rooms-directory /runtime/bin/glowcap apps rooms directory ca
 docker exec glowcap-rooms-session /runtime/bin/glowcap apps rooms session ready --file=/run/rooms-session/admin.sturdyref
 ```
 
-Deployment output prints two independent session capabilities. Paste the workspace capability into **Choose a
-session**, **Shared session**, and **Attach**, or under **Settings**, **Session**, and **Attach this browser**. To issue, pause,
-or revoke access, open **Session access** and hold the management capability. Neither capability appears in public HTML
-or an unauthenticated endpoint. Keep printed capabilities, logs,
-secrets, and state private.
+Deployment output prints two independent session capabilities, one for the workspace and one for managing access.
+
+- To attach a browser, paste the workspace capability into **Choose a session**, **Shared session**, and **Attach**, or
+  under **Settings**, **Session**, and **Attach this browser**.
+- To issue, pause, or revoke access, open **Session access** and hold the management capability.
+- Neither capability appears in public HTML or an unauthenticated endpoint. Keep printed capabilities, logs, secrets,
+  and state private.
 
 ## Data and reset
 
@@ -212,4 +215,4 @@ volume and restarting. Use `restart` to keep the existing identity and access li
 | `all`     | Both volumes                                                         |
 
 The [host guide](../../host.md) covers joining from skills and terminal peers. [Operating Rooms](../../operating.md)
-covers capabilities, transport choices, and relay admission, and `docker-compose.yml` lists the TURN and ICE settings. Put settings for this machine in `docker-compose.override.yml`.
+covers capabilities, transport choices, and relay admission, and `docker-compose.yml` lists the TURN and ICE settings.

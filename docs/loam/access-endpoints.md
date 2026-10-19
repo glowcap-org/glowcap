@@ -23,7 +23,7 @@ to the `hosting.Attachment` behavior table.
   the behavior descriptions unchanged until it succeeds.
 - The Service creates no Host, Vat, worker, or storage queue.
 
-### Creating and restoring endpoints
+## Creating and restoring endpoints
 
 Your program loads a current owner `Read`, including its
 `prepareIdentities(count)` paths, and then calls `stageEndpoint(read, ...)`
@@ -36,13 +36,14 @@ in a Store batch. Load the committed grant before opening that batch.
 - Deriving a share updates the endpoint's receipts and keeps its access and
   its content.
 
-After the commit, restore the endpoint from a checked lease.
+After the commit, restore the endpoint from a checked read lease
+([reads and leases](api.md#reads-and-leases)).
 `stagePublication(store, endpoint_lease, entropy)` gives it one durable name,
 which you also restore after the commit. Grants and endpoints join their
 owner's list, without keeping the owner alive, in the transaction that
 creates them.
 
-### Serving a use call
+## Serving a use call
 
 Before a call runs, Loam loads the grant, the content, and the current managed
 records. The content's schema picks one `ContentBehavior` for the call.
@@ -63,7 +64,7 @@ permissions the call needs and every committed fact it depends on.
 kind, object, and owner revision. A local dependent call describes its
 target, and a forwarded call describes only the source passing it on.
 
-One copy of this context survives storage waits and is rebuilt when a newer
+One copy of the behavior's `context` survives storage waits and is rebuilt when a newer
 commit makes the call prepare again
 ([ADR-0198](../decisions/adr/ADR-0198-trusted-content-callback-context.md)).
 Its bytes count against the call's memory, and a call over its limit is
@@ -88,7 +89,7 @@ defines dependent disclosure and field edits. The
 references, `ContentBehavior.references`, saves your program starts, rules for
 forwarded calls, and which receipt capabilities are unsupported.
 
-### Calls that change several resources
+## Calls that change several resources
 
 A tree application creates nodes, shares the ones a reader lists, and moves a
 node between two others. Each of these is one hosted call that commits one
@@ -127,7 +128,7 @@ The attachment commits the content before it sends the reply. Callbacks are
 trusted Zig code with no outside effects that gives the same result for the
 same input, and the API does not sandbox them.
 
-### Control endpoints
+## Control endpoints
 
 Control endpoints accept `pause`, `resume`, and `revoke` with no arguments.
 Each replies true when it committed a change and false when nothing changed.
@@ -151,14 +152,15 @@ An optional `decode_control` callback turns application methods into
   [receipt form](access.md#retrying-mutations) returns the first result after
   a lost reply.
 
-### Failure, recovery, and limits
+## Failure, recovery, and limits
 
 A call owns its preparation and leases. Any Store commit that lands first
 makes the call prepare again, even if it is already queued to run. Reads in
 flight complete before their buffers or state are freed. An unknown write
 keeps the store refusing work, and no affected call replies with success
-until recovery decides. A near call to a managed endpoint in memory returns
-`DurableTurnRequired`, so use eventual calls.
+until recovery decides. A near call (direct and synchronous) to a managed endpoint in memory returns
+`DurableTurnRequired`, so use an eventual send (queued, answered by a
+promise).
 
 Budget the endpoint and content leases on top of the managed operation's
 grant, header, model records, and one directory page read along the way.

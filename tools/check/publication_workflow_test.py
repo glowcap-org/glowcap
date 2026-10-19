@@ -234,6 +234,42 @@ print(os.environ['EVIDENCE_RESPONSE'])
                 self.assertIsNotNone(checkout)
                 self.assertRegex(checkout[1], r"(?m)^          persist-credentials: false$")
 
+    def test_agent_download_failure_does_not_block_product_checks(self):
+        workflow = (ROOT / ".github/workflows/agent-tools.yml").read_text()
+        command = re.search(r"(?m)^          runCmd: (.+)$", workflow)
+        self.assertIsNotNone(command)
+        self.assertIn("\npermissions:\n  contents: read\n", workflow)
+        self.assertNotIn("secrets.", workflow)
+        self.assertNotIn("pull_request_target:", workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertNotIn("needs:", workflow)
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            calls = directory / "calls.jsonl"
+            recorder = directory / "python3"
+            recorder.write_text(f"#!{sys.executable}\n" + textwrap.dedent("""\
+                import json, os, sys
+                command = sys.argv[5:]
+                with open(os.environ['GATE_CALLS'], 'a') as output:
+                    output.write(json.dumps(command) + '\\n')
+                sys.exit(37 if '.devcontainer/test/tool-install.sh' in command else 0)
+                """))
+            recorder.chmod(0o755)
+            environment = dict(os.environ, PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
+                               GATE_CALLS=str(calls))
+            environment.pop("GATES_SOURCE_ONLY", None)
+            agent = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", command[1]],
+                                   cwd=ROOT, env=environment, capture_output=True, text=True)
+            self.assertEqual(agent.returncode, 37, agent.stderr)
+            calls.unlink()
+            product = subprocess.run(["bash", "ci/gates.sh"], cwd=ROOT, env=environment,
+                                     capture_output=True, text=True)
+            self.assertEqual(product.returncode, 0, product.stderr)
+            invoked = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertFalse(any('.devcontainer/test/tool-install.sh' in call for call in invoked))
+            for step in ("check", "runtime-check", "goblins-interop", "ocapn-conformance-next"):
+                self.assertTrue(any(call[:2] == ["zig", "build"] and step in call for call in invoked), step)
+
     def test_protection_matches_premerge_checks(self):
         for branch in ("main", "dev"):
             policy = json.loads((ROOT / f".github/rulesets/{branch}.json").read_text())

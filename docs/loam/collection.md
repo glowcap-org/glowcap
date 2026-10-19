@@ -9,7 +9,8 @@ sources:
 # Collecting unreachable records
 
 Collection deletes the records no root reaches through strong edges, including
-cycles that only hold each other up. It runs as ordinary write batches that you
+cycles that only hold each other up. A root is a record marked to stay alive,
+and a strong edge is a reference field that keeps its target alive. It runs as ordinary write batches that you
 schedule, so it does not pause the program and its work list does not have to
 fit in memory. See the [Loam guide](../loam.md) for the rest of the store.
 

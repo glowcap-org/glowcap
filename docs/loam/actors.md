@@ -9,8 +9,9 @@ sources:
 
 # Sleepy actors and durable hosting
 
-A sleepy actor can drop its state from memory while its identity and the
-references to it keep working. An eventual call wakes it first. Ordinary
+A sleepy actor, also called a durable actor, can drop its state from memory
+while its identity and the references to it keep working. An eventual call
+(one queued to run later on the [Vat](../architecture.md)) wakes it first. Ordinary
 actors still work without a store. The [API page](api.md)
 covers store and attachment lifetimes.
 
@@ -146,7 +147,7 @@ takes back access that peers have already seen over the network. State kept
 by a snapshot is charged on its own and can keep memory in use even after the
 actor sleeps.
 
-## Limits and what the tests must show
+## Limits and test coverage
 
 Two policies decide what sleeps: a byte-limited least-recently-used policy
 over actors that may sleep, and a policy that puts every eligible actor to
@@ -158,7 +159,7 @@ nothing can sleep, new calls are refused and the limit holds. Counters for
 loads and sleeps, and the reason an actor cannot sleep, show where memory
 went.
 
-The tests must show:
+The tests cover these cases:
 
 1. The same near and far references keep working through repeated sleep and
    wake cycles, and saved references come back after a process restart.
@@ -179,7 +180,7 @@ The tests must show:
    Measure the cost on the fast path, wake latency, extra writes, pinned
    memory, cache churn, and shutdown with operations still pending.
 
-Run the same scenarios on the in-memory engine, on a disk engine with a
+The same scenarios run on the in-memory engine, on a disk engine with a
 process restart, and in the browser. Sleep and wake latency and memory limits
-need measurements, and one passing round trip through a reference is not
-enough.
+need their own measurements, because one passing round trip through a
+reference does not show them.

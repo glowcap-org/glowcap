@@ -71,9 +71,10 @@ browser site data.
 
 ## Operator capabilities
 
-Each flag below creates one capability. The server keeps its swiss number in
-the state directory and prints its complete URI as a `ROOMS-*` line at
-startup. A capability whose flag was not given does not exist.
+A capability is a reference that grants one power to whoever holds it. Each
+flag below creates one capability. The server keeps its swiss number (the
+secret part of its address) in the state directory and prints its complete
+`ocapn://` URI, a sturdyref, as a `ROOMS-*` line at startup. A capability whose flag was not given does not exist.
 
 `rooms-server --capabilities=<state-directory>` prints the saved capabilities
 again, given the server's advertised locator in `GLOWCAP_ROOMS_LOCATOR`. The
@@ -215,8 +216,8 @@ conversation, even while another one is selected.
 
 **The inbox and gaps.** The inbox holds at most
 <!-- value rust/services/src/session/control/inbox.rs MAX_ROWS -->4,096<!-- /value --> events within a
-<!-- value rust/services/src/session/control/inbox.rs MAX_BYTES bytes -->16 MiB<!-- /value --> log, and a bounded worker writes it to disk outside the Rooms event loop.
-Queue pressure, a full disk, or a failed write stops only this observer, and
+<!-- value rust/services/src/session/control/inbox.rs MAX_BYTES bytes -->16 MiB<!-- /value --> log, written to disk in the background.
+Queue pressure, a full disk, or a failed write stops only the inbox, and
 `status` reports `inbox.gap`. To recover, fix the cause, dismiss the events you
 have reviewed, then run
 `glowcap apps rooms session resume --dir <directory> --accept-gap`. That
@@ -311,7 +312,7 @@ other moderation power is a capability someone holds.
   room sees why they left. Kicking creates no ban, because anyone can take
   the same nickname later.
 
-Revoking rotates the durable generation. Every old sturdyref and every
+Revoking one of these capabilities replaces its secret. Every old sturdyref and every
 reference restored from one is refused at once, and the next issue creates an
 unrelated one.
 
@@ -389,7 +390,7 @@ To subscribe from another machine, pass the full capability to
 endpoint must be reachable there. The contributor command
 `zig build rooms-trace-tail -- '<trace-capability>'` reads the same feed.
 
-To watch: start the [ocapnviz](../ocapnviz/) viewer
+To watch, start the [ocapnviz](../ocapnviz/) protocol viewer
 (`zig build ocapnviz-dev`), switch it to **Live**, and paste that sturdyref
 into the Source field. Every session the room accepts, every message in
 either direction, and every close then appears on the stage. **Record**
@@ -454,7 +455,8 @@ Raise each limit only when its own resource runs short.
   cost of a guess does not follow how many of its leading bytes match a real
   token.
 - Identity and state files are created `0600` under `0700` directories.
-- Each caller's work is checked against an allowance before it runs.
+- Each caller's work is checked against an allowance before it runs
+  ([work admission](../../docs/rooms/admission.md)).
 - The browser UI has no `innerHTML`, no `dangerouslySetInnerHTML`, and no
   `eval`, and every external anchor carries `rel="noreferrer"`.
 

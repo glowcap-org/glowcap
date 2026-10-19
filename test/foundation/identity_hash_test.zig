@@ -83,7 +83,7 @@ test "a node keys each session's wire tables from its identity" {
     try std.testing.expect(a != foundation.identity_hash.default_multiplier);
     try std.testing.expect(a != b);
     try std.testing.expect(a & 1 == 1 and b & 1 == 1);
-    try std.testing.expectEqual(a, node.peer(first).?.session_state.imports.slots.rows.multiplier);
+    try std.testing.expectEqual(a, node.peer(first).?.session_state.imports.rows.multiplier);
 }
 
 test "a host's fresh salt keys a session apart from the node's handle-only multiplier" {
@@ -96,7 +96,7 @@ test "a host's fresh salt keys a session apart from the node's handle-only multi
     const salted = peer.session_state.wire_hash_multiplier;
     try std.testing.expect(salted != keyed_by_node);
     try std.testing.expect(salted & 1 == 1);
-    try std.testing.expectEqual(salted, peer.session_state.imports.slots.rows.multiplier);
+    try std.testing.expectEqual(salted, peer.session_state.imports.rows.multiplier);
     try std.testing.expectEqual(salted, foundation.identity_hash.saltedMultiplier(keyed_by_node, 0x1234_5678_9abc_def0));
     // Another salt over the same registration is another secret.
     try std.testing.expect(foundation.identity_hash.saltedMultiplier(keyed_by_node, 1) != salted);
