@@ -69,7 +69,7 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
                 try installInboundAnswerNamed(self, .fromWire(answer));
             }
             // A `far` argument is the partner introducing one of its exports
-            // as our import (ADR-0010); install every recorded mention so we
+            // as our import (ADR-0006); install every recorded mention so we
             // hold the import we were just handed (capability-passing + V1.0
             // resolver-callback fulfill payloads), each repeat a wire-delta
             // refresh. Validation already proved the import cap holds, so
@@ -157,7 +157,7 @@ fn relocateSubslice(owned: []u8, parent: []const u8, child: []const u8) ?[]const
 
 /// `resolver` is the resolver export an admitted deliver minted for its
 /// answer before this record (`engine.outbound.encoded.admit`), which the
-/// answer row installed here takes (ADR-0254). Null for every other send.
+/// answer row installed here takes (ADR-0038). Null for every other send.
 pub fn applySend(self: *Session, message: model.Message, inventory: session.Inventory, resolver: ?model.ExportPosition) !void {
     std.debug.assert(resolver == null or message == .deliver);
     // Answer-producing sends retain every near reference they publish. Acquire
@@ -186,7 +186,7 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
             }
         },
         // Sending `op:get` / `op:index` / `op:untag` allocates the projected
-        // answer on our side (ADR-0050): install it outbound so the partner's
+        // answer on our side (ADR-0004): install it outbound so the partner's
         // `op:resolve` for it validates as an answer we are owed.
         .get => |get| installPreparedOutboundAnswer(self, get.answer, null),
         .index => |index| installPreparedOutboundAnswer(self, index.answer, null),
@@ -206,7 +206,7 @@ pub fn applySend(self: *Session, message: model.Message, inventory: session.Inve
         .gc_answer => |gc_answer| try applyGcAnswerDecrementOutbound(self, gc_answer.positions),
         .start_session => |ss| {
             // Record our own key before the transition: an exporter derives the
-            // session name a handoff receive must carry from it (ADR-0009), and
+            // session name a handoff receive must carry from it (ADR-0039), and
             // both steps here are fallible, so the whole arm stays atomic by
             // doing the dupe first and flipping state last.
             const local_preference = try validate.parsePreferenceHints(ss.acceptable_location.hints);
@@ -386,7 +386,7 @@ pub fn applySessionImportRelease(self: *Session, gc_export: model.GcExport) void
 }
 
 /// After an outbound release, retire whatever named a position whose import
-/// row is gone. ADR-0009: a fully-released third-party import can never
+/// row is gone. ADR-0039: a fully-released third-party import can never
 /// receive a relayed resolution, so its imported-promise row (host, listeners,
 /// stored resolution) goes with the import.
 fn retireReleasedImports(self: *Session, positions: []const u64) void {
@@ -420,8 +420,8 @@ fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) !void {
 }
 
 /// Apply `op:gc-answers` to our outbound answers. A fully-released answer is no
-/// longer application-addressable, so its resolver-export link (ADR-0010,
-/// ADR-0095) is retired with the row. The tombstone keeps a callback already in flight from
+/// longer application-addressable, so its resolver-export link (ADR-0006,
+/// ADR-0003) is retired with the row. The tombstone keeps a callback already in flight from
 /// becoming an ordinary application deliver, and keeps the resolver export's
 /// local baseline until the partner releases its wire mention. Converged
 /// settling followers unlink or promote through answer back-links, so a client

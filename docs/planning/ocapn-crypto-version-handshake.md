@@ -35,7 +35,7 @@ The connection shape is unchanged: no compatibility probe, replacement
 connection, baseline retry, or added round trip. The Host recognizes one
 opening grammar, because a peer sends its hello before it knows the partner's
 profile
-([ADR-0103](../decisions/adr/ADR-0103-hello-carried-profile-offers.md)), so
+([ADR-0001](../decisions/adr/ADR-0001-codec-profiles-and-negotiation.md)), so
 this change cannot land in `glowcap-next` first. Older four-field source
 revisions are outside the post-cutover interoperability target.
 
@@ -48,7 +48,7 @@ withdrawal records that depend on the new crypto representation.
 An unchanged section can still depend on a changed representation.
 
 Deliver, deliver-only, listen, and projection removal are adopted on next
-under [ADR-0251](../decisions/adr/ADR-0251-next-operations-with-retained-crypto.md).
+under [ADR-0065](../decisions/adr/ADR-0065-next-profile-operations.md).
 `zig build ocapn-conformance-next` exercises them with the retained opening.
 Their adoption does not require this crypto transition.
 
@@ -213,7 +213,7 @@ The standard session and the glowcap session use the same five-field grammar,
 with no pre-hello selector. The onion knowledge rule continues to govern when
 profile hints may appear in a locator, and does not govern hello syntax.
 
-ADR-0103 remains the profile-negotiation decision. Amend its description of
+ADR-0001 remains the profile-negotiation decision. Amend its description of
 the shared baseline hello rather than superseding the negotiation design.
 
 This step is complete when a standard-only peer and a glowcap peer both
@@ -287,7 +287,7 @@ still selects each session independently.
 ## 8. Update decisions and public claims
 
 Amend the handshake decision to make the five-field record and crypto-suite
-ownership explicit. Update ADR-0103 only where it describes the common hello.
+ownership explicit. Update ADR-0001 only where it describes the common hello.
 Keep its signed-hint negotiation decision. Update the handoff decision for raw
 key and signature representation.
 

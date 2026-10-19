@@ -42,7 +42,7 @@ The `latency` and `throughput` modes run the same four verbs two ways:
 - `latency` runs them **sequentially**: each send is settled before the next is
   issued, so the figure is four serial round trips, the cost of a dependent
   chain when the consumer awaits each step.
-- `throughput` runs them **pipelined** (ADR-0007, the questioner half): `assign`,
+- `throughput` runs them **pipelined** (ADR-0003, the questioner half): `assign`,
   `complete`, and `status` are addressed at the *answer* `create` will resolve to
   so the whole unit costs one round trip. `assign` and `complete` are one-way.
   Only the final `status` allocates an answer and is settled. Each binding

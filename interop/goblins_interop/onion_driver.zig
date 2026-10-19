@@ -22,7 +22,7 @@
 //! The hinted-hello probe: glowcap dials the same vat once more with a hello
 //! whose signed location carries the `glowcap/*` profile hints, the exact
 //! bytes a glowcap peer handed the glowcap form of an onion address sends
-//! (ADR-0118). The pinned `captp.rkt` start-session arm is transport-blind
+//! (ADR-0042). The pinned `captp.rkt` start-session arm is transport-blind
 //! and stores any claimed node, so the vat must open the session, ignore the
 //! hints, settle the baseline, and answer the echo. This is the live
 //! observation behind the finding that only the Goblins *dial* arm refuses a
@@ -182,7 +182,7 @@ fn callEcho(
 ) !void {
     // No hints, and the ephemeral identity that goes with an address designator:
     // an onion service id says where to dial, never who answers, and the pinned
-    // Goblins refuses a hinted onion locator (ADR-0108).
+    // Goblins refuses a hinted onion locator (ADR-0042).
     const locator: model.PeerLocator = .{
         .transport = model.transport.onion,
         .designator = service_id,

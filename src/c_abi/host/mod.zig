@@ -1,4 +1,4 @@
-//! The byte-fed host tier's public C ABI, `libglowcap_host` (ADR-0072).
+//! The byte-fed host tier's public C ABI, `libglowcap_host` (ADR-0022).
 //!
 //! One `GlowcapHost` is the multi-session CapTP **host** for an embedder that
 //! owns its own loop, sockets, and entropy: it wraps `driver_core.Host`, so
@@ -28,7 +28,7 @@
 //! fetch/enliven, break_far_vows, transport_closed, release) are refused with
 //! `GLOWCAP_ERR_INVALID_ARGUMENT`.
 //!
-//! This is a *separate archive* from `libglowcap_ocapn` (ADR-0059): it imports
+//! This is a *separate archive* from `libglowcap_ocapn` (ADR-0022): it imports
 //! the shared vocabulary leaf (`c_abi_shared`: frame/argument types, codes,
 //! allocation, the per-thread last-error slot) plus the `driver_core` and
 //! `actors` layers it bridges, so it exports only the `glowcap_host_*` family
@@ -70,7 +70,7 @@ const driver_core = @import("driver_core");
 
 // The shared C-ABI vocabulary leaf (types, codes, allocation, the last-error
 // slot), not the ocapn root, so this archive pulls none of the ocapn family's
-// exports (ADR-0059 companion split).
+// exports (ADR-0022 companion split).
 const shared = @import("c_abi_shared");
 
 const host = @import("host.zig");
@@ -100,7 +100,7 @@ comptime {
     std.debug.assert(GLOWCAP_HOST_OUTBOUND_PREFIX_CAP >= foundation.stream_framing.prefix_buffer_bytes);
 }
 
-/// Zig-only seams for the sibling driver archive (ADR-0112). Nothing in this
+/// Zig-only seams for the sibling driver archive (ADR-0024). Nothing in this
 /// namespace exports a C symbol.
 pub const embedding = @import("embedding.zig");
 
@@ -387,7 +387,7 @@ pub const GlowcapHostPumpArmFn = *const fn (
     out_progressed: ?*u32,
 ) callconv(.c) i32;
 
-/// Opt-in embedder hooks for `glowcap_host_pump_drain` (ADR-0072 fifth
+/// Opt-in embedder hooks for `glowcap_host_pump_drain` (ADR-0022 fifth
 /// amendment). NULL arm pointers skip that kind (no error, no progress). The
 /// pull-queue remains normative. This struct is a convenience wrapper's
 /// callback surface, not a replacement for `glowcap_host_next_action`.
@@ -584,7 +584,7 @@ pub fn glowcap_host_archive_fingerprint() callconv(.c) u64 {
 }
 
 /// Zig-facing one-loop drain helpers over `glowcap_host_next_action`
-/// (ADR-0072 fifth amendment). Not a C export. The pull-queue stays
+/// (ADR-0022). Not a C export. The pull-queue stays
 /// normative. Bindings and tests thin onto this instead of hand-rolling
 /// the action switch.
 pub const embedder_pump = @import("embedder_pump.zig");

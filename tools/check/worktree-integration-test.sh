@@ -182,26 +182,26 @@ feature_tip=$(git -C "${tree}" rev-parse feature-work)
 # worktree is where the renumber happens.
 git -C "${repo}" switch -q dev
 mkdir -p "${repo}/docs/decisions/adr"
-printf 'rival\n' >"${repo}/docs/decisions/adr/ADR-0007-rival.md"
-git -C "${repo}" add docs/decisions/adr/ADR-0007-rival.md
+printf 'rival\n' >"${repo}/docs/decisions/adr/ADR-0003-rival.md"
+git -C "${repo}" add docs/decisions/adr/ADR-0003-rival.md
 git -C "${repo}" commit -qm rival-adr
 git -C "${repo}" switch -q main
 mkdir -p "${tree}/docs/decisions/adr"
-printf 'mine\n' >"${tree}/docs/decisions/adr/ADR-0007-mine.md"
-git -C "${tree}" add docs/decisions/adr/ADR-0007-mine.md
+printf 'mine\n' >"${tree}/docs/decisions/adr/ADR-0003-mine.md"
+git -C "${tree}" add docs/decisions/adr/ADR-0003-mine.md
 git -C "${tree}" commit -qm mine-adr
 before_dev=$(git -C "${tree}" rev-parse dev)
 if (cd "${tree}" && "${integrate}") >"${scratch}/duplicate.log" 2>&1; then
 	echo "worktree-integration-test: published a duplicate decision record id" >&2
 	exit 1
 fi
-grep -Fq 'decision record id taken twice on the rebased tree: ADR-0007' "${scratch}/duplicate.log"
+grep -Fq 'decision record id taken twice on the rebased tree: ADR-0003' "${scratch}/duplicate.log"
 [[ $(git -C "${tree}" rev-parse dev) == "${before_dev}" ]]
 (cd "${tree}" && "${integrate}" --sync >/dev/null)
-git -C "${tree}" mv docs/decisions/adr/ADR-0007-mine.md docs/decisions/adr/ADR-0008-mine.md
+git -C "${tree}" mv docs/decisions/adr/ADR-0003-mine.md docs/decisions/adr/ADR-0004-mine.md
 git -C "${tree}" commit -qm renumber-adr
 (cd "${tree}" && "${integrate}" -m "Add my decision record" >/dev/null)
-[[ $(git -C "${tree}" ls-tree --name-only dev docs/decisions/adr/ | sort | tr '\n' ' ') == 'docs/decisions/adr/ADR-0007-rival.md docs/decisions/adr/ADR-0008-mine.md ' ]]
+[[ $(git -C "${tree}" ls-tree --name-only dev docs/decisions/adr/ | sort | tr '\n' ' ') == 'docs/decisions/adr/ADR-0003-rival.md docs/decisions/adr/ADR-0004-mine.md ' ]]
 feature_tip=$(git -C "${tree}" rev-parse feature-work)
 
 # Dirty work is not integrated or hidden. The shared ref and current branch stay

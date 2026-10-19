@@ -1,4 +1,4 @@
-//! Stdio MCP front: curated tools from the CapTP registry (ADR-0084).
+//! Stdio MCP front: curated tools from the CapTP registry (ADR-0032).
 const std = @import("std");
 const build_options = @import("build_options");
 const Ctx = @import("../ctx.zig").Ctx;

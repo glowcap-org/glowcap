@@ -17,8 +17,8 @@ pub fn registerBootstrapCap(self: *Peer, swissnum: []const u8) !u64 {
     return (try self.session_state.registerBootstrapCap(swissnum)).int();
 }
 
-/// Publish and grant a local object at export position `id` (ADR-0074).
-/// The export table is a slab indexed by position (ADR-0254), so an explicit
+/// Publish and grant a local object at export position `id` (ADR-0027).
+/// The export table is a slab indexed by position (ADR-0038), so an explicit
 /// position costs one slot for every position up to it: choose small, dense
 /// names, and let `allocateExport` mint the rest.
 pub fn exportObject(self: *Peer, id: u64) !void {

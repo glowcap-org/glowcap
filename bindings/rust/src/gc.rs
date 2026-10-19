@@ -1,5 +1,5 @@
 //! Host reference, vow, and abandoned-reply retirement. Distributed reference
-//! GC (ADR-0063) is on by default and set per Host. Vow and deferred-reply
+//! GC (ADR-0025) is on by default and set per Host. Vow and deferred-reply
 //! cleanup are always active.
 //! Owns the
 //! [`CapabilityGuard`] death rite, recursive application-value tracking, and the

@@ -44,7 +44,7 @@ impl Default for Codec {
 	}
 }
 
-/// The CapTP profile a session speaks (ADR-0003). `V1_0` is the interop floor a
+/// The CapTP profile a session speaks (ADR-0001). `V1_0` is the interop floor a
 /// Goblins vat and the upstream suite speak. `Next` is the glowcap-to-glowcap
 /// track that `Offer::glowcap` prefers together with Cap'n Proto. A Host states
 /// its preference in signed locator hints. Each session settles the pair with

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Development launcher for the complete installation (ADR-0084).
+# Development launcher for the complete installation (ADR-0032).
 # Symlink-safe (the devcontainer links it onto PATH), so the repo root comes
 # from the resolved script path, and the fallback build runs there too. The
 # loop uses plain `readlink`; macOS does not provide GNU `readlink -f`.

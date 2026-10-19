@@ -1,4 +1,4 @@
-//! The C-ABI find/download contract (ADR-0077): the canonical
+//! The C-ABI find/download contract (ADR-0023): the canonical
 //! `c-abi-resolve.json`'s shape, the version pin against the generated
 //! header, the byte-identical package copies, the packaging documentation,
 //! the separation between tagged publication and consumer availability, and
@@ -223,8 +223,8 @@ pub fn checkCAbiResolve(
     if (std.mem.indexOf(u8, readme, "c-abi-resolve.json") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must name `c-abi-resolve.json`", .{});
     }
-    if (std.mem.indexOf(u8, readme, "ADR-0077") == null) {
-        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must cite ADR-0077", .{});
+    if (std.mem.indexOf(u8, readme, "ADR-0023") == null) {
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must cite ADR-0023", .{});
     }
     if (std.mem.indexOf(u8, readme, "GLOWCAP_STRICT") == null) {
         try appendViolation(gpa, violations, "bindings/PACKAGING.md: Finding the archives must document `GLOWCAP_STRICT`", .{});

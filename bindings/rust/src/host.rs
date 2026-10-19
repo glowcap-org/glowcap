@@ -1,7 +1,7 @@
 //! The CapTP [`Host`]: multi-session CapTP product over the byte-fed host archive
-//! (`libglowcap_host`, ADR-0072). It owns `engine.Node` (the sans-io handoff
+//! (`libglowcap_host`, ADR-0022). It owns `engine.Node` (the sans-io handoff
 //! router). Goblins' `mycapn` is two roles: product maps to Host, router tables map to
-//! `engine.Node`: never a single-type equation (ADR-0079). The `GlowcapHost`
+//! `engine.Node`: never a single-type equation (ADR-0011). The `GlowcapHost`
 //! owns every decision: the retained identity, session directory,
 //! routing, transparent three-party redemption, and the gifter half's
 //! origination. This package owns only what the embedder contract leaves to the
@@ -180,14 +180,14 @@ pub(crate) struct HostShared {
 	retirement_failure: RefCell<Option<Error>>,
 	/// The 32-byte Ed25519 identity seed this host was minted with: retained
 	/// so a keyed-tcp listener can derive its public designator without a
-	/// second identity (ADR-0075).
+	/// second identity (ADR-0028).
 	seed: [u8; 32],
 	// A Host allocated in a caller Context borrows that FFI policy. Rc makes
 	// the order structural, including teardown parked from a callback.
 	context: Option<Rc<ContextInner>>,
 	/// Stable identity in the retained Context's diagnostic namespace.
 	diagnostic_id: u64,
-	// The driver loop this Host was adopted over (ADR-0112), or `None` for a
+	// The driver loop this Host was adopted over (ADR-0024), or `None` for a
 	// byte-fed Host this binding pumps itself. On a loop-adopted Host the loop
 	// is the one action drain and the one release authority: kicks become loop
 	// steps, no `glowcap_host_pump_drain` runs here, and teardown routes
@@ -202,7 +202,7 @@ pub(crate) struct HostShared {
 
 impl HostShared {
 	/// Whether far capabilities this Host projects release their Host retain
-	/// when the last `Ref` clone drops: the Host archive's setting (ADR-0192),
+	/// when the last `Ref` clone drops: the Host archive's setting (ADR-0025),
 	/// sampled by the operation that exposes the value.
 	pub(crate) fn release_on_drop(&self) -> bool {
 		let mut enabled: u32 = 0;
@@ -230,7 +230,7 @@ impl HostShared {
 		)?;
 		// The durable identity followed by a session-key root drawn here, at
 		// this binding's entropy boundary, because the library draws none
-		// (ADR-0097). The root is fresh per process, so every CapTP session
+		// (ADR-0028). The root is fresh per process, so every CapTP session
 		// signs with its own key and a restart cannot recreate a prior
 		// session's handoff names; the durable half is the caller's
 		// seed, since a keyed locator's designator derives from it.
@@ -321,7 +321,7 @@ impl HostShared {
 		}))
 	}
 
-	/// Adopt the FFI Host a `DriverLoop` minted (ADR-0112): the wrapper
+	/// Adopt the FFI Host a `DriverLoop` minted (ADR-0024): the wrapper
 	/// every application verb, publish trampoline, and vow settle works on,
 	/// while the loop stays the one action drain and the one release
 	/// authority. `seed` is the identity half of the loop's 64-byte seed, so
@@ -531,7 +531,7 @@ impl HostShared {
 		})
 	}
 
-	/// Selective session-limit knobs (ADR-0124). Pass `0` to leave a field
+	/// Selective session-limit knobs (ADR-0008). Pass `0` to leave a field
 	/// unchanged. Affects peers minted after this call.
 	pub(crate) fn set_session_limits(&self, options: SessionLimitOptions) -> Result<()> {
 		self.guard_handle()?;

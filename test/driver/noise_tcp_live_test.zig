@@ -1,5 +1,5 @@
 //! The `noise-tcp` netlayer end to end over real 127.0.0.1 sockets
-//! (ADR-0107): a keyed `driver.listen` accepts
+//! (ADR-0041): a keyed `driver.listen` accepts
 //! a sealed session, a client dials the listener's key designator, the
 //! Noise_XK handshake completes inside the ordinary handshake pump, and both
 //! legs report `authenticated_transport` with no embedder testimony anywhere.

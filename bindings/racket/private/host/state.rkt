@@ -39,7 +39,7 @@
 ;; terminal state, so a repeated `host-close!` re-observes it (a finish grace
 ;; timeout included) instead of silently succeeding;
 ;; `released?` guards the handle against use after release; `driver-loop`
-;; boxes the driver loop this host is adopted over (ADR-0112), or #f for a
+;; boxes the driver loop this host is adopted over (ADR-0024), or #f for a
 ;; byte-fed host. When set, the action drain, session release, and host
 ;; release all route through the loop via the hooks below.
 (struct host ([ptr #:mutable] context diagnostic-id seed lock lock-owner sessions progress keep vows dial-workers redeem-reachability runtime-failure close-result released? codec captp-version features driver-loop connectors))
@@ -214,7 +214,7 @@
                       recorder-error))])
     (recorder)))
 
-;; ── The loop hooks (ADR-0112) ────────────────────────────────────────────────
+;; ── The loop hooks (ADR-0024) ────────────────────────────────────────────────
 ;; `loop/lifecycle.rkt` fills these at module load. A loop-adopted host exists only
 ;; after that module ran, so a set hook is guaranteed wherever `host-loop-of`
 ;; answers a loop. Hook boxes rather than requires, because the release path
@@ -382,7 +382,7 @@
   (and ptr
        (or (host-session-for-ptr m ptr)
            ;; A loop-owned host redeems handoffs inside its own steps
-           ;; (ADR-0112), so the exporter session it dialed exists with no
+           ;; (ADR-0024), so the exporter session it dialed exists with no
            ;; wrapper yet. Wrap it lazily (the wrap registers it, so a
            ;; repeat lookup answers this same object), and the loop stays
            ;; its release authority.

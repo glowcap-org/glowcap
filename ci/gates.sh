@@ -215,7 +215,7 @@ gate zig build ocapn-findings-check
 gate zig build ocapn-conformance-next
 gate zig build goblins-glowcap-pair-gift
 gate zig build iroh-interop
-# The provider seam (ADR-0112) in every FFI runtime: the C driver, the
+# The provider seam (ADR-0024) in every FFI runtime: the C driver, the
 # Python binding, and the Rust binding each install an iroh provider package
 # and dial a real endpoint through it. A binding that closes its endpoint
 # under the driver's lease, or holds an accepted session without serving it,
@@ -224,7 +224,7 @@ gate zig build iroh-interop
 gate zig build iroh-driver-provider
 gate zig build python-iroh-driver-provider
 gate zig build rust-iroh-driver-provider
-# The cross-runtime relay matrix (ADR-0086): one shared harness proves TCP
+# The cross-runtime relay matrix (ADR-0033): one shared harness proves TCP
 # forwarding and the non-optional backpressure clause against every runtime's
 # relay — the Deno reference relay, and the Python, Rust, and Racket relays. A
 # runtime is a row, never a fork, so no binding can silently lack a proof

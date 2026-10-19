@@ -1,5 +1,5 @@
 //! One foreign stream provider table on its own external completion resident
-//! (ADR-0193, ADR-0202). The table keeps the stream contract
+//! (ADR-0018). The table keeps the stream contract
 //! `stream_completion` checks. HostRuntime sees one multiplexed resident.
 
 const std = @import("std");

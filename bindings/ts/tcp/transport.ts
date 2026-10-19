@@ -1,5 +1,5 @@
 // Framed transport API for `libglowcap_net_transport_tcp`, beside
-// this package's dependency-free locator constructors in `mod.ts` (ADR-0059).
+// this package's dependency-free locator constructors in `mod.ts` (ADR-0022).
 //
 // The transport subpath opens only the TCP archive and builds on `@glowcap/runtime`'s
 // shared frame/context types. Applications normally use the package root to

@@ -5,7 +5,7 @@
 
    The iroh transport's public C ABI: a separate artifact
    (libglowcap_net_transport_iroh) that links the Rust iroh sidecar
-   (ADR-0055). It is a companion, not a superset: it exports only the
+   (ADR-0021). It is a companion, not a superset: it exports only the
    glowcap_iroh_* family and shares no core symbol with libglowcap_ocapn,
    so a consumer links BOTH archives and includes BOTH headers. The
    shared frame, peer, and context vocabulary lives in glowcap_ocapn.h
@@ -54,7 +54,7 @@ extern "C" {
    hints under "direct-addresses").
 
    Those same calls are the raw byte channel a byte-transparent relay
-   needs for an iroh leg (ADR-0086). One leg composes
+   needs for an iroh leg (ADR-0033). One leg composes
    glowcap_iroh_netlayer_new, its readiness_fd and drain_ready, the
    _start_connect / _finish_connect lifecycle, _conn_try_read /
    _conn_try_write, then _conn_release and
@@ -105,7 +105,7 @@ typedef struct GlowcapIrohConn GlowcapIrohConn;
    starting value so every consumer initializes from the same fact. */
 #define GLOWCAP_IROH_REACH_REDEEM_DEFAULT 1u
 
-/* Readiness event bits (ADR-0057). The netlayer's loop serves many
+/* Readiness event bits (ADR-0019). The netlayer's loop serves many
    connections from one host thread: park on the readiness fd from
    glowcap_iroh_netlayer_readiness_fd, and when it signals, drain records
    with glowcap_iroh_netlayer_drain_ready, claim accepts with

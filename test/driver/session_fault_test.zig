@@ -109,7 +109,7 @@ test "connect: a silent partner's handshake breaks with HandshakeTimedOut throug
     // while the peer stays silent through the whole handshake window. The
     // budget is `Host.pumpHandshake`'s deadline arithmetic, so a partner
     // that completes connect and then never speaks breaks the handshake, not
-    // the fiber (ADR-0081, contract 2).
+    // the fiber (ADR-0030, contract 2).
     var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
     var buf: [64]u8 = undefined;
@@ -140,7 +140,7 @@ test "connect: a silent partner's handshake breaks with HandshakeTimedOut throug
 }
 
 /// A raw TCP client that completes connect and then says nothing for longer
-/// than the accepter's handshake budget: the ADR-0081 slowloris, aimed at the
+/// than the accepter's handshake budget: the ADR-0030 slowloris, aimed at the
 /// accept path so its failure unwind runs under the testing allocator
 /// (the accept-side handshake failure once double-freed the wire buffers).
 fn silentRawDialer(io: std.Io, address: ip.IpAddress) anyerror!void {

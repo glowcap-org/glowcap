@@ -151,7 +151,7 @@ const registered = [_]Table{
     .{
         .file = "driver/core/host.zig",
         .name = "peer_by_durable",
-        .owner = "Durable peer identities a partner *proved* to this host (ADR-0097). Only an authenticated designator is indexed, so an unproved claim cannot occupy dial availability, and the bytes are the session's own arena-held designator. Deliberately not partner_by_side, which names a session incarnation by the key that signed it.",
+        .owner = "Durable peer identities a partner *proved* to this host (ADR-0028). Only an authenticated designator is indexed, so an unproved claim cannot occupy dial availability, and the bytes are the session's own arena-held designator. Deliberately not partner_by_side, which names a session incarnation by the key that signed it.",
         .epoch = "Written when the partner's handshake half arrives and never rewritten; the row clears on unindex, condemn, and release, and removal is identity-checked so a released session cannot evict a newer session's row for the same peer.",
     },
     .{
@@ -211,13 +211,13 @@ const registered = [_]Table{
     .{
         .file = "actors/vat/mod.zig",
         .name = "resolver_vows",
-        .owner = "Resolver ids minted by this vat's own monotonic counter (ADR-0102); the map is the vat's, so the vat is the owner dimension.",
+        .owner = "Resolver ids minted by this vat's own monotonic counter (ADR-0014); the map is the vat's, so the vat is the owner dimension.",
         .epoch = "Ids are never reused, and a row is consumed by the first settle attempt, so a resolver maps to a live authority or to nothing.",
     },
     .{
         .file = "driver/core/host.zig",
         .name = "resolver_index",
-        .owner = "Host resolver ids from the host's own monotonic counter (ADR-0102), distinct from the vow-id namespace beside it; per host.",
+        .owner = "Host resolver ids from the host's own monotonic counter (ADR-0014), distinct from the vow-id namespace beside it; per host.",
         .epoch = "Ids are never reused, and a row is consumed by the first settle attempt, so a resolver maps to a live authority or to nothing.",
     },
     .{

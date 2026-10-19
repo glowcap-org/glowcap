@@ -1,5 +1,5 @@
 // The accepting half of the web-peer proof: a keyed OCapN host (dlopen runtime,
-// FFI archives) that accepts connections, either WebSocket (default, ADR-0070)
+// FFI archives) that accepts connections, either WebSocket (default, ADR-0034)
 // or TCP (for relay tests). Each accepted socket is one byte
 // channel; the runtime's `Session.establishAccepted` drives the keyed handshake
 // over it, so the transport is a bearer, not a protocol translator.

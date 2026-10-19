@@ -352,7 +352,7 @@ test "raw send-argument routability distinguishes a route's home" {
     const elsewhere = try node.registerPeer(.{});
 
     // Raw/model Host verbs ask this one Node verdict because they have no
-    // application retain to transfer into delayed inline handoff (ADR-0116).
+    // application retain to transfer into delayed inline handoff (ADR-0039).
     try node.peer(elsewhere).?.session_state.registerImport(.from(8));
     const import = try node.enrollForeign(elsewhere, model.FarRef.object(8));
     // Foreign when sent from `here` (it lives on `elsewhere`)…

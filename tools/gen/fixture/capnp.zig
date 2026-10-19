@@ -17,7 +17,7 @@ const deposit_gift_args = [_]model.Argument{
     .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
 };
 
-/// A list of integers, which rides as a run of words (ADR-0243).
+/// A list of integers, which rides as a run of words (ADR-0010).
 const integer_samples = [_]model.Argument{ .{ .integer = 100 }, .{ .integer = -200 }, .{ .integer = 300 } };
 const integer_list_args = [_]model.Argument{ .{ .symbol = "report" }, .{ .list = &integer_samples } };
 

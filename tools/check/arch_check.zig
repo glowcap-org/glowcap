@@ -2,7 +2,7 @@
 //!
 //! The layer dependency DAG itself is enforced by the compiler: each `src/`
 //! layer is an internal build.zig module with an explicit one-way import table
-//! (`layer_table` in build.zig, ADR-0040, and ADR-0048 for the sibling-codec
+//! (`layer_table` in build.zig, ADR-0011, and ADR-0011 for the sibling-codec
 //! modules below the codec layer), so a cross-layer reach is a compile error,
 //! a layer cannot even name a file outside its module root. This gate receives
 //! that same table and walks `src/**/*.zig` to hold what the compiler alone
@@ -10,7 +10,7 @@
 //!
 //!   * every granted edge is alive, a layer whose files never `@import` a
 //!     granted module name fails the gate, so the table carries the edges the
-//!     code uses, never a wider silent allowance (ADR-0040),
+//!     code uses, never a wider silent allowance (ADR-0011),
 //!   * every layer-module import is declared, a claimed file that `@import`s
 //!     a layer name outside its row's granted edges fails, so an
 //!     injected-module seam (a module wired outside `graphFromTable`) cannot
@@ -21,7 +21,7 @@
 //!     loud instead,
 //!   * core layers (the sync, no-I/O core) carry no `std.Io`, sockets,
 //!     filesystem handles, threads, or schedulers, with the one sanctioned
-//!     GiftRegistry atomic (ADR-0009),
+//!     GiftRegistry atomic (ADR-0039),
 //!   * portable code names no platform syscall namespace (`std.os.linux` /
 //!     `std.os.windows`), only platform-gated backends may,
 //!   * no production module names `std.testing`, test vocabulary and the
@@ -37,7 +37,7 @@ const Step = Build.Step;
 /// One row of the layer DAG. The authoritative table is `layer_table` in
 /// build.zig: build graphs are generated from it and this gate verifies it.
 pub const LayerSpec = struct {
-    /// Module/import name: internal vocabulary (ADR-0040).
+    /// Module/import name: internal vocabulary (ADR-0011).
     name: []const u8,
     /// The `src/`-relative file set: a directory prefix ending in `/`, or an
     /// exact `.zig` path for a single-file module. The longest matching prefix
@@ -209,7 +209,7 @@ pub fn check(
         // concurrency primitives belong in adapters. One sanctioned exception:
         // `std.Thread.getCurrentId` in the byte-fed Host admission owner
         // asserts the single-owning-thread contract already in prose
-        // (ADR-0072): affinity
+        // (ADR-0022): affinity
         // only, never spawn, allowlisted by path so any other core atomic /
         // Thread still fails loud. (The engine's GiftRegistry carries no lock,
         // so no atomic is sanctioned there.)

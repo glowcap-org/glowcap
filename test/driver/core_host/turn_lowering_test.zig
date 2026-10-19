@@ -1,4 +1,4 @@
-//! A Host send a failed turn made leaves no projection behind (ADR-0194): the
+//! A Host send a failed turn made leaves no projection behind (ADR-0058): the
 //! Port retracts the send, and the Host rolls back the export projection the
 //! send's lowering minted. A successful turn keeps both.
 

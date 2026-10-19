@@ -1,5 +1,5 @@
 //! The application surface over the byte-fed host (`libglowcap_host`,
-//! ADR-0072): [`Session`] and its verbs (`fetch`/`send`/`tell`/`spawn`/
+//! ADR-0022): [`Session`] and its verbs (`fetch`/`send`/`tell`/`spawn`/
 //! `publish`/`enliven`/`serve`/`close`), plus mint/handshake (`establish_*`).
 //! The managed dial executor (provider selection + channel open + [`Runtime::connect`]) lives in
 //! [`crate::dial`]. [`Server`] / [`listen`] live in [`crate::listen`]. The
@@ -11,7 +11,7 @@
 //! drain the action queue, write what `take_packet` drains, feed-refusal /
 //! `last_abort`, EOF / `break_far_vows`, lives in [`crate::pump`]. This module
 //! keeps CapTP verbs and thin wrappers into that path. A loop-backed session
-//! (ADR-0112) carries the same verbs with no pump at all: the driver loop owns
+//! (ADR-0024) carries the same verbs with no pump at all: the driver loop owns
 //! its wire ([`crate::driver_loop`]). The host owns everything
 //! else: routing, redemption, gift origination, far vows.
 //!
@@ -49,7 +49,7 @@ pub use identity::{DurableProvenance, PartnerIdentity};
 /// than a slow success, and neither half of a connection is exempt. It bounds
 /// the handshake alone, never opening the channel: a TCP connect keeps the
 /// OS's own timeout, and an iroh dial-by-id keeps its discovery retry budget
-/// (ADR-0082), both of which finish before the handshake starts.
+/// (ADR-0030), both of which finish before the handshake starts.
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(crate::abi_constants::HANDSHAKE_TIMEOUT_MS as u64);
 
 /// A live CapTP session with one OCapN partner: the one object an application
@@ -135,7 +135,7 @@ impl Session {
 
 	/// Record the complete exporter locator the gifter embeds when *this*
 	/// session is the exporter side of a handoff
-	/// this host originates (ADR-0009). Needed when the partner's signed location
+	/// this host originates (ADR-0039). Needed when the partner's signed location
 	/// is not dialable on its own: an iroh partner signs only its node id, so a
 	/// gifter that learned the exporter's `direct-addresses` out of band sets the
 	/// full locator here. Unset, origination falls back to the partner's signed
@@ -252,7 +252,7 @@ impl Session {
 		self.shared.publish_actor(name, outcome_behavior(behavior))
 	}
 
-	/// Wrap `target` (local or far) in a revocable caretaker (ADR-0064). Returns a
+	/// Wrap `target` (local or far) in a revocable caretaker (ADR-0016). Returns a
 	/// [`Caretaker`] whose `proxy` is an ordinary capability you hand a partner.
 	/// Every call through it forwards to `target` until you
 	/// [`revoke`](Caretaker::revoke) it, after which each call breaks with
@@ -263,7 +263,7 @@ impl Session {
 		crate::trampoline::caretaker_proxy(&self.shared, target)
 	}
 
-	/// Wrap `target` (local or far) in an attenuator (ADR-0064): a proxy that
+	/// Wrap `target` (local or far) in an attenuator (ADR-0016): a proxy that
 	/// forwards only the calls whose verb is in `verbs` and breaks every other
 	/// with `Attenuated`. Returns the proxy capability to hand a partner. `target`
 	/// may be a wire-imported capability, so this narrows authority you hold.
@@ -274,7 +274,7 @@ impl Session {
 	/// Fetch a partner's published capability by `name`. Returns a `Ref` you can
 	/// `send` to. The canonical fetch lives in the library: one call registers
 	/// the bootstrap import, allocates the answer, and queues the deliver. The
-	/// host enrolls the fulfilled capability under a node-unique token (ADR-0069)
+	/// host enrolls the fulfilled capability under a node-unique token (ADR-0026)
 	/// before the completion is queued, so a return re-gifts the right home.
 	/// Rejects with the typed break when the partner refuses the fetch, and with
 	/// a broken error when it fulfills with something that is not a live
@@ -290,7 +290,7 @@ impl Session {
 		.await
 	}
 
-	/// Enliven a sturdyref against this session (ADR-0098): bring the durable
+	/// Enliven a sturdyref against this session (ADR-0007): bring the durable
 	/// `(peer, swissnum)` to life as a live [`Ref`]. The host verifies the complete
 	/// locator against this session before consulting its dedup cache: a repeat
 	/// enliven of the same swissnum on this session short-circuits with no wire
@@ -311,7 +311,7 @@ impl Session {
 	}
 
 	/// Listen on a far capability this session holds (CapTP `op:listen`,
-	/// ADR-0095): the returned handle settles with the listen notification,
+	/// ADR-0003): the returned handle settles with the listen notification,
 	/// which may be any value, not only a capability. In 1.0, the target may be
 	/// a far promise or live far object. In glowcap-next, the target must be a
 	/// promise. A re-gifted promise routes to its exporter session
@@ -332,7 +332,7 @@ impl Session {
 	/// typed `Err` on a partner break).
 	///
 	/// `target` is a capability `&Ref` *or* a `&RemotePromise` from an earlier
-	/// send: passing the latter pipelines (ADR-0007). The call is addressed at
+	/// send: passing the latter pipelines (ADR-0003). The call is addressed at
 	/// the answer that send will resolve, so a dependent chain costs one round
 	/// trip instead of one per link. `args` may contain capabilities via
 	/// `Into<Argument>`. A `Ref` this session spawned runs in process. A

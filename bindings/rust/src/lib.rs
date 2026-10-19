@@ -10,7 +10,7 @@
 //! `fetch`/`send`/`tell`/`spawn`/`publish`, one opaque [`Ref`] capability type,
 //! a Rust [`Argument`] enum, and `Result` for fallible calls. It rides the
 //! symbol-disjoint `libglowcap_host` and `libglowcap_driver` archives
-//! (ADR-0112). The Host archive owns `glowcap_host_*`. The driver exports only
+//! (ADR-0024). The Host archive owns `glowcap_host_*`. The driver exports only
 //! `glowcap_driver_*` and adopts a quiescent Host.
 //!
 //! Bounded `iroh`, `noise-tcp`, `keyed-tcp`, `tcp`, and routed relay dials and
@@ -20,13 +20,13 @@
 //! relay locator's configured WebSocket fallback. The [`Host`] owns
 //! `engine.Node` (router) and every CapTP decision. Goblins' `mycapn` is two
 //! roles: the product maps to the Host and the router tables map to
-//! `engine.Node` (ADR-0079). This crate moves bytes and honors the host's
+//! `engine.Node` (ADR-0011). This crate moves bytes and honors the host's
 //! action queue on the byte-fed path. It is also the consumer that
 //! `zig build rust-dogfood` runs to cover the ergonomic surface.
 //!
 //! # Composable modules, à la carte
 //!
-//! glowcap's C ABI ships as a set of symbol-disjoint archives (ADR-0059), and
+//! glowcap's C ABI ships as a set of symbol-disjoint archives (ADR-0022), and
 //! this crate mirrors that shape: the core value/locator vocabulary and the
 //! Host ABI is always available at the crate root, and each optional transport
 //! is a module behind a Cargo feature that links exactly its archive: you pay
@@ -109,7 +109,7 @@ mod action;
 mod promise;
 #[cfg(feature = "async")]
 pub use promise::{AsSendTarget, RemotePromise};
-// Distributed GC (ADR-0063) CapabilityGuard + drain.
+// Distributed GC (ADR-0025) CapabilityGuard + drain.
 #[cfg(feature = "async")]
 mod gc;
 // Transport-neutral dial composition over explicit providers/connectors.
@@ -150,14 +150,14 @@ pub use dial::ConnectOptions;
 #[cfg(feature = "async")]
 pub use runtime::{Runtime, RuntimeConfig};
 
-// Every glowcap archive keeps its own thread-local last-error slot (ADR-0059);
+// Every glowcap archive keeps its own thread-local last-error slot (ADR-0022);
 // this macro mints each family's checker/reader pair over its archive's extern
 // reader: the ocapn core here at the root, the host in `host`, and each
 // transport in its module. Unconditional: the core pair below is its first user.
 mod error_slot;
 
 // The blocking transports, each its own à-la-carte archive, linked only when
-// its feature is on (ADR-0059). They share the core value layout but never
+// its feature is on (ADR-0022). They share the core value layout but never
 // each other; the core stands alone without any of them.
 #[cfg(feature = "inproc")]
 pub mod inproc;
@@ -167,7 +167,7 @@ pub mod onion;
 pub mod relay;
 pub mod tcp;
 
-// The iroh transport (its own optional companion library, ADR-0055): the
+// The iroh transport (its own optional companion library, ADR-0021): the
 // encrypted-QUIC byte-stream bridge the `Session` pump carries a session over.
 #[cfg(all(feature = "async", not(target_arch = "wasm32")))]
 mod driver_event;

@@ -453,7 +453,7 @@ test "a relayed resolution carrying a sturdyref relays, because a sturdyref mean
 test "a guaranteed settlement carrying a routing route emits the wire import position, never the route" {
     // `Peer.settleAnswerTargetGuaranteed` is an outbound path that bypasses
     // `send`'s message chokepoint, so the answer spine lowers the resolution
-    // itself before storing it (ADR-0009/0069). A node-local routing route is
+    // itself before storing it (ADR-0039/0069). A node-local routing route is
     // meaningless to a partner and is not even a legal wire position: it sits
     // in the explicit routed arm and cannot be encoded, so what reaches the
     // wire has to be the real import position the route stands for. This

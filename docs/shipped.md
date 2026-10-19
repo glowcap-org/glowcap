@@ -22,7 +22,7 @@ Goblins-compatible hello and crypto representations. The
 [conformance manifest](ocapn-conformance.md) says which draft sections each
 profile has adopted, deferred, or left pending, and the recurring next
 conformance lane checks `next` beside the unchanged `1.0` suite
-([ADR-0251](decisions/adr/ADR-0251-next-operations-with-retained-crypto.md)).
+([ADR-0065](decisions/adr/ADR-0065-next-profile-operations.md)).
 
 ## Application APIs
 
@@ -69,8 +69,8 @@ listening, and events, over a Host it has adopted.
 - **Calls and promises.** Applications fetch a bootstrap capability, call it, send without waiting, and pipeline
   calls through an unresolved answer. The `1.0` profile also supports field, index, and tag projections over
   that answer. Next refuses those wire projection operations. Calls and listeners wait through chains of
-  local promises until their requested result is available ([ADR-0007](decisions/adr/ADR-0007-promise-pipelining-substrate.md)). A failed turn withdraws its sends,
-  including staged introductions ([ADR-0191](decisions/adr/ADR-0191-turn-sends-commit-with-the-turn.md)).
+  local promises until their requested result is available ([ADR-0003](decisions/adr/ADR-0003-promise-pipelining-and-listeners.md)). A failed turn withdraws its sends,
+  including staged introductions ([ADR-0058](decisions/adr/ADR-0058-transactional-turn-sends.md)).
   glowcap accepts OCapN 1.0 `op:untag` from any peer and sends it only to a partner that advertises the `untag`
   feature.
 - **Persistent references.** A sturdyref is a durable peer locator plus a swiss number. Enlivening one checks the
@@ -86,41 +86,41 @@ listening, and events, over a Host it has adopted.
 - **Three-party handoff.** A capability from one peer can be passed on to another, recursively. Outbound gives wait
   as one bounded transaction and keep their place in the recipient's queue. The Deno, Python, Rust, and Racket
   matrix proves nested gives against live Goblins, with Goblins in the gifter and exporter roles too
-  ([ADR-0100](decisions/adr/ADR-0100-session-owned-handoff-authority.md),
-  [ADR-0116](decisions/adr/ADR-0116-inline-passable-handoff.md)).
+  ([ADR-0039](decisions/adr/ADR-0039-session-owned-handoff.md),
+  [ADR-0039](decisions/adr/ADR-0039-session-owned-handoff.md)).
 - **Promise settlement across peers.** A shared promise's settled value reaches every recipient once, with nested
   objects becoming gives. Zig and the bindings can listen on a promise received from a peer
-  ([ADR-0095](decisions/adr/ADR-0095-listening-on-a-received-promise.md)).
+  ([ADR-0003](decisions/adr/ADR-0003-promise-pipelining-and-listeners.md)).
 - **Identity.** A session reports the identity its handshake established. Every application capability is one
   opaque Host-scoped identity, including a target reached both directly and through a handoff. Each binding
-  compares them with its own equality ([ADR-0096](decisions/adr/ADR-0096-host-scoped-capability-identity.md),
-  [ADR-0097](decisions/adr/ADR-0097-captp-session-identity-attestation.md)).
+  compares them with its own equality ([ADR-0026](decisions/adr/ADR-0026-host-scoped-capability-identity.md),
+  [ADR-0028](decisions/adr/ADR-0028-session-and-durable-peer-authentication.md)).
 - **Publication.** Publishing a name changes discovery only. Issued capabilities keep their actor until released
-  ([ADR-0101](decisions/adr/ADR-0101-actor-roots-and-reclamation.md)). Durable publication mints an unpredictable
+  ([ADR-0014](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)). Durable publication mints an unpredictable
   swiss number and returns the full sturdyref
-  ([ADR-0098](decisions/adr/ADR-0098-sturdyref-peer-authority.md),
-  [ADR-0177](decisions/adr/ADR-0177-owned-sturdyref-enlivenment.md)).
+  ([ADR-0007](decisions/adr/ADR-0007-sturdyrefs-and-publication.md),
+  [ADR-0007](decisions/adr/ADR-0007-sturdyrefs-and-publication.md)).
 - **Locators.** Zig, C, and the bindings parse and format `ocapn://` peer and sturdyref URIs. Host `fetchAt` takes a
   locator and a name, so the application never picks a CapTP version or codec.
 - **Resource limits.** Frames, session tables, retained answer bytes, nesting depth, and Cap'n Proto traversal are
   bounded. One partner's backpressure holds back only its own work
-  ([ADR-0145](decisions/adr/ADR-0145-node-actions-park-per-recipient.md)). Every binding sets these limits through
+  ([ADR-0017](decisions/adr/ADR-0017-outbound-pressure-and-fairness.md)). Every binding sets these limits through
   one versioned options value.
 - **Busy-poll.** A Zig `HostRuntime` given a busy-poll window spins and reaps
   its transports before it parks, so a reply that lands inside the window
   costs no wake
-  ([ADR-0215](decisions/adr/ADR-0215-a-runtime-may-spin-before-it-parks.md)).
+  ([ADR-0060](decisions/adr/ADR-0060-completion-submission-and-parking.md)).
 - **One wake per reply on io_uring.** When every transport on a
   `HostRuntime` has its own kernel queue, the idle thread waits inside the
   first one's queue, and that queue also watches the other wake sources. A
   reply then wakes the thread once instead of twice.
   A receive set up again during a call goes out with the next wait, so a call
   that only read its reply makes no system call as it returns
-  ([ADR-0220](decisions/adr/ADR-0220-a-receive-re-arm-waits-for-the-park.md)).
+  ([ADR-0060](decisions/adr/ADR-0060-completion-submission-and-parking.md)).
 - **Unreturned failures.** A failure with no caller left to receive it goes into a typed, bounded log on the
-  `GlowcapContext` ([ADR-0115](decisions/adr/ADR-0115-structured-diagnostic-waist.md)).
+  `GlowcapContext` ([ADR-0031](decisions/adr/ADR-0031-structured-diagnostics.md)).
 - **Close.** Every owner closes under an explicit policy: cancel now, or finish admitted work within a grace period
-  ([ADR-0114](decisions/adr/ADR-0114-pending-work-close-policy.md)). This works on the Zig Host, the C ABI, the
+  ([ADR-0030](decisions/adr/ADR-0030-failure-and-close-policy.md)). This works on the Zig Host, the C ABI, the
   driver loop, and all four bindings. Close reports the first failure, a bounded list of the rest, and their count.
   A second close waits on the first.
 
@@ -131,10 +131,10 @@ is not implemented ([protocol limitations](boundaries.md#protocol-and-interop)).
 Zig, C, and every binding accept a typed array of 64-bit integers as a list,
 with the same wire meaning as individual integer values. A received array
 arrives as a list. Capability-free far sends borrow their values through
-encoding ([ADR-0246](decisions/adr/ADR-0246-a-deliver-of-values-leaves-as-the-caller-lends-it.md),
-[ADR-0247](decisions/adr/ADR-0247-a-caller-lends-a-typed-integer-run.md)).
+encoding ([ADR-0064](decisions/adr/ADR-0064-borrowed-outbound-encoding.md),
+[ADR-0064](decisions/adr/ADR-0064-borrowed-outbound-encoding.md)).
 Served replies carrying no capability stay borrowed until the engine copies
-them for retention ([ADR-0249](decisions/adr/ADR-0249-served-replies-stay-views-until-retained.md)).
+them for retention ([ADR-0063](decisions/adr/ADR-0063-frame-owned-argument-views.md)).
 
 ## Codecs
 
@@ -144,7 +144,7 @@ them for retention ([ADR-0249](decisions/adr/ADR-0249-served-replies-stay-views-
 | Cap'n Proto | glowcap-to-glowcap, with checked golden frames. Goblins speaks Syrup. |
 
 The OCapN 1.0 profile uses Syrup. Two glowcap peers can offer Cap'n Proto or `"glowcap-next"` in their hellos and
-settle on it ([ADR-0103](decisions/adr/ADR-0103-hello-carried-profile-offers.md)). A peer that makes no offer gets
+settle on it ([ADR-0001](decisions/adr/ADR-0001-codec-profiles-and-negotiation.md)). A peer that makes no offer gets
 1.0 over Syrup, so Goblins traffic is unchanged. Every binding offers `glowcap` and `interop` Host profiles. The
 `rust-dogfood`, `deno-dogfood`, `python-dogfood`, and `racket-dogfood` checks run each binding over a live
 Cap'n Proto socket. Zig applications can register another codec.
@@ -155,7 +155,7 @@ Cap'n Proto socket. Zig applications can register another codec.
 | ------------- | --- |
 | `iroh`        | Encrypted QUIC with discovery, relays, and a node ID that also serves as the OCapN designator. |
 | `webrtc`      | An encrypted DataChannel reached through signaling, carrying a keyed OCapN session. The signaling service vouches for the peer's key. Every binding dials it with `webrtc.provider(signaling)` and listens with `webrtc.listen` (`listen-webrtc` in Racket). A browser dials with `connector` and listens with `listener` over its own peer connection. |
-| `noise-tcp`   | TCP sealed with Noise_XK between the two peers. Completing the handshake proves the dialed key ([ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)). |
+| `noise-tcp`   | TCP sealed with Noise_XK between the two peers. Completing the handshake proves the dialed key ([ADR-0041](decisions/adr/ADR-0041-sealed-byte-channels.md)). |
 | `noise-relay` | A relay pipe sealed the same way. The relay only forwards ciphertext. Browsers and every binding that loads the C library can listen and dial. |
 | `onion`       | The standard OCapN Tor netlayer. Tor proves the service to the dialer but reveals no caller identity to the listener. |
 | `keyed-tcp`   | TCP with a key designator as the dial target. Cleartext and unauthenticated. |
@@ -221,7 +221,7 @@ return vows, hosted objects, forwarding, attenuation, and revocation. Optional s
 and never rewind a network session.
 
 A Host owns one Vat and gives each session its own queue budget
-([ADR-0099](decisions/adr/ADR-0099-shared-vat-scheduling.md)). A failed turn rolls back before failure listeners
+([ADR-0014](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)). A failed turn rolls back before failure listeners
 run, and its sends are never published.
 
 Every language binding hosts objects the same way. A browser peer can answer over the connection a call arrived on,
@@ -238,7 +238,7 @@ so a peer with no listening socket can still reply and take part in a handoff.
   Directories peer, IRC works in both directions, and operator capabilities can be revoked.
   [What Rooms ships](../apps/rooms/shipped.md) has the details.
 - ocapnviz opens a read-only trace sturdyref as a browser peer and shows replay and live events
-  ([ADR-0120](decisions/adr/ADR-0120-trace-endpoint-capability-admission.md)).
+  ([ADR-0040](decisions/adr/ADR-0040-trace-observation-authority.md)).
 - The accountability example adds signed identity and an audit log above ordinary capabilities without changing
   CapTP.
 

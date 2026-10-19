@@ -1,4 +1,4 @@
-//! ADR-0107's sealed byte channel on the byte-fed host core, with no socket
+//! ADR-0041's sealed byte channel on the byte-fed host core, with no socket
 //! anywhere: sealed sessions are wired by moving the wire bytes
 //! `HostSession.takeOutbound` drains into the partner's `Host.feedBytes`
 //! verbatim, so the tests stand exactly where a byte-owning embedder stands.

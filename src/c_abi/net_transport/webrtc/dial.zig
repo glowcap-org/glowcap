@@ -1,5 +1,5 @@
 //! The managed WebRTC dial: one signaling exchange the provider runs on the
-//! driver's behalf (ADR-0226).
+//! driver's behalf (ADR-0035).
 //!
 //! `start_connect` creates the offerer, authorizes the dialed key, and hands
 //! the offer to the application's `send_offer`. The application brings the
@@ -53,7 +53,7 @@ pub fn startConnect(
     const designator_ptr = view.designator orelse return failProvider(out_failure, GLOWCAP_ERR_NULL_POINTER, error.NullPointer);
     const designator = designator_ptr[0..view.designator_len];
     // The dialed designator is the key this channel is authorized to carry
-    // (ADR-0105), so a locator that names no key dials nothing.
+    // (ADR-0028), so a locator that names no key dials nothing.
     const key = crypto.PeerKey.fromDesignator(designator) orelse
         return failProvider(out_failure, GLOWCAP_ERR_INVALID_ARGUMENT, error.InvalidAddress);
     // The high bit marks the ids this netlayer mints for accepts, so one

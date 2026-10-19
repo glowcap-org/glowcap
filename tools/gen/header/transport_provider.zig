@@ -33,7 +33,7 @@ const Spec = struct {
         .{ .name = "GLOWCAP_DESIGNATOR_SCHEME_KEY", .doc = "GlowcapTransportProfile.designator_scheme: designators are peer keys." },
         .{ .name = "GLOWCAP_SEALED_CHANNEL_NONE", .doc = "GlowcapTransportProfile.sealed_channel: no Host-provided sealing." },
         .{ .name = "GLOWCAP_SEALED_CHANNEL_NOISE_XK", .doc = "GlowcapTransportProfile.sealed_channel: Host composes Noise_XK." },
-        .{ .name = "GLOWCAP_WIRE_FRAMING_BYTE_STREAM", .doc = "GlowcapTransportProfile.wire_framing: packets are byte-stream chunks with ADR-0110 envelopes." },
+        .{ .name = "GLOWCAP_WIRE_FRAMING_BYTE_STREAM", .doc = "GlowcapTransportProfile.wire_framing: packets are byte-stream chunks with ADR-0012 envelopes." },
         .{ .name = "GLOWCAP_WIRE_FRAMING_MESSAGE", .doc = "GlowcapTransportProfile.wire_framing: each packet is one bare codec frame." },
         .{ .name = "GLOWCAP_CARRIER_PHASE_NONE", .doc = "GlowcapProviderFailure.carrier_phase: no carrier phase is available." },
         .{ .name = "GLOWCAP_CARRIER_PHASE_RESOLVE", .doc = "Carrier failure occurred during name resolution." },

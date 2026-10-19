@@ -280,7 +280,7 @@ pub fn register(ctx: Context) Registered {
     //     the reply's own route, so a re-redeem to an already-dialed exporter
     //     resolves the same live session even though it runs no new dial,
     //     the case a capture-window heuristic would surface as null
-    //     (ADR-0088).
+    //     (ADR-0034).
     const dm_demos = [_]DmDemo{
         .{ .step_name = "demo-rooms-dm", .description = "Rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)", .source = "apps/rooms/demos/dm_demo.ts" },
         .{ .step_name = "demo-rooms-dm-reply", .description = "A Host publication replies to its caller over the arriving connection via currentSession(), so a non-listening peer receives the reply (needs deno)", .source = "apps/rooms/demos/dm_reply_demo.ts" },
@@ -423,28 +423,28 @@ pub fn register(ctx: Context) Registered {
     //     a room introduction and dial the member's iroh endpoint through the
     //     relay, delivering off-room.
     //   rooms-web-dm-tabs: two browser tabs cold-dial each other by relay
-    //     rendezvous (ADR-0088 capability 5): each registers its durable
+    //     rendezvous (ADR-0034 capability 5): each registers its durable
     //     identity and advertises a `noise-relay` locator, one redeems the
     //     room's introduction by cold-dialing the other tab-to-tab off-room,
     //     the sealed session opens end to end, and the reply rides back over
     //     the arriving connection. Browser-to-browser on a shared relay, not
     //     a general stranger cold-dial.
     //   rooms-web-dm-trace: the DM conversation appears on the live timeline
-    //     (ADR-0104). The room server serves the endpoint; each tab publishes
+    //     (ADR-0040). The room server serves the endpoint; each tab publishes
     //     its OWN trace to it, because the DM is a session the room does not
     //     carry and must not start carrying.
     //   rooms-web-trace-lifecycle: the whole picture over a member's life in a
     //     room, counted after every step through ocapnviz's OWN converter:
     //     joins, a DM, leaving, closing, reopening, going away.
     //   rooms-web-dm-deno: a Deno peer cold-dials a browser member by
-    //     relay rendezvous (ADR-0088, the Deno-dialer row): the tab
+    //     relay rendezvous (ADR-0034, the Deno-dialer row): the tab
     //     registers its Noise-sealed relay identity, the Deno Host redeems the room's
     //     introduction and bridges onto the held socket through the relay
     //     provider it composes for rendezvous dials.
     //   rooms-web-dm-noise: two browser tabs use that same sealed rendezvous
     //     in both directions, pinning the managed browser connector as dialer.
     //   rooms-web-dm-webrtc: the live webrtc handoff-redeem proof
-    //     (ADR-0089): the give's exporter locator names a bare webrtc
+    //     (ADR-0035): the give's exporter locator names a bare webrtc
     //     designator, the redeeming host signals through the room directory
     //     by its composed webrtc connector, and the DM crosses the
     //     DataChannel with the room out of the byte path. The live timeline
@@ -482,11 +482,11 @@ pub fn register(ctx: Context) Registered {
         .{ .step_name = "rooms-web-reconnect", .description = "Prove the rooms page survives losing its iroh room server: it refreshes changed routing hints without changing authority, then re-enters a listed room by name and a private room by its retained link (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/reconnect_proof.ts", .wrapper_deadline_seconds = 210, .needs_iroh = true },
         .{ .step_name = "rooms-web-dm", .description = "Prove the rooms page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_proof.ts", .wrapper_deadline_seconds = 150, .needs_iroh = true },
         .{ .step_name = "rooms-web-dm-tabs", .description = "Prove two browser tabs direct-message each other over the default WebRTC path, including closing and reopening the introduced line (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_tabs_proof.ts", .wrapper_deadline_seconds = 210 },
-        .{ .step_name = "rooms-web-dm-trace", .description = "Prove a browser-to-browser direct message reaches the live timeline endpoint (ADR-0104): each tab publishes its own trace, the endpoint scopes both producers' session ids apart and carries both ends of the wire, and the room stays off the DM's path (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_trace_proof.ts", .wrapper_deadline_seconds = 180 },
+        .{ .step_name = "rooms-web-dm-trace", .description = "Prove a browser-to-browser direct message reaches the live timeline endpoint (ADR-0040): each tab publishes its own trace, the endpoint scopes both producers' session ids apart and carries both ends of the wire, and the room stays off the DM's path (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_trace_proof.ts", .wrapper_deadline_seconds = 180 },
         .{ .step_name = "rooms-web-trace-lifecycle", .description = "Prove the live timeline draws a member's whole life in a room, counted through ocapnviz's own converter: two tabs in a room are three peers and two sessions, a direct message adds a session between the members with the room off its path, leaving the room keeps the session and drops the nickname, closing the direct message closes its session from either end, and a tab going away takes its peer and both its sessions (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/trace_lifecycle_proof.ts", .wrapper_deadline_seconds = 330 },
-        .{ .step_name = "rooms-web-dm-deno", .description = "Prove a Deno peer on the C library cold-dials a browser member by sealed relay rendezvous (ADR-0088). The tab advertises noise-relay, the Deno peer's Host redeems through its relay provider, the encrypted session opens Deno-to-tab off-room, and the reply rides back over the arriving connection (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_deno_dial_proof.ts", .wrapper_deadline_seconds = 150 },
+        .{ .step_name = "rooms-web-dm-deno", .description = "Prove a Deno peer on the C library cold-dials a browser member by sealed relay rendezvous (ADR-0034). The tab advertises noise-relay, the Deno peer's Host redeems through its relay provider, the encrypted session opens Deno-to-tab off-room, and the reply rides back over the arriving connection (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_deno_dial_proof.ts", .wrapper_deadline_seconds = 150 },
         .{ .step_name = "rooms-web-dm-noise", .description = "Prove two browser members direct-message through the room relay over an end-to-end Noise-sealed session: one managed browser connector cold-dials the other's rendezvous and the reply rides back off-room (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_noise_relay_proof.ts", .wrapper_deadline_seconds = 150 },
-        .{ .step_name = "rooms-web-dm-webrtc", .description = "Prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0089): the room directory carries only signaling, the live timeline must name webrtc rather than keyed-relay, and the reply rides back over the arriving connection (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_webrtc_proof.ts", .wrapper_deadline_seconds = 58 },
+        .{ .step_name = "rooms-web-dm-webrtc", .description = "Prove two browser members direct-message over a WebRTC DataChannel by redeeming a webrtc handoff give (ADR-0035): the room directory carries only signaling, the live timeline must name webrtc rather than keyed-relay, and the reply rides back over the arriving connection (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_webrtc_proof.ts", .wrapper_deadline_seconds = 58 },
         .{ .step_name = "rooms-web-dm-session-webrtc", .description = "Prove the Rooms session process and browser members direct-message over WebRTC DataChannels in both directions: the process runs with --dial-transports=webrtc and no relay, dials one member through the room that introduced it, and answers a second member's offer that the room delivers to its answering inbox. The live timeline names a new webrtc session for each and no keyed-relay one (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/dm_session_webrtc_proof.ts", .wrapper_deadline_seconds = 150, .needs_session = true },
         .{ .step_name = "rooms-web-routes", .description = "Prove the rooms page's address is a shareable place to stand: a cold /room/<name> link arrives named, opening writes its address, back and forward walk it with the view, following an address never moves the sidebar, a private room's key stays out of it, the join card standing in for a link reflects what that link gates rather than what was used last, an empty nickname uses its displayed directory grant, and an unanswered address folds back to the front (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/routes_proof.ts", .wrapper_deadline_seconds = 210 },
         .{ .step_name = "rooms-web-manager", .description = "Prove a reloaded workspace re-enters the rooms it manages by name and keeps its saved manager capability usable rather than merely drawn (needs cargo + deno + a Playwright Chromium)", .source = "apps/rooms/test/proofs/room_manager_proof.ts", .wrapper_deadline_seconds = 270 },

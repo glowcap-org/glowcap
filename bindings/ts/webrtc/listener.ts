@@ -144,7 +144,7 @@ export class Listener implements AsyncIterable<Session>, AsyncDisposable {
 						serverDesignator: host.designator(),
 						channel,
 						// The signaling authority scoped this exchange to the offerer, and
-						// DTLS binds the channel to the SDP it carried (ADR-0105).
+						// DTLS binds the channel to the SDP it carried (ADR-0028).
 						verifiedChannelKey: designator,
 					}),
 			},

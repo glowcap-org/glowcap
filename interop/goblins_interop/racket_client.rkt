@@ -7,7 +7,7 @@
 ;;
 ;; It spawns the conformance Goblins host, learns the echo cap's swiss-num from
 ;; its NDJSON readiness line, then `connect` (keyed `op:start-session`),
-;; `enliven` the echo sturdyref (bootstrap fetch + ADR-0012 dedup), calls it
+;; `enliven` the echo sturdyref (bootstrap fetch + ADR-0007 dedup), calls it
 ;; positionally, then a repeat `enliven` of the same swiss-num. Positional calls
 ;; pass the empty method symbol to `session-send`. It closes by pipelining
 ;; `session-get` against a call answer Goblins settles to a Struct, the one
@@ -42,7 +42,7 @@
   (printf "racket-goblins-interop: session open, keyed start-session accepted by goblins\n")
 
   ;; A sturdyref names a peer, and the enliven checks that peer against the
-  ;; session it rides (ADR-0098). Build it from the very locator this session
+  ;; session it rides (ADR-0007). Build it from the very locator this session
   ;; dialed, so the two cannot drift apart.
   (define sturdyref (string-append (format-locator-uri locator) "/s/" sturdyref-path))
   (define echo (session-enliven session sturdyref))

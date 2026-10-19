@@ -245,7 +245,7 @@ pub fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
     }
 
     // An unanswered enliven still opens the outbound session to the exporter,
-    // and the crossed-hellos tiebreak (Host, ADR-0030) needs exactly that on
+    // and the crossed-hellos tiebreak (Host, ADR-0012) needs exactly that on
     // the wire; there is no answer to resolve, so no fetch follows.
     if (existing == null) {
         const designator_owned = try allocator.dupe(u8, locator.designator);

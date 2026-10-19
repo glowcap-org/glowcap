@@ -1,7 +1,7 @@
 //! The blocking TCP transport (the `tcp` feature).
 //!
 //! This module wraps `libglowcap_net_transport_tcp`: the `glowcap_tcp_*`
-//! archive that the `tcp` Cargo feature links (ADR-0059). It is the
+//! archive that the `tcp` Cargo feature links (ADR-0022). It is the
 //! frame-shuttle layer one step below the async [`Session`](crate::Session):
 //! a [`Netlayer`] owns the blocking-TCP I/O backend, [`Netlayer::listen`] /
 //! [`Netlayer::connect`] bind and dial, and a [`Connection`] reads and writes one

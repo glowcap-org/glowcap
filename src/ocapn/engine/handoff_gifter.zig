@@ -1,4 +1,4 @@
-//! Gifter-side handoff helpers (ADR-0009): building the signed
+//! Gifter-side handoff helpers (ADR-0039): building the signed
 //! `desc:handoff-give`, and the Peer outbound choreography that deposits a
 //! gift and resolves (or relays) it. Crypto/encoding primitives stay at the
 //! top. Free functions over `*Peer` below are the same shape as
@@ -44,7 +44,7 @@ pub const ExporterLocatorPolicy = struct {
 /// recipient-compatible baseline route. Otherwise it fails closed. Private
 /// route hints (`via`) are stripped from a baseline locator instead of leaking
 /// private vocabulary. On onion the
-/// hello is hinted only toward a known-glowcap partner (ADR-0118), an unknown
+/// hello is hinted only toward a known-glowcap partner (ADR-0042), an unknown
 /// receiver is always answered bare, and the pinned Goblins dial arm cannot
 /// dial a hinted onion locator at all, so profile hints shed there too.
 /// Bytes this walker cannot read still ship verbatim: both sources (our own
@@ -167,13 +167,13 @@ fn cloneLocatorForRecipient(
 }
 
 /// Mint one signed give: derive the session and side names from the
-/// gifter-exporter session key (ADR-0097), pick the exporter-location form
+/// gifter-exporter session key (ADR-0028), pick the exporter-location form
 /// the recipient can use, and sign. Signed by the gifter's key on that
 /// session, so the exporter verifies it against the partner key it already
 /// proved. Any other key, including the node's durable one, would not
 /// verify once sessions stop sharing a key.
 ///
-/// The location form (ADR-0118/ADR-0125): a recipient that negotiated route
+/// The location form (ADR-0042/ADR-0036): a recipient that negotiated route
 /// vocabulary keeps route advice only when the exporter session admitted it
 /// too. A baseline-compatible configured location remains valid. Only private
 /// route vocabulary falls back to the exporter's session location. The chosen
@@ -256,7 +256,7 @@ pub fn buildSignedGive(
 /// commit relies on no intervening exporter mutation after preparation.
 pub const PreparedDepositGift = struct {
     message: model.Message,
-    /// The deliver encoded at preparation (ADR-0236). Commit queues it and
+    /// The deliver encoded at preparation (ADR-0064). Commit queues it and
     /// frees the tree, which recording reads one last time.
     row: outbound.Encoded,
     reservation: Peer.PendingReservation,

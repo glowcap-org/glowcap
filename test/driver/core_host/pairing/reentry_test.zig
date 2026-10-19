@@ -89,7 +89,7 @@ const ReentryProbe = struct {
         host.vowOn(vow, .{ .ctx = &self.nested_reply, .func = CapturedString.record }) catch return;
         host.tell(session, self.token, .{ .verb = "poke", .args = &.{} }) catch return;
         // A settle callback is where you learn a promise, so `listenTo` is
-        // enqueueing, not top-level (ADR-0095).
+        // enqueueing, not top-level (ADR-0003).
         const listen_vow = host.listenTo(session, self.token) catch return;
         host.vowOn(listen_vow, .{ .ctx = &self.nested_listen, .func = CapturedRef.record }) catch return;
         host.setExporterLocation(session, null) catch return;

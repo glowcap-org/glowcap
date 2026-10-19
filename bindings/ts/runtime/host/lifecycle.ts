@@ -1,5 +1,5 @@
 // The CapTP host: multi-session CapTP product over the byte-fed host archive
-// (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host, ADR-0022). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns, and never
 // a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party

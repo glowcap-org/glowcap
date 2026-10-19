@@ -1,20 +1,20 @@
 //! Persistent immutable collections, actor-support for vat time-travel.
 //!
-//! A persistent actor (see `actors/vat/mod.zig`, ADR-0060) produces its next state
+//! A persistent actor (see `actors/vat/mod.zig`, ADR-0015) produces its next state
 //! with `Turn.become` instead of mutating `self`, so a vat snapshot can
 //! share the value with no copy-on-write. If that state is a large map,
 //! rebuilding it every turn would make `become` O(size). `PersistentMap` closes
 //! that: an immutable hash array mapped trie (HAMT) whose updates copy only the
 //! path to the changed leaf and share every untouched subtree by reference, so a
 //! `put` is O(log n) and the prior version, and any snapshot that holds it,
-//! stays valid and untouched (ADR-0061).
+//! stays valid and untouched (ADR-0015).
 //!
 //! Nodes are reference-counted. The count is non-atomic because the vat is
 //! single-threaded, and an immutable trie is acyclic, so a plain count frees
 //! correctly with no collector, the same reasoning as the vat's `StateBox`.
 //! `put`, `remove`, and `deinit` are the only operations that move a refcount.
 //!
-//! Scope (ADR-0061): one map keyed by `u64`, values stored by value. It is a
+//! Scope (ADR-0015): one map keyed by `u64`, values stored by value. It is a
 //! dependency-free leaf under `glowcap.loam.collections`. Actor snapshots can
 //! use it without Loam storage, managed access, or a persistent database.
 //! Values are POD-shaped, stored and copied by value: leaves are shared across

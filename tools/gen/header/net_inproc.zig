@@ -2,7 +2,7 @@
 //! `c_abi_net_transport_inproc` source.
 //!
 //! The in-process transport's public C ABI is a separate archive from
-//! `libglowcap_ocapn` (ADR-0059), so it gets its own header. As with
+//! `libglowcap_ocapn` (ADR-0022), so it gets its own header. As with
 //! `tools/gen/header/ocapn.zig`, the function signatures are *reflected* from the real
 //! `src/c_abi/net_transport/inproc/mod.zig` exports, so the header cannot
 //! disagree with the implementation, and the prose lives here.
@@ -78,7 +78,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   cannot drift from the implementation.
         \\
         \\   The in-process transport's public C ABI: a separate archive
-        \\   (libglowcap_net_transport_inproc) from libglowcap_ocapn (ADR-0059). It
+        \\   (libglowcap_net_transport_inproc) from libglowcap_ocapn (ADR-0022). It
         \\   is a companion, not a superset: it exports only the glowcap_inproc_*
         \\   family and shares no core symbol with libglowcap_ocapn, so a consumer
         \\   links BOTH archives and includes BOTH headers. The shared frame, peer,

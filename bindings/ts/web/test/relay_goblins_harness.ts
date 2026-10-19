@@ -10,7 +10,7 @@ import * as tcp from "@glowcap/tcp";
 // consequence. The keyed handshake is signature-verified end to end: a relay
 // that re-framed, re-encoded, or reordered one byte would fail it. Then
 // the enliven settles, the echo returns the exact bytes sent, and a repeat
-// enliven of the same sturdyref dedups to the same import (ADR-0012), so the
+// enliven of the same sturdyref dedups to the same import (ADR-0007), so the
 // proof covers more than one frame shape.
 //
 // Needs `racket` + `goblins` on PATH; `zig build goblins-relay`. The vat's
@@ -99,7 +99,7 @@ try {
 	}
 
 	// 6. A repeat enliven of the same sturdyref returns the same far import
-	// (the ADR-0012 dedup cache), exercising a second frame shape through the
+	// (the ADR-0007 dedup cache), exercising a second frame shape through the
 	// relay.
 	const again = await session.enliven(sturdyref);
 	if (

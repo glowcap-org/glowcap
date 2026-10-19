@@ -1,5 +1,5 @@
 import * as tcp from "@glowcap/tcp";
-// Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
+// Per-binding keyed-tcp restart proof (ADR-0028): happy path, key-squatter
 // refusal, and same-seed-fresh-port restart: the Deno sibling of
 // `test/driver/keyed_tcp_restart_test.zig`.
 //

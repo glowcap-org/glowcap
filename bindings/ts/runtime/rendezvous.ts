@@ -1,4 +1,4 @@
-// The accepting half of the cold-dial rendezvous (ADR-0088 capability 5). A
+// The accepting half of the cold-dial rendezvous (ADR-0034 capability 5). A
 // peer that opens no listening socket (a browser tab, or any process behind a
 // NAT that declines a listener) cannot be dialed. Instead it registers its
 // authenticated identity and a held inbound socket at a relay; a peer that redeems an

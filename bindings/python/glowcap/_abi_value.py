@@ -88,7 +88,7 @@ _OWN_CAPTP_VERSION = _captp_version_name(_abi.OWN_CAPTP_VERSION)
 
 
 def _captp_version_id(version: str) -> int:
-    """The ``GLOWCAP_CAPTP_*`` id for a CapTP profile name (ADR-0003).
+    """The ``GLOWCAP_CAPTP_*`` id for a CapTP profile name (ADR-0001).
     ``v1_0`` is the interop floor a Goblins vat speaks. ``next`` is the
     glowcap-to-glowcap track ``Offer.glowcap`` prefers with Cap'n Proto."""
     if version == "v1_0":
@@ -163,7 +163,7 @@ def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
         # send a corrupted value.
         if not (-(2**63) <= value < 2**63):
             # Outside the C ABI int64: ARG_BIG_INTEGER carries the canonical
-            # decimal digits in bytes/bytes_len and the sign in boolean (ADR-0049).
+            # decimal digits in bytes/bytes_len and the sign in boolean (ADR-0005).
             _set_bytes(a, _ARG_BIG_INTEGER, str(abs(value)).encode(), keepalive)
             a.boolean = 1 if value < 0 else 0
         else:
@@ -281,7 +281,7 @@ def _arg_from_c(a: _Argument) -> Argument:
     if a.kind == _ARG_VOID:
         return None
     if a.kind == _ARG_BIG_INTEGER:
-        # Canonical decimal digits + sign flag back to a Python int (ADR-0049).
+        # Canonical decimal digits + sign flag back to a Python int (ADR-0005).
         magnitude = int(_bytes_from_c(a))
         return -magnitude if a.boolean != 0 else magnitude
     if a.kind == _ARG_INTEGERS:

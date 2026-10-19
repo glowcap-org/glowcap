@@ -1,5 +1,5 @@
 //! Live WebRTC transport: two Zig glowcap peers hold a real keyed OCapN
-//! conversation over one reliable, ordered `RTCDataChannel` (ADR-0089).
+//! conversation over one reliable, ordered `RTCDataChannel` (ADR-0035).
 //!
 //! There is no netlayer dial here, so this drives the transport at the level
 //! below the netlayer. One peer is the offerer, the other the answerer. The
@@ -260,7 +260,7 @@ pub fn main(init: std.process.Init) !void {
     var answerer = try answerer_resident.newPeer(false);
     defer answerer.deinit();
 
-    // The capability-authorized binding (ADR-0105): the in-process signaling
+    // The capability-authorized binding (ADR-0028): the in-process signaling
     // ferry stands in for a signaling capability scoped to each peer, so each
     // side authorizes the identity it exchanged SDP with, and the adapter
     // installs the binding before the first CapTP byte.

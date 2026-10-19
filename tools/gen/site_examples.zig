@@ -59,7 +59,7 @@ const matrix = [_]Cell{
     .{ .binding = .zig, .transport = .noise_relay, .dial = .{ .supported = true, .example = .{ .file = "dial/noise-relay.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/noise-relay.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .webrtc, .dial = .{ .supported = true, .example = .{ .file = "dial/webrtc.zig", .fence = "zig" } } },
     .{ .binding = .zig, .transport = .inproc, .dial = .{ .supported = true, .example = .{ .file = "dial/inproc.zig", .fence = "zig" } }, .listen = .{ .supported = true, .example = .{ .file = "listen/inproc.zig", .fence = "zig" } } },
-    // ADR-0125's id has route-bundle core vocabulary but no
+    // ADR-0036's id has route-bundle core vocabulary but no
     // provider archive or managed Session example yet.
     .{ .binding = .zig, .transport = .id },
 

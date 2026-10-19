@@ -49,7 +49,7 @@ const WsSource = ws_source.Source(RelayStream);
 const ShimT = stream_shim.Shim(WsSource);
 
 /// One dialed or registered relay socket, pinned so the reader/writer
-/// interfaces hold a stable address for the `Connection`'s life (ADR-0043).
+/// interfaces hold a stable address for the `Connection`'s life (ADR-0019).
 /// Carries the WebSocket decode state across reads, including across the
 /// parked-listener wait, whose control-frame handling consumes headers before
 /// `accept` hands the stream over. Freed through the connection's transport

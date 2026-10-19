@@ -283,7 +283,7 @@ fn copyOut(bytes: []const u8, out: ?[*]u8, cap: usize, out_len: ?*usize) bool {
 /// connection handle framing on `codec`.
 ///
 /// The partner's claimed location is unverified on this side: Tor tells a hidden
-/// service nothing about who dialed it. ADR-0108 records that, and the pinned
+/// service nothing about who dialed it. ADR-0042 records that, and the pinned
 /// Goblins has the identical gap.
 fn onionAccept(
     listener: ?*GlowcapOnionListener,

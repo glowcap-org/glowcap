@@ -1,5 +1,5 @@
 //! Live TCP scale: many concurrent connections served from one thread by a
-//! `driver.Server` (ADR-0193).
+//! `driver.Server` (ADR-0018).
 //!
 //! One Server's runtime runs the full multi-session CapTP host: adoption, the
 //! keyed handshake, per-event serving, and the host's action queue, all on
@@ -14,7 +14,7 @@
 //! the marginal bytes one served connection costs, the way
 //! `bench-peer-scaling` reports the sans-io peer's footprint. The figure is
 //! measured and printed, never gated: wall-clock and RSS-shaped numbers on
-//! shared CI hardware flake, and the gating rationale lives in ADR-0073.
+//! shared CI hardware flake, and the gating rationale lives in ADR-0009.
 //!
 //! Not part of the hermetic `zig build check`: it binds real loopback sockets
 //! at scale, so it runs as the sibling step `zig build tcp-loop`.

@@ -1,5 +1,5 @@
 //! Every first-party stream symbol on one completion backend, as one
-//! HostRuntime resident (ADR-0193, ADR-0202).
+//! HostRuntime resident (ADR-0018).
 //!
 //! The adapters stack the way their dial targets allow: keyed-relay sits on
 //! the platform, whose socket addresses it dials. Onion over relay, `inproc`
@@ -8,7 +8,7 @@
 //! symbols it does not own to its inner policy, so the one backend serves
 //! `tcp`, `keyed-tcp`, `noise-tcp`, `keyed-relay`, `noise-relay`, `onion`,
 //! `inproc`, and any registered provider symbol. The Host seals the Noise
-//! symbols (ADR-0107). An adapter left unconfigured refuses its own symbols
+//! symbols (ADR-0041). An adapter left unconfigured refuses its own symbols
 //! and costs nothing on the others.
 
 const std = @import("std");

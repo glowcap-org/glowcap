@@ -12,7 +12,7 @@ Before any CapTP byte moves, the peers run a
 they exchange only encrypted records. Completing the handshake proves the far
 end holds the dialed durable key. A replayed handshake is refused.
 `keyed-tcp` uses the same designator but leaves CapTP frames in the clear.
-[ADR-0107](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0107-sealed-byte-channel.md)
+[ADR-0041](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0041-sealed-byte-channels.md)
 explains the design.
 
 [keyed-tcp is cleartext. noise-tcp seals the same sockets. noise-relay seals the CapTP stream so a relay only forwards ciphertext.]($image.siteAsset('diagram-noise-seal.svg'))

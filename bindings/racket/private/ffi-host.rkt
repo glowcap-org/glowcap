@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the raw `ffi/unsafe` loader for the `glowcap_host_*` byte-fed
-;; host family (ADR-0072), loaded from its own libglowcap_host archive.
+;; host family (ADR-0022), loaded from its own libglowcap_host archive.
 ;;
 ;; Nothing here is public. The shared frame, argument, reference, and
 ;; last-abort layouts stay in `ffi-shared.rkt`. The host surface

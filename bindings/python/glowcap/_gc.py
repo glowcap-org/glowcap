@@ -1,4 +1,4 @@
-"""Internal: distributed GC (ADR-0063), opt-in and off by default. Owns the
+"""Internal: distributed GC (ADR-0025), opt-in and off by default. Owns the
 Host-wide :class:`HostGc` state, recursive application-value tracking / verb-head
 ``drain_gc`` choreography, and ``glowcap_host_ref_release``. Session keeps
 ``with_gc`` as a thin opt-in. Public vow lifetime uses the same Host-owned
@@ -105,7 +105,7 @@ class HostGc:
 
     def track_ref(self, ref: "Ref") -> "Ref":
         # Register one projected capability occurrence for GC. The id is an
-        # opaque Host-scoped identity (ADR-0096), the application projection
+        # opaque Host-scoped identity (ADR-0026), the application projection
         # seam scopes tracking, never an id-range branch, and the host
         # resolves it to its home connection and real wire import when the
         # release fires. The finalizer captures only the bare id integer,

@@ -1,6 +1,6 @@
 //! Three-party redeem over WebRTC: a recipient's runtime dials the exporter's
 //! bare webrtc designator through its configured signaling authority, inside
-//! the call that receives the introduction (ADR-0089). The Zig mirror of
+//! the call that receives the introduction (ADR-0035). The Zig mirror of
 //! the rooms app's `rooms-web-dm-webrtc` proof.
 //!
 //!   E (exporter)   `driver.Server`, publishes the widget

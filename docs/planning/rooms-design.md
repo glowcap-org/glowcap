@@ -5,7 +5,7 @@ directory, room, conversation, message, file, archive, or session, how people
 share and revoke that access, and what the editor, storage, and budgets look
 like. The [Rooms plan](rooms.md) builds it section by section, and this file is
 deleted with that plan.
-[ADR-0183](../decisions/adr/ADR-0183-rooms-scoped-sharing-and-recovery.md)
+[ADR-0045](../decisions/adr/ADR-0045-managed-rooms-sessions.md)
 settles the decision it carries out. The plan says what is built, in what
 order, and how each step is proved. Code paths and owning crates are in the
 [reference](#reference) at the end.
@@ -429,7 +429,7 @@ the service's aggregate quota until explicitly destroyed. Managed resources,
 grants, controls, endpoints, recipes, directories, change history, and retry
 windows use the shared schemas in `src/loam/access/records/`. These content
 records take over the kept-lines history seam, as
-[ADR-0216](../decisions/adr/ADR-0216-rooms-retention-lives-in-files-until-content-records-take-it-over.md)
+[ADR-0059](../decisions/adr/ADR-0059-rooms-retention-storage.md)
 records: the kept-lines limits become a public room's content quota.
 
 | Record | Payload and edges | Transaction owner |
@@ -447,7 +447,7 @@ records: the kept-lines limits become a public room's content quota.
 
 Session custody and effect receipts are shipped
 ([session guide](../rooms/session.md)). Saved references follow
-[ADR-0182](../decisions/adr/ADR-0182-held-authority-reference-recipes.md). A
+[ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md). A
 foreign durable save checks that the sturdyref restores the held capability,
 and no fallback saves a parent with a client-side path.
 

@@ -44,7 +44,7 @@ pub const SettledAnswer = struct {
 /// One slot in the outbound queue. The kinds the drain must still inspect
 /// queue a fully-built `message` the queue owns until `step` encodes it. A
 /// deliver leaves as its frame at admission instead (`outbound/encoded.zig`,
-/// ADR-0236). A sent `op:resolve` is the other exception: its
+/// ADR-0064). A sent `op:resolve` is the other exception: its
 /// resolution lives in the answer store (recording moves it there), so the
 /// queue holds only `settled_answer`, the position of the inbound answer it
 /// settles, its incarnation stamp, and a retained pointer to that incarnation's
@@ -82,7 +82,7 @@ pub const Outbound = union(enum) {
     settled_answer: SettledAnswer,
     /// One `op:listen` fire. The `target` names which payload `step` borrows at
     /// encode: an inbound answer payload, a handoff-imported
-    /// third-party promise (ADR-0009), or a live object export's POD
+    /// third-party promise (ADR-0039), or a live object export's POD
     /// `fulfill(near)` (`FireTarget.near_object`). Store-backed targets carry
     /// exact store identity inside their arm, stamped at queue time.
     /// `near_object` encodes from the export position when the row is still
@@ -137,7 +137,7 @@ pub fn enqueueRecorded(self: *Peer, message: model.Message) !void {
         );
     }
     // One walk certifies the tree's shape and lists what every later pass
-    // returns to (ADR-0234). A refused shape frees the message here, before
+    // returns to (ADR-0064). A refused shape frees the message here, before
     // any authority or queue seat is touched.
     const inventory = self.inventoryMessage(message) catch |err| {
         freeMessage(self.allocator, message);
@@ -181,7 +181,7 @@ pub fn enqueueBorrowed(self: *Peer, message: model.Message) !void {
 }
 
 /// Record and enqueue a deliver whose arguments the caller lends as views
-/// (ADR-0246): the Host's values behind a sequence table, or a delivery
+/// (ADR-0064): the Host's values behind a sequence table, or a delivery
 /// forwarded from the frame it arrived in. The tree is freight, values
 /// only, and the session certifies it as such; a reference or handoff in it
 /// refuses the send. The envelope's own references are lowered and
@@ -203,7 +203,7 @@ pub fn enqueueFreight(self: *Peer, target: model.Reference, args: model.view.Arg
 /// to its settlement path first.
 pub fn enqueueInventoried(self: *Peer, message_in: model.Message, inventory: session.Inventory) !void {
     // Lower any node-local foreign-import token this message carries to its
-    // wire reference, in place, before it is recorded or encoded (ADR-0069).
+    // wire reference, in place, before it is recorded or encoded (ADR-0026).
     // This is the single chokepoint every flat outbound message funnels
     // through, the direct send, each decomposed pipeline link, a prepared
     // fetch, so a token cannot leak onto the wire in any position. A
@@ -295,7 +295,7 @@ pub fn inventoryResolution(self: *Peer, resolution: model.Resolution) !session.I
 }
 
 /// Certify a lent argument tree with the session's codec metering its
-/// values (ADR-0246).
+/// values (ADR-0064).
 pub fn certifyFreight(self: *Peer, args: model.view.Args) !session.Freight {
     inline for (codec.registry.active) |spec| if (self.session_state.codec == spec.id)
         return self.session_state.certifyFreight(args, spec.module.meter orelse session.inventory.NoMeter);

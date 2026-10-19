@@ -1,11 +1,11 @@
-//! Dial continuity above the completion loop (ADR-0082).
+//! Dial continuity above the completion loop (ADR-0030).
 //!
 //! `DialPolicy` owns dial policy and `isTransient` classifies
 //! `net.netlayer.DialError` into transient vs permanent. Retry only ever
 //! applies to transient faults, and never pretends Peer tables survive a
 //! rebuild: each successful dial is a new CapTP session the caller must
 //! adopt. The `HostRuntime` pump executes the policy on its staged-dial
-//! rows (ADR-0193). Discovery dial budgets across bindings share the
+//! rows (ADR-0018). Discovery dial budgets across bindings share the
 //! `driver_core` defaults this policy projects.
 
 const driver_core = @import("driver_core");
@@ -29,7 +29,7 @@ pub const DialPolicy = struct {
     }
 };
 
-/// Whether a dial fault is worth retrying under ADR-0081/0082.
+/// Whether a dial fault is worth retrying under ADR-0030/0082.
 /// `InvalidAddress` and `ConnectionRefused` are permanent configuration or
 /// peer-refusal faults. `OutOfMemory` is not a network transient.
 pub fn isTransient(err: DialError) bool {
@@ -57,7 +57,7 @@ pub const DialOutcome = enum {
     exhausted,
 };
 
-/// Optional embedder metric recipient (ADR-0082 Track C): one `report` per
+/// Optional embedder metric recipient (ADR-0030 Track C): one `report` per
 /// dial attempt outcome, with `attempt` 1-based. The `HostRuntime` dial-retry
 /// seam reports through it.
 pub const DialOutcomeObserver = struct {

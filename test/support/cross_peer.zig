@@ -157,7 +157,7 @@ fn expectedReceiver(exporter: *Peer) !?engine.handoff_names.ExpectedReceiver {
 /// Before the recipient sends the handoff-receive and the exporter's gift
 /// registry authorizes the withdrawal (gift existence, recipient match, the
 /// derived receiver identity, handoff-count monotonicity), both certificates are checked at the boundary by the injected
-/// verifier, each over its *canonical signed bytes* (ADR-0009): the gifter's
+/// verifier, each over its *canonical signed bytes* (ADR-0039): the gifter's
 /// signature over the embedded `desc:handoff-give` record, and the recipient's
 /// signature over the `desc:handoff-receive` record. The signed domain is the
 /// whole envelope, not the gift-id field alone. Verifying a single field would

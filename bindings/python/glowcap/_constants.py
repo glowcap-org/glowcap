@@ -25,7 +25,7 @@ from ._constants_gen import (
 class DurableProvenance(enum.Enum):
     """How a partner's advertised durable identity was authenticated, the third
     fact :class:`PartnerIdentity` reports beside session key and designator
-    (ADR-0097, ADR-0105).
+    (ADR-0028).
 
     The answer is a property of the connection rather than of its transport
     name. The same transport symbol reaches this peer over code that can prove

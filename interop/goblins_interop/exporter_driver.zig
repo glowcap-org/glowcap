@@ -96,7 +96,7 @@ const DecoyGreeter = struct {
 /// Serve every partner that dials: Alice (who enlivens and deposits) and Carol
 /// (who withdraws). Both sessions share one `driver.Server` host, which is
 /// what lets the gift Alice deposited be withdrawn by Carol. The greeter is
-/// one Host publication, so both Ports project the same actor (ADR-0096).
+/// one Host publication, so both Ports project the same actor (ADR-0026).
 fn serveExporter(
     server: *driver.Server,
     done: *std.atomic.Value(bool),

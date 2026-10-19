@@ -1,4 +1,4 @@
-//! The resolve-cases oracle over the canonical contract (ADR-0077).
+//! The resolve-cases oracle over the canonical contract (ADR-0023).
 
 const std = @import("std");
 const util = @import("../util.zig");

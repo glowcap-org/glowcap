@@ -47,7 +47,7 @@
          "support.rkt"
          racket/tcp)
 
-;; ── Object-capability forwarding proxies over the wire (ADR-0064) ─────────────
+;; ── Object-capability forwarding proxies over the wire (ADR-0016) ─────────────
 ;; The client spawns a local tool and passes it as an argument to the host, which
 ;; sees a far reference and wraps it in a caretaker and an attenuator, handing the
 ;; proxies back. A call through the caretaker proxy forwards across the host back
@@ -119,8 +119,8 @@
 
 (printf "racket zig-smoke OK: forwarding proxies forward, attenuate, and revoke over the wire\n")
 
-;; ── A forwarding proxy answers its host's own local call (ADR-0064) ────────────
-;; The wart ADR-0064 closes: a caretaker proxy is an ordinary spawned actor, so
+;; ── A forwarding proxy answers its host's own local call (ADR-0016) ────────────
+;; The wart ADR-0016 closes: a caretaker proxy is an ordinary spawned actor, so
 ;; its own host calls it locally exactly as a partner calls it over the wire. A
 ;; caretaker over a *local* tool answers a local send; a caretaker over a *far*
 ;; tool forwards across the wire and the local send still settles; and a revoke

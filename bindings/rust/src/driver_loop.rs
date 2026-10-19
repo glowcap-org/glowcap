@@ -1,4 +1,4 @@
-//! The driver loop tier (ADR-0112): the public `connect`/`listen` route for
+//! The driver loop tier (ADR-0024): the public `connect`/`listen` route for
 //! the shapes the driver archive carries, over a thin package around one
 //! `GlowcapDriverLoop`.
 //!
@@ -64,7 +64,7 @@ enum UnclaimedSession {
 	Closed(Option<Error>),
 }
 
-/// The tokio face of one driver loop (ADR-0112): the shared owner the public
+/// The tokio face of one driver loop (ADR-0024): the shared owner the public
 /// `connect`/`listen` route drives. It parks the running `LocalSet` on the
 /// loop's readiness descriptor, steps with a zero timeout when it signals or
 /// when a Host verb kicks, and routes drained events: dial outcomes into

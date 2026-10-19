@@ -181,7 +181,7 @@ pub const Queued = union(enum) {
 };
 
 /// A *hosted* actor: state and behavior the vat does not own, invoked on each
-/// deliver (ADR-0071). This is how a non-Zig consumer hosts an actor over the C
+/// deliver (ADR-0022). This is how a non-Zig consumer hosts an actor over the C
 /// ABI, it hands the vat an opaque `ctx` and a thunk. The `handle` receives the
 /// full `Turn`, so a hosted actor sends and spawns exactly like a Zig actor.
 /// Only vat-owned time-travel is out of reach, since the vat cannot clone `ctx`

@@ -61,7 +61,7 @@ pub const LocalPromiseAnswer = struct {
 };
 
 /// What a resolver export is for, held on the export's own row
-/// (`ExportRow.purpose`, ADR-0254). The row's position is the export, so no
+/// (`ExportRow.purpose`, ADR-0038). The row's position is the export, so no
 /// arm repeats it. The union is sized for the row every export pays: three
 /// words of payload and the tag, and `export_table.ExportRow` pins the sum.
 pub const ResolverPurpose = union(enum) {
@@ -105,7 +105,7 @@ comptime {
 /// apply. The outbound direction has no table: an outbound answer holds the
 /// resolver export that settles it and a local promise's virtual inbound row
 /// holds its projection export (`AnswerCell.resolverExport`), and the
-/// export's row holds what it is for (ADR-0254).
+/// export's row holds what it is for (ADR-0038).
 ///
 /// A resolver export is an ordinary export minted by the session's own
 /// allocator (`allocateExport`). It shares the one export namespace with the

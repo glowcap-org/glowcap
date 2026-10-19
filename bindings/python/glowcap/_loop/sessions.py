@@ -58,7 +58,7 @@ class _SessionsMixin(DriverLoopMixinBase):
 
     def wrapper_host(self) -> "Host":
         """The public :class:`glowcap.Host` wrapper adopted over this loop's
-        FFI host (ADR-0112): application verbs, publish trampolines, and
+        FFI host (ADR-0024): application verbs, publish trampolines, and
         ``RemotePromise`` settles all work on it, while the loop stays the one
         action drain and the one release authority. Built on first call. Call
         it on the driving thread."""

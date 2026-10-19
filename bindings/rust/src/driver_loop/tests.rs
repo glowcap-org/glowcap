@@ -156,7 +156,7 @@ fn dropped_listener_setup_retires_a_committed_ready_listener() {
 	lp.close();
 }
 
-/// The loop tier from Rust (ADR-0112): two stepping loops over loopback
+/// The loop tier from Rust (ADR-0024): two stepping loops over loopback
 /// TCP, the server driven wholly by its own thread, dial as an operation id, the
 /// session as an Opened event, and a vow's break as a Completion event:
 /// the byte-fed drain's own Fail shape, ticket-matched. The success arm
@@ -377,7 +377,7 @@ async fn exporter_claims_install_one_shell_and_refuse_foreign_handles() {
 		.await;
 }
 
-/// Loop-tier FINISH (ADR-0114), mirroring the byte-fed Host timeout
+/// Loop-tier FINISH (ADR-0030), mirroring the byte-fed Host timeout
 /// scenario in `host.rs`: a dial still negotiating against a silent TCP
 /// partner is admitted pending work, so a finite grace expires and the
 /// loop close barrier reports its timeout. The expiry takes effect only

@@ -23,18 +23,18 @@ const Host = host_mod.Host;
 pub const InitError = error{InvalidHostWorkQuantum};
 
 pub const Options = struct {
-    /// Full CapTP session limits applied to every minted peer (ADR-0082).
+    /// Full CapTP session limits applied to every minted peer (ADR-0030).
     /// Defaults match `session.SessionLimits{}`, including the 1 MiB
     /// `max_frame_bytes` the driver C ABI publishes as
     /// `GLOWCAP_DEFAULT_FRAME_CAP`. The completion loop's read buffers come
-    /// from a shared 16 KiB pool (ADR-0054), not from `max_frame_bytes`, so
+    /// from a shared 16 KiB pool (ADR-0019), not from `max_frame_bytes`, so
     /// raising the admission cap costs no per-session memory.
     limits: engine.SessionLimits = .{},
     /// Verify the partner's `op:start-session` signature. This is the secure
     /// default a real peer keeps.
     verify_partner: bool = true,
     /// The wire grammar this host *prefers*. What a given session speaks is
-    /// settled with its partner, not imposed from here (ADR-0103), so two ends
+    /// settled with its partner, not imposed from here (ADR-0001), so two ends
     /// need not be configured alike: a partner that cannot follow settles this
     /// axis back to the baseline on its own session and every other session
     /// keeps the preference.
@@ -61,7 +61,7 @@ pub const Options = struct {
     /// is not the Host scheduler quantum. `null` turns the cap off, which is
     /// safe only when every partner is trusted.
     local_turn_budget: ?usize = served.default_loop_local_turn_budget,
-    /// Host-wide release-on-drop setting (ADR-0192): whether a far capability
+    /// Host-wide release-on-drop setting (ADR-0025): whether a far capability
     /// a binding projects to its application releases its Host retain when
     /// the language's scope end for that value is observed. The core stores
     /// and reports it through `Host.releaseOnDrop` and
@@ -104,7 +104,7 @@ pub const Options = struct {
     }
 };
 
-/// The Host-wide release-on-drop setting (ADR-0192), read by the binding that
+/// The Host-wide release-on-drop setting (ADR-0025), read by the binding that
 /// projects a far capability.
 pub fn releaseOnDrop(self: *const Host) bool {
     return self.opts.release_on_drop;
@@ -118,7 +118,7 @@ pub fn setReleaseOnDrop(self: *Host, enabled: bool) error{ ReenteredHost, WrongT
     self.opts.release_on_drop = enabled;
 }
 
-/// Override selective session limits before minting peers (ADR-0124). `null`
+/// Override selective session limits before minting peers (ADR-0008). `null`
 /// leaves that field unchanged. Already-open sessions keep the limits they
 /// were minted with.
 pub fn setSessionLimits(

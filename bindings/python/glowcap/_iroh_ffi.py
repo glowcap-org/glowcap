@@ -385,7 +385,7 @@ class IrohNetlayer(_FfiHandleOwner):
             _check_iroh(rc)
             return ctypes.string_at(out, n.value).decode()
 
-    # ── The event-driven loop surface (ADR-0057) ────────────────────────────────
+    # ── The event-driven loop surface (ADR-0019) ────────────────────────────────
     # These back :class:`_IrohLoop`: the endpoint's one I/O model, serving many
     # connections from one readiness fd registered with the asyncio event loop.
     # The loop is armed when the netlayer is created, so these work immediately.

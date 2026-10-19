@@ -1,7 +1,7 @@
-//! The browser binding's WebAssembly entry surface (ADR-0070).
+//! The browser binding's WebAssembly entry surface (ADR-0034).
 //!
 //! A freestanding `wasm32` module that exposes the byte-fed CapTP Host
-//! (`libglowcap_host`, ADR-0072) and the shared `libglowcap_ocapn` vocabulary
+//! (`libglowcap_host`, ADR-0022) and the shared `libglowcap_ocapn` vocabulary
 //! to a JavaScript host that instantiates it in a browser. The Host is sans-io
 //! and draws no entropy, so the browser drives it as a C embedder does:
 //! feed inbound frames, drain outbound frames, honor the action queue, and
@@ -164,7 +164,7 @@ export fn glowcap_wasm_loam_archive_fingerprint() u64 {
 // exactly when the Zig actor loses its final root; retaining every displaced
 // publication until Host close would turn alias churn into an unbounded leak.
 // These are adapter seams only: the module adds no CapTP semantics, and the
-// ctx→object ownership stays in the browser adapter (ADR-0070 Milestone 1).
+// ctx→object ownership stays in the browser adapter (ADR-0034 Milestone 1).
 
 /// The one behavior trampoline the browser adapter implements. Its signature
 /// mirrors `GlowcapHostBehavior`. On wasm32 every pointer and `usize`

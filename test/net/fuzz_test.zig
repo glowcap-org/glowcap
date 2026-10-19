@@ -4,7 +4,7 @@
 //! stream. It has a job the frame parsers do not: a frame bigger than the read
 //! buffer cannot be decoded in place, so it accumulates in a spill and is
 //! decoded from there instead, and the spill is freed again when it drains
-//! (ADR-0041). That handover between two supplies is the part worth fuzzing.
+//! (ADR-0012). That handover between two supplies is the part worth fuzzing.
 //!
 //! Reaching it takes a particular geometry, and getting the geometry wrong is
 //! silent. Over a reader whose buffer already holds the whole input, a frame is
@@ -108,7 +108,7 @@ fn readOne(_: void, smith: *std.testing.Smith) anyerror!void {
                 try std.testing.expectEqual(@as(usize, 0), spill.buf.len);
             }
             // And an active one stays inside what it holds and inside the cap
-            // that admitted it. This is ADR-0041's boundedness, checked while
+            // that admitted it. This is ADR-0012's boundedness, checked while
             // the spill is live rather than assumed.
             try std.testing.expect(spill.len <= spill.buf.len);
             try std.testing.expect(spill.len <= frame_cap + 32 + read_len);
@@ -225,7 +225,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 // byte supplies a frame is lifted from. A frame that fits the read buffer is
 // lifted from where it landed and the spill never opens. A frame larger than
 // the buffer cannot be, so returning it whole is itself the evidence the spill
-// carried it (ADR-0041). The synthesized frame is several kilobytes against
+// carried it (ADR-0012). The synthesized frame is several kilobytes against
 // reads of under a hundred bytes, so the spill grows over dozens of absorbs
 // before it drains, and a stream here crosses every one of those handovers.
 //
@@ -262,7 +262,7 @@ test "fuzz: arbitrary completion schedules keep the loop's lifecycle accounting 
 // the envelope's length (`net.outerPrefix`), which the spill bound caught
 // before the tail's verdict did, because what changed was how much had piled
 // up first. Asserting boundedness separately from the verdict is the whole
-// reason that was visible. Before ADR-0110 the stream was framed by walking
+// reason that was visible. Before ADR-0012 the stream was framed by walking
 // the inner codec, and this target found two defects in that walk; the
 // envelope has no walk, and its body is opaque bytes that come back
 // byte-identical or not at all.

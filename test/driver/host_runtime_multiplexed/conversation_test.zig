@@ -1,4 +1,4 @@
-//! A whole CapTP conversation over the multiplexed resident (ADR-0112): the
+//! A whole CapTP conversation over the multiplexed resident (ADR-0024): the
 //! three-party dial drives the seam's whole surface, the first connect
 //! through the awaiting pump, and the redeem dial a give provokes *inside* a
 //! blocking call, the nested connect wait, and the throttled test drives the
@@ -74,7 +74,7 @@ fn gifterServe(
     }
 }
 
-test "a resident-dialed session fetches, calls, and redeems a give through the resident (ADR-0112)" {
+test "a resident-dialed session fetches, calls, and redeems a give through the resident (ADR-0024)" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -142,7 +142,7 @@ test "a resident-dialed session fetches, calls, and redeems a give through the r
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
 }
 
-test "a frame larger than the write window survives would_block and resumes in order (ADR-0112)" {
+test "a frame larger than the write window survives would_block and resumes in order (ADR-0024)" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});

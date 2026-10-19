@@ -1,6 +1,6 @@
 //! The data-channel pump: event-handler wiring, the reader and drain tasks,
 //! and the bounded inbound/outbound buffer operations they share with the
-//! C-facing connection calls (ADR-0089).
+//! C-facing connection calls (ADR-0035).
 
 use super::*;
 

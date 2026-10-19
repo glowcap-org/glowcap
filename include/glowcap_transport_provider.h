@@ -47,7 +47,7 @@ extern "C" {
 #define GLOWCAP_SEALED_CHANNEL_NONE 0
 /* GlowcapTransportProfile.sealed_channel: Host composes Noise_XK. */
 #define GLOWCAP_SEALED_CHANNEL_NOISE_XK 1
-/* GlowcapTransportProfile.wire_framing: packets are byte-stream chunks with ADR-0110 envelopes. */
+/* GlowcapTransportProfile.wire_framing: packets are byte-stream chunks with ADR-0012 envelopes. */
 #define GLOWCAP_WIRE_FRAMING_BYTE_STREAM 0
 /* GlowcapTransportProfile.wire_framing: each packet is one bare codec frame. */
 #define GLOWCAP_WIRE_FRAMING_MESSAGE 1

@@ -1,4 +1,4 @@
-//! Guaranteed projection settlement units (ADR-0255).
+//! Guaranteed projection settlement units (ADR-0016).
 //!
 //! Pressure deferral, resolve-once, and stale-stamp edge cases for
 //! `Peer.settleAnswerTargetGuaranteed` on a local promise projection, and the

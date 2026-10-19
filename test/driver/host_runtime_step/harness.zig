@@ -1,4 +1,4 @@
-//! Shared fixtures for the ADR-0112 host-wide step proofs: the greeter and
+//! Shared fixtures for the ADR-0024 host-wide step proofs: the greeter and
 //! its step-serve pump, the close and failure observers, the recording
 //! completion sink, and the dial recorder every staged-dial scenario reads.
 

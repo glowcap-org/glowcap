@@ -56,7 +56,7 @@ pub fn spawnReservedVow(self: *Vat, reservation: ResolverPairReservation) Resolv
     return .{ .vow = .{ .local = reservation.vow }, .resolver = reservation.resolver };
 }
 
-/// Settle a resolver vow fulfilled (ADR-0102). Top-level like `drive`,
+/// Settle a resolver vow fulfilled (ADR-0014). Top-level like `drive`,
 /// the vow's listener may open a nested drive, so a settle from inside a
 /// turn refuses (`SettleInTurn`) and re-enters later instead. Fulfillment
 /// prepares the listener's owned value before consuming the resolver, so
@@ -67,7 +67,7 @@ pub fn fulfillVow(self: *Vat, resolver: u64, value: model.Argument) Error!void {
     try settleResolver(self, resolver, .{ .fulfilled = value });
 }
 
-/// Settle a resolver vow broken (ADR-0102). The same contract as
+/// Settle a resolver vow broken (ADR-0014). The same contract as
 /// `fulfillVow`. `reason` is borrowed for the call, the listener fires
 /// within it and retains nothing.
 pub fn breakVow(self: *Vat, resolver: u64, reason: []const u8) Error!void {

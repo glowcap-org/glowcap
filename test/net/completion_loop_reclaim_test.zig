@@ -1,5 +1,5 @@
 //! How the completion loop takes a connection back, on scripted backends: a
-//! dead peer's read error reclaims the slot and fires `on_close` (ADR-0081),
+//! dead peer's read error reclaims the slot and fires `on_close` (ADR-0030),
 //! and a park past `park_kill_ms` reclaims with its own close reason.
 
 const std = @import("std");
@@ -168,7 +168,7 @@ fn watchClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: comp
     CloseWatch.failure_name = if (report.failure) |failure| failure.error_name else null;
 }
 
-test "completion loop: a dead peer's read error reclaims the slot and fires on_close under run (ADR-0081)" {
+test "completion loop: a dead peer's read error reclaims the slot and fires on_close under run (ADR-0030)" {
     const allocator = std.testing.allocator;
 
     CloseWatch.fired = 0;
@@ -184,7 +184,7 @@ test "completion loop: a dead peer's read error reclaims the slot and fires on_c
 
     // The remote vanished: its armed recv completes with a read error while the
     // loop is running. The loop must reclaim the slot and fire on_close *now*,
-    // not defer liveness to closeAndDrain (ADR-0081, contract 3).
+    // not defer liveness to closeAndDrain (ADR-0030, contract 3).
     try loop.run(.{ .after_closed = 1 });
 
     try std.testing.expectEqual(@as(usize, 1), loop.closed_count);
@@ -195,7 +195,7 @@ test "completion loop: a dead peer's read error reclaims the slot and fires on_c
     try std.testing.expectEqualStrings("ConnectionResetByPeer", CloseWatch.failure_name.?);
 }
 
-/// Park-kill (ADR-0082): a connection that stays `.parked` past `park_kill_ms`
+/// Park-kill (ADR-0030): a connection that stays `.parked` past `park_kill_ms`
 /// is reclaimed and `on_close` reports `CloseReason.park_kill`.
 const ParkKillWatch = struct {
     var fired: usize = 0;

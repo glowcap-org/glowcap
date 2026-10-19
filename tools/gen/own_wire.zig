@@ -1,5 +1,5 @@
 //! Generates `src/ocapn/model/own_wire.zig`: a fingerprint of the frames
-//! glowcap alone defines (ADR-0252).
+//! glowcap alone defines (ADR-0001).
 //!
 //! Each owned (version, codec) pair encodes the corpus below. The fingerprint
 //! hashes every frame, or the error that refused it, so any change to what an
@@ -330,7 +330,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\//! Do not edit. `zig build gen-own-wire-check` keeps this fresh.
         \\
         \\/// The first 64 bits of SHA-256 over every frame of glowcap's own wire
-        \\/// in the generator's corpus, in lowercase hex (ADR-0252). The hint
+        \\/// in the generator's corpus, in lowercase hex (ADR-0001). The hint
         \\/// tokens of a CapTP version or codec that glowcap owns carry it.
         \\pub const fingerprint = "{s}";
         \\

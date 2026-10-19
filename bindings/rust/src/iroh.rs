@@ -1,6 +1,6 @@
 //! iroh transport for the async surface (the `iroh` feature).
 //!
-//! iroh's encrypted-QUIC netlayer links the Rust sidecar, which ADR-0055 keeps
+//! iroh's encrypted-QUIC netlayer links the Rust sidecar, which ADR-0021 keeps
 //! out of the pure-Zig archives. It ships as its own optional companion library,
 //! `libglowcap_net_transport_iroh`, built with `zig build iroh-abi` (needs cargo). It exports
 //! only the `glowcap_iroh_*` family, so the `iroh` cargo feature links it
@@ -194,9 +194,9 @@ impl Netlayer {
 
 	/// Bind an iroh endpoint whose Ed25519 identity is reconstructed from
 	/// `seed`: the same durable identity a [`Host`](crate::Host) must use so
-	/// designator and endpoint id stay one value (ADR-0075). CapTP session
+	/// designator and endpoint id stay one value (ADR-0028). CapTP session
 	/// signing keys still come from the Host's fresh session-key root
-	/// (ADR-0097).
+	/// (ADR-0028).
 	pub async fn from_seed(config: Config, seed: [u8; 32]) -> Result<Netlayer> {
 		tokio::task::spawn_blocking(move || Netlayer::from_seed_blocking(config, &seed))
 			.await
@@ -306,7 +306,7 @@ impl Netlayer {
 	}
 
 	/// Dial a partner by endpoint id and direct-address hints over the
-	/// event-driven loop surface (ADR-0057), returning the byte stream that
+	/// event-driven loop surface (ADR-0019), returning the byte stream that
 	/// carries the OCapN session. Dial establishment and frame I/O are both
 	/// driven by the stream's readiness loop. The returned stream owns this netlayer's
 	/// lifetime (an ephemeral dialing endpoint released with the connection).
@@ -322,7 +322,7 @@ impl Netlayer {
 		};
 		// One transport attempt. A dial staged through the driver loop retries
 		// transient faults on the runtime's `GLOWCAP_DISCOVERY_DIAL_*` budget
-		// (ADR-0193); a raw transport dial reports its first fault.
+		// (ADR-0018); a raw transport dial reports its first fault.
 		let conn = iloop.dial(node_id, direct_addresses).await?;
 		// Dial succeeded: ownership of the loop moves into the returned stream,
 		// whose `Drop` owns the shutdown, so disarm the cancel guard.
@@ -457,7 +457,7 @@ mod server;
 /// Bind an iroh endpoint and return an [`Server`] to accept partners on.
 /// `reachability` is the mandatory
 /// posture (no default). One seed drives both the endpoint and the shared
-/// [`Host`] (ADR-0075). Needs the iroh ABI library (`zig build iroh-abi`).
+/// [`Host`] (ADR-0028). Needs the iroh ABI library (`zig build iroh-abi`).
 pub async fn listen(config: Config, options: ListenOptions) -> Result<Server> {
 	Server::bind(config, options).await
 }

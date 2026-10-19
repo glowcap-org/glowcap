@@ -1,4 +1,4 @@
-//! Caller-owned out-of-band wake lifecycle (ADR-0102).
+//! Caller-owned out-of-band wake lifecycle (ADR-0014).
 //!
 //! The loop borrows the wake descriptor, owns one recv/cancel seat at a time,
 //! and never closes the caller's handle. Refused rearm and cancellation remain
@@ -14,7 +14,7 @@ pub fn Machine(comptime Self: type, comptime Types: type) type {
 
         /// Arm an ordinary recv on the caller-owned wake descriptor. Its
         /// completion runs `handler` on the loop thread and re-arms. The
-        /// descriptor must outlive the loop's borrowed use (ADR-0102).
+        /// descriptor must outlive the loop's borrowed use (ADR-0014).
         pub fn armWake(
             self: *Self,
             fd: Fd,

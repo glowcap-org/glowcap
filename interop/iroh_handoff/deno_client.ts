@@ -1,4 +1,4 @@
-// Live three-party handoff over iroh, all in the Deno binding (ADR-0009), the
+// Live three-party handoff over iroh, all in the Deno binding (ADR-0039), the
 // Deno sibling of the Python/Racket `iroh_handoff` clients and the iroh
 // companion of `deno-goblins-handoff`. It proves both halves of an iroh
 // handoff through the binding's own surface: the gifter mints a

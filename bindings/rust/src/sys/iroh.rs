@@ -1,7 +1,7 @@
 //! Raw FFI for the iroh transport archive
 //! (`libglowcap_net_transport_iroh`).
 //!
-//! Linked only with the `iroh` feature (ADR-0055/ADR-0059). Unlike the static
+//! Linked only with the `iroh` feature (ADR-0021/ADR-0022). Unlike the static
 //! TCP and in-process archives, this is a dynamic companion that links the Rust
 //! iroh sidecar. It exports only the `glowcap_iroh_*` family and its own
 //! thread-local last-error (`glowcap_iroh_last_error`), sharing no core symbol.

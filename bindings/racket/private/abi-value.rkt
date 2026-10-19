@@ -20,7 +20,7 @@
 
 ;; The ABI spelling of a codec symbol, for the transport endpoints that take a
 ;; GLOWCAP_CODEC_* selector.
-;; The `GLOWCAP-CAPTP-*` id for a CapTP profile (ADR-0003): `v1_0` is the
+;; The `GLOWCAP-CAPTP-*` id for a CapTP profile (ADR-0001): `v1_0` is the
 ;; interop floor a Goblins vat speaks, `next` the glowcap-to-glowcap track
 ;; `Offer.glowcap` prefers with Cap'n Proto.
 (define (captp-version<-id version [source #f])
@@ -126,7 +126,7 @@
   (cond
     [(boolean? a) (set-GlowcapArgument-kind! c ARG-BOOLEAN) (set-GlowcapArgument-boolean! c (if a 1 0))]
     ;; The C integer field is i64; a Racket bignum outside that range rides
-    ;; ARG-BIG-INTEGER as canonical decimal digits plus a sign flag (ADR-0049).
+    ;; ARG-BIG-INTEGER as canonical decimal digits plus a sign flag (ADR-0005).
     [(exact-integer? a)
      (if (and (>= a (- (expt 2 63))) (< a (expt 2 63)))
          (begin (set-GlowcapArgument-kind! c ARG-INTEGER) (set-GlowcapArgument-integer! c a))
@@ -220,7 +220,7 @@
     [(= k ARG-KEYWORD) (kw (bytes->string/utf-8 (bytes<-c (GlowcapArgument-bytes c) (GlowcapArgument-bytes-len c)) UFFFD))]
     [(= k ARG-ERROR) (error-arg (bytes->string/utf-8 (bytes<-c (GlowcapArgument-bytes c) (GlowcapArgument-bytes-len c)) UFFFD))]
     [(= k ARG-VOID) (void)]
-    ;; Canonical decimal digits + sign flag back to a Racket bignum (ADR-0049).
+    ;; Canonical decimal digits + sign flag back to a Racket bignum (ADR-0005).
     [(= k ARG-BIG-INTEGER)
      (let ([magnitude (string->number (bytes->string/utf-8 (bytes<-c (GlowcapArgument-bytes c) (GlowcapArgument-bytes-len c))))])
        (if (not (zero? (GlowcapArgument-boolean c))) (- magnitude) magnitude))]

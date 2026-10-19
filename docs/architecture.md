@@ -60,9 +60,9 @@ opens no sockets, starts no tasks, and chooses no scheduler.
 
 | Layer | Responsibility |
 | --- | --- |
-| `foundation` | Owned frames, borrowed frame views, limits, crypto, the sealed byte channel both stream tiers compose (ADR-0107), and shared utilities. |
+| `foundation` | Owned frames, borrowed frame views, limits, crypto, the sealed byte channel both stream tiers compose (ADR-0041), and shared utilities. |
 | `model` | Values and messages that can cross an OCapN session. |
-| `codec` | Syrup and Cap'n Proto decoding and encoding. A frame reaches a codec whole: the envelope or the transport delimits it (ADR-0229). |
+| `codec` | Syrup and Cap'n Proto decoding and encoding. A frame reaches a codec whole: the envelope or the transport delimits it (ADR-0012). |
 | `session` | Imports, exports, answers, promises, handoff, and protocol validation. |
 | `engine` | The caller-driven state machine around one session. |
 
@@ -78,8 +78,8 @@ behavior.
 The module graph enforces that split. Protocol modules cannot import adapters,
 and Syrup and Cap'n Proto cannot import one another. The architecture check
 rejects `std.Io`, threads, and platform calls in the portable core
-([ADR-0040](decisions/adr/ADR-0040-layer-modules-as-import-law.md),
-[ADR-0048](decisions/adr/ADR-0048-codec-sibling-isolation.md)).
+([ADR-0011](decisions/adr/ADR-0011-compiler-enforced-layers.md),
+[ADR-0011](decisions/adr/ADR-0011-compiler-enforced-layers.md)).
 
 ## From a peer to an application
 
@@ -101,8 +101,8 @@ settles their results. It also provides attenuation, revocation, and optional
 snapshots. A snapshot covers local actor state only. It never rewinds a network
 session. Actor state can use `loam.collections.PersistentMap`, so changing one
 entry does not copy the whole map
-([ADR-0060](decisions/adr/ADR-0060-vat-local-time-travel.md),
-[ADR-0061](decisions/adr/ADR-0061-persistent-collections-module.md)).
+([ADR-0015](decisions/adr/ADR-0015-persistent-collections-and-time-travel.md),
+[ADR-0015](decisions/adr/ADR-0015-persistent-collections-and-time-travel.md)).
 
 Local eventual sends go into queues keyed by *ingress*, the session the work
 came from. (An eventual send is a call that runs later, not inline.) Before queuing, the Vat measures what the owned copy will cost and
@@ -110,7 +110,7 @@ applies turn and byte limits per ingress. It takes one turn at a time from each
 runnable ingress in rotation, first-in-first-out within each one. The whole Vat
 keeps at most one bounded spare queue chunk. The standard Host owns one Vat,
 and each session Port supplies its ingress identity but owns no queue
-([ADR-0099](decisions/adr/ADR-0099-shared-vat-scheduling.md)).
+([ADR-0014](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)).
 
 ## Resource models
 
@@ -170,7 +170,7 @@ body exactly. A transport that already preserves message boundaries hands bare
 frames to the whole-frame API instead. The transport implementations are iroh,
 WebRTC, Noise-sealed TCP, Noise-sealed relay, onion, keyed TCP, keyed relay,
 plain TCP, and in-process pipes
-([ADR-0110](decisions/adr/ADR-0110-byte-stream-message-envelope.md)).
+([ADR-0012](decisions/adr/ADR-0012-stream-framing-and-admission.md)).
 
 Inbound frames have a size limit. A frame larger than the current read buffer
 uses one bounded spill buffer, so no connection retains a maximum-sized buffer.
@@ -184,7 +184,7 @@ and nonblocking reads and writes, and runs on `net.external_completion`. A
 multiplexed provider carries many connections over one endpoint. A completion
 backend joins the runtime through `net.completion_resident`, lending each
 received chunk from the backend's pool and keeping no buffer on an idle wire
-([ADR-0202](decisions/adr/ADR-0202-stream-transports-join-hostruntime-as-a-completion-resident.md)).
+([ADR-0018](decisions/adr/ADR-0018-one-host-io-runtime.md)).
 
 iroh is the multiplexed case: `iroh.MultiplexedAdapter` drives every
 connection from the endpoint's one readiness descriptor, and the C ABI uses the
@@ -208,7 +208,7 @@ policy cannot support it. After constructing a TCP, onion, keyed-relay, Noise,
 or iroh loop, call `net.tcpBackendStatus(&loop)`. A non-null `fallback_reason`
 explains why epoll was selected (on an iroh loop, for the wrapped Linux
 platform layer). The library prints nothing, because the application owns its
-logs ([ADR-0152](decisions/adr/ADR-0152-linux-completion-backend-selection.md)).
+logs ([ADR-0020](decisions/adr/ADR-0020-linux-completion-backends.md)).
 [Known limitations](boundaries.md) covers what `driver.HostRuntime` reports.
 
 [Known limitations](boundaries.md#transports-and-peer-identity) compares the
@@ -229,7 +229,7 @@ beside its option in the code.
 | `driver_core.Host.Options.limits.max_frame_bytes` | The largest frame any peer of a byte-fed Host accepts. |
 | `SessionLimits.max_retained_sent_answer_bytes` / `GlowcapSessionLimitOptions.max_retained_sent_answer_bytes` | Bytes of resolutions a session keeps for answers it already sent, once they no longer count as data in flight. |
 | `driver_core.Host.Options.local_turn_budget` / `glowcap_host_new(... local_turn_budget ...)` | How many local actor turns one session may set off during one drive before the Host ends that session. `null` in Zig or `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` in C turns the cap off. A bare `Served` is unbounded. |
-| `driver_core.Host.Options.release_on_drop` / `glowcap_host_new(... release_on_drop ...)`, read with `glowcap_host_release_on_drop` and set with `glowcap_host_set_release_on_drop` | Whether a binding releases its hold on a far capability when the language reports that it went out of scope. The Host stores the setting and attaches no behavior to it ([ADR-0192](decisions/adr/ADR-0192-rust-releases-on-drop-by-default.md)). Rust turns it on. TypeScript, Python, and Racket turn it off, because their release runs from a finalizer, and keep the per-session opt-in. |
+| `driver_core.Host.Options.release_on_drop` / `glowcap_host_new(... release_on_drop ...)`, read with `glowcap_host_release_on_drop` and set with `glowcap_host_set_release_on_drop` | Whether a binding releases its hold on a far capability when the language reports that it went out of scope. The Host stores the setting and attaches no behavior to it ([ADR-0025](decisions/adr/ADR-0025-capability-release.md)). Rust turns it on. TypeScript, Python, and Racket turn it off, because their release runs from a finalizer, and keep the per-session opt-in. |
 | Raw transport `max_frame_bytes` / `maxFrameBytes` / `max-frame` default | The largest frame a raw blocking transport handle accepts before a Host owns the session. |
 | `net.completion.BackendOptions.read_buffer_bytes` | The size of each buffer in the loop's shared read pool. |
 | `net.completion.Options.outbound_high_water_bytes` | Bytes waiting to be sent before the loop stops reading from that connection. |
@@ -255,7 +255,7 @@ so a sparse number from an untrusted peer cannot force a giant array, and
 imports retain a separate cap because the remote peer chooses their count.
 The namespaces this session mints (exports and outbound answers) are dense
 slabs indexed by position
-([ADR-0254](decisions/adr/ADR-0254-an-own-side-position-is-a-row-that-holds-its-facts.md)):
+([ADR-0038](decisions/adr/ADR-0038-local-position-tables.md)):
 a lookup is an index, a released position is minted again, and an explicit
 export position costs the slots up to it. Garbage collection removes an
 answer row before its position can be reused, and a stale reader holding a
@@ -266,7 +266,7 @@ resolution, because later pipelined messages may still refer to it. These rows
 are capped by count and by total owned bytes. Evicting one would change what
 pipelining can reach, so overflow fails as `resource_exhausted`. Answer GC and
 local promise retirement release exactly the bytes each row was charged
-(ADR-0121).
+(ADR-0008).
 
 Near references, promises, and answers share one internal slot type. The codec
 works out the matching wire descriptor only when it renders a frame.
@@ -277,7 +277,7 @@ mentioning it. The second counts how many of those the session itself will
 release, held next to the closure that spends them. With both on one row,
 pipelining, settlement, and handoff read the same state, and an application's
 release can never spend a retain the session still needs
-([ADR-0146](decisions/adr/ADR-0146-session-held-import-retains.md)).
+([ADR-0027](decisions/adr/ADR-0027-wire-retains-and-export-admission.md)).
 
 `SessionLimits.max_nesting_depth` limits recursive values. Session state also
 decides which messages are legal while negotiating, open, or closed, and an
@@ -323,7 +323,7 @@ sturdyref contains a peer locator plus swiss bytes.
 
 An owned `GlowcapManagedFrame` moves the C frame owner into opaque words
 inside the caller's descriptor. Producing, probing, and releasing that
-descriptor allocate no metadata and copy no frame bytes (ADR-0122).
+descriptor allocate no metadata and copy no frame bytes (ADR-0013).
 
 Lifecycle, accepting connections, provider composition, protocol state, and failure
 classification stay in `driver_core` or `driver`. The C layer validates ABI
@@ -338,7 +338,7 @@ typed record in the owning `GlowcapContext` diagnostic log, and the C ABI expose
 record with the Context-local lifecycle IDs that name its owners. The
 per-thread `last_error`, a session's retained abort, and the live protocol
 trace stay separate because each describes a different fact
-([ADR-0115](decisions/adr/ADR-0115-structured-diagnostic-waist.md)).
+([ADR-0031](decisions/adr/ADR-0031-structured-diagnostics.md)).
 
 There is no umbrella library. A C program links the shared OCapN vocabulary and
 only the Host, driver, and transport archives it needs. [The C
@@ -350,13 +350,13 @@ a reflected callable/constant/layout fingerprint. Binding-projected rows in the
 canonical struct manifests also generate the Rust, TypeScript, Python, and
 Racket layout expectations, and C-only rows stay part of archive identity.
 Binding loaders compare every archive before an ordinary call.
-Implementation-only edits do not perturb the contract (ADR-0123).
+Implementation-only edits do not perturb the contract (ADR-0024).
 
 The fingerprints check the public ABI, so archives sharing opaque Host and
 actor owners are built together. Private compatibility across different builds
 is outside that check. Actor callbacks use stable protocol tokens and
 diagnostic text across archive copies, with typed Zig errors local to their
-compilation ([ADR-0059](decisions/adr/ADR-0059-composable-c-abi-archives.md)).
+compilation ([ADR-0022](decisions/adr/ADR-0022-composable-c-archives.md)).
 
 Bindings that load the C library use `libglowcap_host` and `libglowcap_driver`. The driver
 takes an idle Host and runs the loop. The binding waits on one readiness
@@ -407,7 +407,7 @@ First-party applications live under [`apps/`](../apps/). Compilable teaching
 programs live under [`examples/`](../examples/README.md). Build checks and code
 generators live under [`tools/`](../tools/README.md).
 
-Rooms' [Rust application boundary](decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
+Rooms' [Rust application boundary](decisions/adr/ADR-0045-managed-rooms-sessions.md)
 puts the shared Rooms protocol and application policy above the Zig Host,
 which owns CapTP. Rendering and platform I/O stay in adapters, and the
 user interface is written in TypeScript.
@@ -422,5 +422,5 @@ The optional C Loam archive brings persistence and fixed-resource managed
 hosting into the existing Host. Each disk-engine companion holds its database exclusively
 and executes submitted effects. Rust supplies typed descriptors,
 callback contexts, and joined workers. The rules for who may hold a graph, and
-how a commit is installed, stay in Zig ([ADR-0185](decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)).
+how a commit is installed, stay in Zig ([ADR-0056](decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)).
 The [C/Rust guide](loam/c-and-rust.md) gives the consumer path and its limits.

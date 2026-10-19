@@ -1,6 +1,6 @@
 //! Lowering explicit Node-local capability routes to their wire references at
 //! the one outbound chokepoint (`Peer.send`), so `Reference.routed` never
-//! reaches a codec (ADR-0069).
+//! reaches a codec (ADR-0026).
 //!
 //! A routed reference names a Node table row, not a position in any CapTP
 //! session. Before encoding on its home session, the Node replaces it with the

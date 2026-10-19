@@ -1,7 +1,7 @@
 //! What a behavior may do from inside a callback: top-level verbs refuse,
 //! enqueueing verbs land at the unwind, a refused pump preserves its exact
 //! action for retry, and a deferred resolver settle re-enters top-level
-//! (ADR-0102).
+//! (ADR-0014).
 
 const std = @import("std");
 const c = @import("c_abi");
@@ -239,7 +239,7 @@ test "libglowcap_host: pump callback refusal preserves the exact action for retr
     try std.testing.expectEqual(@as(u32, 1), acted);
 }
 
-/// A behavior that defers its answer onto a resolver vow (ADR-0102): it
+/// A behavior that defers its answer onto a resolver vow (ADR-0014): it
 /// atomically defers the turn, proves the in-turn settle refuses, and
 /// parks the resolver id for the test body, the stand-in for a worker that
 /// completes off-turn.
@@ -316,7 +316,7 @@ test "libglowcap_host optional deferral preserves calls and mints no resolver fo
     try std.testing.expect(sent.fired);
 }
 
-test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-enters top-level (ADR-0102)" {
+test "libglowcap_host: a behavior defers onto a resolver vow, and the settle re-enters top-level (ADR-0014)" {
     const client = try newHost(0x71);
     defer _ = cd.glowcap_host_release(client);
     const server = try newHost(0x72);

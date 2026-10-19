@@ -8,7 +8,7 @@ import { spawnWeb } from "../support/web_front.ts";
 //
 // The first profile writes one line before selecting the peer, so the same
 // conversation generation is split across this browser's store and the peer.
-// The reopen is the combined view of ADR-0144: both lines stand once, and the
+// The reopen is the combined view of ADR-0044: both lines stand once, and the
 // account divider names both keepers.
 //
 // The room uses the self-contained TCP relay. The archive uses direct iroh for
@@ -260,7 +260,7 @@ try {
 	);
 	await see(alice.tab, KEPT, "Alice's first profile");
 	// The combined read: the device-kept line stands beside the peer-kept one,
-	// each exactly once, under one divider naming both keepers (ADR-0144).
+	// each exactly once, under one divider naming both keepers (ADR-0044).
 	await see(alice.tab, KEPT_DEVICE, "Alice's device-kept line");
 	const dividers = await alice.tab.locator('.sys-line:has-text("Earlier messages")').allTextContents();
 	const combined = dividers.filter((text) => text.includes("kept by the shared Rooms session archive peer"));

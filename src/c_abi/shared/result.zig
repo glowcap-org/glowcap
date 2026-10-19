@@ -34,7 +34,7 @@ pub fn locatorAdapterErrorCode(err: locator_adapter.CloneViewError) i32 {
 /// unreachable peer is the same `GLOWCAP_ERR_IO` from every transport. An
 /// archive names the concrete cause in its last-error text, and its
 /// structured report names the classification as the primary cause, which is
-/// how the driver recovers the retry axis (ADR-0082) this table collapses.
+/// how the driver recovers the retry axis (ADR-0030) this table collapses.
 pub fn netlayerFailureCode(err: anyerror) i32 {
     return switch (err) {
         error.InvalidAddress, error.InvalidOptions => GLOWCAP_ERR_INVALID_ARGUMENT,

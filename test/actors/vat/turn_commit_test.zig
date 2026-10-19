@@ -1,5 +1,5 @@
 //! A turn's eventual sends take effect only when the outermost turn returns
-//! successfully (ADR-0191): a failed turn drops its local and far sends and
+//! successfully (ADR-0058): a failed turn drops its local and far sends and
 //! their admission charges, an error an outer frame catches keeps the inner
 //! frame's sends, and a served turn's far sends reach the wire before its reply.
 

@@ -2,7 +2,7 @@
 ;; Live three-party handoff with the Racket binding as the GIFTER (the
 ;; introducer), proving glowcap can mint a `desc:handoff-give` that live Goblins
 ;; redeems and a `deposit-gift` that live Goblins accepts, the exporter half of
-;; ADR-0009 against a real cross-implementation peer, the mirror of
+;; ADR-0039 against a real cross-implementation peer, the mirror of
 ;; `racket-goblins-handoff` (where glowcap is the recipient).
 ;;
 ;; Topology (all TCP loopback):

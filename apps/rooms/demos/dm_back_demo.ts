@@ -4,7 +4,7 @@
 // This is the Chromium-free sibling of `test/proofs/dm_proof.ts`: it
 // drives the same `lib/room/client.ts` `DirectMessage` the browser page uses, so it
 // proves the sender half (`Session.sendRedeeming` surfacing the direct exporter
-// session, ADR-0088) without a browser. Carol never listens, exactly like a
+// session, ADR-0034) without a browser. Carol never listens, exactly like a
 // browser peer.
 //
 //   Room   (rendezvous)  serves the directory (TCP).

@@ -1,5 +1,5 @@
 //! Bringing a sturdyref to life: turning a saved `(peer, swissnum)` into a live
-//! `Reference` on the open session (ADR-0012).
+//! `Reference` on the open session (ADR-0007).
 //!
 //! Underneath, this is just bootstrap-fetch again (`engine.fetch`). Enlivening a
 //! sturdyref is a fetch for its swissnum against `<desc:export 0>`, and the
@@ -11,7 +11,7 @@
 //! this session's remote is the adapter's problem. The core tracks no
 //! remote locator and never dials anyone.)
 //!
-//! Second, deduplication (ADR-0012). Once an enliven resolves, we cache the result
+//! Second, deduplication (ADR-0007). Once an enliven resolves, we cache the result
 //! on the session, swissnum to `(import_position, kind)`, so doing it again
 //! short-circuits with no wire traffic (`sturdyrefCacheHit`). And two enlivens for
 //! the same swissnum in flight at once collapse onto the one outstanding answer.
@@ -32,24 +32,24 @@ const fetch = @import("fetch.zig");
 
 pub const Error = error{
     /// The session did not negotiate `FeatureSet.sturdyref`. Sturdyref enlivenment
-    /// requires a positive handshake (ADR-0012 § The `sturdyref` feature gate).
+    /// requires a positive handshake (ADR-0007).
     SturdyrefsNotNegotiated,
     /// Enliven was attempted on a session that is not `open`.
     SessionNotOpen,
     /// The partner settled the bootstrap-fetch answer as a `break`, or with a
     /// non-`Reference` fulfillment, the swiss-number could not be enlivened
-    /// (ADR-0012 § Enliven over bootstrap-fetch).
+    /// (ADR-0007).
     EnlivenmentBroke,
 };
 
 /// What an `prepareEnliven` call resolves to before any wire traffic.
 pub const EnlivenStart = union(enum) {
-    /// ADR-0012 cache hit: the swiss-number was already enlivened on this session.
+    /// ADR-0007 cache hit: the swiss-number was already enlivened on this session.
     /// Carries the reconstructed `Reference.far` (kind preserved). No wire traffic.
     /// Nothing to send.
     cached: model.Reference,
     /// An enliven for this swiss-number is already in flight on this question.
-    /// This call collapsed onto it (ADR-0012 in-flight dedup). Nothing new to
+    /// This call collapsed onto it (ADR-0007 in-flight dedup). Nothing new to
     /// send.
     in_flight: session_mod.OutboundAnswerTarget,
     /// Cache + in-flight miss: a fresh bootstrap-fetch. The adapter sends
@@ -58,20 +58,17 @@ pub const EnlivenStart = union(enum) {
     fresh: fetch.PreparedFetch,
 };
 
-/// Check the enliven preconditions (ADR-0012 § Enliven over bootstrap-fetch
-/// steps 1-2, minus the
-/// locator-match that is an adapter/dial concern in the Zig core): the session
+/// Check the session-local enliven preconditions (ADR-0007): the session
 /// negotiated `FeatureSet.sturdyref` and is open.
 pub fn checkEnlivenPreconditions(session: *session_mod.Session) Error!void {
     if (!session.features.sturdyref) return error.SturdyrefsNotNegotiated;
     if (session.state != .open) return error.SessionNotOpen;
 }
 
-/// ADR-0012 cache short-circuit: if `swissnum` was already enlivened on
-/// `session`, rebuild the cached `Reference.far` (kind preserved, ADR-0010
-/// § The far-kind is preserved across enliven) without wire traffic. Returns
-/// null on a cache miss. Callers fall
-/// through to a fresh enliven. The returned reference is POD (no allocation).
+/// ADR-0007 cache short-circuit: if `swissnum` was already enlivened on
+/// `session`, rebuild the cached `Reference.far` (kind preserved, ADR-0006)
+/// without wire traffic. Returns null on a cache miss. Callers fall through
+/// to a fresh enliven. The returned reference is POD (no allocation).
 ///
 /// The swiss-number is the whole enliven key: a sturdyref's peer locator
 /// carries no authority here (whether it names this session's remote is the
@@ -82,7 +79,7 @@ pub fn sturdyrefCacheHit(session: *session_mod.Session, swissnum: []const u8) ?m
 }
 
 /// Begin an enliven for `swissnum`. Checks preconditions, then resolves to a
-/// cache hit, an in-flight collapse, or a fresh bootstrap-fetch (ADR-0012). On
+/// cache hit, an in-flight collapse, or a fresh bootstrap-fetch (ADR-0007). On
 /// the fresh path the in-flight marker is recorded so a concurrent enliven for
 /// the same swiss-number collapses. On any allocation failure every allocation
 /// is released and the marker is not left dangling.
@@ -112,7 +109,7 @@ pub fn prepareEnliven(
 /// ownership of `outcome`. Clears the in-flight marker for `swissnum`, then:
 ///
 /// - `fulfilled(Reference.far)`: moves the pending swissnum into the cache
-///   (ADR-0012) and returns the reference (moved out, the caller owns it).
+///   (ADR-0007) and returns the reference (moved out, the caller owns it).
 /// - `fulfilled(non-far)` / `broken` / `malformed`: releases any owned payload and
 ///   returns `Error.EnlivenmentBroke`.
 ///

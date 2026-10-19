@@ -1,4 +1,4 @@
-// The member-owned Rooms archive capability (ADR-0129).
+// The member-owned Rooms archive capability (ADR-0044).
 //
 // This is application protocol, not a storage engine. An archive is one
 // ordinary object whose storage verbs are `put` and `read`. `narrow` creates a

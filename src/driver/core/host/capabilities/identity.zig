@@ -179,9 +179,9 @@ pub fn retainLocalCapability(self: *Host, actor: actors.Ref) !capability.Ref {
 }
 
 /// Lift a freshly Vat-spawned local actor into the opaque identity space,
-/// adopting its spawn root into the capability slot (ADR-0101). The owning
+/// adopting its spawn root into the capability slot (ADR-0014). The owning
 /// spawn verbs use this instead of an eager export binding: the actor gains
-/// wire positions lazily, at first marshal onto a session (ADR-0074's
+/// wire positions lazily, at first marshal onto a session (ADR-0027's
 /// grant-on-marshal), so an unpassed spawn is rooted by its handle alone and
 /// the final release reclaims it.
 pub fn liftLocalActor(self: *Host, actor: actors.Ref) !capability.Ref {
@@ -324,7 +324,7 @@ pub fn settledCapability(self: *Host, ref: capability.Ref) !capability.Ref {
 /// The Vat actor a live local capability names, or null for a remote or stale
 /// ref. The owning send verbs use it to run a same-side call as a direct local
 /// send: no wire position is minted and no export-binding root taken
-/// (ADR-0101), so a spawned-and-called actor still reclaims on final release.
+/// (ADR-0014), so a spawned-and-called actor still reclaims on final release.
 pub fn localActorFor(self: *Host, ref: capability.Ref) ?actors.Ref {
     const target = self.capabilities.resolve(ref) orelse return null;
     return switch (target) {
@@ -405,7 +405,7 @@ pub fn releaseCapability(self: *Host, ref: capability.Ref, delta: u64) !void {
     if (retired != null) switch (target) {
         .remote => if (self.sessions.get(target.remote.peer_handle)) |session|
             session.served.port.peer.session_state.forgetHostCapability(target.remote.far.import_position, ref.raw()),
-        // A retired local slot releases the actor root it held (ADR-0101).
+        // A retired local slot releases the actor root it held (ADR-0014).
         .local => self.vat.releaseActor(target.local),
         .deferred => |id| capability_promise.abandon(self, id),
     };

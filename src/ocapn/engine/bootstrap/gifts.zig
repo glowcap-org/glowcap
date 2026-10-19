@@ -31,7 +31,7 @@ pub const LocalObjectProjection = struct {
     project: *const fn (ctx: ?*anyopaque, scope: PeerHandle, target: u64) Error!ProjectedLocalTarget,
     rollback: *const fn (ctx: ?*anyopaque, scope: PeerHandle, target: u64, projected: ProjectedLocalTarget) void,
     /// Release the deposit-capture root on a `local_target` gift row that died
-    /// (ADR-0101): consumed by withdrawal, replaced by a re-deposit, or
+    /// (ADR-0014): consumed by withdrawal, replaced by a re-deposit, or
     /// destroyed with its session's Peer.
     release_target: *const fn (ctx: ?*anyopaque, target: u64) void,
 };

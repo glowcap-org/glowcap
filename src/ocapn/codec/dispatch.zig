@@ -52,7 +52,7 @@ pub fn decodeBodyForProfile(
 
 /// `decodeBodyForProfile` writing the body into `body`, with `slab` lent
 /// for the message's top-level argument list, so a codec that parses ahead
-/// to find a list's end keeps what it parsed (ADR-0222) and the body is
+/// to find a list's end keeps what it parsed (ADR-0063) and the body is
 /// written once, where it will live. The views in `slab` borrow `frame`.
 /// On a refusal `body` is undefined.
 pub fn decodeBodyInto(

@@ -1,6 +1,6 @@
 // The `RemotePromise` a Session send returns: immediate progress, lazy observation, promise
-// pipelining target, and `index`/`untag`/`get` projection (ADR-0007 /
-// ADR-0050 / ADR-0052). Also the shared fetch/enliven mint→await→classify
+// pipelining target, and `index`/`untag`/`get` projection (ADR-0003 /
+// ADR-0004). Also the shared fetch/enliven mint→await→classify
 // path (`awaitMinted` / `asLiveRef`), the far-send mint→`promiseFor` path
 // (`sendFar`), and RemotePromise construction. Session owns CapTP verb
 // wrappers; trampoline owns Host-reference send·tell dispatch and local arms;
@@ -46,7 +46,7 @@ export interface PromiseFactoryHandle extends VowWaitHandle {
 
 const utf8Encoder = new TextEncoder();
 
-/** Mint a sibling vow at `source` via `op:index` / `op:untag` / `op:get` (ADR-0050/0052). */
+/** Mint a sibling vow at `source` via `op:index` / `op:untag` / `op:get` (ADR-0004/0052). */
 function projectVow(
 	hostRaw: Ptr,
 	source: bigint,
@@ -177,7 +177,7 @@ export function promiseFor(
 }
 
 /** `Session.listen`'s wire half: mint the listen vow over a held far reference
- * (CapTP `op:listen`, ADR-0095) and hand back the settle handle. The Session API
+ * (CapTP `op:listen`, ADR-0003) and hand back the settle handle. The Session API
  * owns profile-specific target legality. The vow is plain: a listen may settle
  * to any value, not only a capability. */
 export function listenFar(h: PromiseFactoryHandle, target: Ref): RemotePromise {
@@ -230,7 +230,7 @@ export function sendFar(
 }
 
 /** The handle `Session.send` returns: the eventual result of one eventual-send,
- * and (the point of promise pipelining, ADR-0007) a target you can `send` to
+ * and (the point of promise pipelining, ADR-0003) a target you can `send` to
  * before it resolves.
  *
  * It is a real `Promise`, so `await session.send(...)`, `Promise.all(...)`, and
@@ -253,7 +253,7 @@ export function sendFar(
  * A pipeline target belongs to the Host that minted it; another Host refuses
  * it before interpreting the Host-local vow number.
  *
- * The projection verbs `index`/`untag`/`get` (ADR-0050/ADR-0052) pipeline an
+ * The projection verbs `index`/`untag`/`get` (ADR-0004/ADR-0004) pipeline an
  * element, untag, or Struct-field access *at the answer*, before it resolves:
  * each returns a new `RemotePromise` for the projected value, addressed at this
  * answer, so `task.untag("cell").index(0)` or `task.get("name")` costs no
@@ -265,7 +265,7 @@ export type PromiseState =
 	// A send that could not be issued at all (a closed session, an argument
 	// that would not lower). It is a state rather than a thrown error because
 	// `send` must return its handle *synchronously*, so pipelining can project
-	// at the answer before it settles (ADR-0050). Throwing instead would put a
+	// at the answer before it settles (ADR-0004). Throwing instead would put a
 	// synchronous failure channel on a promise-returning method, and a caller's
 	// `.catch` could not see it.
 	| { readonly tag: "failed"; readonly error: unknown };
@@ -369,20 +369,20 @@ export class RemotePromise extends Promise<Argument> {
 		return this.#project(op, key);
 	}
 
-	/** Pipeline an `op:index` for `i` at this answer (ADR-0050): a new
+	/** Pipeline an `op:index` for `i` at this answer (ADR-0004): a new
 	 * `RemotePromise` for the List element of whatever this resolves to. */
 	index(i: number | bigint): RemotePromise {
 		return this.#projectOp("index", BigInt(i));
 	}
 
-	/** Pipeline an `op:untag` for `tag` at this answer (ADR-0052): a new
+	/** Pipeline an `op:untag` for `tag` at this answer (ADR-0004): a new
 	 * `RemotePromise` for the payload of whatever this resolves to, which must
 	 * be a Tagged record whose tag equals `tag`. */
 	untag(tag: string): RemotePromise {
 		return this.#projectOp("untag", tag);
 	}
 
-	/** Pipeline an `op:get` for `field` at this answer (ADR-0050): a new
+	/** Pipeline an `op:get` for `field` at this answer (ADR-0004): a new
 	 * `RemotePromise` for the Struct field of whatever this resolves to. */
 	get(field: string): RemotePromise {
 		return this.#projectOp("get", field);

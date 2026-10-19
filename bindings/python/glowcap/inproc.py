@@ -5,7 +5,7 @@ This is the socket-free sibling of :mod:`glowcap.tcp`: two peers in one process
 wired by in-process pipes, with no kernel transport. The C listener adds a wake
 descriptor for reactor integration. No application bytes flow through it. It is
 a companion to the core :mod:`glowcap` module, mirroring the C ABI's
-symbol-disjoint archive split (ADR-0059). Importing it loads
+symbol-disjoint archive split (ADR-0022). Importing it loads
 ``libglowcap_net_transport_inproc`` on top of the core ``libglowcap_ocapn``. It
 shares the core's frame, context, and value layout but adds the
 ``glowcap_inproc_*`` family with its own thread-local last-error.

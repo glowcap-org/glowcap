@@ -119,7 +119,7 @@ async def _structured_args_round_trip() -> None:
         await server.close()
 
 async def _enliven_round_trips_then_caches() -> None:
-    """Sturdyref enliven (ADR-0012): the requester brings a durable
+    """Sturdyref enliven (ADR-0007): the requester brings a durable
     ``(peer, swissnum)`` to life as a live :class:`Ref` through the host's
     dedup cache. A repeat enliven of the same swissnum short-circuits with no
     wire traffic (its completion is queued before the minting call returns),
@@ -202,7 +202,7 @@ async def _enliven_round_trips_then_caches() -> None:
 
 
 async def _distributed_release_reaches_each_capability_home() -> None:
-    """Distributed release (ADR-0063): fetch results, nested send replies, and
+    """Distributed release (ADR-0025): fetch results, nested send replies, and
     nested delivered arguments each release their projected capability at its
     actual home. Both real wire directions are observed before teardown, so a
     session-close sweep cannot satisfy the proof accidentally."""
@@ -296,7 +296,7 @@ async def _fetch_failed_is_typed() -> None:
     deliver is retargeted from export 0 to the export of a published object
     that answers with a plain integer, so the client's fetch answer fulfills
     with 42. The client fetches "plain" legitimately first: that reply's
-    marshal is what grants the export (ADR-0074), so the doctored deliver
+    marshal is what grants the export (ADR-0027), so the doctored deliver
     that follows is admitted rather than refused as a probe of an ungranted
     position."""
     server = await tcp.listen("127.0.0.1", 0)

@@ -1,4 +1,4 @@
-//! Direct tests for the persistent immutable map (ADR-0061): structural sharing
+//! Direct tests for the persistent immutable map (ADR-0015): structural sharing
 //! across versions, refcount correctness, no cycles, and leak-freedom. The
 //! testing allocator fails any test that leaks or double-frees, so a green run
 //! is itself the proof that every shared node is freed exactly once.

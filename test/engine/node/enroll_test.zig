@@ -108,7 +108,7 @@ test "gift-id ticket exhaustion publishes no request and remains retryable" {
     try std.testing.expectEqual(@as(u64, 0), node.nextAction().?.need_gift_id.ticket);
 }
 
-test "a fetched foreign import is enrolled under a node-unique route; two at one position never collide and each routes home (ADR-0069)" {
+test "a fetched foreign import is enrolled under a node-unique route; two at one position never collide and each routes home (ADR-0026)" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(18)));
     defer node.deinit();
@@ -162,7 +162,7 @@ test "a fetched foreign import is enrolled under a node-unique route; two at one
     try std.testing.expectEqual(conn_b, node.routeReference(conn_b, route_b).?.peer_handle);
 }
 
-test "lowerForConn swaps a route to its wire reference on its home and fails closed elsewhere (ADR-0069)" {
+test "lowerForConn swaps a route to its wire reference on its home and fails closed elsewhere (ADR-0026)" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, @as([crypto.seed_bytes]u8, @splat(21)));
     defer node.deinit();

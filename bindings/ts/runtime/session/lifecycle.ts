@@ -67,7 +67,7 @@ export abstract class SessionLifecycle {
 	// Opaque Host capability id -> trampoline ctx id for objects this session
 	// hosts, so a `Forward` whose target this side hosts composes in process.
 	readonly #hosted: Map<bigint, bigint>;
-	// Distributed GC (ADR-0063), opt-in and off by default (see `gc.ts`).
+	// Distributed GC (ADR-0025), opt-in and off by default (see `gc.ts`).
 	#gcEnabled = false;
 
 	protected constructor(ptr: Ptr, host: Host, transport: Channel) {
@@ -239,7 +239,7 @@ export abstract class SessionLifecycle {
 	 * rejects on a transport or protocol error. Started once; calling again
 	 * returns the same promise.
 	 *
-	 * A loop-backed session (ADR-0112) has no byte pump of its own: the
+	 * A loop-backed session (ADR-0024) has no byte pump of its own: the
 	 * driver loop reads, feeds, and drains. Its serve promise only awaits
 	 * the session's closure, keeping the resolves-on-close contract. */
 	#attendInbound(): void {

@@ -252,7 +252,7 @@ pub fn vowUntag(self: *Host, vow_id: u64, tag: []const u8) !u64 {
 }
 
 /// Pipeline an `op:get` projection against a far host vow, minting a new
-/// vow for the named Struct field (ADR-0050).
+/// vow for the named Struct field (ADR-0004).
 pub fn vowGet(self: *Host, vow_id: u64, field: []const u8) !u64 {
     return vowProjection(self, vow_id, .{ .get = field });
 }

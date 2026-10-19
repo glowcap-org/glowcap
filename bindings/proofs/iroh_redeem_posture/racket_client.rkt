@@ -1,6 +1,6 @@
 #lang racket
 ;; Hermetic proof that a recipient's *configured redeem posture* governs how a
-;; hint-less iroh handoff give is dialed (ADR-0009), all in the Racket binding:
+;; hint-less iroh handoff give is dialed (ADR-0039), all in the Racket binding:
 ;; the sibling of the Rust/Python `iroh_redeem_posture` clients.
 ;;
 ;; A give whose exporter location names the exporter by node id alone (no

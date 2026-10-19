@@ -1,5 +1,5 @@
 //! Typed, bounded retention for failures that have no remaining return
-//! recipient (ADR-0115).
+//! recipient (ADR-0031).
 //!
 //! This module owns no global state. A Journal lives behind an explicit
 //! Context, Host, or driver owner shared by the producers that report into it.

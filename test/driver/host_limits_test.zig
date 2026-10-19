@@ -1,4 +1,4 @@
-//! Host full SessionLimits mint (ADR-0082) and Loop fan-in / park-kill Options.
+//! Host full SessionLimits mint (ADR-0030) and Loop fan-in / park-kill Options.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

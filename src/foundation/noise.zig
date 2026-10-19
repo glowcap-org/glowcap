@@ -1,4 +1,4 @@
-//! The `Noise_XK_25519_ChaChaPoly_BLAKE2s` state machine ADR-0107's sealed
+//! The `Noise_XK_25519_ChaChaPoly_BLAKE2s` state machine ADR-0041's sealed
 //! channel speaks: handshake, transport ciphers, and the sealed-record
 //! framing, over caller buffers.
 //!
@@ -408,7 +408,7 @@ pub const HandshakeState = struct {
     /// Finish: derive the two transport ciphers and wipe the handshake's
     /// working state. The chaining key, ephemeral secret, static-secret copy,
     /// and payload cipher are zeroed here, which is the completion-time
-    /// cleanup ADR-0107 budgets for. Only the returned keys and the transcript
+    /// cleanup ADR-0041 budgets for. Only the returned keys and the transcript
     /// hash survive.
     pub fn split(self: *HandshakeState) NoiseError!TransportKeys {
         switch (self.stage) {

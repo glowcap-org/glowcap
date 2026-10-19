@@ -1,7 +1,7 @@
 //! Peer-less frame-transport tests over `Reader.fixed` and `std.testing.Reader`,
 //! with no sockets. These prove `readFrameFrom` lifts one whole owned frame per envelope, per
 //! call across *both* codecs, that a frame larger than the read buffer
-//! assembles through the bounded spill (ADR-0041) and the spill frees when it
+//! assembles through the bounded spill (ADR-0012) and the spill frees when it
 //! drains, and in particular that a `word`-shaped Cap'n Proto frame is
 //! materialized with the 8-byte alignment its shape requires (a byte-aligned
 //! copy would fail frame validation and surface every well-formed capnp frame

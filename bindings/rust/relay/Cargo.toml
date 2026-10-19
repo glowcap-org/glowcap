@@ -1,4 +1,4 @@
-# A byte-transparent relay in Rust — the third-runtime reference for the ADR-0086
+# A byte-transparent relay in Rust — the third-runtime reference for the ADR-0033
 # relay contract. Standalone (no glowcap dependency for the TCP leg, since a raw
 # socket is already byte-level and kernel-backpressured); its WebSocket server is
 # tokio-tungstenite, reusing the tokio the iroh sidecar already pulls in.

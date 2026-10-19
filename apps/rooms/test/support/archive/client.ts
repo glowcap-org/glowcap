@@ -1,4 +1,4 @@
-// Session-side calls for independently revocable archive-peer shares (ADR-0140).
+// Session-side calls for independently revocable archive-peer shares (ADR-0044).
 
 import type { Ref, Session } from "@glowcap/runtime";
 import { ask } from "../../../lib/ask.ts";

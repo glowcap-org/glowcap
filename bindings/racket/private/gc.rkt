@@ -1,5 +1,5 @@
 #lang racket/base
-;; Internal: distributed GC (ADR-0063), opt-in and off by default. Owns
+;; Internal: distributed GC (ADR-0025), opt-in and off by default. Owns
 ;; `session-with-gc!` / recursive value tracking / `drain-gc!`, the weak per-Host
 ;; state table, the finalizer park, and the Host release verbs for references
 ;; and vows. Session keeps CapTP verbs that call these.
@@ -84,7 +84,7 @@
          (when (async-channel-try-get (gc-state-channel gs)) (drain)))))
     (hash-remove! gc-states m)))
 
-;; Opt this session into distributed GC (ADR-0063), off by default. Once on,
+;; Opt this session into distributed GC (ADR-0025), off by default. Once on,
 ;; every capability occurrence projected through fetch, a fulfilled far
 ;; operation, or a delivered argument releases its Host retain when Racket's
 ;; collector reclaims it, so the partner can release the matching export.

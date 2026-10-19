@@ -1,10 +1,10 @@
 // The application surface over the byte-fed host (libglowcap_host,
-// ADR-0072): `Session` and its verbs (`fetch`/`send`/`tell`/`spawn`/
+// ADR-0022): `Session` and its verbs (`fetch`/`send`/`tell`/`spawn`/
 // `publish`/`enliven`/`serve`/`close`), plus mint/handshake
 // (`establishDialedLocator` / `establishAccepted`). The dial executor and
 // `connect` live in `dial.ts`; Server/`listen` live in `listen.ts`. The
 // `RemotePromise` handle, fetch/enliven mint→await, far-send `sendFar` /
-// `promiseFor`, live in `promise.ts`. Spawn/publish hosting, ADR-0064
+// `promiseFor`, live in `promise.ts`. Spawn/publish hosting, ADR-0016
 // proxies, and Host-reference send·tell dispatch live in `trampoline.ts`. The
 // byte-fed embedder pump (handshake,
 // read transport packets, feed, drain, flush) lives in `pump.ts`. The host owns
@@ -82,7 +82,7 @@ export interface SendRedeemingResult {
 }
 
 /** What a loop-minted `Session` needs from the driver loop that owns it
- * (ADR-0112). Declared here and implemented by `driver_loop.ts`'s `DriverLoop`,
+ * (ADR-0024). Declared here and implemented by `driver_loop.ts`'s `DriverLoop`,
  * so the Session arms can dispatch on it without importing the loop tier. */
 export interface DriverLoopHandle {
 	/** One zero-timeout step plus an event dispatch, on the driving thread. */
@@ -105,7 +105,7 @@ export interface DriverLoopHandle {
 	adoptSession(ptr: Ptr): Session;
 }
 
-/** The loop-backed `Channel` (ADR-0112): the driver loop owns the wire, so it
+/** The loop-backed `Channel` (ADR-0024): the driver loop owns the wire, so it
  * carries no byte verbs the pump would drive. It has only the closed event the serve
  * promise awaits and the loop back-reference the Session arms dispatch on. */
 export interface LoopChannel extends Channel {
@@ -176,7 +176,7 @@ export class Session extends SessionApplication {
 	 * produced. `accepted` carries the provider's transport metadata and byte
 	 * channel as one value; the host resolves what this accept signs and
 	 * retains it without displacing an explicitly selected advertised locator
-	 * (ADR-0078), with no locator policy in this binding layer. The handshake
+	 * (ADR-0029), with no locator policy in this binding layer. The handshake
 	 * is bounded by `handshakeTimeoutMs` (`HANDSHAKE_TIMEOUT_MS` in every
 	 * accept loop here; `0` or `null` waits unbounded, which a caller parking
 	 * a registration rather than running an accept loop wants), and

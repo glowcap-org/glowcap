@@ -330,7 +330,7 @@ async def _allocator_context_round_trip() -> None:
             still = await client.send(counter_ref, "get", [])
             assert still == 15, f"issued ref survives unpublish, got {still!r}"
 
-            # Durable publication (ADR-0098): the minted swiss name fetches on
+            # Durable publication (ADR-0007): the minted swiss name fetches on
             # the live session, removal makes a later fetch miss, and the
             # capability issued before removal still answers.
             swiss = host.publish_durable(counter)
@@ -456,7 +456,7 @@ def _dial_injected(host: Host):
 async def _feed_refusals_are_typed() -> None:
     """Bounded inbox and typed abort causes over the byte-fed host. A frame
     declaring more than the frame cap is a typed refusal the moment that is
-    knowable, never "read more" (ADR-0041). A refused frame names its typed
+    knowable, never "read more" (ADR-0012). A refused frame names its typed
     cause (the flat GlowcapError code says the failure family, the attached
     AbortDetail says the member)."""
     from glowcap import _pump
@@ -493,7 +493,7 @@ async def _feed_refusals_are_typed() -> None:
 
 async def _tightened_admission_cap_refuses() -> None:
     """``Host.set_session_limits`` moves the admission cap the sessions minted
-    after it are held to (ADR-0082). One frame decides it: at the default cap a
+    after it are held to (ADR-0030). One frame decides it: at the default cap a
     4000-byte declaration is incomplete, and at a tightened 1024 the same
     prefix is a typed over-cap refusal."""
     from glowcap import _pump

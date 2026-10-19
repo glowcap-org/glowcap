@@ -38,14 +38,14 @@ pub const Error = error{
     DesignatorUnavailable,
     /// The OS entropy source could not fill the session seed for the handshake.
     HandshakeEntropyFailed,
-    /// The OS entropy source could not fill a durable swiss mint (ADR-0098).
+    /// The OS entropy source could not fill a durable swiss mint (ADR-0007).
     MintEntropyFailed,
     /// A keyed handshake made no progress within its caller-set budget: the
     /// partner accepted the socket but never spoke. A `driver.connect` or
     /// `Server.accept` handshake breaks with this reason when its bounded
     /// `handshake` budget elapses, instead of parking the fiber for the
     /// connection's life. A host-owned redeem dial reserves it for the same
-    /// silent-exporter case (ADR-0081).
+    /// silent-exporter case (ADR-0030).
     HandshakeTimedOut,
     /// A Runtime or Host finish-close exhausted its explicit grace budget.
     /// Teardown still escalates to cancel and reaches the closed barrier
@@ -55,7 +55,7 @@ pub const Error = error{
     /// within its caller-set budget: the partner opened a session then stalled
     /// without settling the vow. Bounded by the session options' `settle`
     /// budget. Sibling of `HandshakeTimedOut` for post-handshake waits
-    /// (ADR-0076).
+    /// (ADR-0018).
     WaitTimedOut,
     /// A locator named a transport no registered netlayer hosts.
     UnknownTransport,
@@ -115,7 +115,7 @@ pub const Error = error{
     /// `.{ .keyed = secret }` holding the listener's identity key.
     EphemeralIdentityOnKeyedTransport,
     /// This face was wired to advertise a durable key it cannot sign for
-    /// (ADR-0105): an `Identity.keyed` whose `designator` names some other
+    /// (ADR-0028): an `Identity.keyed` whose `designator` names some other
     /// peer's key, or a keyed listener bound under a key that is not the one
     /// the host was built on. The mismatch is refused where it was wired
     /// rather than on the first accept. Same name and meaning as
@@ -133,7 +133,7 @@ pub const default_handshake_budget: Budget = .{ .ms = default_handshake_timeout_
 /// Shared discovery-posture dial defaults (pkarr / n0 DNS propagation).
 /// Attempts include the first dial. Retry happens only between transient
 /// failures. The HostRuntime pump executes the retry policy above CapTP
-/// (ADR-0193).
+/// (ADR-0018).
 pub const discovery_retry_ms: u64 = 3_000;
 pub const discovery_max_attempts: u32 = 24;
 
@@ -260,7 +260,7 @@ pub const PartnerIdentity = struct {
     locator_record: []const u8,
 
     /// How the durable identity in `designator` was authenticated, if at all
-    /// (ADR-0097). Session identity, durable identity, and this provenance are
+    /// (ADR-0028). Session identity, durable identity, and this provenance are
     /// three separate facts. A caller that needs an authenticated durable peer
     /// asks `durableIdentityAuthenticated`, never key equality.
     provenance: DurableProvenance = .unauthenticated,
@@ -277,7 +277,7 @@ pub const PartnerIdentity = struct {
     /// Whether `designator` is literally this partner's session key, in the
     /// canonical hex encoding used by a key designator.
     ///
-    /// **A diagnostic, not an authentication predicate** (ADR-0097). Fresh
+    /// **A diagnostic, not an authentication predicate** (ADR-0028). Fresh
     /// sessions normally use a key distinct from the durable key a locator
     /// names, so this normally answers false even for an authenticated partner.
     /// Ask `durableIdentityAuthenticated` when durable authentication matters.
@@ -293,7 +293,7 @@ pub const PartnerIdentity = struct {
     }
 };
 
-/// How a partner's advertised durable identity was authenticated (ADR-0105),
+/// How a partner's advertised durable identity was authenticated (ADR-0028),
 /// the third fact `PartnerIdentity` reports beside session key and designator.
 /// It answers "what proved this name", never "who is this". An unauthenticated
 /// partner still has a session key and may still have signed a location.
@@ -331,7 +331,7 @@ pub const Vow = actors.Vow;
 /// on the serve core (`Served.publish` and `Served.spawn`), where the
 /// caller owns the peer and wire positions are the caller's own vocabulary.
 /// The Host speaks the opaque Host-scoped `Capability` instead
-/// (ADR-0096) and never surfaces these fields.
+/// (ADR-0026) and never surfaces these fields.
 pub const Exported = struct {
     /// The export position the session allocated for this actor.
     position: u64,
@@ -361,7 +361,7 @@ pub const Exported = struct {
 /// can never alias a position the session hands out for anything else. The
 /// position is *reserved* here: the partner can address the capability only
 /// once it first marshals onto the wire (typically riding this turn's own
-/// reply) or after an explicit grant through `peer.exportObject` (ADR-0074).
+/// reply) or after an explicit grant through `peer.exportObject` (ADR-0027).
 /// A peerless vat is refused with the actor layer's own `NotConnected`. An
 /// actor that should have no wire position at all is spawned with `Vat.spawn`,
 /// which mints no export.
@@ -386,7 +386,7 @@ pub const Settled = union(enum) {
     /// `desc:handoff-give` addressed to this session's session key. This
     /// arm surfaces only on the byte-fed `Served` drive, where the caller
     /// owns the loop and no router runs beneath it, so the caller redeems
-    /// the give. Every host-backed tier (the owning face (ADR-0090), the C
+    /// the give. Every host-backed tier (the owning face (ADR-0018), the C
     /// driver, the bindings) claims the give and redeems it itself, so its
     /// calls settle with the introduced capability instead. The payload is
     /// materialized into the call's allocator like any other outcome.

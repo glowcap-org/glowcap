@@ -188,7 +188,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
             var peer = self.resident.newPeer(true) catch return error.ConnectFailed;
             errdefer peer.deinit();
             // The dialed designator is the identity this channel's signaling is
-            // scoped to (ADR-0105). The bridge reads it back through
+            // scoped to (ADR-0028). The bridge reads it back through
             // `verifiedChannelKey` and asserts it to the engine.
             peer.authorizeRemote(crypto.PeerKey.fromDesignator(target.designator) orelse
                 return error.ConnectFailed);
@@ -223,7 +223,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type, comptime Connections: typ
         }
 
         /// Answer an inbound offer from the peer `designator` names: create the
-        /// answerer, scope the exchange to that designator (ADR-0105), set the
+        /// answerer, scope the exchange to that designator (ADR-0028), set the
         /// offer, produce the answer, hand it to the authority's `sendAnswer`
         /// under the reserved fd, and adopt the peer. Thread-safe. Returns the
         /// exchange fd: route the offerer's later candidates to it with

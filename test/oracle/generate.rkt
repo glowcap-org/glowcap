@@ -79,7 +79,7 @@
 ;;
 ;; Encoder side of the perspective flip for a local unresolved promise:
 ;; sender's Reference::Near{.promise} becomes <desc:import-promise N>
-;; in payload position (ADR-0080 Slot.local_unresolved).
+;; in payload position (ADR-0006 Slot.local_unresolved).
 (define (op-resolve-fulfill-import-promise)
   (record* 'op:resolve
            7
@@ -88,7 +88,7 @@
 
 ;; <op:listen <desc:answer 7> <desc:import-object 9>>.
 ;;
-;; Legacy op:listen wire-shape per ADR-0007 § Decision 4 — two
+;; Legacy op:listen wire-shape per ADR-0003 — two
 ;; desc:* reference operands. `to-desc` may be `desc:answer`
 ;; (pipelining target case) or `desc:export` (local-export target
 ;; case). `listen-desc` is `desc:import-object` or
@@ -108,7 +108,7 @@
 ;;
 ;; Wire-shape fixture for an export-target listen. CapTP fires the listener
 ;; immediately when the target is already settled, and glowcap's engine does
-;; that for a live object export (ADR-0007; a bare promise export refuses).
+;; that for a live object export (ADR-0003; a bare promise export refuses).
 ;; This fixture locks the Syrup bytes; the firing behavior is covered by the
 ;; engine scenarios and by `goblins-interop`'s export-listen leg.
 (define (op-listen-export-target)
@@ -119,7 +119,7 @@
 ;; <op:listen <desc:answer 7> <desc:import-object 9> #f>.
 ;;
 ;; V1_0 Goblins-canonical 3-operand `op:listen` with
-;; `wants-partial? = #f` per ADR-0007 § Decision 4 / captp.rkt:86-88.
+;; `wants-partial? = #f` per ADR-0003 / captp.rkt:86-88.
 ;; Spec-strict listener-fire behavior (fire once, on the
 ;; eventually-settled non-promise resolution).
 (define (op-listen-v1-0-wants-partial-false)
@@ -142,7 +142,7 @@
 ;; <op:deliver <desc:export 7> [b"hello"] 42 <desc:import-object 99>>.
 ;;
 ;; V1_0 Goblins-canonical resolver-callback shape per
-;; src/ocapn/model/mod.zig (ADR-0003) and src/ocapn/codec/syrup/mod.zig
+;; src/ocapn/model/mod.zig (ADR-0001) and src/ocapn/codec/syrup/mod.zig
 ;; § "Versioned wire shapes": the fourth `op:deliver` field carries the
 ;; partner-installable `<desc:import-object pos>` resolver descriptor
 ;; (Goblins encodes it via `marshall-local-refr!` in
@@ -178,26 +178,25 @@
            #f
            #f))
 
-;; ── ADR-0008 fixtures ──────────────────────────────────────────────
+;; ── ADR-0004 fixtures ──────────────────────────────────────────────
 
 ;; <op:gc-exports [3 7] [1 2]>, Goblins-canonical op:gc-exports per
 ;; goblins/ocapn/captp.rkt:90-92: two parallel lists, the sender's
 ;; dropped position ids and the matching wire-deltas. Receiver
-;; decrements export refcounts by the wire-delta per ADR-0008
-;; § Wire-delta reference counting.
+;; decrements export refcounts by the wire-delta per ADR-0004.
 (define (op-gc-exports)
   (record* 'op:gc-exports (list 3 7) (list 1 2)))
 
 ;; <op:gc-answers [11 13]> — Goblins-canonical op:gc-answers per
 ;; goblins/ocapn/captp.rkt:94-96: a single list of answer-pos values
 ;; being released. No wire-delta — each answer-pos is single-reference
-;; per ADR-0008 § Wire format: op:gc-answers.
+;; per ADR-0004.
 (define (op-gc-answers)
   (record* 'op:gc-answers (list 11 13)))
 
 ;; <op:abort "VersionMismatch: peer requested 2.0">.
 ;;
-;; ADR-0008 typed-reason wire projection: glowcap's
+;; ADR-0004 typed-reason wire projection: glowcap's
 ;; AbortReasonKind taxonomy emits the spec-strict single-string
 ;; op:abort with a "<KindName>: <message>" prefix on V1_0 syrup.
 ;; Goblins-canonical wire stays a single string; the typed-kind
@@ -209,9 +208,9 @@
 
 ;; <op:abort "ResourceExhausted: ImportTable cap hit">.
 ;;
-;; ADR-0025 typed-reason wire projection, same shape as
+;; ADR-0008 typed-reason wire projection, same shape as
 ;; op-abort-typed but with the new ResourceExhausted kind that
-;; ADR-0025 added (session table-cap hardening). Sibling
+;; ADR-0008 added (session table-cap hardening). Sibling
 ;; to the Python fixture; cross-impl byte parity on the typed
 ;; ResourceExhausted abort is the load-bearing check.
 (define (op-abort-resource-exhausted)
@@ -219,7 +218,7 @@
 
 ;; <op:abort "CrossedHellos: byte-lower side closing">.
 ;;
-;; ADR-0008 typed abort taxonomy. `CrossedHellos` is the abort kind
+;; ADR-0004 typed abort taxonomy. `CrossedHellos` is the abort kind
 ;; an adapter projects when it detects a concurrent inbound session
 ;; for the same partner; the no-I/O core carries the kind and its wire
 ;; projection but does not detect the condition.
@@ -228,7 +227,7 @@
 
 ;; <op:abort "ConnectionLost: peer TCP RST">.
 ;;
-;; ADR-0008 typed abort taxonomy. `ConnectionLost` is the abort kind
+;; ADR-0004 typed abort taxonomy. `ConnectionLost` is the abort kind
 ;; an adapter projects best-effort when its transport reports a lost
 ;; connection; partners observing this MAY retry.
 (define (op-abort-connection-lost)
@@ -236,17 +235,17 @@
 
 ;; <op:abort "GracefulShutdown: SIGTERM drain complete">.
 ;;
-;; ADR-0008 typed abort taxonomy. `GracefulShutdown` is the abort kind
+;; ADR-0004 typed abort taxonomy. `GracefulShutdown` is the abort kind
 ;; an adapter projects on a drain-to-completion shutdown; partners
 ;; SHOULD NOT retry. Distinct from `ConnectionLost` (retryable) and
 ;; `NormalShutdown` (no drain semantics).
 (define (op-abort-graceful-shutdown)
   (record* 'op:abort "GracefulShutdown: SIGTERM drain complete"))
 
-;; ── ADR-0021 widened-Argument fixtures ──────────────────
+;; ── ADR-0005 widened-Argument fixtures ──────────────────
 ;;
 ;; `op:deliver to=<desc:export 7> args=[<arg>] answer-pos=42 #f`
-;; shape for each new `Argument` variant ADR-0021 added. Mirrors the
+;; shape for each new `Argument` variant ADR-0005 added. Mirrors the
 ;; sibling Python builders; pin direction is "both reference encoders
 ;; agree, glowcap must match." A regression on a specific variant's
 ;; wire shape surfaces against its dedicated fixture.
@@ -258,37 +257,37 @@
            42
            #f))
 
-;; <'void>, Goblins's (void) value per ADR-0021.
+;; <'void>, Goblins's (void) value per ADR-0005.
 (define (op-deliver-arg-void)
   (op-deliver-one-arg (record* 'void)))
 
-;; D<8 bytes BE IEEE 754>, Racket double 1.5 per ADR-0021.
+;; D<8 bytes BE IEEE 754>, Racket double 1.5 per ADR-0005.
 (define (op-deliver-arg-float64)
   (op-deliver-one-arg 1.5))
 
 ;; 2^100, a Racket bignum, encoded by the upstream Syrup encoder as the
-;; canonical decimal digits. Pins glowcap's `big_integer` arm (ADR-0049)
+;; canonical decimal digits. Pins glowcap's `big_integer` arm (ADR-0005)
 ;; against the same arbitrary-precision value Goblins would marshal.
 (define (op-deliver-arg-big-integer)
   (op-deliver-one-arg 1267650600228229401496703205376))
 
 ;; <'user-record 'point (1 2)>, Goblins's user-record catch-all per
-;; ADR-0021. Tagged.value is a Vec<Argument> so the model cell
+;; ADR-0005. Tagged.value is a Vec<Argument> so the model cell
 ;; matches the wire's record-args list verbatim; the 2-element
 ;; value list exercises the multi-arg shape.
 (define (op-deliver-arg-tagged)
   (op-deliver-one-arg (record* 'user-record 'point (list 1 2))))
 
-;; <'kw 'name>, Goblins keyword arg per ADR-0021.
+;; <'kw 'name>, Goblins keyword arg per ADR-0005.
 (define (op-deliver-arg-keyword)
   (op-deliver-one-arg (record* 'kw 'name)))
 
-;; #1 2 3 $, Goblins (set 1 2 3) per ADR-0021. The Racket `set`
+;; #1 2 3 $, Goblins (set 1 2 3) per ADR-0005. The Racket `set`
 ;; serializer canonical-sorts on emit (matching glowcap's encoder).
 (define (op-deliver-arg-set)
   (op-deliver-one-arg (set 1 2 3)))
 
-;; ── ADR-0009 handoff envelope fixtures ─────────────────────────────
+;; ── ADR-0039 handoff envelope fixtures ─────────────────────────────
 
 ;; Encode an Ed25519 public key as the OCapN-canonical gcrypt
 ;; s-expression `['public-key ['ecc ['curve 'Ed25519] ['flags 'eddsa]
@@ -362,7 +361,7 @@
 ;;             99
 ;;             #f>.
 ;;
-;; ADR-0009 § Receiver side step 8 wire shape: the
+;; ADR-0039: the
 ;; Receiver invokes `withdraw-gift` on the Exporter's bootstrap
 ;; object (<desc:export 0>) carrying a desc:sig-envelope-wrapped
 ;; desc:handoff-receive certificate as the second op:deliver arg.
@@ -390,7 +389,7 @@
   (define args (list 'withdraw-gift signed-receive))
   (record* 'op:deliver target args 99 #f))
 
-;; ── ADR-0007 / op:get + op:index fixtures ─────────────────────────
+;; ── ADR-0003 / op:get + op:index fixtures ─────────────────────────
 ;;
 ;; Goblins's `(define-recordable-struct op:get (receiver-desc
 ;; field-name new-answer-pos))` and the parallel `op:index` at
@@ -402,7 +401,7 @@
 ;;
 ;; receiver = sender's `Reference::Far(import_position=7)` → wire
 ;; `<desc:export 7>` (target-position perspective flip per
-;; ADR-0010 § Decision 3). `field-name` is a Syrup *string* per
+;; ADR-0006). `field-name` is a Syrup *string* per
 ;; CapTP § op:get (Goblins guards `string?` on receipt).
 ;; `new-answer-pos` is the result-promise answer id the sender
 ;; just allocated.
@@ -416,7 +415,7 @@
 ;;
 ;; receiver = sender's `Reference::Far(import_position=7)` → wire
 ;; `<desc:export 7>`. `index` is a Syrup positive integer per
-;; ADR-0007 § Decision 1 (model field is `i64` with `0` admitted);
+;; ADR-0003 (model field is `i64` with `0` admitted);
 ;; `new-answer-pos` is the result-promise answer id.
 (define (op-index)
   (record* 'op:index
@@ -436,7 +435,7 @@
            "cm"
            11))
 
-;; ── ADR-0006 / op:start-session handshake fixture ──────────────────
+;; ── ADR-0002 / op:start-session handshake fixture ──────────────────
 ;;
 ;; Goblins's `(define-recordable-struct op:start-session
 ;; (captp-version handoff-pubkey acceptable-location
@@ -450,7 +449,7 @@
 ;; same shape via `peer_key_to_syrup` / `locator_to_syrup` /
 ;; `signature_to_syrup` — fixture confirms cross-impl byte parity.
 ;;
-;; Per ADR-0006 the signature domain is the *wrapped* `<my-location
+;; Per ADR-0002 the signature domain is the *wrapped* `<my-location
 ;; $loc>` Syrup-canonical bytes (Goblins's verification path at
 ;; `captp.rkt:1454-1457`). The signature byte pattern below
 ;; (`#xCC`) is a fixture placeholder — real handshake bytes are
@@ -502,25 +501,25 @@
         (cons "desc_handoff_give_signed.bin"                   signed-handoff-give)
         (cons "desc_handoff_receive_signed.bin"                signed-handoff-receive)
         (cons "op_deliver_withdraw_gift.bin"                   op-deliver-withdraw-gift)
-        ;; ADR-0025 typed-abort wire kind
+        ;; ADR-0008 typed-abort wire kind
         (cons "op_abort_resource_exhausted.bin"                op-abort-resource-exhausted)
-        ;; ADR-0008 adapter-projected typed-abort wire kinds
+        ;; ADR-0004 adapter-projected typed-abort wire kinds
         (cons "op_abort_crossed_hellos.bin"                    op-abort-crossed-hellos)
         (cons "op_abort_connection_lost.bin"                   op-abort-connection-lost)
         (cons "op_abort_graceful_shutdown.bin"                 op-abort-graceful-shutdown)
-        ;; ADR-0021 widened `Argument` arms (op:deliver one-arg shape)
+        ;; ADR-0005 widened `Argument` arms (op:deliver one-arg shape)
         (cons "op_deliver_arg_void.bin"                        op-deliver-arg-void)
         (cons "op_deliver_arg_float64.bin"                     op-deliver-arg-float64)
         (cons "op_deliver_arg_tagged.bin"                      op-deliver-arg-tagged)
         (cons "op_deliver_arg_keyword.bin"                     op-deliver-arg-keyword)
         (cons "op_deliver_arg_set.bin"                         op-deliver-arg-set)
-        ;; ADR-0049 arbitrary-precision Integer
+        ;; ADR-0005 arbitrary-precision Integer
         (cons "op_deliver_arg_big_integer.bin"                 op-deliver-arg-big-integer)
-        ;; ADR-0007 op:get / op:index field-projection ops
+        ;; ADR-0003 op:get / op:index field-projection ops
         (cons "op_get.bin"                                     op-get)
         (cons "op_index.bin"                                   op-index)
         (cons "op_untag.bin"                                   op-untag)
-        ;; ADR-0006 op:start-session handshake (V1_0)
+        ;; ADR-0002 op:start-session handshake (V1_0)
         (cons "op_start_session_v1_0.bin"                      op-start-session-v1-0)
         (cons "prim_string_hello.bin"                          prim-string-hello)
         (cons "prim_integer_pos_42.bin"                        prim-integer-pos-42)

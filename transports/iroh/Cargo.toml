@@ -1,4 +1,4 @@
-# The iroh netlayer sidecar (ADR-0055): a staticlib wrapping the iroh endpoint
+# The iroh netlayer sidecar (ADR-0021): a staticlib wrapping the iroh endpoint
 # behind the narrow C ABI in include/glowcap_iroh_sidecar.h. libglowcap stays
 # pure Zig; only the `iroh-*` build steps need cargo on PATH.
 #
@@ -27,7 +27,7 @@ undocumented_unsafe_blocks = "deny"
 # The staticlib is named `glowcap_iroh_sidecar` so it emits
 # `libglowcap_iroh_sidecar.a`: the private byte-level seam, distinct from the
 # public frame-level artifact `libglowcap_net_transport_iroh` that the `iroh-abi` build step
-# produces (ADR-0055).
+# produces (ADR-0021).
 name = "glowcap_iroh_sidecar"
 crate-type = ["staticlib"]
 

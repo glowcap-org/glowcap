@@ -5,7 +5,7 @@
 //! read half readable, so no wake is lost. Every other send or receive fault
 //! is returned to the owner. A broken channel cannot masquerade as a
 //! coalesced wake. The off-turn settle mailbox (`driver.SettleMailbox`,
-//! ADR-0102) is the first owner. The channel itself carries nudge bytes and
+//! ADR-0014) is the first owner. The channel itself carries nudge bytes and
 //! nothing else.
 //!
 //! Platform-gated like the completion backends' socket helpers: Linux by raw

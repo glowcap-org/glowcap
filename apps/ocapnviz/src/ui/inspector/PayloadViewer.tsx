@@ -10,7 +10,7 @@
  * That is a display decision the pane makes, not a fourth lens: see
  * `hexGroupFor`. The caller decides which codec that is, because a
  * frame's codec is not always its session's: every `op:start-session`
- * is Syrup whatever the session goes on to speak (ADR-0103).
+ * is Syrup whatever the session goes on to speak (ADR-0001).
  *
  * Display-only. Decoding failures render as replacement characters
  * rather than errors, a binary frame viewed as UTF-8 is the

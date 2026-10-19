@@ -68,7 +68,7 @@ pub fn apply(fd: std.posix.socket_t, ka: Keepalive) ApplyError!void {
         .linux => 4, // TCP_KEEPIDLE
         .macos, .ios, .tvos, .watchos, .visionos => 0x10, // TCP_KEEPALIVE
         // SO_KEEPALIVE is already on; unsupported OS must roll it back so we
-        // never leave the socket on with multi-hour OS defaults (ADR-0081).
+        // never leave the socket on with multi-hour OS defaults (ADR-0030).
         else => return rollbackKeepalive(fd, error.UnsupportedPlatform),
     };
     const intvl_opt: c_int = switch (builtin.os.tag) {
@@ -84,7 +84,7 @@ pub fn apply(fd: std.posix.socket_t, ka: Keepalive) ApplyError!void {
 
     // All three timers must take together. Leaving `SO_KEEPALIVE` enabled with a
     // timer unset would ride the OS multi-hour idle default under the appearance
-    // of the caller's configured window, the silent-default state ADR-0081
+    // of the caller's configured window, the silent-default state ADR-0030
     // forbids. On any timer failure, roll keepalive back off so the state is
     // exact: the full configured window, or nothing.
     std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, idle_opt, std.mem.asBytes(&idle)) catch |err|
@@ -97,7 +97,7 @@ pub fn apply(fd: std.posix.socket_t, ka: Keepalive) ApplyError!void {
 
 /// Roll `SO_KEEPALIVE` back off after a timer `setsockopt` failed, so a partly
 /// configured socket never rides the OS multi-hour idle default under the
-/// appearance of the caller's window (ADR-0081). A rollback refusal is distinct:
+/// appearance of the caller's window (ADR-0030). A rollback refusal is distinct:
 /// the socket's liveness policy is now unknown and it must not be published as
 /// a successfully configured connection.
 fn rollbackKeepalive(fd: std.posix.socket_t, cause: ApplyError) ApplyError {

@@ -106,7 +106,7 @@ pub fn glowcap_host_session_fetch(
     return GLOWCAP_OK;
 }
 
-/// Enliven the complete canonical persistent sturdyref URI (ADR-0098), minting a
+/// Enliven the complete canonical persistent sturdyref URI (ADR-0007), minting a
 /// host vow whose id lands in `*out_vow`. The live reference arrives as that
 /// vow's SETTLE action. The URI's transport and designator must match the
 /// selected session before the swiss namespace is consulted or wire traffic
@@ -127,7 +127,7 @@ pub fn glowcap_host_session_enliven(
     return GLOWCAP_OK;
 }
 
-/// Listen on a far capability this session holds (CapTP `op:listen`, ADR-0095)
+/// Listen on a far capability this session holds (CapTP `op:listen`, ADR-0003)
 /// and mint a host vow that settles with the listen notification. The outcome
 /// arrives as that vow's SETTLE or FAIL action. In 1.0, the target may be a
 /// far promise or live far object. A live object answers immediately. In
@@ -461,7 +461,7 @@ pub fn glowcap_host_session_partner_identity(
     return GLOWCAP_OK;
 }
 
-/// Testify what this connection's realizer proved about its far end (ADR-0105):
+/// Testify what this connection's realizer proved about its far end (ADR-0028):
 /// `designator` is the durable key that proof names, as a locator writes it. An
 /// iroh listener passes what `glowcap_iroh_conn_remote_node_id` read off the
 /// QUIC handshake. A WebRTC peer passes the identity its signaling authorized.

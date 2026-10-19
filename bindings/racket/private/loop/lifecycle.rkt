@@ -152,7 +152,7 @@
        (hash-clear! (driver-loop-listeners lp)))
      (values code failure)]))
 
-;; A loop-owned host redeems handoffs inside its own steps (ADR-0112), so
+;; A loop-owned host redeems handoffs inside its own steps (ADR-0024), so
 ;; the exporter session it dialed exists with no wrapper yet. It wraps lazily:
 ;; `build-session` registers it, so a repeat lookup answers this same
 ;; object.

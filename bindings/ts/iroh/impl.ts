@@ -104,7 +104,7 @@ export function connector(config: IrohConfig): Connector {
  * transport attempt, finished by the time the channel exists, so a slow
  * discovery never eats the handshake's bound. A dial staged through the
  * driver loop retries transient faults on the runtime's
- * `GLOWCAP_DISCOVERY_DIAL_*` budget instead (ADR-0193). */
+ * `GLOWCAP_DISCOVERY_DIAL_*` budget instead (ADR-0018). */
 export async function _connectIroh(
 	nodeId: string,
 	directAddresses: string,
@@ -152,7 +152,7 @@ export async function _connectIroh(
 	// the dup'd fd), and releases the netlayer. The connection is minted
 	// against `host`, so the session's identity (a give's `recipient_key`) and
 	// the host's live-session directory agrees. A three-party handoff requires this
-	// (ADR-0009/ADR-0056).
+	// (ADR-0039/ADR-0039).
 	const transport = new IrohChannel(conn, loop, netlayer, true);
 	const cancelTransport = (): void => {
 		void transport.close().catch((error) => host.recordCallerlessBindingFailure("iroh.abort.cleanup", error));
@@ -249,7 +249,7 @@ export class IrohServer extends DriverServer {
  * because `reachability` is (see `IrohConfig`). `secretSeed` is a 32-byte
  * Ed25519 secret key for a stable endpoint id, or omitted for a fresh random
  * one shared with the `Host`. Pass `host` only when it was built from the same
- * seed, so netlayer and session share one identity (ADR-0075). The no-Host path
+ * seed, so netlayer and session share one identity (ADR-0028). The no-Host path
  * registers the endpoint with the generic driver loop. A supplied Host is
  * transferred to that loop transactionally. Needs the iroh ABI library
  * (`zig build iroh-abi`).

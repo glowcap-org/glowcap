@@ -76,7 +76,7 @@ export async function runAction(host: Host, action: HostAction): Promise<void> {
 	await dispatchHostAction(action, {
 		dial: (a) => {
 			// Started, not awaited. A dial can itself need this host's drains and
-			// serve loops: a signaling dial (ADR-0089) round-trips OCapN messages
+			// serve loops: a signaling dial (ADR-0035) round-trips OCapN messages
 			// on an existing session before its channel exists, and the serve
 			// loop that must read those replies awaits this very drain at its
 			// feed's unwind: awaiting the dial here starves the exchange the

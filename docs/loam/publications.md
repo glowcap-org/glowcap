@@ -86,5 +86,5 @@ hold keep a little routing data until the Host releases them, answer
 Destroy the attachment before you deinitialize the Store or Host, and do not
 use its pointer afterward.
 
-[ADR-0176](../decisions/adr/ADR-0176-on-demand-durable-publication-discovery.md)
+[ADR-0007](../decisions/adr/ADR-0007-sturdyrefs-and-publication.md)
 records this design and the alternatives.

@@ -2,7 +2,7 @@
 archive, surfaced à la carte.
 
 This is a companion to the core :mod:`glowcap` module, mirroring the C ABI's
-symbol-disjoint archive split (ADR-0059). Importing it loads
+symbol-disjoint archive split (ADR-0022). Importing it loads
 ``libglowcap_net_transport_tcp`` on top of the core ``libglowcap_ocapn``. It
 shares the core's frame, context, and value layout but adds the
 ``glowcap_tcp_*`` family, a host-owned blocking frame shuttle over a real

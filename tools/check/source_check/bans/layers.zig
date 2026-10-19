@@ -99,7 +99,7 @@ pub const codec_decode_nesting_rows: []const Ban = &.{
 };
 
 /// The host-session and host-turn C verbs are `glowcap_host_session_*` and
-/// `glowcap_host_turn_*`. ADR-0079 retired the binding `Connection` concept, so
+/// `glowcap_host_turn_*`. ADR-0011 retired the binding `Connection` concept, so
 /// no `conn_*` export exists. A backticked `conn_` shorthand in the bindings
 /// README names a symbol a C consumer cannot grep, so the drift fails here.
 pub const readme_c_verb_names: []const Ban = &.{
@@ -108,14 +108,14 @@ pub const readme_c_verb_names: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{"`conn_"},
         .check = "readme-c-verb-names",
-        .why = "no `conn_*` C export exists (ADR-0079 retired the binding Connection concept); name the real `glowcap_host_session_*` or `glowcap_iroh_conn_*` verb a consumer can grep",
+        .why = "no `conn_*` C export exists (ADR-0011 retired the binding Connection concept); name the real `glowcap_host_session_*` or `glowcap_iroh_conn_*` verb a consumer can grep",
     },
 };
 
 /// Discovery-posture dial defaults are shared by the HostRuntime's dial
 /// retry and byte-fed binding connectors that see them through the Host C
 /// ABI. The values live in `driver_core`, the runtime pump owns retry
-/// execution (ADR-0193) and `c_abi_host` only projects the defaults.
+/// execution (ADR-0018) and `c_abi_host` only projects the defaults.
 pub const discovery_dial_budget_rows: []const Ban = &.{
     .{
         .where = .{ .file = "src/driver/core/vocab.zig" },

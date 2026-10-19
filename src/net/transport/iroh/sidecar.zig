@@ -35,7 +35,7 @@ pub extern fn glowcap_iroh_sidecar_conn_free(conn: *CConn) void;
 pub extern fn glowcap_iroh_sidecar_endpoint_close(ep: *CEndpoint) void;
 pub extern fn glowcap_iroh_sidecar_endpoint_free(ep: *CEndpoint) i32;
 
-// The event-driven scale superset (ADR-0057): one readiness fd per endpoint, a
+// The event-driven scale superset (ADR-0019): one readiness fd per endpoint, a
 // drained ready-queue, and non-blocking frame I/O, the `Backend` below adapts
 // them to `completion.Loop`.
 pub extern fn glowcap_iroh_sidecar_endpoint_readiness_fd(ep: *const CEndpoint) i32;
@@ -98,7 +98,7 @@ pub const ReadyEvent = extern struct {
 
 /// The key QUIC verified for the far end of `conn` during the TLS handshake,
 /// or null when the sidecar could not read it. Every path that speaks the
-/// transport proof of ADR-0105, the blocking accept and dial, the completion
+/// transport proof of ADR-0028, the blocking accept and dial, the completion
 /// backend, and the loop surface a language binding drives, reads it here, so
 /// one function decides what "the connection proved" means for iroh.
 pub fn connRemoteKey(conn: *const CConn) ?crypto.PeerKey {

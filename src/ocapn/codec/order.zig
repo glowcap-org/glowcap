@@ -1,4 +1,4 @@
-//! Codec-neutral canonical ordering (ADR-0003).
+//! Codec-neutral canonical ordering (ADR-0001).
 //!
 //! Syrup and Cap'n Proto both emit sets and structs in a single byte-key
 //! order and refuse adjacent duplicates after that sort. The emit path that

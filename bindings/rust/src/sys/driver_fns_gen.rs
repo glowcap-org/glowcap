@@ -4,7 +4,7 @@
 // `zig build gen-binding-rust-ffi-check` (part of `check`) fails when this
 // is stale.
 //
-// The raw extern block of the `glowcap_driver_*` loop family (ADR-0112),
+// The raw extern block of the `glowcap_driver_*` loop family (ADR-0024),
 // exported only by `libglowcap_driver`. The loop adopts a Host created
 // through the separate `libglowcap_host` archive. The hand-written
 // sibling (`driver.rs`) owns the `#[repr(C)]` mirrors and their layout

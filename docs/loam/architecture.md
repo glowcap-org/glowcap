@@ -11,7 +11,7 @@ sources:
 # Loam: durable capability applications
 
 Loam is glowcap's storage layer, and its access module manages who can use
-which resources. [ADR-0161](../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
+which resources. [ADR-0048](../decisions/adr/ADR-0048-loam-persistence-foundation.md)
 records the design, the [Loam guide](../loam.md) covers the Zig API, and the
 [API page](api.md) covers operations and lifetimes.
 

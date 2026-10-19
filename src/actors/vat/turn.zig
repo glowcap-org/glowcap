@@ -240,7 +240,7 @@ pub const Turn = struct {
     /// vow, or, for a no-answer `tell`, a fire-and-forget forward.
     /// Forwarding does not preserve promise pipelining *through* the proxy: a
     /// partner pipelining on the proxy's answer queues on this side until the
-    /// forwarded send settles (ADR-0064). Keeps `anyerror`: the
+    /// forwarded send settles (ADR-0016). Keeps `anyerror`: the
     /// local arm re-enters the near-call handler boundary.
     /// Reserve the listener table a not-yet-committed send from this turn
     /// will use: the Port's for a Port-caused turn, else the vat's local
@@ -307,7 +307,7 @@ pub const Turn = struct {
         forwarding.commitNoAnswer(self);
     }
 
-    /// Defer this turn's answer onto `vow` (ADR-0102): the answer settles
+    /// Defer this turn's answer onto `vow` (ADR-0014): the answer settles
     /// when the vow does. The behavior-side half of off-turn settlement, a
     /// handler mints a resolver pair (`Vat.spawnVow`), forwards its answer
     /// here, hands the resolver to whatever completes the work, and returns

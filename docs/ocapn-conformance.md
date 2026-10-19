@@ -61,7 +61,7 @@ The hello and its crypto representations, including identifiers and signed
 handoff records that depend on them, stay shared and deferred under
 [the transition plan](planning/ocapn-crypto-version-handshake.md). The newer
 operation contracts are adopted on next under
-[ADR-0251](decisions/adr/ADR-0251-next-operations-with-retained-crypto.md). `1.0`
+[ADR-0065](decisions/adr/ADR-0065-next-profile-operations.md). `1.0`
 conversations keep the Goblins-compatible opening and operations, and this
 table does not count them as current-draft conformance.
 

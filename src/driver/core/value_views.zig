@@ -1,4 +1,4 @@
-//! The Host's values as borrowed views (ADR-0246). A `Value` tree an
+//! The Host's values as borrowed views (ADR-0064). A `Value` tree an
 //! application hands the Host becomes a `model.view.Args` sequence backed
 //! by the values where they lie. The engine certifies and the codec
 //! encodes those views; no owned argument tree is built to be thrown
@@ -51,7 +51,7 @@ pub fn argument(value: *const Value) ProjectError!view.Argument {
     };
 }
 
-/// A slice of integers as the list it means (ADR-0247): a run-backed view
+/// A slice of integers as the list it means (ADR-0064): a run-backed view
 /// where the host's words are the wire's, read where they lie, and one
 /// element at a time on a big-endian host.
 fn integersView(words: []const i64) view.Args {

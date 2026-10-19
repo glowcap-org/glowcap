@@ -14,7 +14,7 @@
 //! host's peer, step, take outbound, write it back. Only the addressing and the
 //! transport behind the `FrameStream` differ, so the C host's loop is unchanged.
 //!
-//! This is a *separate archive* from `libglowcap_ocapn` (ADR-0059): it imports
+//! This is a *separate archive* from `libglowcap_ocapn` (ADR-0022): it imports
 //! only the shared vocabulary leaf (`@import("c_abi_shared")`), so it exports
 //! just the `glowcap_inproc_*` family and shares no core symbol with the ocapn
 //! archive. The transport carries its own per-thread last-error slot, read
@@ -30,7 +30,7 @@ const net = @import("net");
 // gives this transport ABI the same frame and context types
 // `glowcap_ocapn.h` declares, with its own compiled copy of the helpers and
 // last-error slot, and pulls *none* of the ocapn archive's exported surface
-// (ADR-0059 companion split).
+// (ADR-0022 companion split).
 const c = @import("c_abi_shared");
 
 pub const contract_layouts = [_]c.archive_contract.Layout{};

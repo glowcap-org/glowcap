@@ -1,4 +1,4 @@
-//! The cross-runtime relay matrix (ADR-0086) and the live Goblins relay and
+//! The cross-runtime relay matrix (ADR-0033) and the live Goblins relay and
 //! rooms proofs: one shared harness per proof against every runtime's relay,
 //! a runtime as a row rather than a fork, plus relay scaling and the heavy
 //! four-peer rooms matrix over iroh.
@@ -130,7 +130,7 @@ pub fn register(
     iroh_abi_step: *std.Build.Step,
     rooms_services_install: *std.Build.Step,
 ) void {
-    // The cross-runtime relay matrix (ADR-0086). One shared harness per proof,
+    // The cross-runtime relay matrix (ADR-0033). One shared harness per proof,
     // TCP forwarding, the non-optional backpressure clause, and the iroh leg,
     // runs against every runtime's relay: the Deno reference relay
     // (`bindings/ts/relay/serve.ts`), the Python relay
@@ -236,7 +236,7 @@ pub fn register(
     // A real Goblins vat as an ordinary member of the rooms chat. The rooms
     // fleet prefers glowcap-next over Cap'n Proto and a Goblins vat speaks only
     // the v1.0 Syrup baseline, so each session settles its own pair
-    // (ADR-0103); the harness reads both profiles off the server's live trace
+    // (ADR-0001); the harness reads both profiles off the server's live trace
     // rather than taking either member's word for it.
     const goblins_rooms = addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{"env"});
     goblins_rooms.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-server" } }, .{ .prefix = "GLOWCAP_ROOMS_SERVER_BIN=", .make_absolute = true });

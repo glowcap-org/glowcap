@@ -17,12 +17,12 @@ test "Node action extraction preserves the inline Node footprint" {
     // Stated under runtime safety, where each embedded `std.ArrayList` header
     // carries std's one-word `pointer_stability` lock: 24 of these bytes, and
     // each hash map carries one more. One further word counts the queue seats
-    // promised to actions the Host has parked off the queue (ADR-0145). The
+    // promised to actions the Host has parked off the queue (ADR-0017). The
     // list of batches staged for an open provisional window adds one more
-    // array list (ADR-0194). The root of the sessions' wire-hash secrets
-    // adds one word (ADR-0218). The peer table is a handle table: its rows
+    // array list (ADR-0058). The root of the sessions' wire-hash secrets
+    // adds one word (ADR-0037). The peer table is a handle table: its rows
     // are an array list, and a free chain head and two counts replace the
-    // monotonic handle counter (ADR-0225).
+    // monotonic handle counter (ADR-0038).
     if (!std.debug.runtime_safety) return error.SkipZigTest;
     try std.testing.expectEqual(@as(usize, 1016), @sizeOf(Node));
     try std.testing.expectEqual(@as(usize, 8), @alignOf(Node));

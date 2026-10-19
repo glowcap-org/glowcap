@@ -1,6 +1,6 @@
 import { spawnWeb } from "../support/web_front.ts";
 // Two browser tabs direct-message each other over a WebRTC DataChannel, the
-// room carrying only the signaling (ADR-0089, the live handoff-redeem proof).
+// room carrying only the signaling (ADR-0035, the live handoff-redeem proof).
 // Each tab joins with `?dm=webrtc`, so it advertises a bare
 // `ocapn://<key>.webrtc` locator and files a signaling inbox with the room
 // directory. When Alice direct-messages Bob, the room introduces her, and her
@@ -11,7 +11,7 @@ import { spawnWeb } from "../support/web_front.ts";
 // the room out of the byte path. Bob answers over that same arriving
 // connection (`currentSession`), so a tab that never listens still replies.
 //
-// This is the composition ADR-0089 left open: a `desc:handoff-give` whose
+// This is the composition ADR-0035 left open: a `desc:handoff-give` whose
 // exporter locator names a `webrtc` designator, redeemed end to end. The
 // locator carries no signaling route; the dialing host's authority is the
 // directory it already reaches, installed as `webrtc.connector`'s signaling,

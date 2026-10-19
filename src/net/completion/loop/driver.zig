@@ -265,7 +265,7 @@ pub fn Machine(
         pub fn dispatch(self: *Self, comp: Completion) !void {
             const slot = state.slotOf(comp.user_data);
             switch (state.opOf(comp.user_data)) {
-                // The out-of-band wake (ADR-0102): recycle the pool buffer
+                // The out-of-band wake (ADR-0014): recycle the pool buffer
                 // that carried the nudge bytes, run the armed handler on this
                 // owning thread, and re-arm. No slot belongs to it.
                 .wake => {

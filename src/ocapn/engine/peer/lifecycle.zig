@@ -27,7 +27,7 @@ pub const NegotiatingOptions = struct {
     /// unlimited until a Host installs its explicit waterline.
     outbound_high_water_bytes: ?usize = null,
     /// A fresh secret for this session's wire-keyed tables, mixed into the
-    /// multiplier the node keyed at registration (ADR-0218). Null keeps the
+    /// multiplier the node keyed at registration (ADR-0037). Null keeps the
     /// node's multiplier, for a peer no host postures.
     wire_hash_salt: ?u64 = null,
 };

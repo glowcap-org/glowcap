@@ -1,7 +1,7 @@
 //! Raw FFI for the WebRTC transport archive
 //! (`libglowcap_net_transport_webrtc`).
 //!
-//! Linked only with the `webrtc` feature (ADR-0089/ADR-0059). Like the iroh
+//! Linked only with the `webrtc` feature (ADR-0035/ADR-0022). Like the iroh
 //! companion this is a dynamic library that links a Rust sidecar. It exports
 //! only the `glowcap_webrtc_*` family and its own thread-local last-error
 //! (`glowcap_webrtc_last_error`), sharing no core symbol. The shared vocabulary

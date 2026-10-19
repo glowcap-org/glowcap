@@ -10,7 +10,7 @@
 //! `frame` (managed-frame ownership), and `uri` (the OCapN locator grammar).
 //! This archive is sans-io: the transports
 //! (`libglowcap_net_transport_*`) carry the netlayer handles in their own
-//! companion modules (ADR-0059). Each family `@import`s this root for the shared
+//! companion modules (ADR-0022). Each family `@import`s this root for the shared
 //! types and codes. This root re-exports their `export fn`s so the header
 //! generator, which reflects over the `c_abi` namespace, sees the full ABI in
 //! one place.
@@ -20,7 +20,7 @@
 
 /// Shared C-ABI vocabulary factored into a leaf module with no `export fn`, so the
 /// iroh transport ABI can reuse it without inheriting libglowcap_ocapn's exported
-/// surface (ADR-0055 companion split). Re-exported here so the handle-family files
+/// surface (ADR-0021 companion split). Re-exported here so the handle-family files
 /// and `tools/gen/header/ocapn.zig` see the full vocabulary from this root.
 pub const std_options = @import("c_abi_shared").library_options;
 

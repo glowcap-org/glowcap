@@ -61,7 +61,7 @@ const kitchen_boxed_items = behaviors.kitchen_boxed_items;
 const KitchenCtx = behaviors.KitchenCtx;
 const kitchenBehavior = behaviors.kitchenBehavior;
 
-test "libglowcap_host: two byte-fed hosts open a keyed session through the C surface (ADR-0072)" {
+test "libglowcap_host: two byte-fed hosts open a keyed session through the C surface (ADR-0022)" {
     var context: ?*c.GlowcapContext = null;
     try expectOk(c.glowcap_context_new(&context));
     defer c.glowcap_context_release(context);
@@ -447,7 +447,7 @@ test "libglowcap_host: a projected reference releases after its home session clo
     try std.testing.expectEqual(c.GLOWCAP_ERR_NOT_FOUND, cd.glowcap_host_ref_release(client, &remote_ref, 1));
 }
 
-test "libglowcap_host: a nonzero local_turn_budget constructs a host (ADR-0076)" {
+test "libglowcap_host: a nonzero local_turn_budget constructs a host (ADR-0018)" {
     var host: ?*cd.GlowcapHost = null;
     const seed = hostSeed(0x41);
     try expectOk(cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 64, 1, &host));
@@ -457,7 +457,7 @@ test "libglowcap_host: a nonzero local_turn_budget constructs a host (ADR-0076)"
     defer _ = cd.glowcap_host_release(unbounded);
 }
 
-test "libglowcap_host: release_on_drop is stored at construction and changed by its set verb (ADR-0192)" {
+test "libglowcap_host: release_on_drop is stored at construction and changed by its set verb (ADR-0025)" {
     var host: ?*cd.GlowcapHost = null;
     const seed = hostSeed(0x44);
     try expectOk(cd.glowcap_host_new(&seed, seed.len, frame_cap, 1, c.GLOWCAP_CODEC_SYRUP, c.GLOWCAP_CAPTP_V1_0, c.GLOWCAP_FEATURE_FULL, 0, 0, &host));

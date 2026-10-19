@@ -65,7 +65,7 @@ test "a Struct with keys out of canonical order is refused" {
     // § Sorting Algorithm), and every encoder glowcap faces emits that order:
     // the upstream Racket Syrup encoder Goblins and the fixture generator use
     // (impls/racket/syrup/syrup.rkt), the upstream conformance suite's Python
-    // encoder (contrib/syrup.py), and glowcap's own writeStruct (ADR-0046).
+    // encoder (contrib/syrup.py), and glowcap's own writeStruct (ADR-0005).
     // `{1"b…1"a…}` spells the same struct as `{1"a…1"b…}`, so a lenient read
     // would admit two wire spellings of one message, refused like a
     // non-canonical length digit. The ascending-key check is also what refuses
@@ -112,7 +112,7 @@ test "Struct key order remains byte-lexicographic across decimal length prefixes
 }
 
 test "Syrup refuses to encode a Struct carrying a duplicate key" {
-    // Symmetric refusal (ADR-0003): the decoder rejects a duplicate-key struct as
+    // Symmetric refusal (ADR-0001): the decoder rejects a duplicate-key struct as
     // malformed, so the encoder must not emit one, or it would ship a frame the
     // partner rejects with no local signal. A model built with two "a" entries is
     // refused at encode, the same shape a non-canonical big integer is.
@@ -130,7 +130,7 @@ test "Syrup refuses to encode a Struct carrying a duplicate key" {
 }
 
 test "Syrup refuses to encode a Set carrying a duplicate element" {
-    // Symmetric refusal (ADR-0003): the decoder rejects a set with a duplicate
+    // Symmetric refusal (ADR-0001): the decoder rejects a set with a duplicate
     // element, so the encoder must not emit one, otherwise a model with a
     // duplicate-element set would encode locally and glowcap's own decoder would
     // reject it. Refused at encode with UnsupportedArgument, like a duplicate key.
@@ -217,7 +217,7 @@ test "a big integer round-trips through encode and non-canonical forms are refus
         syrup.decodeOwned(allocator, .{ .bytes = padded, .shape = .byte }),
     );
 
-    // Encode refuses a hand-built non-canonical value symmetrically (ADR-0003):
+    // Encode refuses a hand-built non-canonical value symmetrically (ADR-0001):
     // this magnitude belongs to the `integer` arm, so it never reaches the wire.
     const small = model.Message{ .deliver = .{
         .target = .{ .far = .{ .import_position = .from(7) } },
@@ -286,7 +286,7 @@ test "Syrup carries a big integer argument byte-identical to the upstream Racket
     const allocator = std.testing.allocator;
     // The fixture is a Racket bignum (2^100) serialized by the upstream Syrup
     // encoder; glowcap's `big_integer` arm must produce the same frame, and
-    // decode the fixture back to the same model value (ADR-0049).
+    // decode the fixture back to the same model value (ADR-0005).
     const big = model.Argument{ .big_integer = .{
         .negative = false,
         .digits = "1267650600228229401496703205376",
@@ -308,7 +308,7 @@ test "Syrup carries a big integer argument byte-identical to the upstream Racket
 
 test "Syrup round-trips float64 through decode, including NaN and signed zero" {
     const allocator = std.testing.allocator;
-    // `Object.is` bit-fidelity (ADR-0021): a NaN and a -0.0 must survive the wire
+    // `Object.is` bit-fidelity (ADR-0005): a NaN and a -0.0 must survive the wire
     // bit-for-bit, not be normalized. Round-trip each through encode → decodeBody.
     const cases = [_]f64{ 1.5, -0.0, 0.0, 3.141592653589793, std.math.nan(f64), std.math.inf(f64), -std.math.inf(f64) };
     for (cases) |value| {

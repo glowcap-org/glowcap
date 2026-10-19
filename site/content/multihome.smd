@@ -121,7 +121,7 @@ stays live.
 OCapN has not specified multi-homing yet. Its meeting notes discuss ideas from
 locators that name several netlayers (OCapN's word for a transport) to a vat id that does not depend on any
 transport. Everything described here is built and checked
-([ADR-0125](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0125-identity-route-multihome.md)).
+([ADR-0036](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0036-identity-and-multihome-routing.md)).
 The open part is the wire format, which stays a `glowcap-next` extension until
 OCapN specifies a compatible one. Until then, peers that do not negotiate it
 never see these route hints. [What you can depend on]($link.page('stability'))

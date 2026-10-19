@@ -58,7 +58,7 @@ const PeerSource = union(enum) { mint: void, over: *engine.Peer };
 pub fn openDialedLocator(self: *Host, locator: model.PeerLocator) !*HostSession {
     // Knowledge is recorded whenever the handed form carries it, whatever
     // this host's own profile: a baseline hello stamps nothing regardless,
-    // and the give path still wants to know a partner is glowcap (ADR-0118).
+    // and the give path still wants to know a partner is glowcap (ADR-0042).
     const knows = engine.Peer.dialedLocatorIdentifiesGlowcap(locator);
     return openDialedKnowing(self, .mint, locator.transport, locator.designator, knows);
 }
@@ -72,7 +72,7 @@ pub fn openPendingDial(self: *Host, ticket: engine.Node.PendingId, route_index: 
     const view = self.node.pendingDial(ticket, route_index) orelse return null;
     const locator = view.locator;
     // Wire-carried locators are bare on onion, so a redeem dial never has
-    // partner knowledge to record (ADR-0118).
+    // partner knowledge to record (ADR-0042).
     return try openDialedCommitted(self, .mint, locator.transport, locator.designator, false, view.demanded_partner_key);
 }
 
@@ -84,7 +84,7 @@ pub fn openPendingDial(self: *Host, ticket: engine.Node.PendingId, route_index: 
 /// The node routes through the adopted peer but never frees it: the
 /// embedder frees the peer itself, only after `releaseSession`. This is the
 /// completion loop's dialed adoption seam, the dial half of
-/// `openAcceptedAdvertisedOver` (ADR-0076 loop-side dial executor).
+/// `openAcceptedAdvertisedOver` (ADR-0018 loop-side dial executor).
 pub fn openDialedOver(
     self: *Host,
     peer: *engine.Peer,
@@ -140,7 +140,7 @@ fn openDialedCommitted(
     // holding an obligation to discharge as well.
     const session = try mint(self, source, .{ .dialed = partner_designator }, transport);
     // Before the hello: the stamp reads this when it assembles the signed
-    // location (ADR-0118).
+    // location (ADR-0042).
     if (partner_known_glowcap) session.served.port.peer.noteKnownGlowcapPartner();
     if (admission.sealed_channel) {
         attachSealedChannel(self, session, .initiator) catch |err| {
@@ -149,10 +149,10 @@ fn openDialedCommitted(
         };
     }
     // Register the outbound before any bytes move: a crossed inbound
-    // start-session from the same partner must find this dial (ADR-0030).
+    // start-session from the same partner must find this dial (ADR-0012).
     // The mint above moves none, so this is still ahead of the hello.
     //
-    // Two identities, two roles (ADR-0097). `partner_designator` is the
+    // Two identities, two roles (ADR-0028). `partner_designator` is the
     // durable peer this dial races for: it decides *which two attempts
     // are racing*. The identifier beside it is this outbound session
     // attempt's own identity: it decides *which of the two survives*.
@@ -209,7 +209,7 @@ pub fn ensureAcceptAdvertisedLocator(
 }
 
 /// Mint the accepting half of a session using this node's selected acceptable
-/// location, which may use another transport (ADR-0109).
+/// location, which may use another transport (ADR-0028).
 pub fn openAcceptedAdvertised(self: *Host, transport: []const u8) !*HostSession {
     return openAccepted(self, .mint, transport);
 }
@@ -236,7 +236,7 @@ fn openAccepted(self: *Host, source: PeerSource, transport: []const u8) !*HostSe
     return acceptedHelloAndEnroll(self, session, advertised);
 }
 
-/// Box the sealed byte channel onto a freshly minted shell (ADR-0107): derive
+/// Box the sealed byte channel onto a freshly minted shell (ADR-0041): derive
 /// the ephemeral seed from this session's unique signing seed under a separate
 /// KDF domain, borrow the host's durable key while the channel derives and
 /// signs its identity proof, and start the role's half. The dialing side reads
@@ -332,7 +332,7 @@ pub fn helloAndEnroll(self: *Host, session: *HostSession, advertised: model.Peer
 /// The accepted-open tail. On onion alone, an acceptor configured for an
 /// upgraded profile defers its hello until the initiator's arrives, because
 /// only that hello can say whether the partner is glowcap and therefore
-/// which preference ours may state (ADR-0118). The before-serve hook
+/// which preference ours may state (ADR-0042). The before-serve hook
 /// answers it (`interception.hostBeforeServe`). A default-profile acceptor gains
 /// nothing from waiting: its answer is bare either way, so it keeps the
 /// eager hello, and every other transport says hello at accept as

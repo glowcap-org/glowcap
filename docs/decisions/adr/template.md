@@ -3,7 +3,7 @@ id: ADR-NNNN
 status: proposed
 date: YYYY-MM-DD
 tags: []
-decision: "<one-line statement of the decision>"
+decision: "<one-sentence choice>"
 supersedes: []
 superseded_by: []
 amends: []
@@ -14,44 +14,20 @@ amended_by: []
 
 ## Context
 
-<What forced the decision? Which boundary, codec, vocabulary term, or principle
-does it sit on? Keep terse. Name a
-[First Principle](../../../AGENTS.md#first-principles) only when the decision
-settles, relaxes, or clarifies it, never to restate it. Cite OCapN behavior, Goblins fixtures, or Zig
-scenarios as evidence. Do not cite Rust implementation as the oracle.>
+<The constraint that makes this choice necessary. Name its owner and cite the
+protocol, code or observed behavior that establishes it.>
 
 ## Decision
 
-<The settled choice, in one paragraph. Mirrors the `decision:` frontmatter line.
-Expanded with the why-this-and-not-the-alternatives summary. Cite the Zig
-modules that own it (`src/...`) and the boundary that makes misuse hard.>
+<The choice and its scope. Keep the frontmatter sentence consistent with this
+account. Link to implementation and living guides instead of copying them.>
 
-## Scope (what this does not decide)
+## Alternatives and consequences
 
-<Explicitly name what stays unimplemented or deferred. State the present
-boundary ("X is not implemented"), not a roadmap.>
+<The credible alternatives, why this choice won, and the costs or limits it
+retains. Name what would justify revisiting it.>
 
-## Alternatives Considered
+## Evidence
 
-- **Option A**: <one line>. Rejected because <one line>.
-- **Option B**: <one line>. Rejected because <one line>.
-
-## Consequences
-
-<What changes downstream in the Zig tree? Which modules, tests, fixtures, or
-arch-gate rules does this create or constrain?>
-
-## Evidence and gate
-
-<Name the scenario, fixture, budget, generated check, or build step that proves
-the decision.>
-
-## Forward compatibility
-
-<Optional. Use when the decision shapes a future wire-profile bump or a reserved
-seam (e.g. the Cap'n Proto codec slot) downstream contributors must plan
-against. Omit if self-contained.>
-
-## Notes
-
-<Optional. Cross-references to other ADRs only.>
+<The tests, fixtures or measurements relevant to the choice, with their limits.
+Do not imply that a configured check or accepted design has been verified.>

@@ -1,5 +1,5 @@
 #lang racket/base
-;; Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
+;; Per-binding keyed-tcp restart proof (ADR-0028): happy path, key-squatter
 ;; refusal, and same-seed-fresh-port restart: the Racket sibling of
 ;; `test/driver/keyed_tcp_restart_test.zig`.
 ;;
@@ -39,7 +39,7 @@
   (unless (equal? (partner-identity-designator proved) expected)
     (error 'keyed-tcp-restart "partner claimed ~a, not the dialed ~a"
            (partner-identity-designator proved) expected))
-  ;; Every session signs with a fresh key (ADR-0097), distinct from
+  ;; Every session signs with a fresh key (ADR-0028), distinct from
   ;; the claimed durable designator.
   (when (equal? (bytes->hex-string (partner-identity-session-key proved)) expected)
     (error 'keyed-tcp-restart

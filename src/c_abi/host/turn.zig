@@ -38,7 +38,7 @@ pub fn glowcap_host_turn_session(
     return GLOWCAP_OK;
 }
 
-/// Atomically defer this turn's answer onto a fresh resolver vow (ADR-0102).
+/// Atomically defer this turn's answer onto a fresh resolver vow (ADR-0014).
 /// `*out_resolver_id` receives the one-shot settle authority used by
 /// glowcap_host_resolver_fulfill / _break. All rows and the forward listener
 /// are reserved before publication, so refusal leaves no live resolver and no

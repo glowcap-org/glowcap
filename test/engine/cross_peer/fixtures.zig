@@ -122,7 +122,7 @@ pub const RejectingVerifier = struct {
 };
 
 /// A real Ed25519 verifier that routes each handoff certificate to the right key,
-/// the production shape ADR-0009 describes. A `desc:handoff-receive` payload is
+/// the production shape ADR-0039 describes. A `desc:handoff-receive` payload is
 /// verified with the recipient key. Any other (`desc:handoff-give`) with the
 /// gifter's session key. It distinguishes them by the leading record label, since
 /// a receive record carries its own label before the give it embeds.

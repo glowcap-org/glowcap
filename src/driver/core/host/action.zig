@@ -105,7 +105,7 @@ pub const HostAction = union(enum) {
     /// reason stays empty. Failure to retain a nonempty reason is represented
     /// by a process-static allocation diagnostic. `peer_handle` is null when
     /// the vow rode no session at all, such as a select-or-dial enliven whose
-    /// dial never opened one (ADR-0098). A break carries no value, so every
+    /// dial never opened one (ADR-0007). A break carries no value, so every
     /// drain routes it by `vow_id` alone.
     failed: struct {
         peer_handle: ?engine.PeerHandle,
@@ -314,7 +314,7 @@ pub fn resumeWorkForActionDrain(self: *Host) HostError!void {
 /// The promises, and why each is a slot: every pending vow settles exactly
 /// once, through a `settled` or `failed` action, and the fire that
 /// carries it is infallible by then. Every parked select-or-dial enliven
-/// (ADR-0098) settles the same way, under an id its caller already holds.
+/// (ADR-0007) settles the same way, under an id its caller already holds.
 /// Every live session owes at most one flush and one close notification,
 /// both irreversible once a frame or a close verdict exists. A caller
 /// naming `extra` is saying what it is adding on top: the action it is

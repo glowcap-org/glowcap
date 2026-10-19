@@ -12,7 +12,7 @@
 //! drift. This is the one copy, and being bytes and nothing else (no reader, no codec, no
 //! session) is what lets both tiers share it.
 //!
-//! What it costs is named in ADR-0041: the steady state is inactive and
+//! What it costs is named in ADR-0012: the steady state is inactive and
 //! allocation-free, and a stream that straddles a boundary pays one bounded copy
 //! into the spill and decodes from there, so per-connection memory tracks the
 //! caller's read size rather than `max_frame_bytes`.
@@ -33,7 +33,7 @@ const std = @import("std");
 /// Boundedness is not this type's to enforce. It grows to hold what it is
 /// given, and the caller bounds that: the envelope's declared length is
 /// checked against `max_frame_bytes` before its body is allowed to accumulate
-/// (ADR-0110), so a prefix that is still incomplete is under the cap.
+/// (ADR-0012), so a prefix that is still incomplete is under the cap.
 pub const Spill = struct {
     buf: []u8 = &.{},
     len: usize = 0,

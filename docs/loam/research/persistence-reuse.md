@@ -4,7 +4,7 @@ This source review, dated 2026-09-14, answers the build-or-adapt question in
 the [memory and persistence plan](memory-persistence.md). It supports building
 on an existing engine and measures no performance itself. Loam was built that
 way, and the [Loam guide](../../loam.md) covers the result.
-[ADR-0239](../../decisions/adr/ADR-0239-sqlite-is-loams-default-disk-engine.md)
+[ADR-0062](../../decisions/adr/ADR-0062-sqlite-default-storage.md)
 later made SQLite its default disk engine after measuring it against LMDB.
 
 ## Recommendation for glowcap

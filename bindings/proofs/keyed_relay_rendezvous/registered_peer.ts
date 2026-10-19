@@ -1,4 +1,4 @@
-// The registered half of the keyed-relay rendezvous proof (ADR-0088): a
+// The registered half of the keyed-relay rendezvous proof (ADR-0034): a
 // non-listening peer that holds inbound sockets at the reference relay under
 // its key designator and answers `greet` on a Host publication. Every
 // per-binding client cold-dials this peer's identity through the relay's

@@ -1,5 +1,5 @@
 //! Live three-party handoff, with glowcap as the GIFTER (the introducer),
-//! served by one `driver.Server` (ADR-0068). The mirror of
+//! served by one `driver.Server` (ADR-0026). The mirror of
 //! `handoff_driver.zig` (glowcap as recipient).
 //!
 //! Topology (TCP loopback):

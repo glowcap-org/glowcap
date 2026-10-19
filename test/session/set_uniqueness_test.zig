@@ -230,7 +230,7 @@ test "a sent duplicate set element or struct key is refused pre-commit, not at e
     defer s.deinit();
     try s.registerImport(.from(7));
 
-    // The encoders refuse both duplicates too (ADR-0003), but an encode-time
+    // The encoders refuse both duplicates too (ADR-0001), but an encode-time
     // refusal fires in `step`, after send-side export accounting committed wire-delta
     // retains for a frame that never ships. `validateSend` refuses first, so
     // nothing commits: no outbound answer row is minted for the refused sends.

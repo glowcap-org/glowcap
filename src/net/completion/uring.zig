@@ -14,7 +14,7 @@
 //! SQE. `poll` flushes the queue, waits for at least one completion, and hands
 //! the results back to the server.
 //!
-//! The shared read-buffer pool (ADR-0054) is a kernel provided-buffer ring: one
+//! The shared read-buffer pool (ADR-0019) is a kernel provided-buffer ring: one
 //! buffer group is registered at init, recvs are submitted with buffer select
 //! (no caller buffer), the kernel picks a buffer when data arrives and names it
 //! on the CQE, and `recycleBorrowed` returns it to the ring. A recv that finds the
@@ -310,7 +310,7 @@ pub const Backend = struct {
     /// backend creates only receive borrows. Richer wrapper-owned borrows are
     /// consumed by their wrapper before they can reach this seam.
     /// Sockets carry no lower-layer peer identity: the total Backend
-    /// contract's `verifiedChannelKey` member (ADR-0097) always answers null.
+    /// contract's `verifiedChannelKey` member (ADR-0028) always answers null.
     pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;

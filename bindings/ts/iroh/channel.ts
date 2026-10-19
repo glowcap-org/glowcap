@@ -19,7 +19,7 @@ import { IrohConnection, IrohNetlayer } from "./ffi_archive.ts";
 
 const READ_CHUNK = BINDING_IROH_READ_CHUNK_BYTES;
 
-// ── The iroh readiness dispatcher (ADR-0057) ─────────────────────────────────
+// ── The iroh readiness dispatcher (ADR-0019) ─────────────────────────────────
 
 const DRAIN_READY_CAP = BINDING_READINESS_DRAIN_CAP;
 
@@ -55,7 +55,7 @@ interface DialWaiter {
 	reject: (error: unknown) => void;
 }
 
-/** The per-netlayer readiness dispatcher for the iroh loop surface (ADR-0057).
+/** The per-netlayer readiness dispatcher for the iroh loop surface (ADR-0019).
  *
  * It parks the event loop on the netlayer's single readiness fd (a `node:net`
  * socket over a dup of it) and, when the fd signals, drains the pending records
@@ -292,7 +292,7 @@ export class IrohLoop {
 }
 
 /** The iroh transport: a non-blocking `IrohConnection` driven by an `IrohLoop`
- * (ADR-0057), reshaped into the byte transport a `Session`'s serve loop
+ * (ADR-0019), reshaped into the byte transport a `Session`'s serve loop
  * reads. `read` sources raw inbound bytes through the sidecar's non-blocking
  * `try_read`: the readiness loop, not a parked blocking read, decides when
  * bytes are available, and the host's stream delimiter frames them above.

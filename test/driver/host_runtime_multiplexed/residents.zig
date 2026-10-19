@@ -1,4 +1,4 @@
-//! The hermetic multiplexed residents the ADR-0112 hosting proofs drive:
+//! The hermetic multiplexed residents the ADR-0024 hosting proofs drive:
 //! a TCP-backed fake speaking the `net.MultiplexedResident` contract exactly
 //! (real loopback sockets behind one epoll descriptor, the shape the iroh
 //! sidecar exposes), and an accept-capable sibling whose bookkeeping the

@@ -1,7 +1,7 @@
 //! Minimal server-side WebSocket relay for the keyed-relay loopback tests.
 //!
 //! Test support (not a production module): the in-process stand-in for the
-//! reference relay's rendezvous contract (ADR-0086/0088). It accepts WebSocket
+//! reference relay's rendezvous contract (ADR-0033/0088). It accepts WebSocket
 //! clients on a loopback TCP socket, performs the RFC 6455 server upgrade,
 //! routes by request target (`/register?id=` holds the socket,
 //! `/relay?rendezvous=` bridges onto it), and pumps frames between the two

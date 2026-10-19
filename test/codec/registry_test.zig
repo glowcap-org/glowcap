@@ -69,7 +69,7 @@ test "registry membership distinguishes open wire ids from built implementations
 }
 
 test "an unregistered codec frames as malformed and has no shape, never an unreachable" {
-    // `CodecId` is non-exhaustive (open registry, ADR-0026), so an unregistered
+    // `CodecId` is non-exhaustive (open registry, ADR-0010), so an unregistered
     // id is a representable input. The prefix framer and shape lookup must fail
     // closed exactly like `decodeBody` does, not reach an `unreachable`.
     const unclaimed: model.CodecId = @fromBackingInt(@intCast(0xBEEF));

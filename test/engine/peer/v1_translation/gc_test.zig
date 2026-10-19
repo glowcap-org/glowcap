@@ -54,7 +54,7 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
 
     // The partner's resolver callback still settles answer 42: the V1.0
     // translation seam routes a deliver to a known resolver export through
-    // the resolver link (`answerForResolverExport`), not through the ADR-0074
+    // the resolver link (`answerForResolverExport`), not through the ADR-0027
     // near-target admission an ordinary export answers to, and the link's
     // whole point is surviving the released wire mention above. The callback
     // can only settle the answer we minted the resolver for, so no broader

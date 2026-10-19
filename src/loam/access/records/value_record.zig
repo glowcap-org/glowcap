@@ -52,7 +52,7 @@ pub const ValueRecord = struct {
         // encode, the same refusal the walk gives invalid text.
         if (depth > max_depth) return error.UnsupportedArgument;
         if (comptime @hasField(@TypeOf(value), "integers")) {
-            // A run of integers is stored as the list it means (ADR-0247),
+            // A run of integers is stored as the list it means (ADR-0064),
             // so the durable form has one shape and reads back as a list.
             if (value == .integers) return writeIntegerList(sink, value.integers, depth);
         }

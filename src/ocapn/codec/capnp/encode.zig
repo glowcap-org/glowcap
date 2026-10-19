@@ -44,7 +44,7 @@ const encodeArgumentList = arguments.encodeArgumentList;
 
 /// Encode for a CapTP version, the codec-dispatch boundary's counterpart to
 /// `syrup.encodeMessageForProfile`. Cap'n Proto is glowcap's self-consistent
-/// dialect (ADR-0026): the struct schema always carries `resolve_me_desc` /
+/// dialect (ADR-0010): the struct schema always carries `resolve_me_desc` /
 /// `wants_partial`, and word layout stays profile-independent. The profile
 /// still gates what may be encoded: `.next` refuses wire `op:resolve` and
 /// removed projection operations. Next delivers require an inline resolver

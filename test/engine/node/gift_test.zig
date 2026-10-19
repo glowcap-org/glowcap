@@ -344,7 +344,7 @@ test "same-exporter inline deposits share one cumulative outbound reservation" {
         .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = &(@as([model.handoff_gift_id_bytes]u8, @splat(0))) }, .{ .reference = .{ .far = wire } } },
         .answer = null,
     } };
-    // A deposit is queued as its frame (ADR-0236), so its charge is the
+    // A deposit is queued as its frame (ADR-0064), so its charge is the
     // frame's length: the gifted reference is far and lists no export.
     var one_frame = try exporter.encodeOutbound(one_deposit);
     defer one_frame.deinit();

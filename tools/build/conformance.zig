@@ -159,14 +159,14 @@ pub fn register(
     check_external_step.dependOn(&b.top_level_steps.get("loam-browser-test").?.step);
     check_external_step.dependOn(&b.top_level_steps.get("rooms-rust-browser-test").?.step);
 
-    // Hermetic C-ABI extract refuse matrix (ADR-0077): archive path escape / symlink
+    // Hermetic C-ABI extract refuse matrix (ADR-0023): archive path escape / symlink
     // fixtures against each resolve port's hard-fail hygiene. `tar` is
     // required; optional language runtimes exercise their production
     // validators when present and name each skipped port. It remains in
     // `check` because a soft-green extract is a footgun.
     const c_abi_extract = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/c-abi/c-abi-extract-matrix.sh" });
     c_abi_extract.setCwd(b.path("."));
-    const c_abi_extract_check_step = b.step("c-abi-extract-check", "Hermetic C-ABI extract hygiene matrix: refuse archive path escape/symlink, accept clean lib/ (ADR-0077)");
+    const c_abi_extract_check_step = b.step("c-abi-extract-check", "Hermetic C-ABI extract hygiene matrix: refuse archive path escape/symlink, accept clean lib/ (ADR-0023)");
     c_abi_extract_check_step.dependOn(&c_abi_extract.step);
     check_step.dependOn(c_abi_extract_check_step);
 }

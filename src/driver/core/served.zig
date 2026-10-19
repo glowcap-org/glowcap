@@ -2,7 +2,7 @@
 //! `engine.Peer`, the serve loop, and the byte-fed drive. It is socket-free: the
 //! `driver_core` layer's I/O ban keeps it that way. The byte-fed `Host` holds
 //! one per session, and `driver.HostRuntime` (in the `driver` layer) feeds
-//! those from its wires (ADR-0072). `Publish` keeps an `anyerror` return set:
+//! those from its wires (ADR-0022). `Publish` keeps an `anyerror` return set:
 //! its implementors are application code unknown at this declaration.
 
 const std = @import("std");
@@ -44,7 +44,7 @@ pub const Publish = *const fn (ctx: ?*anyopaque, served: *Served, vat: *actors.V
 /// policy, not CapTP semantics added below the engine. Crossed-hellos is
 /// host-tier serve policy: it runs in the host's `before_serve` hook, not
 /// here, and its `CrossedHellos` table is sans-io and lockless by contract:
-/// one thread drives one host (ADR-0072).
+/// one thread drives one host (ADR-0022).
 pub const ServeOptions = struct {
     /// Emit `op:gc-exports` / `op:gc-answers` after each inbound deliver/resolve
     /// the vat does not retain imports from.
@@ -64,7 +64,7 @@ pub const default_loop_local_turn_budget: usize = 4096;
 /// with the serve loop and the byte-fed drive. The peer is caller-owned (stable
 /// address) and is borrowed here. It reads no
 /// socket: a caller feeds inbound frames with `feedBorrowed` and drains outbound
-/// with `takeOutbound`, owning its own loop (ADR-0072). The byte-fed `Host`
+/// with `takeOutbound`, owning its own loop (ADR-0022). The byte-fed `Host`
 /// holds one per session.
 pub const Served = struct {
     port: actors.Port,
@@ -107,7 +107,7 @@ pub const Served = struct {
     }
 
     /// Tear down the Port, releasing its export-binding actor roots into
-    /// `vat` (ADR-0101). Does not free the borrowed peer or shared Vat.
+    /// `vat` (ADR-0014). Does not free the borrowed peer or shared Vat.
     pub fn deinit(self: *Served, vat: *actors.Vat) void {
         self.port.deinit(vat);
     }
@@ -328,7 +328,7 @@ pub const Served = struct {
     /// to it (see `spawnAt`, the same operation in its turn-time form). The
     /// position is reserved here. The partner can address the capability only
     /// once it first marshals onto the wire, or after an explicit grant
-    /// through `peer.exportObject` (ADR-0074).
+    /// through `peer.exportObject` (ADR-0027).
     pub fn spawn(self: *Served, vat: *actors.Vat, comptime Behavior: type, initial: Behavior) !Exported {
         const position = try self.port.peer.exportNextObject();
         errdefer self.port.peer.session_state.releaseUnsharedExport(.from(position));
@@ -388,7 +388,7 @@ pub const Served = struct {
         errdefer vat.discardFreshActor(ref);
         try self.port.bindExport(vat, ref, position);
         // The export binding roots the actor; the spawn root transfers to it
-        // (ADR-0101), so a session-published object lives exactly as long as
+        // (ADR-0014), so a session-published object lives exactly as long as
         // some relationship (this binding, a lift, a gift) holds it.
         vat.releaseActor(switch (ref) {
             .local => |id| id,
@@ -418,11 +418,11 @@ pub const Served = struct {
     }
 
     /// Ask the partner how `target` settles, returning a vow for that
-    /// settlement (CapTP `op:listen`, ADR-0095). In 1.0, `target` may be a far
+    /// settlement (CapTP `op:listen`, ADR-0003). In 1.0, `target` may be a far
     /// promise or live far object. A live object answers immediately. In
     /// glowcap-next, `target` must be a far promise because shortening and
     /// settling are promise-only. This is how an introducing session's proxy
-    /// for a third party's promise (ADR-0009) is waited on: the notification
+    /// for a third party's promise (ADR-0039) is waited on: the notification
     /// comes back as a resolve on the vow's answer, so a give arriving in it is
     /// redeemed by the same path a call's reply takes.
     pub fn listenTo(self: *Served, target: model.Reference) !actors.Vow {

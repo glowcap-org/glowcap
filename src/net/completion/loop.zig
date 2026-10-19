@@ -4,7 +4,7 @@
 //! This is the cross-platform connection loop for high-fan-out OCapN I/O. The
 //! connection orchestration lives here: feed complete frames to the peer, keep
 //! partial frame tails, queue partial writes, park reads behind the outbound
-//! high-water mark (ADR-0042), and close connections. That orchestration knows
+//! high-water mark (ADR-0017), and close connections. That orchestration knows
 //! nothing about the operating system. The platform-specific completion primitive
 //! is supplied by a `Backend`, such as Linux's io_uring/epoll selector or
 //! kqueue on macOS/BSD.
@@ -28,14 +28,14 @@
 //! `test/engine/completion_seam_test.zig` pins the contract that arbitrary read
 //! boundaries still apply each frame exactly once.
 //!
-//! ## Read memory: the shared buffer pool (ADR-0054)
+//! ## Read memory: the shared buffer pool (ADR-0019)
 //!
 //! A connection holds no read buffer of its own. The backend owns one shared
 //! pool of `BackendOptions.read_buffers` buffers, each exactly
 //! `BackendOptions.read_buffer_bytes`, and a recv completion carries a borrowed
 //! view of the pool buffer the backend selected for it. The loop consumes the bytes:
 //! whole frames apply zero-copy straight from the completion view. A partial
-//! frame tail absorbs into the connection's bounded spill (ADR-0041). It then
+//! frame tail absorbs into the connection's bounded spill (ADR-0012). It then
 //! hands the buffer back with `recycleBorrowed`, exactly once per completion that
 //! carried one. An idle connection therefore costs no read-buffer memory at
 //! all, and a recv that finds the pool momentarily empty parks buffer-starved
@@ -149,13 +149,13 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         on_driver_exit: ?OnDriverExit,
         /// Deferred adapter scheduling. See `Options.on_loop_turn`.
         on_loop_turn: ?OnLoopTurn,
-        /// Optional park notification (ADR-0082). See `Options.on_park`.
+        /// Optional park notification (ADR-0030). See `Options.on_park`.
         on_park: ?OnPark,
         /// Opt-in TCP keepalive applied at connect/accept finish (see `Options`).
         keepalive: ?tcp_keepalive.Keepalive,
-        /// Fan-in source throttle (ADR-0082). See `Options.fan_in_throttle`.
+        /// Fan-in source throttle (ADR-0030). See `Options.fan_in_throttle`.
         fan_in_throttle: bool,
-        /// Park-duration kill (ADR-0082). See `Options.park_kill_ms`.
+        /// Park-duration kill (ADR-0030). See `Options.park_kill_ms`.
         park_kill_ms: ?u64,
         /// Terminal-flush bound. See `Options.drain_kill_ms`.
         drain_kill_ms: ?u64,
@@ -205,7 +205,7 @@ pub fn Loop(comptime Backend: type, comptime DialResolver: type) type {
         /// Closes whose `submitClose` failed and must be retried. Zero on
         /// every healthy loop, so the retry sweep never runs.
         pending_close_submits: usize = 0,
-        /// The out-of-band wake (ADR-0102): a recv armed on a socketpair half
+        /// The out-of-band wake (ADR-0014): a recv armed on a socketpair half
         /// whose completion runs `handler` on this thread and re-arms. The
         /// sanctioned cross-thread entry, a worker nudges the other half
         /// (`driver.SettleMailbox.post`), replacing the connect-and-drop

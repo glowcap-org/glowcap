@@ -138,7 +138,7 @@ pub fn PinnedStream(comptime Source: type, comptime Context: type) type {
 /// write calls (an in-process pipe, the iroh sidecar). A raw socket connection
 /// already owns a `std.Io.Reader` and `std.Io.Writer` over its buffers, so
 /// wrapping it in a shim would put a second buffer and a copy between the
-/// socket and the frame parser (ADR-0043, ADR-0055). `Raw` supplies `reader`
+/// socket and the frame parser (ADR-0019, ADR-0021). `Raw` supplies `reader`
 /// and `writer` fields with an `interface`, an `io` field, `close`, and
 /// `readinessFd`. Neither raw socket type carries a failure chain, so the
 /// handle publishes none.

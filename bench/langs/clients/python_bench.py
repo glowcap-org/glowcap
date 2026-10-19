@@ -59,7 +59,7 @@ async def run_unit(conn: Session, root) -> None:
 
 
 async def run_unit_pipelined(conn: Session, root) -> None:
-    # The same four verbs as run_unit, but pipelined (ADR-0007, questioner half):
+    # The same four verbs as run_unit, but pipelined (ADR-0003, questioner half):
     # assign/complete/status are addressed at the answer `create` will resolve to
     # (the RemotePromise it returns), passed as the send target. assign/complete
     # are one-way deliveries; only status allocates an answer and is awaited. The

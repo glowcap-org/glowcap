@@ -4,7 +4,7 @@ Agent2Agent ([A2A](https://github.com/a2aproject/A2A)) gives AI agents a
 shared vocabulary for advertising skills and handing each other tasks. This
 sketch carries that vocabulary as CapTP objects, so glowcap peers trade agent
 tasks with the same capability rules as any other call. None of it is built,
-and [ADR-0084](../decisions/adr/ADR-0084-glowcap-cli-product-boundary.md)
+and [ADR-0032](../decisions/adr/ADR-0032-cli-and-product-boundaries.md)
 deferred it until the maintainer decides to take it up.
 
 ## Layers

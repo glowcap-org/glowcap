@@ -66,7 +66,7 @@
 //! ## Local time-travel (snapshot / restore)
 //!
 //! A vat can `snapshot` its local actor heap and later `restore` it, Goblins's
-//! `snapshot-whactormap` shaped in Zig (ADR-0060). Each actor's state lives behind
+//! `snapshot-whactormap` shaped in Zig (ADR-0015). Each actor's state lives behind
 //! a refcounted `StateBox`, so a snapshot shares state pointers rather than copying
 //! bytes, O(objects), no per-byte clone, and the count is non-atomic because a
 //! vat is single-threaded. The feature pays nothing when unused: a non-snapshotting
@@ -153,7 +153,7 @@ pub const Ref = union(enum) {
 /// `Vat.on` for local vows or `Port.on` for far vows.
 pub const Vow = union(enum) {
     /// Result of a local send. Settled by `Vat.drive`. A resolver vow
-    /// (`Vat.spawnVow`, ADR-0102) shares this arm and namespace and is
+    /// (`Vat.spawnVow`, ADR-0014) shares this arm and namespace and is
     /// settled by `Vat.fulfillVow` / `Vat.breakVow` instead.
     local: u64,
     /// Result of a far send: the question the partner resolves, by identity.
@@ -174,7 +174,7 @@ pub const ListenerReservation = struct {
     location: VowLocation,
 };
 
-/// A resolver pair (ADR-0102): the vow is the read side, the resolver id is
+/// A resolver pair (ADR-0014): the vow is the read side, the resolver id is
 /// the settle authority, and neither confers the other. The resolver id lives
 /// in the minting vat's namespace and dies with it.
 pub const ResolverPair = struct {
@@ -269,7 +269,7 @@ pub fn peekId(ids: foundation.id_issuer.IdIssuer) Error!u64 {
 /// One CapTP session's projection of this Vat.
 pub const Port = port_mod.Port;
 
-/// One layer's stake in an outermost turn (ADR-0194). `commit` runs in
+/// One layer's stake in an outermost turn (ADR-0058). `commit` runs in
 /// enrollment order and `abort` in reverse, so a later layer undoes its effect
 /// before an earlier one releases what that effect used.
 /// Abort restores state without notifying observers. Optional `abort_notify`
@@ -287,7 +287,7 @@ pub const TurnBreak = struct { port: *Port, answer: engine.OutboundAnswerTarget 
 /// above the engine. Spawn objects, near-call them with `near` (`$`),
 /// eventual-send to local objects with `send` (`<-`), and `drive` queued turns
 /// to completion. Attach Ports for session-scoped far sends. Sync and no-I/O
-/// by contract (ADR-0036). Everything spawned or queued lives on the vat's
+/// by contract (ADR-0014). Everything spawned or queued lives on the vat's
 /// allocator and arenas, freed in `deinit`.
 pub const Vat = struct {
     allocator: std.mem.Allocator,
@@ -321,7 +321,7 @@ pub const Vat = struct {
     /// mark is unsound. This index makes late-listener refusal independent of
     /// scheduling order.
     pending_local_vows: std.AutoHashMapUnmanaged(PendingLocalVowKey, void) = .{},
-    /// Resolver id → the local vow it settles (ADR-0102). A row is consumed
+    /// Resolver id → the local vow it settles (ADR-0014). A row is consumed
     /// by the first settle attempt, so the map holds exactly the live settle
     /// authorities. Freed with the vat. Ids start at 1 so 0 stays unminted
     /// for adapter tiers that want a null sentinel.
@@ -350,12 +350,12 @@ pub const Vat = struct {
     /// drive. The runnable ring is Vat-owned so nested drives continue from the
     /// fair rotation point rather than re-running the active turn.
     drive_depth: u32 = 0,
-    /// The running outermost turn's staged local sends, per ingress (ADR-0191).
+    /// The running outermost turn's staged local sends, per ingress (ADR-0058).
     staged: std.ArrayListUnmanaged(ingress_mod.StagedIngress) = .empty,
     /// Set when the outermost turn fails, so its close drops the held sends.
     turn_failure: ?[]const u8 = null,
     /// Layers that recorded an effect in the running outermost turn and wait
-    /// for its outcome (ADR-0194), in enrollment order.
+    /// for its outcome (ADR-0058), in enrollment order.
     participants: std.ArrayListUnmanaged(TurnParticipant) = .empty,
     /// Answer slots reserved by far sends before their effect. Listeners stay
     /// at their Port until notification, so cancellation keeps its usual owner.
@@ -472,7 +472,7 @@ pub const Vat = struct {
         return .{ .local = id };
     }
 
-    /// Spawn a *hosted* actor (ADR-0071): its state and behavior live outside
+    /// Spawn a *hosted* actor (ADR-0022): its state and behavior live outside
     /// the vat, behind `hosted.ctx`, reached through the callbacks in
     /// `HostedActor`. This is the C-ABI hosting path a non-Zig consumer uses.
     /// The actor is otherwise ordinary. It is delivered to, driven, sent to,
@@ -538,7 +538,7 @@ pub const Vat = struct {
 
     pub const hasRetiredState = frame.hasRetiredState;
 
-    /// Add one explicit root to a live actor row (ADR-0101). Tolerant of an
+    /// Add one explicit root to a live actor row (ADR-0014). Tolerant of an
     /// absent row: a rooting relationship can outlive a row `restore` removed,
     /// and its bookkeeping then fails closed instead of crashing.
     pub fn retainActor(self: *Vat, id: u64) void {
@@ -546,7 +546,7 @@ pub const Vat = struct {
         if (self.actors.getPtr(id)) |cell| cell.roots += 1;
     }
 
-    /// Release one explicit root (ADR-0101). The last root retires the row,
+    /// Release one explicit root (ADR-0014). The last root retires the row,
     /// immediately when the actor is idle, or at its running frame's unwind,
     /// and parks the box until the next outermost-turn boundary, the borrowed
     /// reply's lifetime. Tolerant of an absent row, like `retainActor`.

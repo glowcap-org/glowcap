@@ -4,7 +4,7 @@
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
 // Internal: the FFI mirror of `libglowcap_net_transport_inproc` — the
-// in-process transport archive (ADR-0059).
+// in-process transport archive (ADR-0022).
 //
 // Nothing here is public; `inproc.ts` is the ergonomic surface over it. This
 // loader opens *only* the inproc archive, so importing `inproc.ts` never pulls

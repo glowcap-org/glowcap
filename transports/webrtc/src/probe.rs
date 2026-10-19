@@ -1,4 +1,4 @@
-//! Browser-interop probe for the WebRTC DataChannel netlayer (ADR-0089).
+//! Browser-interop probe for the WebRTC DataChannel netlayer (ADR-0035).
 //!
 //! This is the probe peer: an answerer over the `webrtc` crate that a browser
 //! offerer connects to over a reliable, ordered `RTCDataChannel`. It proves the
@@ -12,7 +12,7 @@
 //! * bytes round-trip both directions over the open channel.
 //!
 //! Signaling is out of band, over stdio, one JSON object per line. This is *not*
-//! the OCapN signaling capability (see ADR-0089). It is a direct
+//! the OCapN signaling capability (see ADR-0035). It is a direct
 //! SDP/ICE exchange whose only job is to bring the channel up so the byte path
 //! can be proven. The Deno/Playwright harness in `test/` is the counterpart: it
 //! runs the browser peer, ferries these lines between the browser and this

@@ -1,4 +1,4 @@
-//! The front-door handoff proof (ADR-0090): a three-party give settles as a
+//! The front-door handoff proof (ADR-0018): a three-party give settles as a
 //! live, callable capability *inside* the recipient's blocking `call`, with no
 //! redeem verb in sight, the contract every binding's `Session` carries,
 //! proven here for the owning Zig tier.
@@ -152,7 +152,7 @@ fn gifterServe(
 /// its accepted Session calls out to a capability living on a third peer, so the
 /// *server's* host must dial and redeem. Before the server's host carried its
 /// own dial table this settled broken, which is the asymmetry with every
-/// binding that ADR-0090 exists to remove.
+/// binding that ADR-0018 exists to remove.
 fn serverSideRedeem(
     allocator: std.mem.Allocator,
     server: *driver.Server,
@@ -181,7 +181,7 @@ fn serverSideRedeem(
     _ = exporter_designator;
 }
 
-test "front door handoff: a give settles live inside call, and the redeemed capability answers (ADR-0090)" {
+test "front door handoff: a give settles live inside call, and the redeemed capability answers (ADR-0018)" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
@@ -240,7 +240,7 @@ test "front door handoff: a give settles live inside call, and the redeemed capa
     try std.testing.expectEqualStrings("hello from the exporter", greeted.fulfilled.string);
 }
 
-test "front door handoff over keyed-tcp: the give's hint survives the redeem dial (ADR-0090)" {
+test "front door handoff over keyed-tcp: the give's hint survives the redeem dial (ADR-0018)" {
     // The tcp test above cannot see the redeem dial's `direct-addresses`
     // hint, because address transports ignore it. Keyed-tcp cannot dial
     // without it: the exporter's signed hello names its key as designator and
@@ -348,7 +348,7 @@ test "driver Server can replace listener-derived reachability with deployment ro
     }));
 }
 
-test "front door handoff: a listening server redeems too, so both halves match every binding (ADR-0090)" {
+test "front door handoff: a listening server redeems too, so both halves match every binding (ADR-0018)" {
     // The connect half's proof is above. This is the accept half: the party
     // that *listens* receives an introduction and redeems it, which requires
     // its host to hold a dial table of its own. `driver.listen` gives it one.

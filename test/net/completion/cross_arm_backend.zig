@@ -1,6 +1,6 @@
 //! The scripted backend the cross-arm, wake, and close-slot proofs drive:
 //! every completion is the script's choice, and the queue accounting it
-//! exposes is what pins ADR-0042's outbound arithmetic without a socket.
+//! exposes is what pins ADR-0017's outbound arithmetic without a socket.
 
 const std = @import("std");
 const builtin = @import("builtin");

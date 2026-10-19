@@ -153,7 +153,7 @@ export type DurableProvenance = z.infer<typeof DurableProvenance>;
  * identity and there is nothing for either proof to be about. What CapTP does
  * verify on such a session, the Ed25519 signature over the partner's
  * `<my-location …>` record, proves only that whoever answered holds the key
- * they just sent, and that key is drawn fresh per connection (ADR-0097), so it
+ * they just sent, and that key is drawn fresh per connection (ADR-0028), so it
  * names nobody across connections.
  *
  * A key designator is what lets a hello CLAIM a durable name, and claiming is

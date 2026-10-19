@@ -48,7 +48,7 @@ pub(super) struct LoopState {
 	closed: bool,
 }
 
-/// The per-netlayer readiness dispatcher for the iroh loop surface (ADR-0057).
+/// The per-netlayer readiness dispatcher for the iroh loop surface (ADR-0019).
 ///
 /// It registers the netlayer's single readiness fd with tokio's reactor (an
 /// [`AsyncFd`] over a dup of the fd) and, when the fd signals, drains the pending

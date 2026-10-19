@@ -62,7 +62,7 @@ stronger path than the one you hold.
 
 ## The decision
 
-[ADR-0183](../decisions/adr/ADR-0183-rooms-scoped-sharing-and-recovery.md)
+[ADR-0045](../decisions/adr/ADR-0045-managed-rooms-sessions.md)
 settles the shape. You share the exact reference you hold, or you issue a
 facet that depends on your grant, carries a ceiling, and names its scope.
 Offers are separate from the access they admit. One Loam transaction commits
@@ -75,14 +75,14 @@ Two smaller calls are made here so the steps can start.
 
 Public-room scrollback lives in a retention store of JSONL files under the
 directory's state directory, and
-[ADR-0216](../decisions/adr/ADR-0216-rooms-retention-lives-in-files-until-content-records-take-it-over.md)
+[ADR-0059](../decisions/adr/ADR-0059-rooms-retention-storage.md)
 decides that the content records this plan adds take it over. Once the
 content seam lands, every room's lines are content records under the room's
 owner, so the file store would be a copy with its own eviction policy. The
 kept-lines limits become the public room's content quota and the file store
 is deleted with the consumers in the consumer sweep. Everything durable in
 Rooms then lives under its two state directories, and the stopped-volume,
-one-host backup posture ADR-0216 records holds for both.
+one-host backup posture ADR-0059 records holds for both.
 
 The capacity numbers in
 [storage and budgets](rooms-design.md#storage-and-budgets) are proposed, not
@@ -248,8 +248,8 @@ seam names the exact files its sweep touches before the sweep starts.
   `gen-rooms-protocol-check`, `rooms-browser-metadata-check`,
   `rooms-web-proofs`, `goblins-rooms`, `goblins-rooms-irc`. A seam ends with
   `zig build check`, `runtime-check`, and `check-external`.
-- Decisions: ADR-0183, ADR-0182 (saved references), ADR-0142 (nickname
-  vouchers), ADR-0208 and ADR-0216 (retention store).
+- Decisions: ADR-0045, ADR-0053 (saved references), ADR-0045 (nickname
+  vouchers), ADR-0059 (retention store).
 
 Consumers the consumer sweep replaces, under `apps/rooms/rust/`. Recovery
 requires held source or result authority. An ID, nickname, or failed check
@@ -261,7 +261,7 @@ cannot select a stronger method.
 | Role generations in `services/src/server/authority.rs`, `services/src/server/document.rs`, `application/src/server/document.rs` | Shared endpoints and controls. Remove publication reconstruction and duplicate revocation ledgers. |
 | Live invitation in `application/src/server/invitation.rs`, `services/src/server/invitations.rs`, `glowcap/src/client/invitation.rs` | Four-mode offers and atomic claims. Delete fixed observer or participant and connection-only admission state. |
 | Rejoin in `runtime/src/session/managed/results/invitation.rs`, `application/src/session/checkpoint/` | Retain the exact accepted endpoint. No implicit room-link mint. |
-| Nickname voucher in `services/src/server/registration.rs`, `application/src/server/directory/registry.rs`, `glowcap/src/client/directory/registration/` | Keep one-use continuity and authenticated comparison (ADR-0142). Add grant and generation checks. Never persist a voucher in a checkpoint. |
+| Nickname voucher in `services/src/server/registration.rs`, `application/src/server/directory/registry.rs`, `glowcap/src/client/directory/registration/` | Keep one-use continuity and authenticated comparison (ADR-0045). Add grant and generation checks. Never persist a voucher in a checkpoint. |
 | Archive shares in `application/src/archive/shares/`, `runtime/src/archive/publications.rs`, `apps/rooms/lib/archive/durable_protocol.ts` | Managed exact-scope publications. Archive records stay content. |
 | Operator state in `services/src/server/capabilities.rs`, `services/src/server/operations/` | Keep the separate operator front. Mediate attachment access with UseOperations. Never expose on a public root. |
 | File-backed scrollback in `application/src/server/history.rs`, `services/src/server/history.rs`, `services/src/server/history/file.rs`, the `--history` option in `services/src/server/config.rs`, and the history text in `apps/rooms/operating.md` and `apps/rooms/shipped.md` | Content records under the room's owner, with the kept-lines limits as the room's content quota. Delete the index, the file backend, and the option. |

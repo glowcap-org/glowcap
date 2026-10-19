@@ -28,7 +28,7 @@ pub fn irohAbiModule(
 }
 
 /// The webrtc C ABI module over `host_mods`; the body lives with the WebRTC
-/// family in `tools/build/webrtc.zig` (ADR-0089 phase 3, mirroring
+/// family in `tools/build/webrtc.zig` (ADR-0035, mirroring
 /// `irohAbiModule`), and this adapter only resolves the layer instances.
 pub fn webrtcAbiModule(
     b: *std.Build,
@@ -209,7 +209,7 @@ pub fn register(ctx: Context) void {
         .reflects = .{ .name = "c_abi_loam", .module = ctx.loam.portable },
         .extra_imports = &.{ .{ .name = "c_abi_loam_lmdb", .module = ctx.loam.lmdb }, .{ .name = "c_abi_loam_sqlite", .module = ctx.loam.sqlite }, .{ .name = "c_abi_loam_volatile", .module = ctx.loam.volatile_abi }, .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] } },
     });
-    // ── Generated headers / binding mirrors (per archive; ADR-0059) ──────────
+    // ── Generated headers / binding mirrors (per archive; ADR-0022) ──────────
     // Each row reflects a Zig C ABI module through the shared verify/emit
     // harness. `*-check` steps fail on stale committed mirrors; bare steps
     // rewrite them.

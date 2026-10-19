@@ -75,7 +75,7 @@ pub fn glowcap_host_session_feed_bytes(
 }
 
 /// Feed one packet from the transport this session was opened over. Byte-stream
-/// transports pass arbitrary chunks carrying ADR-0110's outer envelope.
+/// transports pass arbitrary chunks carrying ADR-0012's outer envelope.
 /// Message-framed transports pass one bare codec frame per packet. The Host's
 /// transport profile owns that choice. Borrowed for the call.
 pub fn glowcap_host_session_feed_packet(

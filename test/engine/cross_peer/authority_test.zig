@@ -463,7 +463,7 @@ test "canonical handoff-give bytes are a stable Ed25519 signing domain an embedd
     try std.testing.expect(!std.mem.eql(u8, signed, receive_signed));
 }
 
-test "a signed handoff give re-encodes across codecs and its gifter signature still verifies (ADR-0009/ADR-0003)" {
+test "a signed handoff give re-encodes across codecs and its gifter signature still verifies (ADR-0039/ADR-0001)" {
     const allocator = std.testing.allocator;
     const dispatch = glowcap.ocapn.codec.dispatch;
 
@@ -499,7 +499,7 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
         .args = &.{.{ .handoff = &handoff }},
     } };
 
-    // The cross-codec re-encode contract (ADR-0003 / ADR-0009): the signature
+    // The cross-codec re-encode contract (ADR-0001 / ADR-0039): the signature
     // covers the *decoded* record's Syrup canonicalization, not the carrying
     // codec's bytes. So for every ordered pair of distinct codecs, encode in
     // the source, decode to a typed record, re-encode into the target codec,

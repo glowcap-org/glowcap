@@ -18,7 +18,7 @@ const peer_fixture = @import("../support/peer_fixture.zig");
 // ── The recipient half: waiting on a promise the partner handed us ──────────
 //
 // Everything above is what a holder does with a relayed resolution once it has
-// one. `engine.listen.listenOnFar` is how a peer asks for one (ADR-0095):
+// one. `engine.listen.listenOnFar` is how a peer asks for one (ADR-0003):
 // it nominates a fresh export as the listener and binds it to an outbound
 // answer, so the partner's notification comes back as a resolve the caller
 // observes exactly like a call's reply. Both negotiated profiles are exercised

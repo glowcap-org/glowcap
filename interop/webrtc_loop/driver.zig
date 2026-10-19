@@ -1,5 +1,5 @@
 //! Live WebRTC scale: many concurrent DataChannels served from one HostRuntime
-//! thread (ADR-0089 over ADR-0202's completion resident).
+//! thread (ADR-0035 over ADR-0018's completion resident).
 //!
 //! One server thread steps a `driver.HostRuntime` whose WebRTC listener is a
 //! `net.completion_resident` over `webrtc.Backend` with `webrtc.ResidentPolicy`,

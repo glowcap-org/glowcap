@@ -167,7 +167,7 @@ pub const SignalError = error{ SignalFailed, BufferTooSmall, SignalTooLarge };
 /// the channel up, then uses packet-shaped try-I/O.
 pub const Peer = struct {
     peer: *CPeer,
-    /// The capability-authorized remote identity (ADR-0105): the Ed25519 key
+    /// The capability-authorized remote identity (ADR-0028): the Ed25519 key
     /// the signaling exchange was scoped to, recorded by `authorizeRemote`
     /// before the channel carries CapTP bytes. Null when the signaling layer
     /// named no peer identity.
@@ -192,7 +192,7 @@ pub const Peer = struct {
     }
 
     /// Record the peer identity this channel's signaling was authorized for
-    /// (ADR-0105). WebRTC's DTLS handshake binds the channel to the SDP
+    /// (ADR-0028). WebRTC's DTLS handshake binds the channel to the SDP
     /// fingerprints the signaling capability ferried, so the identity that
     /// capability was scoped to is the durable claim this channel may carry.
     /// The completion backend reports it through `verifiedChannelKey`, on offer

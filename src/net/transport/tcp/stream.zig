@@ -166,7 +166,7 @@ pub fn connectFrameStream(
     return FrameStream.initStream(io, allocator, stream, codec_id, max_frame_bytes, read_buf, write_buf);
 }
 
-/// Project the std connect fault onto the DialError retry axis (ADR-0081): a
+/// Project the std connect fault onto the DialError retry axis (ADR-0030): a
 /// refused partner, a missing route, and a timeout are distinct retryable arms.
 /// OutOfMemory is transient local pressure. Everything else stays ConnectionLost.
 pub fn classifyConnect(err: (ConnectRawError || std.mem.Allocator.Error)) netlayer.DialError {

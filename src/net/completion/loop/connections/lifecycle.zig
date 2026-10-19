@@ -308,7 +308,7 @@ pub fn Machine(
             // The connection that just left may have been the last sink over
             // the high-water mark, and the fan-in sources it throttled have no
             // other resume trigger: every terminal path returns before
-            // `onSend`'s tail runs (ADR-0082). Without a resume, a closing
+            // `onSend`'s tail runs (ADR-0030). Without a resume, a closing
             // sink strands its victims parked for the loop's lifetime, they
             // are exempt from the park reaper because they are
             // victims, not slow readers.

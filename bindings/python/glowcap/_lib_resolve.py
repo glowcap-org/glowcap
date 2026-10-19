@@ -1,6 +1,6 @@
 """Internal: resolve where the glowcap shared libraries live.
 
-Publishable cascade (ADR-0077, see ``c-abi-resolve.json`` and
+Publishable cascade (ADR-0023, see ``c-abi-resolve.json`` and
 ``bindings/README.md``):
 
 1. ``GLOWCAP_LIB_DIR`` (configure) wins: never downloads.

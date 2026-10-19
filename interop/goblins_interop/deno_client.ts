@@ -7,7 +7,7 @@ import * as tcp from "@glowcap/tcp";
 //
 // It spawns the conformance Goblins host, learns the echo cap's swiss-num from
 // its NDJSON readiness line, then: `connect` (keyed `op:start-session`),
-// `enliven` the echo sturdyref (bootstrap fetch + ADR-0012 dedup cache),
+// `enliven` the echo sturdyref (bootstrap fetch + ADR-0007 dedup cache),
 // `send` a positional call, then a repeat `enliven` of the same swiss-num
 // (cache hit, no second bootstrap). Needs `racket` + `goblins` on PATH;
 // `zig build deno-goblins-interop`.
@@ -64,7 +64,7 @@ try {
 
 	// Peer URI host is ignored once the session is open; enliven keys on swiss.
 	// A sturdyref names a peer, and the enliven checks that peer against the
-	// session it rides (ADR-0098). Build it from the very locator this session
+	// session it rides (ADR-0007). Build it from the very locator this session
 	// dialed, so the two cannot drift apart.
 	const sturdyref = `${formatLocatorUri(locator)}/s/${sturdyrefPath}`;
 	const echo = await session.enliven(sturdyref);

@@ -1,7 +1,7 @@
 // Idiomatic JavaScript/TypeScript API for glowcap: a full OCapN/CapTP host
 // over the symbol-disjoint `libglowcap_host` and `libglowcap_driver`
-// archives (ADR-0112), with `libglowcap_ocapn` owning their shared value and
-// locator vocabulary (ADR-0059). Host owns `glowcap_host_*`; driver exports
+// archives (ADR-0024), with `libglowcap_ocapn` owning their shared value and
+// locator vocabulary (ADR-0022). Host owns `glowcap_host_*`; driver exports
 // only `glowcap_driver_*` and adopts a quiescent Host. One module
 // runs on Deno and Bun; the runtime-specific FFI and sockets are isolated
 // behind `./internal/ffi/runtime.ts`.
@@ -24,7 +24,7 @@
 // `codec`/`context` (marshalling and allocation scopes), `trampoline` (the one
 // FFI behavior callback), `host` (the `Host`), `action` (host-action
 // decode+execute), `promise` (the `RemotePromise` send returns), `gc`
-// (ADR-0063), `runtime` (Host + transport composition), `dial` (the internal
+// (ADR-0025), `runtime` (Host + transport composition), `dial` (the internal
 // connector executor), `session` (the `Session` verbs and mint/handshake),
 // `pump` (the packet-fed embedder serve/feed/flush
 // choreography), and `locator` (OCapN URIs).
@@ -126,7 +126,7 @@ export {
 	type TransportOperationOptions,
 } from "./transport.ts";
 // The WebSocket byte channel and the cold-dial rendezvous accept half
-// (ADR-0088). Runtime-neutral: the `WebSocket` global is a web standard every
+// (ADR-0034). Runtime-neutral: the `WebSocket` global is a web standard every
 // supported runtime ships. The dialing half is not exported here: a
 // `keyed-relay` locator names its relay route in its `rendezvous-relay` hint,
 // and `@glowcap/relay` supplies the connector and FFI provider that

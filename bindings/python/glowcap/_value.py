@@ -107,7 +107,7 @@ class Struct:
 
 class Forward:
     """A behavior's tail-forward of its answer to another capability: the
-    binding's `Turn.forward` (ADR-0064). Return ``Forward(target, verb, args)``
+    binding's `Turn.forward` (ADR-0016). Return ``Forward(target, verb, args)``
     from a behavior and the answer resolves from ``target <- verb(args)``
     instead of from a value: a target this side hosts composes in process, a
     far target defers the answer until the forwarded reply settles. It is the

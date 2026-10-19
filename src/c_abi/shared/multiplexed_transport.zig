@@ -1,4 +1,4 @@
-//! The multiplexed-transport table, as C layout only (ADR-0112): the shape a
+//! The multiplexed-transport table, as C layout only (ADR-0024): the shape a
 //! transport archive fills when one readiness descriptor serves many stable
 //! connection ids. Drained ready records and non-blocking per-connection
 //! try-I/O plug into the driver archive (`libglowcap_driver`) across a

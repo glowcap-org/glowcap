@@ -1,5 +1,5 @@
 //! Hermetic proof that a recipient's **configured redeem posture** governs how a
-//! *hint-less* iroh handoff give is dialed (ADR-0009), the Rust sibling of the
+//! *hint-less* iroh handoff give is dialed (ADR-0039), the Rust sibling of the
 //! Python/Racket `iroh_redeem_posture` clients.
 //!
 //! A give whose exporter location names the exporter by **node id alone** (no

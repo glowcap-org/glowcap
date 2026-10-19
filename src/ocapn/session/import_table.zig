@@ -1,11 +1,11 @@
-//! Import rows: the positions the partner mints, with their ADR-0008
+//! Import rows: the positions the partner mints, with their ADR-0004
 //! wire-delta counts split by holder, hashed under the session's secret.
 //!
 //! Name plate: `ImportTable`. Not `slot.zig` (the CapTP `Slot` sum alone) and
 //! not `export_table.zig` (the positions this session mints). An import row
 //! holds no cell: a far import is always `remote_value` of its own position
-//! (`desc:export` names it regardless of kind, ADR-0010, and remote mint is
-//! object-only, ADR-0080), so the row records only who holds its retains.
+//! (`desc:export` names it regardless of kind, ADR-0006, and remote mint is
+//! object-only, ADR-0006), so the row records only who holds its retains.
 //!
 //! ## Two holders of one import row
 //!
@@ -26,7 +26,7 @@
 //!
 //! An untrusted peer can name `import_position = 1 << 63`, and a vector would
 //! try to grow to it, so the table hashes positions under the session's
-//! secret multiplier (ADR-0223). Nothing in the protocol stops a partner
+//! secret multiplier (ADR-0037). Nothing in the protocol stops a partner
 //! releasing an import position and reusing the number for a different
 //! object, so every reader of an import position holds something besides the
 //! number:
@@ -56,18 +56,18 @@ pub const ImportRow = struct {
 ///
 /// Unlike an export, an import position is partner-allocated, so an untrusted peer
 /// could introduce unboundedly many distinct imports. `retain` therefore takes a
-/// `max` and refuses a *new* id past it (ADR-0025), so the cap is enforced at the
+/// `max` and refuses a *new* id past it (ADR-0008), so the cap is enforced at the
 /// one place a row is added rather than at each call site. An already-held id is
 /// a refcount bump and never trips the cap, because it adds no row. There is no
 /// `register`: imports are only ever retained.
 pub const ImportTable = struct {
-    /// Live rows keyed by the partner's position (ADR-0008). A row is
+    /// Live rows keyed by the partner's position (ADR-0004). A row is
     /// installed at count 1, a release decrements by the wire delta and
     /// retires the row at zero, and underflow, overflow, or an unknown
     /// position is a loud error, never a silent clamp.
     rows: foundation.identity_hash.MapOf(.wire, u64, ImportRow),
     /// Optional identities attached to live import rows: the Node routing
-    /// route id (ADR-0069) and the opaque Host capability id (ADR-0096). Both die
+    /// route id (ADR-0026) and the opaque Host capability id (ADR-0026). Both die
     /// with the import row, so partner reuse of one numeric position cannot
     /// revive either identity. One optional map preserves the one-word empty
     /// session cost while the two layer-specific identities coexist. The map
@@ -92,7 +92,7 @@ pub const ImportTable = struct {
     pub const Id = model.ImportPosition;
     pub const Error = error{
         /// A decrement drove a count below zero, or named a position the
-        /// table never held, surfaced loudly per ADR-0008 wire-delta
+        /// table never held, surfaced loudly per ADR-0004 wire-delta
         /// accounting.
         GcUnderflow,
         /// A retain would carry a count past what its `u64` holds.

@@ -1,4 +1,4 @@
-//! Host-scoped capability identity (ADR-0096).
+//! Host-scoped capability identity (ADR-0026).
 //!
 //! Wire positions remain session names. This registry gives the composed Host
 //! an opaque name for the target behind one of those positions. Zig refs
@@ -254,7 +254,7 @@ pub const Registry = struct {
 
     /// Whether a canonical row for `target` already exists. `Host` uses it as
     /// the creation probe to pair an actor root with a fresh local slot
-    /// (ADR-0101).
+    /// (ADR-0014).
     pub fn hasTarget(self: *const Registry, target: Target) bool {
         return self.by_target.contains(target.key());
     }

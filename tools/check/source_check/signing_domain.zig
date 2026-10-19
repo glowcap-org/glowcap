@@ -1,7 +1,7 @@
 //! Every durable-key signature in `src/` is a registered, fixed-shape record,
 //! and the Ed25519-to-X25519 bridge stays behind its named door.
 //!
-//! ADR-0107 accepts one cross-protocol hazard knowingly: the durable Ed25519
+//! ADR-0041 accepts one cross-protocol hazard knowingly: the durable Ed25519
 //! key both signs records and, mapped to X25519, runs the Noise handshake's
 //! key agreement. That reuse is safe while everything the key signs is a
 //! fixed-shape record under a known constructor, and it stops being safe the
@@ -200,7 +200,7 @@ pub fn checkSigningDomains(
         // Rule 3: the Ed25519-to-X25519 map and its wrappers stay confined.
         if (!std.mem.eql(u8, rel, bridge_home)) {
             if (countOnCode(contents, "fromEd25519(") > 0 or countOnCode(contents, "publicKeyFromEd25519(") > 0) {
-                try appendViolation(gpa, violations, "src/{s}: direct Ed25519-to-X25519 conversion outside {s}. The bridge has one home so the key-reuse hazard ADR-0107 accepts stays inspectable; call `crypto.x25519FromPeerKey` / `crypto.x25519FromSecretKey` from a registered channel file instead.", .{ rel, bridge_home });
+                try appendViolation(gpa, violations, "src/{s}: direct Ed25519-to-X25519 conversion outside {s}. The bridge has one home so the key-reuse hazard ADR-0041 accepts stays inspectable; call `crypto.x25519FromPeerKey` / `crypto.x25519FromSecretKey` from a registered channel file instead.", .{ rel, bridge_home });
             }
             if (countOnCode(contents, ".keypair.sign(") > 0) {
                 try appendViolation(gpa, violations, "src/{s}: raw Ed25519 signing outside {s}. Every signature goes through `crypto.sign` so rule 1 can see it.", .{ rel, bridge_home });

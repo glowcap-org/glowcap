@@ -23,7 +23,7 @@ pub const AddressSource = enum { none, designator, direct_addresses_hint };
 pub const DialShape = enum { unsupported, host_port, peer_id, signaling, rendezvous, route_bundle };
 
 /// How a transport presents CapTP frames to the host once the channel exists.
-/// Byte streams need ADR-0110's outer Syrup byte-string envelope. Transports
+/// Byte streams need ADR-0012's outer Syrup byte-string envelope. Transports
 /// that preserve message boundaries carry one bare codec frame per message.
 pub const WireFraming = enum { byte_stream, message };
 
@@ -151,17 +151,17 @@ pub const tcp = Known.tcp.metadata().symbol;
 /// Tor onion service: designator is the version 3 service id, without its
 /// `.onion` suffix, which the locator's transport label supplies. The one
 /// transport symbol the OCapN draft standardizes, and the one upstream Spritely
-/// Goblins ships (ADR-0108).
+/// Goblins ships (ADR-0042).
 ///
 /// The designator stays an address even though a version 3 service id encodes an
 /// Ed25519 public key. Tor's rendezvous handshake proves the far end holds that
 /// key, but what the key names is the rendezvous service. The CapTP peer is
-/// whoever holds the local endpoint the service forwards to. ADR-0108 derives
+/// whoever holds the local endpoint the service forwards to. ADR-0042 derives
 /// this, and the pinned Goblins dials and is dialed on the same reading.
 pub const onion = Known.onion.metadata().symbol;
 
 /// Keyed TCP: designator is the partner Ed25519 key. Socket address rides the
-/// `direct-addresses` hint (ADR-0075).
+/// `direct-addresses` hint (ADR-0028).
 pub const keyed_tcp = Known.keyed_tcp.metadata().symbol;
 
 /// In-process pipes: designator is a switchboard name, no sockets.
@@ -172,24 +172,24 @@ pub const iroh = Known.iroh.metadata().symbol;
 
 /// Relay rendezvous: designator is the peer's Ed25519 key, and there is no
 /// dialable address, the peer holds an inbound socket at a relay under this
-/// key, and a dialer is bridged onto it (ADR-0088 cold-dial rendezvous). The
+/// key, and a dialer is bridged onto it (ADR-0034 cold-dial rendezvous). The
 /// byte channel is the relay leg. The keyed handshake runs end to end. Used to
 /// reach a peer that opens no listening socket, such as a browser.
 pub const keyed_relay = Known.keyed_relay.metadata().symbol;
 
 /// WebRTC DataChannel: designator is the peer's Ed25519 key, and the offer,
 /// answer, and ICE candidates that bring the channel up ride a signaling
-/// capability rather than a dialable address (ADR-0089).
+/// capability rather than a dialable address (ADR-0035).
 pub const webrtc = Known.webrtc.metadata().symbol;
 
-/// Noise-sealed TCP (ADR-0107): `tcp` sockets carrying the sealed byte
+/// Noise-sealed TCP (ADR-0041): `tcp` sockets carrying the sealed byte
 /// channel. The designator is the responder's durable Ed25519 key and the
 /// socket address rides the `direct-addresses` hint, as `keyed-tcp`.
 /// What differs is the wire, where the two CapTP peers complete a Noise_XK
 /// handshake before any CapTP byte moves.
 pub const noise_tcp = Known.noise_tcp.metadata().symbol;
 
-/// Noise-sealed relay rendezvous (ADR-0107): the same sealed channel over a
+/// Noise-sealed relay rendezvous (ADR-0041): the same sealed channel over a
 /// relay's WebSocket pipe, so the relay forwards ciphertext. The designator
 /// is the registered responder's Ed25519 key, as `keyed-relay`. The
 /// relay transport owns the same registered byte-pipe realization, while the
@@ -222,7 +222,7 @@ pub const hint_via = "via";
 /// version as `CaptpVersion.hintToken`, the codec as `CodecId.hintToken`, and
 /// the optional feature set as a comma-separated list of `FeatureSet` field
 /// names. A token for a version or codec glowcap owns carries this build's
-/// own-wire fingerprint (ADR-0252), and a token this build does not write
+/// own-wire fingerprint (ADR-0001), and a token this build does not write
 /// reads as the baseline on its axis.
 ///
 /// They ride the locator a hello signs, the sender's own `acceptable_location`
@@ -230,7 +230,7 @@ pub const hint_via = "via";
 /// states its addresses, and both ends do it symmetrically. On the locator a
 /// dialer was handed they are read once, as knowledge rather than as a
 /// preference: their presence on an onion address marks the acceptor as
-/// glowcap (ADR-0118), and the settle still runs off the two hellos alone.
+/// glowcap (ADR-0042), and the settle still runs off the two hellos alone.
 ///
 /// Three names because the axes are independent: a peer that understands one
 /// settles that axis and takes the baseline on the other.

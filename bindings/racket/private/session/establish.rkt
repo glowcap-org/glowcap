@@ -96,7 +96,7 @@
 ;; produced. `server-designator` is the listener's signing designator (key for
 ;; keyed-tcp/iroh; unused for tcp); `accepted-local-addr` is what accept
 ;; reported. The host resolves what this accept signs and retains it without
-;; displacing an explicitly selected advertised locator (ADR-0078); no locator
+;; displacing an explicitly selected advertised locator (ADR-0029); no locator
 ;; policy lives in this binding. The handshake is bounded by default: see
 ;; `accept-next-session`, which every listening surface goes through.
 (define (establish-accepted-session m transport-name server-designator transport

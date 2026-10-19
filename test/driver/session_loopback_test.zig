@@ -1,7 +1,7 @@
 //! Driver loopback: `driver.connect` and `driver.listen`
 //! over a real 127.0.0.1 socket with the keyed, verified handshake on both
 //! ends, the same exchange a live Goblins peer requires. Fetch, call,
-//! pipelining, URIs, local spawns, ADR-0074's grant-on-first-marshal, the
+//! pipelining, URIs, local spawns, ADR-0027's grant-on-first-marshal, the
 //! callback-and-step pump through a small read buffer, and the transports
 //! value's refusal each ride one test.
 
@@ -299,7 +299,7 @@ fn serveBoardOnce(server: *driver.Server) anyerror!void {
 /// and only then settle the final `status`. The four delivers flush together on
 /// that settle, none waits for `create` to come back, so the host queues the
 /// three pipelined calls on its pending answer and drains them onto the freshly
-/// spawned task when `create` resolves (ADR-0007's serving half). A correct
+/// spawned task when `create` resolves (ADR-0003's serving half). A correct
 /// `status` of `done` proves the questioner half end to end: a dependent chain
 /// crossed the wire as one batch, not four round trips.
 fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
@@ -396,7 +396,7 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
     try host_result;
 }
 
-/// The grant-on-marshal fixture (ADR-0074): `make` spawns two capabilities and
+/// The grant-on-marshal fixture (ADR-0027): `make` spawns two capabilities and
 /// marshals exactly one into its reply. The other's export position leaks only
 /// as an integer, which is data, not authority.
 const TwoSpawner = struct {
@@ -467,7 +467,7 @@ fn probeReservedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloc
     try std.testing.expect(probed == .broken);
 }
 
-test "driver loopback: a spawned capability is unreachable until first marshaled (ADR-0074)" {
+test "driver loopback: a spawned capability is unreachable until first marshaled (ADR-0027)" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});

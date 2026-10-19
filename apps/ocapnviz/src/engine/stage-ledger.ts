@@ -264,7 +264,7 @@ export class StageLedger {
 			 * passes nothing, and the end joins unknown. */
 			partnerOwnProfile?: PeerProfile;
 			/** True when this session negotiated the `next` CapTP profile, which
-			 * is glowcap-private (ADR-0003) and so names BOTH ends as glowcap
+			 * is glowcap-private (ADR-0001) and so names BOTH ends as glowcap
 			 * hosts. The caller passes the fact rather than the version string
 			 * because the version is wire vocabulary and the conclusion is what
 			 * the ledger acts on, `LedgerNames.learnProfile` is where it lands and why.

@@ -5,7 +5,7 @@
 //! vat instead of the glowcap conformance peer: fetch echo, deliver a
 //! glowcap-owned near object with no answer, pump until Goblins releases its
 //! import of that export. This driver is evidence-only (no engine change of
-//! its own), export-side promise listen ships separately under ADR-0007.
+//! its own), export-side promise listen ships separately under ADR-0003.
 //!
 //! Needs `racket` + the `goblins` collection on PATH, runs as the sibling step
 //! `zig build goblins-gc`, not in the in-tree check. Compiling the driver is

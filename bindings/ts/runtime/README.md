@@ -10,7 +10,7 @@ on any transport, so you also install a transport package.
 - It loads two C libraries. `libglowcap_host` handles byte-fed sessions, where your code supplies
   the bytes. `libglowcap_driver` runs the event loop (the driver loop) that owns sockets. It starts
   with no transports and adopts a Host through `glowcap_driver_take_host`. A separate library per
-  transport keeps unused code out of your program (ADR-0112).
+  transport keeps unused code out of your program (ADR-0024).
 - The TCP library supplies the plain, keyed, and sealed TCP transports. The relay library does the
   same for the keyed and sealed relay transports.
 - On Deno, a `Runtime.connect` that uses a provider runs on a driver loop that
@@ -39,7 +39,7 @@ loads on the wrong runtime.
 | ------------------------ | -------------------- | ---------------------- | ----------------------------------------- |
 | [Deno](https://deno.com) | tested (build check) | `Deno.dlopen`          | `deno run --allow-ffi --allow-read`       |
 | [Bun](https://bun.sh)    | tested (build check) | `bun:ffi`              | `bun run`                                 |
-| Browser                  | tested (build check) | WebAssembly (ADR-0070) | [`@glowcap/web`](../web/README.md) `init` |
+| Browser                  | tested (build check) | WebAssembly (ADR-0034) | [`@glowcap/web`](../web/README.md) `init` |
 
 Deno and Bun each have a `zig build` test (`deno-dogfood`, `bun-dogfood`), and the browser path has
 `web-peer-test`. Deno's test covers the application API over the driver loop. Bun's covers the
@@ -51,7 +51,7 @@ error. Any other runtime is refused at load with an error.
 The public API is one core module plus one module per built-in transport, declared in
 [`deno.json`](deno.json)'s `exports` map (the JSR manifest, which Bun also reads). Each maps
 to an archive and opens only that archive through the runtime shim's `dlopen`, as the C libraries
-do (ADR-0059), so an import loads only what it needs.
+do (ADR-0022), so an import loads only what it needs.
 
 | Import                            | File                                         | Archive it opens                                                                                                                                                                 |
 | --------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

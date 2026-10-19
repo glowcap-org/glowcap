@@ -2,7 +2,7 @@
 ;; Internal: the raw `ffi/unsafe` loader for libglowcap_net_transport_tcp.
 ;;
 ;; Nothing here is public; `../glowcap-tcp.rkt` is the ergonomic surface over it.
-;; This loader opens ONLY the TCP transport archive (ADR-0059): it carries the
+;; This loader opens ONLY the TCP transport archive (ADR-0022): it carries the
 ;; `glowcap_tcp_*` family plus its own thread-local last-error, symbol-disjoint
 ;; from libglowcap_ocapn. Requiring it loads no other archive, a program that
 ;; never touches TCP never links it. The `_fun` signatures name the shared frame

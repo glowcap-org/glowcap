@@ -6,7 +6,7 @@ vat is the application API itself, not a bespoke handshake script.
 
 It spawns the conformance Goblins host, learns the echo cap's swiss-num from its
 NDJSON readiness line, then ``connect`` (keyed ``op:start-session``),
-``enliven`` the echo sturdyref (bootstrap fetch + ADR-0012 dedup), ``send`` a
+``enliven`` the echo sturdyref (bootstrap fetch + ADR-0007 dedup), ``send`` a
 positional call, then a repeat ``enliven`` of the same swiss-num. Needs
 ``racket`` plus ``goblins`` on PATH; ``zig build python-goblins-interop``.
 """
@@ -58,7 +58,7 @@ async def converse() -> None:
             session.serve()
 
         # A sturdyref names a peer, and the enliven checks that peer against
-        # the session it rides (ADR-0098). Build it from the very locator this
+        # the session it rides (ADR-0007). Build it from the very locator this
         # session dialed, so the two cannot drift apart.
             sturdyref = f"{format_locator_uri(locator)}/s/{sturdyref_path}"
             echo = await session.enliven(sturdyref)
@@ -78,7 +78,7 @@ async def converse() -> None:
 
             again = await session.enliven(sturdyref)
         # The dedup cache hands back the same capability, so the two handles
-        # carry one opaque Host identity (ADR-0096). The id is the whole
+        # carry one opaque Host identity (ADR-0026). The id is the whole
         # observable: a binding cannot see the wire import behind it, which is
         # the point of the identity being opaque.
             if echo.id != again.id:

@@ -1,7 +1,7 @@
 //! Session directories for the byte-fed host core: the lookups that find a
 //! live session again (by the dial target this host chose, by a partner's
 //! proved durable key, or by a side index) and the duplicate refusals and
-//! index upkeep those lookups power (ADR-0012, ADR-0068, ADR-0097). Split
+//! index upkeep those lookups power (ADR-0007, ADR-0026, ADR-0028). Split
 //! from `sessions.zig` by responsibility. The `Host` presents
 //! each verb through decl aliases there and in `host.zig`.
 
@@ -45,7 +45,7 @@ pub const DialTargetMap = std.HashMapUnmanaged(
 );
 
 /// The live, non-condemned session that already reaches `partner_designator`
-/// (ADR-0012), or null. One authority two callers read: this host refuses a
+/// (ADR-0007), or null. One authority two callers read: this host refuses a
 /// duplicate app dial against a non-null result, and the node-action pump
 /// reuses that session to redeem a give rather than dial a duplicate it would
 /// then refuse. Match set: our dialed designator (bytes we chose), or a live
@@ -59,10 +59,10 @@ pub const DialTargetMap = std.HashMapUnmanaged(
 /// inbound peer squat dial availability. Dedup against an accepted tcp session
 /// still runs after the newcomer's start-session via `refuseDuplicatePartnerKey`
 /// (verified key). An accepted session racing an in-flight dial stays legal
-/// for crossed hellos until start-session (ADR-0068).
+/// for crossed hellos until start-session (ADR-0026).
 pub fn liveSessionForDial(self: *const Host, transport: []const u8, partner_designator: []const u8) HostError!?*HostSession {
     if (liveIndexedSession(self, self.dialed_by_target.get(target(transport, partner_designator)))) |session| return session;
-    // The durable-peer directory, never the side index (ADR-0097): this
+    // The durable-peer directory, never the side index (ADR-0028): this
     // asks "which live session reaches peer P", and P is a durable
     // identity. Deriving a side name from P instead would be asking the
     // session-incarnation directory a question it only answers while
@@ -98,7 +98,7 @@ pub fn refuseDuplicateDialForDemand(
 
 /// After crossed-hellos tiebreak, keep at most one non-condemned session to
 /// the same CapTP partner key (dual-accept settlement, or a dial that
-/// slipped past pre-identity refuse). Survivor choice follows the ADR-0068
+/// slipped past pre-identity refuse). Survivor choice follows the ADR-0026
 /// / crossed-hellos key order (`CrossedHellos.checkInbound`): both peers
 /// independently keep the session the higher-keyed peer opened (dialed
 /// when we are higher, accepted when we are lower), so a crossed pair that
@@ -120,10 +120,10 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     const partner_key = try crypto.PeerKey.fromSlice(ss.session_pubkey);
     const side = engine.handoff_names.sideNameForKey(partner_key);
     // Two questions, and only the second identifies a *peer* once each
-    // session draws its own key (ADR-0097). A matching session key means
+    // session draws its own key (ADR-0028). A matching session key means
     // the same session incarnation, which is a duplicate of the narrowest
     // kind. A matching proved durable identity means the same peer reached
-    // twice, which is the duplicate ADR-0068 exists to collapse. It is
+    // twice, which is the duplicate ADR-0026 exists to collapse. It is
     // the only one that survives fresh keys, because two sessions with one
     // peer no longer share a session key.
     //
@@ -132,7 +132,7 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     // to condemn a session, which is the same refusal `liveSessionForDial`
     // makes. A transport that proves no durable identity therefore has no
     // collapse here, and the crossed-hellos declared-location match remains
-    // its only one, with the weakness ADR-0030 already states.
+    // its only one, with the weakness ADR-0012 already states.
     const durable_dup: ?engine.PeerHandle = if (durablePeerKeyFor(session, ss.acceptable_location.designator)) |claimed|
         self.peer_by_durable.get(claimed)
     else
@@ -162,7 +162,7 @@ pub fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.v
     }
 
     // Ordered by the two *session* identities, as crossed hellos are
-    // (ADR-0097): ours on this session against the partner's on it. The
+    // (ADR-0028): ours on this session against the partner's on it. The
     // durable keys are equal on both racing connection attempts by definition, so
     // they cannot order anything.
     const our_pid = crypto.derivePublicIdentifier(session.sessionPublicKey());
@@ -204,7 +204,7 @@ pub fn indexPartnerKey(self: *Host, session: *HostSession, key: [crypto.peer_key
 }
 
 /// The authenticated durable designator this session's partner proved, or
-/// null when it proved none (ADR-0105). The one derivation both the index
+/// null when it proved none (ADR-0028). The one derivation both the index
 /// and unindex paths read, which is why the shell stores no copy.
 ///
 /// Both readings agree because neither input can move once a session is
@@ -284,7 +284,7 @@ pub fn liveIndexedSession(self: *const Host, peer_handle: ?engine.PeerHandle) ?*
 }
 
 /// The live dialed session whose selected peer matches `(transport,
-/// designator)`, for Host-level select-or-dial (ADR-0098 step 4). Dialed
+/// designator)`, for Host-level select-or-dial (ADR-0007). Dialed
 /// sessions only: an accepted address session cannot prove its claimed
 /// designator, and the enliven path re-verifies whatever this returns
 /// through the complete sturdyref peer check.

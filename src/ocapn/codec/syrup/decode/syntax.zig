@@ -26,7 +26,7 @@ pub const max_decode_nesting: usize = limits.max_decode_nesting;
 /// before any of those walks run. The bound sits just above what the *default*
 /// frame cap can even carry (one-byte elements under the 1 MiB
 /// `max_frame_bytes`), so under default limits the envelope's cap refuses an
-/// over-wide frame before it is buffered (ADR-0110). This cap binds the
+/// over-wide frame before it is buffered (ADR-0012). This cap binds the
 /// whole-frame entry points and any deployment that raises the byte cap.
 /// Ordinary CapTP messages carry a handful of arguments, six orders of
 /// magnitude below it.
@@ -180,7 +180,7 @@ pub fn readPositionList(bytes: []const u8, cursor: *usize) Error!Sliced {
 /// The grammar is matched exactly, algorithm tags included. A record that
 /// claims any other curve or scheme is refused as malformed: accepting it and
 /// then verifying its `q` as an Ed25519 key would silently coerce the claimed
-/// algorithm, exactly the mis-decode ADR-0003's symmetric refusal forbids.
+/// algorithm, exactly the mis-decode ADR-0001's symmetric refusal forbids.
 pub fn readPeerKeyQ(bytes: []const u8, cursor: *usize) Error![]const u8 {
     try readByte(bytes, cursor, '[');
     try expectSymbol(bytes, cursor, "public-key");

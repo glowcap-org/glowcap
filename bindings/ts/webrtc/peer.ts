@@ -2,7 +2,7 @@
 
 // A browser WebRTC peer: an RTCPeerConnection and its single reliable, ordered
 // `ocapn` DataChannel, the browser counterpart of the WebRTC C library's peer
-// (ADR-0089). It drives the signaling exchange (offer, answer, ICE) and, once
+// (ADR-0035). It drives the signaling exchange (offer, answer, ICE) and, once
 // the channel opens, presents it as an opaque packet channel. The application
 // carries the signaling, so `RtcPeer` only produces and consumes the SDP and
 // candidate strings.
@@ -26,7 +26,7 @@ export interface RtcPeerInit {
 	 * receives the channel and produces the answer. */
 	offerer: boolean;
 	/** ICE servers (STUN/TURN). Empty (the default) gathers host candidates only:
-	 * loopback and LAN reach each other with no infrastructure (ADR-0089). */
+	 * loopback and LAN reach each other with no infrastructure (ADR-0035). */
 	iceServers?: RTCIceServer[];
 }
 

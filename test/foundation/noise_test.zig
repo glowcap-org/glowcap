@@ -1,6 +1,6 @@
 //! The published cacophony test vectors drive `foundation.noise` byte for
 //! byte, both roles, handshake and transport, so the state machine answers to
-//! an authority outside this repository (ADR-0107, evidence item 1). Unit
+//! an authority outside this repository (ADR-0041, evidence item 1). Unit
 //! tests beside the vectors cover what a fixed transcript cannot: refusal
 //! paths, nonce exhaustion, rekey, record framing, and the Ed25519-to-X25519
 //! conversion agreeing with itself across both halves of a key.

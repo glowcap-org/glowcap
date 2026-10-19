@@ -1,11 +1,11 @@
 #lang racket
 ;; Live WebRTC proofs for the Racket binding through the C provider, in order.
 ;;
-;; Dial (ADR-0226): the binding installs `webrtc-provider` with its own
+;; Dial (ADR-0035): the binding installs `webrtc-provider` with its own
 ;; signaling, then an ordinary `runtime-connect` dials the Zig WebRTC answerer by
 ;; locator, fetches its greeter, and calls it.
 ;;
-;; Listen (ADR-0232): the binding listens with `listen-webrtc`, the Zig WebRTC
+;; Listen (ADR-0035): the binding listens with `listen-webrtc`, the Zig WebRTC
 ;; offerer dials the listener, and the accepted session names the offerer's key.
 ;;
 ;; Each Zig peer is a separate process that speaks one JSON object per line on

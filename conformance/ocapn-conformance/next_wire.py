@@ -23,7 +23,7 @@ Record = syrup.Record
 def next_hint_token():
     """The `glowcap/captp-version` token this checkout's glowcap writes for next.
 
-    The token names the exact build of glowcap's own wire (ADR-0252), and the
+    The token names the exact build of glowcap's own wire (ADR-0001), and the
     generated fingerprint in the model is its one source.
     """
     source = Path(__file__).resolve().parents[2] / "src/ocapn/model/own_wire.zig"

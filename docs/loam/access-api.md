@@ -144,10 +144,10 @@ A method can return a capability its resource's content keeps in a strong
 field, a declared field that keeps its reference alive.
 `ContentCall.discloseExact` returns a strong field the call declared and
 refuses capabilities it did not declare
-([ADR-0172](../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)).
+([ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)).
 `ContentCall.discloseDependent` returns a facet that keeps both the endpoint
 that was called and the stored target live
-([ADR-0173](../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)).
+([ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)).
 Typed local and remote fields work through the
 [stored capability field API](references.md).
 
@@ -168,7 +168,7 @@ change together.
 Rust uses the Zig implementation through a C ABI. The ABI converts data and
 hands over ownership, and every permission decision stays in Zig.
 
-[ADR-0185](../decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)
+[ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
 and the [C and Rust guide](c-and-rust.md) define what you can call.
 `libglowcap_loam` owns the Store, Attachment, synchronous Call, and submitted
 Work handles. The optional `libglowcap_loam_sqlite`, `libglowcap_loam_lmdb`,

@@ -51,11 +51,11 @@ pub const ListenerEntry = struct {
 
 /// A row's `op:listen` subscribers, the parties to notify when the row's
 /// promise resolves. An inbound answer's pipelining payload and a third-party
-/// imported promise (ADR-0009) hold listeners the same way: accumulate POD
+/// imported promise (ADR-0039) hold listeners the same way: accumulate POD
 /// entries until resolve, then hand the whole batch off. This type is that one
 /// shared mechanic, so the two substrates cannot drift apart.
 ///
-/// The fan-out bound (`max_listeners_per_target`, ADR-0025) is the length of
+/// The fan-out bound (`max_listeners_per_target`, ADR-0008) is the length of
 /// this whole list: it caps how many listeners one *listened-on promise*
 /// accumulates, `op:listen`'s `target`, the answer or import, which is the
 /// quantity a flooding partner grows. It is not a per-
@@ -136,7 +136,7 @@ pub const ProjectionIndex = union(enum) {
 };
 
 /// A pending `op:get` / `op:index` / `op:untag` projection anchored on an
-/// answer, the shape ADR-0050 settles: when the answer resolves, the engine
+/// answer, the shape ADR-0004 settles: when the answer resolves, the engine
 /// resolves `answer` to the named field, element, or unwrapped Tagged payload
 /// of the resolution. The `.field` and `.untag` arms own their name bytes.
 pub const Projection = struct {
@@ -184,7 +184,7 @@ pub const QueuedCall = struct {
     }
 };
 
-/// Cold pipelining payload for an answer (ADR-0007), allocated lazily when
+/// Cold pipelining payload for an answer (ADR-0003), allocated lazily when
 /// an answer acquires a queued call, listener, projection or stored resolution.
 pub const AnswerPayload = struct {
     /// Whether releasing this answer's wire name would drop work already
@@ -213,7 +213,7 @@ pub const AnswerPayload = struct {
     /// Parties listening for this answer's resolution (POD entries).
     listeners: ListenerList = .empty,
     /// `op:get` / `op:index` projections waiting on this answer's resolution
-    /// (ADR-0050). Each entry's `.field` bytes are owned. Freed on drain or
+    /// (ADR-0004). Each entry's `.field` bytes are owned. Freed on drain or
     /// removal.
     projections: std.ArrayList(Projection) = .empty,
     /// The resolution, stored once the answer resolves so a late `op:listen`
@@ -266,7 +266,7 @@ pub const AnswerCell = struct {
     answer_status: AnswerStatus = .pending,
     /// Instance stamp from `Session.store_stamp_counter` (partner may reuse positions).
     row_id: u64,
-    /// Wire-delta count per ADR-0008 `op:gc-answers`.
+    /// Wire-delta count per ADR-0004 `op:gc-answers`.
     count: u64 = 1,
     /// The application layer claimed responsibility for releasing this outbound
     /// answer, so a stateless serve policy must not release it at settlement.
@@ -289,10 +289,10 @@ pub const AnswerCell = struct {
     has_settling_target: bool = false,
     /// The local export whose settlement callback is this answer: on an
     /// outbound row, the resolver the partner delivers to when it settles
-    /// the answer (ADR-0010, ADR-0095); on a local promise's virtual inbound
+    /// the answer (ADR-0006, ADR-0003); on a local promise's virtual inbound
     /// row, the projection export that names it. The export's own row says
     /// what the export is for (`ExportRow.purpose`), and this is how the
-    /// answer side finds it without a reverse row (ADR-0254).
+    /// answer side finds it without a reverse row (ADR-0038).
     /// `.from(0)` under a clear flag is none, as for `settling_target`.
     resolver_export: model.ExportPosition = .from(0),
     has_resolver_export: bool = false,
@@ -358,7 +358,7 @@ pub const AnswerView = struct {
 };
 
 /// Inbound answers: the questions the partner asked, at positions it chose,
-/// hashed under the session's secret multiplier (ADR-0223).
+/// hashed under the session's secret multiplier (ADR-0037).
 pub const InboundAnswerTable = struct {
     rows: foundation.identity_hash.MapOf(.wire, model.AnswerName, AnswerCell),
 

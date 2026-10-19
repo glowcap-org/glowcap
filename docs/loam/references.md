@@ -25,7 +25,7 @@ Host runs.
 edges within one attachment, references into another attachment on the same
 Host and store, and established sturdyrefs to another Host. It never saves
 CapTP export positions, pointers, or grant identities it would have to guess.
-[ADR-0182](../decisions/adr/ADR-0182-held-authority-reference-recipes.md)
+[ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
 records these rules.
 
 Register `hosting.references.schema` with the Store to use recipe fields. A
@@ -107,7 +107,7 @@ target.
   names it.
 - Closing an idle scope releases everything it holds.
 
-[ADR-0204](../decisions/adr/ADR-0204-live-recipes-retain-exact-runtime-custody.md)
+[ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
 records these rules.
 
 ## Preparing and editing fields
@@ -182,7 +182,7 @@ facet for the transaction, and hands nothing out. Saving the facet once means
 a receipt and its replays all return the same capability. When a reply is
 retried, `matchesLiveDependent` checks the saved facet's source and target
 without building another facet. Restoring it cold after a restart is
-refused ([ADR-0205](../decisions/adr/ADR-0205-stable-dependent-live-results.md)).
+refused ([ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)).
 
 A forwarded call is delivered once through the Host and Vat, and later Store
 changes cannot run it again. Its reply keeps nested capabilities and the

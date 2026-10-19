@@ -82,7 +82,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("netlayer release retires live transport children before their backend");
 	}
 
-	// Object-capability forwarding proxies over the wire (ADR-0064). The server
+	// Object-capability forwarding proxies over the wire (ADR-0016). The server
 	// fetches the client's published tool (a far reference on the server side),
 	// wraps it in a caretaker and an attenuator, and hands the proxies back. A
 	// call through the proxy forwards across the server to the client's tool (the
@@ -175,7 +175,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("forwarding proxies forward, attenuate, and revoke over the wire");
 	}
 
-	// The wart ADR-0064 closes: a forwarding proxy is an ordinary spawned actor,
+	// The wart ADR-0016 closes: a forwarding proxy is an ordinary spawned actor,
 	// so its own host calls it locally as a partner calls it over the
 	// wire. A caretaker over a *local* tool answers a local send; a caretaker over
 	// a *far* tool forwards across the wire and the local send still settles; and
@@ -439,7 +439,7 @@ export async function run(managed: Runtime): Promise<void> {
 					`partner identity: expected a 32-byte key, got ${seen.sessionKey.length}`,
 				);
 				// `tcp` designates a socket address, so no durable identity was
-				// proved: the three facts stay distinct (ADR-0097), and the
+				// proved: the three facts stay distinct (ADR-0028), and the
 				// provenance says so rather than the designator being compared to
 				// the session key.
 				assert(

@@ -1,6 +1,6 @@
 // Live three-party handoff with the Deno binding as the GIFTER (the introducer),
 // proving glowcap can mint a `desc:handoff-give` that live Goblins redeems and a
-// `deposit-gift` that live Goblins accepts, the exporter half of ADR-0009
+// `deposit-gift` that live Goblins accepts, the exporter half of ADR-0039
 // against a real cross-implementation peer, the mirror of `deno-goblins-handoff`
 // (where glowcap is the recipient).
 //

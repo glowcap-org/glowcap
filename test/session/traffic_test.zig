@@ -360,7 +360,7 @@ test "partner introductions accept the complete u64 import space" {
 }
 
 test "a reference inside a Struct argument crosses every session walk" {
-    // Struct entries carry full argument values (ADR-0046), so a reference can
+    // Struct entries carry full argument values (ADR-0005), so a reference can
     // ride inside one. Every argument walker must recurse through struct
     // entries as well as list/set/tagged, or a struct-wrapped reference dodges
     // outbound validation, introduced-import

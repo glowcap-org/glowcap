@@ -20,7 +20,7 @@ const driver_core = @import("driver_core");
 
 // The shared C-ABI vocabulary leaf (types, codes, allocation, the last-error
 // slot), not the ocapn root, so this archive pulls none of the ocapn family's
-// exports (ADR-0059 companion split).
+// exports (ADR-0022 companion split).
 const shared = @import("c_abi_shared");
 const host_error = @import("error.zig");
 
@@ -370,7 +370,7 @@ fn decodeHostReference(ctx: HostRefContext, ref: shared.GlowcapReference) anyerr
     return ctx.inst.core.lowerCapability(ctx.session, ctx.inst.core.capabilityFromRaw(ref.id));
 }
 
-/// The plain-data decode behind a resolver settle (ADR-0102): every
+/// The plain-data decode behind a resolver settle (ADR-0014): every
 /// reference arm refuses, because the settle carries no session to home a
 /// capability. An answer that carries authority takes the turn's
 /// forward-to-send path instead.

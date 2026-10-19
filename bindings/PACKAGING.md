@@ -14,7 +14,7 @@ bindings find the resulting libraries under `zig-out/lib`.
 
 The machine-readable contract is
 [`c-abi-resolve.json`](c-abi-resolve.json), as decided in
-[ADR-0077](../docs/decisions/adr/ADR-0077-publishable-c-abi-resolve.md).
+[ADR-0023](../docs/decisions/adr/ADR-0023-binding-archive-resolution.md).
 
 ## Finding the archives
 

@@ -274,7 +274,7 @@ test "core host: closing the gifter session wakes and breaks an early withdraw" 
 }
 
 test "core host: a redeem reuses a live exporter session instead of dialing a duplicate" {
-    // Regression (ADR-0012): when the recipient already holds a live open
+    // Regression (ADR-0007): when the recipient already holds a live open
     // session to the exporter, redeeming a give that names that exporter must
     // REUSE the session, not surface a dial the Host's session-pair uniqueness
     // rule would then refuse and break the redeem on. The node's URI-keyed

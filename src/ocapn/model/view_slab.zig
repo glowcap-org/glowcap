@@ -1,6 +1,6 @@
 //! The room a frame's owner lends the decoder for argument views, so a
 //! message's argument tree is parsed once and every later reader walks views
-//! instead of wire bytes (ADR-0222, ADR-0231).
+//! instead of wire bytes (ADR-0063).
 
 const std = @import("std");
 const run_word_bytes = @import("mod.zig").run_word_bytes;
@@ -10,7 +10,7 @@ const StructEntry = @import("view.zig").StructEntry;
 /// Room a frame's owner lends the decoder for the views of one message's
 /// argument tree, including lists, sets, tagged values, and struct entries. The
 /// decoder fills this room, and validation and the application then walk views
-/// instead of bytes (ADR-0222, ADR-0231). The engine lends the room in the
+/// instead of bytes (ADR-0063). The engine lends the room in the
 /// frame's head, so the views live and die with the bytes they borrow.
 ///
 /// The room has two ends. A codec that knows a sequence's length before it

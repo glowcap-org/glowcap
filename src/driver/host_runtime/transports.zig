@@ -1,4 +1,4 @@
-//! The transports one HostRuntime serves, as one value (ADR-0193).
+//! The transports one HostRuntime serves, as one value (ADR-0018).
 //!
 //! First-party stream symbols run on one `net.StreamStack` resident the
 //! runtime builds and owns as a provider package. Residents the caller owns
@@ -22,7 +22,7 @@ const Stack = if (stack_supported) net.StreamStack else void;
 pub const Transports = struct {
     /// The first-party symbols the runtime's stream stack serves: `tcp`,
     /// `keyed-tcp`, `noise-tcp`, `keyed-relay`, `noise-relay`, `onion`, and
-    /// `inproc`. The Host seals the Noise symbols (ADR-0107).
+    /// `inproc`. The Host seals the Noise symbols (ADR-0041).
     symbols: []const model.transport.Known = &.{},
     /// The relay `keyed-relay` and `noise-relay` dial and register at.
     relay: ?RelayOptions = null,

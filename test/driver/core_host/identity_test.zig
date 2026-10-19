@@ -160,7 +160,7 @@ test "core host: verified session directory authenticates an early handoff gifte
 }
 
 test "session identity: an old handoff certificate cannot resolve against a session opened after reconnect" {
-    // ADR-0097 evidence item 10, the property fresh per-session keys exist to
+    // ADR-0028 evidence item 10, the property fresh per-session keys exist to
     // provide. A `desc:handoff-give` names its gifter–exporter session by the
     // side names derived from both ends' session keys. While every session in a
     // host reused that host's durable key those names were a function of the
@@ -178,7 +178,7 @@ test "session identity: an old handoff certificate cannot resolve against a sess
     // Out of scope, and stated rather than implied: replaying a whole captured
     // keyed-TCP hello can revive its own static session claim on another
     // cleartext connection. Fresh keys isolate *honest* reconnects; they do not
-    // make a cleartext channel replay-safe, which ADR-0075 records.
+    // make a cleartext channel replay-safe, which ADR-0028 records.
     const allocator = std.testing.allocator;
     const opts = Host.Options.withFrameCap(frame_cap);
     var gifter = test_host.init(allocator, @as([32]u8, @splat(0x0c)), opts);
@@ -226,7 +226,7 @@ test "session identity: an old handoff certificate cannot resolve against a sess
     try std.testing.expect(resolver.resolve(resolver.ctx, new_gifter_side, &old_session) == null);
 
     // This is also the whole of "and must not consume a new deposit with the
-    // same gift id" (ADR-0097 item 10). A withdrawal reaches a gift registry
+    // same gift id" (ADR-0028 item 10). A withdrawal reaches a gift registry
     // only through this resolver. It is what hands back the `gifts` a
     // consuming withdraw operates on, so a certificate whose names resolve to
     // nothing never reaches any registry, and a gift deposited on the
@@ -289,7 +289,7 @@ test "core host: a claimed designator cannot condemn our own dial to it" {
     const our_dial = try us.openDialedLocator(keyed_locator);
 
     // A host of ours will not publish that locator: a key-designator transport
-    // may name only the durable identity this node holds (ADR-0105).
+    // may name only the durable identity this node holds (ADR-0028).
     var claimant_hint = [_]model.HintEntry{.{
         .name = model.transport.hint_direct_addresses,
         .value = .{ .string = "127.0.0.1:9201" },
@@ -401,7 +401,7 @@ test "partner identity: a verified tcp session reports the key its handshake pro
     // false is the correct answer rather than a failure.
     try std.testing.expect(!seen.designatorIsSessionKey());
 
-    // And the three facts stay distinct (ADR-0097): an address transport
+    // And the three facts stay distinct (ADR-0028): an address transport
     // proves no durable identity, so provenance says so rather than the
     // caller inferring it from the diagnostic above.
     try std.testing.expectEqual(driver.core.DurableProvenance.unauthenticated, seen.provenance);
@@ -480,7 +480,7 @@ test "partner identity: keyed-tcp reports its claimed designator without authent
 }
 
 test "session identity: a host signs each session with that session's own key" {
-    // ADR-0097 step 4's structural half. Which key signs a session comes from
+    // ADR-0028's structural half. Which key signs a session comes from
     // the Host's required session root, and every consumer, the keyed hello
     // and the handoff records naming the session, reads it through the
     // session rather than reaching for the node's durable key. Pointing the
@@ -515,7 +515,7 @@ test "session identity: a host signs each session with that session's own key" {
     try std.testing.expectEqualSlices(u8, first_key.asBytes(), view.start_session.session_pubkey);
 
     // Both sessions are open at once, so this is the simultaneous case and not
-    // two successive ones reusing a slot (ADR-0097 item 1). What stays equal
+    // two successive ones reusing a slot (ADR-0028 item 1). What stays equal
     // across them is the durable identity: each advertises the host's own
     // designator, which is the name a partner knows this host by, while the
     // keys above differ per connection.
@@ -530,7 +530,7 @@ test "session identity: a host signs each session with that session's own key" {
 }
 
 test "session identity: a give is signed by its session's key, not the host's durable key" {
-    // The deepest coupling ADR-0097 step 4 has to move. A `desc:handoff-give`
+    // The deepest coupling ADR-0028 has to move. A `desc:handoff-give`
     // names the gifter-exporter *session*, so its `gifter_side` must derive
     // from that session's key. While every session reuses its host's durable
     // key the two are the same bytes and a durable-key signature looks

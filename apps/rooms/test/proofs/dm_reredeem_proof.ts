@@ -2,7 +2,7 @@
 // direct exporter session from the reply's own route, not by watching which
 // dial the host happened to run during the send. This pins the property the
 // route-based resolution guarantees and a capture-window heuristic could not
-// (ADR-0088).
+// (ADR-0034).
 //
 // The sharp case is a *second* redeem to an exporter already dialed. The first
 // introduction dials Bob and resolves to that connection. The second reuses it,

@@ -83,7 +83,7 @@ pub const IngressState = struct {
     runnable: bool = false,
 };
 
-/// Local sends a running outermost turn made on one ingress (ADR-0191). They
+/// Local sends a running outermost turn made on one ingress (ADR-0058). They
 /// hold admission in `turns`/`bytes` but sit outside the queue, so no drive
 /// sees them until the turn commits. The Vat keeps these, not the ingress: a
 /// turn's sends go to its own causal ingress, so the list is almost always one
@@ -411,7 +411,7 @@ fn enqueue(self: *Vat, ingress: IngressId, port: ?*Port, id: u64, msg: Queued, a
     const limits = self.queue_limits;
     if (charge > limits.max_chunk_bytes or charge > std.math.maxInt(u32)) return error.ResourceExhausted;
     const charge32: u32 = @intCast(charge);
-    // Inside a turn the send waits for the turn to commit (ADR-0191). Staged
+    // Inside a turn the send waits for the turn to commit (ADR-0058). Staged
     // sends count against the same limits, so committing them can never
     // overrun the queue.
     const staging = self.turn_depth != 0;

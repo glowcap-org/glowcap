@@ -1,5 +1,5 @@
 //! A failed turn's send that carries a capability from another session never
-//! leaves (ADR-0194): the Node withdraws the batch it staged to project the
+//! leaves (ADR-0058): the Node withdraws the batch it staged to project the
 //! capability, before any gift is deposited, and the recipient sees nothing. A
 //! successful turn leaves the batch staged for the pump to complete.
 

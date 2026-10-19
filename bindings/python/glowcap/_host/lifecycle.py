@@ -330,7 +330,7 @@ class _LifecycleMixin(HostMixinBase):
             # The release already reached its terminal outcome. Hand back the
             # retained driver task so a repeated close observes that outcome,
             # re-raising a recorded timeout instead of silently succeeding
-            # (ADR-0114: repeated close observes the existing barrier).
+            # (ADR-0030: repeated close observes the existing barrier).
             return self._release_task
         _check_host(
             _host.glowcap_host_close(raw, ctypes.byref(options), _monotonic_ms())

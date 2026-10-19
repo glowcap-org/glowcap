@@ -1,4 +1,4 @@
-//! Completion-loop onion adapter (ADR-0108).
+//! Completion-loop onion adapter (ADR-0042).
 //!
 //! The adapter has two separate jobs. A dial is an ordinary inner
 //! connection to Tor's SOCKS endpoint followed by a byte-level SOCKS5 machine.

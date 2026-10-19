@@ -450,7 +450,7 @@ export async function run(managed: Runtime): Promise<void> {
 		);
 	}
 
-	// Listen (CapTP op:listen, ADR-0095): a held capability is listened on, and
+	// Listen (CapTP op:listen, ADR-0003): a held capability is listened on, and
 	// the vow settles with its resolution: any value, not only a capability. A
 	// listen on an already-settled capability answers at once, proving the round
 	// trip rather than a pending promise.

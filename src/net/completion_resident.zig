@@ -1,4 +1,4 @@
-//! A completion backend as a multiplexed resident (ADR-0193).
+//! A completion backend as a multiplexed resident (ADR-0018).
 //!
 //! `driver.HostRuntime` hosts multiplexed transports through
 //! `MultiplexedResident`: one readiness descriptor, drained records over
@@ -13,7 +13,7 @@
 //! synchronously into its ready queue where no descriptor reports it. A
 //! record reaped that way waits in the resident, which answers the contract's
 //! `ready_pending` query, and the runtime services it before it parks
-//! (ADR-0212).
+//! (ADR-0019).
 //!
 //! Reads keep one completed receive per connection and lend it through the
 //! contract's borrowed-read group, so the runtime feeds the core from the pool
@@ -292,8 +292,8 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
 
         fn beforeWaitVerb(ctx: *anyopaque, after: resident_mod.AfterTurn) void {
             // Writes made during a turn are only queued. They go to the kernel
-            // in one submit when the runtime is about to wait (ADR-0213). A
-            // receive re-arm waits for the same moment (ADR-0220).
+            // in one submit when the runtime is about to wait (ADR-0060). A
+            // receive re-arm waits for the same moment (ADR-0060).
             of(ctx).beforeWait(after);
         }
 

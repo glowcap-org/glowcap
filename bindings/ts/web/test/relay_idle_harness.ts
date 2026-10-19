@@ -1,5 +1,5 @@
 // The relay contract's idle-timeout proof, parameterized over the relay program.
-// ADR-0086's bounded-resources clause says the relay reclaims a stalled pair: a
+// ADR-0033's bounded-resources clause says the relay reclaims a stalled pair: a
 // session that moves no bytes in either direction for the idle timeout is torn
 // down, so a peer that connects and goes silent cannot pin relay resources
 // forever. One harness pins this for every runtime's relay.

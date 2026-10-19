@@ -126,7 +126,7 @@ test "a session refuses an unrecognised captp-version as a version mismatch" {
 
 test "a deliver carrying a Struct (dictionary) argument decodes to the struct arm" {
     // OCapN's Struct passable rides Syrup as a dictionary `{ key value … }`
-    // (ADR-0046). `{1"a1"b}` is the one-entry struct {"a": "b"}.
+    // (ADR-0005). `{1"a1"b}` is the one-entry struct {"a": "b"}.
     const frame = "<10'op:deliver<11'desc:export7+>[{1\"a1\"b}]42+f>";
     const body = try syrup.decodeBody(.{ .bytes = frame, .shape = .byte });
     try std.testing.expect(body == .deliver);
@@ -172,7 +172,7 @@ test "a single collection wider than the decode element cap is refused" {
     // any of those walks run. The cap sits just above what the default
     // streaming byte cap can carry, so it binds the uncapped whole-frame
     // entry points exercised here; on the streaming path with default limits
-    // the byte cap's FRAME_TOO_LARGE fires first (ADR-0041, pinned by the
+    // the byte cap's FRAME_TOO_LARGE fires first (ADR-0012, pinned by the
     // C ABI recv_stream tests). Ordinary CapTP traffic carries a handful of
     // arguments per deliver, so a compliant frame never sees the cap.
     const allocator = std.testing.allocator;

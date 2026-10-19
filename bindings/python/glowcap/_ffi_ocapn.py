@@ -7,7 +7,7 @@ defines. A consumer never imports this module. Keeping the ctypes layer in one
 internal module per archive is what lets the public package read as just the
 connection/value API it offers.
 
-This module loads one archive, ``libglowcap_ocapn`` (ADR-0059): the
+This module loads one archive, ``libglowcap_ocapn`` (ADR-0022): the
 shared ``glowcap_*`` vocabulary: context, the locator grammar, the ABI
 version, ``glowcap_last_error``, and the managed-frame release. The driver and
 transport archives are symbol-disjoint companions, each loaded by its own

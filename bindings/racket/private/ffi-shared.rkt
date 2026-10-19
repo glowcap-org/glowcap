@@ -308,12 +308,12 @@
    [locator-record _pointer]
    [locator-record-len _size]
    ;; How the durable identity in `designator` was authenticated, one of the
-   ;; DURABLE-PROVENANCE-* constants (ADR-0097).
+   ;; DURABLE-PROVENANCE-* constants (ADR-0028).
    [provenance _uint32]) #:malloc-mode 'atomic-interior)
 (pin-layout! '_GlowcapPartnerIdentity _GlowcapPartnerIdentity GLOWCAP-PARTNER-IDENTITY-SIZE
              GLOWCAP-PARTNER-IDENTITY-LAYOUT)
 
-;; ── Loop-archive types (glowcap_driver.h, ADR-0112) ────────────────────────
+;; ── Loop-archive types (glowcap_driver.h, ADR-0024) ────────────────────────
 
 (define-cstruct _GlowcapDriverOptions
   ([abi-version _uint32] [struct-size _size]

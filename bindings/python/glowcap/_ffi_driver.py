@@ -1,5 +1,5 @@
 """Internal: the raw ``ctypes`` mirror of the ``glowcap_driver_*`` loop
-family (ADR-0112).
+family (ADR-0024).
 
 Nothing here is public. ``libglowcap_driver`` exports only this family and
 adopts a Host from the separate ``libglowcap_host`` archive. Its stepping

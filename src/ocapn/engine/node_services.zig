@@ -19,7 +19,7 @@ const Internal = node_mod.Internal;
 const PeerHandle = @import("peer_handle.zig").PeerHandle;
 
 pub const LoweringError = error{RouteNotLowerable};
-/// A staged batch encodes its carrier when it finishes (ADR-0236), so the
+/// A staged batch encodes its carrier when it finishes (ADR-0064), so the
 /// encoder's refusals join the staging set.
 pub const OutboundStagingError = std.mem.Allocator.Error || session.Error || codec.dispatch.EncodeError || error{
     RouteNotLowerable,
@@ -63,7 +63,7 @@ pub const NodeServices = struct {
     peer_handle: PeerHandle,
 
     /// Node-wide gate for the outbound token walk only: set once the node
-    /// mints its first capability route (ADR-0069), so a peer that never sees
+    /// mints its first capability route (ADR-0026), so a peer that never sees
     /// a route skips the recursive walk for one bool load.
     pub fn loweringActive(self: NodeServices) bool {
         return self.node.route_lowering_active;
@@ -81,12 +81,12 @@ pub const NodeServices = struct {
     }
 
     /// A retracted provisional window removed the row of a carrier the Node
-    /// is still staging (ADR-0194). The Node fails that batch.
+    /// is still staging (ADR-0058). The Node fails that batch.
     pub fn stagedWithdrawn(self: NodeServices, batch: passable.BatchId) void {
         Internal.stagedWithdrawn(self.node, self.peer_handle, batch);
     }
 
-    /// The Peer's provisional window closed (ADR-0194), after the Peer kept
+    /// The Peer's provisional window closed (ADR-0058), after the Peer kept
     /// or retracted its own rows. The Node keeps or withdraws what the
     /// window's sends committed beyond them.
     pub fn provisionalClosed(self: NodeServices, outcome: ProvisionalClose) void {

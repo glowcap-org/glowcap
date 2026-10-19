@@ -1,4 +1,4 @@
-//! Wire-delta GC emission for stateless capability hosts (ADR-0008).
+//! Wire-delta GC emission for stateless capability hosts (ADR-0004).
 //!
 //! A host that does not retain imports introduced by an inbound deliver should
 //! release them immediately via `op:gc-exports`. Likewise, once an outbound

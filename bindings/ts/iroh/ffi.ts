@@ -5,7 +5,7 @@
 //
 // Internal: the FFI mirror of `libglowcap_net_transport_iroh`'s C ABI.
 //
-// The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0055) is
+// The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0021) is
 // optional — absent unless built with cargo — so it loads lazily on first use
 // through `irohS()`, which names how to produce it rather than surfacing a raw
 // dlopen failure. This loader opens *only* the iroh archive, through the core's

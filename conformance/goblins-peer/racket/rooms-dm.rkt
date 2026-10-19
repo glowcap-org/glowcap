@@ -4,7 +4,7 @@
 ;;
 ;; A room introduces two members and then gets out of the way: the message
 ;; itself travels on a connection between the two of them, and the room carries
-;; none of it. That is OCapN's three-party handoff (ADR-0009), and it is the same
+;; none of it. That is OCapN's three-party handoff (ADR-0039), and it is the same
 ;; conversation whichever implementation is standing at each corner. This module
 ;; is the Goblins member's whole half of it, so a vat is as reachable by direct
 ;; message as any glowcap peer in the same room.

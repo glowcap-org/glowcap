@@ -1,4 +1,4 @@
-// The browser runtime adapter (ADR-0070): the runtime's FFI seam implemented
+// The browser runtime adapter (ADR-0034): the runtime's FFI seam implemented
 // over a WebAssembly instance of `glowcap_host.wasm`, and its socket seam
 // implemented over WebSocket. Installed by `mod.ts`'s `init` before the runtime
 // loads, so `internal/ffi/runtime.ts` resolves this adapter instead of probing

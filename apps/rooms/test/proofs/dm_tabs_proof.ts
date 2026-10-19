@@ -3,7 +3,7 @@ import { waitForFiniteAnimations } from "../support/animations.ts";
 import { spawnWeb } from "../support/web_front.ts";
 // Two browser tabs direct-message each other end to end on the page's default
 // DM transport: each advertises a `webrtc` locator, and the room carries only
-// the signaling (ADR-0089). Neither tab opens a listening socket, so neither
+// the signaling (ADR-0035). Neither tab opens a listening socket, so neither
 // can be dialed the ordinary way. When Alice direct-messages Bob, the room
 // introduces her, her Host redeems the handoff give by signaling through the
 // room directory, the DataChannel opens tab-to-tab, and the keyed OCapN

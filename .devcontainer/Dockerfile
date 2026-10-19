@@ -33,7 +33,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
 # shell function, so without the real binary the others fail their first search
 # and fall back to something slower that does not read `.gitignore`.
 #
-# `tor` is here for the `onion` netlayer (ADR-0108), whose live checks talk to a
+# `tor` is here for the `onion` netlayer (ADR-0042), whose live checks talk to a
 # Tor daemon over SOCKS and the control protocol. glowcap never starts,
 # supervises, or configures one, so the image installs the binary and nothing
 # else: no init runs in this container, so the Debian service stays down, and a
@@ -119,7 +119,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     bash "${GLOWCAP_DEVCONTAINER_DIR}/image/playwright.sh"
 
-# The repo-root glowcap shim (ADR-0084) on PATH from any directory. The
+# The repo-root glowcap shim (ADR-0032) on PATH from any directory. The
 # workspace bind lands at /workspaces/glowcap only at container open, so the
 # link dangles during the image build and resolves there.
 RUN ln -s /workspaces/glowcap/glowcap /usr/local/bin/glowcap

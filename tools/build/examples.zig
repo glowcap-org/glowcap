@@ -58,7 +58,7 @@ pub fn register(
 
     // C example programs over the per-archive headers, each linking exactly the
     // composed archive set it includes, the same à-la-carte link the documented
-    // recipe gives a C consumer (ADR-0059).
+    // recipe gives a C consumer (ADR-0022).
     const c_examples = [_]struct { name: []const u8, path: []const u8, libs: []const *std.Build.Step.Compile }{
         .{ .name = "glowcap-c-frame-view", .path = "examples/c/frame_view.c", .libs = &.{ocapn_static} },
         .{ .name = "glowcap-c-host-embedder-pump", .path = "examples/c/host_embedder_pump.c", .libs = &.{ ocapn_static, host_static } },

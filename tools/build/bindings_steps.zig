@@ -31,7 +31,7 @@ pub const dogfoods = [_]struct {
         .step_name = "deno-dogfood",
         .description = "Run the Deno C ABI dogfood against the glowcap C ABI archives (needs deno)",
         // `--v8-flags=--expose-gc` gives the dogfood a deterministic `gc()` so
-        // the ADR-0063 finalizer-GC scenario can force collection and prove a
+        // the ADR-0025 finalizer-GC scenario can force collection and prove a
         // dropped import releases its export.
         .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env", "--v8-flags=--expose-gc", "bindings/ts/dogfood/zig_smoke.ts" },
         .needs_iroh_abi = true,
@@ -261,7 +261,7 @@ pub fn register(
     // recipient over loopback TCP. A broker introduces a recipient to an
     // exporter's Host publication; the recipient transparently redeems the
     // give and messages the exporter *directly*, the broker never relays. Proves
-    // the gifter half (ADR-0009) and the engine's swiss re-resolution end to end
+    // the gifter half (ADR-0039) and the engine's swiss re-resolution end to end
     // through the binding, with no Goblins or manual export bookkeeping.
     const run_gifter_handoff = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
         "deno",                                  "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
@@ -562,7 +562,7 @@ pub fn registerChecks(
     deno_onion_test.step.dependOn(onion_dynamic_install);
     bindings_fmt_check_step.dependOn(&deno_onion_test.step);
 
-    // ADR-0108's binding-package proof. Rust, Python, and Racket exercise the
+    // ADR-0042's binding-package proof. Rust, Python, and Racket exercise the
     // onion provider in their ordinary archive dogfoods; TypeScript has the
     // focused provider suite above. Bun is a second TypeScript runtime, not a
     // fifth binding, and cannot own a blocking provider lifecycle.

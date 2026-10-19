@@ -203,7 +203,7 @@ pub const Resident = struct {
         }
     }
 
-    // ── The event-driven loop surface (ADR-0057) ────────────────────────────
+    // ── The event-driven loop surface (ADR-0019) ────────────────────────────
     //
     // These let a host that owns the loop, `iroh.Backend` here, or a language
     // binding through the C ABI, drive many connections from one thread
@@ -344,7 +344,7 @@ pub const Resident = struct {
 
     /// The key QUIC verified for the far end of a loop connection, or null
     /// when the handle is gone or the sidecar could not read it. This is the
-    /// transport proof of ADR-0105 at the loop surface, for a host that drives
+    /// transport proof of ADR-0028 at the loop surface, for a host that drives
     /// the loop itself: the blocking accept and dial paths above assert it to
     /// their peer directly, while a loop host (`iroh.Backend`, or a language
     /// binding through `glowcap_iroh_conn_remote_node_id`) owns the connection
@@ -370,7 +370,7 @@ const TextSink = struct {
     }
 };
 
-/// Project a sidecar dial code onto the `DialError` retry axis (ADR-0081).
+/// Project a sidecar dial code onto the `DialError` retry axis (ADR-0030).
 /// The codes: 1 invalid, 2 timeout, 3 unreachable, 4 lost, 5 canceled, 8
 /// endpoint closed, 9 refused. A malformed id or hint is `InvalidAddress`, a
 /// deadline is `TimedOut`, a connection that could not be established is
@@ -446,7 +446,7 @@ fn residentDial(
     // project straight into a copying last-error slot, are the callers that
     // take it.
     const conn = try self.dialRawConn(target.id, target.hints, null);
-    // The dial half of the same proof the accept half makes (ADR-0105): QUIC
+    // The dial half of the same proof the accept half makes (ADR-0028): QUIC
     // authenticated the endpoint this connection reached, so read it back off
     // the connection rather than assuming the dial got what it asked for.
     return stream.adoptOwnedConn(self.io, peer, conn, bufs);
@@ -515,7 +515,7 @@ fn listenerAccept(box: *ListenerBox, peer: *engine.Peer, bufs: Buffers) net.netl
     if (box.stashed == null and !try waitForConnection(box, -1)) return error.ConnectionLost;
     const conn = box.stashed orelse return error.ConnectionLost;
     box.stashed = null;
-    // The transport proof (ADR-0105): QUIC verified the remote endpoint key
+    // The transport proof (ADR-0028): QUIC verified the remote endpoint key
     // during the TLS handshake, and this resident is the code that realized
     // the connection, so it is the one that may say so. Bound before any byte
     // is fed, so the pre-open chokepoint sees the evidence when the partner's

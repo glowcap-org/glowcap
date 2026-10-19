@@ -115,7 +115,7 @@ Deno.test("a non-string implementation claim is ignored", () => {
 });
 
 Deno.test("a session on the glowcap-private profile names both its ends", () => {
-	// `glowcap-next` travels only between glowcap peers (ADR-0003), so one
+	// `glowcap-next` travels only between glowcap peers (ADR-0001), so one
 	// producer reporting it has said what runs at each end. It is the one
 	// implementation a feed concludes without being told, so it holds even
 	// when the producer stated nothing about itself.

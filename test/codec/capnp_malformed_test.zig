@@ -95,7 +95,7 @@ test "a Struct with duplicate keys is refused on the live view path" {
     // Encode a well-formed two-key struct, then patch the second key's bytes to
     // repeat the first, the duplicate-key frame an untrusted peer would send,
     // word-shaped like every Cap'n Proto frame. Each key must be non-Equal to
-    // every other within a Struct (ADR-0046 / Model.md § Struct), so the codec
+    // every other within a Struct (ADR-0005 / Model.md § Struct), so the codec
     // refuses the frame at the parse boundary, on the same projection the
     // engine dispatches (`decodeBody`), not only in an owned re-walk.
     const entries = [_]model.StructEntry{
@@ -143,7 +143,7 @@ test "the Cap'n Proto encoder refuses a Set carrying a duplicate element" {
 }
 
 test "the Cap'n Proto encoder refuses a Struct carrying a duplicate key" {
-    // Symmetric refusal (ADR-0003): the decoder rejects a duplicate-key struct,
+    // Symmetric refusal (ADR-0001): the decoder rejects a duplicate-key struct,
     // so the encoder must not emit one. A model built with two "a" entries is
     // refused at encode with UnsupportedArgument rather than shipped as a frame
     // the partner would reject remotely.

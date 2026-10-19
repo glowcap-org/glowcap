@@ -20,7 +20,7 @@ forbid them. The policy is in [`PROVENANCE.md`](../PROVENANCE.md).
 | `mycapn` | Two roles: the product is a `Host`. The I/O-free handoff router is `engine.Node`. Goblins combines those jobs in one type. |
 | CapTP session with one partner | Application-facing `Session`. The Host ABI's registered shell is `GlowcapHostSession`. A byte stream is a `Connection` / transport `*Conn`, never the CapTP partner. |
 | Goblins vow / OCapN promise / answer position | A Goblins vow is a passable eventual reference. glowcap's `Vow` is a local host/actor observation and send-result handle over an OCapN promise. `desc:answer` names the sender-chosen session slot used for pipelining. |
-| CapTP value-level sealer / unsealer | Not implemented as a glowcap type. The unrelated `SealedChannel` is glowcap's Noise-encrypted transport byte channel (ADR-0107). |
+| CapTP value-level sealer / unsealer | Not implemented as a glowcap type. The unrelated `SealedChannel` is glowcap's Noise-encrypted transport byte channel (ADR-0041). |
 
 Two findings may be useful upstream. The pinned draft, suite, and Goblins
 disagree on the type of the third `op:listen` operand. The draft's mapping-shaped
@@ -42,14 +42,14 @@ Goblins on that netlayer in both directions. It needs Tor and runs on demand.
 TCP authenticates no durable peer identity. The fresh session key signs the
 hello, so glowcap can verify session continuity and signed handoffs. Durable
 identity comes only from an authenticated channel: iroh, `noise-tcp` and
-`noise-relay` (ADR-0107), WebRTC signaling, or an embedder's own binding.
+`noise-relay` (ADR-0041), WebRTC signaling, or an embedder's own binding.
 Keyed TCP and keyed relay report `unauthenticated`.
 
 Two glowcap peers can negotiate `"glowcap-next"` with Cap'n Proto. glowcap does
 not offer that as Goblins compatibility. The only outside CapTP implementations
 exercised are the upstream suite and Racket Goblins.
 
-ADR-0125's `id/via` multi-home form is private to glowcap. A Goblins peer never
+ADR-0036's `id/via` multi-home form is private to glowcap. A Goblins peer never
 receives it: `goblins-rooms-peering` shows Rooms lowering it into a baseline
 handoff that a Goblins vat redeems.
 
@@ -137,7 +137,7 @@ For a quick manual call over Syrup/TCP, use the [CLI walkthrough](cli.md).
 | Settlement | Goblins CapTP 1.0 and the merged draft use an inline resolver callback. Next receives the same fulfill or break callback through its inline subscription or an explicit listen, using `op:deliver-only`. It sends no wire `op:resolve`. |
 | Negotiation | `op:start-session` carries the baseline version string. Codec, version, and feature preferences travel in its signed locator hints. Peers settle those offers after both verified hellos arrive. |
 | Suite TCP | Goblins interop uses the `tcp` transport symbol. The upstream suite uses its own `tcp-testing-only` URLs. |
-| Target equality | A remote target reached directly and through handoff on the same live exporter session canonicalizes to one Host identity, and repeated sturdyref enlivenment on a session deduplicates. Two parallel sessions to the same peer are not claimed to converge. ADR-0097's fresh-key peer selection owns that. |
+| Target equality | A remote target reached directly and through handoff on the same live exporter session canonicalizes to one Host identity, and repeated sturdyref enlivenment on a session deduplicates. Two parallel sessions to the same peer are not claimed to converge. ADR-0028's fresh-key peer selection owns that. |
 | Signature verification | Production uses `foundation.crypto`. The accepting verifier in test support is available only to in-process tests. |
 
 ## Reproduce

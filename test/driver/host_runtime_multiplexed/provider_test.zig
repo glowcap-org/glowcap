@@ -1,4 +1,4 @@
-//! Provider authority over multiplexed residents (ADR-0112): duplicate
+//! Provider authority over multiplexed residents (ADR-0024): duplicate
 //! authority is refused, a failed batch preserves a
 //! shared live readiness descriptor, equal descriptors do not merge distinct
 //! residents, two profiles share one resident with independent listener

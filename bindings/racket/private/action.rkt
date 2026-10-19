@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: host action execute over the byte-fed host
-;; (libglowcap_host, ADR-0072 / ADR-0079).
+;; (libglowcap_host, ADR-0022 / ADR-0011).
 ;;
 ;; Owns the shared C drain (`glowcap_host_pump_drain`) with sync park-only
 ;; hooks, then honors each parked arm (`drain-host-actions!`). The CapTP surface
@@ -192,7 +192,7 @@
 ;; awaiting that id (registered at mint under this same lock), so the
 ;; completion always finds its box.
 (define (drain-host-actions! m)
-  ;; A loop-adopted host (ADR-0112) has no byte-fed pump: the loop executes
+  ;; A loop-adopted host (ADR-0024) has no byte-fed pump: the loop executes
   ;; transport-shaped actions inside `glowcap_driver_step` and forwards the
   ;; application-visible ones as events, so the drain is one bracketed step
   ;; plus the event dispatch, and `glowcap_host_pump_drain` never runs

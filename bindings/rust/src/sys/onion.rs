@@ -1,7 +1,7 @@
 //! Raw FFI for the onion transport archive
 //! (`libglowcap_net_transport_onion`).
 //!
-//! Linked only with the `onion` feature (ADR-0059). It exports the
+//! Linked only with the `onion` feature (ADR-0022). It exports the
 //! `glowcap_onion_*` family and its own thread-local last-error
 //! (`glowcap_onion_last_error`), symbol-disjoint from the core archive. The
 //! shared frame and context types it speaks are reused by layout from

@@ -181,14 +181,14 @@ nothing to check it against.
 
 The note concerns where the protocol's own machinery needs a name, not whether
 peers should be identified in general. glowcap reports an accepted onion
-partner's location as unproven for the same reason (ADR-0108), and only code
+partner's location as unproven for the same reason (ADR-0042), and only code
 that authenticated an end-to-end channel may report a proved peer.
 
 The same netlayer file pins a second observation: the dial arm matches
 `[(ocapn-node 'onion designator #f)`, so a Goblins peer handed an onion locator
 carrying hints does not dial it at all. A peer whose wire-carried onion locators
 are hinted is unreachable from Goblins, which is why glowcap keeps every onion
-locator the wire carries bare (ADR-0108, ADR-0118).
+locator the wire carries bare (ADR-0042).
 
 The refusal is the dial's alone. The CapTP hello arm in `captp.rkt` matches any
 `ocapn-node`, verifies the signature over the claimed location hints-and-all,

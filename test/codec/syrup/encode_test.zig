@@ -44,7 +44,7 @@ test "Syrup locator encoding uses typed locator and preserves empty false hints"
 
 test "Syrup start-session carries hint entries canonically and signs over the same bytes" {
     // A keyed-tcp responder's location names its socket address in a
-    // `direct-addresses` hint (ADR-0075), so the start-session encoder renders
+    // `direct-addresses` hint (ADR-0028), so the start-session encoder renders
     // hint entries as a canonical `{…}` dict, never dropping them, which
     // would put a different locator on the wire than the caller named, and
     // the location-signature domain embeds the identical bytes, so signer and
@@ -437,7 +437,7 @@ test "Syrup encodes bare primitives byte-for-byte against the upstream Syrup-enc
         .{ "prim_integer_pos_42.bin", model.Argument{ .integer = 42 } },
         .{ "prim_integer_neg_7.bin", model.Argument{ .integer = -7 } },
         // 2^100 negated: a Racket bignum on the upstream side, glowcap's
-        // `big_integer` arm on this side (ADR-0049).
+        // `big_integer` arm on this side (ADR-0005).
         .{ "prim_integer_big_neg.bin", model.Argument{ .big_integer = .{
             .negative = true,
             .digits = "1267650600228229401496703205376",
@@ -446,7 +446,7 @@ test "Syrup encodes bare primitives byte-for-byte against the upstream Syrup-enc
         .{ "prim_list_of_ints.bin", model.Argument{ .list = &.{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } } } },
         .{ "prim_set_of_ints.bin", model.Argument{ .set = &.{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } } } },
         // Racket `(hash "a" 1 "b" 2)` upstream, glowcap's Struct arm here,
-        // canonical key order on encode makes the bytes deterministic (ADR-0046).
+        // canonical key order on encode makes the bytes deterministic (ADR-0005).
         .{ "prim_dict_str_to_int.bin", model.Argument{ .@"struct" = &.{
             .{ .key = "a", .value = .{ .integer = 1 } },
             .{ .key = "b", .value = .{ .integer = 2 } },
@@ -511,7 +511,7 @@ test "Syrup near-promise payload encodes desc:import-promise and round-trips kin
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "desc:import-object") == null);
 
     // A sender's promise-shaped `Near` export encodes `<desc:import-promise>` and
-    // decodes on the receiver as a promise-shaped `Far` import (ADR-0010 flip);
+    // decodes on the receiver as a promise-shaped `Far` import (ADR-0006 flip);
     // the object/promise kind rides the wire tag and survives into `RefKind`.
     const decoded = try syrup.decodeOwned(allocator, frame.view());
     defer allocator.free(decoded.deliver.args);

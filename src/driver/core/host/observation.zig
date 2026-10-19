@@ -19,7 +19,7 @@ const HostSession = host_mod.HostSession;
 /// Fetch the partner capability published as `name`, minting a host vow for the
 /// outcome: observe it in-process with `vowOn`, or drain its `settled`/`failed`
 /// completion from the action queue. A fulfilled far capability settles
-/// *already enrolled* under a node-unique route (ADR-0069). The enrollment is
+/// *already enrolled* under a node-unique route (ADR-0026). The enrollment is
 /// recorded before the outcome is dispatched, so a reply that immediately
 /// re-gifts it routes to the right exporter. Top-level: refused from inside a
 /// callback.
@@ -52,8 +52,8 @@ fn fetchWithProgress(self: *Host, session: *HostSession, name: []const u8, drive
 }
 
 /// Listen on the promise `target` names, minting a host vow for its settlement
-/// (ADR-0095). A promise this session handed us (an introducing session's proxy
-/// for a third party's promise, ADR-0009) settles through a notification the
+/// (ADR-0003). A promise this session handed us (an introducing session's proxy
+/// for a third party's promise, ADR-0039) settles through a notification the
 /// partner delivers, and this is the verb that asks for it. A far target routes
 /// through the node first, the way `send` and `tell` route, so a Node route is
 /// listened on the session that exports it rather than the session where it was

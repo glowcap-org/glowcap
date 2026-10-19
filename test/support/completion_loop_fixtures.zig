@@ -2,7 +2,7 @@
 //! peer and hello every scenario opens with, the outbound-byte drains that
 //! walk a peer's queue into a flat buffer, and the journaling `FakeBackend`
 //! whose held sends and synchronous recv chunks make park/resume order a
-//! deterministic assertion instead of a timing race (ADR-0042).
+//! deterministic assertion instead of a timing race (ADR-0017).
 
 const std = @import("std");
 const glowcap = @import("glowcap");

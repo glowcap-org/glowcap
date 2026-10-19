@@ -193,7 +193,7 @@ test "core host: accepted tcp session's declared designator does not squat dial 
     // Server learned the client's self-declared tcp designator; that claim is
     // not verified ownership of the address, so a dial to it is admitted.
     // Post-handshake partner-key refuse settles the duplicate when the new
-    // session's start-session arrives (ADR-0012).
+    // session's start-session arrives (ADR-0007).
     const back = try server.openDialedLocator(tcpLocator("127.0.0.1:7013"));
     try std.testing.expect(!back.isTerminating());
     try client.releaseSession(pair.a);
@@ -247,7 +247,7 @@ test "core host: dual accept settlement condemns the second session to the same 
     const first = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7015", &.{});
     const second = try publishAndOpenAccepted(&host, "tcp", "127.0.0.1:7016", &.{});
     // One peer hello fed to both accepted sessions: the first keeps the
-    // partner key; the second is condemned at start-session (ADR-0012).
+    // partner key; the second is condemned at start-session (ADR-0007).
     try peer.ensureAdvertisedLocator("tcp");
     const peer_dialed = try peer.openDialedLocator(tcpLocator("127.0.0.1:7015"));
     var hello = (try peer_dialed.takeOutbound()) orelse return error.MissingHello;
@@ -289,7 +289,7 @@ test "core host: partner-side index empties after enroll, learn, condemn, and re
 }
 
 test "core host: a burst of accepts before any start-session indexes every partner side without overflow" {
-    // Regression (ADR-0012): `partner_by_side` reserves at its own insert
+    // Regression (ADR-0007): `partner_by_side` reserves at its own insert
     // (`indexPartnerKey`), not at mint. A partner key is unknown until that
     // partner's `op:start-session` arrives, so every session minted before a
     // single start-session is fed stays un-indexed, a mint-time reservation
@@ -340,7 +340,7 @@ test "core host: a burst of accepts before any start-session indexes every partn
 }
 
 test "session identity: crossed-hello ordering is per session over one advertised snapshot" {
-    // ADR-0097 evidence item 9. The tiebreak is two operations over two
+    // ADR-0028 evidence item 9. The tiebreak is two operations over two
     // different identities, and fresh session keys are what force them apart:
     //
     //   * matching asks *which two attempts are racing*, and that is a

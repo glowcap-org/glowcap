@@ -3,7 +3,7 @@
 ;; wire hosting: one actor, two doors. An actor spawned through a session
 ;; lives in the Racket vat as a closure cell; this module builds the
 ;; `GlowcapHostBehavior` trampoline the host invokes on each wire deliver, hosts
-;; spawn/publish mint (`register-hosted-actor!`), and owns the ADR-0064 proxy
+;; spawn/publish mint (`register-hosted-actor!`), and owns the ADR-0016 proxy
 ;; behavior constructors. The trampoline reads the actor's CURRENT closure out
 ;; of its cell per call (via `run-turn`), never capturing it, so `bcom` and
 ;; `vat-restore!` retarget wire delivers with zero host verbs (the time-travel
@@ -275,7 +275,7 @@
      (drive v)]
     [else (session-far-send c resolved verb args #f)]))
 
-;; ADR-0064 caretaker actor constructor: forwards to `target` while `live` is
+;; ADR-0016 caretaker actor constructor: forwards to `target` while `live` is
 ;; true, else breaks with "Revoked". Session registers the spawn and tracks
 ;; the live box for `session-revoke!`.
 (define (caretaker-behavior live target)
@@ -285,7 +285,7 @@
           (forward target method args)
           (error "Revoked")))))
 
-;; ADR-0064 attenuator actor constructor: forwards only allow-listed verbs
+;; ADR-0016 attenuator actor constructor: forwards only allow-listed verbs
 ;; (strings), else breaks with "Attenuated".
 (define (attenuate-behavior allow target)
   (lambda (bcom)
@@ -333,7 +333,7 @@
   (bind-export! v actor id)
   (make-ref/internal id))
 
-;; ADR-0064 caretaker factory: resolve `target`, spawn a forwarding actor, host
+;; ADR-0016 caretaker factory: resolve `target`, spawn a forwarding actor, host
 ;; it, and record the live box for `revoke-caretaker!`. Session's
 ;; `session-caretaker` is the thin public wrapper.
 (define (caretaker-proxy c target)
@@ -349,7 +349,7 @@
   (hash-set! (vat-revocables v) (ref-id proxy) live)
   proxy)
 
-;; ADR-0064 attenuator factory: resolve `target`, spawn a verb-filtered
+;; ADR-0016 attenuator factory: resolve `target`, spawn a verb-filtered
 ;; forwarding actor, and host it. Session's `session-attenuate` wraps this.
 (define (attenuate-proxy c target verbs)
   (define v (session-vat c))

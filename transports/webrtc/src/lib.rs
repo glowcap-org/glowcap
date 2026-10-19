@@ -1,10 +1,10 @@
-//! The Rust WebRTC DataChannel sidecar (ADR-0089).
+//! The Rust WebRTC DataChannel sidecar (ADR-0035).
 //!
 //! This staticlib wraps WebRTC peers and their reliable, ordered
 //! `RTCDataChannel`s behind a narrow C ABI, emitting
 //! `libglowcap_webrtc_sidecar.a`. Its only consumer
 //! is the Zig sidecar owner, `src/net/transport/webrtc/sidecar.zig`. The crate mirrors the iroh
-//! sidecar's shape (ADR-0055), with the differences WebRTC forces:
+//! sidecar's shape (ADR-0021), with the differences WebRTC forces:
 //!
 //! * One endpoint owns the tokio runtime and readiness fd shared by every peer
 //!   created from it. Async channel state is reported as endpoint readiness

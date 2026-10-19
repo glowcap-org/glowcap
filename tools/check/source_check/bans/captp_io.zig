@@ -34,14 +34,14 @@ const iroh_paths = &.{
 /// resolve on bare platform Backends.
 pub const captp_io_spine_table: []const Ban = &.{
     .{
-        // The owning host face (ADR-0090) lives here and *embeds* the one
+        // The owning host face (ADR-0018) lives here and *embeds* the one
         // `driver_core.Host`; what stays banned is the deleted `BlockingHost`
         // shape, a parallel multi-session type that duplicated the core.
         .where = .{ .file = "src/driver/host_runtime.zig" },
         .kind = .forbid,
         .needles = &.{"BlockingHost"},
         .check = "captp-io-spine",
-        .why = "`BlockingHost` is deleted; the owning face embeds driver_core.Host (ADR-0090), never a parallel core",
+        .why = "`BlockingHost` is deleted; the owning face embeds driver_core.Host (ADR-0018), never a parallel core",
     },
     .{
         .where = .{ .file = "src/driver/mod.zig" },
@@ -188,7 +188,7 @@ pub const captp_io_spine_table: []const Ban = &.{
         .kind = .forbid,
         .needles = &.{"@import(\"../stream_shim.zig\")"},
         .check = "captp-io-spine",
-        .why = "iroh is its own module root under transport/; reach stream_shim via net.stream_shim (ADR-0040)",
+        .why = "iroh is its own module root under transport/; reach stream_shim via net.stream_shim (ADR-0011)",
     },
     .{
         .where = .{ .file = "src/net/mod.zig" },

@@ -8,7 +8,7 @@ The [OCapN draft specifications](https://github.com/ocapn/ocapn/tree/main/draft-
 are the main source. Diagrams marked `[goblins-canonical]` show behavior from a
 live Spritely Goblins peer where the draft has not caught up. Diagrams marked
 `[glowcap-next]` show glowcap's negotiated prototype vocabulary
-([ADR-0125](../decisions/adr/ADR-0125-identity-route-multihome.md)). The
+([ADR-0036](../decisions/adr/ADR-0036-identity-and-multihome-routing.md)). The
 pinned draft does not specify it, and a baseline session never sees it.
 
 ## Conventions

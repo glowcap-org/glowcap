@@ -1,4 +1,4 @@
-//! The Host's passable-value vocabulary (ADR-0096): `Value` is what an
+//! The Host's passable-value vocabulary (ADR-0026): `Value` is what an
 //! application passes to and receives from the Host's opaque-capability
 //! verbs. It mirrors the codec-neutral `model.Argument` data arms,
 //! with one difference: a capability is the opaque
@@ -21,7 +21,7 @@ pub const Capability = capability.Ref;
 /// because the host redeems a give before the application sees it. An Error is
 /// a first-class value and remains distinct from `Reply.broken`: returning one
 /// fulfills with an Error, while breaking rejects the reply. `integers` is
-/// the list of the integers in its slice, lent as one leaf (ADR-0247): a
+/// the list of the integers in its slice, lent as one leaf (ADR-0064): a
 /// send reads the words where they lie instead of one value at a time.
 pub const Value = union(enum) {
     bytes: []const u8,

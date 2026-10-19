@@ -61,14 +61,14 @@ pub fn hostNewIn(
         shared.setLastError("host: frame_cap must be nonzero", .{});
         return GLOWCAP_ERR_INVALID_ARGUMENT;
     }
-    // One buffer, two independent inputs (ADR-0097). The first 32 bytes are
+    // One buffer, two independent inputs (ADR-0028). The first 32 bytes are
     // the host's durable identity and must stay stable across restarts: a
     // keyed locator's designator is derived from them. The next 32 are the
     // session-key root, and they must be *fresh per process*: they are what
     // makes each session sign with its own key, and what stops a restarted
     // host recreating a prior session's handoff names. A durable-only 32-byte
     // seed is refused here so CapTP session keys cannot silently reuse the
-    // identity seed (ADR-0100 names that footgun on the bare Zig Host).
+    // identity seed (ADR-0039 names that footgun on the bare Zig Host).
     const session_root_len = crypto.seed_bytes * 2;
     if (seed_len != session_root_len) {
         shared.setLastError(
@@ -125,17 +125,17 @@ pub fn hostNewIn(
 
 /// Create a byte-fed host bound to a caller-drawn 64-byte seed buffer: the
 /// durable Ed25519 identity in the first 32 bytes, then a fresh per-process
-/// session-key root (ADR-0097). The host never draws entropy. `frame_cap`
+/// session-key root (ADR-0028). The host never draws entropy. `frame_cap`
 /// sizes every session's maximum admissible frame.
 /// A nonzero `verify_partner` keeps partner-signature verification on (the
 /// secure default). `codec`, `captp_version`, and `features` are this host's
 /// preferred profile offer. The signed hello carries them as locator hints,
 /// and each session settles them with its partner. `local_turn_budget` caps
-/// local-turn amplification per session (ADR-0076):
+/// local-turn amplification per session (ADR-0018):
 /// `GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT` applies the Zig Host's finite default,
 /// `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED` turns the cap off, and any other
 /// value is the cap. `release_on_drop` is the Host-wide setting a binding
-/// reads when it projects a far capability (ADR-0192); the Host stores it and
+/// reads when it projects a far capability (ADR-0025); the Host stores it and
 /// attaches no behavior. Released with `glowcap_host_release`.
 pub fn glowcap_host_new(
     seed: ?[*]const u8,
@@ -177,7 +177,7 @@ pub fn glowcap_host_new_in(
     return hostNewIn(ctx.allocator(), diagnostic_id, seed, seed_len, frame_cap, verify_partner, codec, captp_version, features, local_turn_budget, release_on_drop, out_host);
 }
 
-/// Read the Host-wide release-on-drop setting (ADR-0192) into `*out_enabled`
+/// Read the Host-wide release-on-drop setting (ADR-0025) into `*out_enabled`
 /// as 0 or 1.
 pub fn glowcap_host_release_on_drop(host: ?*GlowcapHost, out_enabled: ?*u32) callconv(.c) i32 {
     shared.lastErrorClear();
@@ -187,7 +187,7 @@ pub fn glowcap_host_release_on_drop(host: ?*GlowcapHost, out_enabled: ?*u32) cal
     return GLOWCAP_OK;
 }
 
-/// Set the Host-wide release-on-drop setting (ADR-0192) for capabilities the
+/// Set the Host-wide release-on-drop setting (ADR-0025) for capabilities the
 /// Host projects after this call: nonzero turns it on.
 pub fn glowcap_host_set_release_on_drop(host: ?*GlowcapHost, enabled: u32) callconv(.c) i32 {
     shared.lastErrorClear();

@@ -1,5 +1,5 @@
 //! Durable publication and Host-level select-or-dial enlivenment over real
-//! loopback sockets (ADR-0098 steps 3–4): `Server.publishDurable` mints an
+//! loopback sockets (ADR-0007 steps 3–4): `Server.publishDurable` mints an
 //! unpredictable sturdyref and returns it complete. `Session.enliven` resolves
 //! the sturdyref's peer to the live dialed session it names, or dials it,
 //! so the caller never selects a session, and `removeDurable` makes the old

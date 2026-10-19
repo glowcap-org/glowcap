@@ -83,7 +83,7 @@ pub fn checkHostActionArmLockstep(
     }
 }
 
-/// Introducing-session promise proxy (ADR-0255): production callers stay
+/// Introducing-session promise proxy (ADR-0016): production callers stay
 /// wired on Node/Host. One settlement spine: Node settles a recipient's
 /// projection through the escrow-backed `settleAnswerTargetGuaranteed`. The
 /// deleted Peer queue (`relayResolution` / `drainRelayedResolutions`) must not
@@ -310,7 +310,7 @@ pub fn checkUnwiredHostPluginApis(
         try appendViolation(gpa, violations, "test/driver/core_host/redeem_test.zig: redeem must use pendingDial parts, not parsePeer(parked.locator)", .{});
     }
     // O(1) crossed-hellos tiebreak: must use the transport-qualified dial
-    // target index, not a full sessions scan (ADR-0012 scale).
+    // target index, not a full sessions scan (ADR-0007 scale).
     const ch_src = root.readFileAlloc(io, "src/driver/core/crossed_hellos.zig", gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "src/driver/core/crossed_hellos.zig: failed to read for tiebreak index check with {s}", .{@errorName(err)});
         return;
@@ -514,9 +514,9 @@ fn zigLineHasAdrInStringLiteral(line: []const u8) bool {
 }
 
 test "zigLineHasAdrInStringLiteral ignores comments and flags string literals" {
-    try std.testing.expect(!zigLineHasAdrInStringLiteral("// (ADR-0082) comment only"));
+    try std.testing.expect(!zigLineHasAdrInStringLiteral("// (ADR-0030) comment only"));
     try std.testing.expect(!zigLineHasAdrInStringLiteral("const x = 1; // (ADR-0001)"));
-    try std.testing.expect(zigLineHasAdrInStringLiteral("@panic(\"needs store (ADR-0082)\");"));
-    try std.testing.expect(zigLineHasAdrInStringLiteral(".message = \"cap (ADR-0025)\","));
+    try std.testing.expect(zigLineHasAdrInStringLiteral("@panic(\"needs store (ADR-0030)\");"));
+    try std.testing.expect(zigLineHasAdrInStringLiteral(".message = \"cap (ADR-0008)\","));
     try std.testing.expect(!zigLineHasAdrInStringLiteral(".message = \"cap exceeded\","));
 }

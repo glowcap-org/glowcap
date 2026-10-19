@@ -82,7 +82,7 @@ pub fn prepareFetchSwissnum(
 
     // V1.0's resolve-me-desc is a resolver object, not the promise that object
     // settles. Mint the authoritative object slot before projecting its wire
-    // mention (ADR-0080).
+    // mention (ADR-0006).
     const resolver_export: ?model.ExportPosition = if (session.needsV1_0Translation())
         try session.allocateExport()
     else
@@ -94,7 +94,7 @@ pub fn prepareFetchSwissnum(
 
     // Project the mention from the authoritative slot rather than hand-typing
     // the kind: the row was minted as a local object, so it renders as
-    // `desc:import-object` by construction (ADR-0080).
+    // `desc:import-object` by construction (ADR-0006).
     const resolve_me_desc: ?model.Reference = if (resolver_export) |position|
         session.exportReference(position)
     else

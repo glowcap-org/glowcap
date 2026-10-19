@@ -1,4 +1,4 @@
-"""The WebSocket byte transport for the keyed-relay rendezvous dial (ADR-0088).
+"""The WebSocket byte transport for the keyed-relay rendezvous dial (ADR-0034).
 
 A ``keyed-relay`` peer holds an inbound socket at a relay under its key
 designator. The dialer opens the relay's rendezvous leg and the keyed OCapN

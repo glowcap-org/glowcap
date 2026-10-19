@@ -6,7 +6,7 @@
 //! Endpoints created from it borrow that backend and must be closed before it is
 //! released. There is no TLS.
 //!
-//! This is a separate archive from `libglowcap_ocapn` (ADR-0059): it imports
+//! This is a separate archive from `libglowcap_ocapn` (ADR-0022): it imports
 //! only the shared vocabulary leaf (`@import("c_abi_shared")`: frame/context
 //! types, codes, allocation, the last-error slot), so it exports just the
 //! `glowcap_tcp_*` family and shares no core symbol with the ocapn archive. A
@@ -28,7 +28,7 @@ const runtime = @import("runtime.zig");
 // root. Importing the leaf gives this transport ABI the same frame and context
 // types `glowcap_ocapn.h` declares, with its own compiled copy of the helpers
 // and last-error slot, and pulls none of the ocapn archive's exported surface
-// (ADR-0059 companion split, generalized from the iroh companion).
+// (ADR-0022 companion split, generalized from the iroh companion).
 const c = @import("c_abi_shared");
 
 pub const contract_layouts = [_]c.archive_contract.Layout{

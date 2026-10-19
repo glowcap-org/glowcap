@@ -1,4 +1,4 @@
-//! The OCapN V1.0 resolver-callback translation (ADR-0010), end to end.
+//! The OCapN V1.0 resolver-callback translation (ADR-0006), end to end.
 //!
 //! OCapN V1.0 has no wire `op:resolve`. A promise settles through a *resolver
 //! capability* instead. On the way out, admission mints the resolver export
@@ -9,7 +9,7 @@
 //! `session.deliver_resolver` prepares the partner's advertised resolver as our
 //! import, so our eventual resolution has somewhere to go. Recognizing a
 //! deliver *to* one of our resolver exports is version-neutral and belongs to
-//! the inbound classifier (ADR-0095). Our side of that settlement is
+//! the inbound classifier (ADR-0003). Our side of that settlement is
 //! `encodeResolutionAsCallback`, which
 //! renders a semantic resolution as the `['fulfill|'break, payload]` deliver the
 //! partner's resolver import expects. The functions take a `*Peer` and mutate
@@ -61,7 +61,7 @@ pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosi
         .message = .{
             .listen = .{
                 .target = .{ .promise = .{ .answer_position = projected_answer } },
-                // The mint projects the listener from the cell it registered (ADR-0080).
+                // The mint projects the listener from the cell it registered (ADR-0006).
                 .listener = .{ .near = resolver },
                 .mode = .settling_only,
             },
@@ -71,7 +71,7 @@ pub fn prepareProjectionListener(peer: *Peer, projected_answer: model.AnswerPosi
 }
 
 /// Encode a semantic `Resolve` as its V1.0 resolver-callback `op:deliver`
-/// (ADR-0010), addressed to the partner's resolver import recorded when their
+/// (ADR-0006), addressed to the partner's resolver import recorded when their
 /// augmented deliver arrived. The callback and the `op:gc-exports` that releases
 /// its one-shot resolver import publish as one adjacent pair. The
 /// resolution becomes `['fulfill, payload]` or `['break, reason-symbol]` args.
@@ -90,8 +90,8 @@ pub fn encodeResolutionAsCallback(
     const wire: model.Message = .{
         .deliver = .{
             // A far import carries no wire kind, `desc:export` names it regardless
-            // (ADR-0010), and the `Slot` sum makes remote-mint value object-only
-            // (ADR-0080).
+            // (ADR-0006), and the `Slot` sum makes remote-mint value object-only
+            // (ADR-0006).
             .target = .{ .far = .{ .import_position = resolver_import } },
             .args = &args,
             .answer = null,

@@ -461,7 +461,7 @@ fn close_waits_for_an_admitted_action_drain_before_ffi_release() {
 	});
 }
 
-// Host-level FINISH (ADR-0114): a negotiating session is admitted pending
+// Host-level FINISH (ADR-0030): a negotiating session is admitted pending
 // work, so a finite grace expires and the close barrier reports its
 // timeout. The barrier retains that terminal outcome, so a repeated close
 // observes the same timeout instead of silently succeeding.
@@ -553,7 +553,7 @@ fn action_kick_without_a_local_set_reports_admission_failure() {
 	);
 }
 
-// Public Host surfaces the ADR-0124 selective knobs (not only HostShared).
+// Public Host surfaces the ADR-0008 selective knobs (not only HostShared).
 #[test]
 fn set_session_limits_is_callable_on_host() {
 	let host = Host::new_host();

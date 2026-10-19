@@ -2,7 +2,7 @@
 //! `c_abi_net_transport_webrtc` source.
 //!
 //! The public WebRTC transport C ABI is a separate archive from
-//! `libglowcap_ocapn` (ADR-0089, ADR-0059), so it gets its own header. As with
+//! `libglowcap_ocapn` (ADR-0035, ADR-0022), so it gets its own header. As with
 //! `tools/gen/header/iroh.zig`, the function signatures are *reflected* from the
 //! real `src/c_abi/net_transport/webrtc/mod.zig` exports, so the header cannot
 //! disagree with the implementation, and the prose lives here.
@@ -94,7 +94,7 @@ fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\   The WebRTC transport's public C ABI: a separate artifact
         \\   (libglowcap_net_transport_webrtc) that links a Rust WebRTC library
-        \\   (ADR-0089). It is a companion, not a superset: it exports only the
+        \\   (ADR-0035). It is a companion, not a superset: it exports only the
         \\   glowcap_webrtc_* family and shares no core symbol with libglowcap_ocapn,
         \\   so a consumer links BOTH archives and includes BOTH headers. The
         \\   shared frame, peer, and context vocabulary lives in glowcap_ocapn.h

@@ -1,9 +1,9 @@
 """Internal: the CapTP :class:`Host`: multi-session CapTP product over the
-byte-fed host family (ADR-0072, loaded from ``libglowcap_host``). The Host
+byte-fed host family (ADR-0022, loaded from ``libglowcap_host``). The Host
 owns ``engine.Node``
 (the sans-io handoff router). Goblins ``mycapn`` is two roles: its product maps
 to Host. Its router tables map to ``engine.Node``: never a single-type
-equation (ADR-0079).
+equation (ADR-0011).
 
 The ``GlowcapHost`` owns every cross-session decision: retained identity, the
 live-session directory, routing, transparent three-party redemption, and the
@@ -83,7 +83,7 @@ _HOST_FRAME_CAP = _abi.DEFAULT_FRAME_CAP
 class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
     """The CapTP Host: one identity, one session directory, one routing and redeem
     authority, shared by every session minted against it. It owns
-    ``engine.Node`` in the Zig core behind ``libglowcap_host`` (ADR-0072).
+    ``engine.Node`` in the Zig core behind ``libglowcap_host`` (ADR-0022).
     This is the host-idiom residue over it: the :class:`Session` registry,
     the vow table, the action drain that performs the I/O the host asks for
     (dial, flush, settle, entropy), and the iroh redeem posture.
@@ -99,7 +99,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
     the generated C ABI defaults. ``context`` routes every byte the host owns
     through a caller-supplied allocation scope (:class:`Context`).
     ``local_turn_budget`` caps local-turn amplification per session
-    (ADR-0076): ``0`` applies the Host's finite default, ``0xFFFF_FFFF`` (the C
+    (ADR-0018): ``0`` applies the Host's finite default, ``0xFFFF_FFFF`` (the C
     ABI's ``GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED``) turns the cap off, and any
     other value is the cap."""
 
@@ -117,7 +117,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         _driver_loop: "Optional[DriverLoop]" = None,
     ):
         # `_adopt_raw` plus `_driver_loop` is the loop tier's adoption seam
-        # (ADR-0112): the FFI driver archive owns the host handle, and this
+        # (ADR-0024): the FFI driver archive owns the host handle, and this
         # wrapper adopts it for the application verbs. In that mode the C loop
         # is the action drain, the kick verbs nudge a loop step instead of
         # running the Python drain, and close belongs to `DriverLoop.close`.
@@ -260,7 +260,7 @@ class Host(_LifecycleMixin, _PublicationMixin, _ProgressMixin):
         out = ctypes.c_void_p()
         # The durable identity followed by a session-key root drawn here, at
         # this binding's entropy boundary, because the library draws none
-        # (ADR-0097). The root is fresh per process, so every CapTP session
+        # (ADR-0028). The root is fresh per process, so every CapTP session
         # signs with its own key and a restart cannot recreate a prior
         # session's handoff names; the durable half is ``seed``,
         # since a keyed locator's designator derives from it.

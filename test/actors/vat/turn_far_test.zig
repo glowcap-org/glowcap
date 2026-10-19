@@ -1,4 +1,4 @@
-//! A served turn's far sends leave only if the turn succeeds (ADR-0194): a
+//! A served turn's far sends leave only if the turn succeeds (ADR-0058): a
 //! failed turn sends the caller its break and nothing else, breaks the vows of
 //! the sends it retracted, and leaves the session's export and answer tables
 //! as they were. Both profiles, because `next` pairs each answered send with

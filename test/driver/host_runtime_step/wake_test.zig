@@ -1,4 +1,4 @@
-//! Readiness and wake edges (ADR-0112): a wire lost mid-handshake fails
+//! Readiness and wake edges (ADR-0024): a wire lost mid-handshake fails
 //! through the dial observer, a silent connector cannot park a staged-accept
 //! server, `stepAny` self-wakes over an incomplete feed tail, and
 //! `wakeReadiness` raises the descriptor from another thread.

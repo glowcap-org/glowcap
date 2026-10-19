@@ -1,6 +1,6 @@
 //! A hosted move that changes three resources recovers all or none of them
 //! after the write is lost or committed and the engine reopens. The retry then
-//! settles the same intent exactly once (ADR-0227).
+//! settles the same intent exactly once (ADR-0046).
 const std = @import("std");
 const t = @import("../access/tree_fixture.zig");
 const h = t.h;

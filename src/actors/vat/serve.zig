@@ -105,7 +105,7 @@ fn serveDeliver(
     switch (box.handle(box.ptr, &turn, delivery)) {
         inline .returned, .viewed => |result| {
             const value = if (@TypeOf(result) == model.Argument) model.view.Argument.fromOwned(&result) else result;
-            // The turn's local sends are queued before its reply (ADR-0191).
+            // The turn's local sends are queued before its reply (ADR-0058).
             // Promotion may run a discarded state's destructor and stage sends.
             frame.commitFrame(self, &turn);
             // A moved reply (`Turn.moveOut`) needs nothing here: the vat

@@ -5,8 +5,8 @@
 //!
 //! The Host owns every protocol-policy seam the suite exercises through the
 //! library rather than this file: crossed-hellos tiebreak (`Host.CrossedHellos`,
-//! ADR-0030), a distinct session identity derived from its process-fresh root
-//! and monotonic counter (ADR-0097), and the live-session directory that reaches
+//! ADR-0012), a distinct session identity derived from its process-fresh root
+//! and monotonic counter (ADR-0028), and the live-session directory that reaches
 //! each Peer-owned gift table. What stays here is what the Host cannot know:
 //! the conformance actors, the
 //! promise-resolver interceptor, and Host wiring. Gift/recipient interceptors

@@ -10,7 +10,7 @@ fn ffi_len(len: usize) -> Option<isize> {
 /// Write the connection's QUIC-authenticated remote endpoint id, the 32-byte
 /// Ed25519 public key TLS verified during the handshake, into `out_key32`.
 /// This is the transport-layer peer proof the driver installs as pre-feed
-/// CapTP hello policy on accept paths (ADR-0097). A dial already carries the
+/// CapTP hello policy on accept paths (ADR-0028). A dial already carries the
 /// same guarantee, since iroh refuses to connect to any endpoint but the id
 /// it was asked for. Returns 0 on success, -1 on failure. Borrows the handle.
 ///

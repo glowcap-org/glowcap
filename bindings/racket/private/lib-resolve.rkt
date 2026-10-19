@@ -1,5 +1,5 @@
 #lang racket/base
-;; Internal: publishable C-ABI archive resolve + open (ADR-0077).
+;; Internal: publishable C-ABI archive resolve + open (ADR-0023).
 ;;
 ;; Language-native cascade: GLOWCAP_LIB_DIR → abi-versioned cache → zig-out →
 ;; bare name (Windows refuses bare DLLs). Mirror of
@@ -31,7 +31,7 @@
    #rx"callable surface does not match.*rebuild the FFI libraries"
    (lambda () (require-archive-fingerprint! 'test (lambda () #x5678) #x1234))))
 
-;; Package-local contract (ADR-0077). Ships with the binding; not the monorepo.
+;; Package-local contract (ADR-0023). Ships with the binding; not the monorepo.
 (define-runtime-path resolve-contract "c-abi-resolve.json")
 ;; Dev-only: walk to a glowcap checkout when present (dogfoods / in-tree).
 (define-runtime-path package-private-dir ".")
@@ -460,7 +460,7 @@
      (and (file-exists? marker) cache-lib)]
     [else #f]))
 
-;; Publishable cascade (ADR-0077): configure first (never downloads), then
+;; Publishable cascade (ADR-0023): configure first (never downloads), then
 ;; abi-versioned cache, then optional in-tree zig-out (find-dev-root), then bare
 ;; name. On Windows the shared archive is `{stem}.dll` (no `lib` prefix); refuse
 ;; bare DLL names (search-order plant risk), matching Python/TS.

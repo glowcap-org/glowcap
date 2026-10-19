@@ -17,7 +17,7 @@ op:start-session, Ending a session, and Crossed Hellos Resolution.
 
 The lifecycle is one-way: a session moves from `Negotiating` to `Open` to
 `Closed`. A refused handshake is terminal like every other abort
-([ADR-0083](../decisions/adr/ADR-0083-outbound-abort-closes-session.md)). A
+([ADR-0030](../decisions/adr/ADR-0030-failure-and-close-policy.md)). A
 closed session never reopens.
 
 ```mermaid
@@ -110,7 +110,7 @@ break, and per-session key material is discarded. An unrecognized wire record
 is a protocol error, and a protocol error aborts the session. A handshake
 refusal while still `negotiating` (version mismatch, bad signature, partner-key
 pin) queues an outbound `op:abort` and then closes the session
-([ADR-0083](../decisions/adr/ADR-0083-outbound-abort-closes-session.md)).
+([ADR-0030](../decisions/adr/ADR-0030-failure-and-close-policy.md)).
 
 ```mermaid
 flowchart TD

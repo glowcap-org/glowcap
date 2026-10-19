@@ -1,5 +1,5 @@
 #!/bin/sh
-# Shared shell-port archive listing validation (ADR-0077).
+# Shared shell-port archive listing validation (ADR-0023).
 #
 # `archive_hygiene_check TARBALL PREFIX` validates only PREFIX, matching the
 # binding extractors. An empty PREFIX validates the whole archive, for callers
@@ -64,7 +64,7 @@ archive_hygiene_check_compressed() {
 		printf '%s\n' "$violation"
 		case "$violation" in
 		unrecognized\ tar\ listing\ format*)
-			printf '%s\n' "  the validator refuses a listing it cannot parse rather than guess (ADR-0077 section 5)"
+			printf '%s\n' "  the validator refuses a listing it cannot parse rather than guess (ADR-0023)"
 			printf '%s\n' "  install GNU tar, or set GLOWCAP_LIB_DIR to a directory you extracted yourself"
 			;;
 		esac

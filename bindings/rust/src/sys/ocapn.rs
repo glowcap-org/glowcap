@@ -4,7 +4,7 @@
 //! and URI/locator vocabulary `glowcap_ocapn.h` declares, plus
 //! `glowcap_abi_version` and the ocapn-family `glowcap_last_error`. The shared
 //! frame, context, and value types live here because the driver and transport
-//! archives agree on their *layout* (ADR-0059). The host archive's own
+//! archives agree on their *layout* (ADR-0022). The host archive's own
 //! `glowcap_host_*` family lives in [`super::host`], and a transport's own
 //! `sys/<t>.rs` declares only its handle types and `glowcap_<t>_*` family.
 //!

@@ -186,7 +186,7 @@ test "a pipelined call queues until its answer resolves, then delivers locally" 
     try std.testing.expectEqual(engine.EventKind.deliver, local_event.kind());
     const view = local_event.view();
     // A local delivery to our export is wire-shaped as `<desc:export>`, which
-    // decodes (receiver perspective, ADR-0010) to `.near{export_position=9}`, exactly
+    // decodes (receiver perspective, ADR-0006) to `.near{export_position=9}`, exactly
     // the shape a deliver to our export 9 carries when it arrives off the wire.
     try std.testing.expect(view.deliver.target == .near);
     try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
@@ -481,7 +481,7 @@ test "a pipelined call re-queues when its answer resolves to another promise" {
     var local_event = p2.pollEvent().?;
     defer local_event.deinit();
     const view = local_event.view();
-    // Local delivery to our export 9 decodes as `.near` post-flip (ADR-0010).
+    // Local delivery to our export 9 decodes as `.near` post-flip (ADR-0006).
     try std.testing.expect(view.deliver.target == .near);
     try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
     try std.testing.expectEqualStrings("ping", (try view.deliver.args.at(0)).bytes);
@@ -563,7 +563,7 @@ test "a pipelined call whose arg references an unheld export is rejected, like a
     }
 
     // p1 pipelines a call against answer 42 whose arg references far import 99.
-    // On p2 that decodes (perspective flip, ADR-0010) to near export 99, which p2
+    // On p2 that decodes (perspective flip, ADR-0006) to near export 99, which p2
     // does not hold. A direct deliver carrying that arg is rejected as
     // InvalidReference; the pipelined call must be rejected the same way instead
     // of slipping past validation onto the answer's queue.

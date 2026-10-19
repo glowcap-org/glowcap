@@ -50,7 +50,7 @@ pub fn checkAdrFrontmatter(
             try appendViolation(gpa, violations, "{s}/{s}: needs YAML frontmatter with `id`, `status`, and `date`; a prose `**Status:**` header is invisible to the ADR relation graph", .{ dir_path, entry.path });
             continue;
         };
-        // `ADR-0086-byte-transparent-relay.md` -> `ADR-0086`. A name with no
+        // `ADR-0033-byte-transparent-relays.md` -> `ADR-0033`. A name with no
         // second dash carries no number to compare against, so that one clause
         // sits out while the status clauses below still run.
         if (std.mem.indexOfScalarPos(u8, entry.path, 4, '-')) |dash| {

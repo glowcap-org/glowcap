@@ -1,5 +1,5 @@
-//! The blocking face's park over a multiplexed resident (ADR-0213,
-//! ADR-0215): a record a resident holds without a descriptor wake is
+//! The blocking face's park over a multiplexed resident (ADR-0060,
+//! ADR-0060): a record a resident holds without a descriptor wake is
 //! serviced before the park, a busy-poll window services a record that lands
 //! during the spin, and the window never outlasts the step's own budget.
 

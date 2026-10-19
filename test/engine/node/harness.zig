@@ -1,4 +1,4 @@
-//! Shared fixtures for the `engine.Node` routing-core suite (ADR-0066): the
+//! Shared fixtures for the `engine.Node` routing-core suite (ADR-0026): the
 //! keyed session pair every scenario opens, give bytes and redeemed routes to
 //! mint, and the withdraw bookkeeping the exporter tests read back.
 

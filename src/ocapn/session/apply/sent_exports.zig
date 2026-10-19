@@ -43,7 +43,7 @@ pub fn retainMessage(self: *Session, message: model.Message, inventory: session.
 
 /// The positions `retainMessage` retains for `message`, in the same order,
 /// for a carrier that gives up the tree at admission and must still hand
-/// them back through `releaseExports` (ADR-0236). Empty, with no allocation,
+/// them back through `releaseExports` (ADR-0064). Empty, with no allocation,
 /// for a message that mentions no near export.
 pub fn listSentExports(
     self: *const Session,
@@ -97,7 +97,7 @@ const Mentions = struct {
 };
 
 /// Release exactly the retains `retainMessage` took for a message that left
-/// at admission and never reached the wire (ADR-0194): the positions
+/// at admission and never reached the wire (ADR-0058): the positions
 /// `listSentExports` listed for it. Every row is live with this retain on top
 /// of its baseline, so no decrement can underflow or retire the row.
 pub fn releaseExports(self: *Session, exports: []const model.ExportPosition) void {

@@ -5,7 +5,7 @@ at each declaration, and this inventory names Host runtime and custody costs.
 
 ## The ledger
 
-- **Host face wires**: `driver.HostRuntime`'s `Wire` (ADR-0090, ADR-0112). One
+- **Host face wires**: `driver.HostRuntime`'s `Wire` (ADR-0018, ADR-0024). One
   shell per session, freed only by its owner.
   - Every link is a resident connection. It feeds the core from a lending
     resident's own receive, or reads into the one
@@ -21,7 +21,7 @@ at each declaration, and this inventory names Host runtime and custody costs.
     a view still holds the pointers: the close-and-release split.
   - Poll scratch grows once and then allocates nothing.
 - **Pending open rows**: `HostRuntime.startDial`, a resident listener's
-  accept, and the redeem drain into `HostRuntime.stageDial` (ADR-0112). One gpa
+  accept, and the redeem drain into `HostRuntime.stageDial` (ADR-0024). One gpa
   row per in-flight dial or accept, carrying stage, deadline, and outcome route.
   No byte payload, because the locator is consumed at stage time.
   - The shared `max_pending_opens` admission bound limits these rows and their
@@ -31,11 +31,11 @@ at each declaration, and this inventory names Host runtime and custody costs.
   - Rows are heap-owned and removed before their settle notification runs, since
     a notification may stage further dials and a list realloc must not move a row
     mid-sweep.
-- **Driver accept queue**: `driver.Server.accepted` (ADR-0184). One ring of
+- **Driver accept queue**: `driver.Server.accepted` (ADR-0018). One ring of
   Session pointers reserved at construction, bounded with handshake reservations
   by `max_pending_opens`. Wrappers allocate at publication and transfer to the
   caller at accept. The queue allocates nothing and copies no payloads in a turn.
-- **Lower and lift boundary**: `driver.Session` (ADR-0096). One
+- **Lower and lift boundary**: `driver.Session` (ADR-0026). One
   `Session.verb_scratch` arena on the way down (spines only, leaves stay
   borrowed), reset at each verb's entry under `steady_verb_scratch_bytes` the
   way the C host tier resets its own, so a steady stream of verbs allocates
@@ -43,7 +43,7 @@ at each declaration, and this inventory names Host runtime and custody costs.
   capability rows under rollback receipts. **The lift aliases the settle
   capture instead of re-cloning, which is why `Reply` is arena-only and carries
   no `deinit`.**
-- **Integers copied for a handler**: `driver.Args.integers` (ADR-0243). A
+- **Integers copied for a handler**: `driver.Args.integers` (ADR-0010). A
   list of integers the Cap'n Proto codec left on the wire as a word run is
   lent to the handler as a typed slice with no copy. On Syrup, on a lifted or
   local delivery, and on a host that cannot read little-endian words as they
@@ -54,7 +54,7 @@ at each declaration, and this inventory names Host runtime and custody costs.
   Severs the turn-borrowed resolution so the returned `Settled` outlives the
   drive. `fetch` and `enliven` stay allocation-free.
 - **Unobserved vow completion**: `queueVowCompletion` materializes one owned
-  Host Value with one retain per capability occurrence (ADR-0177).
+  Host Value with one retain per capability occurrence (ADR-0007).
   - Bytes and spines copy once into its arena. Scalar and cached capability
     results need no arena backing.
   - <!-- value ../../../../src/driver/core/host/capabilities/lift.zig inline_capacity -->8<!-- /value --> lift receipts stay inline. Spill uses temporary Host storage freed
@@ -69,11 +69,11 @@ at each declaration, and this inventory names Host runtime and custody costs.
     [`admission_test.zig`](../../../../test/driver/core_host/admission_test.zig)
     pins the Host and action sizes and says what each word is for.
   - Every mint reserves its FIFO slot, so publication cannot strand a completion.
-- **Settle mailbox**: `driver.SettleMailbox` (ADR-0102). Fixed slots at init, so
+- **Settle mailbox**: `driver.SettleMailbox` (ADR-0014). Fixed slots at init, so
   a worker's `post` allocates nothing. One boundary clone into the slot's arena,
   refusing `ValueTooLarge` and `MailboxFull`. Backpressure, never growth.
 - **Loop-archive dial and events**: `glowcap_driver_dial`,
-  `glowcap_driver_next_event` (ADR-0112).
+  `glowcap_driver_next_event` (ADR-0024).
   - A dial projects the borrowed locator only for its call and starts the
     provider immediately. The nonblocking provider contract lets the loop retain
     no locator copy.
@@ -88,14 +88,14 @@ at each declaration, and this inventory names Host runtime and custody costs.
   - Sink and close-observer appends remain best-effort under allocation failure,
     named at their declarations.
 - **Host session indexes**: `Host.partner_by_side`, `Host.dialed_by_target`
-  (ADR-0012). O(1) dial and partner-key refusal at the 500k tier, on the gpa with
+  (ADR-0007). O(1) dial and partner-key refusal at the 500k tier, on the gpa with
   precise frees, because rows leave individually.
-- **Session close timing**: `Host.session_close_timing` (ADR-0114). One gpa map
+- **Session close timing**: `Host.session_close_timing` (ADR-0030). One gpa map
   row per finite-grace session close, removed at `Host.markSessionTerminating`
   or tolerantly at `freeSessionShell`. Cancel and unbounded finishes pay
   nothing, so an open session stores no deadline. The timing lives out of line
   for that reason, argued at the declaration.
-- **Parked Node actions**: `Host.parked_node_actions` (ADR-0145). One gpa
+- **Parked Node actions**: `Host.parked_node_actions` (ADR-0017). One gpa
   row per recipient whose outbound pressure refused a Node action, holding
   the actions moved off the shared queue with their payload intact
   (`Node.parkPeekedAction`), so one partner's flow control holds back only
@@ -105,7 +105,7 @@ at each declaration, and this inventory names Host runtime and custody costs.
   - The return through `Node.pushParked` (on the next take of that recipient's
     outbound bytes or at its release) never allocates.
   - Out of line, so a session under no pressure pays nothing.
-- **Host session locator identity**: `Host.mintShell` (ADR-0098). One owned block
+- **Host session locator identity**: `Host.mintShell` (ADR-0007). One owned block
   holding the transport (and, for a dial, the selected designator), because the
   sturdyref peer check needs the actual session transport and a signed locator
   cannot supply it. Replaces a block the dial already required, so it adds
@@ -121,7 +121,7 @@ at each declaration, and this inventory names Host runtime and custody costs.
   and a surviving memo would revive the previous object. The row also counts
   surfaced retains, so one borrowed reference cannot be lifted repeatedly into
   matching GC authority. Behind one pointer and null until needed.
-- **Host capability registry**: `driver_core.capability.Registry` (ADR-0096).
+- **Host capability registry**: `driver_core.capability.Registry` (ADR-0026).
   Three indexes so a repeated lift reuses one id, a stale or foreign id is
   rejected, and session close scans only capabilities homed there.
   - Six allocations on a first remote lift

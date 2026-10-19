@@ -5,9 +5,9 @@
 //! file: a slice of `Spec` that this registry appends to the built-ins. The
 //! whole thing is resolved at `comptime`, so `dispatch` stays a jump table with
 //! no runtime indirection, a third codec costs nothing the two built-ins
-//! didn't (ADR-0026).
+//! didn't (ADR-0010).
 //!
-//! A codec decodes whole frames. The byte-stream envelope (ADR-0110) or the
+//! A codec decodes whole frames. The byte-stream envelope (ADR-0012) or the
 //! transport's own message boundary delimits a frame before any codec sees
 //! it, so no codec frames a stream.
 //!

@@ -51,7 +51,7 @@ pub fn close(self: *Session) void {
     self.state = .closed;
 }
 
-/// Exhaustive session-state admission gate (ADR-0006), run at every dispatch
+/// Exhaustive session-state admission gate (ADR-0002), run at every dispatch
 /// head. Kind-specific rules remain in the per-message validators.
 fn admitInState(self: *const Session, message: anytype) Error!void {
     switch (self.state) {
@@ -113,7 +113,7 @@ pub fn recordSend(self: *Session, message: model.Message) !void {
 }
 
 /// The checks `recordSendInventoried` makes before it commits, for a carrier
-/// that encodes `message` between the two (ADR-0236). Borrows `message`.
+/// that encodes `message` between the two (ADR-0064). Borrows `message`.
 pub fn validateSendInventoried(self: *Session, message: model.Message, inventory: Inventory) !void {
     try admitInState(self, message);
     try validate.validateSend(self, message, inventory);
@@ -145,7 +145,7 @@ pub fn recordSendInventoried(self: *Session, message: model.Message, inventory: 
 }
 
 /// Undo `recordSend` for a deliver that never reached the wire, when the turn
-/// that made it failed (ADR-0194): release the export retains it took, which
+/// that made it failed (ADR-0058): release the export retains it took, which
 /// `listSentExports` listed at admission, and retire the outbound answer it
 /// installed. The answer position stays spent.
 pub fn retractSend(self: *Session, exports: []const model.ExportPosition, answer: ?model.AnswerPosition) void {
@@ -314,7 +314,7 @@ pub fn prepareIntroducedImports(
     }
     if (needs_exact_counts) {
         // The positions are the peer's words, so the table hashes under the
-        // session's secret (ADR-0223).
+        // session's secret (ADR-0037).
         var counts: foundation.inline_rows.Table(model.ImportPosition, u64, 8, .wire) = .keyed(self.wire_hash_multiplier);
         defer counts.deinit(introduced.allocator);
         try counts.ensureUnusedCapacity(introduced.allocator, introduced.mentions.count());

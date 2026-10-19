@@ -142,7 +142,7 @@ Replay authority lives with the live sessions:
 - Closing either `Peer` destroys the authority it owns. No Host- or Vat-wide
   replay map survives.
 - Every Host session derives a distinct signing seed from a process-fresh,
-  domain-separated session root and a monotonic counter (ADR-0097). A
+  domain-separated session root and a monotonic counter (ADR-0028). A
   reconnect cannot recreate the old side or session names, so an old signed
   receive cannot name a replacement session.
 - The V1 Node uses a separate lifetime cursor for receive-certificate issuance

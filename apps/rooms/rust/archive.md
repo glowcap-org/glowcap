@@ -24,12 +24,12 @@ Rust design implements it in three places:
 
 [Operating Rooms](../operating.md) explains how to run the archive service.
 The decisions are in
-[ADR-0129](../../../docs/decisions/adr/ADR-0129-member-owned-archive-capability.md),
-[ADR-0130](../../../docs/decisions/adr/ADR-0130-durable-member-archive-peer.md),
-[ADR-0132](../../../docs/decisions/adr/ADR-0132-monotonic-archive-facets-and-direct-handover.md),
-[ADR-0136](../../../docs/decisions/adr/ADR-0136-archive-attachment-custody.md),
-[ADR-0140](../../../docs/decisions/adr/ADR-0140-rooms-archive-share-authority.md),
-and [ADR-0144](../../../docs/decisions/adr/ADR-0144-combined-archive-views.md).
+[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
+[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
+[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
+[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
+[ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md),
+and [ADR-0044](../../../docs/decisions/adr/ADR-0044-member-owned-archives.md).
 
 ## The object
 

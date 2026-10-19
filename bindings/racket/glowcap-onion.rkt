@@ -28,7 +28,7 @@
 ;;   (printf "~a\n" (onion-server-uri server))
 ;;   (define session (onion-server-accept server))
 ;;
-;; Two limits are worth reading before relying on this, and both are ADR-0108
+;; Two limits are worth reading before relying on this, and both are ADR-0042
 ;; decisions rather than implementation details. A service id is an ADDRESS, not
 ;; an identity: Tor proves the far end of the circuit holds the key the address
 ;; encodes, but the CapTP peer is whoever holds the local endpoint that service

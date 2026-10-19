@@ -8,9 +8,9 @@
 //!
 //! Two mints produce one and both settle by that same wire shape: the OCapN
 //! V1.0 resolver callback advertised in a deliver's `resolve_me_desc`
-//! (ADR-0010), and the listener export an outbound `op:listen` nominates
-//! (ADR-0095). So the purpose is version-neutral rather than a V1.0
-//! compatibility layer, and ADR-0095 argues that from the spec text. How an
+//! (ADR-0006), and the listener export an outbound `op:listen` nominates
+//! (ADR-0003). So the purpose is version-neutral rather than a V1.0
+//! compatibility layer, and ADR-0003 argues that from the spec text. How an
 //! *answer* asks for that callback stays profile-distinct: V1.0 advertises a
 //! resolver in the deliver, while next follows the answered operation with a
 //! mandatory `op:listen`.
@@ -18,7 +18,7 @@
 //! The pairing is authoritative session state held in two rows that leave
 //! together: the export's row says what the export is for
 //! (`ExportRow.purpose`), and the answer's row holds the export back
-//! (`AnswerCell.resolverExport`), both under ADR-0254. No table outlives
+//! (`AnswerCell.resolverExport`), both under ADR-0038. No table outlives
 //! either row.
 //! This file owns the operations over both, and `Session` aliases each one so
 //! call sites read as ordinary methods.
@@ -80,9 +80,9 @@ pub fn bindFreshResolverExport(
 /// (`engine.outbound.encoded.admit`), ahead of the answer row the same
 /// admission installs: the export's row binds it to `answer` and takes
 /// exactly one wire retain for the mention, and the answer row takes the
-/// export when `applyValidatedSend` installs it (ADR-0254). Returns the near
+/// export when `applyValidatedSend` installs it (ADR-0038). Returns the near
 /// reference the mention carries, projected from the cell the mint
-/// registered, so no caller types its kind by hand (ADR-0080). A projection's
+/// registered, so no caller types its kind by hand (ADR-0006). A projection's
 /// listener, whose answer row already exists, mints through
 /// `v1_0.mintOutboundResolver` instead.
 pub fn mintMentionedResolverExport(

@@ -5,7 +5,7 @@
 //
 // Internal: the FFI mirror of `libglowcap_net_transport_webrtc`'s C ABI.
 //
-// The WebRTC companion library (`libglowcap_net_transport_webrtc`, ADR-0089) is
+// The WebRTC companion library (`libglowcap_net_transport_webrtc`, ADR-0035) is
 // optional — absent unless built with cargo — so it loads lazily on first use
 // through `webrtcS()`, which names how to produce it rather than surfacing a raw
 // dlopen failure. Only the Deno driver path (`driver.ts`) opens it: the browser

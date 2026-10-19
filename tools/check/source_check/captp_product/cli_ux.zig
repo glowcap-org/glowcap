@@ -164,7 +164,7 @@ pub fn checkDriverRootShadow(
             continue;
         };
         if (std.mem.eql(u8, value, want)) continue;
-        try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` shadows `driver_core.{s}` with `{s}`; every other re-export in this root forwards the core's type, so a name that does not must not reuse the core's spelling (ADR-0113 names the owning face `HostRuntime` for this reason)", .{ line_no, name, name, value });
+        try appendViolation(gpa, violations, "src/driver/mod.zig:{d}: `pub const {s}` shadows `driver_core.{s}` with `{s}`; every other re-export in this root forwards the core's type, so a name that does not must not reuse the core's spelling (ADR-0011 names the owning face `HostRuntime` for this reason)", .{ line_no, name, name, value });
     }
 }
 

@@ -1,6 +1,6 @@
 // A Host publication `dm` behavior that records each incoming message into `inbox` and
 // replies to the caller over the connection the call arrived on. This is the
-// ADR-0088 receiver primitive: `currentSession()` names that connection, so a
+// ADR-0034 receiver primitive: `currentSession()` names that connection, so a
 // caller that opened no listener (a browser, a NAT'd peer) is answered without
 // a dial back. Shared by the receiver-reply demos so they assert against one
 // helper instead of hand-rolled copies. This is not the app's own path. The

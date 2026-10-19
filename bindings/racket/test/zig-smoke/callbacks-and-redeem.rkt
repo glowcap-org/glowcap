@@ -156,7 +156,7 @@
 (expect (equal? 11 (session-send up-session up-cap 'probe))
         "unpublish: the capability issued before removal still answers")
 
-;; Durable publication (ADR-0098): the minted swiss name fetches on the live
+;; Durable publication (ADR-0007): the minted swiss name fetches on the live
 ;; session, removal makes a later fetch miss, and the capability issued before
 ;; removal still answers.
 (define up-swiss (host-publish-durable (server-host up-server) (methods [(probe) 21])))
@@ -286,7 +286,7 @@
 (define rd-tool (session-fetch rd-gc "gifted"))
 ;; Mutate the tool through the gifter, then replace the alias with a decoy:
 ;; the later withdrawal must project the exact mutated actor the gifter holds,
-;; never whatever the name resolves to at withdraw time (ADR-0096, on the
+;; never whatever the name resolves to at withdraw time (ADR-0026, on the
 ;; binding path).
 (expect (= 8 (session-send rd-gc rd-tool 'bump))
         "redeem-dial: the gifter mutated the tool before introducing it")

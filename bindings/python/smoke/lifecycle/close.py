@@ -276,7 +276,7 @@ async def _repeated_host_close_observes_recorded_timeout() -> None:
 
 
 async def _loop_finish_close_reports_finite_grace_timeout() -> None:
-    """The same spent-grace outcome through the loop front (ADR-0112): the
+    """The same spent-grace outcome through the loop front (ADR-0024): the
     pending work is a Runtime dial whose partner accepted the socket and says
     nothing. After close begins nothing arrives on the wire and no verb runs,
     so the close driver's park over ``glowcap_driver_step_wait_ms`` is what

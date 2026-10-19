@@ -1,7 +1,7 @@
 //! The three-party handoff payloads.
 //!
 //! When a gifter introduces a recipient to an exporter, these are the signed
-//! gift and the recipient's redemption of it (ADR-0009). They are pure value
+//! gift and the recipient's redemption of it (ADR-0039). They are pure value
 //! shapes, byte slices and counts, no codec, no signature verification, no
 //! allocation. The session is what mints, signs, and checks them. `codec` is
 //! what frames them as `<desc:sig-envelope …>` records.

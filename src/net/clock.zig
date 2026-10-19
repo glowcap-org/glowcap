@@ -9,7 +9,7 @@
 //! why there are two readers. `nowMs(io)` goes through the host `std.Io`, so a
 //! virtual `Io` controls a caller's clock exactly as it controls its sockets.
 //! `nowMonotonicMs()` reads the kernel directly for the completion loop, whose
-//! backends do not consume `std.Io` (ADR-0054, ADR-0057).
+//! backends do not consume `std.Io` (ADR-0019).
 //!
 //! The two are the same clock on Linux, where `.awake` maps to
 //! `CLOCK_MONOTONIC`. On macOS `.awake` is `CLOCK_UPTIME_RAW` while

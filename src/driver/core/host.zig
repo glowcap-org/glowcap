@@ -1,4 +1,4 @@
-//! The sans-io byte-fed multi-session CapTP host core (ADR-0072), under the
+//! The sans-io byte-fed multi-session CapTP host core (ADR-0022), under the
 //! `driver_core` I/O ban. A `Host` owns one `engine.Node` (identity,
 //! live-session directory, routing, the redeem serve step) and mints byte-fed
 //! sessions (`HostSession`) whose peers are node-registered, so
@@ -18,7 +18,7 @@
 //! hears every outcome. An in-process Zig consumer may instead register a
 //! borrowed one-shot listener with `vowOn`, which keeps that vow's settlement
 //! zero-copy and off the queue. `driver.HostRuntime` is one such embedder (its
-//! transport residents over this core, ADR-0193). The C ABI's
+//! transport residents over this core, ADR-0018). The C ABI's
 //! `libglowcap_host` is another (byte-fed from a binding-owned loop).
 //!
 //! One thread drives one host. The node tables, the CapTP session map, the vow
@@ -119,12 +119,12 @@ pub const Host = struct {
     /// Incarnation stamp for remote import rows first lifted into Host space.
     /// Monotonic for the Host lifetime. Zero is never issued.
     next_import_incarnation: u64 = 1,
-    /// Crossed-hellos tiebreak state (ADR-0030): `openDialedLocator` registers
+    /// Crossed-hellos tiebreak state (ADR-0012): `openDialedLocator` registers
     /// the outbound before its hello moves. Accepted CapTP sessions compare
     /// inbound start-sessions against it.
     hellos: CrossedHellos = .{},
     /// Root from which `mintShell` derives each session's signing seed
-    /// (ADR-0097). The embedder supplies a fresh root for each process.
+    /// (ADR-0028). The embedder supplies a fresh root for each process.
     session_seed_root: [crypto.seed_bytes]u8,
     /// Counter distinguishing successive sessions' derived seeds. Monotonic
     /// for the host's life, so two sessions never share a key.
@@ -137,7 +137,7 @@ pub const Host = struct {
     partner_by_side: std.AutoHashMapUnmanaged([32]u8, engine.PeerHandle) = .{},
     /// A partner's **authenticated durable identity** → peer handle: the second
     /// of the two peer directories, and not the same one
-    /// (ADR-0097). `partner_by_side` names a session *incarnation* through the
+    /// (ADR-0028). `partner_by_side` names a session *incarnation* through the
     /// key that signed it, the identity a handoff certificate must resolve
     /// against. This names the durable peer a locator designates, which is
     /// what "do I already have a session reaching P" must ask. They differ by
@@ -168,7 +168,7 @@ pub const Host = struct {
     /// Host-wide bootstrap aliases. A fetch performs one keyed discovery lookup
     /// and lazily projects the actor onto the requesting Port.
     publications: foundation.bearer_table.Table(publish_mod.Publication) = .empty,
-    /// Lowering receipts held until the running turn's outcome (ADR-0194).
+    /// Lowering receipts held until the running turn's outcome (ADR-0058).
     turn_receipts: host_capability_lower.TurnReceipts = .{},
     publication_lookup: ?*const @import("publication_lookup.zig").Lookup = null,
     /// The embedder-facing action FIFO. `nextAction` drains it.
@@ -200,13 +200,13 @@ pub const Host = struct {
     vows: foundation.identity_hash.Map(u64, *VowRow) = .{},
     vow_ids: foundation.id_issuer.IdIssuer = .{},
     /// Host resolver id → its session-less vow row and the vat resolver it
-    /// settles (ADR-0102). A row is consumed by the first settle attempt, so
+    /// settles (ADR-0014). A row is consumed by the first settle attempt, so
     /// the map holds exactly the live settle authorities. Freed with the
     /// host. Ids are host-scoped, from their own counter, and never reused.
     resolver_index: foundation.identity_hash.Map(u64, ResolverIndexEntry) = .{},
     resolver_ids: foundation.id_issuer.IdIssuer = .{},
     /// Enlivens waiting on a dial this host staged (`enlivenSelectOrDial`,
-    /// ADR-0098). Each row holds the vow id minted for the caller *before*
+    /// ADR-0007). Each row holds the vow id minted for the caller *before*
     /// any session exists, so the outcome reaches an embedder that only
     /// drains actions. The sturdyref is owned here because it must outlive the
     /// call that asked. The ticket index makes settlement proportional to the
@@ -256,7 +256,7 @@ pub const Host = struct {
     session_close_timing: std.AutoHashMapUnmanaged(engine.PeerHandle, SessionCloseTiming) = .{},
     /// Node actions whose recipient could not take another outbound frame,
     /// parked per recipient so one partner's flow control holds back only what
-    /// is bound for it (ADR-0145). A row enters when that recipient refuses
+    /// is bound for it (ADR-0017). A row enters when that recipient refuses
     /// with outbound pressure, on a queue seat reserved before the action
     /// leaves the queue, and re-enters in its original order when the embedder
     /// next takes that recipient's outbound bytes or releases its session.

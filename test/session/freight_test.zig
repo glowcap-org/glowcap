@@ -1,5 +1,5 @@
 //! What a session certifies in a borrowed outbound tree, freight, before
-//! the encoder reads it (ADR-0246): the nesting bound the owned inventory
+//! the encoder reads it (ADR-0064): the nesting bound the owned inventory
 //! applies, set and struct-key uniqueness, the refusal of any reference or
 //! handoff, and the measure an owned copy of the tree would retain.
 

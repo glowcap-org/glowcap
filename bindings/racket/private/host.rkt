@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the CapTP `host`, the binding wrapper for `GlowcapHost` /
-;; `driver_core.Host` (ADR-0072 / ADR-0079). The host owns an `engine.Node`
+;; `driver_core.Host` (ADR-0022 / ADR-0011). The host owns an `engine.Node`
 ;; (the sans-io handoff router). Goblins `mycapn` is two roles, not one type:
 ;; the product maps to this Host; the router tables map to `engine.Node`. What lives
 ;; here is only what the embedder contract leaves to the binding: FFI Host
@@ -78,7 +78,7 @@
   ;; the seed used to derive the host's designator.
   (define durable-seed (bytes->immutable-bytes (bytes-copy seed)))
   ;; The durable identity followed by a session-key root drawn here, at this
-  ;; binding's entropy boundary, because the library draws none (ADR-0097).
+  ;; binding's entropy boundary, because the library draws none (ADR-0028).
   ;; The root is fresh per process, so every CapTP session signs with its own
   ;; key and a restart cannot recreate a prior session's handoff names; the
   ;; durable half stays exactly `seed`, since a keyed locator's designator
@@ -459,7 +459,7 @@
 
 ;; Derive the canonical key designator (64 lowercase hex digits) from a 32-byte
 ;; Ed25519 identity seed (the public half of the key a host signs with,
-;; ADR-0075).
+;; ADR-0028).
 (define (designator-from-seed seed)
   (unless (= (bytes-length seed) 32)
     (raise-glowcap 'designator-from-seed ERR-INVALID-ARGUMENT
@@ -505,7 +505,7 @@
         [(= rc ERR-NOT-FOUND) #f]
         [else (check/host rc) #t]))))
 
-;; Publish `behavior` under a freshly minted durable swiss name (ADR-0098) and
+;; Publish `behavior` under a freshly minted durable swiss name (ADR-0007) and
 ;; return that name (the swiss to place in a sturdyref beside this host's own
 ;; locator). The name is unpredictable, never reassigned, structurally disjoint
 ;; from every mutable alias, and removable only through `host-remove-durable`.
@@ -564,7 +564,7 @@
         (raise-glowcap 'host-publish-reference ERR-INTERNAL "publication returned an invalid name length"))
       (bytes->string/utf-8 out))))
 
-;; Remove a minted durable publication (ADR-0098): the old sturdyref misses
+;; Remove a minted durable publication (ADR-0007): the old sturdyref misses
 ;; from now on, while issued refs and deposited gifts keep the exact actor.
 ;; Returns #f when no such durable name exists.
 (define (host-remove-durable m swiss)

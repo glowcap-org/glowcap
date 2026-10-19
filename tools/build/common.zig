@@ -70,8 +70,8 @@ pub fn rootPath(b: *std.Build, sub_path: []const u8) []const u8 {
 pub const AbiImport = struct { name: []const u8, module: *std.Build.Module };
 
 /// A module over a transport's public C ABI root (`src/c_abi/net_transport/<transport>/mod.zig`),
-/// the generalization of the iroh companion (ADR-0055) to every transport
-/// archive (ADR-0059). Minted fresh per call so the artifact, the hermetic check
+/// the generalization of the iroh companion (ADR-0021) to every transport
+/// archive (ADR-0022). Minted fresh per call so the artifact, the hermetic check
 /// object, and the header generator can each have their own (no source file
 /// lands in two modules of one compilation). `imports` supplies the layer
 /// instances the transport draws on, always the shared vocabulary leaf
@@ -193,7 +193,7 @@ pub fn addInstalledSystemRun(b: *std.Build, posture: execution.Posture, argv: []
     return run;
 }
 
-/// The iroh sidecar (ADR-0055): the drivers and bench, the public C ABI
+/// The iroh sidecar (ADR-0021): the drivers and bench, the public C ABI
 /// companion, the iroh-enabled rooms client, and the published `glowcap_iroh`
 /// module all link it through the shared `linkRustSidecar` recipe.
 /// `archive` is the staticlib the iroh family's cargo step emits.

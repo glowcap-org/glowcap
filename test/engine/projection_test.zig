@@ -1,4 +1,4 @@
-//! The `op:get` / `op:index` / `op:untag` responder (ADR-0050): an inbound
+//! The `op:get` / `op:index` / `op:untag` responder (ADR-0004): an inbound
 //! projection exports a promise at its new answer position and the engine
 //! resolves it to the named field, element, or unwrapped Tagged payload once
 //! the receiver settles, breaking on a non-container value, an absent field,
@@ -156,7 +156,7 @@ test "op:untag unwraps a variadic Goblins-shaped payload as its value List" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // glowcap's Tagged carries the user-record payload as a slice (ADR-0021);
+    // glowcap's Tagged carries the user-record payload as a slice (ADR-0005);
     // a two-value payload unwraps to the List it is rather than guessing one.
     try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]21+f>");
     try peer_fixture.receiveAnsweredOperation(&peer, "<8'op:untag<11'desc:answer21+>5\"point22+>");

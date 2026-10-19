@@ -74,7 +74,7 @@ pub fn sessionOpts() driver.SessionOptions {
 /// Dial with explicit session options (tests pass a short handshake budget).
 /// `GLOWCAP_RENDEZVOUS` (a `ws://` or `wss://` relay URL) joins a
 /// relay provider to the dial set, so `keyed-relay` and `noise-relay` locators
-/// cold-dial through the same deployment-configured mapping ADR-0088 keeps out
+/// cold-dial through the same deployment-configured mapping ADR-0034 keeps out
 /// of locator bytes.
 pub fn dialUriWithOpts(ctx: *Ctx, uri: []const u8, opts: driver.SessionOptions) !*driver.Session {
     try ctx.ensureDialAllowed();
@@ -388,7 +388,7 @@ fn cmdTellResolved(ctx: *Ctx, pos: []const []const u8, session: *driver.Session,
 
 /// Fetch-success UX, shared by the blocking front here and the REPL's
 /// cooperative queue, so two renderers keep one spelling. The number is the
-/// opaque capability id (never a wire position, ADR-0096). `#N` feeds it back
+/// opaque capability id (never a wire position, ADR-0026). `#N` feeds it back
 /// to `call` / `tell`.
 pub const fetched_fmt = "fetched {s} → cap {d}";
 pub const fetch_next_fmt = "next: call {s} <verb> [args…]   or   call #{d} <verb> [args…]";

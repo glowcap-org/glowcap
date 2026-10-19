@@ -103,7 +103,7 @@ pub const ContentCall = opaque {
     /// exact saved authority: the strong edge `index` of the bound content
     /// record. Returns the capability value for the reply. The reply may carry
     /// it, nested or direct. Any capability this method did not declare is
-    /// refused before settlement (ADR-0172).
+    /// refused before settlement (ADR-0053).
     pub fn discloseExact(self: *ContentCall, index: usize) !driver.Value {
         const value = state(self);
         return .{ .capability = try value.call.discloseHeld(try self.reference(index)) };

@@ -1,5 +1,5 @@
-//! What an outermost turn holds until it returns: its local sends (ADR-0191)
-//! and the participants that recorded far effects (ADR-0194).
+//! What an outermost turn holds until it returns: its local sends (ADR-0058)
+//! and the participants that recorded far effects (ADR-0058).
 //!
 //! `ingress.zig` stages a send made inside a turn with its admission charged
 //! and its vow minted, outside every queue. A turn that returns successfully

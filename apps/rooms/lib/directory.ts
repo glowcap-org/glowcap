@@ -50,7 +50,7 @@ import { claimCapabilityWithin } from "./capability_cleanup.ts";
 // directory has asked them for one. Bounded because the peer may never answer.
 const INTRODUCIBLE_TIMEOUT_MS = 10_000;
 
-// ── Which directory a redeem rides (ADR-0089) ──────────────────────────────
+// ── Which directory a redeem rides (ADR-0035) ──────────────────────────────
 //
 // A `webrtc` locator carries a designator and nothing else: no address, and no
 // word about where the peer can be signaled. The connector redeeming an

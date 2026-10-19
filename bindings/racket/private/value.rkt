@@ -60,7 +60,7 @@
 
 ;; How a partner's advertised durable identity was authenticated, the third
 ;; fact `partner-identity` reports beside session key and designator
-;; (ADR-0097, ADR-0105). The answer is a property of the connection rather than
+;; (ADR-0028). The answer is a property of the connection rather than
 ;; of its transport name: the same transport symbol reaches this peer over code
 ;; that can prove something and code that cannot, so no list of transports
 ;; belongs here. Either 'authenticated-transport (the code that realized this

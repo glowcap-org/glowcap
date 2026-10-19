@@ -1,5 +1,5 @@
 //! A send the Node is still staging holds its place in the recipient's queue
-//! (ADR-0201): carriers queued behind it wait, a failed batch releases them in
+//! (ADR-0058): carriers queued behind it wait, a failed batch releases them in
 //! order, and a closing recipient discards the row instead of waiting on it.
 
 const std = @import("std");

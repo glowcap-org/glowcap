@@ -15,7 +15,7 @@ Rust's `loam` feature uses IndexedDB when compiled for
 `wasm32-unknown-unknown`, linking `libglowcap_loam` with the Host and OCapN
 Wasm archives. Loam's Zig code still checks records and permissions, commits
 transactions, and runs recovery.
-[ADR-0200](../decisions/adr/ADR-0200-resumable-loam-batch-evaluation.md)
+[ADR-0048](../decisions/adr/ADR-0048-loam-persistence-foundation.md)
 records how the work is split.
 
 Use the schemas, policies, and content registrations from the

@@ -40,7 +40,7 @@ pub const Options = struct {
     /// capability offered to the wrong one is not refused: it silently resolves
     /// to whatever that session keeps there. Disjoint host-assigned ranges make
     /// the foreign position absent instead of ambiguous, so the held-export
-    /// check refuses it. Bootstrap remains position zero (ADR-0006).
+    /// check refuses it. Bootstrap remains position zero (ADR-0002).
     export_base: u64 = bootstrap_position + 1,
     /// Positions available past `export_base`. Unbounded without a host range.
     export_span: u64 = std.math.maxInt(u64),

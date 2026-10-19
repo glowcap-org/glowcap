@@ -28,7 +28,7 @@ const ev_accept = sidecar.ev_accept;
 const ev_connect = sidecar.ev_connect;
 const connRemoteKey = sidecar.connRemoteKey;
 
-// ── Completion backend: many iroh connections on one `completion.Loop` (ADR-0057) ─
+// ── Completion backend: many iroh connections on one `completion.Loop` (ADR-0019) ─
 
 /// An iroh completion adapter over `Platform`. The sidecar's one readiness fd
 /// and non-blocking try-I/O share the wrapped backend's wait primitive with
@@ -400,7 +400,7 @@ pub fn CompletionBackend(comptime Platform: type) type {
         /// null when the connection is gone or the proof cannot be read. This is
         /// the evidence `completion.Loop.verifiedChannelKey` forwards to the bridge,
         /// which asserts it to the engine before the connection's first byte feeds
-        /// (ADR-0105). Socket backends have no such decl and the loop answers null
+        /// (ADR-0028). Socket backends have no such decl and the loop answers null
         /// for them.
         pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.peer_key_bytes]u8 {
             if (!Namespace.ownsFd(fd)) return self.platform.verifiedChannelKey(fd);

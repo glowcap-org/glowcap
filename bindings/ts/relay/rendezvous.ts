@@ -1,4 +1,4 @@
-// The cold-dial rendezvous (ADR-0088 capability 5). A peer that cannot be dialed
+// The cold-dial rendezvous (ADR-0034 capability 5). A peer that cannot be dialed
 // (a browser opens no listening socket) registers its keyed identity here
 // together with a held inbound WebSocket. A dialer that names that identity is
 // bridged onto the held socket, the mirror of the browser-dials-FFI leg

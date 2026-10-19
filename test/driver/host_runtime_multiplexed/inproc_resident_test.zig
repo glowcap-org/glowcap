@@ -1,4 +1,4 @@
-//! `inproc` on HostRuntime through a completion resident (ADR-0202): two
+//! `inproc` on HostRuntime through a completion resident (ADR-0018): two
 //! runtimes on their own threads meet through one in-process exchange, and
 //! the dialer fetches and calls across the bounded pipes.
 

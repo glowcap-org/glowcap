@@ -1,6 +1,6 @@
 """Internal: the raw ``ctypes`` loader for ``libglowcap_net_transport_inproc``.
 
-The in-process transport ships as its own à-la-carte archive (ADR-0059),
+The in-process transport ships as its own à-la-carte archive (ADR-0022),
 symbol-disjoint from the core ``libglowcap_ocapn``: it carries the
 ``glowcap_inproc_*`` family plus its own thread-local last-error
 (``glowcap_inproc_last_error`` / ``_clear``). It is the socket-free sibling of

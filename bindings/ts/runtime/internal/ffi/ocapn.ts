@@ -3,7 +3,7 @@
 // — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// Internal: the FFI mirror of `libglowcap_ocapn` — the core archive (ADR-0059).
+// Internal: the FFI mirror of `libglowcap_ocapn` — the core archive (ADR-0022).
 //
 // Nothing here is part of the public API. The ergonomic surface reaches these
 // symbols through `ocapnS`; a consumer never imports this file. This loader
@@ -11,7 +11,7 @@
 // binding still speaks directly: the ABI version, the core last-error slot, the
 // allocation context, managed-frame release, the exporter-locator encoder, and
 // the OCapN URI grammar. The peer itself is driven through the byte-fed host
-// archive (`host.ts`, `libglowcap_host`, ADR-0072), never through raw
+// archive (`host.ts`, `libglowcap_host`, ADR-0022), never through raw
 // raw per-session engine calls. Each transport archive has its own sibling loader
 // here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
 //

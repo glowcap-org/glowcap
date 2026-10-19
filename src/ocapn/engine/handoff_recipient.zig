@@ -1,4 +1,4 @@
-//! Recipient-side handoff helpers (ADR-0009): session/side naming, signed
+//! Recipient-side handoff helpers (ADR-0039): session/side naming, signed
 //! `desc:handoff-receive` construction, and the Peer outbound choreography
 //! that withdraws a gift. Crypto/session primitives stay at the top. The
 //! withdraw free function over `*Peer` is the same shape as `inbound.zig` /
@@ -227,7 +227,7 @@ pub fn sendWithdrawGift(
     answer: model.AnswerPosition,
 ) !void {
     const exporter_key = peer.session_state.partnerSessionKey() orelse return error.NoExporterKey;
-    // Two different keys (ADR-0097).
+    // Two different keys (ADR-0028).
     //
     // `secret` signs, and it is the key of the session the *give arrived
     // on*, because that is the identity the give named as its

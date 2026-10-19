@@ -25,7 +25,7 @@ const Sink = harness.Sink;
 const LabelHolder = harness.LabelHolder;
 const PersistentCounter = harness.PersistentCounter;
 
-/// A hosted actor's state (ADR-0071): owned by the caller, reached only through
+/// A hosted actor's state (ADR-0022): owned by the caller, reached only through
 /// the C-ABI-shaped `HostedActor` callbacks. Stands in for a binding's hosted
 /// object with a Zig thunk, `handle` gets the full `Turn`, so it can eventual-
 /// send like a Zig actor. `free` reclaims the caller-owned state.

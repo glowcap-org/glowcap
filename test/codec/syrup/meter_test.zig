@@ -1,6 +1,6 @@
 //! The Syrup meter sizes an outbound tree where the session walks it, and
 //! an encode given that size fills the bytes the measured encode fills
-//! (ADR-0253). A size off by one is refused before any frame exists.
+//! (ADR-0064). A size off by one is refused before any frame exists.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

@@ -1,4 +1,4 @@
-//! The managed WebRTC dial through the C provider table (ADR-0226), against
+//! The managed WebRTC dial through the C provider table (ADR-0035), against
 //! the scripted sidecar in `webrtc_sidecar_stub.zig`. A failure here points
 //! at `src/c_abi/net_transport/webrtc/dial.zig`: which verbs a netlayer
 //! offers, what the signaling callbacks receive, how an answer and a

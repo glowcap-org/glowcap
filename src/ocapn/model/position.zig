@@ -69,7 +69,7 @@ pub const ImportPosition = enum(u64) {
 };
 
 /// A node-local route identity for a capability whose wire name belongs to a
-/// particular session (ADR-0069). It is a different type from
+/// particular session (ADR-0026). It is a different type from
 /// `ImportPosition`: every `u64` remains a valid partner-selected import, while
 /// a routed capability can never be mistaken for one or reach a codec without
 /// an explicit lowering step.
@@ -104,7 +104,7 @@ pub const AnswerPosition = enum(u64) {
     }
 };
 
-/// An answer synthesized for a V1.0 resolver-only call (ADR-0010). It is a
+/// An answer synthesized for a V1.0 resolver-only call (ADR-0006). It is a
 /// separate namespace from partner-selected wire answers, not a reserved band
 /// within their `u64` space.
 pub const VirtualAnswer = enum(u64) {

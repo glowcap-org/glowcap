@@ -1,4 +1,4 @@
-//! The names the resolve family shares (ADR-0077): the canonical contract,
+//! The names the resolve family shares (ADR-0023): the canonical contract,
 //! the operator fetch script, and the binding loaders that implement the
 //! download cascade. One authority, because three sibling checks each walk
 //! the same set and a drifted copy would let a port fall out of one of them.
@@ -8,7 +8,7 @@ pub const tarball_template = "glowcap-c-v{version}-{target}.tar.gz";
 pub const operator_script = "tools/c-abi/fetch-c-abi.sh";
 
 /// The C-ABI find/download cascade is one contract (`bindings/c-abi-resolve.json`)
-/// shipped inside every binding package (ADR-0077). Bindings download with
+/// shipped inside every binding package (ADR-0023). Bindings download with
 /// language-native code, `tools/c-abi/fetch-c-abi.sh` is an operator CLI only.
 pub const c_abi_binding_loaders = [_][]const u8{
     "bindings/rust/build.rs",

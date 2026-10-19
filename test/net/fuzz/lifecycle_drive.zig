@@ -31,7 +31,7 @@ fn makeLifecyclePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!en
     // choice, and it decides whether the loop's central mechanism is exercised
     // at all. Without a queued frame an open connection's `pendingOut` is zero
     // for its whole life, so it can never cross the outbound high-water mark,
-    // so the ADR-0042 sink park never fires, and neither does anything behind
+    // so the ADR-0017 sink park never fires, and neither does anything behind
     // it: the single-connection un-park, the park deadline, the park-to-drain
     // restamp. Measured over four thousand schedules, all of those ran zero
     // times before this line and thousands of times after.

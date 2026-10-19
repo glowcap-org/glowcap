@@ -103,7 +103,7 @@ pub fn register(ctx: Context) Registered {
     // port-exclusive like every live step.
     _ = liveDriver(ctx, .{ .exe_name = "glowcap-tcp-loop", .source = "interop/tcp_loop/driver.zig", .step_name = "tcp-loop", .description = "Live TCP scale: many concurrent connections served from one Server thread", .pin_port = false, .posture = .{ .deterministic = 30 } });
 
-    // Live Tor (ADR-0108): two glowcap peers hold an OCapN conversation over a
+    // Live Tor (ADR-0042): two glowcap peers hold an OCapN conversation over a
     // real hidden service. The driver starts its own Tor, so this needs `tor`
     // on PATH and outbound network access.
     _ = liveDriver(ctx, .{ .exe_name = "glowcap-onion-interop", .source = "interop/onion_interop/driver.zig", .step_name = "onion-interop", .description = "Live Tor: two glowcap peers hold an OCapN conversation over a real onion service (needs tor + network)", .pin_port = false, .posture = .real_internet });

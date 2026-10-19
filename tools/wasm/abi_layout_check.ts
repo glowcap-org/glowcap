@@ -1,6 +1,6 @@
 // Gate: the browser binding's wasm32 layout descriptor decodes cleanly.
 //
-// The freestanding wasm32 Host (`zig build wasm-driver`, ADR-0070) reports its
+// The freestanding wasm32 Host (`zig build wasm-driver`, ADR-0034) reports its
 // own struct layout through the single export `glowcap_wasm_abi_layout`, because
 // the wasm32 field offsets differ from the 64-bit host mirror `abi.ts` carries
 // and cannot be reached from it. This check instantiates the module, reads the

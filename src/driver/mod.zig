@@ -4,7 +4,7 @@
 //! A networked Zig app normally has to open a socket, bind a vat to the peer, pump
 //! the connection, and dispatch each surfaced event into the vat. `HostRuntime`
 //! is that composition: one thread serves every session of one Host over its
-//! transport residents (ADR-0193, ADR-0202). `Session` and `Server` are its
+//! transport residents (ADR-0018). `Session` and `Server` are its
 //! one-call views, handed back by `connect` and `listen`. It owns no protocol
 //! the engine lacks, and it hides no allocation or I/O: every read and write
 //! is one explicit `Session.step`, and a host that wants to answer until the
@@ -35,7 +35,7 @@ const driver_core = @import("driver_core");
 /// `HostRuntime` feeds over the wire.
 pub const core = driver_core;
 
-/// The off-turn settle mailbox (ADR-0102 stage 4): a worker thread posts a
+/// The off-turn settle mailbox (ADR-0014 stage 4): a worker thread posts a
 /// resolver settle from anywhere, and the thread that owns the Host applies
 /// it at its next iteration, woken through the mailbox's socketpair. See
 /// `settle_mailbox.zig`.
@@ -59,7 +59,7 @@ pub const FetchCapture = driver_core.FetchCapture;
 pub const Identity = driver_core.Identity;
 pub const AcceptIdentity = driver_core.AcceptIdentity;
 pub const Vow = driver_core.Vow;
-/// The opaque Host-scoped capability identity (ADR-0096). The serve core's
+/// The opaque Host-scoped capability identity (ADR-0026). The serve core's
 /// export-bound form is `Exported`.
 pub const Capability = driver_core.Capability;
 pub const Exported = driver_core.Exported;
@@ -89,7 +89,7 @@ pub fn drawSessionSecret(io: std.Io) Error!crypto.SecretKey {
 }
 
 const session = @import("session.zig");
-/// The owning Zig runtime (ADR-0090): transport I/O and a blocking,
+/// The owning Zig runtime (ADR-0018): transport I/O and a blocking,
 /// poll-multiplexed pump around one byte-fed Host. `connect`/`listen` build one
 /// underneath. An app that wants several sessions under one Host identity
 /// builds it explicitly.
@@ -119,14 +119,14 @@ pub const PendingWork = driver_core.PendingWork;
 pub const CloseGrace = driver_core.CloseGrace;
 /// The shared close barrier's observable result.
 pub const CloseOutcome = driver_core.CloseOutcome;
-/// The transports a runtime serves, as one value (ADR-0193).
+/// The transports a runtime serves, as one value (ADR-0018).
 pub const Transports = HostRuntime.Transports;
 pub const connect = session.connect;
 pub const connectUri = session.connectUri;
 pub const listen = session.listen;
 
 const dial_retry = @import("dial_retry.zig");
-/// Dial continuity (ADR-0082): DialError classification, discovery
+/// Dial continuity (ADR-0030): DialError classification, discovery
 /// budget, and dial-retry. Not a Session facade: a rebuild yields a new session.
 pub const DialPolicy = dial_retry.DialPolicy;
 pub const DialOutcome = dial_retry.DialOutcome;

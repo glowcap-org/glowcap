@@ -1,4 +1,4 @@
-//! Evidence item 2 of ADR-0108: the Tor control protocol exchange glowcap writes
+//! Evidence item 2 of ADR-0042: the Tor control protocol exchange glowcap writes
 //! is the exchange the pinned Spritely Goblins writes, and the replies it reads
 //! are the replies Goblins reads.
 //!

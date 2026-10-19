@@ -1,4 +1,4 @@
-//! Registry metadata tests for the glowcap CLI (ADR-0084).
+//! Registry metadata tests for the glowcap CLI (ADR-0032).
 const std = @import("std");
 const cli = @import("cli");
 const glowcap = @import("glowcap");

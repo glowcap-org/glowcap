@@ -43,8 +43,8 @@ pub const AnswerOverride = union(enum) {
     /// position the session reuses after release never settles the new
     /// question. A wire `op:resolve` names it directly. A deliver to one of
     /// our resolver exports reaches it through the export: a V1.0 resolver
-    /// callback (ADR-0010) or the listener export an outbound `op:listen`
-    /// nominated (ADR-0095).
+    /// callback (ADR-0006) or the listener export an outbound `op:listen`
+    /// nominated (ADR-0003).
     resolve: session.OutboundAnswerTarget,
     /// Resolver-only deliver carrying its virtual inbound answer
     /// (`Event.tag == .deliver`).
@@ -68,7 +68,7 @@ pub const head_argument_views = 4;
 /// The most argument views an inbound frame's head lends the decoder, so a
 /// frame's head grows with the message it carries and never past this many
 /// views, 80 bytes each. A tree with more nodes than the room is parsed into
-/// views up to the room and stays wire-backed past it (ADR-0231).
+/// views up to the room and stays wire-backed past it (ADR-0063).
 pub const head_views_cap = 128;
 
 /// The wire bytes one lent view answers for. A Syrup integer or short symbol
@@ -84,7 +84,7 @@ pub const head_view_bytes = 4;
 /// the floor, so the smallest calls pay nothing for the room larger messages
 /// earn. The `greet` row's instruction count pins it. Past the class, a block
 /// freed and taken again at the same size costs the allocator about as much
-/// as a kept block would, so no peer keeps one (ADR-0238).
+/// as a kept block would, so no peer keeps one (ADR-0063).
 pub const small_block_bytes = 1024;
 
 /// The longest frame whose block fits `small_block_bytes` with the budgeted
@@ -143,7 +143,7 @@ pub const Parse = struct {
     owner: Owner,
 
     /// What holds the body. A V1.0 resolver callback is a translation: the
-    /// deliver as it arrived beside the resolve it means (ADR-0010). Both
+    /// deliver as it arrived beside the resolve it means (ADR-0006). Both
     /// borrow the frame's bytes. One allocation on a path only V1.0
     /// sessions take.
     pub const Owner = enum { head, boxed, translated };
@@ -234,7 +234,7 @@ pub const Event = struct {
     /// V1.0 when the application later reads it.
     captp_version: model.CaptpVersion,
     /// Off-wire answer translation when the wire frame alone cannot say
-    /// (ADR-0010). A sum, not two optionals: illegal combinations (both set,
+    /// (ADR-0006). A sum, not two optionals: illegal combinations (both set,
     /// or set under the wrong tag) are unrepresentable.
     answer_override: AnswerOverride = .none,
     /// Stable identity of the answer this deliver may settle. Captured after
@@ -285,7 +285,7 @@ pub const Event = struct {
     }
 
     /// Outbound answers settled by the same resolution as `resolveTarget`:
-    /// local aliases converged onto one partner promise (ADR-0095).
+    /// local aliases converged onto one partner promise (ADR-0003).
     pub fn resolveAliases(self: *const Event) []const session.OutboundAnswerTarget {
         return self.resolve_aliases.items;
     }

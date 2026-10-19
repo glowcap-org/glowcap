@@ -1,4 +1,4 @@
-//! The Zig answerer for the WebRTC browser-peer proof (ADR-0089).
+//! The Zig answerer for the WebRTC browser-peer proof (ADR-0035).
 //!
 //! A real headless Chromium is the offerer (`@glowcap/webrtc`'s `RtcPeer` over
 //! `RTCPeerConnection`, driving a keyed session inside the wasm Host). This

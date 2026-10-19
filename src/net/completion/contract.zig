@@ -102,7 +102,7 @@ const foundation = @import("foundation");
 const engine = @import("engine");
 const carrier_failure = @import("../carrier_failure.zig");
 
-/// Why a connection is tearing down (ADR-0082).
+/// Why a connection is tearing down (ADR-0030).
 pub const CloseReason = enum {
     ordinary,
     park_kill,

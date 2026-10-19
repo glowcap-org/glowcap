@@ -159,7 +159,7 @@ test "Session retainSentExportRef leaves a live export cell authoritative — a 
     // A generically reserved export is an object. Naming it with a promise wire
     // mention takes the wire-delta retain but does not rebind the cell: the wire
     // descriptor rides the marshaled reference, it is not derived into the row
-    // (ADR-0080).
+    // (ADR-0006).
     const object_export = try s.allocateExport();
     try std.testing.expectEqual(slot.Slot{ .local_value = object_export.int() }, s.exportSlot(object_export).?);
     try s.retainSentExportRef(.{ .near = .{ .export_position = object_export, .kind = .promise } });
@@ -183,7 +183,7 @@ test "Session retainSentExportRef mints an absent export's cell from the first w
 
     // The first mention of an absent position is its only authority: an object
     // mention mints local_value, a promise mention mints local_unresolved (a
-    // resolve fulfill or a cross-session re-export; ADR-0080).
+    // resolve fulfill or a cross-session re-export; ADR-0006).
     try s.retainSentExportRef(.{ .near = .{ .export_position = .from(7), .kind = .object } });
     try std.testing.expectEqual(slot.Slot{ .local_value = 7 }, s.exportSlot(.from(7)).?);
     try std.testing.expect(slot.toReference(s.exportSlot(.from(7)).?).?.near.kind == .object);

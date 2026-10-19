@@ -1,4 +1,4 @@
-//! `onion` on HostRuntime through completion residents (ADR-0202), over the
+//! `onion` on HostRuntime through completion residents (ADR-0018), over the
 //! fake Tor daemon: the listening resident binds a loopback listener and
 //! publishes it, advertises the service id Tor named, and a dialing resident
 //! reaches it through SOCKS. What the fake cannot prove, that a real Tor
@@ -49,7 +49,7 @@ fn serve(server: *driver.Server, done: *std.atomic.Value(bool)) anyerror!void {
     }
 }
 
-// The publish conversation is a pending setup (ADR-0193): the listen
+// The publish conversation is a pending setup (ADR-0018): the listen
 // admits at once, the loop keeps serving while the control conversation
 // runs, and the listener event arrives when the service exists. The delayed
 // fake control reply makes the order deterministic: a plain dial through

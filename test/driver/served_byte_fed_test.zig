@@ -1,4 +1,4 @@
-//! The byte-fed drive (ADR-0072) and its compose verbs: a `driver.Served`
+//! The byte-fed drive (ADR-0022) and its compose verbs: a `driver.Served`
 //! owns no socket. The caller feeds inbound frames and drains outbound,
 //! owning the loop, and serves identically to the socket path, including
 //! `beginSendNamed`/`beginTellNamed` chains and their break stages.
@@ -17,7 +17,7 @@ const support_actors = @import("../support/actors.zig");
 /// The published actor: answers `greet(name)` with a static greeting.
 const Greeter = support_actors.StaticReplyActor("greet", "hello from the hosting vat");
 
-// ── Byte-fed drive (ADR-0072) ────────────────────────────────────────────────
+// ── Byte-fed drive (ADR-0022) ────────────────────────────────────────────────
 //
 // A `driver.Served` owns no socket: the caller feeds inbound frames with
 // `feedBorrowed` and drains outbound with `takeOutbound`, owning the loop
@@ -55,7 +55,7 @@ fn shuttleFed(from: *driver.Served, from_vat: *actors.Vat, to: *driver.Served, t
     }
 }
 
-test "byte-fed Served serves an eventual-send with no socket (ADR-0072)" {
+test "byte-fed Served serves an eventual-send with no socket (ADR-0022)" {
     const allocator = std.testing.allocator;
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
@@ -91,7 +91,7 @@ test "byte-fed Served serves an eventual-send with no socket (ADR-0072)" {
     try std.testing.expectEqual(@as(i64, 15), result);
 }
 
-test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" {
+test "byte-fed Served opens a keyed session from scratch and serves (ADR-0022)" {
     const allocator = std.testing.allocator;
     var p_server = engine.Peer.initNegotiating(allocator);
     defer p_server.deinit();

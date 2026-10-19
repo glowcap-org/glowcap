@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Internal: the raw `ffi/unsafe` loader for libglowcap_net_transport_webrtc.
 ;;
-;; The WebRTC companion library (`libglowcap_net_transport_webrtc`, ADR-0089) is
+;; The WebRTC companion library (`libglowcap_net_transport_webrtc`, ADR-0035) is
 ;; optional -- absent unless built with cargo -- so it loads lazily on first
 ;; `webrtc-fn` use, caching the bound table and naming the build step when the
 ;; library is absent. Peers are opaque; the endpoint config and readiness record

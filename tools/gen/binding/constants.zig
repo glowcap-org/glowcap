@@ -164,7 +164,7 @@ const constants = [_]Const{
     con("DESIGNATOR_SCHEME_ADDRESS", cd.GLOWCAP_DESIGNATOR_SCHEME_ADDRESS, .uint, null),
     con("DESIGNATOR_SCHEME_KEY", cd.GLOWCAP_DESIGNATOR_SCHEME_KEY, .uint, null),
     // GlowcapPartnerIdentity.provenance: how the partner's advertised durable
-    // identity was authenticated (ADR-0097).
+    // identity was authenticated (ADR-0028).
     con("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", cd.GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT, .uint, null),
     con("DURABLE_PROVENANCE_UNAUTHENTICATED", cd.GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED, .uint, null),
     // Frame-cap defaults: Host protocol admission comes from libglowcap_host;

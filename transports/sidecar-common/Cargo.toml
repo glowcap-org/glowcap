@@ -1,5 +1,5 @@
 # Runtime plumbing the two Rust transport sidecars share: transports/iroh
-# (ADR-0055) and transports/webrtc (ADR-0089). Each wraps an async crate behind
+# (ADR-0021) and transports/webrtc (ADR-0035). Each wraps an async crate behind
 # a synchronous C ABI, and this crate owns the three pieces that shape needs no
 # matter which crate sits behind it: the private Tokio runtime a C call runs on,
 # the endpoint-release barrier for tasks that outlive their handle, and the

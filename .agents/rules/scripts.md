@@ -27,7 +27,7 @@ investigation runs from the shell or stays outside the repository. Otherwise
 check whether an existing command or script should own one more verb before
 creating another entry point.
 
-[ADR-0150](../../docs/decisions/adr/ADR-0150-operations-fronts-and-script-placement.md)
+[ADR-0032](../../docs/decisions/adr/ADR-0032-cli-and-product-boundaries.md)
 owns placement:
 
 - Contributor commands are `zig build` steps. A script may implement a step

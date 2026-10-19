@@ -151,7 +151,7 @@ pub const TurnReceipts = struct {
 };
 
 /// Keep `prepared`'s receipts until the running turn's outcome when its send
-/// is made inside a turn (ADR-0194). Call before the send: enrollment and
+/// is made inside a turn (ADR-0058). Call before the send: enrollment and
 /// room are the fallible steps, so `commit` then moves the receipts without
 /// allocating. Outside a turn this does nothing.
 pub fn holdForTurn(self: *Host, prepared: *PreparedValues) !void {

@@ -1,4 +1,4 @@
-//! Dial policy vocabulary (ADR-0082): DialError classification and the
+//! Dial policy vocabulary (ADR-0030): DialError classification and the
 //! discovery budget lockstep with the C ABI. The runtime's retry seam is
 //! proved in `host_runtime_step/dial_retry_test.zig`.
 
@@ -18,7 +18,7 @@ test "discovery budget is one driver_core default projected through driver, C AB
     try std.testing.expectEqual(driver.discovery_retry_ms, p.retry_interval_ms);
 }
 
-test "isTransientDialError matches ADR-0081 axis" {
+test "isTransientDialError matches ADR-0030 axis" {
     try std.testing.expect(driver.isTransientDialError(error.NetworkUnreachable));
     try std.testing.expect(driver.isTransientDialError(error.TimedOut));
     try std.testing.expect(driver.isTransientDialError(error.ConnectionLost));

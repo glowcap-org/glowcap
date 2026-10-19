@@ -1,5 +1,5 @@
 import * as tcp from "@glowcap/tcp";
-// The ADR-0070 proof, run by `zig build web-peer-test`: a browser-
+// The ADR-0034 proof, run by `zig build web-peer-test`: a browser-
 // shaped glowcap peer holds a real keyed OCapN session over WebSocket.
 //
 // Two processes so the two runtime adapters never share a module graph: the

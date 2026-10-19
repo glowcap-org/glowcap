@@ -38,7 +38,7 @@ pub fn matchSturdyrefPeer(
     if (try self.designatorScheme(session.transport) == .key) {
         const identity = try self.partnerIdentity(session);
         if (!std.mem.eql(u8, locator.designator, identity.designator)) return error.PeerIdentityMismatch;
-        // The provenance-bearing predicate, not key equality (ADR-0097): this
+        // The provenance-bearing predicate, not key equality (ADR-0028): this
         // needs a proved durable peer. The fresh session key verifies the hello;
         // only authenticated channel evidence proves the durable designator.
         if (!identity.durableIdentityAuthenticated()) return error.PeerIdentityUnverified;

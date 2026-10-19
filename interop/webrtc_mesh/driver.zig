@@ -1,6 +1,6 @@
 //! Live WebRTC signaling mesh: two Zig glowcap peers bring up a DataChannel
 //! through an OCapN-shaped signaling object, then hold a keyed OCapN session
-//! over it (ADR-0089).
+//! over it (ADR-0035).
 //!
 //! This is WebRTC's capability-routed signaling shape: an introducer routes the
 //! peers to each other. Here the introducer is the `SignalingHub`, a
@@ -8,7 +8,7 @@
 //! ICE candidates between the two peers. The hub holds no WebRTC state and
 //! parses no payload. It moves opaque strings between the two designators it was
 //! given references to, the same byte-transparency a room or the relay holds.
-//! That is the ADR-0089 signaling-capability shape, proven in Zig before the
+//! That is the ADR-0035 signaling-capability shape, proven in Zig before the
 //! browser arm drives the same verbs over the wire.
 //!
 //! The delta from `webrtc-interop` is exactly the signaling path: there the
@@ -46,7 +46,7 @@ const Greeter = struct {
     }
 };
 
-/// The in-tree signaling object (ADR-0089): a rendezvous keyed by peer
+/// The in-tree signaling object (ADR-0035): a rendezvous keyed by peer
 /// designator that routes the offer, the answer, and the ICE candidates between
 /// two webrtc peers. It holds references to the two peers it introduces and
 /// forwards opaque strings between them, the same way a room routes a chat line.

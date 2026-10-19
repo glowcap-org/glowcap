@@ -29,7 +29,7 @@ from syrup import Record, Symbol, syrup_encode  # type: ignore[import-not-found]
 from records import *  # noqa: F401,F403
 
 
-# ── ADR-0007 / op:get + op:index field-projection ops ─────────────
+# ── ADR-0003 / op:get + op:index field-projection ops ─────────────
 #
 # Goblins's `(define-recordable-struct op:get (receiver-desc
 # field-name new-answer-pos))` and the parallel `op:index` at
@@ -43,7 +43,7 @@ def op_get() -> Record:
 
     receiver = sender's ``Reference::Far(import_position=7)`` → wire
     ``<desc:export 7>`` (target-position perspective flip per
-    ADR-0010 § Decision 3). ``field-name`` is a Syrup *String* per
+    ADR-0006). ``field-name`` is a Syrup *String* per
     CapTP § op:get (Goblins guards ``string?`` on receipt).
     ``new-answer-pos`` is the result-promise answer id the sender
     just allocated.
@@ -57,7 +57,7 @@ def op_index() -> Record:
 
     receiver = sender's ``Reference::Far(import_position=7)`` → wire
     ``<desc:export 7>``. ``index`` is a Syrup positive integer per
-    ADR-0007 § Decision 1; ``new-answer-pos`` is the result-promise
+    ADR-0003; ``new-answer-pos`` is the result-promise
     answer id.
     """
     target = Record(Symbol("desc:export"), (7,))
@@ -135,19 +135,19 @@ FIXTURES = {
     "desc_handoff_give_signed.bin": signed_handoff_give,
     "desc_handoff_receive_signed.bin": signed_handoff_receive,
     "op_deliver_withdraw_gift.bin": op_deliver_withdraw_gift,
-    # ADR-0007 op:get / op:index field-projection ops
+    # ADR-0003 op:get / op:index field-projection ops
     "op_get.bin": op_get,
     "op_index.bin": op_index,
     "op_untag.bin": op_untag,
-    # ADR-0006 op:start-session handshake (V1_0)
+    # ADR-0002 op:start-session handshake (V1_0)
     "op_start_session_v1_0.bin": op_start_session_v1_0,
-    # ADR-0025 typed-abort wire kind
+    # ADR-0008 typed-abort wire kind
     "op_abort_resource_exhausted.bin": op_abort_resource_exhausted,
-    # ADR-0008 adapter-projected typed-abort wire kinds
+    # ADR-0004 adapter-projected typed-abort wire kinds
     "op_abort_crossed_hellos.bin": op_abort_crossed_hellos,
     "op_abort_connection_lost.bin": op_abort_connection_lost,
     "op_abort_graceful_shutdown.bin": op_abort_graceful_shutdown,
-    # ADR-0021 widened `Argument` arms (op:deliver one-arg shape)
+    # ADR-0005 widened `Argument` arms (op:deliver one-arg shape)
     "op_deliver_arg_void.bin": op_deliver_arg_void,
     "op_deliver_arg_float64.bin": op_deliver_arg_float64,
     "op_deliver_arg_big_integer.bin": op_deliver_arg_big_integer,

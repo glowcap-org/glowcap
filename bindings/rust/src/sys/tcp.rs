@@ -1,6 +1,6 @@
 //! Raw FFI for the TCP transport archive (`libglowcap_net_transport_tcp`).
 //!
-//! Linked only with the `tcp` feature (ADR-0059). It exports the
+//! Linked only with the `tcp` feature (ADR-0022). It exports the
 //! `glowcap_tcp_*` family and its own thread-local last-error
 //! (`glowcap_tcp_last_error`), symbol-disjoint from the core archive. The
 //! shared frame and context types it speaks are reused by layout from

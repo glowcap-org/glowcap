@@ -20,7 +20,7 @@ the current inventory, and the [roadmap](roadmap.md) lists the unfinished work.
 The protocol core is split into one-way Zig modules. The build rejects a codec
 that imports another codec, protocol code that reaches into an adapter, or
 portable code that imports `std.Io` or platform calls
-([ADR-0040](decisions/adr/ADR-0040-layer-modules-as-import-law.md)).
+([ADR-0011](decisions/adr/ADR-0011-compiler-enforced-layers.md)).
 
 ## 1. Protocol conformance
 

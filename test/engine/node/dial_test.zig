@@ -530,7 +530,7 @@ test "exporterDialed frees empty hint sentinel without leaking" {
 }
 
 test "acceptGive joins pending dials on peer identity, not URI representation" {
-    // ADR-0012: hints are connection advice, not identity. Two gives that name
+    // ADR-0007: hints are connection advice, not identity. Two gives that name
     // the same transport+designator must share one in-flight dial even when the
     // URI bytes differ (query hints / encoding).
     const allocator = std.testing.allocator;

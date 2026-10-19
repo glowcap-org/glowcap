@@ -148,7 +148,7 @@ pub fn glowcap_host_publish(
 }
 
 /// Publish one hosted object under a freshly minted durable swiss name
-/// (ADR-0098): the reserved-prefix namespace, unpredictable, never
+/// (ADR-0007): the reserved-prefix namespace, unpredictable, never
 /// reassigned, removable only through `glowcap_host_remove_durable`, and
 /// structurally disjoint from every mutable alias. `entropy` supplies
 /// exactly GLOWCAP_HOST_DURABLE_ENTROPY_LEN caller-drawn random bytes: the
@@ -197,7 +197,7 @@ pub fn glowcap_host_publish_reference(
     return publishReference(host, reference, entropy, entropy_len, out_swiss, swiss_cap);
 }
 
-/// Remove a minted durable publication (ADR-0098): the sturdyref misses
+/// Remove a minted durable publication (ADR-0007): the sturdyref misses
 /// afterward, while capabilities already issued and deposited gifts keep
 /// the exact actor. A swiss outside the reserved durable namespace returns
 /// GLOWCAP_ERR_INVALID_ARGUMENT (mutable aliases leave through
@@ -212,7 +212,7 @@ pub fn glowcap_host_remove_durable(
     return removeDurable(host, swiss, swiss_len);
 }
 
-/// Remove the host-wide alias `name`. Discovery-only, alias-only (ADR-0096): a
+/// Remove the host-wide alias `name`. Discovery-only, alias-only (ADR-0026): a
 /// later fetch of the name misses on every session, while capabilities already
 /// issued, live Port projections, and deposited gifts keep naming the exact
 /// actor, which stays in the Host's Vat until `glowcap_host_release`. An

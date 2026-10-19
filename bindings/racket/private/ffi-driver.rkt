@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the raw `ffi/unsafe` loader for the `glowcap_driver_*` loop
-;; family (ADR-0112).
+;; family (ADR-0024).
 ;;
 ;; Nothing here is public. libglowcap_driver exports only this family and
 ;; adopts a Host from the symbol-disjoint libglowcap_host archive. The result

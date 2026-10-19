@@ -59,7 +59,7 @@ pub fn sendBorrowed(self: *Peer, message: model.Message) !void {
     return outbound.enqueueBorrowed(self, message);
 }
 
-/// Enqueue a deliver whose arguments are lent as views (ADR-0246). The tree
+/// Enqueue a deliver whose arguments are lent as views (ADR-0064). The tree
 /// must carry values only, which the session certifies, and it leaves as
 /// its frame before this returns (`outbound.enqueueFreight`).
 pub fn sendFreight(self: *Peer, target: model.Reference, args: model.view.Args, answer: ?model.AnswerPosition) !void {

@@ -1,4 +1,4 @@
-//! The resolver vow (ADR-0102): a local vow minted without a send, whose
+//! The resolver vow (ADR-0014): a local vow minted without a send, whose
 //! settle authority is a separate resolver id. These units pin the pair's
 //! contract, one-shot settle, top-level only, read side never settles, and
 //! the headline: a served behavior defers its wire answer onto a resolver vow

@@ -1,7 +1,7 @@
 //! Whole-frame decode property test for both codecs.
 //!
 //! A codec decodes a frame the envelope or the transport has already
-//! delimited (ADR-0110), so `decodeBody` has one answer for anything that is
+//! delimited (ADR-0012), so `decodeBody` has one answer for anything that is
 //! not exactly one frame:
 //!
 //!   * every strict prefix of a valid frame is refused, `MalformedFrame` on

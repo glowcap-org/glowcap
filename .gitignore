@@ -34,7 +34,7 @@ bench/capnp/rust/target/
 # transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
 # the sidecar's external dependency tree must resolve identically everywhere.
 transports/iroh/target/
-# transports/webrtc/Cargo.lock is likewise committed (ADR-0089): the webrtc
+# transports/webrtc/Cargo.lock is likewise committed (ADR-0035): the webrtc
 # crate's large tree (DTLS, SCTP, ICE, STUN, SDP) must resolve identically.
 transports/webrtc/target/
 # transports/sidecar-common/Cargo.lock is committed too: the shared runtime

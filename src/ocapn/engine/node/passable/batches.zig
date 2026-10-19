@@ -38,7 +38,7 @@ pub const Batches = struct {
     action_reservations: usize = 0,
     next_id: u64 = 1,
     /// Promise-proxy recipients committed by sends inside an open provisional
-    /// window, oldest first, kept or withdrawn with that window (ADR-0194).
+    /// window, oldest first, kept or withdrawn with that window (ADR-0058).
     provisional_proxies: std.ArrayListUnmanaged(proxy_admission.Receipt) = .empty,
 };
 
@@ -76,7 +76,7 @@ pub const Batch = struct {
             self.payload.deinit(&owner.session_state);
         }
         // A retired batch spends its escrow: the recipient's projection
-        // breaks instead of hanging (ADR-0009).
+        // breaks instead of hanging (ADR-0039).
         if (self.failure_escrow != null) breakEscrowed(node, self);
         owner.session_state.collectLocalPromiseProjections();
         for (self.gifts) |gift| if (gift.handoff) |handoff| {
@@ -119,7 +119,7 @@ pub fn provisionalClosed(self: *Node, peer_handle: PeerHandle, outcome: node_ser
 }
 
 /// A retracted provisional window removed the row of a send `batch` is still
-/// staging (ADR-0194). Failing it cancels its gift tickets and leases and
+/// staging (ADR-0058). Failing it cancels its gift tickets and leases and
 /// breaks its answer. No gift has been deposited yet: the embedder does not
 /// pump while the turn that made the send runs.
 pub fn stagedWithdrawn(self: *Node, peer_handle: PeerHandle, batch: passable.BatchId) void {

@@ -17,7 +17,7 @@
 //! `onion`, the relay profiles, and the sidecar-backed `iroh` resident all
 //! live behind this contract, each as its own files under `transport/`.
 //!
-//! `driver.HostRuntime` does not dispatch on this vtable (ADR-0193). It
+//! `driver.HostRuntime` does not dispatch on this vtable (ADR-0018). It
 //! realizes every first-party stream symbol through the completion adapters
 //! composed in `stream_resident.zig` and selects them by `driver.Transports`,
 //! so no product path dials or listens through `Netlayer`. The vtable stays
@@ -88,7 +88,7 @@ pub const ListenConfig = support.ListenConfig;
 /// re-dial the same designator across a process restart. A dial records that
 /// target key. A partner that selects a key-designator acceptable route must
 /// claim the same key. An address route is independent of the current channel
-/// (ADR-0109). This is target matching, not authentication. Each connection's
+/// (ADR-0028). This is target matching, not authentication. Each connection's
 /// `session_pubkey` is a separate identity.
 pub const DesignatorScheme = support.DesignatorScheme;
 
@@ -347,7 +347,7 @@ pub const Listener = struct {
         restoration_state: ?*const fn (ctx: *anyopaque, out: []u8) ListenerRestorationOutcome = null,
         /// The listener's OS-pollable accept descriptor, borrowed, for a
         /// host face that mirrors accept readiness into an aggregate set
-        /// (ADR-0112). Left null by a transport whose accept has no single
+        /// (ADR-0024). Left null by a transport whose accept has no single
         /// descriptor. `waitAcceptable` then stays the only readiness verb.
         readiness_fd: ?*const fn (ctx: *anyopaque) i32 = null,
         close: *const fn (ctx: *anyopaque) ?ListenerCloseFailure,

@@ -1,7 +1,7 @@
 // The relay contract's backpressure proof, parameterized over the relay program.
 // A stalled reader on the browser-bound leg must stall the far sender, so the
 // relay never buffers unbounded. This is the one non-optional clause of the
-// ADR-0086 contract. It catches a runtime whose WebSocket `send` returns before
+// ADR-0033 contract. It catches a runtime whose WebSocket `send` returns before
 // its buffer drains, and one harness pins it for every runtime's relay.
 //
 // It needs no browser peer or wasm: the relay moves opaque bytes, so a raw bulk

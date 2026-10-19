@@ -4,7 +4,7 @@
 //! daemon the deployment already started. There is no embedded Tor, no spawned
 //! process, and nothing supervised, so the whole transport is two conversations
 //! with that daemon over local sockets
-//! ([ADR-0108](../../../../docs/decisions/adr/ADR-0108-onion-netlayer.md)).
+//! ([ADR-0042](../../../../docs/decisions/adr/ADR-0042-onion-interoperability.md)).
 //!
 //! Outbound is SOCKS5: `socks5.zig` builds and checks the bytes for connecting
 //! to `<serviceid>.onion` on port 9045, and what comes back is an ordinary byte
@@ -48,7 +48,7 @@ pub const completion = @import("completion.zig");
 /// control session a hosting listener holds open. See `session.zig`.
 pub const session = @import("session.zig");
 
-/// The netlayer resident: dial and accept over the ADR-0043 contract. See
+/// The netlayer resident: dial and accept over the ADR-0019 contract. See
 /// `resident.zig`.
 pub const resident = @import("resident.zig");
 pub const Resident = resident.Resident;

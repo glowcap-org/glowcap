@@ -41,7 +41,7 @@ pub fn shutdownStream(stream: *const Stream, io: std.Io) std.Io.net.ShutdownErro
     };
 }
 
-/// The per-connection outbound-queue capacity a drained queue retains (ADR-0042).
+/// The per-connection outbound-queue capacity a drained queue retains (ADR-0017).
 /// Capacity past this is burst from a slow-reader episode and frees on drain, so
 /// one episode never pins its high-water bytes for the connection's life.
 /// Capacity at or under it is steady reply traffic and stays, so the steady state
@@ -112,7 +112,7 @@ pub fn queueOutboundBytes(
 
 /// Reclaim a drained outbound list: burst capacity above `bound` frees (one
 /// slow-reader episode must not pin its high-water bytes for the connection's
-/// life, the ADR-0041/0042 posture), capacity at or under it stays so steady
+/// life, the ADR-0012/0042 posture), capacity at or under it stays so steady
 /// reply traffic never reallocates. The one spelling of the drain-point
 /// reclaim.
 pub fn reclaimBurst(list: *std.ArrayList(u8), allocator: std.mem.Allocator, bound: usize) void {
@@ -182,7 +182,7 @@ fn fillStep(r: *std.Io.Reader) FillError!Fill {
 ///
 /// The spill path costs one extra bounded copy per oversize frame (read buffer
 /// into spill). The fast path stays a zero-copy borrow. That copy is a named
-/// design event (ADR-0041).
+/// design event (ADR-0012).
 pub const Spill = foundation.Spill;
 
 /// What a drained spill keeps at this tier: nothing. A stream reader spills only
@@ -338,7 +338,7 @@ pub const DrainVerdict = enum {
 /// A frame already accumulating in the spill absorbs `chunk` and stays the decode
 /// prefix. Otherwise whole frames apply straight from the borrowed `chunk` and
 /// only a trailing partial frame copies into the spill (the one bounded copy a
-/// frame split across chunk boundaries pays, ADR-0054). The cap is read from the
+/// frame split across chunk boundaries pays, ADR-0019). The cap is read from the
 /// peer's own `max_frame_bytes`, the same authority the codec scans against, so
 /// neither loop can pass a divergent cap.
 pub fn drainWholeFrames(

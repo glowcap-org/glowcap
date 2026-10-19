@@ -3,7 +3,7 @@ use super::*;
 impl Server {
 	/// Bind through the shared [`crate::server::bind_loop_listener`] spine.
 	/// The iroh-shaped step is the provider install itself: the endpoint is
-	/// built from the Host's durable seed (ADR-0075), and the endpoint id it
+	/// built from the Host's durable seed (ADR-0028), and the endpoint id it
 	/// reports is both the designator the listener binds and the node id this
 	/// server names.
 	pub(super) async fn bind(config: Config, options: ListenOptions) -> Result<Server> {
@@ -92,7 +92,7 @@ impl Session {
 	///
 	/// `handshake_timeout` bounds the OCapN handshake only. The dial-by-id
 	/// budget above it (a `Discovery` posture retries while the exporter's
-	/// pkarr record propagates, ADR-0082) is already spent by the time the
+	/// pkarr record propagates, ADR-0030) is already spent by the time the
 	/// stream exists, so a slow discovery never eats the handshake's bound.
 	pub(crate) async fn connect_iroh_with_host(
 		node_id: &str,

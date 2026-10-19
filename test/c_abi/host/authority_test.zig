@@ -320,7 +320,7 @@ test "libglowcap_host: keyed-tcp accept signs the published locator, or its own 
 }
 
 test "libglowcap_host: a 64-byte seed gives every session its own signing key" {
-    // ADR-0097 at the byte-fed tier. The core draws no entropy, so the
+    // ADR-0028 at the byte-fed tier. The core draws no entropy, so the
     // embedder supplies a session-key root after the durable identity in the
     // one seed buffer, and each session then signs with its own key. A
     // durable-only 32-byte seed is refused, CapTP session keys must not
@@ -370,7 +370,7 @@ test "libglowcap_host: a 64-byte seed gives every session its own signing key" {
 }
 
 test "libglowcap_host: one PartnerIdentity reports session key, durable name, and provenance apart" {
-    // ADR-0097 evidence item 11 at the C tier: the three facts are one struct
+    // ADR-0028 evidence item 11 at the C tier: the three facts are one struct
     // and are not conflated. keyed-tcp supplies no channel proof, so its
     // key-shaped designator remains unauthenticated.
     const crypto = glowcap.foundation.crypto;

@@ -114,7 +114,7 @@ Two details keep the suite's verdict valid:
 `zig build ocapn-conformance-next` runs baseline conformance first, then fixture
 regressions and the next lane. It uses the production Host configured for next
 and Syrup. Signed locator hints offer next using the shared four-field hello.
-The next hint names the fingerprint of the build's own wire (ADR-0252), and
+The next hint names the fingerprint of the build's own wire (ADR-0001), and
 `next_wire.py` reads it from `src/ocapn/model/own_wire.zig`.
 The fixture checks the signature and chosen profile before operations.
 

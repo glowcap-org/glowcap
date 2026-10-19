@@ -1,4 +1,4 @@
-// Coalescing several archive accounts into one reader's view (ADR-0144).
+// Coalescing several archive accounts into one reader's view (ADR-0044).
 //
 // A member can hold more than one archive at once: this browser's store beside
 // a selected archive peer, or the durable session's local backend beside its

@@ -16,7 +16,7 @@
 //! synthesized completion with the syscall's result. `close` needs no readiness,
 //! so it runs immediately and its completion is queued for the next `poll`.
 //!
-//! The shared read-buffer pool (ADR-0054) is a `BufferPool` owned here: a
+//! The shared read-buffer pool (ADR-0019) is a `BufferPool` owned here: a
 //! readiness backend reads at poll time, so `poll` acquires a scratch buffer,
 //! performs the `recv` into it and lends it to the loop on the completion.
 //! `recycleBorrowed` reclaims it. Buffers are allocated lazily up to the pool size,
@@ -71,7 +71,7 @@ pub const Backend = struct {
     pending: std.AutoHashMap(c.fd_t, Pending),
     /// Completions that need no readiness (closes), drained before blocking.
     ready: completion.ReadyQueue,
-    /// The shared recv scratch pool (ADR-0054).
+    /// The shared recv scratch pool (ADR-0019).
     buffer_pool: BufferPool,
     /// The local IPv4 address used by the one listener. The port remains loop
     /// policy and arrives later through `openListener`.
@@ -134,7 +134,7 @@ pub const Backend = struct {
     /// Reclaim a recv completion's scratch buffer. This base backend creates
     /// only receive borrows. Wrappers consume their own richer borrows.
     /// Sockets carry no lower-layer peer identity: the total Backend
-    /// contract's `verifiedChannelKey` member (ADR-0097) always answers null.
+    /// contract's `verifiedChannelKey` member (ADR-0028) always answers null.
     pub fn verifiedChannelKey(self: *Backend, fd: Fd) ?[32]u8 {
         _ = self;
         _ = fd;

@@ -4,7 +4,7 @@
 //! `layer_table`, so blocking I/O, sockets, and threads are an `arch-check`
 //! failure here, as they are in `engine`. It gives the serve core the
 //! same I/O ban `engine.Node` already has, so the boundary the driver stands on
-//! is enforced by the build, not by convention (ADR-0072). The I/O binding
+//! is enforced by the build, not by convention (ADR-0022). The I/O binding
 //! lives above it in `driver`: `driver.HostRuntime`, the transport-resident
 //! embedder over this layer's `Host`, with its `Session` and `Server` views.
 
@@ -61,7 +61,7 @@ pub const Publish = served.Publish;
 pub const PendingSend = pending_send.PendingSend;
 pub const default_loop_local_turn_budget = served.default_loop_local_turn_budget;
 
-// The byte-fed multi-session CapTP host core (ADR-0072): the node's decisions
+// The byte-fed multi-session CapTP host core (ADR-0022): the node's decisions
 // executed with no socket (see `host.zig`). `driver.HostRuntime` and
 // the C ABI's `libglowcap_host` are its embedders.
 pub const Host = host.Host;
@@ -85,7 +85,7 @@ pub const CloseOutcome = close.CloseOutcome;
 pub const EnlivenPeerPolicy = host.EnlivenPeerPolicy;
 pub const PeerProvenance = host.PeerProvenance;
 pub const EnlivenStart = host.EnlivenStart;
-/// The opaque Host-scoped capability identity (ADR-0096): what an owning-tier
+/// The opaque Host-scoped capability identity (ADR-0026): what an owning-tier
 /// application holds instead of an actor id or a wire position. The same
 /// identity the C ABI and every binding carry as their `Ref`.
 pub const Capability = capability.Ref;

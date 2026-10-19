@@ -1,4 +1,4 @@
-//! ADR-0080: Slot-to-`model.Reference` projection is lossless against the real
+//! ADR-0006: Slot-to-`model.Reference` projection is lossless against the real
 //! syrup codec and the oracle corpus. No second Syrup encoder lives in `slot.zig`.
 
 const std = @import("std");
@@ -80,7 +80,7 @@ test "impossible product cells are not constructible — sum only exposes legal 
 }
 
 test "Slot never stores a wire descriptor or kind tag — projection only" {
-    // ADR-0080 acceptance: descriptor is computed, never a field on the cell.
+    // ADR-0006 acceptance: descriptor is computed, never a field on the cell.
     comptime {
         const fields = @typeInfo(slot.Slot).@"union".field_names;
         for (fields) |field_name| {

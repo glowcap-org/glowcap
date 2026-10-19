@@ -77,8 +77,8 @@ pub fn checkAbiFreeingVerb(
     }
 }
 
-/// The minimality bar from ADR-0059: a clean C ABI is not only correctly
-/// represented (ADR-0059) but minimally shaped — one spelling per concept, no
+/// The minimality bar from ADR-0022: a clean C ABI is not only correctly
+/// represented (ADR-0022) but minimally shaped — one spelling per concept, no
 /// accidental variation. This holds the two structural invariants a careless
 /// addition would break (the close/release verb is held separately by
 /// `checkAbiFreeingVerb`):
@@ -132,12 +132,12 @@ pub fn checkCAbiSurfaceShape(
         if (std.mem.endsWith(u8, name, "_in")) {
             const base = name[0 .. name.len - "_in".len];
             if (!name_set.contains(base)) {
-                try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no base constructor {s}; an `_in` twin must pair a library-allocator base", .{ name, base });
+                try appendViolation(gpa, violations, "C ABI surface (ADR-0022): {s} has no base constructor {s}; an `_in` twin must pair a library-allocator base", .{ name, base });
             }
         } else if (std.mem.endsWith(u8, name, "_new_with_allocator")) {
             const base = name[0 .. name.len - "_with_allocator".len];
             if (!name_set.contains(base)) {
-                try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no base constructor {s}", .{ name, base });
+                try appendViolation(gpa, violations, "C ABI surface (ADR-0022): {s} has no base constructor {s}", .{ name, base });
             }
         } else if (std.mem.indexOf(u8, name, "_new") != null) {
             const twin_in = try std.fmt.allocPrint(gpa, "{s}_in", .{name});
@@ -145,7 +145,7 @@ pub fn checkCAbiSurfaceShape(
             const twin_alloc = try std.fmt.allocPrint(gpa, "{s}_with_allocator", .{name});
             defer gpa.free(twin_alloc);
             if (!name_set.contains(twin_in) and !name_set.contains(twin_alloc)) {
-                try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no allocator-aware twin ({s}_in or {s}_with_allocator); allocation policy is one axis spelled one way", .{ name, name, name });
+                try appendViolation(gpa, violations, "C ABI surface (ADR-0022): {s} has no allocator-aware twin ({s}_in or {s}_with_allocator); allocation policy is one axis spelled one way", .{ name, name, name });
             }
         }
     }
@@ -168,7 +168,7 @@ pub fn checkCAbiSurfaceShape(
             if (std.mem.eql(u8, f, family)) family_ok = true;
         }
         if (!family_ok) {
-            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, host, driver, tcp, relay, inproc, iroh, webrtc, onion, loam, loam_lmdb, loam_sqlite, loam_volatile", .{ name, family });
+            try appendViolation(gpa, violations, "C ABI surface (ADR-0022): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, host, driver, tcp, relay, inproc, iroh, webrtc, onion, loam, loam_lmdb, loam_sqlite, loam_volatile", .{ name, family });
             continue;
         }
         const clear = if (family.len == 0)
@@ -177,7 +177,7 @@ pub fn checkCAbiSurfaceShape(
             try std.fmt.allocPrint(gpa, "glowcap_{s}_clear_last_error", .{family});
         defer gpa.free(clear);
         if (!name_set.contains(clear)) {
-            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no matching {s}; an error channel is a last_error/clear_last_error pair", .{ name, clear });
+            try appendViolation(gpa, violations, "C ABI surface (ADR-0022): {s} has no matching {s}; an error channel is a last_error/clear_last_error pair", .{ name, clear });
         }
     }
 }
@@ -334,7 +334,7 @@ pub fn checkAbiExportsConsumed(
     for (exports.items) |exported| {
         if (consumed.contains(exported.name)) continue;
         // An allocator twin of an exported base constructor is structurally
-        // required by ADR-0059 (checkCAbiSurfaceShape holds the pairing), so
+        // required by ADR-0022 (checkCAbiSurfaceShape holds the pairing), so
         // its existence does not need a consumer of its own; everything else
         // must earn its slot.
         if (std.mem.endsWith(u8, exported.name, "_in")) {

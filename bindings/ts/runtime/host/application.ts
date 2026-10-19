@@ -1,5 +1,5 @@
 // The CapTP host: multi-session CapTP product over the byte-fed host archive
-// (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host, ADR-0022). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns, and never
 // a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
@@ -84,7 +84,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		return this._connectors.get(transport) ?? null;
 	}
 
-	/** Enliven a canonical persistent sturdyref without naming a session (ADR-0098): the
+	/** Enliven a canonical persistent sturdyref without naming a session (ADR-0007): the
 	 * host enlivens it over a live session it already dialed to that peer, or
 	 * dials one itself through this host's own DIAL action and finishes when
 	 * the dial reports. The session-scoped `Session.enliven` is the narrower
@@ -209,7 +209,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 
 	/** The canonical key designator (64 lowercase hex digits) for this host's
 	 * identity seed (what a keyed-tcp locator names as its designator,
-	 * (ADR-0075)). */
+	 * (ADR-0028)). */
 	designator(): string {
 		const out = new Uint8Array(64);
 		checkHost(hostS.glowcap_host_designator_from_seed(
@@ -223,7 +223,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 
 	/** Host `behavior` once and bind `name` as a Host-wide alias. Fetch lazily
 	 * projects the actor onto a session; a deposited gift keeps that exact actor
-	 * when a recipient withdraws over its own exporter session (ADR-0009).
+	 * when a recipient withdraws over its own exporter session (ADR-0039).
 	 * Returns nothing; the gift's `Ref` is what the gifter passes on. */
 	publish(name: string, behavior: Behavior): void {
 		// A Host publication is bound to no single session: its forwards always go
@@ -254,7 +254,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 
 	/** Publish `behavior` under a freshly minted durable swiss name and return
 	 * that name (the swiss to place in a sturdyref beside this host's own
-	 * locator, ADR-0098). Unpredictable, never reassigned, structurally
+	 * locator, ADR-0007). Unpredictable, never reassigned, structurally
 	 * disjoint from every mutable alias, removable only through
 	 * {@link unpublishDurable}. When supplied, `entropy` lets an embedder retain
 	 * and reproduce the same durable name; otherwise this method draws it. */
@@ -340,7 +340,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		return utf8Decoder.decode(out);
 	}
 
-	/** Remove a minted durable publication (ADR-0098): the old sturdyref
+	/** Remove a minted durable publication (ADR-0007): the old sturdyref
 	 * misses from now on, while issued `Ref`s and deposited gifts keep the
 	 * exact actor. Returns false when no such durable name exists. */
 	unpublishDurable(swiss: string): boolean {
@@ -426,7 +426,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 	}
 
 	/** The live `Session` homing remote `ref`, or null for a local, stale,
-	 * foreign-Host, or closed-session capability. Deterministic (ADR-0088): the reply's
+	 * foreign-Host, or closed-session capability. Deterministic (ADR-0034): the reply's
 	 * own token carries its route, so `Session.sendRedeeming` resolves the exact
 	 * exporter session it should host its back-channel on (no capture window,
 	 * no dependence on which dial completed first), and it finds an exporter that
@@ -446,7 +446,7 @@ export abstract class HostApplication extends HostLifecycle implements FfiBehavi
 		if (ptr === NULL) return null;
 		const found = this._sessions.get(ptr) ?? null;
 		if (found == null && this._driverLoop != null) {
-			// A loop-owned Host redeems inside its own steps (ADR-0112), so the
+			// A loop-owned Host redeems inside its own steps (ADR-0024), so the
 			// exporter session it dialed exists with no wrapper yet. Wrap it
 			// lazily. Adoption registers it, so a repeat lookup returns this
 			// same object and the loop stays its release authority.

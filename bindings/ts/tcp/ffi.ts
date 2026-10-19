@@ -4,7 +4,7 @@
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
 // Internal: the FFI mirror of `libglowcap_net_transport_tcp` — the blocking-TCP
-// transport archive (ADR-0059).
+// transport archive (ADR-0022).
 //
 // Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
 // loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in

@@ -52,7 +52,7 @@ export type MessagePayloadFields = Pick<
  * to get wrong and neither is visible in a screenshot. The codec is
  * the frame's own when the recording stated one and the carrying
  * session's otherwise, so a handshake frame on a Cap'n Proto session
- * is spaced as the Syrup it is (ADR-0103). The bytes stay `undefined`
+ * is spaced as the Syrup it is (ADR-0001). The bytes stay `undefined`
  * rather than being suppressed, because the viewer owes an absent
  * payload a sentence. */
 export function payloadProps(

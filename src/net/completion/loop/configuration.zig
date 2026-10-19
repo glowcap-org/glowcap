@@ -56,7 +56,7 @@ pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void
 /// `slot` is the connection's loop index: refused dials tear down before
 /// `make_conn_ctx` runs (`conn_ctx` is null), so an embedder correlating an
 /// in-flight dial to a ticket needs the slot, `conn_ctx` alone cannot name
-/// it (ADR-0076 loop-side dial executor). `report.reason` names which of the
+/// it (ADR-0018 loop-side dial executor). `report.reason` names which of the
 /// loop's reclaims fired, or `.ordinary` for everything else.
 pub const OnClose = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, report: CloseReport) void;
 
@@ -73,13 +73,13 @@ pub const OnDriverExit = *const fn (ctx: ?*anyopaque) void;
 /// the adapter's work.
 pub const OnLoopTurn = *const fn (ctx: ?*anyopaque) anyerror!bool;
 
-/// Why a read seat parked (ADR-0082). The two are operationally different and
+/// Why a read seat parked (ADR-0030). The two are operationally different and
 /// an embedder watching lag needs to tell them apart: `.sink` is this
 /// connection's own partner failing to drain, `.fan_in` is this connection
 /// being throttled for somebody else's.
 pub const ParkReason = enum { sink, fan_in };
 
-/// Optional park notification (ADR-0082): fired when a connection's read seat
+/// Optional park notification (ADR-0030): fired when a connection's read seat
 /// first enters `.parked`. `slot` and `conn_ctx` match `OnClose` so an embedder
 /// can correlate lag to an open connection without scraping private Loop state,
 /// and `reason` says which of the two parks it is, the branch that decides is
@@ -112,7 +112,7 @@ pub const default_outbound_high_water_bytes: usize = 64 * 1024;
 pub const BackendOptions = struct {
     /// Backend completion-queue depth hint.
     queue_entries: u16 = 256,
-    /// Number of buffers in the backend's shared read pool (ADR-0054).
+    /// Number of buffers in the backend's shared read pool (ADR-0019).
     read_buffers: u16 = 256,
     /// Exact size of each shared read-pool buffer. This is not a frame limit.
     /// Larger admissible frames accumulate in the bounded connection spill.
@@ -138,7 +138,7 @@ pub const Options = struct {
     /// never binds, listens, or arms an accept, so a pure dialer loop exposes
     /// no socket a stranger could connect to.
     listen: ?u16 = null,
-    /// Outbound backpressure high-water mark (ADR-0042): when a connection's
+    /// Outbound backpressure high-water mark (ADR-0017): when a connection's
     /// pending outbound bytes cross this, the loop stops arming reads on it.
     /// This is independent resource policy, not a local or remote frame limit.
     /// Reading resumes when the partner drains below the mark.
@@ -160,13 +160,13 @@ pub const Options = struct {
     /// ends a connection, a partner's clean FIN, a read error from an RST, or a
     /// keepalive probe giving up on a dead remote host, the loop reclaims that
     /// one slot and fires `on_close` with its report, leaving the rest of the
-    /// loop running (ADR-0081).
+    /// loop running (ADR-0030).
     on_close: ?OnClose = null,
     /// Optional quiescent ownership-transfer hook (see `OnDriverExit`).
     on_driver_exit: ?OnDriverExit = null,
     /// Optional deferred adapter turn (see `OnLoopTurn`).
     on_loop_turn: ?OnLoopTurn = null,
-    /// Optional park notification (ADR-0082): fired when a connection's read
+    /// Optional park notification (ADR-0030): fired when a connection's read
     /// seat enters `.parked` (outbound high-water or fan-in throttle). Embedders
     /// scrape lag without an in-core HTTP monitor.
     on_park: ?OnPark = null,
@@ -179,7 +179,7 @@ pub const Options = struct {
     /// dead-remote-host reclaim, not reaping a live orphaned process.
     ///
     /// This is also the loop's only automatic detector of a *silently* vanished
-    /// peer (ADR-0081): a remote that disappears with no FIN and no RST, a
+    /// peer (ADR-0030): a remote that disappears with no FIN and no RST, a
     /// crash, a cable pull, a partition, sends nothing, so its armed recv never
     /// completes and its slot is held until a completion surfaces. Keepalive is
     /// what makes one surface: its probes eventually fail, the recv completes
@@ -189,13 +189,13 @@ pub const Options = struct {
     /// liveness policy lives above glowcap, which is why this stays opt-in
     /// rather than a silent default. See `tcp_keepalive.Keepalive`.
     keepalive: ?tcp_keepalive.Keepalive = null,
-    /// Fan-in source throttle (ADR-0082): when any live connection is parked
-    /// under ADR-0042 outbound high-water, also refuse to arm reads on every
+    /// Fan-in source throttle (ADR-0030): when any live connection is parked
+    /// under ADR-0017 outbound high-water, also refuse to arm reads on every
     /// *other* connection until no connection remains parked. Off by default
     /// so existing scale harnesses keep per-connection-only backpressure.
     /// Enable to prove many-A-to-one-B sources slow when the sink parks.
     fan_in_throttle: bool = false,
-    /// Park-duration kill (ADR-0082 / NATS write_deadline analogue): if a
+    /// Park-duration kill (ADR-0030 / NATS write_deadline analogue): if a
     /// connection stays `.parked` longer than this many milliseconds, the loop
     /// closes it. `null` (default) never kills on park age alone.
     ///

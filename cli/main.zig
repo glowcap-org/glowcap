@@ -1,7 +1,7 @@
 //! Installable CapTP CLI for humans and agents.
 //!
 //! Sources live under repo-root `cli/` and consume the public `glowcap` module
-//! (ADR-0084). Progressive `ocapn` commands, REPL, curated MCP, and `apps rooms session`
+//! (ADR-0032). Progressive `ocapn` commands, REPL, curated MCP, and `apps rooms session`
 //! share one command tree for parse, scoped help, and shell completion.
 const std = @import("std");
 const vaxis = @import("vaxis");

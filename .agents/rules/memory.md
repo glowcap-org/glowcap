@@ -35,7 +35,7 @@ a micro-saving earns an asymmetry.
   instructions, and a `?Read` reset cost the loam hot read six percent. Hold a
   wide member inline and unconditional, with a phase flag beside it.
 - A block's size class is a cost: `engine.events.small_block_bytes` names
-  the C allocator's cheap class, and ADR-0238 holds what a block past it
+  the C allocator's cheap class, and ADR-0063 holds what a block past it
   measured, so re-derive from that before pooling anything.
 
 ## Frames and verbs
@@ -50,7 +50,7 @@ a micro-saving earns an asymmetry.
   `Peer.sendBorrowed` lends one: a deliver leaves as its frame before it
   returns, and the kinds the queue keeps are the one named boundary copy.
   `Peer.sendFreight` lends a deliver's values as views, certified and
-  encoded in place (ADR-0246).
+  encoded in place (ADR-0064).
 - `Peer.feedOwned` consumes its frame on every outcome. `Peer.recvBorrowed`
   dispatches during the call and retains no borrow.
 - `Peer.emitAbortForError` commits an `op:abort` through
@@ -76,7 +76,7 @@ a micro-saving earns an asymmetry.
 
 ## Footprint
 
-The build gates the 500k-connection destination (ADR-0045), so a field added
+The build gates the 500k-connection destination (ADR-0009), so a field added
 to session state is a withdrawal from it. The `*_budget_bytes` comptime
 size pins and the footprint tests hold `Peer`, the warmed session, `Conn`,
 `HostSession`, every completion-adapter row, and the Vat. When one trips,

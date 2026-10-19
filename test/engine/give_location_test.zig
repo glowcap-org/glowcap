@@ -1,6 +1,6 @@
-//! The give's exporter-location form (ADR-0118): a `desc:handoff-give`
+//! The give's exporter-location form (ADR-0042): a `desc:handoff-give`
 //! embeds the exporter's hello location in the form its recipient can use.
-//! `handoff_gifter.exporterLocationForRecipient` keeps ADR-0118's byte-exact
+//! `handoff_gifter.exporterLocationForRecipient` keeps ADR-0042's byte-exact
 //! profile behavior while stripping glowcap-private route vocabulary before a
 //! give reaches an unknown recipient, so a Goblins recipient sees one concrete
 //! baseline route rather than private vocabulary it never negotiated.

@@ -1,5 +1,5 @@
 //! Live iroh scale: many concurrent connections served from one thread by a
-//! `driver.Server` over a managed iroh resident (ADR-0057, ADR-0193).
+//! `driver.Server` over a managed iroh resident (ADR-0019, ADR-0018).
 //!
 //! One server endpoint feeds the iroh resident, and the Server's runtime
 //! serves every accepted session on its one thread: readiness descriptor,

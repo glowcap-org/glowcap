@@ -1,4 +1,4 @@
-//! The Host's values project as borrowed views (ADR-0246): every data arm
+//! The Host's values project as borrowed views (ADR-0064): every data arm
 //! reads where the value lies, a container is a lazy sequence, and a
 //! capability has no projection, which the scan the Host runs before
 //! lending a tree makes unreachable.

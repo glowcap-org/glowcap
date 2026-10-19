@@ -3,7 +3,7 @@
 ;;
 ;; The rooms fleet is written in glowcap and advertises its private CapTP
 ;; profile, `glowcap-next` over Cap'n Proto. A Goblins vat speaks the OCapN v1.0
-;; baseline over Syrup and sends no glowcap-private preference. Under ADR-0103,
+;; baseline over Syrup and sends no glowcap-private preference. Under ADR-0001,
 ;; an absent preference means baseline-only, so the pair settles on the baseline
 ;; while glowcap members on the same server keep the glowcap profile among
 ;; themselves. The vat still joins the room as an ordinary member.

@@ -1,5 +1,5 @@
 //! The vat's state-box machinery: one heap block per actor, refcounted for
-//! local time-travel (ADR-0060).
+//! local time-travel (ADR-0015).
 //!
 //! A `StateBox` heads the single `Boxed` allocation that also carries the
 //! behavior's state. A `Cell` is the vat's one owning reference plus the
@@ -44,7 +44,7 @@ pub const StateBox = struct {
     /// Live references: the vat's own cell plus one per snapshot that shares it.
     refs: usize,
     /// The behavior type behind `ptr`, as the hash of its name. Archives
-    /// share types by layout, not symbols (ADR-0055), so two archives in one
+    /// share types by layout, not symbols (ADR-0021), so two archives in one
     /// process each carry their own glue for one behavior, and a glue address
     /// names the archive that spawned the box, not its type. The name is the
     /// same in every archive one build emits.
@@ -87,7 +87,7 @@ fn Boxed(comptime Behavior: type) type {
     };
 }
 
-/// The heap block behind a *hosted* actor (ADR-0071): the refcounted `StateBox`
+/// The heap block behind a *hosted* actor (ADR-0022): the refcounted `StateBox`
 /// header beside the `HostedActor` the vat calls through. `box.ptr` points at
 /// the block, so the box-level `handle` recovers the callback and `ctx` from it.
 /// The box carries no `clone`, so such an actor is not snapshottable, the vat
@@ -123,7 +123,7 @@ pub const Cell = struct {
     /// nests. A staged `become` installs only when it returns to zero, so the
     /// box an outer frame still holds as `self` is never freed under it.
     running: u32 = 0,
-    /// Explicit roots (ADR-0101): the spawn's own root plus one per rooting
+    /// Explicit roots (ADR-0014): the spawn's own root plus one per rooting
     /// relationship (host-wide alias row, Host capability slot, Port export
     /// binding, exact gift row). The count reaching zero retires the row,
     /// deferred past any running frame, while queued turns hold
@@ -387,7 +387,7 @@ pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
     }
     var sit = snap.boxes.iterator();
     while (sit.next()) |entry| {
-        // Intersect with the live table (ADR-0101): roots are authority and
+        // Intersect with the live table (ADR-0014): roots are authority and
         // are never rewound, so a row reclaimed since the snapshot is not
         // resurrected, no surviving authority could reach it, and a rootless
         // row would be exactly the leak reclamation removes, while a

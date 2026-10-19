@@ -1,4 +1,4 @@
-//! The shared WebRTC interop signaling core (ADR-0089): the one signaling-inbox
+//! The shared WebRTC interop signaling core (ADR-0035): the one signaling-inbox
 //! actor and the one channel-bring-up client that `webrtc-signaling-captp` and
 //! the WebRTC CapTP signaling drivers share. It lives here so those drivers
 //! are thin callers of one spine rather than two byte-identical copies of it.

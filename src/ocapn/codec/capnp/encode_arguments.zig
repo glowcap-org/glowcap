@@ -79,7 +79,7 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: anyty
             b.set(loc.data_idx, @backingInt(ArgKind.boolean) | (if (boolean) shared.data0_flag else 0));
         },
         .big_integer => |big| {
-            // Symmetric refusal (ADR-0003): a non-canonical big integer,
+            // Symmetric refusal (ADR-0001): a non-canonical big integer,
             // leading zeros, non-digits, or a magnitude that belongs to the
             // `integer` arm, never reaches the wire.
             if (!big.isCanonical()) return Error.UnsupportedArgument;
@@ -140,7 +140,7 @@ fn collect(allocator: std.mem.Allocator, sequence: anytype, room: []@TypeOf(sequ
 /// (pointer 1). Entries are emitted in canonical key order so the wire form does
 /// not depend on the order the model held them in.
 ///
-/// Symmetric refusal (ADR-0003): the decoder rejects a struct whose keys are not
+/// Symmetric refusal (ADR-0001): the decoder rejects a struct whose keys are not
 /// strictly ascending as `MalformedFrame`, which a duplicate key violates, so an
 /// encoder that emitted one would ship a frame glowcap and a Goblins peer both
 /// reject remotely. A duplicate key is refused here with `UnsupportedArgument`,
@@ -169,7 +169,7 @@ fn encodeStructEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: 
     return list.content();
 }
 
-/// Whether a list takes the word-run form (ADR-0243): at least one element,
+/// Whether a list takes the word-run form (ADR-0010): at least one element,
 /// every one an integer. The decoder reads such a run in place, and the
 /// empty list keeps its composite form so each value has one encoding. A
 /// decoded run is one by construction.
@@ -290,7 +290,7 @@ fn encodeArgumentSetList(b: *wire.Builder, allocator: std.mem.Allocator, items: 
     }
     if (built != count) return error.MalformedView;
 
-    // Symmetric refusal (ADR-0003): a set's elements are unique, so a duplicate
+    // Symmetric refusal (ADR-0001): a set's elements are unique, so a duplicate
     // element (equal canonical key, adjacent after the sort) is refused here
     // rather than emitted, matching the Syrup codec and the duplicate-key struct.
     try codec_order.orderByKey(EncodedSetElement, EncodeError, encoded, EncodedSetElement.key, true);

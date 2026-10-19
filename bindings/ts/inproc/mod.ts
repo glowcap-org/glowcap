@@ -1,6 +1,6 @@
 // Idiomatic JavaScript/TypeScript API for `libglowcap_net_transport_inproc`.
 // It is glowcap's in-process transport, a composable companion to the core `./mod.ts`
-// module (ADR-0059).
+// module (ADR-0022).
 //
 // This is the socket-free sibling of `./tcp.ts`: two peers in one process wired
 // by in-process pipes and no kernel transport. The C listener adds a wake

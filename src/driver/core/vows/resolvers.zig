@@ -59,7 +59,7 @@ pub fn deferTurn(self: *Host, maybe_session: ?*HostSession, turn: *actors.Turn) 
     return resolver_id;
 }
 
-/// Settle a resolver vow fulfilled (ADR-0102). Top-level: the settle runs the
+/// Settle a resolver vow fulfilled (ADR-0014). Top-level: the settle runs the
 /// deferred answer's listeners and pumps every session it dirtied, so it
 /// refuses from inside a callback. A successful settle consumes the resolver.
 /// Preparation failure leaves it live for retry. `value` must contain no

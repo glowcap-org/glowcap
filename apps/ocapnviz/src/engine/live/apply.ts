@@ -91,7 +91,7 @@ export function applyEvent(
 				...(known.partnerOwnProfile !== undefined &&
 					{ partnerOwnProfile: known.partnerOwnProfile }),
 				// `glowcap-next` is glowcap's own CapTP profile and travels only
-				// between glowcap peers (ADR-0003), so a session on it says what
+				// between glowcap peers (ADR-0001), so a session on it says what
 				// both of its ends run. `v1_0` is the OCapN interop floor and says
 				// nothing, glowcap speaks it too.
 				...(captpVersion === "next" && { glowcapPrivateProfile: true }),

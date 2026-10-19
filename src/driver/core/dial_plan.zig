@@ -76,12 +76,12 @@ pub const DialPlan = union(enum) {
     /// candidates) before the keyed handshake runs over the open DataChannel.
     /// The plan exists so `planDial` recognizes the transport symbol and
     /// validates the key designator. The signaling reference arrives through
-    /// the handoff mechanism (ADR-0089).
+    /// the handoff mechanism (ADR-0035).
     signaling,
     /// A rendezvous-bridged transport (keyed-relay). No dialable address: the
     /// peer holds an inbound socket at a relay under its key designator, and
     /// the dialer opens the relay's rendezvous leg it is configured for
-    /// (ADR-0088). Like `signaling`, the plan validates the key designator and
+    /// (ADR-0034). Like `signaling`, the plan validates the key designator and
     /// names the shape. The relay mapping is the dialing host's deployment
     /// configuration, never locator bytes.
     rendezvous,
@@ -105,7 +105,7 @@ pub const Posture = union(enum) {
 /// channel must be sealed, and which durable key the partner has to prove
 /// because the designator names it.
 pub const DialAdmission = struct {
-    /// The transport seals its channel end to end (ADR-0107), so the Host
+    /// The transport seals its channel end to end (ADR-0041), so the Host
     /// seals the admitted wire before CapTP speaks on it.
     sealed_channel: bool,
     /// The partner's durable key on a key-designator transport, demanded of the

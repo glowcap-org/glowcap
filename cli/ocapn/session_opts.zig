@@ -10,7 +10,7 @@ const Ctx = @import("../ctx.zig").Ctx;
 
 const driver = glowcap.driver;
 
-/// Product CapTP deadlines (ADR-0081). `.unbounded` parks a silent peer. A
+/// Product CapTP deadlines (ADR-0030). `.unbounded` parks a silent peer. A
 /// `.ms` of zero or less has already expired and times out immediately.
 pub const default_handshake_timeout_ms = driver.default_handshake_timeout_ms;
 pub const default_settle_timeout_ms: i32 = 30_000;

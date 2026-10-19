@@ -49,7 +49,7 @@ pub fn register(
     ocapnviz_fmt.has_side_effects = true;
     b.step("ocapnviz-fmt", "Format the ocapnviz sources in place (needs deno)").dependOn(&ocapnviz_fmt.step);
 
-    // The developer launch (ADR-0150): Vite under the app's own supervisor,
+    // The developer launch (ADR-0032): Vite under the app's own supervisor,
     // which owns the child's cleanup so an interrupted run cannot leave a
     // server holding the port. Live mode loads the wasm Host, so that is built
     // first; nothing else here is a build product.

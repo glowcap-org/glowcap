@@ -235,7 +235,7 @@ const ReleaseState = struct {
     processed: bool = false,
 };
 
-/// Closure scratch keyed by peer-chosen import positions (ADR-0223). A
+/// Closure scratch keyed by peer-chosen import positions (ADR-0037). A
 /// closure of a few positions stays inline.
 const ReleaseStates = foundation.inline_rows.Table(model.ImportPosition, ReleaseState, 8, .wire);
 

@@ -19,7 +19,7 @@
 //! each back to the codec-neutral model (the production profile-aware decode path,
 //! complete for every argument kind), and assert the two decoded models are
 //! structurally equal. Both codecs apply the same wire-perspective flip on decode
-//! (ADR-0010), so a faithful codec lands on the same model, a single
+//! (ADR-0006), so a faithful codec lands on the same model, a single
 //! `messagesEqual` per message witnesses that Syrup and Cap'n Proto are
 //! interchangeable for it.
 //!
@@ -236,7 +236,7 @@ test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
 /// Encode a well-formed two-key struct through `codec_id`, patch the second
 /// key's bytes to repeat the first, the duplicate-key frame an untrusted peer
 /// would send, and assert the codec refuses it on the live decode path
-/// (`decodeBody` + `toOwned`), per ADR-0046's key rule. Syrup refuses while
+/// (`decodeBody` + `toOwned`), per ADR-0005's key rule. Syrup refuses while
 /// slicing the dict during body projection. Cap'n Proto refuses when the lazy
 /// struct backing is built. Either way the refusal is typed and lands before
 /// an owned message exists.

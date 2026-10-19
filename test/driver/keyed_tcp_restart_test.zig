@@ -1,5 +1,5 @@
 //! Restart-stable TCP listening identity: the `keyed-tcp` loopback test
-//! (ADR-0075).
+//! (ADR-0028).
 //!
 //! Three scenes over real 127.0.0.1 sockets. First, the happy path: a server
 //! keyed from a fixed seed accepts under its key designator, and a client

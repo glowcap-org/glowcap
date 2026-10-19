@@ -1,6 +1,6 @@
 //! The [`RemotePromise`] a [`Session`](crate::Session) send returns: lazy
 //! observation, promise pipelining target, and `index`/`untag`/`get`
-//! projection (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
+//! projection (ADR-0003 / ADR-0004). Also the shared fetch/enliven
 //! mint→await→classify path (`await_minted` / `fetch_like`) and the far-send
 //! mint→`RemotePromise` factory (`send_promise`). Session owns CapTP verb
 //! wrappers. This module owns the handle type, post-mint wait/classify,
@@ -305,7 +305,7 @@ pub(crate) enum PromiseState {
 }
 
 /// The handle [`crate::Session::send`] returns: the eventual result of one
-/// eventual-send, and (the point of promise pipelining, ADR-0007) a target
+/// eventual-send, and (the point of promise pipelining, ADR-0003) a target
 /// you can `send` to before it resolves.
 ///
 /// It is `IntoFuture<Output = Result<Argument>>`, so `session.send(...).await` yields
@@ -331,7 +331,7 @@ pub(crate) enum PromiseState {
 ///
 /// The projection verbs [`index`](RemotePromise::index) /
 /// [`untag`](RemotePromise::untag) / [`get`](RemotePromise::get)
-/// (ADR-0050/ADR-0052) pipeline an element, untag, or Struct-field access *at
+/// (ADR-0004/ADR-0004) pipeline an element, untag, or Struct-field access *at
 /// the answer*, before it resolves: each returns a new `RemotePromise` for the
 /// projected value, so `task.untag("cell").index(0)` or `task.get("name")`
 /// costs no extra round trip.
@@ -437,20 +437,20 @@ impl RemotePromise {
 		}
 	}
 
-	/// Pipeline an `op:index` for `i` at this answer (ADR-0050): a new
+	/// Pipeline an `op:index` for `i` at this answer (ADR-0004): a new
 	/// [`RemotePromise`] for the List element of whatever this resolves to.
 	pub fn index(&self, i: i64) -> RemotePromise {
 		self.project(ProjectOp::Index(i))
 	}
 
-	/// Pipeline an `op:untag` for `tag` at this answer (ADR-0052): a new
+	/// Pipeline an `op:untag` for `tag` at this answer (ADR-0004): a new
 	/// [`RemotePromise`] for the payload of whatever this resolves to, which must
 	/// be a Tagged record whose tag equals `tag`.
 	pub fn untag(&self, tag: &str) -> RemotePromise {
 		self.project(ProjectOp::Untag(tag))
 	}
 
-	/// Pipeline an `op:get` for `field` at this answer (ADR-0050): a new
+	/// Pipeline an `op:get` for `field` at this answer (ADR-0004): a new
 	/// [`RemotePromise`] for the Struct field of whatever this resolves to.
 	pub fn get(&self, field: &str) -> RemotePromise {
 		self.project(ProjectOp::Get(field))

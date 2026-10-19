@@ -32,7 +32,7 @@ pub const Open = struct {
     /// Preserve an early bound-wire close until the open publishes its result.
     close_cause: ?OperationFailure = null,
     /// The locator the resident dial targets, owned for the row's life so a
-    /// transient failure can re-issue it (ADR-0193). Application rows clone
+    /// transient failure can re-issue it (ADR-0018). Application rows clone
     /// the caller's borrowed locator at stage time. Redeem rows re-read the
     /// route's own view at re-issue. Freed when the row leaves the set.
     dial_locator: ?model.PeerLocator = null,

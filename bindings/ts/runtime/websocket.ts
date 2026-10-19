@@ -1,6 +1,6 @@
 // One WebSocket adapted to the byte-`Channel` seam, shared by every place that
 // carries glowcap bytes over a WebSocket: the browser adapter's dial, both
-// halves of the keyed-relay rendezvous (ADR-0088), and `@glowcap/relay`. The
+// halves of the keyed-relay rendezvous (ADR-0034), and `@glowcap/relay`. The
 // `WebSocket` global is a web standard every supported runtime ships (browser,
 // Deno, Bun), so this is runtime-neutral code, not a per-runtime adapter
 // seam. Each caller differs only in how it gets the socket: opening it, or

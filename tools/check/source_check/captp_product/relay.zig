@@ -11,7 +11,7 @@ const expectFileContains = util.expectFileContains;
 /// The reference relays (the Deno, Python, and Racket rows of the
 /// `bindings-relay` matrix) must load the iroh binding lazily, only on the
 /// `?locator=` dial path, so a `?to=`-only run links no iroh FFI and the
-/// à-la-carte archive split holds (ADR-0059, ADR-0086). Rust pins this at
+/// à-la-carte archive split holds (ADR-0022, ADR-0033). Rust pins this at
 /// compile time (`#[cfg(feature = "iroh")]`); the other three defer the import
 /// by hand, so this keeps that convention a build-checked invariant rather than
 /// trusting three hand-written import sites. The rooms production relay is out
@@ -22,7 +22,7 @@ pub fn checkReferenceRelayIrohLazy(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const why = "load the iroh binding lazily on the `?locator=` dial path so a TCP-only relay links no iroh FFI (ADR-0086)";
+    const why = "load the iroh binding lazily on the `?locator=` dial path so a TCP-only relay links no iroh FFI (ADR-0033)";
 
     // Deno: the `@glowcap/iroh` specifier may appear only inside a dynamic
     // `import(...)`; a static `from "@glowcap/iroh"` would load iroh eagerly.

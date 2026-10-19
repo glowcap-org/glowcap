@@ -1,4 +1,4 @@
-//! The two names a three-party handoff is addressed by (ADR-0009).
+//! The two names a three-party handoff is addressed by (ADR-0039).
 //!
 //! A handoff record names the side that is redeeming and the session the
 //! redemption belongs to. Both are derived from session public keys, never read

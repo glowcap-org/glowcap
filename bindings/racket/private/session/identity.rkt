@@ -16,7 +16,7 @@
 (provide (all-defined-out))
 
 ;; Record the complete dialable exporter location this session's gifter embeds
-;; in a give (ADR-0009). `#f` restores the partner's signed location.
+;; in a give (ADR-0039). `#f` restores the partner's signed location.
 (define (session-set-exporter-locator! c loc)
   (define (apply-view! view)
     (call-with-host (session-host c)

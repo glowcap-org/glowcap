@@ -31,7 +31,7 @@ macOS validation, are release obligations the maintainer runs.
   runtime after a one-year maintenance window that began in October 2026, and
   Bun cannot host the binding's driver loop because its FFI runs on the
   JavaScript thread.
-  [ADR-0210](decisions/adr/ADR-0210-bun-as-the-primary-typescript-runtime.md)
+  [ADR-0066](decisions/adr/ADR-0066-proposed-typescript-runtime.md)
   is the proposed record: Bun becomes the primary runtime through one
   Node-API addon that serves Bun and Node, and Deno leaves the toolchain.
   Nothing moves before the record is accepted. The pinned Deno release stays
@@ -50,7 +50,7 @@ what glowcap cannot settle alone.
   into the hello and replaces the structured key and signature records with
   raw bytes. The hello is the one message both profiles share, because a peer
   sends it before it knows the partner's profile
-  ([ADR-0103](decisions/adr/ADR-0103-hello-carried-profile-offers.md)), so
+  ([ADR-0001](decisions/adr/ADR-0001-codec-profiles-and-negotiation.md)), so
   this cannot land in `glowcap-next` alone. Nothing moves until the text names
   one version and a Goblins release speaks it
   ([upstream watch](upstream-watch.md#session-cryptography-shape)).
@@ -103,7 +103,7 @@ module, and persistence research. Nothing above blocks this work.
    selection, descendant growth, hot reads under slow writes, churn, and browser
    latency and responsiveness are not measured. Measure each on the
    default engine, SQLite. One that locates a limit in it reopens that choice
-   ([ADR-0239](decisions/adr/ADR-0239-sqlite-is-loams-default-disk-engine.md),
+   ([ADR-0062](decisions/adr/ADR-0062-sqlite-default-storage.md),
    [plan to plan](planning/plan-to-plan.md)).
 4. **Typed hosted access API.** Build typed resource and control clients over
    the existing Host, and expose bounded resource-tree operations and the
@@ -125,7 +125,7 @@ profile does not freeze the broader foreign ABI.
 The [Rooms design contract](planning/rooms-design.md) specifies the remaining
 resource work. The [session guide](rooms/session.md) and
 [effect contract](rooms/session-effects.md) describe the session that exists.
-[ADR-0161](decisions/adr/ADR-0161-loam-foundation-and-access-extension.md) records
+[ADR-0048](decisions/adr/ADR-0048-loam-persistence-foundation.md) records
 ownership.
 
 ## Open obligations from retired plans
@@ -144,7 +144,7 @@ Each row is done when its evidence sentence is true. Then delete the row.
 ## Further application work
 
 - **A2A facade.** Deferred by
-  [ADR-0084](decisions/adr/ADR-0084-glowcap-cli-product-boundary.md). A
+  [ADR-0032](decisions/adr/ADR-0032-cli-and-product-boundaries.md). A
   [design sketch](planning/glowcap-a2a-on-captp-design.md) records the
   design. It waits on a maintainer decision to undefer it
   ([plan to plan](planning/plan-to-plan.md)).
@@ -156,7 +156,7 @@ Each row is done when its evidence sentence is true. Then delete the row.
   carries, rather than which sessions exist. It waits on a maintainer
   decision ([plan to plan](planning/plan-to-plan.md)).
 - **Control capabilities.** Observation and control stay separate grants
-  ([ADR-0106](decisions/adr/ADR-0106-trace-observation-capability.md)). No endpoint
+  ([ADR-0040](decisions/adr/ADR-0040-trace-observation-authority.md)). No endpoint
   offers a control capability yet. It waits on a maintainer decision
   ([plan to plan](planning/plan-to-plan.md)).
 - **Admission and accountability.** A front-door pattern for applications:

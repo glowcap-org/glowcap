@@ -503,7 +503,7 @@ fn listenAndInspect(io: std.Io, allocator: std.mem.Allocator, ctrl: []const u8) 
     try std.testing.expect(!std.mem.eql(u8, other_service_id, locator.designator));
     try std.testing.expectEqualStrings("onion", locator.transport);
     // An address designator says where to dial, so there is no dial hint. A
-    // hinted onion locator is undialable by the pinned Goblins (ADR-0108).
+    // hinted onion locator is undialable by the pinned Goblins (ADR-0042).
     try std.testing.expectEqual(@as(usize, 0), locator.hints.entries.len);
     try std.testing.expectEqual(
         glowcap.ocapn.model.transport.DesignatorScheme.address,

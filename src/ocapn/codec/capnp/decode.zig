@@ -4,7 +4,7 @@
 //! `model.Message` tree, just laid out as a run of 8-byte words instead of
 //! Syrup's byte records. There's no schema compiler in the loop: we read the
 //! struct and list layout directly against the wire primitives in `wire.zig`
-//! (ADR-0026), so the codec stands on its own and the layout tracks the model.
+//! (ADR-0010), so the codec stands on its own and the layout tracks the model.
 //! Rendering lives in `encode.zig`. The layout and reader vocabulary both
 //! sides share lives in `shared.zig`.
 //!
@@ -14,7 +14,7 @@
 //! decode vocabulary, the same shape as `syrup.decodeOwned`, so owned
 //! materialization only happens when you ask for it.
 //!
-//! References flip perspective every time they cross the wire (ADR-0010), the
+//! References flip perspective every time they cross the wire (ADR-0006), the
 //! same way Syrup does. Something we export goes out as a `near`, and the partner
 //! reads it back as a `far` import. The reverse happens too. The flip is a fixed
 //! relabel of the wire arm. It never consults a table, so the codec still holds
@@ -24,7 +24,7 @@
 //! `Reference`, every `Argument` arm, `Resolution`, `BreakReason`,
 //! `PeerLocator`, `Handoff`, and `Tagged`.
 //!
-//! [ADR-0026]: ../../../docs/decisions/adr/ADR-0026-hand-rolled-capnp-codec.md
+//! [ADR-0010]: ../../../docs/decisions/adr/ADR-0010-capnp-wire-profile.md
 
 const std = @import("std");
 

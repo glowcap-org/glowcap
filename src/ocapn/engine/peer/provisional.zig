@@ -1,5 +1,5 @@
 //! The provisional window: far sends a Vat turn makes, held retractable until
-//! the turn's outcome (ADR-0194).
+//! the turn's outcome (ADR-0058).
 //!
 //! While the window is open, `pushPendingAssume` marks each answered or
 //! answerless deliver it queues. The embedder does not step a Peer while its

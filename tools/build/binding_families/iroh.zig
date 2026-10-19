@@ -3,42 +3,42 @@
 const BindingClientRow = @import("../binding_families.zig").BindingClientRow;
 
 // Binding sibling of `iroh-loop`: many concurrent connections from one
-// readiness loop through the iroh C ABI (ADR-0057).
+// readiness loop through the iroh C ABI (ADR-0019).
 pub const iroh_loop_clients = [_]BindingClientRow{
     .{
         .step_name = "deno-iroh-loop",
-        .description = "Live iroh scale: the Deno binding serves many connections from one readiness loop (ADR-0057, needs cargo + deno)",
+        .description = "Live iroh scale: the Deno binding serves many connections from one readiness loop (ADR-0019, needs cargo + deno)",
         .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_loop/deno_client.ts" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "python-iroh-loop",
-        .description = "Live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0057, needs cargo + python3)",
+        .description = "Live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0019, needs cargo + python3)",
         .argv = &.{ "python3", "interop/iroh_loop/python_client.py" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "rust-iroh-driver-provider",
-        .description = "Live ADR-0112 Rust parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the C multiplexed-transport table (needs cargo)",
+        .description = "Live ADR-0024 Rust parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the C multiplexed-transport table (needs cargo)",
         .argv = &.{ "cargo", "test", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "iroh_provider_dials_live", "--", "--ignored", "--nocapture" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "python-iroh-driver-provider",
-        .description = "Live ADR-0112 Python parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the C multiplexed-transport table (needs cargo + python3)",
+        .description = "Live ADR-0024 Python parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the C multiplexed-transport table (needs cargo + python3)",
         .argv = &.{ "python3", "interop/iroh_driver_provider/python_client.py" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "rust-iroh-loop",
-        .description = "Live iroh scale: the Rust binding serves many connections from one readiness loop (ADR-0057, needs cargo)",
+        .description = "Live iroh scale: the Rust binding serves many connections from one readiness loop (ADR-0019, needs cargo)",
         .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_loop" },
         .posture = .{ .deterministic = 30 },
         .dashdash_before_args = true,
     },
     .{
         .step_name = "racket-iroh-loop",
-        .description = "Live iroh scale: the Racket binding serves many connections from one readiness loop (ADR-0057, needs cargo + racket)",
+        .description = "Live iroh scale: the Racket binding serves many connections from one readiness loop (ADR-0019, needs cargo + racket)",
         .argv = &.{ "racket", "-y", "interop/iroh_loop/racket_client.rkt" },
         .posture = .{ .deterministic = 30 },
     },

@@ -1,4 +1,4 @@
-//! Object-capability forwarding proxies (ADR-0064): the caretaker (revocable
+//! Object-capability forwarding proxies (ADR-0016): the caretaker (revocable
 //! forwarder) and attenuator (verb allow-list) built on `Turn.forward`. The
 //! local tests prove forwarding and refusal through `near`. The over-the-wire
 //! test proves the deferred-answer path, a far caller delivers to a hosted

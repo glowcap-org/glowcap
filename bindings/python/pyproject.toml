@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 # Stdlib ctypes only, no third-party runtime dependencies. The one optional
-# extra is the keyed-relay rendezvous dial's WebSocket client (ADR-0088),
+# extra is the keyed-relay rendezvous dial's WebSocket client (ADR-0034),
 # imported lazily at dial time and refused with a typed error when absent.
 dependencies = []
 

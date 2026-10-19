@@ -1,4 +1,4 @@
-//! Crossed-hellos collision tiebreak (ADR-0030): when two peers dial each other
+//! Crossed-hellos collision tiebreak (ADR-0012): when two peers dial each other
 //! at once, each ends up with both an outbound and an inbound session to the same
 //! partner, and the registry must steer both sides onto the *same* surviving
 //! session with no coordination beyond a local comparison. The rule is the byte

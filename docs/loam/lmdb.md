@@ -130,7 +130,7 @@ its opened path while the copy is checked. The check streams both files
 through fixed-size buffers. Reopening reads only `data.mdb`. An incomplete
 `loam-compact.mdb` is ignored, and the next operation deletes it.
 
-The [replacement decision](../decisions/adr/ADR-0181-offline-lmdb-replacement.md)
+The [replacement decision](../decisions/adr/ADR-0055-offline-lmdb-replacement.md)
 states the filesystem, synchronization and failure assumptions.
 `zig build loam-lmdb-compaction-crash-test` exercises process loss and refused copy
 capacity. [Stability](../stability.md) says which platforms and failures it

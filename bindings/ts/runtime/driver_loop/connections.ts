@@ -1,4 +1,4 @@
-// The driver archive's TypeScript face (ADR-0112): `DriverLoop` parks the
+// The driver archive's TypeScript face (ADR-0024): `DriverLoop` parks the
 // runtime on the loop's one readiness descriptor, steps with a zero timeout on
 // the JavaScript thread when it signals or when a Host verb kicks, and drains
 // the one event queue: dial outcomes into promises, accepted sessions into a

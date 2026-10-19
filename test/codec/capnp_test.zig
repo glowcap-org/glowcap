@@ -71,7 +71,7 @@ test "decodeBody projects the neutral view with lazy capnp backings (nested args
     defer frame.deinit();
 
     const body = try capnp.decodeBody(frame.view());
-    // Wire `far` (sender's import) flips to a `near` export on decode (ADR-0010).
+    // Wire `far` (sender's import) flips to a `near` export on decode (ADR-0006).
     try std.testing.expectEqual(@as(u64, 9), body.deliver.target.near.export_position.int());
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), body.deliver.answer);
 
@@ -138,7 +138,7 @@ test "a Struct argument round-trips through the Cap'n Proto codec" {
 
     // Two heterogeneous entries built in non-canonical order; the codec carries a
     // struct as a composite list of (key text, value Argument) entry structs and
-    // emits them in canonical key order (ADR-0046).
+    // emits them in canonical key order (ADR-0005).
     const entries = [_]model.StructEntry{
         .{ .key = "name", .value = .{ .string = "tabby" } },
         .{ .key = "age", .value = .{ .integer = 12 } },
@@ -175,7 +175,7 @@ test "a big integer argument round-trips through the Cap'n Proto codec" {
     const allocator = std.testing.allocator;
 
     // 2^128: sign on the discriminant word's bit 16, canonical decimal digits
-    // as the data field (ADR-0049).
+    // as the data field (ADR-0005).
     const big = model.Argument{ .big_integer = .{
         .negative = true,
         .digits = "340282366920938463463374607431768211456",
@@ -257,7 +257,7 @@ test "empty position list round-trips" {
 }
 
 /// Verify a message survives the wire intact. The codec flips reference
-/// perspective on every crossing (ADR-0010): an encoded model `near` (our
+/// perspective on every crossing (ADR-0006): an encoded model `near` (our
 /// export) decodes to a `far` import, and vice versa. The flip is an
 /// involution, so two encode-decode crossings restore the original
 /// perspective, the bytes after the second crossing equal the first encoding

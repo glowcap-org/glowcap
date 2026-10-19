@@ -310,7 +310,7 @@ pub const Session = struct {
     }
 
     /// Fetch a partner's published capability by `name`, returning its opaque
-    /// Host `Capability` (ADR-0096). The fulfilled reference is lifted while
+    /// Host `Capability` (ADR-0026). The fulfilled reference is lifted while
     /// its owning session is known, so handing it back to the partner, or to
     /// a third party, routes to the right exporter without the application
     /// ever holding a wire position. An unpublished name returns
@@ -519,7 +519,7 @@ pub const Session = struct {
         return self.runtime.core.publishedCapability(self.hs, name);
     }
 
-    /// Enliven a complete sturdyref by Host-level select-or-dial (ADR-0098
+    /// Enliven a complete sturdyref by Host-level select-or-dial (ADR-0007
     /// step 4): the host resolves the sturdyref's peer to the live dialed
     /// session it names, or dials it, so the caller never picks the session.
     /// The peer named in the sturdyref does. The settled capability arrives

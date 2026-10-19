@@ -1,5 +1,5 @@
 //! Every first-party stream symbol on one completion backend
-//! (`net.StreamStack`, ADR-0193): one runtime built from `driver.Transports`
+//! (`net.StreamStack`, ADR-0018): one runtime built from `driver.Transports`
 //! reaches a `noise-tcp` listener and an `inproc` listener through the same
 //! stack, and the sealed dial proves the listener's key.
 

@@ -3,7 +3,7 @@
 //! `noise-tcp`.
 //!
 //! All three carry the Host's bytes unchanged. `noise-tcp` is sealed by the
-//! byte-fed Host on both halves (ADR-0107), so the socket under it is the
+//! byte-fed Host on both halves (ADR-0041), so the socket under it is the
 //! `keyed-tcp` socket exactly. A platform backend binds every listener on the
 //! one interface it was built with, so a listen designator must name that
 //! interface. Any other host is refused rather than silently rebound.

@@ -134,7 +134,7 @@ pub fn reserve(self: *Node, immediate: usize) !void {
 
 /// Take the action returned by `peekAction` off the queue, payload intact, on
 /// a seat promised for its return. The Host parks an action whose recipient
-/// cannot take another frame yet (ADR-0145). The seat is reserved before the
+/// cannot take another frame yet (ADR-0017). The seat is reserved before the
 /// pop, so a refusal leaves the action on the queue, and `pushParked` can
 /// never allocate.
 pub fn parkPeekedAction(self: *Node) !Action {

@@ -52,7 +52,7 @@ pub const Port = struct {
     }
 
     /// Tear down this Port, releasing the export-binding root each projected
-    /// actor held (ADR-0101): a session's closure releases exactly the
+    /// actor held (ADR-0014): a session's closure releases exactly the
     /// retains that session held, never the actor itself.
     pub fn deinit(self: *Port, vat: *Vat) void {
         var bound = self.reverse_exports.keyIterator();
@@ -85,7 +85,7 @@ pub const Port = struct {
     }
 
     /// `send` for a delivery whose arguments may be lent as views. The Port
-    /// decides how it leaves (ADR-0246): arguments behind an owned slice go
+    /// decides how it leaves (ADR-0064): arguments behind an owned slice go
     /// as that message, a far delivery whose views session validation
     /// counted no reference in leaves as freight, certified and encoded in
     /// place with nothing copied, and any other views are materialized once
@@ -229,7 +229,7 @@ pub const Port = struct {
     /// up (`Served.publish`, `driver.Session.publish`) rides on it. Binding
     /// *reserves* the position, it does not grant it: the partner can address
     /// the actor only once its reference first marshals onto the wire, or
-    /// after an explicit `peer.exportObject` grant (ADR-0074). Only a local
+    /// after an explicit `peer.exportObject` grant (ADR-0027). Only a local
     /// actor can be bound, a far ref already lives elsewhere, so a far ref
     /// returns `NotLocal`.
     pub fn bindExport(self: *Port, vat: *Vat, actor: Ref, position: u64) !void {
@@ -252,7 +252,7 @@ pub const Port = struct {
         if (!self.reverse_exports.contains(local_id)) {
             self.reverse_exports.putAssumeCapacity(local_id, position);
             // The actor's first binding on this Port is a rooting relationship
-            // (ADR-0101), released by rollback of the last binding or Port
+            // (ADR-0014), released by rollback of the last binding or Port
             // teardown.
             vat.retainActor(local_id);
         }
@@ -276,7 +276,7 @@ pub const Port = struct {
 
     /// Undo a bind that never became shared with the partner. Dropping the
     /// actor's last binding on this Port also releases the export-binding
-    /// root that bind took (ADR-0101).
+    /// root that bind took (ADR-0014).
     pub fn rollbackExport(self: *Port, vat: *Vat, actor: Ref, position: u64) void {
         const actor_id = switch (actor) {
             .local => |id| id,
@@ -346,7 +346,7 @@ fn materialize(vat: *Vat, delivery: Delivery) Error!Message {
 }
 
 /// Inside a turn the Port enrolls before a far send, so the send is
-/// retractable if the turn fails (ADR-0194), and an answered send reserves
+/// retractable if the turn fails (ADR-0058), and an answered send reserves
 /// the break its retraction fires.
 fn enrollFarSend(vat: *Vat, port: *Port, answered: bool) Error!void {
     const peer = port.peer;
@@ -395,7 +395,7 @@ fn farDeliverTo(vat: *Vat, port: *Port, target: model.Reference, msg: Message, a
 }
 
 /// `farDeliverTo` for a delivery lent as views. One session validation
-/// counted no reference in leaves as freight (ADR-0246): the verb is
+/// counted no reference in leaves as freight (ADR-0064): the verb is
 /// spliced ahead of the views in the same spine, and the peer certifies
 /// and encodes the tree in place. Any other views are materialized once,
 /// because the tree may name a reference the session must rewrite.

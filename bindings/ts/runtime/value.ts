@@ -89,7 +89,7 @@ export type Argument =
  * the session settles the pair with its partner. */
 export type Codec = "syrup" | "capnp";
 
-/** The CapTP profile a session speaks (ADR-0003): `v1_0` is the interop floor
+/** The CapTP profile a session speaks (ADR-0001): `v1_0` is the interop floor
  * a Goblins vat and the upstream suite speak, `next` the glowcap-to-glowcap
  * track that `Offer.glowcap` prefers together with Cap'n Proto. A `Host`
  * advertises its preference in signed locator hints and the session settles
@@ -324,7 +324,7 @@ export function liveRefId(ref: Ref): bigint {
 }
 
 /** A behavior's tail-forward of its answer to another capability, the
- * binding's `Turn.forward` (ADR-0064). A behavior that returns one has its
+ * binding's `Turn.forward` (ADR-0016). A behavior that returns one has its
  * caller's answer resolved from `target <- verb(args)` instead of from a
  * value: a target hosted on the same connection composes in process (a
  * caretaker over an attenuator forwards through both), and a far target defers

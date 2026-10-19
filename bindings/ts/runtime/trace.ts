@@ -95,12 +95,12 @@ export type TraceEvent = {
 	/** `ocapn.session-opened`: the negotiated wire grammar. Built-in codecs
 	 * use the model's own names. An ABI generation that cannot name the value
 	 * reports an internal projection failure instead of inventing a codec. The signed hello carries the codec
-	 * preference as a locator hint (ADR-0103). */
+	 * preference as a locator hint (ADR-0001). */
 	codec?: TraceCodec;
 	/** `ocapn.session-opened`: the negotiated CapTP profile, spelled the way
 	 * the handshake spells it. A trace reports on the wire, so it uses the wire's own word
 	 * rather than the enum tag the implementation happens to hold it under.
-	 * Reported beside the codec because the two are one decision (ADR-0003). */
+	 * Reported beside the codec because the two are one decision (ADR-0001). */
 	captp_version?: TraceCaptpVersion;
 	/** `ocapn.session-opened`: whether the realized channel proved the
 	 * partner's durable name: `"authenticated-transport"` or

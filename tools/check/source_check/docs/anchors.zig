@@ -96,7 +96,7 @@ test "a fragment names a heading the way GitHub slugs it" {
         \\```
         \\## Fenced
         \\```
-        \\## See [ADR-0115](decisions/adr/x.md)
+        \\## See [ADR-0031](decisions/adr/x.md)
         \\<a id="kept-anchor"></a>
         \\
     ;

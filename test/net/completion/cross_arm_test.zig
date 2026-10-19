@@ -4,7 +4,7 @@
 //! end on the platform backend (a quiet partner receives a frame only
 //! cross-arming could have put on its wire), and on a scripted backend that
 //! pins the queue accounting. Cross-armed bytes count into the connection's
-//! pending outbound, so ADR-0042 parks that connection's next read at the
+//! pending outbound, so ADR-0017 parks that connection's next read at the
 //! high-water mark exactly as it parks reply traffic.
 
 const std = @import("std");
@@ -189,7 +189,7 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
     try std.testing.expect(saw_deliver);
 }
 
-// ── Scripted: cross-armed bytes ride the ADR-0042 queue accounting ──────────
+// ── Scripted: cross-armed bytes ride the ADR-0017 queue accounting ──────────
 
 test "cross-arm: cross-armed bytes count into pending outbound and park the read at the high-water mark" {
     const allocator = std.testing.allocator;
@@ -255,7 +255,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
 
     // Phase 3: the partner sends its next frame while the cross-armed write is
     // still unread. Its reply queues behind the frozen front, and the read
-    // parks at the high-water mark, ADR-0042 holds for cross-armed bytes.
+    // parks at the high-water mark, ADR-0017 holds for cross-armed bytes.
     CrossArmBackend.hold_sends = true;
     CrossArmBackend.chunks = &.{ client_ss.items, fetch_bytes.items };
     try std.testing.expectError(error.ScriptParked, loop.run(.{ .after_closed = 1 }));

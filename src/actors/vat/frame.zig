@@ -202,7 +202,7 @@ pub fn closeTurnFrame(self: *Vat, id: u64) void {
 
 /// Close a frame whose handler returned: promote its staged become, then,
 /// at the outermost frame, commit the turn's staged sends and participants
-/// before the reply leaves (ADR-0191, ADR-0194).
+/// before the reply leaves (ADR-0058).
 pub fn commitFrame(self: *Vat, turn: *Turn) void {
     if (turn.pending_become) |box| boxed.promoteBecome(self, turn.self_id, box);
     if (self.turn_depth == 1) turn_commit.commit(self);
@@ -341,12 +341,12 @@ fn finishCellRun(self: *Vat, id: u64) void {
         self.retired_boxes.appendAssumeCapacity(cell.box);
         cell.box = next;
     }
-    // A handler that released its own last root (ADR-0101) finishes its turn
+    // A handler that released its own last root (ADR-0014) finishes its turn
     // on live state; the retire happens here, at the frame the deferral named.
     if (cell.roots == 0) retireActorRow(self, id);
 }
 
-/// Retire a zero-rooted, non-running actor row (ADR-0101): remove the row and
+/// Retire a zero-rooted, non-running actor row (ADR-0014): remove the row and
 /// park its box until the next outermost-turn boundary, the borrowed-reply
 /// lifetime, so a reply an earlier turn handed out never dangles. Registration
 /// escrowed one retired-list slot for every live actor. Removing this row

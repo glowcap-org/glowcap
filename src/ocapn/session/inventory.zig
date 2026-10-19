@@ -9,9 +9,9 @@
 //! (nesting depth, struct keys, retained bytes) and list the arguments the
 //! later passes return to. Each pass is then a loop over that list, and a
 //! tree with nothing to return to lists nothing and allocates nothing
-//! (ADR-0234). The walk also takes the codec's meter, so the frame's size
+//! (ADR-0064). The walk also takes the codec's meter, so the frame's size
 //! is known before the encoder reads the tree and the encoder reads it once
-//! (ADR-0253).
+//! (ADR-0064).
 
 const std = @import("std");
 const model = @import("model");

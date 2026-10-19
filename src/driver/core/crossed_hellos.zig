@@ -1,4 +1,4 @@
-//! Crossed-hellos tiebreak state (ADR-0030): the outbound-dial table an
+//! Crossed-hellos tiebreak state (ADR-0012): the outbound-dial table an
 //! accepted session's inbound `op:start-session` is compared against, unlocked
 //! because one thread drives one host by contract. `openDialedLocator`
 //! registers the outbound before its hello moves. The host condemns the losing
@@ -6,7 +6,7 @@
 //! its unit tests. Embedders never touch it, since the host runs the tiebreak.
 //!
 //! The tiebreak is **two operations over two different values**, and keeping
-//! them apart is the whole design (ADR-0097):
+//! them apart is the whole design (ADR-0028):
 //!
 //!   1. **Matching** asks which two connection attempts are racing. That is a
 //!      question about the dial target, so the key is its transport and the
@@ -122,7 +122,7 @@ pub const CrossedHellos = struct {
 };
 
 /// Run the crossed-hellos tiebreak for an inbound start-session on an accepted
-/// CapTP session (ADR-0030): with an outbound dial registered to the same
+/// CapTP session (ADR-0012): with an outbound dial registered to the same
 /// partner, the not-lower side condemns its accepted session, and the strictly
 /// lower side condemns its own dialed one. Both act immediately with no
 /// deferred flag, because one thread drives the host.
@@ -150,7 +150,7 @@ pub fn tiebreakInbound(self: *host_mod.Host, session: *host_mod.HostSession, ss:
     // to act on it there is not ours to choose. Dropping it makes that test
     // hang waiting for the abort. So on an address transport a peer that can
     // open a connection and name an address we are dialing can condemn our dial
-    // to it. ADR-0030 models that exposure, and it is why a designator that
+    // to it. ADR-0012 models that exposure, and it is why a designator that
     // *is* an identity is the one that gets checked; see `docs/boundaries.md`.
     if (try self.designatorScheme(ss.acceptable_location.transport) == .key) {
         const claimed = crypto.PeerKey.fromDesignator(designator) orelse return;

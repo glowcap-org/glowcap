@@ -2,7 +2,7 @@
 //! `op:start-session` signature is computed over.
 //!
 //! A signature covers the Syrup-canonical encoding of a decoded record
-//! (ADR-0009 / ADR-0003), regardless of which codec carried the envelope. These
+//! (ADR-0039 / ADR-0001), regardless of which codec carried the envelope. These
 //! functions name that signing domain and render it through `signing.zig`, the
 //! same record owner the wire encoder uses.
 //!

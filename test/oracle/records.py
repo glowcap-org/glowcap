@@ -71,7 +71,7 @@ def op_resolve_fulfill_import_promise() -> Record:
     Encoder side of the perspective flip for a local unresolved
     promise: sender's ``Reference::Near{.promise}`` becomes
     ``<desc:import-promise N>`` in payload position
-    (ADR-0080 ``Slot.local_unresolved``).
+    (ADR-0006 ``Slot.local_unresolved``).
     """
     desc = Record(Symbol("desc:import-promise"), (99,))
     resolution = Record(Symbol("resolve:fulfill"), (desc,))
@@ -81,7 +81,7 @@ def op_resolve_fulfill_import_promise() -> Record:
 def op_listen_promise_target() -> Record:
     """``<op:listen <desc:answer 7> <desc:import-object 9>>``.
 
-    Legacy op:listen wire-shape per ADR-0007 § Decision 4, two
+    Legacy op:listen wire-shape per ADR-0003, two
     desc:* reference operands. ``to-desc`` may be ``desc:answer``
     (the pipelining target case) or ``desc:export`` (the local-
     export target case). ``listen-desc`` is ``desc:import-object``
@@ -101,7 +101,7 @@ def op_listen_promise_target() -> Record:
 def op_listen_export_target() -> Record:
     """``<op:listen <desc:export 5> <desc:import-object 9>>``.
 
-    Local-export listen target case per ADR-0007 § Decision 9,
+    Local-export listen target case per ADR-0003,
     the listener fires immediately with the export as the
     ``Fulfill`` argument when the receiver records the listen.
     """
@@ -113,9 +113,8 @@ def op_listen_export_target() -> Record:
 def op_listen_v1_0_wants_partial_false() -> Record:
     """``<op:listen <desc:answer 7> <desc:import-object 9> #f>``.
 
-    V1_0 Goblins-canonical 3-operand `op:listen` per ADR-0007
-    § Decision 4, the third operand is the `wants-partial?`
-    boolean (Goblins-canonical extension per
+    V1_0 Goblins-canonical 3-operand `op:listen` per ADR-0003,
+    the third operand is the `wants-partial?` boolean (Goblins-canonical extension per
     ``goblins/ocapn/captp.rkt:86-88``). `#f` is spec-strict
     behavior (fire once, on the eventually-settled non-promise
     resolution).
@@ -141,8 +140,8 @@ def op_listen_v1_0_wants_partial_true() -> Record:
 def op_deliver_v1_0_with_resolve_me_desc() -> Record:
     """``<op:deliver <desc:export 7> [b"hello"] 42 <desc:import-object 99>>``.
 
-    V1_0 Goblins-canonical resolver-callback shape (ADR-0003,
-    ADR-0010): the fourth ``op:deliver`` field carries the
+    V1_0 Goblins-canonical resolver-callback shape (ADR-0001,
+    ADR-0006): the fourth ``op:deliver`` field carries the
     partner-installable ``<desc:import-object pos>`` resolver
     descriptor. A future ``op:deliver`` to that import carries the
     resolution ``('fulfill <ref>)`` or ``('break <error>)``, that
@@ -174,7 +173,7 @@ def op_deliver_listen_break_notification() -> Record:
     return Record(Symbol("op:deliver"), (target, args, False, False))
 
 
-# ── Stage 2 / ADR-0008 fixtures ────────────────────────────────────
+# ── Stage 2 / ADR-0004 fixtures ────────────────────────────────────
 
 
 def op_gc_exports() -> Record:
@@ -183,7 +182,7 @@ def op_gc_exports() -> Record:
     ``goblins/ocapn/captp.rkt:90-92``: two parallel lists, the
     sender's dropped position ids and the matching wire-deltas.
     Receiver decrements its export refcounts by the wire-delta
-    per ADR-0008 § Wire-delta reference counting.
+    per ADR-0004.
     """
     return Record(Symbol("op:gc-exports"), ([3, 7], [1, 2]))
 
@@ -192,8 +191,7 @@ def op_gc_answers() -> Record:
     """``<op:gc-answers [11 13]>`` — Goblins-canonical
     ``op:gc-answers`` per ``goblins/ocapn/captp.rkt:94-96``: a
     single list of answer-pos values being released. No wire-delta
-    — each answer-pos is single-reference per ADR-0008
-    § Wire format: op:gc-answers.
+    — each answer-pos is single-reference per ADR-0004.
     """
     return Record(Symbol("op:gc-answers"), ([11, 13],))
 
@@ -201,7 +199,7 @@ def op_gc_answers() -> Record:
 def op_abort_typed() -> Record:
     """``<op:abort "VersionMismatch: peer requested 2.0">``.
 
-    Stage 2 / ADR-0008 typed-reason wire projection: glowcap's
+    Stage 2 / ADR-0004 typed-reason wire projection: glowcap's
     ``AbortReasonKind`` taxonomy emits the spec-strict single-
     string ``op:abort`` with a ``"<KindName>: <message>"`` prefix
     on V1_0 syrup. Goblins-canonical wire stays a single string;
@@ -216,13 +214,12 @@ def op_abort_typed() -> Record:
 def op_abort_resource_exhausted() -> Record:
     """``<op:abort "ResourceExhausted: ImportTable cap hit">``.
 
-    Stage 4 / ADR-0025 typed-reason wire projection: glowcap's
+    Stage 4 / ADR-0008 typed-reason wire projection: glowcap's
     new ``AbortReasonKind::ResourceExhausted`` kind emits the
     spec-strict single-string ``op:abort`` with the
     ``"ResourceExhausted: <message>"`` prefix on V1_0 syrup, the
-    same shape as the other typed kinds per ADR-0008 § Wire
-    format. Companion to ``op_abort.bin`` (prefix-less ``Other``)
-    and ``op_abort_typed.bin`` (``VersionMismatch`` prefix).
+    same shape as the other typed kinds per ADR-0004. Companion
+    to ``op_abort.bin`` (prefix-less ``Other``) and ``op_abort_typed.bin`` (``VersionMismatch`` prefix).
     """
     return Record(Symbol("op:abort"), ("ResourceExhausted: ImportTable cap hit",))
 
@@ -230,12 +227,12 @@ def op_abort_resource_exhausted() -> Record:
 def op_abort_crossed_hellos() -> Record:
     """``<op:abort "CrossedHellos: byte-lower side closing">``.
 
-    ADR-0008 typed abort taxonomy: ``CrossedHellos`` is the abort
+    ADR-0004 typed abort taxonomy: ``CrossedHellos`` is the abort
     kind an adapter projects when it detects a concurrent inbound
     session for the same partner; the no-I/O core carries the kind
     and its wire projection but does not detect the condition. Same
     single-string ``"<KindName>: <message>"`` shape as the other
-    typed kinds per ADR-0008 § Typed abort taxonomy.
+    typed kinds per ADR-0004.
     """
     return Record(Symbol("op:abort"), ("CrossedHellos: byte-lower side closing",))
 
@@ -243,11 +240,11 @@ def op_abort_crossed_hellos() -> Record:
 def op_abort_connection_lost() -> Record:
     """``<op:abort "ConnectionLost: peer TCP RST">``.
 
-    ADR-0008 typed abort taxonomy: ``ConnectionLost`` is the abort
+    ADR-0004 typed abort taxonomy: ``ConnectionLost`` is the abort
     kind an adapter projects best-effort when its transport reports a
     lost connection; partners observing this MAY retry. Same
     single-string ``"<KindName>: <message>"`` shape as the other
-    typed kinds per ADR-0008 § Typed abort taxonomy.
+    typed kinds per ADR-0004.
     """
     return Record(Symbol("op:abort"), ("ConnectionLost: peer TCP RST",))
 
@@ -255,20 +252,20 @@ def op_abort_connection_lost() -> Record:
 def op_abort_graceful_shutdown() -> Record:
     """``<op:abort "GracefulShutdown: SIGTERM drain complete">``.
 
-    ADR-0008 typed abort taxonomy: ``GracefulShutdown`` is the abort
+    ADR-0004 typed abort taxonomy: ``GracefulShutdown`` is the abort
     kind an adapter projects on a drain-to-completion shutdown;
     partners observing this SHOULD NOT retry (distinct from the
     retryable ``ConnectionLost``). Same single-string
     ``"<KindName>: <message>"`` shape as the other typed kinds per
-    ADR-0008 § Typed abort taxonomy.
+    ADR-0004.
     """
     return Record(Symbol("op:abort"), ("GracefulShutdown: SIGTERM drain complete",))
 
 
-# ── ADR-0021 widened-Argument fixtures ──────────────────
+# ── ADR-0005 widened-Argument fixtures ──────────────────
 #
 # `op:deliver to=<desc:export 7> args=[<arg>] answer-pos=42 #f`
-# shape for each new `Argument` variant ADR-0021 added. The outer
+# shape for each new `Argument` variant ADR-0005 added. The outer
 # `op:deliver` shape matches `op_deliver_minimal` exactly except
 # for the args list, so a regression on the outer envelope
 # surfaces against both fixtures, and a regression on a specific
@@ -290,8 +287,8 @@ def _op_deliver_one_arg(arg) -> Record:
 def op_deliver_arg_void() -> Record:
     """``op:deliver`` carrying ``<'void>`` (zero-arg record).
 
-    ADR-0021 wire shape for the Goblins ``(void)`` value glowcap
-    rejected pre-ADR-0021. The fixture pins the cross-impl byte
+    ADR-0005 wire shape for the Goblins ``(void)`` value glowcap
+    rejected pre-ADR-0005. The fixture pins the cross-impl byte
     shape so a regression to the pre-ADR rejection (or to a
     different ``Void`` wire encoding) surfaces in CI.
 
@@ -307,7 +304,7 @@ def op_deliver_arg_void() -> Record:
 def op_deliver_arg_big_integer() -> Record:
     """``op:deliver`` carrying a Python int outside i64 (2^100).
 
-    ADR-0049: the upstream Syrup encoders render an arbitrary-precision
+    ADR-0005: the upstream Syrup encoders render an arbitrary-precision
     integer as its canonical decimal digits, the same bytes glowcap's
     ``big_integer`` arm carries.
     """
@@ -317,7 +314,7 @@ def op_deliver_arg_big_integer() -> Record:
 def op_deliver_arg_float64() -> Record:
     """``op:deliver`` carrying ``D<8 bytes>`` (IEEE 754 double).
 
-    ADR-0021 wire shape for the Goblins double-flonum value. The
+    ADR-0005 wire shape for the Goblins double-flonum value. The
     fixture uses ``1.5`` because its IEEE 754 BE representation
     (``0x3FF8000000000000``) has no surprising bit patterns and
     is easy to verify by eyeballing.
@@ -332,7 +329,7 @@ def op_deliver_arg_float64() -> Record:
 def op_deliver_arg_tagged() -> Record:
     """``op:deliver`` carrying ``<'user-record 'point (1 2)>``.
 
-    ADR-0021 wire shape for the Goblins ``'user-record`` catch-all
+    ADR-0005 wire shape for the Goblins ``'user-record`` catch-all
     (a non-`'error` / non-`'kw` user-extensible tagged record).
     glowcap's ``Argument::Tagged.value`` carries a ``Vec<Argument>``
     so the model cell matches the wire's record-args list verbatim
@@ -352,7 +349,7 @@ def op_deliver_arg_tagged() -> Record:
 def op_deliver_arg_keyword() -> Record:
     """``op:deliver`` carrying ``<'kw 'name>``.
 
-    ADR-0021 wire shape for the Goblins Racket keyword value (a
+    ADR-0005 wire shape for the Goblins Racket keyword value (a
     structurally-1-arg user-record that glowcap special-cases on
     decode as ``Argument::Keyword``). Distinct from
     ``Argument::Symbol`` because keyword args are a discrete
@@ -371,7 +368,7 @@ def op_deliver_arg_keyword() -> Record:
 def op_deliver_arg_set() -> Record:
     """``op:deliver`` carrying ``#1 2 3 $`` (Syrup Set).
 
-    ADR-0021 wire shape for the Goblins ``(set …)`` value. The
+    ADR-0005 wire shape for the Goblins ``(set …)`` value. The
     in-memory ``Argument::Set(Vec<Argument>)`` is insertion-
     ordered; canonical sort by encoded bytes happens at codec-
     encode time only. Equality is order-agnostic / multiset-
@@ -386,7 +383,7 @@ def op_deliver_arg_set() -> Record:
     return _op_deliver_one_arg({1, 2, 3})
 
 
-# ── Stage 2 / ADR-0009 handoff envelope fixtures ───────────────────
+# ── Stage 2 / ADR-0039 handoff envelope fixtures ───────────────────
 
 
 def _peer_key_sexp(q_value: bytes):
@@ -435,7 +432,7 @@ def _ocapn_peer_no_hints(transport: str, designator: str):
 
 def _handoff_give_record():
     """Inner ``<desc:handoff-give recipient-key exporter-location
-    session gifter-side gift-id>`` certificate per ADR-0009."""
+    session gifter-side gift-id>`` certificate per ADR-0039."""
     return Record(
         Symbol("desc:handoff-give"),
         (
@@ -451,7 +448,7 @@ def _handoff_give_record():
 def signed_handoff_give() -> Record:
     """``<desc:sig-envelope <desc:handoff-give …> <sig-val …>>``.
 
-    Stage 2 / ADR-0009 wire shape for a Gifter-signed
+    Stage 2 / ADR-0039 wire shape for a Gifter-signed
     ``desc:handoff-give`` envelope: the spec-canonical
     ``desc:sig-envelope`` wrapping the 5-field handoff-give
     certificate plus the gcrypt-canonical signature s-expression.
@@ -469,7 +466,7 @@ def signed_handoff_receive() -> Record:
     """``<desc:sig-envelope <desc:handoff-receive receiving-session
     receiving-side handoff-count <signed-give>> <sig-val …>>``.
 
-    Stage 2 / ADR-0009 wire shape for a Receiver-signed
+    Stage 2 / ADR-0039 wire shape for a Receiver-signed
     ``desc:handoff-receive`` envelope. The ``signed-give`` slot
     nests the same ``desc:sig-envelope``-wrapped ``desc:handoff-give``
     structure as the ``desc_handoff_give_signed.bin`` fixture, but with a
@@ -508,12 +505,12 @@ def op_deliver_withdraw_gift() -> Record:
     <desc:sig-envelope <desc:handoff-give …> <sig-val r/s>>
     <sig-val r/s>>] 99 #f>``.
 
-    Stage 2 / ADR-0009 § Receiver side step 8 wire shape: the
+    Stage 2 / ADR-0039: the
     Receiver invokes ``withdraw-gift`` on the Exporter's bootstrap
     object (`<desc:export 0>`) carrying a `desc:sig-envelope`-wrapped
     `desc:handoff-receive` certificate as the second ``op:deliver``
     arg. The argument is glowcap's ``Argument::Handoff`` variant
-    per the model extension that landed alongside ADR-0009; on the
+    per the model extension that landed alongside ADR-0039; on the
     wire it is the spec-canonical envelope itself (no extra
     wrapper), so the field-position 4 ``resolve-me-desc`` slot
     stays ``#f`` in this fixture (the Exporter resolves through
@@ -555,7 +552,7 @@ def op_deliver_withdraw_gift() -> Record:
     return Record(Symbol("op:deliver"), (target, args, 99, False))
 
 
-# ── ADR-0006 op:start-session handshake fixture ─────────
+# ── ADR-0002 op:start-session handshake fixture ─────────
 
 
 def op_start_session_v1_0() -> Record:

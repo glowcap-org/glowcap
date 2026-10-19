@@ -74,7 +74,7 @@ and residency.
   managed operation allocates through Capabilities' allocator and quotas.
   - `Read.grant_row` holds the one decoded grant row and `Read.grant_scratch`
     its selections. The grant view lends the row's grant and `Read.grant_held`
-    refuses the next lookup until release (ADR-0230). `Read.grant_cached`
+    refuses the next lookup until release (ADR-0047). `Read.grant_cached`
     names the committed object and revision the row holds, so a repeat lookup
     of any scope shape decodes nothing. Proposed grants decode afresh.
   - `Read.grantScratch` forgets the cached row before inventory decoding

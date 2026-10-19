@@ -1,4 +1,4 @@
-//! Export rows: the positions this session mints, with their ADR-0008
+//! Export rows: the positions this session mints, with their ADR-0004
 //! wire-delta counts, dense over `position - base`.
 //!
 //! Name plate: `ExportTable`. Not `slot.zig` (the CapTP `Slot` sum alone) and
@@ -18,7 +18,7 @@
 //! An export row holds the binding of the authoritative `slot.Slot` for its
 //! position and rebuilds the cell from its index, so `Session.exportSlot`
 //! reads the cell rather than synthesizing a kind from "row exists." The row
-//! also says what the export is for when it is a resolver (ADR-0254).
+//! also says what the export is for when it is a resolver (ADR-0038).
 const std = @import("std");
 const model = @import("model");
 const slot_ops = @import("slot.zig");
@@ -30,7 +30,7 @@ const ResolverPurpose = @import("promises/types.zig").ResolverPurpose;
 
 /// One live export position: its wire-delta count, the binding its CapTP
 /// cell carries, and what the export is for when it is a resolver
-/// (ADR-0254). The row's index is its position and its mint is local, so the
+/// (ADR-0038). The row's index is its position and its mint is local, so the
 /// cell is rebuilt from the binding (`slot`) rather than stored twice. The
 /// purpose leaves with the row, so no table outlives the export it describes.
 pub const ExportRow = struct {
@@ -58,7 +58,7 @@ comptime {
 ///
 /// `base` is the first position the allocator hands out and `end` is one past
 /// the last it may mint or admit, the span a Node assigns each session
-/// (ADR-0146). `register`/`retain` take no cap: every row is one of our own
+/// (ADR-0027). `register`/`retain` take no cap: every row is one of our own
 /// sends, and the partner cannot add one.
 pub const ExportTable = struct {
     rows: PositionSlab(ExportRow) = .empty,

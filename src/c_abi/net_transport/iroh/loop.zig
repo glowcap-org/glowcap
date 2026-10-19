@@ -58,7 +58,7 @@ pub export fn glowcap_iroh_conn_id(conn: ?*GlowcapIrohConn) usize {
 }
 
 /// Write the far end's QUIC-verified endpoint id into `out` as lowercase hex,
-/// and the byte count into `out_len`. This is the transport proof of ADR-0105:
+/// and the byte count into `out_len`. This is the transport proof of ADR-0028:
 /// the TLS handshake authenticated the key at the other end. It answers for an
 /// accepted connection exactly as for a dialed one.
 ///

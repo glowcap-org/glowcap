@@ -6,7 +6,7 @@
 //! one decode vocabulary, full fidelity). Borrowed Passable projection lives in
 //! `values`, locator/hint projection in `locator`, and untrusted-byte leaves in
 //! `syntax`. A frame reaches this module whole: the byte-stream envelope
-//! (ADR-0110) or the transport's own message boundary delimits it before it
+//! (ADR-0012) or the transport's own message boundary delimits it before it
 //! is decoded, so this module owns profile and message dispatch and never a
 //! stream boundary. It reads bytes and holds no session authority.
 
@@ -31,7 +31,7 @@ pub const SignatureView = syntax.SignatureView;
 /// `model.view.Body.toOwned`. One decode vocabulary, every *argument* arm the
 /// encoder emits reads back with full fidelity (strings stay strings, symbols
 /// stay symbols, numeric/list/set/tagged arms included), mirroring
-/// `capnp.decodeOwned` and the symmetric-refusal posture of ADR-0003. Non-empty
+/// `capnp.decodeOwned` and the symmetric-refusal posture of ADR-0001. Non-empty
 /// locator hints ride `BorrowedHints` and materialize through `toOwned`
 /// (same path as Cap'n Proto). Empty `#f` / `{}` spellings are the `.empty` arm.
 pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !model.Message {

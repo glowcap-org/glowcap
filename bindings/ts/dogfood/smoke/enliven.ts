@@ -12,7 +12,7 @@ import { formatLocatorUri, GlowcapError, Host, Runtime, Sym, VowBroken } from ".
 import { assert, ok } from "./support.ts";
 
 export async function run(managed: Runtime): Promise<void> {
-	// Sturdyref enliven (ADR-0012): the requester brings a durable (peer, swissnum)
+	// Sturdyref enliven (ADR-0007): the requester brings a durable (peer, swissnum)
 	// to life as a live Ref through the host's dedup cache. A repeat enliven of the
 	// same swissnum short-circuits with no wire traffic (its completion is queued
 	// before the minting call returns), and the enlivened cap is sendable both
@@ -70,7 +70,7 @@ export async function run(managed: Runtime): Promise<void> {
 		);
 	}
 
-	// Select-or-dial enliven (ADR-0098): the *host* enlivens a complete
+	// Select-or-dial enliven (ADR-0007): the *host* enlivens a complete
 	// sturdyref with no session named. A peer it already dialed is selected, so
 	// this arm settles over that live session. The dial arm is the same verb
 	// with an unreached peer, driven by the host's own DIAL action.

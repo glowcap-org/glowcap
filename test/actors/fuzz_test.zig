@@ -1,7 +1,7 @@
 //! Snapshot and restore, driven against a plain record of what each snapshot
 //! should hold.
 //!
-//! An actor's state lives in one refcounted box (ADR-0060). Taking a snapshot
+//! An actor's state lives in one refcounted box (ADR-0015). Taking a snapshot
 //! copies no bytes at all: it bumps a count on every box, so a version is
 //! shared until something writes, and a write clones the box it is about to
 //! touch and leaves the shared one alone. Restoring rebuilds the live cells from

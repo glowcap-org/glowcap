@@ -1,6 +1,6 @@
 """Internal: the raw ``ctypes`` loader for ``libglowcap_net_transport_onion``.
 
-The onion transport ships as its own à-la-carte archive (ADR-0059),
+The onion transport ships as its own à-la-carte archive (ADR-0022),
 symbol-disjoint from the core ``libglowcap_ocapn``: it carries the
 ``glowcap_onion_*`` family plus its own thread-local last-error
 (``glowcap_onion_last_error`` / ``_clear``). It reaches a Tor daemon the

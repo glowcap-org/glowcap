@@ -11,7 +11,7 @@ const containsAsSymbol = util.containsAsSymbol;
 const extractBraceBlock = util.extractBraceBlock;
 
 /// The far end of the trace vocabulary: the viewer that reads the schema, and
-/// the profile word no Zig declaration owns (ADR-0104).
+/// the profile word no Zig declaration owns (ADR-0040).
 ///
 /// `c_abi.checkTraceVocabulary` holds the four producers to the protocol's own
 /// words. It stops at the bindings, which leaves two parties to one schema

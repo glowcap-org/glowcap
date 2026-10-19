@@ -27,7 +27,7 @@ const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 const FakeBackend = fixtures.FakeBackend;
 const FakeEvent = fixtures.FakeEvent;
 
-/// A scripted backend for the shared-pool contract (ADR-0054): every accepted
+/// A scripted backend for the shared-pool contract (ADR-0019): every accepted
 /// connection replays the same inbound `chunks` script, each chunk handed out
 /// as a borrowed completion view from a pool of `read_buffers` buffers. A recv
 /// armed while the pool is empty completes `recv_no_buffer`, exactly the

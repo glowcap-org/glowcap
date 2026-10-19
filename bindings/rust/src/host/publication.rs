@@ -4,7 +4,7 @@ use super::*;
 
 impl Host {
 	/// Atomically defer the current behavior turn onto a fresh resolver vow
-	/// (off-turn settlement, ADR-0102). The returned [`Resolver`] is the
+	/// (off-turn settlement, ADR-0014). The returned [`Resolver`] is the
 	/// one-shot settle authority. Refusal publishes neither half of the pair.
 	pub fn defer_turn(&self) -> Result<Resolver> {
 		let turn = current_turn_for(Rc::as_ptr(&self.shared) as usize).ok_or_else(|| {
@@ -47,7 +47,7 @@ impl Host {
 	/// Host `make`'s behavior once and bind `name` as a Host-wide alias. Fetch
 	/// lazily projects the actor onto a session, and a deposited gift keeps that
 	/// exact actor when a recipient withdraws over its own exporter session
-	/// (ADR-0009). `make` preserves the factory-shaped API for a `!Clone` `FnMut`.
+	/// (ADR-0039). `make` preserves the factory-shaped API for a `!Clone` `FnMut`.
 	/// The Host invokes it once.
 	pub fn publish(&self, name: &str, make: impl FnOnce() -> Behavior) -> Result<()> {
 		self.shared.guard_handle()?;
@@ -85,7 +85,7 @@ impl Host {
 
 	/// Publish `make`'s behavior under a freshly minted durable swiss name and
 	/// return that name: the swiss to place in a sturdyref beside this host's
-	/// own locator (ADR-0098). Unpredictable, never reassigned, structurally
+	/// own locator (ADR-0007). Unpredictable, never reassigned, structurally
 	/// disjoint from every mutable alias, and removable only through
 	/// [`Host::remove_durable`]. Entropy is drawn here, from the platform RNG.
 	pub fn publish_durable(&self, make: impl FnOnce() -> Behavior) -> Result<String> {
@@ -190,7 +190,7 @@ impl Host {
 			.map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "publication returned an invalid name".into()))
 	}
 
-	/// Remove a minted durable publication (ADR-0098): the sturdyref
+	/// Remove a minted durable publication (ADR-0007): the sturdyref
 	/// misses afterward, while capabilities already issued and deposited
 	/// gifts keep the exact actor. Returns `false` when no such durable name
 	/// exists.
@@ -207,7 +207,7 @@ impl Host {
 		Ok(true)
 	}
 
-	/// Remove the Host-wide alias `name` (alias-only, ADR-0096): a later fetch
+	/// Remove the Host-wide alias `name` (alias-only, ADR-0026): a later fetch
 	/// misses on every session, while capabilities already issued and deposited
 	/// gifts keep the exact actor, whose behavior stays hosted for the Host's
 	/// life. Returns `false` when no such alias exists. Every other refusal is
@@ -226,7 +226,7 @@ impl Host {
 		Ok(true)
 	}
 }
-/// The settle authority of a resolver pair (off-turn settlement, ADR-0102),
+/// The settle authority of a resolver pair (off-turn settlement, ADR-0014),
 /// minted while [`Host::defer_turn`] atomically defers a behavior's answer.
 /// The behavior hands the resolver to whatever completes the work, and the
 /// completion settles it from the host's thread.

@@ -135,7 +135,7 @@ pub fn hash(key: anytype) u64 {
 pub fn wireHash(key: anytype, multiplier: u64) u64 {
     // The peer picks these keys, so a fixed constant is not safe. The
     // multiplier is a secret chosen for this session, and the peer cannot
-    // work out which keys would pile into one bucket (ADR-0218).
+    // work out which keys would pile into one bucket (ADR-0037).
     // Multiplying by an odd number never sends two keys to one value. A key
     // of several words multiplies once per word, so two keys that differ in
     // any word collide only at a value the secret decides. The shifts below
@@ -170,7 +170,7 @@ pub fn WireContext(comptime K: type) type {
 
         pub fn hash(self: @This(), key: K) u64 {
             // Hash under this table's own secret multiplier, since the keys in
-            // a wire table come from the peer (ADR-0218).
+            // a wire table come from the peer (ADR-0037).
             return wireHash(key, self.multiplier);
         }
 

@@ -81,12 +81,12 @@ pub fn Machine(
         /// Pending outbound past the high-water mark means every newly applied
         /// inbound frame would pile more replies onto an unread socket, so the
         /// read parks instead and `onSend` resumes it when the queue drains
-        /// (ADR-0042). The peer's own retained-work waterline parks the read
+        /// (ADR-0017). The peer's own retained-work waterline parks the read
         /// the same way: a saturated session would break each new deliver's
         /// answer as resource-exhausted, and the byte-fed Host's feed
         /// admission already refuses at that line, so the loop tier throttles
         /// there too instead of letting inbound overrun it. With `fan_in_throttle`, a parked sink also parks every
-        /// other connection's reads so many-A-to-one-B sources slow (ADR-0082).
+        /// other connection's reads so many-A-to-one-B sources slow (ADR-0030).
         /// Protocol frames are never dropped. The queue is bounded at the mark
         /// plus the replies of frames already buffered.
         pub fn armOrPark(self: *Self, slot: usize, c: *Conn) !void {
@@ -132,7 +132,7 @@ pub fn Machine(
         }
 
         /// True when any connection that can still write is over its outbound
-        /// high-water mark (a true ADR-0042 sink park, not a fan-in source
+        /// high-water mark (a true ADR-0017 sink park, not a fan-in source
         /// park). A `.draining` connection counts: its queued bytes are just
         /// as unread, and releasing the sources it throttles while they are
         /// still in the kernel's hands is what the fan-in mark exists to
@@ -271,7 +271,7 @@ pub fn Machine(
         }
 
         /// Park a connection whose recv found the shared pool empty. Distinct
-        /// from ADR-0042 backpressure. Starvation ends when a
+        /// from ADR-0017 backpressure. Starvation ends when a
         /// buffer recycles.
         pub fn parkStarved(self: *Self, slot: usize, c: *Conn) void {
             // Only an idle read seat parks starved: the caller's recv
@@ -296,7 +296,7 @@ pub fn Machine(
         /// buffer the batch carried has been recycled: a connection parked by a
         /// starved completion dispatched *after* the batch's recycles would
         /// otherwise wait for a recycle that already happened. Either way, one
-        /// whose outbound crossed the high-water mark re-parks under ADR-0042
+        /// whose outbound crossed the high-water mark re-parks under ADR-0017
         /// (its drain re-arms it) without consuming a freed buffer, and a
         /// re-armed read that loses the race for a buffer completes
         /// starved again. It is never dropped.
@@ -307,7 +307,7 @@ pub fn Machine(
                 Lifecycle.unlinkFrom(self, &self.starved_head, slot);
                 c.read = .idle;
                 if (c.state != .open) continue;
-                // One owner for the arm-or-park decision (ADR-0042). Restating
+                // One owner for the arm-or-park decision (ADR-0017). Restating
                 // its branches here is how the two drift.
                 armOrPark(self, slot, c) catch |err| {
                     closeConnWith(self, slot, c, err);
@@ -508,7 +508,7 @@ pub fn Machine(
                 return;
             }
             // Drained. Burst capacity frees on drain (the spill's posture,
-            // ADR-0041/0042): one slow-reader episode must not pin its
+            // ADR-0012/0042): one slow-reader episode must not pin its
             // high-water bytes for the connection's lifetime. Steady-sized
             // capacity is retained so ordinary reply traffic never reallocates.
             frame_stream.reclaimBurst(&c.front, self.allocator, state.steady_outbound_bytes);
@@ -579,7 +579,7 @@ pub fn Machine(
         }
 
         /// Re-arm connections parked solely by `fan_in_throttle` once no true
-        /// ADR-0042 sink remains over the high-water mark. A seat that is still
+        /// ADR-0017 sink remains over the high-water mark. A seat that is still
         /// sink-parked (`pendingOut` over the mark) or no longer open is left
         /// alone, on the list, untouched.
         ///

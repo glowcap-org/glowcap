@@ -1,4 +1,4 @@
-//! Foreign stream providers as a completion adapter (ADR-0193).
+//! Foreign stream providers as a completion adapter (ADR-0018).
 //!
 //! Each provider connection becomes a synthetic handle served by the same
 //! `HintedTryIo` machine the multiplexed sidecars use. A read or write the

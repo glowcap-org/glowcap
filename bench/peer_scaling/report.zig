@@ -94,7 +94,7 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\The "fits" columns are connections (millions) of that kind that the
         \\core state alone fits in that RAM, ignoring transport buffers.
         \\
-        \\## The loop-driven path (ADR-0057)
+        \\## The loop-driven path (ADR-0019)
         \\
         \\The `served` row is the per-connection cost when a connection is served
         \\from one completion-loop thread (`iroh.Backend` + Bridge) instead
@@ -104,18 +104,18 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\many concurrent iroh connections from the sidecar's readiness fd,
         \\drained ready-queue, and non-blocking frame I/O; this row reports what
         \\one such connection costs, and the gate proves the multiplexing, not the
-        \\bytes. The blocking thread-per-connection path (ADR-0053) adds the same
+        \\bytes. The blocking thread-per-connection path (ADR-0018) adds the same
         \\core state *plus* an OS thread (or two) per connection — megabytes of
         \\stack each — which is exactly what the loop removes.
         \\
         \\## Transport buffers (the part the loop owns)
         \\
-        \\Since ADR-0054 the core state above is also the dominant
+        \\Since ADR-0019 the core state above is also the dominant
         \\per-connection cost. The completion loop's read buffers are a shared
         \\backend-owned pool (`BackendOptions.read_buffers`, default 256 x 16 KiB,
         \\about 4 MiB total), so an idle connection holds zero read-buffer
         \\bytes; a frame larger than a pool buffer, or split across reads,
-        \\rides the bounded spill that frees on drain (ADR-0041). The warmed
+        \\rides the bounded spill that frees on drain (ADR-0012). The warmed
         \\footprint at 500k is the core state plus one pool.
         \\
         \\For the iroh loop path the sidecar adds its own per-connection bytes,
@@ -138,7 +138,7 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\
         \\Opt-in: `zig build bench-peer-scaling -- --live` (and optional
         \\`--live-max=N`) drives TCP loopback against `driver.HostRuntime`
-        \\shards serving TCP through a completion resident (ADR-0202) at
+        \\shards serving TCP through a completion resident (ADR-0018) at
         \\stepped connection counts, printing RSS, connect success, and
         \\ns/turn. It is not part of `zig build check`; smoke mode skips the
         \\live leg. Full-target ~500k runs need machine ulimit headroom — the

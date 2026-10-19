@@ -42,7 +42,7 @@ fn runUnit(conn: *driver.Session, root: driver.Capability, arena: std.mem.Alloca
     if (!ok) return error.StatusNotDone;
 }
 
-/// The same four verbs as `runUnit`, but pipelined (ADR-0007, questioner half):
+/// The same four verbs as `runUnit`, but pipelined (ADR-0003, questioner half):
 /// `assign`/`complete`/`status` are addressed at the *answer* `create` will
 /// resolve to. The first two are one-way deliveries. Only `status` allocates an
 /// answer and settles. The whole unit therefore costs one round trip instead

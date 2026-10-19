@@ -44,7 +44,7 @@ export interface WireFrame {
 	/** The codec that produced the frame. A fact about the bytes, and
 	 *  not always the codec of the session carrying them: every
 	 *  `op:start-session` is Syrup whatever the session goes on to
-	 *  speak (ADR-0103). */
+	 *  speak (ADR-0001). */
 	readonly codec: Codec;
 	/** The frame, base64. The length is not stated beside it: the
 	 *  bytes already say it, and a second spelling of one fact is a
@@ -64,7 +64,7 @@ export const wireFrames = {
 	 * `"1.0"`, the baseline every OCapN implementation speaks, and it
 	 * reads that on a `glowcap-next` session as much as a v1.0 one. A
 	 * peer states the profile it prefers in the hints of the locator
-	 * this hello carries, never in the version field (ADR-0103).
+	 * this hello carries, never in the version field (ADR-0001).
 	 */
 	startSession: {
 		source: "test/oracle/corpus/op_start_session_v1_0.bin",

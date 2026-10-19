@@ -36,7 +36,7 @@ fn captureGiftTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, export_position
         .far => return null,
     };
     if (!session.host.vat.hasActor(actor_id)) return null;
-    // The exact gift row roots its actor (ADR-0101); `release_target` hands
+    // The exact gift row roots its actor (ADR-0014); `release_target` hands
     // the root back when the row dies, and the deposit path hands it back
     // itself if the row is never admitted.
     host.vat.retainActor(actor_id);

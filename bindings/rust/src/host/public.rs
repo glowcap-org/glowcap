@@ -4,9 +4,9 @@ use super::*;
 use crate::{CaptpVersion, Session};
 /// The CapTP Host: one identity, one actor graph, one routing and redeem
 /// authority, shared by every session minted against it. Owns `engine.Node`
-/// (router half of Goblins mycapn, while Host carries the product role: ADR-0079).
+/// (router half of Goblins mycapn, while Host carries the product role: ADR-0011).
 /// The cross-session machinery lives in the Zig core behind `libglowcap_host`
-/// (ADR-0072). This is the host-idiom residue over it: the session registry,
+/// (ADR-0022). This is the host-idiom residue over it: the session registry,
 /// the vow table, the action drain that performs the I/O the host asks for
 /// (dial, flush, settle, entropy), and the iroh redeem posture. Cloning shares
 /// the same Host. The FFI host is released when the last clone (and last
@@ -50,7 +50,7 @@ impl ListenerIdentity {
 /// local-turn budget are mint-time. Each session settles version and codec with
 /// its partner, falling back to v1.0/Syrup when needed, and runs only the
 /// intersection of the two offered feature sets. Selective session limits stay
-/// on [`Host::set_session_limits`] (ADR-0124).
+/// on [`Host::set_session_limits`] (ADR-0008).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct HostOptions {
 	pub codec: Codec,
@@ -59,7 +59,7 @@ pub struct HostOptions {
 	pub captp_version: crate::CaptpVersion,
 	/// Optional CapTP features this Host advertises.
 	pub features: crate::FeatureSet,
-	/// Caps local-turn amplification per session (ADR-0076). `0` applies the
+	/// Caps local-turn amplification per session (ADR-0018). `0` applies the
 	/// Host's finite default, `u32::MAX` (the C ABI's
 	/// `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED`) turns the cap off, and any other
 	/// value is the cap.
@@ -142,7 +142,7 @@ impl Host {
 
 	/// A Host whose retained Ed25519 identity is reconstructed from `seed`.
 	/// This keeps a keyed-TCP designator stable across a rebind while each
-	/// session still receives a fresh signing key (ADR-0075, ADR-0097).
+	/// session still receives a fresh signing key (ADR-0028).
 	/// Omitted profile options use the generated C ABI defaults.
 	pub fn from_seed(seed: [u8; 32]) -> Result<Host> {
 		Host::from_seed_with_options(seed, HostOptions::default())
@@ -189,10 +189,10 @@ impl Host {
 	}
 
 	/// Choose whether far capabilities this Host hands the application release
-	/// their Host retain when the last `Ref` clone drops (ADR-0063). On by
+	/// their Host retain when the last `Ref` clone drops (ADR-0025). On by
 	/// default: the partner learns through `op:gc-exports` that the import is
 	/// gone. Turn it off only to release every capability explicitly. The
-	/// setting lives on the Host archive (ADR-0192) and applies to outcomes
+	/// setting lives on the Host archive (ADR-0025) and applies to outcomes
 	/// minted after the call, on every session.
 	pub fn set_release_on_drop(&self, enabled: bool) -> Result<()> {
 		// SAFETY: `self.shared.raw()` is this `HostShared`'s handle from `glowcap_host_new_in`, which the callee
@@ -284,7 +284,7 @@ impl Host {
 		self.shared.install_connectors(connectors)
 	}
 
-	/// Enliven a complete sturdyref without naming a session (ADR-0098): the
+	/// Enliven a complete sturdyref without naming a session (ADR-0007): the
 	/// host enlivens it over a live session it already dialed to that peer, or
 	/// dials one itself through this host's own DIAL action and finishes when
 	/// the dial reports. [`Session::enliven`] is the narrower verb: it never

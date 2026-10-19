@@ -3,12 +3,12 @@
 //!
 //! A partner can hand us a promise, usually a `desc:import-promise` in a
 //! fulfill that an introducing session is proxying for a third party
-//! (ADR-0009). The only way to learn how that promise settles is to ask, and
+//! (ADR-0039). The only way to learn how that promise settles is to ask, and
 //! this is the verb that asks. It nominates an export of ours as the listener,
 //! and the partner delivers the notification there as an `op:deliver` carrying
 //! `['fulfill|'break, payload]`. The inbound classifier reads that deliver
 //! through the session's resolver-export link and surfaces it as a semantic
-//! `Resolve` on the answer this verb returns (ADR-0095). A caller therefore
+//! `Resolve` on the answer this verb returns (ADR-0003). A caller therefore
 //! observes a listen exactly as it observes the reply to a call.
 
 const model = @import("model");
@@ -65,7 +65,7 @@ pub fn listenOnFar(peer: *Peer, target: model.Reference) !session.OutboundAnswer
             else
                 far },
             // Project the mention from the authoritative slot rather than
-            // hand-typing the kind (ADR-0080): the nomination reserved an object
+            // hand-typing the kind (ADR-0006): the nomination reserved an object
             // row, and the render path reads that row.
             .listener = peer.session_state.exportReference(nomination.resolver_export).?,
             // Next already installed the one protocol-required shortening

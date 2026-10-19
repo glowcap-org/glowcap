@@ -84,7 +84,7 @@ pub const CloseObserver = struct {
 /// How a HostRuntime is driven, chosen once at construction. The blocking
 /// Zig face waits on the live wires itself. The stepped face hands an
 /// embedder one readiness descriptor and publishes through the recipients
-/// below (ADR-0112).
+/// below (ADR-0024).
 pub const DriveOptions = union(enum) {
     blocking,
     stepped: SteppedOptions,

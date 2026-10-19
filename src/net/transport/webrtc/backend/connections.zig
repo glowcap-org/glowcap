@@ -80,7 +80,7 @@ pub fn Machine(comptime Self: type, comptime Fd: type) type {
         }
 
         /// The signaling-authorized remote identity for `fd`'s connection
-        /// (ADR-0105): the key the exchange was scoped to, which is the dialed
+        /// (ADR-0028): the key the exchange was scoped to, which is the dialed
         /// designator on the offer leg and the adopted peer's `authorizeRemote` on
         /// the answer leg. Null when the signaling owner named no identity.
         pub fn verifiedChannelKey(self: *Self, fd: Fd) ?[crypto.peer_key_bytes]u8 {

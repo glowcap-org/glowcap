@@ -1,4 +1,4 @@
-// The layer-zero proof for the browser binding (ADR-0070): the byte-fed CapTP
+// The layer-zero proof for the browser binding (ADR-0034): the byte-fed CapTP
 // Host,
 // compiled to freestanding wasm32 (`zig build wasm-driver`), holds a real keyed
 // OCapN handshake driven entirely from JavaScript across the WASM/JS boundary.
@@ -211,7 +211,7 @@ function lastHostError(): string {
 
 function hostNew(seed: Uint8Array): number {
 	// Durable identity followed by a session-key root, so every session this
-	// host opens signs with its own key (ADR-0097). The wasm module draws no
+	// host opens signs with its own key (ADR-0028). The wasm module draws no
 	// entropy; the page supplies it, as the FFI bindings do.
 	const seedWithRoot = new Uint8Array(64);
 	seedWithRoot.set(seed.subarray(0, 32), 0);
@@ -228,7 +228,7 @@ function hostNew(seed: Uint8Array): number {
 			CAPTP_V1_0,
 			FEATURE_FULL,
 			0, // local_turn_budget: unbounded
-			0, // release_on_drop: a browser release rides the finalizer (ADR-0192)
+			0, // release_on_drop: a browser release rides the finalizer (ADR-0025)
 			outPtr,
 		);
 		if (rc !== OK) throw new Error(`glowcap_host_new failed: rc=${rc}`);

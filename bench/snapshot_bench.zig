@@ -11,7 +11,7 @@
 //! Every number is the median of repeated samples taken after a warmup, the same
 //! hygiene the wire suite and the Goblins half apply.
 //!
-//! Three axes (ADR-0060, ADR-0061):
+//! Three axes (ADR-0015):
 //!
 //!   1. **Snapshot is O(objects), not O(bytes).** Sharing each actor's state box
 //!      by refcount copies no state bytes, so snapshot time grows with the object

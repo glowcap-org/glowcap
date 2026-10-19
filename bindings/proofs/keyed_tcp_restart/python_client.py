@@ -56,7 +56,7 @@ async def call_greeter(partner: Locator, expected: str) -> None:
             proved = session.partner_identity()
             if proved.designator != expected:
                 fail("keyed-tcp-restart", f"partner claimed {proved.designator}, not the dialed {expected}")
-            # Every session signs with a fresh key (ADR-0097), distinct
+            # Every session signs with a fresh key (ADR-0028), distinct
             # from the claimed durable designator.
             if proved.session_key.hex() == expected:
                 fail("keyed-tcp-restart", "session key still equals the durable designator; sessions are not independently keyed")

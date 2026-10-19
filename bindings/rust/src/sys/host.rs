@@ -1,4 +1,4 @@
-//! Raw FFI for the byte-fed host archive (`libglowcap_host`, ADR-0072).
+//! Raw FFI for the byte-fed host archive (`libglowcap_host`, ADR-0022).
 //!
 //! The archive is a companion of `libglowcap_ocapn`: it exports only the
 //! `glowcap_host_*` family and shares the frame, argument, reference, and
@@ -24,7 +24,7 @@ use crate::abi_constants::TRACE_DIGEST_BYTES;
 use crate::sys::{GlowcapArgument, GlowcapReference};
 
 /// A byte-fed multi-session CapTP host: one identity, one routing and
-/// redeem authority, many sessions (`glowcap_host.h`, ADR-0072).
+/// redeem authority, many sessions (`glowcap_host.h`, ADR-0022).
 #[repr(C)]
 pub struct GlowcapHost {
 	_private: [u8; 0],
@@ -172,7 +172,7 @@ pub type GlowcapHostPumpArmFn = unsafe extern "C" fn(
 	out_progressed: *mut u32,
 ) -> c_int;
 
-/// Opt-in embedder hooks for `glowcap_host_pump_drain` (ADR-0072 fifth
+/// Opt-in embedder hooks for `glowcap_host_pump_drain` (ADR-0022 fifth
 /// amendment). NULL arm pointers skip that kind. Hand-mirrored from
 /// `glowcap_host.h`. The const assert block below pins the LP64 layout.
 #[repr(C)]
@@ -224,7 +224,7 @@ pub struct GlowcapPartnerIdentity {
 	pub locator_record: *const c_uchar,
 	pub locator_record_len: usize,
 	/// How the durable identity in `designator` was authenticated, one of the
-	/// `DURABLE_PROVENANCE_*` constants (ADR-0097).
+	/// `DURABLE_PROVENANCE_*` constants (ADR-0028).
 	pub provenance: c_uint,
 }
 

@@ -1,4 +1,4 @@
-//! The off-turn settle mailbox (ADR-0102 stage 4) on `driver.HostRuntime`.
+//! The off-turn settle mailbox (ADR-0014 stage 4) on `driver.HostRuntime`.
 //! The headline scenarios run a real worker `std.Thread`: a served behavior
 //! defers its answer onto a resolver vow and parks the resolver id. The worker
 //! posts the settle from its own thread. The owning thread's poll wait wakes

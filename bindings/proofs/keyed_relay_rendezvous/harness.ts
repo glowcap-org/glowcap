@@ -1,4 +1,4 @@
-// The shared stand for the keyed-relay rendezvous proof family (ADR-0088):
+// The shared stand for the keyed-relay rendezvous proof family (ADR-0034):
 // start the reference relay (`bindings/ts/relay/serve.ts`, which owns the
 // `/register` and `?rendezvous=` legs), start the registered non-listening
 // peer, then run one binding's client with its complete hinted locator appended

@@ -6,7 +6,7 @@
 // `webSocketRelay` pipes a browser's socket to a far side the caller dials.
 // `webSocketChannel` is the mirror: it presents an already-open socket as a
 // `RelayChannel`, so a held registered socket (the cold-dial rendezvous,
-// ADR-0088) can be the far side of another socket's relay.
+// ADR-0034) can be the far side of another socket's relay.
 
 import { type ByteSink, type ByteSource, relayBytes, type RelayChannel, type RelayConfig } from "./relay.ts";
 import type { Timer } from "../runtime/timer.ts";
@@ -190,7 +190,7 @@ export async function webSocketRelay(
 /**
  * Present an already-open WebSocket as a `RelayChannel`, so it can be the far
  * side of another socket's `webSocketRelay`. This is the cold-dial rendezvous
- * far leg (ADR-0088): a browser that cannot be dialed holds an inbound socket
+ * far leg (ADR-0034): a browser that cannot be dialed holds an inbound socket
  * at the relay, and a dialer naming its identity is relayed onto this channel.
  * Byte-transparent like every relay leg: the keyed session runs end to end
  * between the two sockets and the relay parses nothing.

@@ -1,6 +1,6 @@
 //! The multiplexed-resident contract: how a transport that multiplexes many
 //! connections behind one readiness descriptor joins `driver.HostRuntime`
-//! (ADR-0112).
+//! (ADR-0024).
 //!
 //! A stream netlayer hands the runtime one pollable descriptor per connection.
 //! iroh and WebRTC cannot: their connections live inside a foreign runtime,

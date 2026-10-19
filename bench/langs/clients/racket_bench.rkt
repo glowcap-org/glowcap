@@ -30,7 +30,7 @@
   (session-send c task 'complete)
   (session-send c task 'status))
 
-;; The same four verbs as run-unit, but pipelined (ADR-0007, questioner half):
+;; The same four verbs as run-unit, but pipelined (ADR-0003, questioner half):
 ;; assign/complete/status are addressed at the answer `create` will resolve to,
 ;; the vow `session-send-promise` returns, passed as the target. assign/complete
 ;; are one-way deliveries; only status allocates an answer and is settled. The

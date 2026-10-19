@@ -3,7 +3,7 @@
 //!
 //! This lives in the model layer so that everyone who hangs onto a message after
 //! its frame is gone plays by the same release rules. Mostly that's the session's
-//! pipelining tables (ADR-0007): the per-answer call queue and the stored
+//! pipelining tables (ADR-0003): the per-answer call queue and the stored
 //! resolutions own the messages they hold and free them on their own, without
 //! reaching back up into the engine.
 //!

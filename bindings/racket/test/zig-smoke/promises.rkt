@@ -174,7 +174,7 @@
 
 (printf "racket zig-smoke OK: a nested cross-connection argument projects as a Ref\n")
 
-;; ── Promise pipelining: the questioner's half (ADR-0007) ──────────────────────
+;; ── Promise pipelining: the questioner's half (ADR-0003) ──────────────────────
 ;; `session-send-promise` returns a far vow that is itself a `send` target, so
 ;; a create -> assign -> complete -> status chain is issued against the
 ;; create answer even after a fast resolution. The board's `create` spawns a fresh task
@@ -359,7 +359,7 @@
 
 (printf "racket zig-smoke OK: queue saturation stays exact through serve and repeated close\n")
 
-;; ── Pipelined projections (ADR-0050/ADR-0052) ─────────────────────────────────
+;; ── Pipelined projections (ADR-0004/ADR-0004) ─────────────────────────────────
 ;; `session-untag`/`session-index` project a tag/element out of a far
 ;; vow *before it settles*, each returning a new pipelinable vow. The board's
 ;; `make` returns a `("assigned" label 7)` row wrapped in a "task" tag; `untag`

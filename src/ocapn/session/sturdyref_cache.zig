@@ -1,4 +1,4 @@
-//! Sturdyref-enliven dedup state for one Session (ADR-0012).
+//! Sturdyref-enliven dedup state for one Session (ADR-0007).
 //!
 //! Both are optional dedup: a cache miss costs one extra bootstrap-fetch
 //! round-trip, never correctness, so the cache evicts its oldest entry on
@@ -29,9 +29,9 @@ pub const Entry = struct {
 };
 
 /// The cached enlivenment row for `swissnum`, by value, or null on a cache
-/// miss (ADR-0012), one O(1) index lookup answering both halves of the
+/// miss (ADR-0007), one O(1) index lookup answering both halves of the
 /// cache-hit short-circuit: the import position and the wire-kind, the latter
-/// preserved verbatim per ADR-0010 § The far-kind is preserved across enliven.
+/// preserved verbatim per ADR-0006.
 /// The returned `swissnum` field borrows the cache row. Read the POD fields,
 /// do not retain the slice.
 pub fn sturdyrefCacheLookup(self: *const Session, swissnum: []const u8) ?SturdyrefCacheEntry {
@@ -39,11 +39,11 @@ pub fn sturdyrefCacheLookup(self: *const Session, swissnum: []const u8) ?Sturdyr
     return self.sturdyref_cache.items[i];
 }
 
-/// Cache a resolved enlivenment for future repeat-enlivens (ADR-0012). Bounded
+/// Cache a resolved enlivenment for future repeat-enlivens (ADR-0007). Bounded
 /// by `SessionLimits.max_sturdyref_cache_entries`. Idempotent on `swissnum`
 /// (last-wins overwrite, no extra allocation). On overflow it evicts the
 /// oldest entry (a miss costs only a refetch). A cap of 0 disables caching.
-/// `far` is stored whole so its kind is preserved (ADR-0010).
+/// `far` is stored whole so its kind is preserved (ADR-0006).
 pub fn cacheSturdyrefEnlivenment(
     self: *Session,
     swissnum: []const u8,
@@ -90,7 +90,7 @@ pub fn settlePendingEnlivenIntoCache(self: *Session, swissnum: []const u8, far: 
 }
 
 /// The outstanding bootstrap-fetch answer for an in-flight enliven of
-/// `swissnum`, or null when none is pending (ADR-0012 in-flight dedup).
+/// `swissnum`, or null when none is pending (ADR-0007 in-flight dedup).
 pub fn pendingEnlivenAnswer(self: *Session, swissnum: []const u8) ?model.AnswerPosition {
     return self.pending_enlivens.get(swissnum);
 }

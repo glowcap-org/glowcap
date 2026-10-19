@@ -455,7 +455,7 @@ fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: [
 // for the async sidecar bridge, where every read pays a cross-thread wakeup
 // with nothing to amortize it against. One Server thread multiplexing many
 // connections through the endpoint's single readiness descriptor is the path
-// iroh is built to be served on (ADR-0057). This measures the
+// iroh is built to be served on (ADR-0019). This measures the
 // aggregate round-trip throughput there, so the page can show that the serial
 // single-stream number is a floor, not the transport's capacity.
 

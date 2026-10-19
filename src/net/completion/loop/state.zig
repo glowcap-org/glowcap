@@ -13,7 +13,7 @@ const CloseReason = contract.CloseReason;
 
 /// Which kind of submitted operation a completion belongs to. Packed into the low
 /// bits of `user_data`. The rest is the connection slot index. `wake` and
-/// `wake_cancel` have no connection: the out-of-band wake recv (ADR-0102) and
+/// `wake_cancel` have no connection: the out-of-band wake recv (ADR-0014) and
 /// its shutdown cancellation always carry slot 0 and are dispatched before
 /// any slot lookup.
 pub const Op = enum(u3) { accept, connect, recv, send, close, wake, wake_cancel };
@@ -41,13 +41,13 @@ pub fn pendingOut(c: anytype) usize {
 /// connections are waiting on, and the failure that caused them is transient.
 pub const close_retry_ms: i32 = 50;
 
-/// Outbound queue capacity a drained `front` retains (ADR-0042). The iroh
+/// Outbound queue capacity a drained `front` retains (ADR-0017). The iroh
 /// sidecar keeps the same bound for its own per-connection buffer, in Rust
 /// (`NB_STEADY_BYTES`), so the per-connection footprint cannot split between
 /// them. `source-check` holds the two numbers together.
 pub const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 
-/// Per-connection slot bookkeeping ceiling (ADR-0045): the most a `Conn` may
+/// Per-connection slot bookkeeping ceiling (ADR-0009): the most a `Conn` may
 /// cost *beyond* the `engine.Peer` it embeds, the slot state, the outbound
 /// queue's two `ArrayList` headers, the spill header, the intrusive link, and
 /// the in-flight/context words. `Peer` is gated by its own `@sizeOf(Peer)`
@@ -110,9 +110,9 @@ pub fn Types(comptime Backend: type) type {
             /// The read seat, exactly one recv is armed per open connection,
             /// or the seat is explicitly idle/parked: `.idle` between a recv
             /// completion and its verdict, `.armed` while a recv is submitted,
-            /// `.parked` under ADR-0042 backpressure (outbound past the
+            /// `.parked` under ADR-0017 backpressure (outbound past the
             /// high-water mark. `onSend`'s drain resumes it), `.starved` when
-            /// the shared pool was empty (ADR-0054. A recycle resumes it).
+            /// the shared pool was empty (ADR-0019. A recycle resumes it).
             read: enum { idle, armed, parked, starved } = .idle,
             /// Monotonic ms (since boot, not wall-clock) when this connection
             /// started waiting on the partner, or 0 when it is not waiting
@@ -154,7 +154,7 @@ pub fn Types(comptime Backend: type) type {
             /// `Options.on_close` at teardown.
             opened: bool = false,
             /// Why this connection is closing. Set before `closeConn` for a
-            /// loop-initiated reclaim so `on_close` can name it (ADR-0082).
+            /// loop-initiated reclaim so `on_close` can name it (ADR-0030).
             close_reason: CloseReason = .ordinary,
             fd: Fd = undefined,
             peer: engine.Peer = undefined,

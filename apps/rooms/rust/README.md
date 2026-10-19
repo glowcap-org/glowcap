@@ -26,8 +26,8 @@ crate, with a fixture that proves it on both targets. `zig build source-check` e
 direction: a service dependency never
 enters a shared or platform crate, and no host platform dependency enters
 the browser crate.
-[ADR-0147](../../../docs/decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
-and [ADR-0148](../../../docs/decisions/adr/ADR-0148-rooms-host-platform-and-services.md)
+[ADR-0045](../../../docs/decisions/adr/ADR-0045-managed-rooms-sessions.md)
+and [ADR-0045](../../../docs/decisions/adr/ADR-0045-managed-rooms-sessions.md)
 record the boundary.
 
 ### rooms-application

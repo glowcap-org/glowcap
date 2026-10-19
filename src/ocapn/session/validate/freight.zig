@@ -1,4 +1,4 @@
-//! Certification of a borrowed outbound argument tree (ADR-0246).
+//! Certification of a borrowed outbound argument tree (ADR-0064).
 //!
 //! A caller may lend a deliver's arguments as views instead of an owned
 //! tree: the Host's values behind a sequence table, or a delivery a handler
@@ -12,7 +12,7 @@
 //! reads it once. The walk also measures the tree as the owned model
 //! measures it, so admission charges freight before its frame exists, and
 //! sizes its values with the codec's meter, so the encoder reads it once
-//! (ADR-0253).
+//! (ADR-0064).
 
 const std = @import("std");
 const model = @import("model");

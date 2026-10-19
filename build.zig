@@ -45,7 +45,7 @@ const addRootedSystemCommand = build_common.addRootedSystemCommand;
 const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
 /// The layer DAG, the one authoritative statement of the architecture
-/// (ADR-0040, ADR-0048 for the sibling-codec modules below the codec layer).
+/// (ADR-0011 for the sibling-codec modules below the codec layer).
 /// Every build graph is generated from this table, and `tools/check/arch_check.zig`
 /// verifies it against the source tree: a granted edge no file imports fails
 /// the gate, so the table carries the edges the code uses, never a wider
@@ -100,7 +100,7 @@ pub const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "glowcap", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "loam", "net", "driver", "c_abi" }, .core = false },
 };
 
-/// The composable C ABI archive set (ADR-0059), declared once beside
+/// The composable C ABI archive set (ADR-0022), declared once beside
 /// `layer_table`. Each row names an installed archive, the `layer_table` row
 /// whose module supplies its C ABI root (the source of its export family), and
 /// the public header it ships when the header is not installed by its owning
@@ -208,7 +208,7 @@ pub fn build(b: *std.Build) void {
         std.process.fatal("-Dattach requires -Dport: there is no server to join without a port", .{});
     }
 
-    // ── Internal layer modules (ADR-0040, ADR-0048) ─────────────────────────
+    // ── Internal layer modules (ADR-0011) ─────────────────────────
     // The DAG lives in `layer_table` above; materializing it makes every edge a
     // compiler-checked law, a layer cannot even name a file outside its module
     // root, and a new edge is a visible one-line table diff, not a review note.
@@ -224,7 +224,7 @@ pub fn build(b: *std.Build) void {
     // consumer makes this compile step part of its own graph.
     const relay_tls = mbedtls_build.addFamily(b, target, optimize, host_mods[layerIndex("foundation")], host_mods[layerIndex("net")]);
 
-    // ── Composable C ABI archives (ADR-0059) ─────────────────────────────────
+    // ── Composable C ABI archives (ADR-0022) ─────────────────────────────────
     // The single umbrella artifact is dropped: each family
     // ships as its own archive linked à la carte, exporting only its
     // `glowcap_<family>_*` symbols and sharing core types by header layout.
@@ -265,10 +265,10 @@ pub fn build(b: *std.Build) void {
     // freestanding Linux thread implementation has no initialized TLS template
     // there. Use the host thread runtime for both static and shared consumers;
     // this is also the ordinary threading contract a C library should expose,
-    // and it is what lets the archive pin itself resident (ADR-0256).
+    // and it is what lets the archive pin itself resident (ADR-0024).
     tcp_abi_mod.linkSystemLibrary("c", .{});
     onion_abi_mod.linkSystemLibrary("c", .{});
-    // `libglowcap_host`: the byte-fed driver tier over the C ABI (ADR-0072).
+    // `libglowcap_host`: the byte-fed driver tier over the C ABI (ADR-0022).
     // Roots on its own layer module, importing `driver_core` (the sans-io serve
     // core it wraps) and the shared vocabulary leaf, so it exports only
     // `glowcap_host_*`.
@@ -283,7 +283,7 @@ pub fn build(b: *std.Build) void {
     const host_abi_mod = transportAbiModule(b, target, optimize, "src/c_abi/host/mod.zig", &host_abi_imports);
     const host_archive_mod = transportAbiModule(b, target, optimize, "src/c_abi/host/archive.zig", &host_abi_imports);
 
-    // `libglowcap_driver`: the driver archive (ADR-0112). Roots on its
+    // `libglowcap_driver`: the driver archive (ADR-0024). Roots on its
     // own layer module, importing `driver` (whose `HostRuntime` it steps) and the
     // Host implementation namespace without rooting the Host export family.
     // Owns a `std.Io.Threaded`, so it links libc like the transport archives.
@@ -460,7 +460,7 @@ pub fn build(b: *std.Build) void {
     build_common.registerSidecarCommon(b);
 
     // The iroh netlayer family (sidecar, resident, live drivers, the
-    // ADR-0112 seam, the site snippets and locator suite, and the C ABI
+    // ADR-0024 seam, the site snippets and locator suite, and the C ABI
     // companion) registers from tools/build/iroh.zig.
     const iroh_reg = iroh_build.registerSteps(.{
         .b = b,
@@ -484,7 +484,7 @@ pub fn build(b: *std.Build) void {
     }
     bindings_step.dependOn(iroh_reg.abi_test_step);
 
-    // The WebRTC DataChannel netlayer family (ADR-0089) registers as one
+    // The WebRTC DataChannel netlayer family (ADR-0035) registers as one
     // subject from tools/build/webrtc.zig: the sidecar's cargo steps, the
     // hermetic compile objects that ride `check`, the live interop and
     // browser proofs, the driver-provider seam, and the public C ABI

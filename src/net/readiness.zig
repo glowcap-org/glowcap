@@ -1,5 +1,5 @@
 //! One aggregate readiness descriptor for a poll-shaped host face
-//! (ADR-0112): a kernel-held interest set over every descriptor the face
+//! (ADR-0024): a kernel-held interest set over every descriptor the face
 //! waits on, exposed as a single pollable fd. An embedder that owns its own
 //! event loop parks on that one fd and calls the face's step verb when it
 //! reads ready, instead of re-tracking every wire, resident, and mailbox

@@ -1,7 +1,7 @@
 //! An inbound message is parsed once. A transport's borrowed buffer is copied
 //! behind the frame head the engine retains and parsed there, so the surfaced
 //! event reads its own bytes and never the buffer the transport has since
-//! reused. The argument list is parsed into that head's room (ADR-0222), so
+//! reused. The argument list is parsed into that head's room (ADR-0063), so
 //! the application walks views and the wire is read once.
 
 const std = @import("std");

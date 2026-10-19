@@ -1,4 +1,4 @@
-//! The `glowcap_driver_*` loop family (ADR-0112): a stepping projection of
+//! The `glowcap_driver_*` loop family (ADR-0024): a stepping projection of
 //! `driver.HostRuntime` over the byte-fed Host implementation. The embedder's
 //! whole transport role is: create the loop, register provider packages, dial
 //! and listen, park on one readiness

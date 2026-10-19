@@ -79,7 +79,7 @@ test "decodeBody exposes borrowed GC position lists" {
 
 test "decodeBody exposes borrowed views for deliver, get, index, listen, and resolve" {
     // The decoder lifts each payload/target descriptor into the receiver's
-    // perspective (ADR-0010 flip): `<desc:export N>` → `.near{export_position=N}` and
+    // perspective (ADR-0006 flip): `<desc:export N>` → `.near{export_position=N}` and
     // `<desc:import-object N>` → `.far{import_position=N}`. The fixture-name `_far` /
     // `_near` labels describe the wire descriptor's model arm, not the decoded
     // one.

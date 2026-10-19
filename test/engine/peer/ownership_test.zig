@@ -560,7 +560,7 @@ test "recvBorrowed surfaces inbound get, index, and listen events" {
         try std.testing.expectEqual(engine.EventKind.get, event.kind());
         try std.testing.expectEqualStrings("name", event.view().get.field);
     }
-    // The responder (ADR-0050) exports the projected answer immediately. The
+    // The responder (ADR-0004) exports the projected answer immediately. The
     // receiver here is a plain export, which can never settle to a value, so
     // the projection breaks rather than hanging the requester.
     try std.testing.expect(peer.session_state.inboundAnswer(.from(11)) != null);

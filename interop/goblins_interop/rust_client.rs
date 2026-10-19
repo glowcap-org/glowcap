@@ -6,7 +6,7 @@
 //!
 //! It spawns the conformance Goblins host, learns the echo cap's swiss-num from
 //! its NDJSON readiness line, then `connect` (keyed `op:start-session`),
-//! `enliven` the echo sturdyref (bootstrap fetch + ADR-0012 dedup), `send` a
+//! `enliven` the echo sturdyref (bootstrap fetch + ADR-0007 dedup), `send` a
 //! positional call, then a repeat `enliven` of the same swiss-num. Needs
 //! `racket` plus `goblins` on PATH, `zig build rust-goblins-interop`.
 
@@ -66,7 +66,7 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 	println!("rust-goblins-interop: session open, keyed start-session accepted by goblins");
 
 	// A sturdyref names a peer, and the enliven checks that peer against the
-	// session it rides (ADR-0098). Build it from the very locator this session
+	// session it rides (ADR-0007). Build it from the very locator this session
 	// dialed, so the two cannot drift apart.
 	let sturdyref = format!("{}/s/{sturdyref_path}", format_locator_uri(&locator)?);
 	let echo = session.enliven(&sturdyref).await?;

@@ -35,10 +35,10 @@ pub const Route = union(enum) {
     /// A Node-only settling callback. It remains a deliver event for the Host's
     /// Node composition hook, while session authority retires it as one-shot.
     node_resolver_callback: model.ExportPosition,
-    /// Pipelined against an answer we owe (ADR-0007): the call was queued or
+    /// Pipelined against an answer we owe (ADR-0003): the call was queued or
     /// redirected during classification, so the frame surfaces nothing.
     pipelined: pipeline.PreparedPipelinedCall,
-    /// A bootstrap-protocol deliver (ADR-0006): the caller applies the action
+    /// A bootstrap-protocol deliver (ADR-0002): the caller applies the action
     /// after authority records the deliver.
     bootstrap: bootstrap.Request,
     /// An ordinary deliver, surfaced to the application. The optional answer is
@@ -105,7 +105,7 @@ pub fn classify(
     // A resolver export settles by an `['fulfill|'break, payload]` deliver on
     // every negotiated version, so this read carries no version gate: the
     // V1.0 resolver callback and the `op:listen` notification a listener
-    // export receives are the same wire shape (ADR-0095). Only a `.near`
+    // export receives are the same wire shape (ADR-0003). Only a `.near`
     // names an export row, so a partner-named `.far` in the same integer
     // space cannot reach a purpose. One read of the row classifies every
     // resolver kind; a local promise's projection is an ordinary target.

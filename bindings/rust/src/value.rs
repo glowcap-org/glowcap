@@ -106,7 +106,7 @@ pub enum Argument {
 		value: Vec<Argument>,
 	},
 	Keyword(String),
-	/// An arbitrary-precision OCapN Integer outside `i64` (ADR-0049): the sign
+	/// An arbitrary-precision OCapN Integer outside `i64` (ADR-0005): the sign
 	/// plus the canonical decimal magnitude (ASCII digits, no leading zero).
 	/// Parse `digits` into your own bignum type. glowcap transports and
 	/// compares the value, it does not compute with it.
@@ -114,7 +114,7 @@ pub enum Argument {
 		negative: bool,
 		digits: String,
 	},
-	/// A list of `i64` integers sent as one run (ADR-0247). It is the same OCapN value as a `List` of `Integer`s and
+	/// A list of `i64` integers sent as one run (ADR-0064). It is the same OCapN value as a `List` of `Integer`s and
 	/// encodes to the same bytes, but the library reads the words where they lie. A list of integers from a peer
 	/// arrives as `List`.
 	Integers(Vec<i64>),

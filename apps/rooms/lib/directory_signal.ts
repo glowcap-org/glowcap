@@ -1,4 +1,4 @@
-// WebRTC signaling carried by a directory connection (ADR-0089).
+// WebRTC signaling carried by a directory connection (ADR-0035).
 //
 // One row per active dial. `onSignalCandidate` creates it before ICE gathering
 // starts, so early local candidates can wait on `offerReady` instead of racing

@@ -166,7 +166,7 @@ pub fn ConnLifecycle(comptime Payload: type) type {
 /// (tcp and inproc). `Payload` declares `stream` (with `readFrame`/`writeFrame`)
 /// and `allocator`. A comptime helper, not an `export fn`, so each archive
 /// compiles its own copy and the shared leaf stays symbol-free. The archives
-/// keep their own exports (ADR-0059). `onConnectionLost` / `onWriteErr`
+/// keep their own exports (ADR-0022). `onConnectionLost` / `onWriteErr`
 /// parameterize the last-error message: tcp consults `lastReadError`/
 /// `lastWriteError`, inproc records a static cause.
 pub fn ConnFrameOps(comptime Payload: type) type {

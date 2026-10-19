@@ -1,4 +1,4 @@
-//! Live three-party handoff over iroh, all in the Rust binding (ADR-0009), the
+//! Live three-party handoff over iroh, all in the Rust binding (ADR-0039), the
 //! Rust sibling of the Deno `zig build demo-rooms-dm-iroh` proof and the iroh
 //! companion of `rust-goblins-gift`/`rust-goblins-handoff`. It proves both halves
 //! of an iroh handoff through the binding's own surface: the gifter mints a
@@ -73,7 +73,7 @@ async fn run() -> Result<(), Fail> {
 	let greeter_ref = to_exporter.fetch("greeter").await?;
 	// Mutate the held greeter, then replace the alias with a decoy: the give
 	// must retain the exact mutated actor, never whatever the alias resolves
-	// to at withdrawal (ADR-0096's exact-object identity, on the binding path).
+	// to at withdrawal (ADR-0026's exact-object identity, on the binding path).
 	let primed = to_exporter
 		.send(&greeter_ref, "prime", &[Argument::String("gifter-mark".into())])
 		.await?;

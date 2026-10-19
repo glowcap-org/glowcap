@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Internal: the raw `ffi/unsafe` loader for libglowcap_net_transport_iroh.
 ;;
-;; The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0055) is optional: absent
+;; The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0021) is optional: absent
 ;; unless built with cargo, so it loads lazily on first `iroh-fn` use, caching
 ;; the bound table and naming the build step when the library is absent. Nothing
 ;; here is public; `../glowcap-iroh.rkt` is the ergonomic surface over it. The

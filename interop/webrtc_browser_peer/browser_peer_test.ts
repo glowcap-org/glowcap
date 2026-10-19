@@ -1,4 +1,4 @@
-// The WebRTC browser-peer proof in a REAL browser (ADR-0089). A headless
+// The WebRTC browser-peer proof in a REAL browser (ADR-0035). A headless
 // Chromium is the offerer: it bundles `@glowcap/web` (the wasm protocol core) and
 // `@glowcap/webrtc` (`RtcPeer` over RTCPeerConnection), brings up a DataChannel to
 // the Zig answerer (`answerer.zig`, over the `glowcap_webrtc_*` sidecar), and
@@ -9,7 +9,7 @@
 // signaling is ferried in-process between two Zig peers; here it crosses a real
 // process and runtime boundary. This harness ferries it out of band over the
 // answerer's stdio, one JSON line each way, the stand-in for the OCapN
-// signaling capability ADR-0089 carries, while session authority stays
+// signaling capability ADR-0035 carries, while session authority stays
 // end to end over the DataChannel's DTLS, keyed to the answerer's announced
 // designator.
 //

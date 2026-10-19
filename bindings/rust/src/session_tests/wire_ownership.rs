@@ -135,7 +135,7 @@ async fn wait_for(signal: &WireSignal, expected: usize, what: &str) {
 		.unwrap_or_else(|_| panic!("timed out waiting for {what}"));
 }
 
-// Distributed GC (ADR-0063), opt-in: every newly projected application
+// Distributed GC (ADR-0025), opt-in: every newly projected application
 // capability occurrence receives one death rite, whether it came from fetch,
 // a nested send reply, or a nested delivered argument. The duplex scanner
 // proves both directions on the real wire; keeping the other handles live

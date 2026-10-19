@@ -28,16 +28,16 @@ existing Host and Vat:
 
 - Behavior backed by a record, with bounded waking, local capability fields,
   durable names that can be restored and retired, and replies that wait for
-  the commit ([ADR-0163](../decisions/adr/ADR-0163-record-backed-sleepy-actors.md)).
+  the commit ([ADR-0049](../decisions/adr/ADR-0049-record-backed-hosting.md)).
   A stored record nobody references takes no endpoint. A held reference keeps
   only a little routing data, plus any state you pin.
 - Calls that load the records they need and take part in transactions
-  ([ADR-0169](../decisions/adr/ADR-0169-managed-host-turns.md)). A managed use
+  ([ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)). A managed use
   endpoint is tied to one resource and its content, and a control prepares
   the edits it permits. When another commit lands first, the call prepares
   again, and it finishes any reads it submitted before releasing its state.
 - Sharing one resource, with bounded receipts
-  ([ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md)).
+  ([ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)).
   Records are prepared on the Vat, the new durable name's entry is reserved
   when the Host finishes its turn, and the name works only after a confirmed
   commit.
@@ -50,7 +50,7 @@ existing Host and Vat:
 - Looking up a durable name only when a peer asks, which shares fetches
   through the same cache and restores the exact target without scanning or
   creating endpoints early
-  ([ADR-0176](../decisions/adr/ADR-0176-on-demand-durable-publication-discovery.md)).
+  ([ADR-0007](../decisions/adr/ADR-0007-sturdyrefs-and-publication.md)).
 
 In-memory tests and a process test on each disk engine cover sleeping and
 waking, cycles, cancellation, failed allocation, restart, reopen, and

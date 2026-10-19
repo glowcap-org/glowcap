@@ -12,7 +12,7 @@ description: >-
 **Use glowcap to write glowcap.** When this session needs a live CapTP act
 while you edit the library, use these MCP tools, not a throwaway Zig dialer or
 a shell-out. They run the same product binary as argv and REPL
-([ADR-0084](../../../docs/decisions/adr/ADR-0084-glowcap-cli-product-boundary.md)).
+([ADR-0032](../../../docs/decisions/adr/ADR-0032-cli-and-product-boundaries.md)).
 
 ## When not to use
 

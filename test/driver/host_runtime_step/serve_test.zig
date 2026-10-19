@@ -1,4 +1,4 @@
-//! The host-wide step surface (ADR-0112), served: a server pumped only by
+//! The host-wide step surface (ADR-0024), served: a server pumped only by
 //! the aggregate readiness descriptor and `stepAny` carries a whole budgeted
 //! CapTP conversation, failures classify at the I/O-owning driver, close
 //! stops admission while a yielded session retains the runtime, the close

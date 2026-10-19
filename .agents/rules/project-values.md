@@ -28,7 +28,7 @@ below conflict.
   `unreachable` for internal invariants.
 - **Errors climb to the tier that can act.** The library returns the typed
   cause, settles the owning waiter, or latches it in the diagnostic journal
-  (ADR-0115). It logs nothing and chooses no recovery. Applications retry,
+  (ADR-0031). It logs nothing and chooses no recovery. Applications retry,
   propagate, or record, and the outermost handler shows a person what happened
   and one next action. Count expected-but-rare failures where they are caught.
 - **No hidden runtime.** The core is deterministic, sync, and no-I/O.

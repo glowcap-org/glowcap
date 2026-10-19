@@ -235,9 +235,9 @@ Tor can agree on `glowcap-next`, glowcap's own experimental CapTP version. The d
 glowcap form of the address, and an acceptor configured for it answers the
 same way. Every other session, including every session with a Goblins vat,
 uses the baseline.
-[ADR-0108](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0108-onion-netlayer.md)
+[ADR-0042](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0042-onion-interoperability.md)
 records the locator rule.
-[ADR-0118](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0118-onion-profile-by-knowledge.md)
+[ADR-0042](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0042-onion-interoperability.md)
 records how a dialer picks glowcap's own profile only when it
 knows the other side is glowcap.
 

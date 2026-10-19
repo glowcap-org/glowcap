@@ -1,6 +1,6 @@
 //! The signaling this program carries between its two netlayers. Both sides
-//! are managed: the offerer's provider runs the dial (ADR-0226) and the
-//! answerer's provider runs the accept (ADR-0232). The callbacks store each
+//! are managed: the offerer's provider runs the dial (ADR-0035) and the
+//! answerer's provider runs the accept (ADR-0035). The callbacks store each
 //! text here, and `carry` hands it across once per round of the main loop,
 //! which is all an application does when both ends are in one process.
 

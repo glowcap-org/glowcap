@@ -95,7 +95,7 @@
                (hash 'p50 (n (list-ref m 4)) 'p99 (n (list-ref m 5))
                      'mean (n (list-ref m 6)) 'rps (n (list-ref m 7)))))
   ;; The design-point line: aggregate round-trips/s with `conns` connections
-  ;; multiplexed on one event loop (ADR-0057), stored beside the per-transport
+  ;; multiplexed on one event loop (ADR-0019), stored beside the per-transport
   ;; serial entries.
   (let ([lm (regexp-match #px"loop transport=iroh conns=(\\d+) calls_each=\\d+ aggregate_rps=(\\d+)" out)])
     (when lm

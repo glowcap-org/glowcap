@@ -1,5 +1,5 @@
 //! A C stream provider table as the completion loop's foreign provider
-//! (`net.external_completion`, ADR-0193).
+//! (`net.external_completion`, ADR-0018).
 //!
 //! Each verb calls the table once and checks its outputs against the stream
 //! contract in `c_abi/shared/transport_provider.zig`. A provider that breaks

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Keyed-relay rendezvous proof, Zig CLI row: the installed glowcap CLI
 # cold-dials the registered peer's key designator through the reference relay
-# (ADR-0088). The harness appends the target's complete hinted locator. A dead
+# (ADR-0034). The harness appends the target's complete hinted locator. A dead
 # GLOWCAP_RENDEZVOUS fallback proves the advertised route owns this dial.
 set -euo pipefail
 locator="$1"

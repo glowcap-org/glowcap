@@ -1,4 +1,4 @@
-//! Command-tree parse / help / completion goldens (ADR-0084 command tree).
+//! Command-tree parse / help / completion goldens (ADR-0032 command tree).
 const std = @import("std");
 const cli = @import("cli");
 

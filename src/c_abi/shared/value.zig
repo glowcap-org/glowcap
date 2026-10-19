@@ -48,7 +48,7 @@ pub const GLOWCAP_ARG_STRUCT: u32 = 13;
 /// An OCapN Error value. `bytes`/`bytes_len` carry its message. This is a
 /// fulfilled value. `GLOWCAP_RESOLUTION_BREAK` remains the rejected outcome.
 pub const GLOWCAP_ARG_ERROR: u32 = 14;
-/// A list of integers lent as one leaf (ADR-0247): `bytes` points at the
+/// A list of integers lent as one leaf (ADR-0064): `bytes` points at the
 /// first `int64_t` in host byte order, 8-aligned, and `bytes_len` is the
 /// byte length, a multiple of 8. It means the same value as a `_LIST` of
 /// `_INTEGER` elements and encodes to the same bytes. A received list of
@@ -57,7 +57,7 @@ pub const GLOWCAP_ARG_INTEGERS: u32 = 15;
 
 pub const GLOWCAP_RESOLUTION_FULFILL: u32 = 0;
 pub const GLOWCAP_RESOLUTION_BREAK: u32 = 1;
-/// The answer fulfilled to a three-party handoff (ADR-0009/ADR-0100): the
+/// The answer fulfilled to a three-party handoff (ADR-0039/ADR-0039): the
 /// resolution carries a `desc:handoff-give` the recipient must redeem against
 /// the named exporter rather than an immediate value. `GlowcapResolve.handoff`
 /// carries the verbatim give and the exporter's dialable locator.
@@ -446,7 +446,7 @@ pub fn argsToCWith(
 /// Encode the Host's opaque-capability value, the mirror of `valuesFromCWith`.
 /// `Value` carries the data arms above, a `capability` arm the callback
 /// projects, and an `integers` run that leaves as one `_INTEGERS` value with
-/// its words lent where they lie (ADR-0247).
+/// its words lent where they lie (ADR-0064).
 pub fn valueToCWith(
     comptime Value: type,
     comptime RefError: type,

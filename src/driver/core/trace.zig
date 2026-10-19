@@ -78,7 +78,7 @@ pub const Event = union(enum) {
         session_id: []const u8,
         codec: model.CodecId,
         /// The CapTP profile the session negotiated. Reported beside the
-        /// codec because the two are one decision (ADR-0003): a viewer that
+        /// codec because the two are one decision (ADR-0001): a viewer that
         /// hears only the codec has to guess the version, and guessing means
         /// stamping the floor on every session.
         captp_version: model.CaptpVersion,

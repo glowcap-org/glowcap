@@ -1,7 +1,7 @@
 //! The blocking in-process transport (the `inproc` feature).
 //!
 //! This module wraps `libglowcap_net_transport_inproc`: the `glowcap_inproc_*`
-//! archive that the `inproc` Cargo feature links (ADR-0059). It is the
+//! archive that the `inproc` Cargo feature links (ADR-0022). It is the
 //! socket-free sibling of [`tcp`](crate::tcp): two peers in one process are
 //! wired by in-process pipes, with no kernel transport. The C listener adds a
 //! wake descriptor for reactor integration. No application bytes flow through it.

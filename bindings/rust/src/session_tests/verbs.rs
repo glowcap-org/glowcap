@@ -2,7 +2,7 @@
 
 use super::support::*;
 
-// Sturdyref enliven (ADR-0012): the client brings a durable `(peer, swissnum)`
+// Sturdyref enliven (ADR-0007): the client brings a durable `(peer, swissnum)`
 // to life as a live `Ref` through the dedup cache, calls it, then enlivens the
 // same swissnum again and gets the cached capability with no new wire fetch.
 // The swissnum keys the bootstrap fetch, so a host publish under that name

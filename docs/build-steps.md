@@ -96,7 +96,7 @@ zig build perf-check           # ReleaseFast wall-clock cost: warm dispatch + ou
 zig build fuzz                 # mutation-fuzz every untrusted-input target, one fuzzer run each; -Dfuzz-runs sets how long each one searches
 zig build fuzz-run             # the fuzz worker `zig build fuzz` drives; add --fuzz yourself for Zig's coverage UI
 zig build timeout-runner-test  # black-box the CI deadline wrapper and how the check sequence classifies its codes; runs before anything relies on that deadline; not in check (needs python3)
-zig build c-abi-extract-check  # in-tree C-ABI extract hygiene: each resolve port's own validator against the malformed fixture set in tools/c-abi/c-abi-extract-matrix.sh (ADR-0077; part of check)
+zig build c-abi-extract-check  # in-tree C-ABI extract hygiene: each resolve port's own validator against the malformed fixture set in tools/c-abi/c-abi-extract-matrix.sh (ADR-0023; part of check)
 zig build ocapn-adoption-check # validate adopted, deferred, and pending draft and suite accounting, also enforced by source-check and before live suite execution
 zig build ocapn-findings-check # reproduce the pinned op:listen, locator-hints, and withdrawal-lookup discrepancies against the OCapN spec, suite, and Goblins submodules; part of check-external
 zig build ocapn-conformance-next # run baseline conformance, fixture regressions and manifest-selected next cases with the retained hello; part of check-external
@@ -157,13 +157,13 @@ zig build gen-binding-loam-layout        # regenerate Rust Loam layouts and fing
 zig build gen-binding-loam-layout-check  # verify Rust Loam layouts and fingerprints; part of check
 zig build gen-header-host        # regenerate include/glowcap_host.h from src/c_abi/host
 zig build gen-header-host-check  # verify include/glowcap_host.h matches src/c_abi/host (fails if stale), part of check
-zig build gen-own-wire                        # regenerate src/ocapn/model/own_wire.zig, the fingerprint of glowcap's own wire (ADR-0252)
+zig build gen-own-wire                        # regenerate src/ocapn/model/own_wire.zig, the fingerprint of glowcap's own wire (ADR-0001)
 zig build gen-own-wire-check                  # verify the own-wire fingerprint (fails if stale), part of check
 zig build gen-header-transport-provider       # regenerate include/glowcap_transport_provider.h from the shared provider ABI
 zig build gen-header-transport-provider-check # verify the standalone provider ABI header (fails if stale), part of check
 zig build gen-header-driver      # regenerate include/glowcap_driver.h from src/c_abi/driver
 zig build gen-header-driver-check # verify include/glowcap_driver.h matches src/c_abi/driver (fails if stale), part of check
-zig build iroh-driver-provider     # live ADR-0112 seam proof: the driver archive dials a real iroh endpoint through the common provider ABI (needs cargo)
+zig build iroh-driver-provider     # live ADR-0024 seam proof: the driver archive dials a real iroh endpoint through the common provider ABI (needs cargo)
 zig build iroh-managed             # Zig Session and Server over real iroh: identity, fetch, call, and accepted-session lifetime, also run by iroh-driver-provider (needs cargo)
 ```
 
@@ -261,7 +261,7 @@ zig build python-dogfood # the Python binding against the glowcap archives (need
 zig build racket-dogfood # the Racket binding against the glowcap archives (needs racket)
 zig build iroh-abi       # build libglowcap_net_transport_iroh, the iroh transport's C ABI companion (needs cargo)
 zig build iroh-abi-test  # test the ABI, including optional off-thread constructor diagnostics (needs cargo + deno)
-zig build webrtc-abi     # build libglowcap_net_transport_webrtc, the WebRTC transport's C ABI companion (ADR-0089, needs cargo)
+zig build webrtc-abi     # build libglowcap_net_transport_webrtc, the WebRTC transport's C ABI companion (ADR-0035, needs cargo)
 ```
 
 Each in-tree proof family runs one scenario once per binding, with glowcap on
@@ -352,16 +352,16 @@ zig build sidecar-common-test        # the shared crate's Rust unit tests: priva
 zig build iroh-lib                   # build the iroh netlayer sidecar staticlib into the build cache; every artifact that links it depends on this step by path (needs cargo)
 zig build iroh-sidecar-test          # the sidecar's Rust unit tests, including the connect-timeout positive-fire proof against a bound-but-silent UDP black hole (needs cargo)
 zig build iroh-interop               # live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)
-zig build iroh-loop                  # live iroh scale: many concurrent connections served from one Server thread (ADR-0057; needs cargo)
+zig build iroh-loop                  # live iroh scale: many concurrent connections served from one Server thread (ADR-0019; needs cargo)
 zig build iroh-redeem                # a recipient Session redeems a handoff by dialing the exporter over iroh (needs cargo)
 zig build tcp-loop                   # live TCP scale: many concurrent connections served from one Server thread
 zig build iroh-reachability          # opt-in: live real-internet dial-by-id over n0 relays and DNS/pkarr discovery (needs cargo + internet)
 zig build bindings-iroh-loop         # per-binding iroh scale: many connections served from one loop, every binding (needs cargo + the runtimes)
-zig build deno-iroh-loop             # that scale proof, the Deno binding (ADR-0057; needs cargo + deno)
+zig build deno-iroh-loop             # that scale proof, the Deno binding (ADR-0019; needs cargo + deno)
 zig build python-iroh-loop           # that scale proof, the Python binding (needs cargo + python3)
-zig build python-iroh-driver-provider  # live ADR-0112 Python parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the common provider ABI (needs cargo + python3)
+zig build python-iroh-driver-provider  # live ADR-0024 Python parity: the byte-fed iroh surface serves while the driver archive dials the same endpoint through the common provider ABI (needs cargo + python3)
 zig build rust-iroh-driver-provider    # that same parity, the Rust binding (needs cargo)
-zig build bindings-webrtc-driver-provider  # per-binding live WebRTC through the C provider: each binding dials the Zig answerer and accepts the Zig offerer (ADR-0244) with its own signaling (needs cargo + the runtimes)
+zig build bindings-webrtc-driver-provider  # per-binding live WebRTC through the C provider: each binding dials the Zig answerer and accepts the Zig offerer (ADR-0035) with its own signaling (needs cargo + the runtimes)
 zig build deno-webrtc-driver-provider      # that dial plus the listen, the Deno binding (needs cargo + deno)
 zig build python-webrtc-driver-provider    # that dial plus the listen, the Python binding (needs cargo + python3)
 zig build rust-webrtc-driver-provider      # that dial plus the listen, the Rust binding (needs cargo)
@@ -382,7 +382,7 @@ zig build racket-iroh-reachability   # that dial, the Racket binding (opt-in; ne
 
 ## The WebRTC transport
 
-The WebRTC transport ([ADR-0089](decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
+The WebRTC transport ([ADR-0035](decisions/adr/ADR-0035-webrtc-exchanges.md)).
 
 ```sh
 zig build webrtc-lib                # build the DataChannel netlayer sidecar staticlib and probe binary in transports/webrtc (needs cargo)
@@ -424,15 +424,15 @@ zig build demo-rooms-onion # run one hosted Rooms service and two independent cl
 ## The browser peer and the relays
 
 ```sh
-zig build wasm-driver           # build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/ (also folded into cross-check)
+zig build wasm-driver           # build the browser binding's freestanding wasm32 Host module (ADR-0034) into zig-out/wasm/ (also folded into cross-check)
 zig build wasm-archives         # build Host, OCapN, and Loam static Wasm archives into zig-out/wasm/lib for direct Rust linking
 zig build wasm-driver-test      # the wasm32 Host holds a real keyed CapTP handshake from JS over an in-memory pipe (needs deno)
 zig build wasm-abi-layout-check # the wasm32 Host's layout descriptor decodes cleanly and agrees with the abi.ts field counts (needs deno)
 zig build wasm-import-check     # the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno)
-zig build web-peer-test         # @glowcap/web holds keyed WebSocket sessions and Chromium accepts a Noise-relay call from a Zig peer (needs deno + Playwright; ADR-0070/0107)
+zig build web-peer-test         # @glowcap/web holds keyed WebSocket sessions and Chromium accepts a Noise-relay call from a Zig peer (needs deno + Playwright; ADR-0034/0107)
 ```
 
-ADR-0086 holds every runtime's relay to one shared harness: TCP forwarding,
+ADR-0033 holds every runtime's relay to one shared harness: TCP forwarding,
 the backpressure clause, and the idle-timeout bounded-resources clause.
 
 ```sh
@@ -558,14 +558,14 @@ zig build rooms-web-dm            # the page sends a direct message from a real 
 zig build rooms-web-dm-tabs       # two tabs DM over the default WebRTC path, including closing and reopening the introduced line (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-deno     # a Deno peer on the C library cold-dials a browser member over sealed noise-relay rendezvous through its composed relay provider (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-noise      # two browser members DM through the room relay over an end-to-end Noise-sealed rendezvous session, with the room off the message path (needs cargo + deno + a Playwright Chromium)
-zig build rooms-web-dm-webrtc     # two browser members direct-message over a DataChannel by redeeming a webrtc handoff give, the room directory carrying only offer/answer/candidate (ADR-0089; needs cargo + deno + a Playwright Chromium)
+zig build rooms-web-dm-webrtc     # two browser members direct-message over a DataChannel by redeeming a webrtc handoff give, the room directory carrying only offer/answer/candidate (ADR-0035; needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-session-webrtc # the session process direct-messages a browser member over a DataChannel with no relay, signaling through the room directory that introduced the member (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-routes        # a cold /room/<name> link arrives in that room, opening a room writes its address, back and forward follow the view, following an address never moves the sidebar, and a private room's key stays out of the address (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-manager       # a reloaded workspace re-enters the rooms it manages by name and its saved manager capability still works (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-boot-theme    # the first paint uses the theme the reader left, read from the stored workspace before any application code runs, and a browser with no workspace gets the stylesheet default (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-private       # a private room is reachable only through its reference: it is in no list, its name opens a different room, and handing over the reference is the only way in (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-foreign    # a visitor starts a direct message in a room they joined: the tab holds its own page's directory and the one it went to, and the redeem signals through the directory that introduced the member (needs cargo + deno + a Playwright Chromium)
-zig build rooms-web-dm-trace        # a browser-to-browser direct message reaches the live timeline endpoint (ADR-0104): each tab publishes its own trace, and the endpoint scopes both producers' session ids apart (needs cargo + deno + a Playwright Chromium)
+zig build rooms-web-dm-trace        # a browser-to-browser direct message reaches the live timeline endpoint (ADR-0040): each tab publishes its own trace, and the endpoint scopes both producers' session ids apart (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-retarget   # a nickname changing hands cannot move a direct conversation: the member leaves, another is granted the name, and a message typed into the original conversation reaches nobody and says why (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-dm-reopen     # reopening a closed direct conversation opens a second connection and that one carries: the timeline shows the first session gone and a session id nobody had seen, once over webrtc and once over noise-relay (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-trace-lifecycle # the live timeline shows a member's whole life in a room, counted through the ocapnviz converter: two tabs are three peers and two sessions, a direct message adds a session with the room off its path, leaving keeps the session and drops the nickname, and a tab going away takes its peer and both its sessions (needs cargo + deno + a Playwright Chromium)

@@ -1,6 +1,6 @@
-//! `noise-tcp` on HostRuntime through completion residents (ADR-0202): the
+//! `noise-tcp` on HostRuntime through completion residents (ADR-0018): the
 //! platform TCP backend carries the bytes on both halves and the byte-fed
-//! Host seals them (ADR-0107), so a listener publishes the Host's key with
+//! Host seals them (ADR-0041), so a listener publishes the Host's key with
 //! its bound address as a hint, and a dial that completes has proved it.
 
 const std = @import("std");

@@ -2,7 +2,7 @@
 //! as the transport policy `net.completion_resident.Resident` takes.
 //!
 //! Both relay symbols ride the same rendezvous socket. `noise-relay` is
-//! sealed by the byte-fed Host on both halves (ADR-0107). A relay listener is
+//! sealed by the byte-fed Host on both halves (ADR-0041). A relay listener is
 //! the backend's one registration, so its designator is the registered key,
 //! which must be the identity of the Host it serves, and its locator names
 //! the backend's relay as the rendezvous hint. Every other symbol passes to

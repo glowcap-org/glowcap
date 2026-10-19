@@ -1,4 +1,4 @@
-//! CapTP unified reference slot (ADR-0080).
+//! CapTP unified reference slot (ADR-0006).
 //!
 //! Name plate: this file is the CapTP `Slot` **sum type** (mint × binding). It is
 //! not `export_table.zig` or `import_table.zig` (rows with wire-delta counts). CapTP
@@ -13,7 +13,7 @@
 //!
 //! Encode perspective matches the syrup codec (`writePayloadReference`):
 //! a local export renders as `desc:import-*` and a remote import as
-//! `desc:export` (ADR-0010 perspective flip).
+//! `desc:export` (ADR-0006 perspective flip).
 
 const model = @import("model");
 
@@ -106,7 +106,7 @@ pub const TransitionError = error{
 /// unresolved→value transition over both mints. In this codebase only a remote
 /// answer binding is driven through it (`answers/store.zig`). A `local_unresolved`
 /// export is minted for a resolver callback and is terminal, glowcap never
-/// settles a local promise export (ADR-0080, ADR-0007).
+/// settles a local promise export (ADR-0006, ADR-0003).
 pub fn fulfill(slot: Slot) TransitionError!Slot {
     return switch (slot) {
         .local_unresolved => |p| .{ .local_value = p },

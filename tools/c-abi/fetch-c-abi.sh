@@ -2,7 +2,7 @@
 # Operator/CI helper: fetch a glowcap C-ABI release tarball into the
 # abi-versioned cache.
 #
-# Bindings do NOT call this script (ADR-0077). Each language package ships
+# Bindings do NOT call this script (ADR-0023). Each language package ships
 # `c-abi-resolve.json` and downloads with language-native code so a published
 # crate/wheel/npm package works without a Zig checkout. This script is for
 # humans and CI that want the same cache layout from a shell.
@@ -159,7 +159,7 @@ sha256_of() {
 	fi
 }
 
-# Reject traversal and symlinks/hardlinks under extract_prefix (ADR-0077 §5).
+# Reject traversal and symlinks/hardlinks under extract_prefix (ADR-0023).
 # Hard-fails on unsafe/link members; soft-fails on tar list tooling failure.
 # Runs in the main shell so hard_fail/soft_fail can terminate the script.
 validate_tarball_members() {

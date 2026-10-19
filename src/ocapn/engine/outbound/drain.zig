@@ -216,14 +216,14 @@ fn emitRecordedPendingMessage(self: *Peer, message: model.Message, accounting: P
 }
 
 /// Encode one pending message onto `outbound`, applying the V1.0
-/// translations that have no wire form under next (`v1_0`, ADR-0010):
+/// translations that have no wire form under next (`v1_0`, ADR-0006):
 ///   - a semantic `Resolve` ships as a resolver-callback `op:deliver` to the
 ///     partner's resolver import, or is dropped when only `op:listen`
 ///     listeners settle the answer (the listener fire in `drainAnswerConsequencesTarget`
 ///     handles notification).
 ///   - a projection trails an `op:listen` that carries its new answer's
 ///     resolution back, since the projection ops carry no inline resolver
-///     (ADR-0050, ADR-0052). The listen must follow the op that opened the
+///     (ADR-0004). The listen must follow the op that opened the
 ///     answer on the wire, so it is pushed after the encode.
 /// next encodes the message as it stands. Borrows `message`. The pending queue
 /// continues owning it until this returns successfully. An `op:abort` closes

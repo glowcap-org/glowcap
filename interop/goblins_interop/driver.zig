@@ -12,7 +12,7 @@
 //! two projection ops Goblins can answer: an `op:index` against the settled
 //! echo answer, and an `op:get` against a still-pending answer that settles to
 //! a Struct, and asserts Goblins resolves each projection. Finally it enlivens
-//! the echo swiss-num through the engine's ADR-0012 dedup-cache API
+//! the echo swiss-num through the engine's ADR-0007 dedup-cache API
 //! (`prepareEnliven`/`recordEnlivenment`, the surface every binding's `enliven`
 //! rides), calls the enlivened cap, and asserts a repeat enliven hits the cache
 //! with no wire traffic, which proves enliven against a real Goblins-published cap.
@@ -73,7 +73,7 @@ const pipelined_dialer_script = "conformance/goblins-peer/racket/goblins-tap-dia
 // glowcap's V1.0 `['break, reason-symbol]` resolver callback.
 const break_dialer_script = "conformance/goblins-peer/racket/glowcap-break-call.rkt";
 // Goblins-as-asker projection: sends canonical `op:get` / `op:index` against
-// glowcap's ADR-0050 responders (Goblins 0.18.0 has no app-level send yet).
+// glowcap's ADR-0004 responders (Goblins 0.18.0 has no app-level send yet).
 const projection_asker_script = "conformance/goblins-peer/racket/glowcap-projection-asker.rkt";
 // Export-side `op:listen`: Goblins `listen` on a settled remote object export.
 const export_listen_dialer_script = "conformance/goblins-peer/racket/glowcap-export-listen.rkt";
@@ -90,7 +90,7 @@ const unregistered_swiss = "glowcapUnknownSwissnumZZZZZZ9999";
 const Greeter = harness.PositionalReplyActor("Hello {s}, from a glowcap actor!");
 
 /// Returns an OCapN Struct or List so inbound `op:get` / `op:index` can project
-/// (ADR-0050).
+/// (ADR-0004).
 const ProjectionResponder = struct {
     pub fn handle(self: *ProjectionResponder, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
         _ = self;
@@ -227,7 +227,7 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("goblins-interop: OK — export-side op:listen: goblins listened on a live glowcap export\n", .{});
 
     // Sixth bracket: Goblins-as-asker sends canonical `op:get` / `op:index`
-    // frames through its own netlayer against glowcap's ADR-0050 responders.
+    // frames through its own netlayer against glowcap's ADR-0004 responders.
     // The pinned Goblins release has inbound projection support but no public
     // outbound app API for those ops, so the Racket asker uses Goblins'
     // canonical records and test-only netlayer writer, then observes glowcap's

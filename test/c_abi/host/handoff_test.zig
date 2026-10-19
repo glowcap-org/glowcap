@@ -376,7 +376,7 @@ test "libglowcap_host: host_dialed refuses a session belonging to another host" 
 }
 
 test "libglowcap_host: select-or-dial enliven rides a live session, then parks on a staged dial" {
-    // ADR-0098 step 4 at the C seam: the embedder brings a complete sturdyref
+    // ADR-0007 at the C seam: the embedder brings a complete sturdyref
     // and no session. A peer it already dialed is selected; an unreached peer
     // becomes an ordinary DIAL action, answered with the same two verbs a
     // handoff redeem uses.

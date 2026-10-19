@@ -1,5 +1,5 @@
 //! The iroh netlayer resident: an encrypted QUIC transport behind the same
-//! contract as tcp and inproc, carried by the Rust sidecar (ADR-0055).
+//! contract as tcp and inproc, carried by the Rust sidecar (ADR-0021).
 //!
 //! The wire is iroh: each `Resident` owns one iroh endpoint (created through
 //! the C ABI in `transports/iroh/include/glowcap_iroh_sidecar.h`, implemented

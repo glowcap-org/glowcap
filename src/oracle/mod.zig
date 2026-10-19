@@ -102,7 +102,7 @@ fn relayAndTrace(
 }
 
 /// A full deliver-then-resolve round-trip across an in-process paired session
-/// (ADR-0010 V1.0 resolver-callback translation under the hood): p1 asks p2's
+/// (ADR-0006 V1.0 resolver-callback translation under the hood): p1 asks p2's
 /// bootstrap a question, p2 resolves it, and the resolution surfaces back at p1
 /// as a semantic `Resolve`. Broadens conformance past the abort axis onto the
 /// deliver / answer / resolve state machine. Runs on `codec`. The trace is
@@ -154,7 +154,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
 }
 
 /// Deliver → listen on the answer → resolve → listener-fire. Scenario authority
-/// for answer-side `op:listen` (ADR-0007). Codec-parameterized like
+/// for answer-side `op:listen` (ADR-0003). Codec-parameterized like
 /// `runDrivenDeliverResolve`.
 pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
     var pair = try engine.pairing.pairedWithCodec(allocator, codec);
@@ -213,7 +213,7 @@ pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId
 
 /// The peers hand-shake, the responder registers a bootstrap cap, the initiator
 /// fetches it, and the responder auto-resolves with no hand-rolled reply. The exporter-side
-/// proof for ADR-0006's responder half: serving an inbound `'fetch` lives in the
+/// proof for ADR-0002's responder half: serving an inbound `'fetch` lives in the
 /// engine, not the test harness. The settlement rides back as a V1.0
 /// resolver-callback and surfaces at the initiator as a `fulfilled` outcome.
 /// Runs on `codec`. The trace is codec-agnostic by construction, so a parity
@@ -283,7 +283,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
 
 /// Deliver → `op:get` / `op:index` / `op:untag` against the pending answers →
 /// the responder resolves each source and the engine resolves the projected
-/// answers in the same turn (ADR-0050). Scenario authority for the projection
+/// answers in the same turn (ADR-0004). Scenario authority for the projection
 /// trio on baseline as whole-conversation behavior, not just per-frame fixtures.
 /// Codec-parameterized like `runDrivenDeliverResolve`.
 pub fn runDrivenProjections(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {

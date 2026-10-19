@@ -11,7 +11,7 @@
 //! carries the core families and `libglowcap_net_transport_iroh` carries only
 //! the iroh family, each reusing these types, and each from `glowcap_ocapn.h`
 //! on the C side
-//! (ADR-0055 companion split). The two artifacts therefore share no exported
+//! (ADR-0021 companion split). The two artifacts therefore share no exported
 //! core symbol. They share the layout of these types, as a C consumer
 //! including both headers does.
 
@@ -33,7 +33,7 @@ comptime {
 }
 
 /// The one cross-archive schema and bounded mechanics for failures with no
-/// remaining return recipient (ADR-0115). This leaf owns no mutable global.
+/// remaining return recipient (ADR-0031). This leaf owns no mutable global.
 /// Storage belongs to an explicit Context, Host, or driver owner.
 pub const failure_diagnostics = @import("failure_diagnostics.zig");
 pub const GlowcapFailureEvent = failure_diagnostics.GlowcapFailureEvent;
@@ -92,7 +92,7 @@ pub const contract_layouts = [_]archive_contract.Layout{
     archive_contract.cOnlyLayout("GLOWCAP_MULTIPLEXED_TRANSPORT", GlowcapMultiplexedTransport),
 };
 
-/// The multiplexed-transport table layout (ADR-0112): how a sidecar transport
+/// The multiplexed-transport table layout (ADR-0024): how a sidecar transport
 /// archive plugs its multiplexed transport into the driver archive.
 /// Layout only, no exports, like everything in this leaf.
 pub const multiplexed_transport = @import("multiplexed_transport.zig");

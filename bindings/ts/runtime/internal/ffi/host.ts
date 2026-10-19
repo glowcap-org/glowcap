@@ -4,7 +4,7 @@
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
 // Internal: the FFI mirror of the `glowcap_host_*` family — the byte-fed
-// host tier (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
+// host tier (ADR-0022), the sibling of the Racket binding's `ffi-host.rkt`.
 //
 // Nothing here is public. This table loads `libglowcap_host`, the archive
 // that owns every `glowcap_host_*` symbol. The driver archive is a separate

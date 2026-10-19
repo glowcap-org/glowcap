@@ -1,4 +1,4 @@
-// The runnable Deno reference relay for the ADR-0086 contract. It is the first-party
+// The runnable Deno reference relay for the ADR-0033 contract. It is the first-party
 // consumer of this package's `webSocketRelay` and the Deno row of the
 // cross-runtime relay matrix beside `bindings/python/relay.py` and
 // `bindings/rust/relay`. It carries the raw bytes of a keyed CapTP session
@@ -12,7 +12,7 @@
 //                             `dialLocatorForRelay`.
 //   - `?rendezvous=<id>`      a bridge onto the inbound socket a non-listening
 //                             peer registered under its key designator at
-//                             `/register?id=<id>` (the ADR-0088 cold-dial leg).
+//                             `/register?id=<id>` (the ADR-0034 cold-dial leg).
 //
 // Run it directly; it prints `DENO-RELAY-READY <port>` on stdout once listening:
 //     deno run --allow-net --allow-ffi --allow-env --allow-read \
@@ -52,7 +52,7 @@ const relayConfig: RelayConfig = {
 	maxBytesPerSession: BINDING_RELAY_MAX_BYTES_PER_SESSION,
 };
 
-// The cold-dial rendezvous table (ADR-0088): identity → held inbound sockets.
+// The cold-dial rendezvous table (ADR-0034): identity → held inbound sockets.
 // Admission counts held sockets, not identities: both the relay-wide descriptor
 // budget and one identity's queue are bounded.
 const rendezvous = new Rendezvous();
@@ -219,7 +219,7 @@ const handler = (req: Request): Response => {
 		const { socket, response } = Deno.upgradeWebSocket(req, { idleTimeout: 0 });
 		auditRelaySocket(socket);
 		// Register at once, not at onopen: the wrap buffers the accept side's
-		// early hello from the instant the socket exists (ADR-0088).
+		// early hello from the instant the socket exists (ADR-0034).
 		if (!rendezvous.register(id, socket)) {
 			socket.close(1001, "relay shutting down");
 		}

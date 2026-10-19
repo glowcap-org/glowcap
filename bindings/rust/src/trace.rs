@@ -74,7 +74,7 @@ pub struct TraceEvent {
 	pub codec: Option<&'static str>,
 	/// `SessionOpened`: the negotiated CapTP profile by its wire spelling
 	/// (`"1.0"` / `"glowcap-next"`). Reported beside the codec because the
-	/// two are one decision (ADR-0003).
+	/// two are one decision (ADR-0001).
 	pub captp_version: Option<&'static str>,
 	/// `SessionOpened`: what proved the partner's durable name. Three answers
 	/// rather than a yes/no: a partner that claimed no durable name and one

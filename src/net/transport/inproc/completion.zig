@@ -1,4 +1,4 @@
-//! `inproc` as a completion adapter (ADR-0193): in-process byte pipes behind
+//! `inproc` as a completion adapter (ADR-0018): in-process byte pipes behind
 //! the same backend contract as every socket transport.
 //!
 //! `exchange.zig` owns the switchboard, the bounded links and each backend's

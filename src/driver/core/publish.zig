@@ -50,11 +50,11 @@ pub fn resolvePublishedTarget(ctx: ?*anyopaque, scope: engine.PeerHandle, swissn
 /// Bind a freshly Host-spawned actor. Internal to this file's publish verbs,
 /// so an unscoped `actors.Ref` from another Vat can never enter this Host's
 /// publication namespace.
-/// The alias row adopts the fresh actor's spawn root (ADR-0101): binding
+/// The alias row adopts the fresh actor's spawn root (ADR-0014): binding
 /// takes no extra retain, replacement releases the displaced actor's
 /// adopted root, and `unpublish` releases the row's. A caller-chosen
 /// mutable name structurally cannot enter the reserved durable namespace
-/// (ADR-0098): the prefix, not a tombstone, is what keeps an old
+/// (ADR-0007): the prefix, not a tombstone, is what keeps an old
 /// sturdyref from being retargeted after restart.
 pub fn bindPublication(self: *Host, name: []const u8, actor: actors.Ref) !void {
     self.assertOwner();
@@ -102,7 +102,7 @@ pub fn publishHosted(self: *Host, name: []const u8, hosted: actors.HostedActor) 
 }
 
 /// Remove the host-wide alias `name`. Discovery-only, alias-only
-/// (ADR-0096): a later fetch of the name misses on every session, while
+/// (ADR-0026): a later fetch of the name misses on every session, while
 /// capabilities already issued, live Port projections, and deposited
 /// gifts keep naming the exact actor, which stays in the Host Vat until
 /// teardown. An absent alias is refused `UnknownPublication`, so a typo
@@ -115,19 +115,19 @@ pub fn unpublish(
     try self.admitApplicationOperation();
     // The mutable-alias verb refuses durable rows: a minted sturdyref's
     // name is removed only through `removeDurable`, so the two authority
-    // surfaces stay distinct (ADR-0098).
+    // surfaces stay distinct (ADR-0007).
     if (engine.isDurableSwiss(name)) return error.ReservedDurableNamespace;
     const removed = self.publications.fetchRemove(name) orelse return error.UnknownPublication;
     // Key and row name are one allocation (`bindPublication`); free once.
     self.allocator.free(removed.value.name);
-    // Release the alias root the row adopted (ADR-0101): with no other
+    // Release the alias root the row adopted (ADR-0014): with no other
     // rooting relationship, the actor is reclaimed here rather than at
     // Host teardown.
     self.vat.releaseActor(localActorId(removed.value.actor) catch unreachable);
 }
 
 /// A minted durable swiss name: fixed-size, POD, returned by value so
-/// the caller owns the bytes with no allocation (ADR-0098).
+/// the caller owns the bytes with no allocation (ADR-0007).
 pub const DurableSwiss = struct {
     pub const Entropy = [engine.durable_swiss_entropy_len]u8;
     pub const fromEntropy = mintDurableSwiss;
@@ -153,7 +153,7 @@ pub const DurableSwiss = struct {
 /// Mint a durable swiss name from caller-supplied entropy: the reserved
 /// prefix plus the hex spelling of `entropy`. Entropy stays an explicit
 /// input because this core is sans-io. The driver tier draws it at the
-/// I/O boundary (ADR-0098).
+/// I/O boundary (ADR-0007).
 pub fn mintDurableSwiss(entropy: [engine.durable_swiss_entropy_len]u8) DurableSwiss {
     var out: DurableSwiss = undefined;
     @memcpy(out.bytes[0..engine.durable_swiss_prefix.len], engine.durable_swiss_prefix);
@@ -166,12 +166,12 @@ pub fn mintDurableSwiss(entropy: [engine.durable_swiss_entropy_len]u8) DurableSw
 }
 
 /// Publish `initial` under a freshly minted durable swiss name
-/// (ADR-0098): unpredictable, never minted twice by the Host (an embedder that
+/// (ADR-0007): unpredictable, never minted twice by the Host (an embedder that
 /// republishes removed entropy rebinds the name), removable only through
 /// `removeDurable`, and structurally disjoint from every mutable alias.
 /// The active table is still checked before insertion, so even an
 /// entropy-collision fails loud instead of retargeting. The row adopts
-/// the spawn root (ADR-0101). Persistence stays above this sans-I/O core:
+/// the spawn root (ADR-0014). Persistence stays above this sans-I/O core:
 /// an embedder retains the entropy and publication identity, then republishes
 /// them during startup. A fresh Host begins with an empty
 /// registry, so an old sturdyref fails closed until that replay occurs.
@@ -270,11 +270,11 @@ pub fn reserveDurableCapability(self: *Host, entropy: DurableSwiss.Entropy, ref:
     return .{ .host = self, .swiss = swiss, .lifetime = lifetime };
 }
 
-/// Remove a minted durable publication (ADR-0098): its live row is
+/// Remove a minted durable publication (ADR-0007): its live row is
 /// reclaimed, future enlivenment of the old sturdyref misses, and a
 /// later mint never reuses the bytes. Alias-only like
 /// `unpublish`: issued capabilities and deposited gifts keep the exact
-/// actor. It releases the row's adopted root (ADR-0101). A name
+/// actor. It releases the row's adopted root (ADR-0014). A name
 /// outside the durable namespace is refused: mutable aliases leave
 /// through `unpublish`.
 pub fn removeDurable(
@@ -290,7 +290,7 @@ pub fn removeDurable(
     self.vat.releaseActor(localActorId(removed.value.actor) catch unreachable);
 }
 
-/// What authenticated the durable identity a partner advertised (ADR-0105).
+/// What authenticated the durable identity a partner advertised (ADR-0028).
 /// A thin alias over the engine's own derivation, so the byte-fed tier, the
 /// live trace, and every C consumer read the one verdict the pre-open
 /// chokepoint already reached.

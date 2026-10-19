@@ -1,4 +1,4 @@
-//! Connection-scoped durable identity evidence for one Peer (ADR-0105).
+//! Connection-scoped durable identity evidence for one Peer (ADR-0028).
 //!
 //! A dial target and a verified byte-channel endpoint are separate facts. This
 //! module owns both writes, both direct reads, and the one provenance

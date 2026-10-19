@@ -87,7 +87,7 @@ pub fn check(
         // Grammar helpers live in locator modules; connection modules import them.
         // Socket-address spelling lives below transport packages, never in the
         // generic OCapN locator or session modules. Hint→host:port for dial is
-        // still core `planDial` / `tcpConnectHostPort` (ADR-0078).
+        // still core `planDial` / `tcpConnectHostPort` (ADR-0029).
         const locator_grammar_home = [_]struct {
             connection: []const u8,
             owner: []const u8,
@@ -271,7 +271,7 @@ pub fn check(
             defer gpa.free(contents);
             for (entry.banned) |needle| {
                 if (std.mem.indexOf(u8, contents, needle) != null) {
-                    try appendViolation(gpa, violations, "{s}: forbidden `{s}` — hint→host:port is planDial policy (ADR-0078), not a binding helper", .{ entry.path, needle });
+                    try appendViolation(gpa, violations, "{s}: forbidden `{s}` — hint→host:port is planDial policy (ADR-0029), not a binding helper", .{ entry.path, needle });
                 }
             }
         }

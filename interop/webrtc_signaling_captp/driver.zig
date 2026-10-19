@@ -1,5 +1,5 @@
 //! The WebRTC signaling object as a real OCapN capability, driven over CapTP
-//! (ADR-0089).
+//! (ADR-0035).
 //!
 //! `webrtc-mesh` builds the signaling object and calls its
 //! `offer` / `candidate` verbs directly, in process. This proof hosts the same

@@ -87,16 +87,16 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // 500k-session withdrawal. Stated under runtime safety, where each
     // embedded `std.ArrayList` header carries std's one-word
     // `pointer_stability` lock: 72 of these bytes, and each hash map carries
-    // one more. ADR-0145's parked Node actions add 32: a map header that
+    // one more. ADR-0017's parked Node actions add 32: a map header that
     // costs a session under no pressure nothing, and the Node's one-word
     // count of the queue seats those actions return to. The work quantum is
-    // a plain count, so it carries no optional tag word. ADR-0176 adds one
+    // a plain count, so it carries no optional tag word. ADR-0007 adds one
     // provider pointer (8 bytes per Host); the engine resolver keeps its
-    // existing callback slot and sessions gain no fields. ADR-0177 adds a
+    // existing callback slot and sessions gain no fields. ADR-0007 adds a
     // 16-byte arena state to the last completion; sessions stay unchanged.
-    // ADR-0191 adds 32 to the Host's Vat: the list of ingresses with sends
+    // ADR-0058 adds 32 to the Host's Vat: the list of ingresses with sends
     // staged by the running turn, and that turn's failure. Staging sits on the
-    // Vat so sessions pay nothing for it. ADR-0194 adds 104 more: the Vat's
+    // Vat so sessions pay nothing for it. ADR-0058 adds 104 more: the Vat's
     // list of layers waiting on that turn's outcome, the Host's lowering
     // receipts held until it, and the Node's batches staged for it. A
     // session's Peer gains one flag and stays within its struct budget.
@@ -113,8 +113,8 @@ test "Host aggregate footprint and supported verb shapes stay within their budge
     // (40 bytes). Each pending answer uses a 16-byte slot, shared across Ports.
     // Held answer releases add one Host-wide worklist (40 bytes), reserved
     // one slot per live session like the encode worklist. The Node's
-    // wire-hash root adds one word (ADR-0218). The session, peer, and
-    // ingress tables are handle tables (ADR-0225): each is an array list
+    // wire-hash root adds one word (ADR-0037). The session, peer, and
+    // ingress tables are handle tables (ADR-0038): each is an array list
     // header with a free chain head and two counts in place of a hash map
     // header and a handle counter, 64 bytes across the three.
     try std.testing.expectEqual(@as(usize, 2704), @sizeOf(Host));
@@ -261,7 +261,7 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
 
     // A peer advertising a *different* identity than the one dialed is refused
     // before the session opens, the claim pin, the check that survives
-    // fresh session keys (ADR-0097).
+    // fresh session keys (ADR-0028).
     {
         const other_seed = @as([32]u8, @splat(0x43));
         const other_designator = crypto.SecretKey.fromSeed(other_seed).publicKey().toDesignator();
@@ -287,7 +287,7 @@ test "byte-fed iroh dial pin: a hello claiming another identity is refused; a sa
     }
 
     // A peer cannot advertise an identity it does not hold the secret for
-    // (ADR-0105). The forgery is refused at the squatter's own side, by the
+    // (ADR-0028). The forgery is refused at the squatter's own side, by the
     // seam that would have signed the hello, so it never reaches the wire.
     {
         const squatter_seed = @as([32]u8, @splat(0x42));

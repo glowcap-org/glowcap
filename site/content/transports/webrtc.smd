@@ -167,7 +167,7 @@ trusting your signaling service.
 
 glowcap's WebRTC DataChannel code is Rust, so it ships as a static library in
 `libglowcap_net_transport_webrtc`
-([ADR-0089](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0089-webrtc-datachannel-netlayer.md)).
+([ADR-0035](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0035-webrtc-exchanges.md)).
 The base archives stay pure Zig, and building this one needs `cargo`.
 
 A non-browser endpoint serves many DataChannels from one thread by watching a

@@ -1,4 +1,4 @@
-//! The iroh netlayer sidecar (ADR-0055).
+//! The iroh netlayer sidecar (ADR-0021).
 //!
 //! This staticlib wraps one iroh endpoint behind the narrow C ABI
 //! declared in `include/glowcap_iroh_sidecar.h`, emitting
@@ -62,7 +62,7 @@ fn teardown_status<E>(f: impl FnOnce() -> Result<(), E>) -> i32 {
 	}
 }
 
-/// The ALPN both glowcap peers negotiate (ADR-0055).
+/// The ALPN both glowcap peers negotiate (ADR-0021).
 const ALPN: &[u8] = b"ocapn/glowcap/1";
 
 /// Upper bound on a single dial, discovery resolution plus relay/hole-punch
@@ -177,7 +177,7 @@ const DIAL_REFUSED: i32 = 9;
 const DIAL_TEXT_BYTES: usize = 256;
 
 /// The non-blocking inbound/outbound buffer bound, per connection and direction
-/// (ADR-0057's back-pressure policy). A reader that fills the inbound buffer
+/// (ADR-0019's back-pressure policy). A reader that fills the inbound buffer
 /// stops reading the QUIC stream until the loop drains it, so a slow consumer
 /// applies QUIC flow control to its partner rather than letting the sidecar
 /// buffer without limit. A `conn_try_write` admits only the prefix that fits
@@ -268,7 +268,7 @@ fn publish_local(ep: &Endpoint) {
 
 /// Opaque endpoint handle: the iroh endpoint plus the tokio runtime it runs on.
 /// `readiness` and `accept` are lazily created the first time the event-driven
-/// scale surface (ADR-0057) is used on this endpoint. An endpoint driven only
+/// scale surface (ADR-0019) is used on this endpoint. An endpoint driven only
 /// through the blocking calls never allocates them.
 pub struct GlowcapIrohEndpoint {
 	/// The deadline every bi-stream establishment on this endpoint rides, the

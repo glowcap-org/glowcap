@@ -64,7 +64,7 @@ pub const RecvViewError = Error || model.view.ProjectError || std.mem.Allocator.
 pub const Error = @import("errors.zig").Error;
 
 /// The fixed bootstrap export position installed when a session reaches `open`
-/// (ADR-0006). An inbound `op:deliver` to `<desc:export 0>` with method
+/// (ADR-0002). An inbound `op:deliver` to `<desc:export 0>` with method
 /// `'fetch` is the bootstrap-fetch entry point. The initiator side lives in
 /// `engine.fetch`. The inbound-`'fetch` responder lives in `engine.bootstrap`,
 /// not the session.
@@ -166,7 +166,7 @@ pub const Session = struct {
     partner_preference: model.Preference = model.Preference.baseline,
     /// Whether this partner is known to be glowcap before our hello states a
     /// preference, which on onion is the licence to state one at all
-    /// (ADR-0118). The engine mints it at exactly two seams, and the pinned
+    /// (ADR-0042). The engine mints it at exactly two seams, and the pinned
     /// Goblins onion netlayer can produce neither: a dial handed a
     /// `glowcap/*`-hinted locator (`Peer.noteKnownGlowcapPartner`), and a
     /// deferred onion accept whose inbound hello stated a non-baseline
@@ -199,12 +199,12 @@ pub const Session = struct {
     /// retirement, and teardown release the exact charge.
     retained_sent_answer_bytes: usize = 0,
     import_release_outbox: ?*@import("import_release_outbox.zig").Outbox = null,
-    /// Promises imported from a third party via handoff (ADR-0009), keyed by
+    /// Promises imported from a third party via handoff (ADR-0039), keyed by
     /// import position for O(1) lookup. Host designators are interned in
     /// `key_arena`. Each row owns its listen cell and stored relayed resolution.
     imported_promises: foundation.identity_hash.MapOf(.wire, model.ImportPosition, ImportedPromise),
     /// The secret every table keyed by positions the peer chooses hashes
-    /// under (ADR-0218). A Node hands one to each session at registration,
+    /// under (ADR-0037). A Node hands one to each session at registration,
     /// through `keyWireTables`, and each such table carries a copy because
     /// its verbs run without the session in hand.
     wire_hash_multiplier: u64,
@@ -215,7 +215,7 @@ pub const Session = struct {
     /// since released and re-registered at the same position must miss, never
     /// false-match.
     store_stamp_counter: u64 = 0,
-    /// Whether this side has sent its `op:start-session` half (ADR-0006).
+    /// Whether this side has sent its `op:start-session` half (ADR-0002).
     handshake_local_sent: bool,
     /// Whether the partner's `op:start-session` half has been observed.
     handshake_remote_received: bool,
@@ -223,13 +223,13 @@ pub const Session = struct {
     /// session keeps it as opaque bytes in `key_arena` (it runs no crypto). An
     /// embedder reads it to verify the partner's signatures, for example, the
     /// gifter's `desc:handoff-give` when this is a gifter-to-exporter session
-    /// (ADR-0009). Empty until the partner's handshake half arrives with a key.
+    /// (ADR-0039). Empty until the partner's handshake half arrives with a key.
     partner_session_key: []const u8 = &.{},
     /// This side's own session public key, learned from the `op:start-session`
     /// half we sent. Kept as opaque bytes in `key_arena` beside the partner's,
     /// for the one job that needs to know who *we* are on this session: an
     /// exporter deriving the session name a `desc:handoff-receive` must carry
-    /// (ADR-0009), so a withdrawal cannot name a session it does not belong to.
+    /// (ADR-0039), so a withdrawal cannot name a session it does not belong to.
     /// Empty on an unkeyed session, which is also every session on which no
     /// handoff can be redeemed.
     local_session_key: []const u8 = &.{},
@@ -243,17 +243,17 @@ pub const Session = struct {
     /// content on the decode path (`partner_designator` views into it). A gifter
     /// embeds these in a `desc:handoff-give`'s exporter-location so a peer
     /// comparing the give's location to the session's matches byte-for-byte
-    /// (ADR-0009). Empty until the partner's handshake half arrives with raw
+    /// (ADR-0039). Empty until the partner's handshake half arrives with raw
     /// bytes (owned-message apply has none). Lives in `key_arena`.
     partner_acceptable_location_raw: []const u8 = &.{},
-    /// V1.0 inbound resolver link (ADR-0010): an answer-pos bound to the
+    /// V1.0 inbound resolver link (ADR-0006): an answer-pos bound to the
     /// resolver import position we target when we send our resolution
     /// (`resolverForInboundAnswer` forward, `answerForResolverImport` reverse).
     /// One `BiMap`, pruned whole when the answer is fully released by
     /// `op:gc-answers`.
     v1_0_inbound_resolver_link: InboundResolverLink,
     /// Resolved sturdyref enlivenments, mapping a swissnum to its `(import, kind)`
-    /// (ADR-0012 dedup).
+    /// (ADR-0007 dedup).
     /// FIFO-evicting (cap `max_sturdyref_cache_entries`), with inline row links
     /// preserving insertion order through dense removal. Owns each swissnum on
     /// the gpa, freed on eviction.
@@ -263,7 +263,7 @@ pub const Session = struct {
     /// in lockstep on insert and FIFO eviction (`sturdyref_cache.zig`).
     sturdyref_cache_index: std.StringHashMapUnmanaged(usize),
     /// In-flight sturdyref enlivens, mapping a swissnum to its outstanding answer
-    /// (ADR-0012 dedup). O(1) lookup. Rows are removed on completion, so swissnum
+    /// (ADR-0007 dedup). O(1) lookup. Rows are removed on completion, so swissnum
     /// keys are gpa-owned and freed on removal.
     pending_enlivens: std.StringHashMapUnmanaged(model.AnswerPosition),
     /// Reverse index for `pending_enlivens`: answer to the same owned swissnum
@@ -271,7 +271,7 @@ pub const Session = struct {
     /// removal (`sturdyref_cache.zig`).
     pending_enliven_by_answer: foundation.identity_hash.Map(model.AnswerPosition, []const u8),
     /// The swissnum-to-export registry the inbound-`'fetch` responder consults
-    /// (ADR-0006). Keys live in `key_arena`, O(1) lookup, compared in constant
+    /// (ADR-0002). Keys live in `key_arena`, O(1) lookup, compared in constant
     /// time because the name looked up is the partner's guess. Never removed.
     bootstrap: foundation.bearer_table.Table(model.ExportPosition),
 
@@ -569,7 +569,7 @@ pub const Session = struct {
         return if (self.captp_version == .next) self.shortenedPromiseTarget(import_position) else import_position;
     }
 
-    // Sturdyref-enliven dedup (ADR-0012): the resolved-enlivenment cache and the
+    // Sturdyref-enliven dedup (ADR-0007): the resolved-enlivenment cache and the
     // in-flight enliven set. Bodies live in `sturdyref_cache.zig`; aliased here
     // so `sess.cacheSturdyrefEnlivenment(...)` still resolves.
     pub const sturdyrefCacheLookup = sturdyref_cache.sturdyrefCacheLookup;
@@ -582,7 +582,7 @@ pub const Session = struct {
     pub const forgetSturdyrefEnlivenmentsAt = sturdyref_cache.forgetSturdyrefEnlivenmentsAt;
 };
 
-// Wire-delta GC accounting and structural well-formedness checks (ADR-0008):
+// Wire-delta GC accounting and structural well-formedness checks (ADR-0004):
 // stateless free functions over the tables/messages they validate. Bodies live
 // in `gc.zig`; re-exported here so `session.checkGcExportDecrement` still
 // resolves from the validate/apply spine.

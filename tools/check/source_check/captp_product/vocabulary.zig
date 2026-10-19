@@ -1,5 +1,5 @@
 //! CapTP vocabulary on the product surfaces: the transport table in every
-//! doc that carries one, and the ADR-0079 product nouns.
+//! doc that carries one, and the ADR-0011 product nouns.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -46,7 +46,7 @@ pub fn checkTransportVocabulary(
     }
 }
 
-/// CapTP vocabulary (ADR-0079): public symbols and binding export maps the
+/// CapTP vocabulary (ADR-0011): public symbols and binding export maps the
 /// compiler cannot compare across language boundaries.
 pub fn checkCaptpVocabulary(
     io: std.Io,
@@ -61,7 +61,7 @@ pub fn checkCaptpVocabulary(
     defer gpa.free(driver_header);
     for ([_][]const u8{ "GlowcapHostSession", "glowcap_host_session_" }) |needle| {
         if (std.mem.indexOf(u8, driver_header, needle) == null) {
-            try appendViolation(gpa, violations, "include/glowcap_host.h: missing `{s}` — the byte-fed CapTP session family (ADR-0079)", .{needle});
+            try appendViolation(gpa, violations, "include/glowcap_host.h: missing `{s}` — the byte-fed CapTP session family (ADR-0011)", .{needle});
         }
     }
 
@@ -77,7 +77,7 @@ pub fn checkCaptpVocabulary(
         };
         defer gpa.free(contents);
         if (std.mem.indexOf(u8, contents, p.needle) == null) {
-            try appendViolation(gpa, violations, "{s}: missing `{s}` — {s} (ADR-0079)", .{ p.path, p.needle, p.what });
+            try appendViolation(gpa, violations, "{s}: missing `{s}` — {s} (ADR-0011)", .{ p.path, p.needle, p.what });
         }
     }
 }

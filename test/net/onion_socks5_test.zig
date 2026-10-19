@@ -1,4 +1,4 @@
-//! Evidence item 1 of ADR-0108: the SOCKS5 bytes glowcap writes to reach an
+//! Evidence item 1 of ADR-0042: the SOCKS5 bytes glowcap writes to reach an
 //! onion service are the bytes the two peers it must meet write.
 //!
 //! The expectations below are read off two sources, not off glowcap's own code.

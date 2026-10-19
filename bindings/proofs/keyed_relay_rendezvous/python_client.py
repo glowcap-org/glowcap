@@ -1,6 +1,6 @@
 """Per-binding keyed-relay rendezvous proof: the Python binding cold-dials a
 non-listening peer by its key designator through the reference relay's
-rendezvous bridge (ADR-0088). The core classifies the locator as the
+rendezvous bridge (ADR-0034). The core classifies the locator as the
 ``rendezvous`` dial shape. The binding opens the WebSocket leg the locator's
 ``rendezvous-relay`` hint names, the one rendezvous routing authority.
 

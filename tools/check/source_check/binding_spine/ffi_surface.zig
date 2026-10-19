@@ -400,7 +400,7 @@ fn checkSidecarAbiParity(
     }
 }
 
-/// Hold the three hand-spelled surfaces of the iroh sidecar C ABI (ADR-0055)
+/// Hold the three hand-spelled surfaces of the iroh sidecar C ABI (ADR-0021)
 /// to the same function set, arity, and coarse type shape.
 pub fn checkIrohSidecarAbi(
     io: std.Io,
@@ -443,7 +443,7 @@ pub fn checkIrohSidecarAbi(
     });
 }
 
-/// Hold the two hand-spelled surfaces of the webrtc sidecar C ABI (ADR-0089) to
+/// Hold the two hand-spelled surfaces of the webrtc sidecar C ABI (ADR-0035) to
 /// the same function set, arity, and coarse type shape. The webrtc sidecar has no
 /// private C header (its resident's `extern fn` block is the only C-side spelling
 /// besides the Rust exports), so it is a two-surface parity, not three.
@@ -470,7 +470,7 @@ pub fn checkWebrtcSidecarAbi(
 /// Hold the steady-buffer bound the Zig loop keeps and the Rust sidecar mirrors.
 ///
 /// Both sides retain the same per-connection steady capacity and free the
-/// burst above it (ADR-0042's posture, ADR-0057's sidecar). The two constants
+/// burst above it (ADR-0017's posture, ADR-0019's sidecar). The two constants
 /// live in different languages, so the 500k footprint budget could split
 /// between them silently without the generated mirror: the sidecar's buffer is
 /// per-connection too, and a number raised on one side is a withdrawal the
@@ -540,7 +540,7 @@ pub fn checkIrohAcceptQueueBound(
 }
 
 /// The sidecar crates held to exact pins and a committed lockfile. The iroh
-/// sidecar wraps an external network stack (ADR-0055). The shared runtime
+/// sidecar wraps an external network stack (ADR-0021). The shared runtime
 /// crate carries the tokio pin both sidecars build against and is tested on
 /// its own with `--locked`.
 const pinned_sidecar_crates = [_]struct { manifest: []const u8, lockfile: []const u8 }{
@@ -548,7 +548,7 @@ const pinned_sidecar_crates = [_]struct { manifest: []const u8, lockfile: []cons
     .{ .manifest = "transports/sidecar-common/Cargo.toml", .lockfile = "transports/sidecar-common/Cargo.lock" },
 };
 
-/// ADR-0055 commits the sidecar to reproducible dependency resolution: the
+/// ADR-0021 commits the sidecar to reproducible dependency resolution: the
 /// crate's `Cargo.lock` is checked in and every direct dependency in its
 /// `Cargo.toml` is pinned to an exact `=x.y.z` version, making an intentional
 /// bump visible in the manifest rather than only in the lockfile. This check
@@ -574,7 +574,7 @@ fn checkCratePins(
     lockfile_path: []const u8,
 ) !void {
     root.access(io, lockfile_path, .{}) catch {
-        try appendViolation(gpa, violations, "{s}: missing, the sidecar lockfile is deliberately committed (ADR-0055) so its gates resolve the same dependency tree on every machine", .{lockfile_path});
+        try appendViolation(gpa, violations, "{s}: missing, the sidecar lockfile is deliberately committed (ADR-0021) so its gates resolve the same dependency tree on every machine", .{lockfile_path});
     };
 
     const contents = root.readFileAlloc(io, manifest_path, gpa, .limited(1 << 20)) catch |err| {
@@ -613,7 +613,7 @@ fn checkCratePins(
             nextQuotedString(line, eq);
         const pinned = if (version) |spec| spec.len > 1 and spec[0] == '=' else false;
         if (!pinned) {
-            try appendViolation(gpa, violations, "{s}: dependency `{s}` is not pinned to an exact `=x.y.z` version — the sidecar's direct dependencies are pinned exactly (ADR-0055)", .{ manifest_path, key });
+            try appendViolation(gpa, violations, "{s}: dependency `{s}` is not pinned to an exact `=x.y.z` version — the sidecar's direct dependencies are pinned exactly (ADR-0021)", .{ manifest_path, key });
             continue;
         }
         pins_seen += 1;

@@ -66,7 +66,7 @@ target, and a forwarded call describes only the source passing it on.
 
 One copy of the behavior's `context` survives storage waits and is rebuilt when a newer
 commit makes the call prepare again
-([ADR-0198](../decisions/adr/ADR-0198-trusted-content-callback-context.md)).
+([ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md)).
 Its bytes count against the call's memory, and a call over its limit is
 refused before it runs.
 
@@ -81,9 +81,9 @@ requirement. Its `ContentCall` offers these effects:
   the target's grant on every call.
 
 A capability the method did not declare is refused before the reply goes out.
-[ADR-0172](../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)
+[ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
 defines exact disclosure, and
-[ADR-0173](../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)
+[ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
 defines dependent disclosure and field edits. The
 [stored capability field guide](references.md) covers local and remote
 references, `ContentBehavior.references`, saves your program starts, rules for
@@ -95,7 +95,7 @@ A tree application creates nodes, shares the ones a reader lists, and moves a
 node between two others. Each of these is one hosted call that commits one
 batch for the owner, so a crash leaves all of it or none of it, and the
 owner's history names every resource the call touched
-([ADR-0227](../decisions/adr/ADR-0227-hosted-calls-create-share-and-change-several-resources.md)).
+([ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md)).
 
 - **Create a child.** `ContentBehavior.create` declares the kind and schema of
   a child under the call's resource, and `ContentCall.createChild` gives its
@@ -177,5 +177,5 @@ grant, header, model records, and one directory page read along the way.
 Participants only add changes, and the attachment begins and commits the
 transaction. Managed hosting uses these hooks for content, structural,
 control, sharing, and [observation](access.md#observing-held-access) calls.
-[ADR-0169](../decisions/adr/ADR-0169-managed-host-turns.md) records the
+[ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) records the
 design.

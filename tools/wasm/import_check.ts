@@ -1,7 +1,7 @@
 // Gate: the browser binding's wasm32 module imports exactly its two hosted-
 // object callbacks.
 //
-// The freestanding wasm32 Host (`zig build wasm-driver`, ADR-0070) declares a
+// The freestanding wasm32 Host (`zig build wasm-driver`, ADR-0034) declares a
 // two synchronous imports: behavior dispatch and hosted-actor retirement. The
 // module is otherwise self-contained: it draws no entropy, owns no I/O, and
 // carries no other host callback. Another import creeping in, an accidental

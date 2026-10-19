@@ -1,6 +1,6 @@
 """Internal: the raw ``ctypes`` loader for ``libglowcap_net_transport_webrtc``.
 
-The WebRTC companion library (``libglowcap_net_transport_webrtc``, ADR-0089) is
+The WebRTC companion library (``libglowcap_net_transport_webrtc``, ADR-0035) is
 optional -- built only with cargo (``zig build webrtc-abi``) -- so it loads
 lazily on first ``_webrtc()`` use and names how to produce it when absent rather
 than failing at import. It carries the ``glowcap_webrtc_*`` family plus its own

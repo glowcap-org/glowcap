@@ -52,7 +52,7 @@ pub fn connectLocator(
     return session;
 }
 
-/// Stage a dial toward `locator` without pumping it (ADR-0112): mint the
+/// Stage a dial toward `locator` without pumping it (ADR-0024): mint the
 /// dialed session, start its transport connect, and return. The
 /// handshake advances through whichever pump runs next. `observer` hears
 /// `opened` with `tag` when the session opens, or
@@ -189,7 +189,7 @@ pub fn stageDial(
     errdefer self.allocator.destroy(row);
     try self.pending_opens.ensureUnusedCapacity(self.allocator, 1);
     // The row owns a copy of the caller's borrowed locator so a transient
-    // failure can re-issue the dial after the call returns (ADR-0193).
+    // failure can re-issue the dial after the call returns (ADR-0018).
     // Redeem rows re-read the route's own view instead, so they leave the
     // field null. The clone lands before the dial is issued, so a failed
     // clone leaves no attempt behind.
@@ -464,7 +464,7 @@ fn reportDialOutcome(self: *HostRuntime, outcome: dial_retry.DialOutcome, attemp
 }
 
 /// A failed resident finish either parks the row for its retry interval or
-/// fails it as before (ADR-0193 executes ADR-0082's policy). The retry
+/// fails it as before (ADR-0018 executes ADR-0030's policy). The retry
 /// keeps the row's session, admission, observer reservation, and queued
 /// hello: only the transport dial is re-issued. A transient fault retries
 /// while attempts remain and the handshake deadline leaves room for the

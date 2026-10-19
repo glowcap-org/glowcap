@@ -390,7 +390,7 @@ The server therefore enforces limits:
 - IRC stays at the application edge. Carrying CapTP itself over IRC is
   refused: a 512-byte line protocol with a server that may inject cannot keep
   an OCapN session insertable only by its participants.
-  [ADR-0128](../../docs/decisions/adr/ADR-0128-room-links-peering-and-irc-edges.md)
+  [ADR-0043](../../docs/decisions/adr/ADR-0043-rooms-identity-and-authority.md)
   records the edges.
 - Peering is one handed authority, not a server link. A room's sturdyref is
   restored once on the source, and the destination keeps one foreign row

@@ -1,12 +1,12 @@
 #lang racket
 ;; Live iroh scale proof for the Racket binding: many concurrent connections
-;; served from one readiness loop (ADR-0057), the Racket sibling of the Zig
+;; served from one readiness loop (ADR-0019), the Racket sibling of the Zig
 ;; `zig build iroh-loop` gate.
 ;;
 ;; The iroh netlayer has one I/O model, an event-driven readiness loop. This
 ;; gate proves it through the binding: one `iroh-server` runs a single readiness
 ;; loop (one green thread parked on the endpoint's readiness fd,
-;; ADR-0057) and serves every accepted connection's peer from green threads on the
+;; ADR-0019) and serves every accepted connection's peer from green threads on the
 ;; one place. Many clients dial it at once, each over its own iroh endpoint, fetch
 ;; the published greeter, and call it several times. Every reply must come back
 ;; correct, so the one server loop is provably multiplexing all the connections

@@ -20,7 +20,7 @@ import { utf8Fits } from "../../lib/limits.ts";
 // exactly one question, "what address did my packet appear to come from?",
 // and that answer is the candidate the other side can use. It sees no message
 // bytes: a direct line is encrypted end to end whether or not STUN helped
-// arrange it. ADR-0089 assumed this was here; it names an intermediary "only
+// arrange it. ADR-0035 assumed this was here; it names an intermediary "only
 // as a byte relay when ICE cannot find a direct path through NAT".
 //
 // The set is a deployment's to choose, because it names hosts that deployment

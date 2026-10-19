@@ -152,7 +152,7 @@ test "a common-arity far send allocates its frame and nothing else" {
 
     // The exact contract: a ≤7-arg far send costs only its wire frame,
     // encoded at admission from the caller's borrowed arguments
-    // (ADR-0236). The tree with no reference lists nothing, so the inventory
+    // (ADR-0064). The tree with no reference lists nothing, so the inventory
     // allocates nothing, and the verb-splice scratch spine rides
     // `farDeliverTo`'s stack buffer. Each send is measured alone and the
     // queue drained between them, because the engine's steady-queue bound

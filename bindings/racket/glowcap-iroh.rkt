@@ -1,7 +1,7 @@
 #lang racket/base
 ;; glowcap-iroh: the iroh transport companion for the glowcap Racket binding.
 ;;
-;; Mirrors the à-la-carte archive split (ADR-0059): `glowcap.rkt` is the core
+;; Mirrors the à-la-carte archive split (ADR-0022): `glowcap.rkt` is the core
 ;; (libglowcap_ocapn), and each transport is a composable module:
 ;; `glowcap-tcp.rkt`, `glowcap-inproc.rkt`, and this one. This module is
 ;; libglowcap_net_transport_iroh's binding, the optional encrypted-QUIC netlayer.

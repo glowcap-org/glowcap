@@ -26,7 +26,7 @@ import { assert, ok, startRelay, within } from "./support.ts";
 import { runForeignFetch } from "./foreign_fetch.ts";
 
 export async function run(managed: Runtime): Promise<void> {
-	// Distributed GC (ADR-0063), opt-in: fetch results, nested send replies, and
+	// Distributed GC (ADR-0025), opt-in: fetch results, nested send replies, and
 	// nested delivered arguments each release their one projected capability
 	// occurrence. The relay observes both directions before teardown.
 	{
@@ -123,7 +123,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("distributed release reaches fetched, replied, and delivered capability homes");
 	}
 
-	// Promise pipelining (ADR-0007), the questioner's half: `Session.send`
+	// Promise pipelining (ADR-0003), the questioner's half: `Session.send`
 	// returns a handle that is also a `send` target, so a create -> assign ->
 	// complete -> status chain may be issued against the `create` answer after a
 	// fast resolution. The board's `create` spawns a
@@ -305,7 +305,7 @@ export async function run(managed: Runtime): Promise<void> {
 		ok("turn-time spawn uses the Host after the originating Port closes");
 	}
 
-	// Pipelined projections (ADR-0050/ADR-0052): `RemotePromise.index(i)` and
+	// Pipelined projections (ADR-0004/ADR-0004): `RemotePromise.index(i)` and
 	// `.untag(tag)` access an element / unwrap a tag *at the answer*, before it
 	// resolves, each returning a new pipelinable `RemotePromise`. The board's
 	// `make` returns `["assigned", label, 7]` tagged "task"; untag unwraps the
@@ -397,7 +397,7 @@ export async function run(managed: Runtime): Promise<void> {
 		);
 	}
 
-	// Promise pipelining (ADR-0007), the unawaited-anchor contract: a `send`
+	// Promise pipelining (ADR-0003), the unawaited-anchor contract: a `send`
 	// handle is a real `Promise`, and an anchor whose far answer *breaks* (even
 	// after its bytes flush on a sibling's tail) never raises an unhandled
 	// rejection, because a handle that is never observed materializes no

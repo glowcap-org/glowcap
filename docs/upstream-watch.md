@@ -143,20 +143,20 @@ locator value and hint names are what have to agree.
 
 glowcap uses iroh and does not implement QUIC. The decision reopens when
 iroh's protocols stabilize and a production Zig QUIC stack exists
-([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
+([ADR-0021](decisions/adr/ADR-0021-iroh-transport-sidecar.md)).
 
 ## An encrypted identity layer
 
 OCapN issue 208 proposes a Noise-based identity layer that would run inside any
 byte transport, and an NLnet grant funds a standardized end-to-end encrypted
 relay netlayer at Spritely. Neither has spec text yet. glowcap's own sealed
-channel is [ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)
+channel is [ADR-0041](decisions/adr/ADR-0041-sealed-byte-channels.md)
 (`Noise_XK` under two glowcap-only symbols, `noise-tcp` and `noise-relay`).
 If upstream lands a Noise netlayer, the handshake pattern, prologue, and
 locator shape are what have to agree before the symbols can converge.
 
 The `id` locator from
-[ADR-0125](decisions/adr/ADR-0125-identity-route-multihome.md) is glowcap's
+[ADR-0036](decisions/adr/ADR-0036-identity-and-multihome-routing.md) is glowcap's
 own, available only with the negotiated `multi_location` feature, and the
 [multi-home routes diagrams](protocol-diagrams/08-multihome-routes.md) describe
 it. Carrier wrapping, route-key binding, and the hint schema are what must be

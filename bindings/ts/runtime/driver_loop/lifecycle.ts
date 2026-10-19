@@ -1,4 +1,4 @@
-// The driver archive's TypeScript face (ADR-0112): `DriverLoop` parks the
+// The driver archive's TypeScript face (ADR-0024): `DriverLoop` parks the
 // runtime on the loop's one readiness descriptor, steps with a zero timeout on
 // the JavaScript thread when it signals or when a Host verb kicks, and drains
 // the one event queue: dial outcomes into promises, accepted sessions into a
@@ -50,7 +50,7 @@ export abstract class DriverLoopLifecycle extends DriverLoopState {
 		return this._closing;
 	}
 
-	/** The server-shaped close (ADR-0112): stop accepting now, release the
+	/** The server-shaped close (ADR-0024): stop accepting now, release the
 	 * unclaimed queue, and close the loop once the last application-owned
 	 * session is gone. Sessions already yielded (or dialed on this loop's
 	 * Host) remain open until their owners close them, as the byte-fed

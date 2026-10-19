@@ -10,7 +10,7 @@
 //! From that single number it extrapolates to 500k and reports how many
 //! connections fit in common RAM sizes.
 //!
-//! This measures core *peer state* only, and since ADR-0054 the core state is
+//! This measures core *peer state* only, and since ADR-0019 the core state is
 //! also the dominant per-connection cost: the completion loop's read buffers
 //! are a shared backend-owned pool (`BackendOptions.read_buffers` buffers of
 //! `default_read_buffer_bytes` each), so an idle connection holds zero read-buffer
@@ -35,7 +35,7 @@ const driver = glowcap.driver;
 const model = glowcap.ocapn.model;
 
 /// A trivial published capability, so the `served` scenario's vat holds one live
-/// actor cell, the per-connection state a loop-driven host (ADR-0057) carries
+/// actor cell, the per-connection state a loop-driven host (ADR-0019) carries
 /// on top of the bare `engine.Peer`.
 const BenchGreeter = struct {
     pub fn handle(self: *BenchGreeter, turn: *actors.Turn, msg: actors.Delivery) !model.Argument {
@@ -114,7 +114,7 @@ pub const Scenario = enum {
     /// Sixteen exports registered plus a driven turn: a connection holding a
     /// handful of live capabilities.
     active16,
-    /// The loop-driven path (ADR-0057): a warmed peer plus the `driver.Served`
+    /// The loop-driven path (ADR-0019): a warmed peer plus the `driver.Served`
     /// serve core (the vat and the bounded partner-abort retention) with one
     /// published capability, the slot a `driver.HostRuntime` over an iroh
     /// resident holds per connection. This is

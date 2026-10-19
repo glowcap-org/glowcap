@@ -204,7 +204,7 @@ const goblins_handoff_clients = [_]BindingClientRow{
 };
 
 // Binding as gifter: mints a give a real Goblins recipient redeems. Proves
-// the exporter half of ADR-0009. `-Dport=N` pins the exporter (recipient on
+// the exporter half of ADR-0039. `-Dport=N` pins the exporter (recipient on
 // N+1; gifter takes an ephemeral port). Deno needs `--allow-env`.
 const goblins_gift_clients = [_]BindingClientRow{
     .{
@@ -234,7 +234,7 @@ const goblins_gift_clients = [_]BindingClientRow{
     },
 };
 
-// Keyed-tcp restart proof (ADR-0075): happy path, squatter refusal, same-
+// Keyed-tcp restart proof (ADR-0028): happy path, squatter refusal, same-
 // seed fresh-port restart. No iroh companion needed.
 const keyed_tcp_restart_clients = [_]BindingClientRow{
     .{
@@ -264,7 +264,7 @@ const keyed_tcp_restart_clients = [_]BindingClientRow{
     },
 };
 
-// Keyed-relay rendezvous proof (ADR-0088): the binding cold-dials a
+// Keyed-relay rendezvous proof (ADR-0034): the binding cold-dials a
 // registered non-listening peer by key designator through the reference
 // relay's rendezvous bridge, the core classifies the locator as the
 // rendezvous dial shape, and the host's configured relay mapping opens it.
@@ -377,7 +377,7 @@ const noise_relay_listen_clients = [_]BindingClientRow{
 // The same rendezvous conversation over the Mbed TLS WSS provider in every
 // binding. The shared harness supplies one copied test CA and makes each
 // client prove wrong-host and unknown-CA projection before the successful
-// call. Managed registration remains the peer/runtime-owned side of ADR-0117.
+// call. Managed registration remains the peer/runtime-owned side of ADR-0033.
 const wss_relay_clients = [_]BindingClientRow{
     .{
         .step_name = "deno-wss-relay",
@@ -438,7 +438,7 @@ const binding_families = [_]BindingFamily{
     },
     .{
         .aggregate_name = "bindings-webrtc-driver-provider",
-        .aggregate_desc = "Live WebRTC through the C provider: every binding dials the Zig answerer (ADR-0226) and accepts the Zig offerer (ADR-0232) with its own signaling (needs cargo + deno + python3 + racket)",
+        .aggregate_desc = "Live WebRTC through the C provider: every binding dials the Zig answerer (ADR-0035) and accepts the Zig offerer (ADR-0035) with its own signaling (needs cargo + deno + python3 + racket)",
         .needs_iroh_abi = false,
         .needs_webrtc_peers = true,
         .rows = &webrtc_rows.webrtc_driver_provider_clients,

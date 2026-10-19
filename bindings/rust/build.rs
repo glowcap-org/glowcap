@@ -172,7 +172,7 @@ fn main() {
 		);
 	}
 }
-/// Cascade (ADR-0077): `GLOWCAP_LIB_DIR` → abi-versioned download cache →
+/// Cascade (ADR-0023): `GLOWCAP_LIB_DIR` → abi-versioned download cache →
 /// optional in-tree `zig-out/lib` → (caller falls through to link failure).
 fn resolve_lib_dir(manifest_dir: &Path) -> PathBuf {
 	if let Some(dir) = std::env::var_os("GLOWCAP_LIB_DIR") {

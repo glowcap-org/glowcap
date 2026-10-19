@@ -349,7 +349,7 @@ fn writeArgumentOutOfLine(allocator: std.mem.Allocator, sink: anytype, arg: anyt
 }
 
 /// Encode a set's elements in canonical order. A set is unordered, so the emit
-/// pass refuses a duplicate element (ADR-0003), matching the decoder's
+/// pass refuses a duplicate element (ADR-0001), matching the decoder's
 /// strictly-ascending refusal.
 fn writeCanonicalSet(allocator: std.mem.Allocator, sink: anytype, items: anytype) WalkError!void {
     if (comptime @TypeOf(items) == view.Args) {
@@ -393,7 +393,7 @@ fn writeTargetReference(allocator: std.mem.Allocator, sink: anytype, reference: 
     // A target is the partner's export or an answer, never one of our own nears,
     // and never a sturdyref: you enliven a sturdyref (a bootstrap fetch), you do
     // not deliver to one. Cap'n Proto carries a sturdy target; Syrup
-    // refuses it (the ADR-0003 dialect boundary the codec-equivalence test names).
+    // refuses it (the ADR-0001 dialect boundary the codec-equivalence test names).
     if (reference.* == .near or reference.* == .sturdy) return Error.UnsupportedReference;
     return writePayloadReference(allocator, sink, reference);
 }

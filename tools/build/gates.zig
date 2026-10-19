@@ -64,7 +64,7 @@ fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Op
     return mods[layerIndex("actors")];
 }
 
-/// The browser binding's freestanding `wasm32` artifact (ADR-0070): the byte-fed
+/// The browser binding's freestanding `wasm32` artifact (ADR-0034): the byte-fed
 /// CapTP Host (`libglowcap_host`) and the shared `libglowcap_ocapn` vocabulary
 /// compiled to one loadable wasm module. It roots on `src/c_abi/wasm/mod.zig`,
 /// which forces both export families in and adds the JS<->wasm linear-memory
@@ -226,7 +226,7 @@ pub fn register(ctx: Context) Registered {
     tests_mod.addImport("syrup", host_mods[layerIndex("syrup")]);
     tests_mod.addImport("c_abi_shared", host_mods[layerIndex("c_abi_shared")]);
     tests_mod.addImport("c_abi", host_mods[layerIndex("c_abi")]);
-    // The transport C ABI archives are separate modules (ADR-0059); their
+    // The transport C ABI archives are separate modules (ADR-0022); their
     // loopback suites drive them directly, reusing the artifact module instances.
     tests_mod.addImport("c_abi_net_transport_tcp", tcp_abi_mod);
     tests_mod.addImport("c_abi_net_transport_relay", relay_check_abi_mod);
@@ -374,7 +374,7 @@ pub fn register(ctx: Context) Registered {
     check_step.dependOn(&run_tests.step);
     check_step.dependOn(&run_completion_deadlines_tests.step);
 
-    // ADR-0108's focused completion-tier proof. The ordinary test aggregate
+    // ADR-0042's focused completion-tier proof. The ordinary test aggregate
     // carries this file too; the named step keeps the transport package's loop
     // evidence directly runnable while iterating or reviewing the ADR.
     const onion_loop_tests_mod = b.createModule(.{
@@ -390,7 +390,7 @@ pub fn register(ctx: Context) Registered {
     const onion_loop_step = b.step("onion-loop", "Run the focused Zig OnionLoop completion tests");
     onion_loop_step.dependOn(&execution.addZigTest(b, onion_loop_tests, .unit_test).step);
 
-    // ADR-0193's pending resident listen for `onion`. The publish conversation
+    // ADR-0018's pending resident listen for `onion`. The publish conversation
     // runs on the loop's own turns and never blocks it; the runtime gate
     // exercises that through the completion residents over the fake daemon.
     const onion_pending_tests_mod = b.createModule(.{
@@ -555,7 +555,7 @@ pub fn register(ctx: Context) Registered {
     cross_check_step.dependOn(&run_cross_fast.step);
     check_step.dependOn(cross_check_step);
 
-    // The browser binding's freestanding wasm32 Host module (ADR-0070): the
+    // The browser binding's freestanding wasm32 Host module (ADR-0034): the
     // byte-fed driver tier plus the shared ocapn vocabulary, one loadable
     // `glowcap_host.wasm` under zig-out/wasm/ that a browser instantiates and
     // drives with bytes. Building it also folds the whole browser-binding graph
@@ -572,7 +572,7 @@ pub fn register(ctx: Context) Registered {
     // Without this edge a renamed C-ABI symbol leaves the served module stale,
     // and the browser can only report the missing export at dlopen time.
     b.getInstallStep().dependOn(&wasm_driver_install.step);
-    const wasm_driver_step = b.step("wasm-driver", "Build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/");
+    const wasm_driver_step = b.step("wasm-driver", "Build the browser binding's freestanding wasm32 Host module (ADR-0034) into zig-out/wasm/");
     wasm_driver_step.dependOn(&wasm_driver_install.step);
     cross_check_step.dependOn(&wasm_driver.step);
 
@@ -598,7 +598,7 @@ pub fn register(ctx: Context) Registered {
     wasm_driver_test.setCwd(b.path("."));
     wasm_driver_test.has_side_effects = true;
     wasm_driver_test.step.dependOn(&wasm_driver_install.step);
-    const wasm_driver_test_step = b.step("wasm-driver-test", "Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno, ADR-0070 and ADR-0098)");
+    const wasm_driver_test_step = b.step("wasm-driver-test", "Prove the wasm32 Host handshakes and checks sturdyref peer authority from JS (needs deno, ADR-0034 and ADR-0007)");
     wasm_driver_test_step.dependOn(&wasm_driver_test.step);
 
     // The wasm32 layout descriptor (`glowcap_wasm_abi_layout`) decodes cleanly:
@@ -609,7 +609,7 @@ pub fn register(ctx: Context) Registered {
     wasm_abi_layout_check.setCwd(b.path("."));
     wasm_abi_layout_check.has_side_effects = true;
     wasm_abi_layout_check.step.dependOn(&wasm_driver_install.step);
-    const wasm_abi_layout_check_step = b.step("wasm-abi-layout-check", "Prove the wasm32 Host's layout descriptor (glowcap_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno, ADR-0070)");
+    const wasm_abi_layout_check_step = b.step("wasm-abi-layout-check", "Prove the wasm32 Host's layout descriptor (glowcap_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno, ADR-0034)");
     wasm_abi_layout_check_step.dependOn(&wasm_abi_layout_check.step);
 
     // Product proof for the @glowcap/web Wasm peer: keyed WebSocket call and
@@ -623,21 +623,21 @@ pub fn register(ctx: Context) Registered {
     web_peer_test.has_side_effects = true;
     web_peer_test.step.dependOn(&wasm_driver_install.step);
     web_peer_test.step.dependOn(b.getInstallStep());
-    const web_peer_test_step = b.step("web-peer-test", "Prove @glowcap/web holds keyed WebSocket and sealed Noise-relay sessions with Zig peers (needs deno + Playwright, ADR-0070 and ADR-0107)");
+    const web_peer_test_step = b.step("web-peer-test", "Prove @glowcap/web holds keyed WebSocket and sealed Noise-relay sessions with Zig peers (needs deno + Playwright, ADR-0034 and ADR-0041)");
     web_peer_test_step.dependOn(&web_peer_test.step);
 
     // The cross-runtime relay matrix (`bindings-relay`, `bindings-relay-iroh`) is
     // wired below, after the iroh ABI companion it depends on is defined.
 
     // The wasm32 Host imports exactly the behavior-dispatch and hosted-
-    // retirement seams (ADR-0070). Parse the module statically and assert that
+    // retirement seams (ADR-0034). Parse the module statically and assert that
     // fixed set, so an accidental extra import or rename fails the build. A
     // sibling step (needs deno), not folded into the Zig-hermetic `check`.
     const wasm_import_check = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "deno", "run", "--allow-read", "tools/wasm/import_check.ts" });
     wasm_import_check.setCwd(b.path("."));
     wasm_import_check.has_side_effects = true;
     wasm_import_check.step.dependOn(&wasm_driver_install.step);
-    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno, ADR-0070)");
+    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host imports exactly its behavior and hosted-retirement callbacks (needs deno, ADR-0034)");
     wasm_import_check_step.dependOn(&wasm_import_check.step);
 
     return .{

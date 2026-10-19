@@ -1,4 +1,4 @@
-//! Stateless-GC emission balance (ADR-0008): the driver's post-event
+//! Stateless-GC emission balance (ADR-0004): the driver's post-event
 //! `op:gc-exports` walk must release exactly what the session's import-install
 //! walk recorded. The install walk recurses through nested argument trees, so
 //! the emission walk must too, a top-level-only walk strands every nested

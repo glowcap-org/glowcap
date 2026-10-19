@@ -1,4 +1,4 @@
-"""Internal: the asyncio face of the driver archive (ADR-0112).
+"""Internal: the asyncio face of the driver archive (ADR-0024).
 
 One thread drives one driver loop and drains its events into asyncio futures.
 The loop owns provider packages and adopts a real ``GlowcapHost`` handle, so

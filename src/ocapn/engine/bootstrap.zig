@@ -1,8 +1,8 @@
-//! Bootstrap-object methods the engine answers automatically (ADR-0006 / ADR-0009).
+//! Bootstrap-object methods the engine answers automatically (ADR-0002 / ADR-0039).
 //!
 //! `fetch` resolves a swissnum to a local export. `deposit-gift` / `withdraw-gift`
 //! are the exporter-side handoff bootstrap methods. Each Peer owns its session's
-//! `gifts.GiftRegistry` (ADR-0100). The session spine still validates frame
+//! `gifts.GiftRegistry` (ADR-0039). The session spine still validates frame
 //! well-formedness, while the verified responders in this module resolve the
 //! required live sessions before any gift moves.
 
@@ -192,7 +192,7 @@ pub fn resolveForDeposit(
                 request.gift_id,
                 target,
             ) catch |err| {
-                // The capture retained the deposit root (ADR-0101); a refused
+                // The capture retained the deposit root (ADR-0014); a refused
                 // deposit must hand it back or the actor leaks unrooted.
                 p.release_target(p.ctx, target);
                 return err;

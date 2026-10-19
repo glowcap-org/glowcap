@@ -1,6 +1,6 @@
 //! Cap'n Proto golden-byte lock: encode must match committed frames byte-for-
 //! byte, and decode must accept them. Round-trip alone cannot catch encode and
-//! decode drifting together (ADR-0026).
+//! decode drifting together (ADR-0010).
 //!
 //! Regenerate fixtures: `zig build gen-capnp-fixtures`.
 
@@ -31,7 +31,7 @@ const deposit_gift_args = [_]model.Argument{
     .{ .reference = .{ .far = .{ .import_position = .from(5) } } },
 };
 
-/// A list of integers, which rides as a run of words (ADR-0243).
+/// A list of integers, which rides as a run of words (ADR-0010).
 const integer_samples = [_]model.Argument{ .{ .integer = 100 }, .{ .integer = -200 }, .{ .integer = 300 } };
 const integer_list_args = [_]model.Argument{ .{ .symbol = "report" }, .{ .list = &integer_samples } };
 

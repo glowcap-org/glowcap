@@ -1,4 +1,4 @@
-//! A deliver whose arguments the caller lends as views, freight (ADR-0246),
+//! A deliver whose arguments the caller lends as views, freight (ADR-0064),
 //! leaves as its frame at admission with the same bytes an owned tree
 //! encodes to, and a refused freight admission commits nothing: a tree that
 //! names a reference, one past the outbound budget, and an allocation that

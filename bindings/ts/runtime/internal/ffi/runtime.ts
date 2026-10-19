@@ -210,7 +210,7 @@ let readying: Promise<RuntimeAdapter> | undefined;
 // its global then imports the runtime, but a static import chain may have
 // evaluated this module first, so the injection can land after `resolveSync`
 // already picked the host's own adapter. An explicit injection (the wasm
-// browser binding, ADR-0070) is authoritative: it overrides an adapter
+// browser binding, ADR-0034) is authoritative: it overrides an adapter
 // auto-resolved from the host runtime, so a Deno or Bun process that
 // instantiates a wasm peer (a browser peer under test, or a relay harness)
 // runs on the injected adapter instead of its own FFI. The override is

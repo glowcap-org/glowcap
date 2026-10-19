@@ -134,7 +134,7 @@ export class LedgerNames {
 	 *   that holds for glowcap's own producers too, to be named here, you
 	 *   have to speak.
 	 * - **The far end of a `next` session.** `glowcap-next` is a
-	 *   glowcap-private CapTP profile (ADR-0003), so a session that
+	 *   glowcap-private CapTP profile (ADR-0001), so a session that
 	 *   negotiated it has a glowcap host at each end. This is the one fact
 	 *   the viewer reads without being told it. The converse proves nothing
 	 *   and is not read: two glowcap peers meeting on the OCapN

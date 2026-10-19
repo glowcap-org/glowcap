@@ -63,7 +63,7 @@ Rooms is a working chat application built from Rust on glowcap's C ABI. Zig
 could have done everything Rooms does directly, but Rust tests the C ABI and the
 WebAssembly build the way an outside user would.
 
-The [application boundary](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0147-rooms-rust-application-boundary.md)
+The [application boundary](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0045-managed-rooms-sessions.md)
 keeps the application rules in a Rust crate built without the standard
 library, so it cannot touch files, sockets, or clocks. The services ship as binaries with no runtime
 to install.

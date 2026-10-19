@@ -1,4 +1,4 @@
-//! Shared C-ABI embedder pump helpers (ADR-0072 fifth amendment).
+//! Shared C-ABI embedder pump helpers (ADR-0022).
 //!
 //! Authority for the one-loop drain over `glowcap_host_next_action`: Zig tests
 //! and `glowcap_host_pump_drain` call this instead of hand-rolling the switch.

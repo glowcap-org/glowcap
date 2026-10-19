@@ -2,8 +2,8 @@
 //! `PositionList` (`view.zig`). One generic carries four backings: a slice of
 //! owned elements on the owned-fallback path, a codec-supplied table that
 //! reads elements straight out of the frame, a slab of projected views
-//! (ADR-0222), and a run of little-endian words lent by the frame or caller
-//! (ADR-0243). A reader walks any of them with one `len`, `at`, and
+//! (ADR-0063), and a run of little-endian words lent by the frame or caller
+//! (ADR-0010). A reader walks any of them with one `len`, `at`, and
 //! iterator contract, and never allocates a box per list.
 
 const std = @import("std");
@@ -34,8 +34,8 @@ pub const SequenceCtx = struct {
 ///
 /// A sequence is backed one of four ways: by a plain `slice` of owned
 /// elements (the fallback path), by `views` a decoder already parsed once
-/// (ADR-0222), by a `run` of little-endian words lent by the frame or caller
-/// (ADR-0243), or by a small codec-supplied table that reads them straight
+/// (ADR-0063), by a `run` of little-endian words lent by the frame or caller
+/// (ADR-0010), or by a small codec-supplied table that reads them straight
 /// off the wire. Either way you only ever see `len`, `at`, and `iterator`,
 /// which backing it is stays hidden.
 ///

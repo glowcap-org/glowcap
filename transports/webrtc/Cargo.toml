@@ -1,4 +1,4 @@
-# The WebRTC DataChannel netlayer sidecar (ADR-0089): the staticlib C ABI
+# The WebRTC DataChannel netlayer sidecar (ADR-0035): the staticlib C ABI
 # `libglowcap_webrtc_sidecar.a` that the Zig resident
 # (`src/net/transport/webrtc.zig`) drives, the same private byte-level seam the
 # iroh sidecar ships, plus the probe binary below that the datachannel gate runs.
@@ -33,7 +33,7 @@ undocumented_unsafe_blocks = "deny"
 # The staticlib is named `glowcap_webrtc_sidecar` so it emits
 # `libglowcap_webrtc_sidecar.a`: the private byte-level seam the Zig resident
 # links, distinct from the public frame-level archive
-# `libglowcap_net_transport_webrtc` (ADR-0059).
+# `libglowcap_net_transport_webrtc` (ADR-0022).
 name = "glowcap_webrtc_sidecar"
 crate-type = ["staticlib", "rlib"]
 path = "src/lib.rs"

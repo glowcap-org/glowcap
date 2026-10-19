@@ -4,13 +4,13 @@ This study owns the prior-art survey, physical storage alternatives, and
 experiments for Loam. The [roadmap](../../roadmap.md) owns priority.
 
 The [Loam architecture](../architecture.md) and
-[ADR-0161](../../decisions/adr/ADR-0161-loam-foundation-and-access-extension.md)
+[ADR-0048](../../decisions/adr/ADR-0048-loam-persistence-foundation.md)
 own the accepted layer boundaries. The [API contract](../api.md) and
 [sleepy-actor contract](../actors.md) specify the behavior candidates must
 support, and the experiments below test implementations against them.
 [Loam](../../loam.md) runs on SQLite, LMDB, memory, and the browser's
 IndexedDB, and
-[ADR-0239](../../decisions/adr/ADR-0239-sqlite-is-loams-default-disk-engine.md)
+[ADR-0062](../../decisions/adr/ADR-0062-sqlite-default-storage.md)
 made SQLite the default disk engine after the
 [engine comparison](../../../bench/loam/results.md).
 [Where the experiments stand](#where-the-experiments-stand) lists what remains.
@@ -148,8 +148,8 @@ The Vat offers opt-in local snapshots and immutable state replacement, and its
 snapshots do not rewind the network. The `src/loam/collections/` HAMT provides
 structural sharing in memory and no disk durability. Keep those distinctions when
 reusing their mechanisms. See
-[ADR-0060](../../decisions/adr/ADR-0060-vat-local-time-travel.md) and
-[ADR-0061](../../decisions/adr/ADR-0061-persistent-collections-module.md).
+[ADR-0015](../../decisions/adr/ADR-0015-persistent-collections-and-time-travel.md) and
+[ADR-0015](../../decisions/adr/ADR-0015-persistent-collections-and-time-travel.md).
 
 ## Existing implementation is the baseline
 
@@ -461,7 +461,7 @@ whole-system costs justify adoption.
 
 | Step | Where it stands |
 | --- | --- |
-| 1. Observable model | Store incarnations and the record contract are written down ([ADR-0162](../../decisions/adr/ADR-0162-loam-record-transactions-and-lmdb.md), [store](../store.md)). No model checker runs short interleavings. |
+| 1. Observable model | Store incarnations and the record contract are written down ([ADR-0048](../../decisions/adr/ADR-0048-loam-persistence-foundation.md), [store](../store.md)). No model checker runs short interleavings. |
 | 2. Two consumers | Done. Plain actor graphs, managed access, and ordinary records share one store, and the Tasks app is a second application on it. |
 | 3. Application workload | Done for the Tasks workload on both disk engines ([Loam benchmarks](../../../bench/loam/README.md)). The remaining access workloads are on the [roadmap](../../roadmap.md#durable-applications). |
 | 4. Recovery and custody | Process kills and injected I/O faults run on both disk engines ([stability](../../stability.md)). Power loss, old-backup restoration, and stale writer custody have no tests. |

@@ -1,4 +1,4 @@
-//! The pure half of the resolve seam (ADR-0007, ADR-0050): the math of what
+//! The pure half of the resolve seam (ADR-0003, ADR-0004): the math of what
 //! falls out of a settled answer, with no `Peer` in sight.
 //!
 //! When a promise resolves, a few new messages fall out of it: the retargeted
@@ -82,7 +82,7 @@ pub fn callbackArgs(resolution: model.Resolution) [2]model.Argument {
 }
 
 /// What draining one listener against a settled resolution produces, per
-/// ADR-0007 § Listener fire matrix. The engine applies the action (queue the
+/// ADR-0003. The engine applies the action (queue the
 /// fire carrier). Every variant is POD: a fire is a ticket (the far export
 /// position the fire targets) that the engine's queue-time accounting and
 /// encode-time borrow turn into the wire deliver (`borrowedListenerFire`).
@@ -94,15 +94,15 @@ pub const ListenerDrainAction = union(enum) {
     discard,
 };
 
-/// Decide how `entry` drains against a settled `resolution` (ADR-0007
-/// § Listener fire matrix). The matrix's re-anchor row, spec-strict
-/// `Fulfill(Promise(_))`, never reaches a drain site: the chain walk
+/// Decide how `entry` drains against a settled `resolution` (ADR-0003).
+/// The re-anchor case, spec-strict `Fulfill(Promise(_))`, never reaches a
+/// drain site: the chain walk
 /// (`resolution_chain.follow`) re-anchors on a same-peer promise before any
-/// listener is classified, so that row is a precondition here. Settled values
+/// listener is classified, so that case is a precondition here. Settled values
 /// conclude listeners that requested settling. A far promise is the listener's
 /// own peer's promise. On next it concludes only shortening listeners, because
 /// every next settling listener is paired with a shortening one that reissues
-/// it against the target (ADR-0111). V1.0 has no such pair: Goblins listens
+/// it against the target (ADR-0003). V1.0 has no such pair: Goblins listens
 /// with wants-partial #f alone, and the spec exempts only same-peer promises,
 /// so the far promise concludes every V1.0 listener and its peer follows it
 /// locally. Pure and infallible: listener entries are POD `FarRef` values, so
@@ -138,7 +138,7 @@ pub const Projected = union(enum) {
 };
 
 /// Compute an `op:get` / `op:index` / `op:untag` projection over a settled
-/// resolution (ADR-0050). A field projection requires a Struct fulfillment,
+/// resolution (ADR-0004). A field projection requires a Struct fulfillment,
 /// an element projection a List, and an untag projection a Tagged with the
 /// asserted tag. A broken receiver passes its break through (the spec's
 /// inherited rejection). A fulfillment that is itself a promise reference
@@ -189,7 +189,7 @@ pub fn projectResolution(resolution: model.Resolution, kind: session.ProjectionK
                 .message = "op:untag tag does not match the receiver's Tagged tag",
             } } };
             // The spec's Tagged carries a single value; glowcap's model carries
-            // the Goblins user-record payload as a slice (ADR-0021). One value
+            // the Goblins user-record payload as a slice (ADR-0005). One value
             // unwraps to that value; any other arity unwraps to the payload as
             // the List it is, so nothing is guessed and nothing is dropped.
             if (value.tagged.value.len == 1) {

@@ -5,7 +5,7 @@
 // own CapTP profile, `glowcap-next` over Cap'n Proto, and this run keeps one
 // glowcap member in the room to hold that end. The other member is a genuine
 // Goblins vat (`conformance/goblins-peer/racket/rooms-member.rkt`), which
-// speaks the OCapN v1.0 baseline over Syrup and nothing else. Since ADR-0103
+// speaks the OCapN v1.0 baseline over Syrup and nothing else. Since ADR-0001
 // each session settles its own pair from the two hellos, so the room admits
 // both without either member being told in advance what the other is.
 //
@@ -42,7 +42,7 @@ import { connectTraceViewer, tracePublishUrlOf } from "../../apps/rooms/test/tra
  * announces, and an iroh locator is still a locator. What the flag exercises is
  * the accepting side: the room server's iroh listener proves each partner's
  * endpoint id in the QUIC handshake and passes it to the session
- * (`Session.bindVerifiedChannelKey`, ADR-0105). The open session therefore
+ * (`Session.bindVerifiedChannelKey`, ADR-0028). The open session therefore
  * reports authenticated transport provenance. */
 const IROH = Deno.args.includes("--iroh");
 const GATE = IROH ? "goblins-rooms-iroh" : "goblins-rooms";

@@ -343,7 +343,7 @@ fn closeFd(comptime os: Os, fd: i32) void {
 
 /// The typed setup-fault set both OS siblings speak: the actionable errno axis
 /// plus the per-operation fallback. `checkLinux` takes the operation's
-/// fallback so both siblings name the syscall that failed (ADR-0081, contract 1).
+/// fallback so both siblings name the syscall that failed (ADR-0030, contract 1).
 const CheckError = error{
     AddressInUse,
     PermissionDenied,
@@ -360,7 +360,7 @@ fn checkLinux(rc: usize, comptime fallback: CheckError) CheckError!void {
         // tell "my prior socket is in TIME_WAIT / a squatter holds the port"
         // (retry on another port) from a fatal misconfig (fail hard), the
         // decision a keyed-tcp restart and a reconnecting client must make
-        // (ADR-0081). Everything else names the operation that failed.
+        // (ADR-0030). Everything else names the operation that failed.
         .ADDRINUSE => error.AddressInUse,
         .ACCES => error.PermissionDenied,
         .ADDRNOTAVAIL => error.AddressNotAvailable,

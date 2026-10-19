@@ -1,4 +1,4 @@
-//! One managed signaling exchange, in either direction (ADR-0226, ADR-0232).
+//! One managed signaling exchange, in either direction (ADR-0035).
 //!
 //! A dial's exchange is the driver's request id, and `dial.zig` runs it. An
 //! accept's exchange is an id this netlayer mints, and `accept.zig` runs it.

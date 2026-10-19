@@ -1,5 +1,5 @@
 //! Stream transports on HostRuntime through a completion backend
-//! (ADR-0193): `net.completion_resident` presents the platform TCP backend as
+//! (ADR-0018): `net.completion_resident` presents the platform TCP backend as
 //! a multiplexed resident, so the recipient's first dial and the redeem dial a
 //! give provokes inside a blocking call both run on pooled completion I/O, and
 //! no wire holds a read buffer.
@@ -71,7 +71,7 @@ fn gifterServe(
     }
 }
 
-test "completion-backed residents accept, dial, call, and redeem a give over TCP (ADR-0193)" {
+test "completion-backed residents accept, dial, call, and redeem a give over TCP (ADR-0018)" {
     if (!(@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())) return error.SkipZigTest;
     const allocator = std.testing.allocator;
 

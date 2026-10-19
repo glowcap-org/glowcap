@@ -8,7 +8,7 @@
 //
 // The proof: Carol's message reaches Bob's inbox, and it travels on Carol's own
 // direct connection to Bob. The broker is never in the message path. This is
-// the exporter half of ADR-0009 the engine's swiss re-resolution makes possible:
+// the exporter half of ADR-0039 the engine's swiss re-resolution makes possible:
 // the gift is deposited on the broker-to-Bob connection and withdrawn on the
 // separate Carol-to-Bob connection, against one host-wide object identity.
 
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
 
 	// Replace the alias with a decoy before any introduction: the gift must
 	// retain the exact inbox the broker holds, not whatever the name resolves
-	// to at withdrawal (ADR-0096's exact-object identity, on the binding path).
+	// to at withdrawal (ADR-0026's exact-object identity, on the binding path).
 	const decoyInbox: string[] = [];
 	bob.host.publish("dm", (verb, args) => {
 		if (verb === "tell") decoyInbox.push(String(args[0]));

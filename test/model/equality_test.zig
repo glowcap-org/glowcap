@@ -8,7 +8,7 @@ test "far references are equal on import id and wire kind" {
     try std.testing.expect(model.referencesStructurallyEqual(a, .{ .far = .{ .import_position = .from(7), .kind = .object } }));
     // Positions are session-local representation, not global target identity.
     try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .far = .{ .import_position = .from(8), .kind = .object } }));
-    // The wire-kind discriminator participates (ADR-0010 § Decision 5).
+    // The wire-kind discriminator participates (ADR-0006).
     try std.testing.expect(!model.referencesStructurallyEqual(a, .{ .far = .{ .import_position = .from(7), .kind = .promise } }));
 }
 
@@ -156,7 +156,7 @@ test "argument equality recurses through lists and nested references" {
 }
 
 test "big integer equality is bytewise over sign and canonical digits" {
-    // Canonical digits (enforced at decode, ADR-0049) make bytewise comparison
+    // Canonical digits (enforced at decode, ADR-0005) make bytewise comparison
     // arithmetic equality (Model.md § Integer: every Integer value is only
     // equal to Integer values representing the same arithmetic integer).
     const two_pow_100 = "1267650600228229401496703205376";

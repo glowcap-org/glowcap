@@ -1,7 +1,7 @@
 #lang racket/base
 ;; glowcap/inproc: the socket-free in-process transport for the Racket binding.
 ;;
-;; Mirrors the à-la-carte archive split (ADR-0059): this module is
+;; Mirrors the à-la-carte archive split (ADR-0022): this module is
 ;; libglowcap_net_transport_inproc's binding, the in-process sibling of the TCP
 ;; connections (`glowcap-tcp.rkt`). Two sessions in one process are wired by
 ;; pipes, with no kernel transport. The listener exposes a wake descriptor for

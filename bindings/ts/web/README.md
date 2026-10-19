@@ -3,7 +3,7 @@
 Use this package to run a browser tab as an OCapN peer. It is the same protocol core the Zig
 libraries use, compiled to WebAssembly (`wasm32`), with the byte channel on a WebSocket. It offers
 the same `@glowcap/runtime` API that Deno and Bun use, through a browser adapter, and the protocol
-stays in Wasm ([ADR-0070]).
+stays in Wasm ([ADR-0034]).
 
 The tests cover:
 
@@ -13,7 +13,7 @@ The tests cover:
 - `zig build rooms-web-dm-noise`, which has one browser follow a room introduction by dialing
   another browser over that encrypted relay path and then carry the reply back
 
-[ADR-0070]: ../../../docs/decisions/adr/ADR-0070-browser-binding-via-wasm.md
+[ADR-0034]: ../../../docs/decisions/adr/ADR-0034-browser-peers.md
 
 ```ts
 import { init } from "@glowcap/web";

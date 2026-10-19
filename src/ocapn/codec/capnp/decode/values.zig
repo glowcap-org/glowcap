@@ -53,7 +53,7 @@ pub fn chargeHintList(reader: Reader, hints: CompositeList) Error!void {
 /// The one backing context every lazy record shares (`model.view.Lazy`).
 const RecordCtx = model.view.LazyHandoff.Ctx;
 
-// ── Decode: borrowed codec-neutral view projection (ADR-0026) ────────────────
+// ── Decode: borrowed codec-neutral view projection (ADR-0010) ────────────────
 //
 // The parent decoder projects the shared `model.view.Body` directly over the
 // frame's words, the codec-neutral shape the engine dispatches on, identical
@@ -90,7 +90,7 @@ fn ctxFromComposite(reader: Reader, clist: CompositeList) model.view.Args.Ctx {
 }
 
 /// The words of a list the encoder wrote as eight-byte elements (a position
-/// list, or an integer list, ADR-0243), borrowed from the segment. `data_idx`
+/// list, or an integer list, ADR-0010), borrowed from the segment. `data_idx`
 /// and `count` are untrusted, so the run is proved to fit the segment and
 /// charged to the budget as the words it spans before a consumer can size
 /// anything from its `len`. A null pointer is an empty run.
@@ -150,7 +150,7 @@ fn neutralArgsTail(ctx: model.view.Args.Ctx, skip: usize) model.view.ProjectErro
 /// The argument list in pointer `i` of `loc`, entered at nesting `depth`.
 /// With room in `slab` for its elements, the list is parsed once into views
 /// the slab lends, so no later reader derives a segment reader and projects
-/// an element again (ADR-0231). Otherwise it is backed by the segment and
+/// an element again (ADR-0063). Otherwise it is backed by the segment and
 /// each walk projects on the way, and the metered walk descends it here so
 /// the budget bounds those walks. Each element costs one budget word over
 /// the words it reads, so an aliasing graph that reaches the same element
@@ -233,7 +233,7 @@ pub fn borrowedText(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
     return text;
 }
 
-/// Project a borrowed reference in the receiver's perspective (the ADR-0010
+/// Project a borrowed reference in the receiver's perspective (the ADR-0006
 /// flip).
 pub fn neutralReferenceView(reader: Reader, loc: StructLoc, comptime observe_hints: ?HintListObserver) Error!model.view.Reference {
     const data0 = try reader.dataWord(loc, 0);
@@ -535,7 +535,7 @@ fn neutralStructEntry(reader: Reader, elem: StructLoc) Error!model.view.StructEn
 }
 
 /// Build the lazy struct backing, enforcing the OCapN Struct key rule at the
-/// codec boundary (ADR-0046 / Model.md § Struct): keys must be pairwise
+/// codec boundary (ADR-0005 / Model.md § Struct): keys must be pairwise
 /// non-Equal, and glowcap's own capnp encoder emits them sorted ascending by
 /// raw key bytes (`encodeStructEntries`). Decode therefore requires strictly
 /// ascending keys, one comparison of each key against its predecessor, the

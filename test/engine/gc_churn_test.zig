@@ -1,9 +1,9 @@
 //! Distributed-GC reclamation gate: the session invariant the binding
-//! finalizers drive (ADR-0063).
+//! finalizers drive (ADR-0025).
 //!
 //! Finalizer-driven GC rests on one session promise: an import row counted up by
 //! a wire-lifted `far` reference is *fully reclaimed* when the matching
-//! `op:gc-exports` delta brings it to zero (ADR-0008, `05-gc.md` GC-1). If a
+//! `op:gc-exports` delta brings it to zero (ADR-0004, `05-gc.md` GC-1). If a
 //! released row were not reclaimed, a long session that lifts and drops many
 //! imports, exactly what a binding's dropped-handle finalizer produces, would
 //! grow the import table without bound, and the opt-in GC would trade a partner's
@@ -14,7 +14,7 @@
 //! message, each `recordSend(gc_export, delta 1)` standing for the one unit a
 //! dropped handle releases. Only one import is ever live at a time, so a session
 //! that reclaims rows holds flat heap across the whole churn. One that strands
-//! them grows linearly. The per-handle-equals-one-unit accounting (ADR-0063) is
+//! them grows linearly. The per-handle-equals-one-unit accounting (ADR-0025) is
 //! what makes the matching delta exact.
 
 const std = @import("std");

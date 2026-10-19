@@ -79,7 +79,7 @@ pub fn Vocabulary(
             /// ownership is gone. Explicit close barriers return their failure.
             unhandled_failure: ?FailureObserver = null,
             /// Dial retry policy the pump executes on staged resident dials
-            /// (ADR-0082 policy, ADR-0193 execution): a transient fault parks
+            /// (ADR-0030 policy, ADR-0018 execution): a transient fault parks
             /// the row until its interval elapses, then re-issues the dial on
             /// the same session. The defaults are the shared discovery budget.
             dial_retry: DialPolicy = .discovery(),

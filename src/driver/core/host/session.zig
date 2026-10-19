@@ -43,13 +43,13 @@ pub const HostSession = struct {
     /// shell. See `ControlWord`. This is operational storage, not CapTP state.
     control: ControlWord = .{},
     /// The 32-byte seed of the key this session signs with: its keyed hello,
-    /// and every handoff record naming this session (ADR-0097). Held per
+    /// and every handoff record naming this session (ADR-0028). Held per
     /// session because session identity and durable node identity are different
     /// facts. The Host derives it from a process-fresh, domain-separated root
     /// and monotonic counter, so reconnecting cannot recreate an earlier session's
     /// key or side name.
     session_seed: [crypto.seed_bytes]u8 = undefined,
-    /// The sealed byte channel this session's wire runs through (ADR-0107),
+    /// The sealed byte channel this session's wire runs through (ADR-0041),
     /// or null for every unsealed session. It is one nullable pointer on the
     /// shell, with the channel itself heap-boxed only when a sealed transport
     /// is opened. Created by the open verbs in `sessions.zig`, freed with the
@@ -77,7 +77,7 @@ pub const HostSession = struct {
     /// `steady_feed_tail_bytes` returns when the tail fully drains.
     ///
     /// It is the same `foundation.Spill` the `net` tier folds its parser over,
-    /// which is why the boundedness ADR-0041 argues holds here too. The tiers
+    /// which is why the boundedness ADR-0012 argues holds here too. The tiers
     /// differ only in what a drained tail keeps: a stream reader spills for an
     /// oversize frame and frees the burst, while straddling a chunk boundary is
     /// ordinary here, so this one keeps a steady size.
@@ -183,7 +183,7 @@ pub const HostSession = struct {
     /// Top-level: refused under the callback latch because the enclosing verb's
     /// unwind is still encoding, so a mid-callback drain would race it.
     ///
-    /// On a sealed session (ADR-0107) what drains is wire bytes the embedder
+    /// On a sealed session (ADR-0041) what drains is wire bytes the embedder
     /// writes verbatim, with no outer framing of its own: the pending
     /// handshake message first, then each encoded frame sealed into records
     /// (the outer Syrup prefix rides inside the plaintext). Until the
@@ -197,7 +197,7 @@ pub const HostSession = struct {
         // Taking bytes is what makes queued pressure actionable, so a refused
         // resume pump gets its bounded retry (see `Host.resume_pump_refused`),
         // and the Node actions this session's pressure parked come back to the
-        // queue on the seats their parking reserved (ADR-0145).
+        // queue on the seats their parking reserved (ADR-0017).
         self.host.resume_pump_refused = false;
         host_pump.requeueParkedNodeActions(self.host, self.peer_handle);
         const channel = self.sealed orelse {
@@ -322,7 +322,7 @@ pub const HostSession = struct {
         return self.served.port.peer.sessionIsClosed();
     }
 
-    /// The key this session signs with (ADR-0097). One derivation from
+    /// The key this session signs with (ADR-0028). One derivation from
     /// `session_seed`, so the hello signature and every handoff record naming
     /// this session are made by the same key, and no caller reaches for the
     /// node's durable key to stand in for it.
@@ -341,7 +341,7 @@ pub const HostSession = struct {
 
     /// Whether inbound bytes are parked where no readiness wait can see them:
     /// paused outer frames in `feed_tail`, or a sealed session's staged
-    /// channel bytes (ADR-0107). An embedder resumes them through
+    /// channel bytes (ADR-0041). An embedder resumes them through
     /// `HostSession.resumeFeed`. Every byte-fed pump asks this one question
     /// instead of reaching into the two owners separately.
     pub fn pausedInboundPending(self: *const HostSession) bool {
@@ -353,7 +353,7 @@ pub const HostSession = struct {
 
 /// Encode `session`'s enqueued outbound and queue its flush action. This is the public
 /// entry point for the pump every host verb ends with, for an embedder (the
-/// owning face, ADR-0090) that drove the served core directly with a
+/// owning face, ADR-0018) that drove the served core directly with a
 /// session-local verb and owes the wire the encode.
 pub fn flushSession(self: *Host, session: *HostSession) !void {
     // Latch-legal like the `dirtyThenPump` it invokes: a nested
@@ -416,7 +416,7 @@ pub fn partnerIdentity(self: *Host, session: *HostSession) !vocab.PartnerIdentit
 }
 
 /// Record the durable key proved by the realizer of `session`'s byte channel
-/// (ADR-0105). This must arrive before the partner hello is applied. Repeating
+/// (ADR-0028). This must arrive before the partner hello is applied. Repeating
 /// the same evidence is idempotent and conflicting evidence is refused.
 pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []const u8) !void {
     self.assertOwner();
@@ -442,7 +442,7 @@ pub fn bindVerifiedChannelKey(self: *Host, session: *HostSession, designator: []
 }
 
 /// Per-session static-footprint ceiling for the byte-fed host shell. It is
-/// the third per-session static allocation on the 500k `HostRuntime` path (ADR-0076),
+/// the third per-session static allocation on the 500k `HostRuntime` path (ADR-0018),
 /// beside `engine.Peer` (gated by `peer_session_struct_budget_bytes`) and the
 /// completion loop's `Conn` wrapper (gated by `conn_slot_overhead_bytes`). One
 /// `HostSession`, and therefore one inline `Served` Port, is minted per adopted

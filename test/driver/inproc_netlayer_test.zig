@@ -118,7 +118,7 @@ test "inproc netlayer: dialing an unbound designator fails closed" {
     defer exchange.deinit();
 
     // No listener bound at that designator is the in-memory refused-partner
-    // case (ADR-0081): the dial fails closed with ConnectionRefused, the typed
+    // case (ADR-0030): the dial fails closed with ConnectionRefused, the typed
     // reason a reconnecting caller acts on.
     try std.testing.expectError(error.ConnectionRefused, driver.connect(allocator, io, .{ .symbols = &.{.inproc}, .inproc = &exchange }, .{
         .transport = model.transport.inproc,
@@ -236,7 +236,7 @@ fn dialAgainstClose(network: *inproc.Network, allocator: std.mem.Allocator) anye
         .designator = "race-me",
         .hints = model.Hints.emptyFalse(),
     }, .{ .read = &read_buf, .write = &write_buf }, .inherit) catch |err| switch (err) {
-        // The close won, two ways (ADR-0081): the listener was flagged closed
+        // The close won, two ways (ADR-0030): the listener was flagged closed
         // after this dial pinned it but before enqueue (ConnectionLost), or it
         // was already unregistered when the dial looked it up, so the dial never
         // found a listener at all (ConnectionRefused). Both are the race
@@ -275,7 +275,7 @@ test "inproc netlayer: closing the listener races concurrent dials without touch
     if (first_err) |err| return err;
 
     // The listener is gone from the switchboard: a late dial finds no listener
-    // and fails closed with the refused-partner reason (ADR-0081).
+    // and fails closed with the refused-partner reason (ADR-0030).
     try std.testing.expectError(error.ConnectionRefused, dialAgainstCloseDirect(&network, allocator));
 }
 

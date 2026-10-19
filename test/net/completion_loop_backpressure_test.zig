@@ -3,7 +3,7 @@
 //! keepalive failures surface typed and close cleanly, a per-connection drive
 //! failure closes that connection and not the loop, and outbound past the
 //! high-water mark parks reads until the partner drains, the exact
-//! park/resume order ADR-0042 promises, read from the fake's journal.
+//! park/resume order ADR-0017 promises, read from the fake's journal.
 
 const std = @import("std");
 const builtin = @import("builtin");

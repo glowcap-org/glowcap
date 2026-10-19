@@ -30,7 +30,7 @@ pub const CodecId = enum(u16) {
     _,
 
     /// Whether glowcap alone defines this codec's bytes: Cap'n Proto is
-    /// glowcap's CapTP layout (ADR-0026), and Syrup is OCapN's.
+    /// glowcap's CapTP layout (ADR-0010), and Syrup is OCapN's.
     pub fn ownedByGlowcap(self: CodecId) bool {
         return self == .capnp;
     }
@@ -50,7 +50,7 @@ pub const CodecId = enum(u16) {
     const owned_suffix = "/" ++ own_wire.fingerprint;
 
     /// The `glowcap/codec` hint: the decimal id, then `/` and the own-wire
-    /// fingerprint for a codec glowcap owns (ADR-0252).
+    /// fingerprint for a codec glowcap owns (ADR-0001).
     pub fn hintToken(self: CodecId) HintToken {
         var token: HintToken = .{};
         const suffix: []const u8 = if (self.ownedByGlowcap()) owned_suffix else "";
@@ -110,7 +110,7 @@ pub const CaptpVersion = enum {
 
     /// Whether this profile has a wire form for a message kind, named by any
     /// enum or union that mirrors `Message` (`view.Body`, a codec's wire
-    /// kind). The next profile sends no `op:resolve` (ADR-0111) and none of
+    /// kind). The next profile sends no `op:resolve` (ADR-0003) and none of
     /// the projection operations `op:get`, `op:index`, and `op:untag`. Every
     /// codec refuses the others as `UnsupportedMessage` in both directions.
     pub fn carries(self: CaptpVersion, kind: anytype) bool {
@@ -146,7 +146,7 @@ pub const CaptpVersion = enum {
     }
 
     /// The `glowcap/captp-version` hint: the wire string, then `/` and the
-    /// own-wire fingerprint for a version glowcap owns (ADR-0252).
+    /// own-wire fingerprint for a version glowcap owns (ADR-0001).
     pub fn hintToken(self: CaptpVersion) []const u8 {
         return switch (self) {
             inline else => |version| comptime if (version.ownedByGlowcap())
@@ -253,8 +253,8 @@ pub const FeatureSet = packed struct {
         return out;
     }
 
-    /// Pipelining, handoff, and wire-delta, without sturdyrefs (ADR-0008,
-    /// ADR-0009).
+    /// Pipelining, handoff, and wire-delta, without sturdyrefs (ADR-0004,
+    /// ADR-0039).
     pub fn pipeliningAndHandoff() FeatureSet {
         return .{ .pipelining = true, .handoff = true, .wire_delta = true };
     }
@@ -297,7 +297,7 @@ pub const FeatureSet = packed struct {
 
     /// Parse a partner's `toWireString`. An empty name or a known name twice
     /// is malformed, and a name this build does not know is dropped, as
-    /// `intersect` would drop it (ADR-0252).
+    /// `intersect` would drop it (ADR-0001).
     pub fn fromWireString(wire: []const u8) ?FeatureSet {
         var out: FeatureSet = .{};
         if (wire.len == 0) return out;

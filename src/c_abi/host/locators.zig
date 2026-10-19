@@ -16,7 +16,7 @@ const common = @import("common.zig");
 /// the first half of `glowcap_host_new`'s 64-byte input. Session signing keys
 /// derive from that input's fresh second half instead. Writes 64 bytes into
 /// `out` (`out_len` must be at least 64). A keyed-tcp listener uses this so its
-/// locator designator names the Host's durable identity (ADR-0075, ADR-0097).
+/// locator designator names the Host's durable identity (ADR-0028).
 pub fn glowcap_host_designator_from_seed(
     seed: ?[*]const u8,
     seed_len: usize,

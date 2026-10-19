@@ -99,7 +99,7 @@ async def _send_redeeming_surfaces_the_direct_exporter() -> None:
 
         # Replace the alias with a decoy before any introduction: the gift
         # must retain the exact inbox the broker holds, not whatever the name
-        # resolves to at withdrawal (ADR-0096, on the binding path).
+        # resolves to at withdrawal (ADR-0026, on the binding path).
         decoy_delivered: list = []
         bob.host.publish(
             "dm",
@@ -285,7 +285,7 @@ def _listen_with_auth(auth_kind: int, secret) -> str:
 
 
 def _loop_archive_stepping_parity() -> None:
-    """The driver archive from Python (ADR-0112): two stepping loops,
+    """The driver archive from Python (ADR-0024): two stepping loops,
     the server driven by a plain thread, the client parked on the readiness
     descriptor via asyncio: dial as an operation id, session as an OPENED event,
     vow outcomes as COMPLETION events routed through the adopted wrapper

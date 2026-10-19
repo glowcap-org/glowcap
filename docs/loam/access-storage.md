@@ -14,7 +14,7 @@ Managed access keeps its records in [Loam](architecture.md) and has no
 storage engine of its own. Content, grants, and receipts share Loam's
 transactions, cache limits, and recovery. Your program picks a storage engine
 and runs its work outside the Host's message handling.
-[ADR-0157](../decisions/adr/ADR-0157-access-storage-and-residency.md) records
+[ADR-0048](../decisions/adr/ADR-0048-loam-persistence-foundation.md) records
 the decision, and the [access architecture](access-architecture.md) lists the
 decision behind each part that exists.
 
@@ -118,10 +118,10 @@ A method either hands over the saved capability or keeps the called endpoint
 as a dependency:
 
 - `ContentCall.discloseExact` hands over a strong field the call declared
-  ([ADR-0172](../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md)).
+  ([ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)).
 - `ContentCall.discloseDependent` returns a facet whose target method must
   pass both current grants
-  ([ADR-0173](../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md)).
+  ([ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)).
 - `replaceReference` and `removeReference` change declared strong fields in
   the content transaction.
 
@@ -464,7 +464,7 @@ names, and the access store owns the recipes for restoring them.
 
 Issuing reserves room for the endpoint or durable name before it commits, and
 looking up a durable name that is not in memory waits while its recipe loads
-([ADR-0176](../decisions/adr/ADR-0176-on-demand-durable-publication-discovery.md)).
+([ADR-0007](../decisions/adr/ADR-0007-sturdyrefs-and-publication.md)).
 Anything the Host is missing goes into the Host's own durable name or answer
 path, never into a second export table or name server in managed access.
 

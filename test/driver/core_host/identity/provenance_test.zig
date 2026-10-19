@@ -47,7 +47,7 @@ const TraceLog = harness.TraceLog;
 
 test "partner identity: each leg reports the fact it holds, not the transport's name" {
     // Provenance is selected by the evidence one session holds, never by its
-    // transport symbol (ADR-0105). Both legs below run `iroh` and neither
+    // transport symbol (ADR-0028). Both legs below run `iroh` and neither
     // reports the same thing, because they hold different evidence: the dialer
     // was handed a verified remote by the code that realized the connection,
     // and the acceptor has no channel proof.

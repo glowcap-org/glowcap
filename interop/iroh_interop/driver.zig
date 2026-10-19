@@ -1,12 +1,12 @@
 //! Live iroh transport: two glowcap peers hold a real keyed OCapN
-//! conversation over real iroh endpoints (ADR-0055).
+//! conversation over real iroh endpoints (ADR-0021).
 //!
 //! The server binds an iroh endpoint, registers it with a `driver.Server` as
 //! the `iroh` provider, and serves a Greeter actor behind the verified keyed
 //! handshake. The client binds its *own* iroh endpoint and dials by the
 //! server's endpoint id, the locator's designator, with the server's direct
 //! socket addresses riding the locator's `direct-addresses` hint (relay-less,
-//! lookup-less: ADR-0055's slice 1). The bytes on the wire are QUIC: encrypted
+//! lookup-less: ADR-0021's slice 1). The bytes on the wire are QUIC: encrypted
 //! and authenticated to the server's Ed25519 endpoint key by iroh, then
 //! carrying the same `op:start-session` keyed handshake, bootstrap fetch, and
 //! deliver/resolve the TCP gates prove against Goblins.
@@ -161,7 +161,7 @@ fn callByIdOnly(
     try harness.expectStringReply(session, allocator, greeter, "greet", &.{.{ .string = "world" }}, greeting);
 }
 
-/// Assert the identity knot on an open session, as ADR-0097 leaves it: the
+/// Assert the identity knot on an open session, as ADR-0028 leaves it: the
 /// partner's signed locator designator is the iroh node id the transport
 /// authenticated, the channel vouched for that durable identity, and the
 /// partner's OCapN session pubkey is deliberately *not* that key.

@@ -4,7 +4,7 @@ Run this relay when a peer that cannot open a socket itself, such as a browser, 
 session with another peer. The relay forwards the raw session bytes without parsing them, so the
 keyed or Noise handshake and the session run end to end and the relay holds no capability. Every
 runtime's relay follows the same contract,
-[ADR-0086](../../../docs/decisions/adr/ADR-0086-byte-transparent-relay.md), and this package is
+[ADR-0033](../../../docs/decisions/adr/ADR-0033-byte-transparent-relays.md), and this package is
 the TypeScript implementation.
 
 ## Parts of a relay
@@ -74,7 +74,7 @@ the sender.
 - The browser-bound leg has no drain event, so `webSocketRelay` holds its next
   read until the socket's `bufferedAmount` falls below a high-water mark. A
   relay in another runtime must do the same: Python uses `websockets`' awaited
-  `send`, and Rust awaits `SinkExt::send`. ADR-0086 requires it.
+  `send`, and Rust awaits `SinkExt::send`. ADR-0033 requires it.
 
 `zig build bindings-relay` stalls a reader through each runtime's relay and
 fails if the far sender keeps sending.

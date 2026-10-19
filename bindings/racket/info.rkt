@@ -2,7 +2,7 @@
 
 ;; Packaging metadata for the Racket binding tree. The dogfood uses relative
 ;; requires today; this file names what a catalog package of this tree must
-;; ship so the ADR-0077 resolve contract (`private/c-abi-resolve.json`) stays
+;; ship so the ADR-0023 resolve contract (`private/c-abi-resolve.json`) stays
 ;; loadable via define-runtime-path. Collection packages ship every file under
 ;; the tree that is not listed in compile-omit-paths / conditional-omit-paths;
 ;; keep that contract path out of those omit lists.

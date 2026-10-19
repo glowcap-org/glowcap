@@ -119,7 +119,7 @@ pub fn complete(
                     };
                     // Darwin does not inherit nonblocking across
                     // accept(2), and a blocking send at write-readiness
-                    // would park the whole loop (ADR-0042). The accepted
+                    // would park the whole loop (ADR-0017). The accepted
                     // fd also needs SO_NOSIGPIPE before any send, so a
                     // torn-down peer becomes a completion error rather
                     // than a process signal. If either socket option

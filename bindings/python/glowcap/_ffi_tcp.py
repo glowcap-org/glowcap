@@ -1,6 +1,6 @@
 """Internal: the raw ``ctypes`` loader for ``libglowcap_net_transport_tcp``.
 
-The TCP transport ships as its own à-la-carte archive (ADR-0059), symbol-disjoint
+The TCP transport ships as its own à-la-carte archive (ADR-0022), symbol-disjoint
 from the core ``libglowcap_ocapn``: it carries the ``glowcap_tcp_*`` family plus
 its own thread-local last-error (``glowcap_tcp_last_error`` / ``_clear``). This
 module loads only that archive, reusing the shared ``Structure`` types from

@@ -1,5 +1,5 @@
 // The CapTP host: multi-session CapTP product over the byte-fed host archive
-// (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host, ADR-0022). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns, and never
 // a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
@@ -167,7 +167,7 @@ export abstract class HostState {
 	// therefore collectable.
 	protected readonly _behaviorEntries = new Map<bigint, BehaviorEntry>();
 	// The driver loop that owns this Host's handle, when this wrapper was
-	// adopted over a loop's host (ADR-0112). In that mode the C loop is the
+	// adopted over a loop's host (ADR-0024). In that mode the C loop is the
 	// action drain: the kick verbs nudge a loop step instead of running the
 	// binding drain, and release belongs to `DriverLoop.close`.
 	protected _driverLoop: DriverLoopHandle | null = null;
@@ -185,7 +185,7 @@ export abstract class HostState {
 	 * feature sets. Omitted profile options use the generated C ABI defaults.
 	 * `context` routes every byte the host owns through a caller-supplied
 	 * allocation scope; `localTurnBudget` caps local-turn amplification per
-	 * session (ADR-0076): `0` applies the Host's finite default, `0xFFFF_FFFF`
+	 * session (ADR-0018): `0` applies the Host's finite default, `0xFFFF_FFFF`
 	 * (the C ABI's `GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED`) turns the cap off, and
 	 * any other value is the cap. */
 	constructor(
@@ -229,7 +229,7 @@ export abstract class HostState {
 		}
 		// The durable identity followed by a session-key root drawn here, at
 		// this binding's entropy boundary, because the library draws none
-		// (ADR-0097). The root is fresh per process, so every CapTP session
+		// (ADR-0028). The root is fresh per process, so every CapTP session
 		// signs with its own key and a restart cannot recreate a prior
 		// session's handoff names; the durable half stays exactly `seed`,
 		// since a keyed locator's designator derives from it.
@@ -378,7 +378,7 @@ export abstract class HostState {
 
 	/** The driver loop that owns this Host, or null for a byte-fed Host.
 	 * Binding-internal: the dial executor routes a dial on a loop-owned Host
-	 * onto that same loop (ADR-0112). */
+	 * onto that same loop (ADR-0024). */
 	get driverLoop(): DriverLoopHandle | null {
 		return this._driverLoop;
 	}
@@ -445,7 +445,7 @@ export abstract class HostState {
 
 	/** Binding-internal (the trampoline's async-behavior arm): defer `turn`'s
 	 * answer onto a fresh resolver vow and settle it when `pending` does
-	 * (ADR-0102). The settle re-enters on the runtime's microtask queue (the
+	 * (ADR-0014). The settle re-enters on the runtime's microtask queue (the
 	 * top-level re-entry the host requires) and carries plain data only: a
 	 * value the settle refuses (a capability, per the off-turn contract)
 	 * breaks the answer with the refusal's reason instead of stranding it.

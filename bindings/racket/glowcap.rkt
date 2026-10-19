@@ -4,7 +4,7 @@
 ;; The raw `ffi/unsafe` layer lives in the internal `private/` loaders; this
 ;; module is just the public surface over it, and that surface is one tier:
 ;; the `session` (one CapTP partner over the byte-fed host archive
-;; (libglowcap_host, ADR-0072 / ADR-0079) that bundles an adapter-local Racket
+;; (libglowcap_host, ADR-0022 / ADR-0011) that bundles an adapter-local Racket
 ;; vat, a pump, and the shared Host's routing/redeem authority, constructed by
 ;; `connect`/`listen`/`accept`.
 ;; The host owns an `engine.Node` (sans-io router); Goblins `mycapn` is two
@@ -112,7 +112,7 @@
 
 ;; ── Transport seam ───────────────────────────────────────────────────────────
 ;; The binding-internal surface every transport companion builds on, mirroring
-;; the à-la-carte archive split (ADR-0059). It lives in a `seam` submodule that
+;; the à-la-carte archive split (ADR-0022). It lives in a `seam` submodule that
 ;; only `private/seam.rkt` re-provides, so `check`, the raw cstructs, and the
 ;; managed-frame release never ride this module's public provide: an application
 ;; reaches a transport through its companion module's own surface, and the raw

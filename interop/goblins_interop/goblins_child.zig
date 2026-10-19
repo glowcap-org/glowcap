@@ -139,7 +139,7 @@ pub fn fetchCap(
 }
 
 /// Enliven a sturdyref by its swiss-num over the live connection, exercising the
-/// engine's ADR-0012 dedup-cache API (`prepareEnliven`/`recordEnlivenment`) rather
+/// engine's ADR-0007 dedup-cache API (`prepareEnliven`/`recordEnlivenment`) rather
 /// than a bare bootstrap fetch. Pumps a fresh enliven to settlement and caches it,
 /// the caller owns the returned reference. The session must have negotiated the
 /// sturdyref feature (the negotiating peer offers `FeatureSet.full()`, so it has).

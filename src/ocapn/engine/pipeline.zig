@@ -1,4 +1,4 @@
-//! The stateful drain of the resolve seam (ADR-0007, ADR-0050): the `*Peer` half.
+//! The stateful drain of the resolve seam (ADR-0003, ADR-0004): the `*Peer` half.
 //!
 //! These functions take a `*Peer` and perform the side effects the pure
 //! resolution math computes: they install listeners, queue and drain pipelined
@@ -177,7 +177,7 @@ pub fn preparePipelinedCall(
 
 /// Settle the local consequences of a just-sent `op:resolve`: the calls the
 /// partner pipelined against the answer, then the projections anchored on it,
-/// then its listeners (ADR-0007 § Queue ownership and drain, ADR-0050 for
+/// then its listeners (ADR-0003, ADR-0004 for
 /// projections). Calls go first because a drained call may settle further
 /// answers. The resolution itself is already stored: `applySentResolve`
 /// stored it when the resolve was recorded, at the moment the answer's status
@@ -200,7 +200,7 @@ pub fn drainAnswerConsequencesTarget(
 }
 
 /// Drain calls the partner pipelined against a just-settled answer, dispatching
-/// each against the resolution (ADR-0007 § Queue ownership and drain).
+/// each against the resolution (ADR-0003).
 /// `desc:answer` carries one answer position, so every queued target is flat.
 fn drainPipelinedCalls(
     peer: *Peer,
@@ -235,7 +235,7 @@ fn drainPipelinedCalls(
     }
 }
 
-/// Answer an inbound `op:get` / `op:index` (ADR-0050, CapTP § op:get
+/// Answer an inbound `op:get` / `op:index` (ADR-0004, CapTP § op:get
 /// "Receiving"): the projected answer is already installed by apply.
 /// Anchor the projection on the receiver's answer. The receiver names a
 /// promise, a `desc:answer` (`.promise`) or an export position that is an
@@ -281,7 +281,7 @@ pub fn respondToProjection(
 }
 
 /// Drain the `op:get` / `op:index` projections anchored on the answer just
-/// settled (ADR-0050): each one resolves its
+/// settled (ADR-0004): each one resolves its
 /// projected answer to the named field or element, re-anchors when the
 /// resolution is itself a promise, or breaks. This never grows the native
 /// stack: the shared stored-resolution walker returns one terminal value,

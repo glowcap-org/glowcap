@@ -195,7 +195,7 @@ test "abort kinds round-trip every variant through their wire names" {
     }
 }
 
-test "capability routes and wire imports are disjoint by type (ADR-0091)" {
+test "capability routes and wire imports are disjoint by type (ADR-0038)" {
     const wire = model.ImportPosition.from(std.math.maxInt(u64));
     const route_id = model.CapabilityRouteId.from(std.math.maxInt(u64));
     try std.testing.expectEqual(wire.int(), route_id.int());

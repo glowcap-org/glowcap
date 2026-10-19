@@ -1,5 +1,5 @@
-//! The keyed `op:start-session` hello, the Peer-owned half (ADR-0006,
-//! ADR-0118): assembling the hint entries a hello carries, canonicalizing the
+//! The keyed `op:start-session` hello, the Peer-owned half (ADR-0002,
+//! ADR-0042): assembling the hint entries a hello carries, canonicalizing the
 //! advertised locator per transport, signing the location record, and the two
 //! partner-knowledge seams that decide whether an onion hello may state a
 //! real preference. `Peer` aliases each public verb as a method, the same
@@ -42,9 +42,9 @@ pub fn sendKeyedStartSession(
 /// locator. Advertised locators complete their profile at configuration
 /// time on every transport but onion, whose stored snapshot stays bare
 /// because completion cannot know a partner and a bare locator is the
-/// only onion form other parties may be handed (ADR-0108). The one
+/// only onion form other parties may be handed (ADR-0042). The one
 /// session that may state a real onion preference, a partner known to
-/// be glowcap (ADR-0118), therefore stamps here, at session time.
+/// be glowcap (ADR-0042), therefore stamps here, at session time.
 /// Everything else sends the completed snapshot exactly.
 pub fn sendKeyedStartSessionAdvertised(
     self: *Peer,
@@ -63,7 +63,7 @@ pub fn sendKeyedStartSessionAdvertised(
 /// hints, so no entry point can sign an onion location the pinned Goblins
 /// cannot dial. The one exception is a partner already known to be
 /// glowcap, whose hello may keep the profile hints this peer stamped
-/// (ADR-0118). Routing hints stay stripped even then.
+/// (ADR-0042). Routing hints stay stripped even then.
 pub fn sendKeyedStartSessionExact(
     self: *Peer,
     advertised: model.PeerLocator,
@@ -93,7 +93,7 @@ pub fn sendKeyedStartSessionExact(
 }
 
 /// Whether the locator a dialer was handed identifies its acceptor as
-/// glowcap (ADR-0118): the hinted form of an onion address carries the
+/// glowcap (ADR-0042): the hinted form of an onion address carries the
 /// `glowcap/*` profile hints out of band. Wire-carried locators are bare on
 /// onion, so a redeem or handoff dial never passes this test. Every dial
 /// tier reads it so the handed form means the same thing everywhere.
@@ -107,13 +107,13 @@ pub fn dialedLocatorIdentifiesGlowcap(locator: model.PeerLocator) bool {
 
 /// Record out-of-band knowledge that this partner is glowcap, before any
 /// hello: the dialer was handed the glowcap-hinted form of an onion
-/// address (ADR-0118). On every other transport the flag changes nothing,
+/// address (ADR-0042). On every other transport the flag changes nothing,
 /// because the configured preference is advertised regardless.
 pub fn noteKnownGlowcapPartner(self: *Peer) void {
     self.session_state.partner_known_glowcap = true;
 }
 
-/// Answer a deferred onion hello (ADR-0118): read the inbound hello's
+/// Answer a deferred onion hello (ADR-0042): read the inbound hello's
 /// stated preference, and when it differs from the baseline, proof the
 /// initiator is glowcap, because the pinned Goblins onion netlayer signs
 /// only `#f`-hinted locations, record the knowledge before stamping our
@@ -148,9 +148,9 @@ fn validateExactAdvertisedProfile(
 
 /// This peer's hello locator: the caller's plus the preference hints this
 /// peer stamps when the transport admits them. Onion stays hintless and
-/// advertises the baseline profile (ADR-0108) unless this partner is
+/// advertises the baseline profile (ADR-0042) unless this partner is
 /// already known to be glowcap, the one licence to state a real
-/// preference there (ADR-0118).
+/// preference there (ADR-0042).
 ///
 /// Every hello passes through here, and it has to be *before* the caller
 /// signs, because the hints are inside the signed location record. That is
@@ -238,9 +238,9 @@ pub const HelloHints = struct {
         }
         // Onion's standardized locator is hintless: the
         // Goblins dialer accepts only the `#f`-hints shape, so an onion
-        // hello states the baseline (ADR-0108) unless the partner is
+        // hello states the baseline (ADR-0042) unless the partner is
         // already known to be glowcap, when it states the configured
-        // preference like any other transport's (ADR-0118). Every other
+        // preference like any other transport's (ADR-0042). Every other
         // transport always advertises the configured preference.
         const effective = advertisedPreference(locator.transport, preference, partner_known_glowcap);
         // Only a preference that differs from the baseline is worth
@@ -305,9 +305,9 @@ fn advertisedPreference(
 fn canonicalAdvertisedLocator(locator: model.PeerLocator, keep_profile_hints: bool) model.PeerLocator {
     if (!std.mem.eql(u8, locator.transport, model.transport.onion)) return locator;
     // A partner known to be glowcap reads profile hints like any other
-    // transport's (ADR-0118); everyone else gets onion's one interoperable
+    // transport's (ADR-0042); everyone else gets onion's one interoperable
     // spelling, `#f` hints, so nothing this peer signs is undialable by
-    // the pinned Goblins (ADR-0108). Routing hints stay stripped in both
+    // the pinned Goblins (ADR-0042). Routing hints stay stripped in both
     // cases: only the profile entries this peer stamps may ride.
     const bare = locator.bare();
     if (!keep_profile_hints) return bare;

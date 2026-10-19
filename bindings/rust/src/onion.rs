@@ -1,7 +1,7 @@
 //! The blocking Tor onion transport (the `onion` feature).
 //!
 //! This module wraps `libglowcap_net_transport_onion`: the `glowcap_onion_*`
-//! archive that the `onion` Cargo feature links (ADR-0059). `onion` is the one
+//! archive that the `onion` Cargo feature links (ADR-0022). `onion` is the one
 //! netlayer the OCapN draft standardizes, and the one upstream Spritely Goblins
 //! ships, so it is where a glowcap peer and a Goblins vat meet on ground neither
 //! invented.
@@ -12,7 +12,7 @@
 //! `host:port`. A netlayer with no control endpoint can dial and cannot host, and
 //! [`Netlayer::listen`] says so rather than pretending.
 //!
-//! Two limits are worth reading before relying on this, and both are ADR-0108
+//! Two limits are worth reading before relying on this, and both are ADR-0042
 //! decisions rather than implementation details. A service id is an **address,
 //! not an identity**: Tor proves the far end of the circuit holds the key the
 //! address encodes, but the CapTP peer is whoever holds the local endpoint that

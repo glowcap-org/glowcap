@@ -71,7 +71,7 @@ pub fn expectOk(rc: i32) !void {
 }
 
 /// Durable identity in the first 32 bytes, deterministic session-key root in the
-/// rest, the only seed length `glowcap_host_new` accepts (ADR-0097).
+/// rest, the only seed length `glowcap_host_new` accepts (ADR-0028).
 pub fn hostSeed(durable_byte: u8) [64]u8 {
     var seed: [64]u8 = undefined;
     @memset(seed[0..32], durable_byte);

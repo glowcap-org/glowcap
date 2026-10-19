@@ -117,7 +117,7 @@ test "onion profile by knowledge: a hinted dial settles glowcap-next, a bare dia
 
     // Handed the glowcap-hinted form of the address, the dialer knows its
     // acceptor is glowcap, states its real preference, and the deferred
-    // acceptor hello mirrors it (ADR-0118). The session settles the full
+    // acceptor hello mirrors it (ADR-0042). The session settles the full
     // configured profile and carries a call on it.
     {
         var host_future = try io.concurrent(hostOnce, .{server});

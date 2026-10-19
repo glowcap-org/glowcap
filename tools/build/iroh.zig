@@ -105,7 +105,7 @@ pub fn registerAbi(ctx: AbiContext) AbiRegistration {
 
 /// The whole iroh family above the ABI companion: the sidecar's cargo
 /// steps, the injected resident with its hermetic check object, the live
-/// driver table, the ADR-0112 seam proof, the site snippet compiles and the
+/// driver table, the ADR-0024 seam proof, the site snippet compiles and the
 /// locator suite that ride the site's Zig example check, the companion
 /// registration, and its deno-driven ABI test.
 pub const StepsContext = struct {
@@ -153,7 +153,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const check_step = ctx.check_step;
 
     // ── iroh netlayer (external siblings, plus hermetic Zig checks) ─────────
-    // The iroh netlayer sidecar (ADR-0055): cargo builds the
+    // The iroh netlayer sidecar (ADR-0021): cargo builds the
     // `libglowcap_iroh_sidecar.a` staticlib, and the live gate runs two glowcap
     // peers, each with its own
     // real iroh endpoint, through the keyed handshake, a bootstrap fetch, and
@@ -234,7 +234,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     //                   is opt-in and never a hermetic gate.
     //   iroh-loop: many concurrent connections
     //                   served from one thread through the event-driven sidecar
-    //                   superset (ADR-0057). Deterministic.
+    //                   superset (ADR-0019). Deterministic.
     //   iroh-redeem: three glowcap Servers and Sessions over iroh: a recipient
     //                   redeems a handoff by dialing the exporter. Deterministic.
     //   goblins-iroh: a foreign protocol partner: a real Spritely
@@ -270,7 +270,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         .{ .step_name = "iroh-managed", .description = "Zig Session and Server over real iroh: identity, fetch, call and accepted-session lifetime (needs cargo)", .exe_name = "glowcap-iroh-managed", .root_source = "test/driver/iroh_managed.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two glowcap peers over real iroh endpoints (needs cargo)", .exe_name = "glowcap-iroh-interop", .root_source = "interop/iroh_interop/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "glowcap-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig", .posture = .real_internet },
-        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one Server thread (ADR-0057, needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
+        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one Server thread (ADR-0019, needs cargo)", .exe_name = "glowcap-iroh-loop", .root_source = "interop/iroh_loop/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "iroh-redeem", .description = "Live three-party redeem over iroh: a recipient Session dials the exporter by node id inside the introducing call (needs cargo)", .exe_name = "glowcap-iroh-redeem", .root_source = "interop/iroh_redeem/driver.zig", .posture = .{ .deterministic = 20 } },
         .{ .step_name = "goblins-iroh", .description = "Live Goblins over iroh: a real Goblins vat and a glowcap peer hold OCapN sessions over encrypted QUIC, both directions, through the iroh netlayer this repository wrote for Goblins (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-iroh", .root_source = "interop/goblins_interop/iroh_driver.zig", .posture = .{ .deterministic = 25 }, .goblins = true },
         .{ .step_name = "goblins-handoff-iroh", .description = "Live encrypted handoff: Goblins gifts and exports, a glowcap Session redeems directly over iroh (needs cargo + racket + goblins)", .exe_name = "glowcap-goblins-handoff-iroh", .root_source = "interop/goblins_interop/handoff_iroh_driver.zig", .posture = .{ .deterministic = 30 }, .goblins = true },
@@ -317,7 +317,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
     const profiled = b.addExecutable(.{ .name = "glowcap-iroh-bench-profile", .root_module = profiled_mod });
     b.step("profile-iroh", "Profile bench-iroh under callgrind: self cost per file and function for each marked phase, taking bench-iroh's filters after -- (needs cargo + valgrind)").dependOn(profile_build.addRun(b, profiles, profiled));
 
-    // ── ADR-0112 seam proof: the driver archive drives iroh through the C
+    // ── ADR-0024 seam proof: the driver archive drives iroh through the C
     // multiplexed-transport table. Bespoke wiring rather than an `iroh_drivers` row,
     // because the driver composes the C archives (`c_abi_driver` carrying the
     // whole host family, plus the iroh C ABI) beside the Zig server half; the
@@ -359,7 +359,7 @@ pub fn registerSteps(ctx: StepsContext) StepsRegistration {
         const seam_run = execution.addArtifact(b, .{ .deterministic = 30 }, seam_exe);
         seam_run.setCwd(b.path("."));
         seam_run.has_side_effects = true;
-        const provider_step = b.step("iroh-driver-provider", "Live proof (ADR-0112) that the driver archive dials a real iroh endpoint through the C multiplexed-transport table (needs cargo)");
+        const provider_step = b.step("iroh-driver-provider", "Live proof (ADR-0024) that the driver archive dials a real iroh endpoint through the C multiplexed-transport table (needs cargo)");
         provider_step.dependOn(&seam_run.step);
         provider_step.dependOn(managed_step.?);
     }

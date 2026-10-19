@@ -60,11 +60,11 @@ end-to-end channel may report a proved peer. A hello's session key proves
 continuity, never durable identity.
 
 - Production: `noise-tcp` and `noise-relay` (Noise_XK proves the durable key,
-  ADR-0107), `iroh` (QUIC node id),
+  ADR-0041), `iroh` (QUIC node id),
   `webrtc` (signaling-authorized identity), and `onion`.
 - `onion` is the one symbol the draft standardizes and Goblins ships. Wire
   onion locators stay bare except toward a peer known to be glowcap
-  (ADR-0108, ADR-0118).
+  (ADR-0042).
 - `tcp`, `keyed-tcp`, and `keyed-relay` are cleartext with no peer proof.
   `inproc` is tests only. Never make `tcp` a default, example, or demo: use
   `iroh`. Choose `tcp` only to reach a peer that speaks nothing else, and say
@@ -101,7 +101,7 @@ directly rather than widening a root.
 - `loam`: application persistence, collections, records, hosting, and the
   managed access extension; and `docs/loam.md` owns its durable profile.
 - `diagnostics`: the typed record and bounded journal for failures with no
-  surviving caller (ADR-0115). It owns no global storage or policy.
+  surviving caller (ADR-0031). It owns no global storage or policy.
 - `net`: the one place `std.Io` enters, with stream folding and residents.
 - `driver/core` (`driver_core`): the sans-io serve core and byte-fed `Host`.
   `host.zig`'s alias table indexes the verbs split across `host/` siblings.
@@ -109,38 +109,38 @@ directly rather than widening a root.
   `Session`/`Server` views), entropy, and the `connect`/`listen` openers.
   It adds no CapTP semantics.
 - `c_abi/`: composable archives that share types by layout, not symbols
-  (ADR-0055, ADR-0059). Signatures reflect from Zig, and header prose lives in
+  (ADR-0021, ADR-0022). Signatures reflect from Zig, and header prose lives in
   `tools/gen/header/*.zig`.
   - `c_abi/shared`: archive-neutral layouts that declare no `export fn`.
   - `c_abi/ocapn`: `libglowcap_ocapn`. Each handle frees through one
     `glowcap_*_release`; `*_close` never frees. A C-convention function
     releases by hand on refusal, since `errdefer` never runs there.
-  - `c_abi/host`: `libglowcap_host`, the byte-fed Host tier (ADR-0072).
+  - `c_abi/host`: `libglowcap_host`, the byte-fed Host tier (ADR-0022).
   - `c_abi/loam`: optional portable Store, content callbacks and submitted
-    storage effects borrowing the existing Host (ADR-0185).
+    storage effects borrowing the existing Host (ADR-0056).
   - `c_abi/loam_lmdb`: optional LMDB executor and exclusive Store owner that
-    creates no Host or actor runtime (ADR-0185).
+    creates no Host or actor runtime (ADR-0056).
   - `c_abi/loam_sqlite`: the same companion for the SQLite engine, with the
-    same engine symbol family (ADR-0233).
+    same engine symbol family (ADR-0061).
   - `c_abi/loam_volatile`: the in-memory companion, with the same engine symbols and
-    a lock around each engine call (ADR-0233).
+    a lock around each engine call (ADR-0061).
   - `c_abi/driver`: `libglowcap_driver`, the C driver loop adopting a Host
-    (ADR-0112). It names no concrete transport, and `provider_registry.Registry`
+    (ADR-0024). It names no concrete transport, and `provider_registry.Registry`
     alone adapts provider tables.
-  - `c_abi/wasm`: the browser binding's freestanding entry root (ADR-0070).
+  - `c_abi/wasm`: the browser binding's freestanding entry root (ADR-0034).
   - `c_abi/net_transport`: grouping for transport archives, each exporting only
     its own `glowcap_<transport>_*` family. Children are `tcp`, `inproc`,
     `iroh`, `onion`, `relay`, and `webrtc`. WebRTC exposes no fake address
     `Netlayer`.
 - `oracle`: canonical scenario drivers for tests, off the runtime path.
 
-## CapTP vocabulary (ADR-0079)
+## CapTP vocabulary (ADR-0011)
 
 | Name | Is |
 | --- | --- |
 | `Host` / `GlowcapHost` / binding `Host` | multi-session CapTP product; owns `engine.Node` |
 | `engine.Node` | sans-io handoff router |
-| binding `Session` / `driver.Session` | one-partner view onto a Host session (ADR-0090) |
+| binding `Session` / `driver.Session` | one-partner view onto a Host session (ADR-0018) |
 | Goblins `mycapn` | product maps to Host; router tables map to `engine.Node` |
 
 There is no binding `Node` or `Connection`, no `driver.Connection`, and no

@@ -1,4 +1,4 @@
-//! A deliver leaves the pending queue as its frame (ADR-0236). Admission
+//! A deliver leaves the pending queue as its frame (ADR-0064). Admission
 //! encodes it, so a borrowed tree is the caller's again when the send
 //! returns, the step emits the same bytes, a retracted provisional send
 //! gives back the exports, answer, and resolver it took, and a refused

@@ -1,4 +1,4 @@
-//! The non-blocking scale surface (ADR-0057): per-connection buffered
+//! The non-blocking scale surface (ADR-0019): per-connection buffered
 //! reader/writer tasks, the endpoint readiness queue they signal, and the
 //! try-read/try-write/try-accept calls the completion loop drives.
 

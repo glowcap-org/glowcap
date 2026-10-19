@@ -1,11 +1,11 @@
 // Internal: how every archive loader finds its shared library.
 //
-// glowcap ships its C ABI as à-la-carte archives (ADR-0059), one per concern,
+// glowcap ships its C ABI as à-la-carte archives (ADR-0022), one per concern,
 // and each loader under this folder opens exactly one of them through the
 // runtime FFI seam. This module holds the one piece they all share: resolving a
 // built archive's path. Nothing here is public.
 //
-// Publishable cascade (ADR-0077; see `c-abi-resolve.json` and
+// Publishable cascade (ADR-0023; see `c-abi-resolve.json` and
 // `bindings/README.md`):
 //   1. `GLOWCAP_LIB_DIR` (configure) never downloads.
 //   2. Abi-versioned download cache: a language-native fetch (HTTP + tar) that
@@ -36,7 +36,7 @@ import * as nodeUrl from "node:url";
 import * as nodeChildProcess from "node:child_process";
 
 // The shape of the host built-ins the cascade rides. Under the wasm adapter
-// (ADR-0070) `dlopen` ignores paths entirely, so `libPath` returns the bare
+// (ADR-0034) `dlopen` ignores paths entirely, so `libPath` returns the bare
 // stem and none of these are touched; Deno and Bun use the real built-ins,
 // and every rung below keeps its synchronous shape.
 type HostModules = {
@@ -48,7 +48,7 @@ type HostModules = {
 	childProcess: typeof import("node:child_process");
 };
 
-// An injected adapter (the wasm browser binding, ADR-0070) means `dlopen`
+// An injected adapter (the wasm browser binding, ADR-0034) means `dlopen`
 // ignores paths and there is no archive cascade to run, so `host` is null and
 // the stubbed `node:*` imports above are never touched. Deno and Bun get the
 // real built-ins. No top-level await: see the import note above.
@@ -578,7 +578,7 @@ function libDir(): string | null {
 
 export function libPath(stem: string): string {
 	// No host built-ins means no filesystem and no dlopen: the active adapter
-	// is the wasm one (ADR-0070), whose `dlopen` ignores the path. Hand back
+	// is the wasm one (ADR-0034), whose `dlopen` ignores the path. Hand back
 	// the stem before any cascade rung runs. The injected check is re-read
 	// here, not just via `host`: a static import chain can evaluate this
 	// module before the browser binding injects its adapter, so `host` may

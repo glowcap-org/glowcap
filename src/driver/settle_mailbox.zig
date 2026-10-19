@@ -1,8 +1,8 @@
-//! The off-turn settle mailbox (ADR-0102 stage 4): the sanctioned way a
+//! The off-turn settle mailbox (ADR-0014 stage 4): the sanctioned way a
 //! worker thread hands a resolver settle back to the thread that owns its
 //! Host. A worker calls `post` from any thread with that thread's `std.Io`.
 //! The entry is recorded into a fixed slot under an io-aware mutex and the
-//! owning thread is woken through the mailbox's socketpair. Under ADR-0089,
+//! owning thread is woken through the mailbox's socketpair. Under ADR-0035,
 //! `WouldBlock` is coalesced success because unread bytes already make the read
 //! half readable. Every other wake fault is retained and terminalizes the
 //! owner without abandoning rows admitted earlier. The owning thread drains

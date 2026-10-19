@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-// The browser offerer for the WebRTC browser-peer proof (ADR-0089). A
+// The browser offerer for the WebRTC browser-peer proof (ADR-0035). A
 // real headless Chromium bundles this: `@glowcap/web`'s wasm Host plus
 // `@glowcap/webrtc`'s `RtcPeer`. It brings up a DataChannel to the Zig
 // answerer (`interop/webrtc_browser_peer/answerer.zig`) through the harness's

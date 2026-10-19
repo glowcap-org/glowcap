@@ -9,7 +9,7 @@ description: >-
 # glowcap CLI
 
 `glowcap` is the installable product (`cli/`,
-[ADR-0084](../../../docs/decisions/adr/ADR-0084-glowcap-cli-product-boundary.md))
+[ADR-0032](../../../docs/decisions/adr/ADR-0032-cli-and-product-boundaries.md))
 on the same `driver`/`net` stack as the library. To talk to a peer, host one,
 poke a session, or script CapTP, use this binary before opening a new Zig file,
 binding stub, or throwaway harness.

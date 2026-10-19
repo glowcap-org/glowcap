@@ -25,7 +25,7 @@ const drainOutboundStreamBytes = fixtures.drainOutboundStreamBytes;
 const FakeBackend = fixtures.FakeBackend;
 const FakeEvent = fixtures.FakeEvent;
 
-/// Two-connection fan-in throttle (ADR-0082): while the sink stays over
+/// Two-connection fan-in throttle (ADR-0030): while the sink stays over
 /// high-water, a drained source stays parked. When the sink finally drains,
 /// the source's read re-arms.
 const FanInBackend = struct {

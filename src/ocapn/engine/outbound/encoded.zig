@@ -1,4 +1,4 @@
-//! The row a deliver leaves the pending queue as: its frame (ADR-0236).
+//! The row a deliver leaves the pending queue as: its frame (ADR-0064).
 //!
 //! Admission encodes a deliver with its inline result subscription, so the
 //! queue holds one frame and what a retracted turn gives back: the near exports
@@ -7,10 +7,10 @@
 //! them again when the send returns.
 //!
 //! The session acts on a message's references, never its values, and the
-//! inventory listed every reference at admission (ADR-0234). What the row
+//! inventory listed every reference at admission (ADR-0064). What the row
 //! keeps is that list's residue, so nothing after admission walks the tree.
 //! A deliver's values may instead arrive as freight, a borrowed tree no
-//! inventory walked (ADR-0246): the session certifies it here and the
+//! inventory walked (ADR-0064): the session certifies it here and the
 //! encoder reads it, and the owned envelope carries the references.
 
 const std = @import("std");
@@ -69,14 +69,14 @@ pub fn admits(self: *const Peer, message: model.Message) bool {
 /// because applying the send is the last fallible step.
 ///
 /// `freight` is a deliver's argument tree lent as views, in place of the
-/// empty owned slice `message` then carries (ADR-0246). The inventory saw
+/// empty owned slice `message` then carries (ADR-0064). The inventory saw
 /// none of it, so the session certifies and measures it first, and the
 /// producer check charges the envelope and that measure together, as it
 /// charges an inventoried tree.
 ///
 /// The inventory and the freight measure carry what the tree's values
 /// encode to under the session's codec, so the encoder reads the tree once
-/// (ADR-0253).
+/// (ADR-0064).
 pub fn admit(self: *Peer, message: model.Message, inventory: session.Inventory, freight: ?model.view.Args) !void {
     std.debug.assert(admits(self, message));
     std.debug.assert(freight == null or (message == .deliver and message.deliver.args.len == 0));

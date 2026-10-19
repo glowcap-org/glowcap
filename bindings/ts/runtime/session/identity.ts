@@ -25,7 +25,7 @@ export interface PartnerIdentity {
 	readonly locatorRecord: Uint8Array;
 	/** How the durable identity in {@link PartnerIdentity.designator} was
 	 * authenticated, if at all. Session identity, durable identity, and this
-	 * provenance are three separate facts (ADR-0097, ADR-0105): a caller that
+	 * provenance are three separate facts (ADR-0028): a caller that
 	 * requires a proved durable peer reads this. The fresh session key and the
 	 * durable designator are independent values. */
 	readonly provenance: DurableProvenance;
@@ -35,7 +35,7 @@ export interface PartnerIdentity {
  * fact {@link PartnerIdentity} reports beside session key and designator.
  *
  * The answer is a property of the connection rather than of its transport name
- * (ADR-0105): the same transport symbol reaches this peer over code that can
+ * (ADR-0028): the same transport symbol reaches this peer over code that can
  * prove something and code that cannot, so no list of transports belongs here.
  *
  * `authenticated-transport` means the code that realized this connection

@@ -37,7 +37,7 @@ pub const Ctx = struct {
     /// Live session for REPL / MCP multi-command context.
     /// The dial transports a retained session keeps reaching through. The
     /// session's host resolves later dials against this slice (a redeem
-    /// reaches an exporter this way, ADR-0090), so the residents and the
+    /// reaches an exporter this way, ADR-0018), so the residents and the
     /// slice storage must outlive the session, not the dialing frame. Slot 0
     /// is always tcp. Slots 1 and 2 join when `GLOWCAP_RENDEZVOUS` configures
     /// the relay provider's clear and sealed rendezvous profiles.

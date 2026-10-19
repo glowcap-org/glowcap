@@ -61,7 +61,7 @@ pub const ArgKind = enum(u16) {
     boolean = 7,
     /// Pointer 0 holds a composite list of arguments, or the run of
     /// eight-byte words the encoder writes for a non-empty list whose
-    /// elements are all integers (ADR-0243).
+    /// elements are all integers (ADR-0010).
     list = 8,
     void = 9,
     float64 = 10,

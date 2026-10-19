@@ -1,4 +1,4 @@
-//! The sealed byte channel (ADR-0107): `foundation.noise`'s `Noise_XK` state
+//! The sealed byte channel (ADR-0041): `foundation.noise`'s `Noise_XK` state
 //! machine driven over a byte stream, with the record framing, the prologue,
 //! and the identity payload the record specifies.
 //!
@@ -104,7 +104,7 @@ pub const SealError = noise.NoiseError || SealedError || std.mem.Allocator.Error
 /// scratch one record opens into, at most
 /// `foundation.noise.max_record_plaintext_bytes`, shrunk back to
 /// `steady_plain_bytes` by the next small record. Sealing and opening each pay
-/// the one AEAD pass per record ADR-0107 names: AEAD cannot encrypt in place
+/// the one AEAD pass per record ADR-0041 names: AEAD cannot encrypt in place
 /// across the borrowed-frame boundary the engine relies on, so ciphertext is
 /// written beside the plaintext, never over it.
 pub const SealedChannel = struct {

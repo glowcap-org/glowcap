@@ -1,4 +1,4 @@
-// The WebRTC browser-to-browser proof (ADR-0089). Two real headless Chromium
+// The WebRTC browser-to-browser proof (ADR-0035). Two real headless Chromium
 // contexts each run `@glowcap/web` (the wasm Host) and `@glowcap/webrtc`. The
 // offerer dials the answerer's key through the WebRTC connector, the answerer
 // accepts through the WebRTC listener, and the two hold a keyed OCapN session

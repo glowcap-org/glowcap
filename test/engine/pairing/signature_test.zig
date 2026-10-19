@@ -202,7 +202,7 @@ test "the handshake records each partner's session key for later signature check
     // Each side should have learned the other's session public key from the
     // partner's op:start-session, the key an embedder verifies the partner's
     // signatures against (e.g. a gifter's handoff-give on a gifter-to-exporter
-    // session, ADR-0009).
+    // session, ADR-0039).
     const p1_pub = (crypto.SecretKey.fromSeed(p1_seed)).publicKey();
     const p2_pub = (crypto.SecretKey.fromSeed(p2_seed)).publicKey();
 

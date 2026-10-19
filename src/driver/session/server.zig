@@ -119,7 +119,7 @@ pub const Server = struct {
     /// Remove the Host-wide alias `name` (see `HostRuntime.unpublish`): a later
     /// fetch misses on every accepted session, while issued capabilities and
     /// deposited gifts keep the exact actor. A minted durable name is refused
-    /// here. It leaves through `removeDurable` (ADR-0098).
+    /// here. It leaves through `removeDurable` (ADR-0007).
     pub fn unpublish(
         self: *Server,
         name: []const u8,
@@ -130,7 +130,7 @@ pub const Server = struct {
 
     /// Publish `initial` under a freshly minted durable swiss name and return
     /// the complete sturdyref URI (`ocapn://…`), allocated with `allocator`
-    /// and owned by the caller (ADR-0098): unpredictable, never reassigned,
+    /// and owned by the caller (ADR-0007): unpredictable, never reassigned,
     /// removable only through `removeDurable`, structurally disjoint from
     /// every mutable alias. Entropy is drawn here, at the I/O boundary. The
     /// sans-io core only ever sees the bytes. `Behavior` is Value-shaped like

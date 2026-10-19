@@ -26,7 +26,7 @@ export function connector(
 					channel,
 					request.handshakeTimeoutMs,
 					// Directory signaling was scoped to this designator, and DTLS binds
-					// the channel to the SDP that exchange ferried (ADR-0105).
+					// the channel to the SDP that exchange ferried (ADR-0028).
 					locator.designator,
 				),
 		});

@@ -86,7 +86,7 @@ async fn capnp_hosts_handshake_and_round_trip_big_integer_and_keyword() {
 		.await;
 }
 
-// A typed integer run (ADR-0247) is sent as one leaf and the peer receives the
+// A typed integer run (ADR-0064) is sent as one leaf and the peer receives the
 // same OCapN value as a List of Integers.
 #[tokio::test]
 async fn integers_run_arrives_as_a_list_of_integers() {

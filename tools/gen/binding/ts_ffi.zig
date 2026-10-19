@@ -258,7 +258,7 @@ const host_ffi_preamble =
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
     \\// Internal: the FFI mirror of the `glowcap_host_*` family — the byte-fed
-    \\// host tier (ADR-0072), the sibling of the Racket binding's `ffi-host.rkt`.
+    \\// host tier (ADR-0022), the sibling of the Racket binding's `ffi-host.rkt`.
     \\//
     \\// Nothing here is public. This table loads `libglowcap_host`, the archive
     \\// that owns every `glowcap_host_*` symbol. The driver archive is a separate
@@ -297,7 +297,7 @@ const ocapn_ffi_preamble =
     \\// — do not edit.
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
-    \\// Internal: the FFI mirror of `libglowcap_ocapn` — the core archive (ADR-0059).
+    \\// Internal: the FFI mirror of `libglowcap_ocapn` — the core archive (ADR-0022).
     \\//
     \\// Nothing here is part of the public API. The ergonomic surface reaches these
     \\// symbols through `ocapnS`; a consumer never imports this file. This loader
@@ -305,7 +305,7 @@ const ocapn_ffi_preamble =
     \\// binding still speaks directly: the ABI version, the core last-error slot, the
     \\// allocation context, managed-frame release, the exporter-locator encoder, and
     \\// the OCapN URI grammar. The peer itself is driven through the byte-fed host
-    \\// archive (`host.ts`, `libglowcap_host`, ADR-0072), never through raw
+    \\// archive (`host.ts`, `libglowcap_host`, ADR-0022), never through raw
     \\// raw per-session engine calls. Each transport archive has its own sibling loader
     \\// here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
     \\//
@@ -330,7 +330,7 @@ const loop_ffi_preamble =
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
     \\// Internal: the FFI mirror of the `glowcap_driver_*` loop family —
-    \\// `libglowcap_driver`, the driver archive (ADR-0112).
+    \\// `libglowcap_driver`, the driver archive (ADR-0024).
     \\//
     \\// Nothing here is public; `../../driver_loop.ts` is the surface over it.
     \\// The archive exports only this family and consumes a Host transferred from
@@ -359,7 +359,7 @@ const tcp_ffi_preamble =
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
     \\// Internal: the FFI mirror of `libglowcap_net_transport_tcp` — the blocking-TCP
-    \\// transport archive (ADR-0059).
+    \\// transport archive (ADR-0022).
     \\//
     \\// Nothing here is public; `tcp.ts` is the ergonomic surface over it. This
     \\// loader opens *only* the TCP archive, so importing `tcp.ts` never pulls in
@@ -385,7 +385,7 @@ const inproc_ffi_preamble =
     \\// `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
     \\//
     \\// Internal: the FFI mirror of `libglowcap_net_transport_inproc` — the
-    \\// in-process transport archive (ADR-0059).
+    \\// in-process transport archive (ADR-0022).
     \\//
     \\// Nothing here is public; `inproc.ts` is the ergonomic surface over it. This
     \\// loader opens *only* the inproc archive, so importing `inproc.ts` never pulls
@@ -457,7 +457,7 @@ const iroh_ffi_preamble =
     \\//
     \\// Internal: the FFI mirror of `libglowcap_net_transport_iroh`'s C ABI.
     \\//
-    \\// The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0055) is
+    \\// The iroh companion library (`libglowcap_net_transport_iroh`, ADR-0021) is
     \\// optional — absent unless built with cargo — so it loads lazily on first use
     \\// through `irohS()`, which names how to produce it rather than surfacing a raw
     \\// dlopen failure. This loader opens *only* the iroh archive, through the core's
@@ -522,7 +522,7 @@ const webrtc_ffi_preamble =
     \\//
     \\// Internal: the FFI mirror of `libglowcap_net_transport_webrtc`'s C ABI.
     \\//
-    \\// The WebRTC companion library (`libglowcap_net_transport_webrtc`, ADR-0089) is
+    \\// The WebRTC companion library (`libglowcap_net_transport_webrtc`, ADR-0035) is
     \\// optional — absent unless built with cargo — so it loads lazily on first use
     \\// through `webrtcS()`, which names how to produce it rather than surfacing a raw
     \\// dlopen failure. Only the Deno driver path (`driver.ts`) opens it: the browser

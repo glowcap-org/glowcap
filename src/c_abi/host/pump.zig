@@ -1,4 +1,4 @@
-//! The opt-in convenience drain for `libglowcap_host` (ADR-0072 fifth
+//! The opt-in convenience drain for `libglowcap_host` (ADR-0022 fifth
 //! amendment): `glowcap_host_pump_drain` runs the one-loop drain over
 //! `glowcap_host_next_action` for the embedder, dispatching each action to a
 //! `GlowcapHostPumpHooks` arm. The pull-queue stays normative. This wraps it and
@@ -19,7 +19,7 @@ const GLOWCAP_OK = shared.GLOWCAP_OK;
 const GLOWCAP_ERR_NULL_POINTER = shared.GLOWCAP_ERR_NULL_POINTER;
 const GLOWCAP_ERR_INTERNAL = shared.GLOWCAP_ERR_INTERNAL;
 
-/// Opt-in convenience drain over `glowcap_host_next_action` (ADR-0072 fifth
+/// Opt-in convenience drain over `glowcap_host_next_action` (ADR-0022 fifth
 /// amendment). Still pops through the pull-queue internally. Does not replace
 /// it. NULL `hooks` discards every action (rarely useful). `*out_acted` is 1
 /// when any arm reported progress (optional). `*out_yielded` is 1 when the

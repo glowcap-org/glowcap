@@ -1,10 +1,10 @@
 // The Deno WebRTC proofs through the C provider, in order.
 //
-// Dial (ADR-0226): the binding installs `provider(signaling)`, then an
+// Dial (ADR-0035): the binding installs `provider(signaling)`, then an
 // ordinary `Runtime.connect` dials the Zig WebRTC answerer by locator, fetches
 // its greeter, and calls it.
 //
-// Listen (ADR-0232): the binding listens with `listen(signaling)`, the Zig
+// Listen (ADR-0035): the binding listens with `listen(signaling)`, the Zig
 // WebRTC offerer dials the listener, and the accepted session names the
 // offerer's key.
 //

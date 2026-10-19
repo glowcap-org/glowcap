@@ -3,7 +3,7 @@
 //!
 //! An onion listener's designator is the service id Tor mints when it
 //! publishes, so a listen names none, and its locator is that id with no
-//! hints (ADR-0108). The service forwards to the loopback endpoint the inner
+//! hints (ADR-0042). The service forwards to the loopback endpoint the inner
 //! listener binds, so the platform backend must bind loopback. Every other
 //! symbol passes to `Inner` against the wrapped platform backend.
 

@@ -5,7 +5,7 @@
 ;; (part of `check`) fails when this is stale.
 ;;
 ;; The raw `ffi/unsafe` table of the `glowcap_driver_*` loop family
-;; (ADR-0112), exported by symbol-disjoint libglowcap_driver. The
+;; (ADR-0024), exported by symbol-disjoint libglowcap_driver. The
 ;; hand-written sibling (`ffi-driver.rkt`) owns the prose
 ;; and re-provides this module. The event and provider cstructs live
 ;; in `ffi-shared.rkt`, the binding's types leaf.

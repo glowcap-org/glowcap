@@ -93,7 +93,7 @@ fn kd(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(cd, decl)) };
 }
 
-/// `k` reading from the driver archive (`c_abi_driver`, ADR-0112).
+/// `k` reading from the driver archive (`c_abi_driver`, ADR-0024).
 fn kdr(comptime ts: []const u8, comptime decl: []const u8) Const {
     return .{ .ts = ts, .value = @intCast(@field(cdr, decl)) };
 }
@@ -163,7 +163,7 @@ const constants = [_]Const{
     k("DEFAULT_FAILURE_PAYLOAD_CAP", "GLOWCAP_DEFAULT_FAILURE_PAYLOAD_CAP"),
     k("FRAME_SHAPE_BYTE", "GLOWCAP_FRAME_SHAPE_BYTE"),
     k("FRAME_SHAPE_WORD", "GLOWCAP_FRAME_SHAPE_WORD"),
-    // The byte-fed host tier's action queue (libglowcap_host, ADR-0072):
+    // The byte-fed host tier's action queue (libglowcap_host, ADR-0022):
     // GlowcapHostAction.kind.
     kd("HOST_ACTION_DIAL", "GLOWCAP_HOST_ACTION_DIAL"),
     kd("HOST_ACTION_FLUSH", "GLOWCAP_HOST_ACTION_FLUSH"),
@@ -218,7 +218,7 @@ const constants = [_]Const{
     kd("HOST_DURABLE_ENTROPY_LEN", "GLOWCAP_HOST_DURABLE_ENTROPY_LEN"),
     kd("HOST_DURABLE_SWISS_LEN", "GLOWCAP_HOST_DURABLE_SWISS_LEN"),
     // GlowcapDriverEvent.kind values the driver archive's event queue
-    // carries (libglowcap_driver, ADR-0112).
+    // carries (libglowcap_driver, ADR-0024).
     kdr("DRIVER_EVENT_OPENED", "GLOWCAP_DRIVER_EVENT_OPENED"),
     kdr("DRIVER_EVENT_OPEN_FAILED", "GLOWCAP_DRIVER_EVENT_OPEN_FAILED"),
     kdr("DRIVER_EVENT_ACCEPTED", "GLOWCAP_DRIVER_EVENT_ACCEPTED"),
@@ -247,7 +247,7 @@ const constants = [_]Const{
     kdr("HINTS_MAP", "GLOWCAP_HINTS_MAP"),
     kdr("HINTS_BOOLEAN_FALSE", "GLOWCAP_HINTS_BOOLEAN_FALSE"),
     // GlowcapPartnerIdentity.provenance: how the partner's advertised durable
-    // identity was authenticated (ADR-0097). A caller needing a proved durable
+    // identity was authenticated (ADR-0028). A caller needing a proved durable
     // peer reads this, never a designator-equals-session-key comparison.
     kd("DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT", "GLOWCAP_DURABLE_PROVENANCE_AUTHENTICATED_TRANSPORT"),
     kd("DURABLE_PROVENANCE_UNAUTHENTICATED", "GLOWCAP_DURABLE_PROVENANCE_UNAUTHENTICATED"),

@@ -1,4 +1,4 @@
-//! C projection of the central unreturned-failure model (ADR-0115).
+//! C projection of the central unreturned-failure model (ADR-0031).
 
 const std = @import("std");
 const core = @import("diagnostics");

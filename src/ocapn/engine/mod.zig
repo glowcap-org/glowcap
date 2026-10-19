@@ -34,10 +34,10 @@ const hello = @import("hello.zig");
 pub const handoff_recipient = @import("handoff_recipient.zig");
 pub const handoff_names = @import("handoff_names.zig");
 /// Asking the partner how a promise we hold settles (CapTP `op:listen`), the
-/// recipient half of a relayed resolution (ADR-0095).
+/// recipient half of a relayed resolution (ADR-0003).
 pub const listen = @import("listen.zig");
 /// Lowering node-local foreign-import tokens to their wire reference at the
-/// outbound chokepoint (ADR-0069). A node hands the application synthetic far
+/// outbound chokepoint (ADR-0026). A node hands the application synthetic far
 /// tokens. The peer swaps each back to its wire reference in `send`, so a token
 /// never leaks onto the wire.
 pub const lower = @import("lower.zig");
@@ -62,7 +62,7 @@ const peer_handoffs = @import("peer/handoffs.zig");
 const peer_references = @import("peer/references.zig");
 const peer_send = @import("peer/send.zig");
 const peer_session = @import("peer/session.zig");
-/// The sans-io cross-connection handoff router (ADR-0066): a tier above the
+/// The sans-io cross-connection handoff router (ADR-0026): a tier above the
 /// per-connection `Peer` that owns the retained node identity, live-session
 /// directory, and redeemed-token / foreign-home routing that makes
 /// three-party handoff transparent. It lives in the engine core (not the
@@ -92,7 +92,7 @@ pub const testing = if (builtin.is_test) struct {
         }));
     }
 } else struct {};
-/// A `Node` connection handle (ADR-0066), re-exported alongside `Node`.
+/// A `Node` connection handle (ADR-0026), re-exported alongside `Node`.
 pub const PeerHandle = @import("peer_handle.zig").PeerHandle;
 pub const pairing = @import("pairing.zig");
 pub const pipeline = @import("pipeline.zig");
@@ -145,7 +145,7 @@ pub const bootstrap_position = session.bootstrap_position;
 /// default frame cap without a direct `session` import.
 pub const SessionLimits = session.SessionLimits;
 
-/// The reserved durable swiss namespace (ADR-0098), re-exported so the host
+/// The reserved durable swiss namespace (ADR-0007), re-exported so the host
 /// tier's durable mint and mutable-alias guards name the session's one
 /// authority without a direct `session` import.
 pub const durable_swiss_prefix = session.Session.durable_swiss_prefix;
@@ -154,10 +154,10 @@ pub const durable_swiss_len = session.Session.durable_swiss_len;
 pub const isDurableSwiss = session.Session.isDurableSwiss;
 
 /// What a session knows about the durable identities at the other end of it
-/// (ADR-0105). Two parties, so two keys: the CapTP partner this session
+/// (ADR-0028). Two parties, so two keys: the CapTP partner this session
 /// converses with, and the far end of the byte channel those bytes travel
 /// over. They are the same node on a direct dial and different nodes the
-/// moment a byte-transparent relay (ADR-0086) sits between them, so one field
+/// moment a byte-transparent relay (ADR-0033) sits between them, so one field
 /// could hold only one of the two facts and would be read as the other.
 ///
 /// Every consumer asks about a designator, and each field answers for the key
@@ -166,7 +166,7 @@ pub const isDurableSwiss = session.Session.isDurableSwiss;
 /// against the wrong party.
 pub const DurablePin = peer_identity.DurablePin;
 
-/// What authenticated the durable identity a partner advertised (ADR-0105).
+/// What authenticated the durable identity a partner advertised (ADR-0028).
 /// Derived from the evidence one session holds, never from its
 /// transport symbol: same transport name, different code realizing the
 /// connection, different answer. `Peer.partnerDurableProvenance` is the one
@@ -235,7 +235,7 @@ pub const Peer = struct {
     local_delivery_depth: usize = 0,
     /// When set, an inbound `op:start-session` is admitted only if its location
     /// signature verifies against the claimed `session_pubkey` over the canonical
-    /// `<my-location …>` bytes (ADR-0006), at the engine boundary, the session
+    /// `<my-location …>` bytes (ADR-0002), at the engine boundary, the session
     /// core still runs no crypto. A failure projects an
     /// `InvalidStartSessionSignature` abort and the session never opens.
     /// `initNegotiating` turns this on: a peer doing a real keyed handshake
@@ -245,7 +245,7 @@ pub const Peer = struct {
     /// never handshakes), and the stub-key in-process fixtures opt out through
     /// `NegotiatingOptions` because their handshakes carry no real signature.
     verify_partner_handshake: bool = false,
-    /// A Vat turn's far sends are being held retractable (ADR-0194).
+    /// A Vat turn's far sends are being held retractable (ADR-0058).
     provisional: bool = false,
     /// Guaranteed projection settlements stored without their carrier because
     /// the queue refused it. Nonzero makes `step` retry one row. The
@@ -354,7 +354,7 @@ pub const Peer = struct {
 
     // ── The keyed hello (`hello.zig`) ────────────────────────────────────────
     // `op:start-session` assembly: hint stamping, transport canonicalization,
-    // signing, the partner-knowledge seams (ADR-0118), and the profile
+    // signing, the partner-knowledge seams (ADR-0042), and the profile
     // settle. `hello.zig` owns the bodies behind these aliases.
     pub const sendKeyedStartSession = hello.sendKeyedStartSession;
     pub const sendKeyedStartSessionAdvertised = hello.sendKeyedStartSessionAdvertised;
@@ -437,7 +437,7 @@ pub const Peer = struct {
 ///   the ranges exist to remove. The word buys a typed refusal instead.
 /// - The import table's enrolled-token side (8 bytes), one word for a map that
 ///   is only allocated once a session enrolls a capability under a node-unique
-///   token (ADR-0069). Most sessions never do, so the ordinary session pays the
+///   token (ADR-0026). Most sessions never do, so the ordinary session pays the
 ///   word and nothing else. It lives on the import row rather than in a
 ///   node-side memo so it is forgotten when the import is released. A token
 ///   that outlived its row would name whatever capability the partner put at
@@ -448,7 +448,7 @@ pub const Peer = struct {
 ///   not host just as surely. A name used in a namespace that is not its own is
 ///   the class of bug this core has paid for most.
 ///
-/// ADR-0105 gives the session two distinct durable-key facts: the target a dial
+/// ADR-0028 gives the session two distinct durable-key facts: the target a dial
 /// named and the far end the byte-channel realizer verified. A
 /// byte-transparent relay can make those different parties, so one slot cannot
 /// represent both without confusing a target requirement with evidence.
@@ -463,10 +463,10 @@ pub const Peer = struct {
 /// cache) carries std's one-byte `pointer_stability` lock, padded to a word, in
 /// Debug and ReleaseSafe, the same lock every hash map here already pays.
 /// ReleaseFast and ReleaseSmall make the lock zero-sized and measure smaller.
-/// Forty-eight more are the wire-hash secret (ADR-0218): one word on the
+/// Forty-eight more are the wire-hash secret (ADR-0037): one word on the
 /// session and one in each of the five tables keyed by positions the peer
 /// chooses, because those tables' verbs run without the session in hand.
-/// Eight bytes hold the cold result-import release outbox (ADR-0251). Its
+/// Eight bytes hold the cold result-import release outbox (ADR-0065). Its
 /// stable heap owner lets answer payloads retire their imports without a
 /// fallible finalizer. It stays null until a forwarded result introduces caps.
 /// Eight bytes hold the cold local promise registry. It lets collection visit

@@ -2,7 +2,7 @@
 //! `keyed-tcp`, and `noise-tcp` profiles.
 //!
 //! Every application listener binds through the driver archive
-//! (ADR-0112), including caller-supplied Hosts: a quiescent Host transfers to
+//! (ADR-0024), including caller-supplied Hosts: a quiescent Host transfers to
 //! the loop before its first network operation. The loop owns sockets,
 //! admission, pumping, and session release. [`LoopListener`] is the one
 //! binding owner of a generic driver listener. The driver's locator is the
@@ -31,7 +31,7 @@ use std::rc::Rc;
 /// server's one [`Host`] (its retained identity and handoff router), so
 /// the server is one Host serving many partners.
 ///
-/// A bare [`crate::tcp::listen`] rides the driver archive (ADR-0112), and its Host
+/// A bare [`crate::tcp::listen`] rides the driver archive (ADR-0024), and its Host
 /// owns the loop: `server.host().close(crate::PendingWork::Cancel).await` (or the last accepted session
 /// dropping the Host) closes the listener and every loop-minted session with
 /// it. On the byte-fed admission tier, dropping the server stops accepting

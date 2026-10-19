@@ -7,7 +7,7 @@
 //! engine's whole-frame APIs directly and do not use this layer. The read
 //! buffer sizes the steady state, not the largest admissible frame: a frame that
 //! outgrows it assembles in a bounded owned spill and is freed when it drains
-//! (ADR-0041).
+//! (ADR-0012).
 //!
 //! This is where `std.Io` enters the transport adapter. The five core layers
 //! (foundation, model, codec, session, engine) stay synchronous and I/O-free.
@@ -321,7 +321,7 @@ pub const Connection = struct {
     /// `Progress` (`.closed` if the stream ended first).
     ///
     /// `timeout_ms` is the per-read deadline, the bounded-read hook on an
-    /// untrusted partner (ADR-0081). A timeout of 0 means each read blocks
+    /// untrusted partner (ADR-0030). A timeout of 0 means each read blocks
     /// indefinitely. The caller accepts the risk of an unbounded block against
     /// a silent partner. A positive value flushes queued outbound first (the
     /// partner cannot answer a request still queued on our side, so waiting
@@ -411,7 +411,7 @@ pub fn waitAny(
         };
     }
     // The caller's out-of-band descriptors, multiplexed-resident readiness and
-    // the settle-mailbox wake (ADR-0102), poll as trailing rows and report
+    // the settle-mailbox wake (ADR-0014), poll as trailing rows and report
     // as `conns.len + i`, indexes no connection occupies.
     for (extra_fds, 0..) |fd, i| {
         const interest = if (extra_interests.len == 0) WaitInterest.read else extra_interests[i];
@@ -451,12 +451,12 @@ pub fn waitAny(
 ///      `max_frame_bytes` (the codec's cap-during-scan plus the defensive
 ///      mirror below).
 ///
-/// One fiber is the contract, not a deferral (ADR-0053): this pump serves
+/// One fiber is the contract, not a deferral (ADR-0018): this pump serves
 /// cooperative request/response traffic (handshake, fetch, deliver/resolve),
 /// where each side drains the replies its own requests caused. A partner that
 /// streams without draining can head-of-line-block a fiber mid-`writeAll`.
 /// That workload rides the completion loop, whose bounded outbound queue and
-/// read parking (ADR-0042) exist for exactly it.
+/// read parking (ADR-0017) exist for exactly it.
 pub fn pumpOver(
     peer: *engine.Peer,
     r: *std.Io.Reader,

@@ -144,7 +144,7 @@ fn settleProjections(self: *Host, row: *Row, resolved: capability.Ref) !?host_pu
                 ) catch |err| switch (err) {
                     // The prepared lift rolls back with `prepared`; the
                     // projection stays owed and the drain parks on this
-                    // recipient (ADR-0145).
+                    // recipient (ADR-0017).
                     error.OutboundBackpressure => return .{ .parked_on = projection.peer_handle },
                     else => return err,
                 };

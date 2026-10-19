@@ -24,7 +24,7 @@ pub struct PartnerIdentity {
 	pub locator_record: Vec<u8>,
 	/// How the durable identity in `designator` was authenticated, if at all.
 	/// Session identity, durable identity, and this provenance are three
-	/// separate facts (ADR-0097): ask
+	/// separate facts (ADR-0028): ask
 	/// [`durable_identity_authenticated`](PartnerIdentity::durable_identity_authenticated)
 	/// for a proved durable peer, never whether `designator` equals
 	/// `session_key`.
@@ -35,7 +35,7 @@ pub struct PartnerIdentity {
 /// fact [`PartnerIdentity`] reports beside session key and designator.
 ///
 /// The answer is a property of the connection rather than of its transport name
-/// (ADR-0105): the same transport symbol reaches this peer over code that can
+/// (ADR-0028): the same transport symbol reaches this peer over code that can
 /// prove something and code that cannot, so no list of transports belongs here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DurableProvenance {

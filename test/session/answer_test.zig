@@ -21,7 +21,7 @@ test "session records inbound answers and settles on resolve" {
     defer s.deinit();
     try s.registerExport(.from(7));
 
-    // Inbound deliver to our export 7. Post-flip (ADR-0010) the wire
+    // Inbound deliver to our export 7. Post-flip (ADR-0006) the wire
     // `<desc:export 7>` decodes to `.near{export_position=7}` in our perspective.
     try s.recordRecv(.{
         .deliver = .{
@@ -184,7 +184,7 @@ test "inbound resolve whose fulfill names an unheld near export is rejected like
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, s.outboundAnswer(.from(11)).?.status);
 }
 
-test "inbound answers are bounded by max_inbound_answers (ADR-0025)" {
+test "inbound answers are bounded by max_inbound_answers (ADR-0008)" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .limits = .{ .max_inbound_answers = 2 },

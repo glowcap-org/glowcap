@@ -4,7 +4,7 @@
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
 // Internal: the FFI mirror of the `glowcap_driver_*` loop family —
-// `libglowcap_driver`, the driver archive (ADR-0112).
+// `libglowcap_driver`, the driver archive (ADR-0024).
 //
 // Nothing here is public; `../../driver_loop.ts` is the surface over it.
 // The archive exports only this family and consumes a Host transferred from

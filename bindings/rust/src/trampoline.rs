@@ -39,7 +39,7 @@ mod registration;
 pub(crate) use registration::register_actor_cell;
 
 /// What one turn of a hosted behavior produced: a plain reply value, a
-/// tail-forward of the answer to another reference (ADR-0064), or a broken
+/// tail-forward of the answer to another reference (ADR-0016), or a broken
 /// answer carrying the behavior's own diagnostic.
 pub(crate) enum TurnOutcome {
 	Value(Argument),
@@ -67,7 +67,7 @@ pub(crate) fn outcome_behavior(
 	})
 }
 
-/// ADR-0064 caretaker: spawn a proxy that forwards to `target` until revoke,
+/// ADR-0016 caretaker: spawn a proxy that forwards to `target` until revoke,
 /// then breaks every call `Revoked`.
 pub(crate) fn caretaker_proxy(shared: &Rc<SessionShared>, target: &Ref) -> Result<Caretaker> {
 	let live = Arc::new(AtomicBool::new(true));
@@ -87,7 +87,7 @@ pub(crate) fn caretaker_proxy(shared: &Rc<SessionShared>, target: &Ref) -> Resul
 	Ok(Caretaker::new(shared.spawn_actor(behavior)?, live))
 }
 
-/// ADR-0064 attenuator: spawn a proxy that forwards only allow-listed verbs
+/// ADR-0016 attenuator: spawn a proxy that forwards only allow-listed verbs
 /// and breaks every other call `Attenuated`.
 pub(crate) fn attenuate_proxy(shared: &Rc<SessionShared>, target: &Ref, verbs: &[&str]) -> Result<Ref> {
 	let allowed: HashSet<String> = verbs.iter().map(|verb| verb.to_string()).collect();
@@ -125,7 +125,7 @@ pub(crate) struct ActorCell {
 
 // What a hosted callback reads as the arriving deliver context. The byte-fed
 // pump brackets each feed with the arriving Session; a driver loop step
-// (ADR-0112) delivers for any of its host's sessions at once, so it brackets
+// (ADR-0024) delivers for any of its host's sessions at once, so it brackets
 // itself with the loop's adopted Host instead: the loop-tier sibling of the
 // Session bracket, and it latches a turn to its Host (turn-time spawn)
 // when a behavior fires inside `glowcap_driver_step`.

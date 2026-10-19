@@ -9,7 +9,7 @@
 //! platform backend and never reads or closes them itself.
 //!
 //! `c_abi/driver/provider_registry/stream_completion.zig` implements this
-//! contract over a C `GlowcapStreamTransport` table (ADR-0112).
+//! contract over a C `GlowcapStreamTransport` table (ADR-0024).
 
 const std = @import("std");
 const foundation = @import("foundation");

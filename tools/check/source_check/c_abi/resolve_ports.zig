@@ -1,4 +1,4 @@
-//! Every port of the C-ABI resolve cascade (ADR-0077), held to one rule set.
+//! Every port of the C-ABI resolve cascade (ADR-0023), held to one rule set.
 
 const std = @import("std");
 const util = @import("../util.zig");
@@ -47,7 +47,7 @@ pub fn checkCAbiResolvePorts(
         if (std.mem.indexOf(u8, contents, "tools/c-abi/fetch-c-abi.sh") != null or
             std.mem.indexOf(u8, contents, "fetch-c-abi.sh") != null)
         {
-            try appendViolation(gpa, violations, "{s}: must not shell out to `fetch-c-abi.sh` (ADR-0077: language-native download)", .{path});
+            try appendViolation(gpa, violations, "{s}: must not shell out to `fetch-c-abi.sh` (ADR-0023: language-native download)", .{path});
         }
         if (std.mem.indexOf(u8, contents, "abi_version") == null and
             std.mem.indexOf(u8, contents, "GLOWCAP_VERSION_MAJOR") == null)
@@ -73,7 +73,7 @@ pub fn checkCAbiResolvePorts(
             try appendViolation(gpa, violations, "{s}: must read contract `releases_published`", .{path});
         }
         if (std.mem.indexOf(u8, contents, "GLOWCAP_ALLOW_INSECURE") == null) {
-            try appendViolation(gpa, violations, "{s}: must gate downloads with GLOWCAP_ALLOW_INSECURE escape (ADR-0077 §5)", .{path});
+            try appendViolation(gpa, violations, "{s}: must gate downloads with GLOWCAP_ALLOW_INSECURE escape (ADR-0023)", .{path});
         }
         // Fixed env truthy set (not a contract field).
         if (std.mem.indexOf(u8, contents, "\"1\"") == null or
@@ -118,24 +118,24 @@ pub fn checkCAbiResolvePorts(
             {
                 try appendViolation(gpa, violations, "{s}: must normalize darwin/macosx → macos for release-pack targets", .{path});
             }
-            // ADR-0077: refuse bare DLL names on Windows (search-order plant risk).
+            // ADR-0023: refuse bare DLL names on Windows (search-order plant risk).
             if (std.mem.indexOf(u8, contents, "Windows refuses bare DLL") == null) {
-                try appendViolation(gpa, violations, "{s}: must refuse bare DLL names on Windows (ADR-0077)", .{path});
+                try appendViolation(gpa, violations, "{s}: must refuse bare DLL names on Windows (ADR-0023)", .{path});
             }
         }
-        // Extract hygiene (ADR-0077 §5): reject links/traversal before extract.
+        // Extract hygiene (ADR-0023): reject links/traversal before extract.
         if (std.mem.eql(u8, path, "bindings/python/glowcap/_lib_resolve.py")) {
             if (std.mem.indexOf(u8, contents, "issym") == null) {
-                try appendViolation(gpa, violations, "{s}: must reject symlink/hardlink tar members (ADR-0077 §5)", .{path});
+                try appendViolation(gpa, violations, "{s}: must reject symlink/hardlink tar members (ADR-0023)", .{path});
             }
         } else if (std.mem.eql(u8, path, "bindings/ts/runtime/internal/ffi/load.ts")) {
             if (std.mem.indexOf(u8, contents, "--no-same-owner") == null) {
-                try appendViolation(gpa, violations, "{s}: tar extract must pass --no-same-owner (ADR-0077 §5)", .{path});
+                try appendViolation(gpa, violations, "{s}: tar extract must pass --no-same-owner (ADR-0023)", .{path});
             }
             if (std.mem.indexOf(u8, contents, "archive_hygiene.ts") == null or
                 std.mem.indexOf(u8, contents, "archiveListingViolation") == null)
             {
-                try appendViolation(gpa, violations, "{s}: must validate tar listings through archive_hygiene.ts before extract (ADR-0077 §5)", .{path});
+                try appendViolation(gpa, violations, "{s}: must validate tar listings through archive_hygiene.ts before extract (ADR-0023)", .{path});
             }
             // The validator only parses the two C-locale listing layouts, so
             // the call site that runs `tar` owns forcing that locale, and it
@@ -161,7 +161,7 @@ pub fn checkCAbiResolvePorts(
                 std.mem.indexOf(u8, contents, "TAR_OPTIONS: \"\"") == null or
                 std.mem.count(u8, contents, "env: tarEnv") < 2)
             {
-                try appendViolation(gpa, violations, "{s}: both tar calls must pass one fresh `env: tarEnv` and must not spread `process.env` (ADR-0077 §5)", .{path});
+                try appendViolation(gpa, violations, "{s}: both tar calls must pass one fresh `env: tarEnv` and must not spread `process.env` (ADR-0023)", .{path});
             }
             if (std.mem.indexOf(u8, contents, "isDirectory") == null) {
                 try appendViolation(gpa, violations, "{s}: extract success must require extract_prefix is a directory", .{path});
@@ -173,7 +173,7 @@ pub fn checkCAbiResolvePorts(
             }
         } else {
             if (std.mem.indexOf(u8, contents, "--no-same-owner") == null) {
-                try appendViolation(gpa, violations, "{s}: tar extract must pass --no-same-owner (ADR-0077 §5)", .{path});
+                try appendViolation(gpa, violations, "{s}: tar extract must pass --no-same-owner (ADR-0023)", .{path});
             }
             const owns_or_imports_hygiene =
                 (std.mem.eql(u8, path, "bindings/rust/build.rs") and
@@ -182,7 +182,7 @@ pub fn checkCAbiResolvePorts(
                 (std.mem.eql(u8, path, "bindings/racket/private/lib-resolve.rkt") and
                     std.mem.indexOf(u8, contents, "tar-listing-violation") != null);
             if (!owns_or_imports_hygiene) {
-                try appendViolation(gpa, violations, "{s}: must own or import the gated tar-listing validator before extract (ADR-0077 §5)", .{path});
+                try appendViolation(gpa, violations, "{s}: must own or import the gated tar-listing validator before extract (ADR-0023)", .{path});
             }
             // Same contract as the TypeScript loader above.
             if (std.mem.indexOf(u8, contents, "LC_ALL") == null) {
@@ -198,7 +198,7 @@ pub fn checkCAbiResolvePorts(
                 std.mem.count(u8, contents, ".env_remove(\"TAR_OPTIONS\")") >= 2 or
                 std.mem.count(u8, contents, "parameterize ([current-environment-variables env])") >= 2;
             if (!clears_both) {
-                try appendViolation(gpa, violations, "{s}: both the listing and the extract must run under the sanitized environment (ADR-0077 §5)", .{path});
+                try appendViolation(gpa, violations, "{s}: both the listing and the extract must run under the sanitized environment (ADR-0023)", .{path});
             }
             if (std.mem.indexOf(u8, contents, "--absolute-names") != null or
                 std.mem.indexOf(u8, contents, " -P\n") != null or
@@ -231,7 +231,7 @@ pub fn checkCAbiResolvePorts(
                 try appendViolation(gpa, violations, "{s}: must discover zig-out via find-dev-root (no caller-hardcoded zig-out path)", .{path});
             }
             if (std.mem.indexOf(u8, contents, "hard-fail!") == null) {
-                try appendViolation(gpa, violations, "{s}: must define hard-fail! for hygiene/checksum/HTTPS (ADR-0077)", .{path});
+                try appendViolation(gpa, violations, "{s}: must define hard-fail! for hygiene/checksum/HTTPS (ADR-0023)", .{path});
             }
         }
         if (std.mem.eql(u8, path, "bindings/python/glowcap/_lib_resolve.py")) {
@@ -339,13 +339,13 @@ pub fn checkCAbiResolvePorts(
     if (std.mem.indexOf(u8, script, "archive-hygiene.sh") == null or
         std.mem.indexOf(u8, script, "archive_hygiene_check") == null)
     {
-        try appendViolation(gpa, violations, "{s}: must source the gated archive-hygiene owner before extract (ADR-0077 §5)", .{expected_operator_script});
+        try appendViolation(gpa, violations, "{s}: must source the gated archive-hygiene owner before extract (ADR-0023)", .{expected_operator_script});
     }
     if (std.mem.indexOf(u8, script, "TAR_OPTIONS=") == null) {
-        try appendViolation(gpa, violations, "{s}: must clear TAR_OPTIONS on the extract, so it runs in the environment its listing was validated under (ADR-0077 §5)", .{expected_operator_script});
+        try appendViolation(gpa, violations, "{s}: must clear TAR_OPTIONS on the extract, so it runs in the environment its listing was validated under (ADR-0023)", .{expected_operator_script});
     }
     if (std.mem.indexOf(u8, script, "hard_fail") == null) {
-        try appendViolation(gpa, violations, "{s}: must define hard_fail for hygiene/checksum/HTTPS (ADR-0077)", .{expected_operator_script});
+        try appendViolation(gpa, violations, "{s}: must define hard_fail for hygiene/checksum/HTTPS (ADR-0023)", .{expected_operator_script});
     }
     if (std.mem.indexOf(u8, script, "operator") == null and std.mem.indexOf(u8, script, "Operator") == null) {
         try appendViolation(gpa, violations, "{s}: must document that it is an operator/CI tool, not a binding dependency", .{expected_operator_script});
@@ -524,17 +524,17 @@ pub fn checkCAbiResolvePorts(
         if (std.mem.eql(u8, path, "tools/c-abi/archive-hygiene.sh") and
             std.mem.indexOf(u8, owner, "TAR_OPTIONS=") == null)
         {
-            try appendViolation(gpa, violations, "{s}: must clear TAR_OPTIONS on the listing (ADR-0077 §5)", .{path});
+            try appendViolation(gpa, violations, "{s}: must clear TAR_OPTIONS on the listing (ADR-0023)", .{path});
         }
     }
     const binding_docs = root.readFileAlloc(io, "bindings/PACKAGING.md", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "bindings/PACKAGING.md: failed to read for ADR-0077 archive resolution with {s}", .{@errorName(err)});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: failed to read for ADR-0023 archive resolution with {s}", .{@errorName(err)});
         return;
     };
     defer gpa.free(binding_docs);
-    if (std.mem.indexOf(u8, binding_docs, "ADR-0077") == null or
+    if (std.mem.indexOf(u8, binding_docs, "ADR-0023") == null or
         std.mem.indexOf(u8, binding_docs, "c-abi-resolve.json") == null)
     {
-        try appendViolation(gpa, violations, "bindings/PACKAGING.md: must name ADR-0077 and c-abi-resolve.json as the archive-resolution contract", .{});
+        try appendViolation(gpa, violations, "bindings/PACKAGING.md: must name ADR-0023 and c-abi-resolve.json as the archive-resolution contract", .{});
     }
 }

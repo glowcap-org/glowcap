@@ -60,7 +60,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     const echo_answer: u64 = 4242;
     // The second argument is 2^100: Goblins materializes it as a Racket bignum
     // and marshals it back, so the round-trip proves the arbitrary-precision
-    // Integer (ADR-0049) against live Goblins in both directions.
+    // Integer (ADR-0005) against live Goblins in both directions.
     const big_digits = "1267650600228229401496703205376";
     try peer.sendBorrowed(.{ .deliver = .{
         .target = echo,
@@ -114,7 +114,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     if (!echoed) return error.EchoNeverResolved;
     std.debug.print("goblins-interop: echo call resolved fulfilled by goblins\n", .{});
 
-    // 4. Pipeline an op:index against the settled echo answer (ADR-0050,
+    // 4. Pipeline an op:index against the settled echo answer (ADR-0004,
     //    glowcap as the asker): Goblins exports a promise at the new answer
     //    position and resolves it to element 0 of the echoed list. V1.0 has no
     //    op:resolve push, so the engine auto-installs a listener on the
@@ -154,7 +154,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     if (!projected) return error.ProjectionNeverResolved;
     std.debug.print("goblins-interop: op:index pipelined against the echo answer; goblins resolved the projected element\n", .{});
 
-    // 5. Pipeline an op:get (ADR-0050, glowcap as the asker), the same way:
+    // 5. Pipeline an op:get (ADR-0004, glowcap as the asker), the same way:
     //    fetch the record cap, calling it returns a string-keyed hash, the
     //    OCapN Struct, and project the "name" field out of the call's answer.
     //    The op:get is sent *before* the call settles, so Goblins anchors its
@@ -267,7 +267,7 @@ pub fn run(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port: u1
     if (!tallied) return error.TallyNeverResolved;
     std.debug.print("goblins-interop: two one-way delivers counted by live goblins\n", .{});
 
-    // 7. Enliven the echo cap by its swiss-num through the engine's ADR-0012
+    // 7. Enliven the echo cap by its swiss-num through the engine's ADR-0007
     //    dedup-cache API (the same surface every binding's `enliven` rides), not a
     //    bare bootstrap fetch. The first enliven runs a real bootstrap-fetch to
     //    Goblins and caches the resolved far reference; calling the enlivened cap

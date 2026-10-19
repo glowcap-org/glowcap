@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The register half of the rendezvous, from the Zig CLI (ADR-0088).
+# The register half of the rendezvous, from the Zig CLI (ADR-0034).
 #
 # The sibling rows prove the *dialing* half: a consumer cold-dials a peer that
 # registered at a relay. This proves the other side: the Zig glowcap CLI is

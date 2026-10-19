@@ -193,7 +193,7 @@ const MessageSentObs = z.object({
 	byteLen: z.number().nonnegative().optional(),
 	/** The codec that produced `bytesB64`, when it is known to differ
 	 *  from the carrying session's. Every `op:start-session` is Syrup
-	 *  whatever codec the session goes on to speak (ADR-0103), so a
+	 *  whatever codec the session goes on to speak (ADR-0001), so a
 	 *  Cap'n Proto session's handshake frames set this and the payload
 	 *  viewer spaces them as the bytes they are. Absent means the
 	 *  session's codec, which is the answer for every other

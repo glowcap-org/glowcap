@@ -38,7 +38,7 @@ pub const steady_settle_arena_bytes = vat.steady_settle_arena_bytes;
 pub const steady_list_bytes = vat.steady_list_bytes;
 /// A point-in-time capture of every snapshottable actor's state
 /// (`Vat.snapshot`), restored with `Vat.restore`, re-exported so a consumer
-/// can name the value it holds between the two calls (ADR-0060).
+/// can name the value it holds between the two calls (ADR-0015).
 pub const Snapshot = vat.Snapshot;
 pub const Error = vat.Error;
 pub const IngressCancellationError = vat.IngressCancellationError;

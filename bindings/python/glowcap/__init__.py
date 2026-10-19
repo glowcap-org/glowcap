@@ -1,5 +1,5 @@
 """Idiomatic Python API for glowcap, an OCapN/CapTP Host driven by the
-symbol-disjoint Host and driver archives (ADR-0112).
+symbol-disjoint Host and driver archives (ADR-0024).
 
 This is the core package: it rides ``libglowcap_ocapn`` (the shared value and
 locator vocabulary), ``libglowcap_host`` (the byte-fed multi-session Host),
@@ -23,7 +23,7 @@ binding moves bytes and honors the host's action queue. A :class:`Host` is the
 CapTP Host those sessions share, one identity and one handoff router, read as
 ``server.host`` or transferred into :class:`Runtime`.
 
-The C ABI ships as a set of composable, symbol-disjoint archives (ADR-0059),
+The C ABI ships as a set of composable, symbol-disjoint archives (ADR-0022),
 and this package mirrors that à la carte: the core here, plus one submodule
 per transport. Each transport submodule loads only its own archive, so
 importing one transport never loads another. Compose what you need:

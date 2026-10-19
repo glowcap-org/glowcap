@@ -219,7 +219,7 @@ test "core host: a deposited gift keeps its exact actor across alias replacement
 }
 
 test "core host: unpublish removes discovery on every session while issued capabilities and deposited gifts keep the exact actor" {
-    // The alias-only unpublish scenario (ADR-0096): all three required
+    // The alias-only unpublish scenario (ADR-0026): all three required
     // outcomes in one production Host. Fresh lookup of the removed alias
     // fails, including on a Port that fetched it before, because the
     // registry is the one discovery authority and a fetch leaves no
@@ -324,7 +324,7 @@ test "core host: unpublish removes discovery on every session while issued capab
     try std.testing.expect(!widget_freed);
 
     // A never-fetched alias has only its alias root: unpublish alone reclaims
-    // it (ADR-0101), observed at the next Vat turn boundary.
+    // it (ADR-0014), observed at the next Vat turn boundary.
     var unfetched_freed = false;
     var unfetched_row = TaggedRow{ .tag = "unfetched", .freed = &unfetched_freed };
     _ = try exporter.publish("unfetched", Tagged, .{ .row = &unfetched_row });
@@ -345,7 +345,7 @@ test "core host: unpublish removes discovery on every session while issued capab
 }
 
 /// Spawns one unnamed stateful actor per `make` and replies with it: how a
-/// test obtains a capability to an actor no alias ever named (ADR-0096
+/// test obtains a capability to an actor no alias ever named (ADR-0026
 /// evidence item 2).
 const UnnamedMaker = struct {
     row: *TaggedRow,
@@ -357,7 +357,7 @@ const UnnamedMaker = struct {
 };
 
 test "core host: an unnamed local target deposits and withdraws as the exact mutated actor" {
-    // ADR-0096 evidence item 2: no alias anywhere near the gifted object. The
+    // ADR-0026 evidence item 2: no alias anywhere near the gifted object. The
     // exporter's maker spawns it unnamed inside a turn; the gifter reaches it
     // through an ordinary call reply, lifts and re-lowers it through its own
     // Host to make it routable, mutates it, and introduces it. Withdrawal
@@ -438,7 +438,7 @@ test "core host: an unnamed local target deposits and withdraws as the exact mut
 
 /// A persistent becomer: `bump` installs the next state through `become`, so
 /// two Ports observing one history is the discriminating cross-Port claim
-/// (ADR-0096 evidence item 5's `become` half).
+/// (ADR-0026 evidence item 5's `become` half).
 const Becomer = struct {
     pub const snapshot_persistent = true;
     n: i64,
@@ -505,7 +505,7 @@ test "core host: one actor's become history is observed across two Ports" {
 }
 
 test "core host: a target reached directly and through handoff lifts to one Host identity" {
-    // ADR-0096 evidence item 7, the positive remote half of target
+    // ADR-0026 evidence item 7, the positive remote half of target
     // pass-invariant equality: both paths explicitly use the same live
     // exporter session, so the canonical import row makes the two arrivals
     // one opaque identity.
@@ -570,7 +570,7 @@ test "core host: a target reached directly and through handoff lifts to one Host
 }
 
 test "core host: restore under two live sessions breaks only the missing target's answers" {
-    // ADR-0096 evidence item 10. The Vat state rewinds; sessions, positions,
+    // ADR-0026 evidence item 10. The Vat state rewinds; sessions, positions,
     // and authority do not. A target created after the snapshot vanishes on
     // restore: an answered delivery to its export breaks with the typed
     // missing-actor reason, a fresh answered delivery does the same rather

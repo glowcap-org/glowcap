@@ -86,7 +86,7 @@ pub fn classify(err: anyerror) Classification {
             .kind = .invalid_start_session_signature,
             .message = "op:start-session location signature failed to verify",
         } },
-        // The durable-identity claim check (ADR-0097): the hello claimed an
+        // The durable-identity claim check (ADR-0028): the hello claimed an
         // identity this session did not expect, a key-designator dial that
         // reached someone else, or a remote naming what it never proved.
         // Handshake-time refusal: the session never reached `open`, but the
@@ -116,11 +116,11 @@ pub fn classify(err: anyerror) Classification {
             .kind = .protocol_error,
             .message = "handoff-receive names the wrong receiving session or side",
         } },
-        // ── resource bounds to resource_exhausted (ADR-0025) ──────────
+        // ── resource bounds to resource_exhausted (ADR-0008) ──────────
         // The session table caps plus the parse-stage nesting and stream
         // frame-size bounds, the engine's drain-time local-delivery bound
-        // (ADR-0007), and the Host's local-turn amplification budget
-        // (ADR-0076): a partner cannot push any of them past its cap.
+        // (ADR-0003), and the Host's local-turn amplification budget
+        // (ADR-0018): a partner cannot push any of them past its cap.
         error.InboundAnswerCapExceeded,
         error.RetainedAnswerCapExceeded,
         error.ListenerCapExceeded,
@@ -164,7 +164,7 @@ pub fn classify(err: anyerror) Classification {
         // abort to emit (the session is gone).
         error.SessionClosed => .{ .domain = .session, .abort = null },
         // A local caller chose a mutable bootstrap name inside the reserved
-        // durable namespace (ADR-0098). This is an API refusal on the send
+        // durable namespace (ADR-0007). This is an API refusal on the send
         // side, never an inbound frame's fault, so no abort is emitted.
         error.ReservedDurableNamespace => .{ .domain = .session, .abort = null },
         // Host configuration failures happen before an inbound frame is

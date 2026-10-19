@@ -1,6 +1,6 @@
 //! Sturdyref enlivenment for the byte-fed host core: turning a complete
-//! sturdyref (ADR-0098) into a live capability, and the select-or-dial form
-//! (ADR-0098) that stages a dial first when no session to the peer is open yet.
+//! sturdyref (ADR-0007) into a live capability, and the select-or-dial form
+//! (ADR-0007) that stages a dial first when no session to the peer is open yet.
 //!
 //! Host owns parked rows, vows, and dial actions. Enlivenment selects its
 //! completion recipient before admission: ordinary APIs queue public outcomes,
@@ -61,7 +61,7 @@ pub const PendingEnlivenOutcome = union(enum) {
 
 pub const matchSturdyrefPeer = identity.matchSturdyrefPeer;
 
-/// Enliven the complete sturdyref (ADR-0098), minting a host vow for the live
+/// Enliven the complete sturdyref (ADR-0007), minting a host vow for the live
 /// reference. A dedup-cache hit settles the vow before this returns, with its
 /// completion already on the action queue. A fresh enliven rides
 /// bootstrap-fetch, the host recording the enlivenment itself when the
@@ -83,7 +83,7 @@ pub fn enlivenSessionUri(self: *Host, session: *HostSession, uri: []const u8) !u
     return self.enliven(session, sturdyref);
 }
 
-/// Select-or-dial enlivenment for a byte-fed embedder (ADR-0098): enliven
+/// Select-or-dial enlivenment for a byte-fed embedder (ADR-0007): enliven
 /// `sturdyref` over a live dialed session to its peer, or stage a dial through
 /// the ordinary `dial` action and finish when the embedder reports it
 /// (`exporterDialed` / `dialFailed`), reusing the node's one pending-dial

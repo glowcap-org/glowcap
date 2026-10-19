@@ -1,10 +1,10 @@
-//! The runtime's dial-retry seam (ADR-0082 policy, ADR-0193 execution): a
+//! The runtime's dial-retry seam (ADR-0030 policy, ADR-0018 execution): a
 //! transient resident dial fault parks its row for the interval and
 //! re-issues the same session, a re-issue that faults at start is one more
 //! attempt on the same policy, a permanent fault fails at once, the attempt
 //! budget exhausts, and a handshake deadline shorter than one interval
 //! refuses the retry without waiting. A busy-poll window ends at the
-//! retry's due like a park would (ADR-0215).
+//! retry's due like a park would (ADR-0060).
 
 const std = @import("std");
 const glowcap = @import("glowcap");

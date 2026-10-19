@@ -1,11 +1,11 @@
 //! A byte-transparent relay in Rust: the third-runtime reference for the
-//! ADR-0086 relay contract, proving the contract is language-neutral and not a
+//! ADR-0033 relay contract, proving the contract is language-neutral and not a
 //! TypeScript-and-Python shape with a doc wrapper.
 //!
 //! It carries the raw bytes of a keyed CapTP session between a browser peer's
 //! WebSocket and a native host, without parsing them, so the keyed handshake and
 //! session authority run end to end and the relay holds no capability. The same
-//! five-part shape ADR-0086 names, in Rust: the WebSocket adapter is
+//! five-part shape ADR-0033 names, in Rust: the WebSocket adapter is
 //! tokio-tungstenite, the pump is the two tasks in `pump`, the byte channel is a
 //! `TcpStream` or (with `--features iroh`) the binding's `Stream`, the dial
 //! dispatcher is `handle`, and the config comes from generated binding policy.
@@ -186,7 +186,7 @@ async fn handle(stream: TcpStream) {
 /// Close the socket with a code and a reason, so the peer learns which leg
 /// failed. The three sibling relays (Deno, Python, Racket) send `1008` for a
 /// missing or malformed target and `1011` for a dial that could not land.
-/// ADR-0086 is one contract with four implementations, so this one says the
+/// ADR-0033 is one contract with four implementations, so this one says the
 /// same thing.
 async fn close_with(
 	mut ws: WebSocketStream<TcpStream>,

@@ -3,7 +3,7 @@
 // A rendezvous room introduces two members who then talk *directly*, with the
 // room out of the message path: the headline of the direct-message story. It is
 // the rooms-app face of `deno-gifter-handoff`: the same three-party handoff
-// (ADR-0009), dressed in the rooms protocol (`register`/`introduce` on the
+// (ADR-0039), dressed in the rooms protocol (`register`/`introduce` on the
 // directory, a member `dm` object) so the demo exercises the real server
 // behaviour, not a bespoke one.
 //

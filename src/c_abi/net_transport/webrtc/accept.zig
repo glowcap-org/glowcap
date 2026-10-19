@@ -1,4 +1,4 @@
-//! The managed WebRTC accept: the dial's mirror (ADR-0232).
+//! The managed WebRTC accept: the dial's mirror (ADR-0035).
 //!
 //! A netlayer whose signaling carries `send_answer` fills the multiplexed
 //! provider's listen verbs. `listen` is ready at once and records the
@@ -6,7 +6,7 @@
 //! as a `webrtc` locator. The application hands each inbound offer in with
 //! `glowcap_webrtc_netlayer_provide_offer`, naming the offerer's designator.
 //! The provider creates the answerer, authorizes that designator as the
-//! channel's remote key (ADR-0105), sets the offer, produces the answer, and
+//! channel's remote key (ADR-0028), sets the offer, produces the answer, and
 //! sends it through `send_answer` under an exchange id it mints. Later
 //! candidates flow under that id through `provide_candidate` and
 //! `send_candidate` (`exchange.zig`). When the channel opens the listener's

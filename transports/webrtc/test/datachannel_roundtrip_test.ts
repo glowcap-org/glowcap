@@ -1,4 +1,4 @@
-// Browser-interop proof for the WebRTC DataChannel netlayer (ADR-0089).
+// Browser-interop proof for the WebRTC DataChannel netlayer (ADR-0035).
 //
 // A real headless Chromium is the browser peer (the offerer). It creates a
 // reliable, ordered RTCDataChannel to the Rust probe peer

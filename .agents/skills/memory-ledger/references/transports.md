@@ -6,7 +6,7 @@ costs.
 
 ## The ledger
 
-- **Inbound spill**: `foundation.Spill` (ADR-0041). Where stream bytes wait
+- **Inbound spill**: `foundation.Spill` (ADR-0012). Where stream bytes wait
   for a whole frame. **It is bytes and nothing else, which is what
   lets `net` and `driver_core` share it** when neither can import the other, and
   each tier names only what a drained spill keeps. Deleting it relocates the cost
@@ -18,14 +18,14 @@ costs.
   pending tail, and one bounded coalesce per chunk while one is pending. A
   straddled chunk is ordinary here, so this tier retains
   `steady_feed_tail_bytes` instead of freeing outright.
-- **Sealed byte channel**: `foundation.sealed.SealedChannel` (ADR-0107), one
+- **Sealed byte channel**: `foundation.sealed.SealedChannel` (ADR-0041), one
   channel type with one owner: the byte-fed `HostSession` boxes one per sealed
   session (the unsealed shell pays one null pointer), so every transport
   resident carries sealed bytes unchanged.
   - The channel stages inbound wire in its own spill, bounded by one record plus
     a chunk tail, and opens each record into a plaintext scratch shrunk back to
     steady size by the next small record.
-  - Sealing and opening pay the one AEAD pass per record ADR-0107 names.
+  - Sealing and opening pay the one AEAD pass per record ADR-0041 names.
     `sealFrame` allocates one owned wire frame per outbound frame, `sealBytes`
     seals a stream chunk into a caller-owned queue, and `takeWire` dupes the
     fixed-size pending handshake message.
@@ -33,7 +33,7 @@ costs.
     Deleting the record copy means encrypting over borrowed frame bytes the
     engine still owns.
 - **Shared read-buffer pool**: `completion.BackendOptions.read_buffers` ×
-  `completion.BackendOptions.read_buffer_bytes` (ADR-0054). An idle
+  `completion.BackendOptions.read_buffer_bytes` (ADR-0019). An idle
   connection holds zero read-buffer bytes. Whole frames apply zero-copy from the
   pool view and a partial tail pays one bounded copy into the spill. **The
   zero-copy claim is scoped to spill-inactive.** Deleting the pool reopens the
@@ -44,7 +44,7 @@ costs.
   armed read and write completion identities. The map grows when concurrent
   armed descriptors reach a new peak, then retains that capacity so steady
   re-arm is allocation-free.
-- **Outbound queue front and back**: `completion.Loop` (ADR-0042). One copy in,
+- **Outbound queue front and back**: `completion.Loop` (ADR-0017). One copy in,
   because the loop cannot block on a send. **Two buffers because a submitted
   write borrows `front` while the loop keeps running**, and appending could
   realloc that storage out from under the kernel. Steady retention is
@@ -76,20 +76,20 @@ costs.
     retry from allocation-free intrusive links in bounded turns, without cloning
     the application payload or adding a per-connection thread.
 - **In-process link rings**: `Link.create` sized by `Exchange.ring_bytes`
-  (ADR-0193). One allocation per `inproc` link holds a bounded ring per
+  (ADR-0018). One allocation per `inproc` link holds a bounded ring per
   direction, the in-process counterpart of a socket's kernel buffers: a write
   copies into the ring and a read copies out into the reader's pool buffer.
   Peers on two loops cannot borrow each other's send buffers past the call, so
   the ring is the one owner between them, and its bound turns a fast writer
   into would-block.
 - **Foreign-provider receive copy**: `external_completion.CompletionBackend`
-  (ADR-0193). A provider owns its connection's bytes, so each `try_read` copies
+  (ADR-0018). A provider owns its connection's bytes, so each `try_read` copies
   into one buffer from the backend's shared pool, the same shape as iroh's
   `conn_try_read`. Writes stay borrowed through the provider's `try_write`,
   which copies only what it accepts. Rows hold handles and readiness
   descriptors, no bytes.
 - **Completion-resident send staging**: `completion_resident.Resident`
-  (ADR-0202). `try_write` hands bytes over on return while the backend borrows
+  (ADR-0018). `try_write` hands bytes over on return while the backend borrows
   a send until it completes, so each connection copies into staging bounded by
   `send_window_bytes`. Drained buffers return to one resident-wide spare list
   bounded by `spare_send_buffers` and `spare_send_bytes`, so an idle
@@ -116,7 +116,7 @@ costs.
   service. The setup state is per backend (one backend publishes one service),
   so no per-connection cost exists.
 - **iroh provider connection-id table**: `MultiplexedAdapter`
-  (`src/net/transport/iroh/multiplexed.zig`, ADR-0184). One POD row per live
+  (`src/net/transport/iroh/multiplexed.zig`, ADR-0018). One POD row per live
   loop connection, mapping the sidecar's stable id to its handle, because
   drained records carry ids while the sidecar verbs take handles. Rows enter
   at `finishConnect` or `finishAccept`, free at `closeConnection`, and adapter
@@ -144,7 +144,7 @@ costs.
   - The blocking resident still copies from its socket reader into the caller's
     CapTP reader.
 - **WebRTC C-facing staging**: one bounded inbound deque and one bounded
-  outbound staging buffer per peer (ADR-0089), because the C ABI exposes
+  outbound staging buffer per peer (ADR-0035), because the C ABI exposes
   synchronous reads and nonblocking try-writes while the `webrtc` crate's data
   channel is async.
   - The inbound poller admits a message only when the whole message fits under
@@ -183,7 +183,7 @@ costs.
     peer-influenced when the signaling capability crosses a network.
 - **Pinned stream wrapper**: `netlayer_support.PinnedRawStream` for a raw
   socket connection (`tcp`, `onion`) and `netlayer_support.PinnedStream` for a
-  shim-sourced one (`inproc`, `IrohStream`) (ADR-0043, ADR-0055).
+  shim-sourced one (`inproc`, `IrohStream`) (ADR-0019, ADR-0021).
   `std.Io.Reader`'s vtable recovers its concrete reader from `&interface` by
   field offset, so the reader and writer need a stable address outside the
   by-value `Connection`. Storing them inline dangles the moment the connection

@@ -72,7 +72,7 @@ def connector(config: IrohConfig) -> Connector:
     return Connector((TRANSPORT_IROH,), realize)
 
 
-# ── The iroh readiness dispatcher (ADR-0057) ────────────────────────────────
+# ── The iroh readiness dispatcher (ADR-0019) ────────────────────────────────
 
 _DRAIN_READY_CAP = BINDING_READINESS_DRAIN_CAP
 _READ_CHUNK_BYTES = BINDING_IROH_READ_CHUNK_BYTES
@@ -103,7 +103,7 @@ class _ConnWaiters:
 
 
 class _IrohLoop:
-    """The per-netlayer readiness dispatcher for the iroh loop surface (ADR-0057).
+    """The per-netlayer readiness dispatcher for the iroh loop surface (ADR-0019).
 
     It registers the netlayer's single readiness fd with the asyncio event loop
     (:meth:`asyncio.loop.add_reader`) and, when the fd signals, drains the pending
@@ -326,7 +326,7 @@ class _IrohLoop:
 
 class _IrohTransport:
     """The iroh transport: a non-blocking :class:`IrohConnection` driven by an
-    :class:`_IrohLoop` (ADR-0057), reshaped into the byte transport a
+    :class:`_IrohLoop` (ADR-0019), reshaped into the byte transport a
     :class:`glowcap.Session`'s serve loop reads. ``read`` sources raw
     inbound bytes through the sidecar's non-blocking ``try_read``, the
     readiness loop, not a parked blocking read, decides when bytes are
@@ -431,7 +431,7 @@ async def _open_byte_channel(
 
     One transport attempt. A dial staged through the driver loop retries
     transient faults on the runtime's ``GLOWCAP_DISCOVERY_DIAL_*`` budget
-    (ADR-0193); a raw transport dial raises its first fault.
+    (ADR-0018); a raw transport dial raises its first fault.
     """
     netlayer = await IrohNetlayer.open(
         IrohConfig(reachability, worker_threads=worker_threads)

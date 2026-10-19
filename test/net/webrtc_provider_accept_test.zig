@@ -1,4 +1,4 @@
-//! The managed WebRTC accept through the C provider table (ADR-0232),
+//! The managed WebRTC accept through the C provider table (ADR-0035),
 //! against the scripted sidecar in `webrtc_sidecar_stub.zig`. A failure here
 //! points at `src/c_abi/net_transport/webrtc/accept.zig`: which verbs a
 //! netlayer offers, what `listen` records, how an inbound offer becomes an

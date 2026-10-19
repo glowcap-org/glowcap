@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """A byte-transparent relay in Python: the second-runtime reference for the
-ADR-0086 relay contract, proving the contract is language-neutral and not a
+ADR-0033 relay contract, proving the contract is language-neutral and not a
 TypeScript shape with a doc wrapper.
 
 It carries the raw bytes of a keyed CapTP session between a browser peer's
 WebSocket and a native host, without parsing them, so the keyed handshake and
 session authority run end to end and the relay holds no capability. This is the
-same five-part shape ADR-0086 names, in Python: the WebSocket adapter is
+same five-part shape ADR-0033 names, in Python: the WebSocket adapter is
 `websockets`, the pump is `_pump`, the byte channel is a `_TcpChannel` or the
 iroh binding's relay transport, the dial dispatcher is `_open_channel`, and the
 config comes from generated binding policy. The embedding app would add the

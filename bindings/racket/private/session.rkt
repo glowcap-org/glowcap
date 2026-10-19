@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the CapTP `session` surface over the byte-fed host
-;; (libglowcap_host, ADR-0072 / ADR-0079). It owns the application verbs and
+;; (libglowcap_host, ADR-0022 / ADR-0011). It owns the application verbs and
 ;; serve path, construction/abandon, and the core-selected terminal effect.
 ;; `session/state.rkt`, `session/identity.rkt`,
 ;; `session/establish.rkt`, and `session/close.rkt` own their named siblings.
@@ -250,7 +250,7 @@
     [(= rc ERR-NOT-FOUND) #f]
     [else (check/host rc) (make-ref/internal (GlowcapReference-id capability))]))
 
-;; Wrap `target` in a revocable caretaker (ADR-0064). Returns the proxy capability
+;; Wrap `target` in a revocable caretaker (ADR-0016). Returns the proxy capability
 ;; to hand a partner; every call through it forwards to `target` until
 ;; `session-revoke!`, after which each breaks with "Revoked". `target` may be a
 ;; capability imported over the wire (the proxy forwards transparently), so this
@@ -258,7 +258,7 @@
 (define (session-caretaker c target)
   (caretaker-proxy c target))
 
-;; Wrap `target` in an attenuator (ADR-0064): a proxy that forwards only the
+;; Wrap `target` in an attenuator (ADR-0016): a proxy that forwards only the
 ;; calls whose verb is in `verbs` (strings or symbols) and breaks every other
 ;; with "Attenuated". Returns the proxy near capability to hand a partner. The
 ;; proxy is a plain spawned actor.
@@ -333,7 +333,7 @@
 
 ;; Eventual-send `verb` to `target` and return its vow WITHOUT driving the
 ;; session to a reply. It is the non-blocking half of `session-send` and the seam
-;; for promise pipelining (ADR-0007). The returned vow is itself a valid
+;; for promise pipelining (ADR-0003). The returned vow is itself a valid
 ;; `target` for a later `session-send`/`session-send-promise`/`session-tell`, so a
 ;; dependent call rides a `desc:answer` deliver the partner queues until the
 ;; answer settles; a `create -> use` chain then costs one round trip.
@@ -373,7 +373,7 @@
 ;; Fetch a partner's published capability by name, returning the far
 ;; reference. The canonical fetch lives in the library: one call registers the
 ;; bootstrap import, allocates the answer, and queues the deliver; the host
-;; enrolls the fulfilled capability under a node-unique token (ADR-0069)
+;; enrolls the fulfilled capability under a node-unique token (ADR-0026)
 ;; before the completion fires, so two capabilities fetched at the same wire
 ;; position on different connections never collide, and a return re-gifts the
 ;; right home. A partner break raises a typed glowcap failure
@@ -391,7 +391,7 @@
                                                 (bytes-length nb)))
                   #:track-gc? #t))
 
-;; Enliven a sturdyref against this session (ADR-0098): bring the durable
+;; Enliven a sturdyref against this session (ADR-0007): bring the durable
 ;; `(peer, swissnum)` to life as a live capability. The host verifies the full
 ;; locator against this session before consulting its dedup cache. A repeat enliven
 ;; of the same swissnum on this session short-circuits with no wire traffic
@@ -460,7 +460,7 @@
     (raise-session-terminal-failure! c)
     (void)))
 
-;; ── Host-level select-or-dial capability lookup (ADR-0098) ───────────────────
+;; ── Host-level select-or-dial capability lookup (ADR-0007) ───────────────────
 (define (await-host-capability m v who subject)
   (dynamic-wind
     void

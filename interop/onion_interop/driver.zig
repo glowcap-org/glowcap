@@ -1,5 +1,5 @@
 //! Live Tor: two glowcap peers hold a real OCapN conversation over a hidden
-//! service (ADR-0108).
+//! service (ADR-0042).
 //!
 //! Everything else in the tree that exercises the onion transport drives a fake
 //! daemon on loopback, so it proves glowcap agrees with the bytes pinned against

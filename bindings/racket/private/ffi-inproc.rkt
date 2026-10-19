@@ -2,7 +2,7 @@
 ;; Internal: the raw `ffi/unsafe` loader for libglowcap_net_transport_inproc.
 ;;
 ;; Nothing here is public; `../glowcap-inproc.rkt` is the ergonomic surface over
-;; it. This loader opens ONLY the in-process transport archive (ADR-0059): it
+;; it. This loader opens ONLY the in-process transport archive (ADR-0022): it
 ;; carries the `glowcap_inproc_*` family plus its own thread-local last-error,
 ;; symbol-disjoint from libglowcap_ocapn and from the TCP archive. Requiring it
 ;; loads no other archive. The in-process netlayer is socket-free: two peers in

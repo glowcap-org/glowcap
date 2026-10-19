@@ -55,7 +55,7 @@ async fn released_local_targets_are_refused_without_spending_another_occurrence(
 		.await;
 }
 
-// Promise pipelining (ADR-0007), the questioner's half: `send` returns a
+// Promise pipelining (ADR-0003), the questioner's half: `send` returns a
 // `RemotePromise` that is itself a `send` target, so a create -> assign ->
 // complete -> status chain may be issued against the create answer after a
 // fast resolution. The board returns a freshly
@@ -248,7 +248,7 @@ async fn turn_spawn_uses_the_host_after_the_originating_port_closes() {
 		.await;
 }
 
-// Pipelined projections (ADR-0050/ADR-0052): `RemotePromise::untag` / `index`
+// Pipelined projections (ADR-0004/ADR-0004): `RemotePromise::untag` / `index`
 // reach into the value an answer will resolve to *before* it resolves, each
 // returning a new pipelinable promise. The board's `make` returns a Tagged
 // "task" wrapping one row `["assigned", label, 7]`; untag unwraps to that
@@ -379,7 +379,7 @@ async fn pipelined_projections_reach_a_field() {
 		.await;
 }
 
-// Object-capability forwarding proxies over the wire (ADR-0064). The host fetches the
+// Object-capability forwarding proxies over the wire (ADR-0016). The host fetches the
 // client's published tool, a *far* reference on the host side, wraps it in a
 // caretaker, and hands the proxy back to the client. A call through the proxy
 // forwards across the host to the client's tool (the far deferred-answer path)
@@ -473,7 +473,7 @@ async fn forwarding_proxies_forward_revoke_and_attenuate_over_the_wire() {
 		.await;
 }
 
-// The wart ADR-0064 closes: a caretaker/attenuator proxy is an ordinary
+// The wart ADR-0016 closes: a caretaker/attenuator proxy is an ordinary
 // spawned actor, so its own host calls it locally exactly as a partner calls
 // it over the wire. A caretaker over a *local* tool answers a local send; a
 // caretaker over a *far* tool forwards across the wire and the local send still

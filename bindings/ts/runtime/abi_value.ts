@@ -75,7 +75,7 @@ function encodeArg(
 	if (typeof arg === "bigint") {
 		if (arg < -(2n ** 63n) || arg >= 2n ** 63n) {
 			// Outside the C ABI int64: ARG_BIG_INTEGER carries the canonical decimal
-			// digits in bytes/bytes_len and the sign in boolean (ADR-0049).
+			// digits in bytes/bytes_len and the sign in boolean (ADR-0005).
 			const negative = arg < 0n;
 			setBytes(
 				ARG_BIG_INTEGER,
@@ -203,7 +203,7 @@ export function readArg(view: DataView, off: number): Argument {
 		case ARG_VOID:
 			return null;
 		case ARG_BIG_INTEGER: {
-			// Canonical decimal digits + sign flag back to a JS bigint (ADR-0049).
+			// Canonical decimal digits + sign flag back to a JS bigint (ADR-0005).
 			const magnitude = BigInt(argString());
 			return view.getUint32(off + L.ARG_BOOLEAN_OFF, true) !== 0 ? -magnitude : magnitude;
 		}

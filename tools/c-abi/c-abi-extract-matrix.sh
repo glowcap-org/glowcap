@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Hermetic C-ABI extract hygiene matrix (ADR-0077).
+# Hermetic C-ABI extract hygiene matrix (ADR-0023).
 # Executes each available resolve port's production listing validator against
 # the fixture set this file builds, the fixtures are named where they are
 # created, so this header does not go stale each time one is added. Network

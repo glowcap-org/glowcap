@@ -12,12 +12,12 @@ pub const GLOWCAP_DIAL_SHAPE_PEER_ID: u32 = 1;
 /// GlowcapDialPlan.shape: signaling-mediated open (webrtc). No dialable address.
 /// The channel comes up through an offer/answer/ICE exchange before the keyed
 /// handshake. The signaling reference arrives through the handoff mechanism
-/// (ADR-0089).
+/// (ADR-0035).
 pub const GLOWCAP_DIAL_SHAPE_SIGNALING: u32 = 2;
 /// GlowcapDialPlan.shape: rendezvous-bridged open (keyed-relay). No dialable
 /// address. The peer holds an inbound socket at a relay under its key
 /// designator, and the dialer opens the relay rendezvous leg its host is
-/// configured for (ADR-0088).
+/// configured for (ADR-0034).
 pub const GLOWCAP_DIAL_SHAPE_RENDEZVOUS: u32 = 3;
 
 /// GlowcapDialPlan.reach_kind (peer-id shape): the relay-less direct posture.
@@ -78,7 +78,7 @@ pub const GlowcapPartnerIdentity = extern struct {
     locator_record_len: usize,
     /// How the durable identity in `designator` was authenticated, one of the
     /// `GLOWCAP_DURABLE_PROVENANCE_*` values. It is derived from the evidence
-    /// this one session holds, never from its transport's name (ADR-0105), so
+    /// this one session holds, never from its transport's name (ADR-0028), so
     /// two sessions on the same transport can answer differently.
     ///
     /// Session identity, durable identity, and this provenance are three

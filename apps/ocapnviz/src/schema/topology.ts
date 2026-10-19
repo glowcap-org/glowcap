@@ -29,7 +29,7 @@ export const GOBLINS_PROFILE = "goblins";
 /** glowcap. A live feed reaches this verdict two ways, both at the hello:
  * a producer states it on the record it publishes (`a_profile`), and a
  * session that negotiated the `next` CapTP profile has a glowcap host at each
- * end, because that profile is glowcap-private (ADR-0003). The second is the
+ * end, because that profile is glowcap-private (ADR-0001). The second is the
  * only implementation a feed ever concludes without being told. Publishing a
  * trace is not evidence of anything, since every implementation may publish
  * one. `StageLedger` is where both are read.
@@ -150,7 +150,7 @@ export const CODEC_REFERENCE_OPTIONS: readonly CodecReferenceOption[] = [
 /**
  * CapTP wire-profile version. `v1_0` is the spec-text version
  * (Goblins-canonical), and `next` is glowcap's forward private track, valid
- * only between glowcap peers (ADR-0003: it is a glowcap-namespaced interop
+ * only between glowcap peers (ADR-0001: it is a glowcap-namespaced interop
  * version, not an upstream OCapN maturity stage). `unknown` is an observed
  * trace sentinel for a producer that named a profile this viewer cannot.
  */

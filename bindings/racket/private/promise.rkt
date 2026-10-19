@@ -1,6 +1,6 @@
 #lang racket/base
-;; Internal: far-vow handle + pipelined projection (ADR-0007 / ADR-0050 /
-;; ADR-0052). Also the shared await/fetch classify path (`await-vow` /
+;; Internal: far-vow handle + pipelined projection (ADR-0003 / ADR-0004 /
+;; ADR-0004). Also the shared await/fetch classify path (`await-vow` /
 ;; `blocking-fetch`), the far-send/tell mint (`session-far-send`), and the
 ;; listen mint (`listen-far`). Session owns CapTP verb wrappers and
 ;; `session-await`; this module owns the `session-vow` type, the host vow table register/settle/listen path,
@@ -186,11 +186,11 @@
   (when settled
     (listener (cdr settled) (not (eq? (car settled) 'ok)))))
 
-;; ── Pipelined projections (ADR-0050) ─────────────────────────────────────────
+;; ── Pipelined projections (ADR-0004) ─────────────────────────────────────────
 ;; Project an element, unwrapped tag, or Struct field out of a far vow WITHOUT
 ;; waiting for it to settle, returning a new vow for the projected value. The
 ;; projection rides the wire as `op:index` / `op:untag` / `op:get` against the
-;; receiver's answer (ADR-0050/ADR-0052), so it pipelines exactly like a dependent call:
+;; receiver's answer (ADR-0004/ADR-0004), so it pipelines exactly like a dependent call:
 ;; `(session-untag c vow "row")` then `(session-index c that 0)` reaches the first
 ;; element of an unwrapped tagged record in one batch, before the source resolves.
 ;; The returned vow is itself a projection or `session-send` target, and settles via

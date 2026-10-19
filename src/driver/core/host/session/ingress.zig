@@ -101,7 +101,7 @@ pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
 }
 
 /// Feed one packet from the transport shape this session was minted with.
-/// Byte-stream packets are arbitrary chunks carrying ADR-0110's outer envelope.
+/// Byte-stream packets are arbitrary chunks carrying ADR-0012's outer envelope.
 /// Message-framed packets are exactly one bare codec frame. The transport
 /// profile, not the binding or adapter language, owns that distinction.
 pub fn feedTransportPacket(self: *Host, session: *HostSession, packet: []const u8) !void {
@@ -122,7 +122,7 @@ fn feedMessagePacket(self: *Host, session: *HostSession, packet: []const u8) !vo
     }{ .c = session, .packet = packet });
 }
 
-/// The sealed arm of `feedBytes` (ADR-0107): stage the wire bytes on the
+/// The sealed arm of `feedBytes` (ADR-0041): stage the wire bytes on the
 /// channel, then consume whole handshake messages and records. Handshake
 /// completion binds the channel's verified remote before any plaintext is fed,
 /// each opened record's plaintext runs the same tail-and-parse the unsealed arm

@@ -67,7 +67,7 @@
 (struct vat (cells next queue listeners exports tt far revocables) #:transparent)
 
 ;; A behavior's tail-forward of its answer to another reference: the binding's
-;; `Turn.forward` (ADR-0064). A behavior returns `(forward target method args)`
+;; `Turn.forward` (ADR-0016). A behavior returns `(forward target method args)`
 ;; instead of a value, and the vat resolves the caller's answer from
 ;; `(<- target method . args)`: a local target near-calls (composing if it
 ;; forwards again), a far target eventual-sends and defers until the reply
@@ -264,7 +264,7 @@
 ;; ── <- : the eventual-send (returns a vow) ────────────────────────────────────
 ;; `(<- ref 'method arg …)` is location-transparent. To a local actor it queues
 ;; a turn for `drive` and returns a `local-vow`. To a far reference (or a far
-;; vow, which pipelines the deliver against the unresolved answer, ADR-0007) it
+;; vow, which pipelines the deliver against the unresolved answer, ADR-0003) it
 ;; rides the connection's host through the vat's installed far half, returning
 ;; the connection's vow handle.
 (define (<- ref method . args)
@@ -371,7 +371,7 @@
             ;; A plain value settles now; a `forward` (a caretaker/attenuator)
             ;; tail-resolves the vow from the forwarded send, deferring it for a
             ;; far target, which the awaiting `session-send` loop pumps to settle
-            ;; (ADR-0064).
+            ;; (ADR-0016).
             (resolve-behavior v value
                               (lambda (reply) (settle-local v vow-id reply #f))
                               (lambda (message) (settle-local v vow-id message #t)))))
@@ -383,7 +383,7 @@
 ;; hop cap so a proxy cycle breaks the answer instead of spinning), a far
 ;; target eventual-sends and defers the settle onto the reply. The local-drive
 ;; spelling of the one forwarding contract; the hosted-actor trampoline holds
-;; the same contract through the host's own turn verbs (ADR-0064's
+;; the same contract through the host's own turn verbs (ADR-0016's
 ;; `Turn.forward`).
 (define (resolve-behavior v value on-fulfill on-break)
   (define result

@@ -38,7 +38,7 @@ const Route = struct {
     /// would zero every absent payload on every inbound deliver.
     const Callback = union(enum) {
         none,
-        /// Surfaces as a semantic `Resolve` (ADR-0010, ADR-0095). The
+        /// Surfaces as a semantic `Resolve` (ADR-0006, ADR-0003). The
         /// resolution is a *borrowed* view over the deliver's args, applied
         /// through the session's resolver-callback seam, with no owned
         /// materialization. `recordResolverCallbackResolve` settles the
@@ -53,7 +53,7 @@ const Route = struct {
         node_resolver: model.ExportPosition,
         forwarding: Forwarding,
         /// Answered automatically once authority records the deliver
-        /// (ADR-0006 responder half): the request stays on the classified
+        /// (ADR-0002 responder half): the request stays on the classified
         /// route and applies after surfacing.
         bootstrap,
     };
@@ -77,7 +77,7 @@ const Route = struct {
         switch (route.classified.route) {
             .resolver_callback_resolve => |answer| {
                 // A purpose row names the question its nomination installed
-                // (ADR-0254), so a miss is a resolver for a question we never
+                // (ADR-0038), so a miss is a resolver for a question we never
                 // asked: refuse the frame as the foreign reference it is.
                 route.answer_override = .{ .resolve = self.session_state.outboundAnswerTarget(answer) orelse return error.InvalidReference };
                 route.callback = .{ .resolver_resolve = .{
@@ -103,7 +103,7 @@ const Route = struct {
                 } };
             },
             // Queued or redirected against the answer it pipelined on
-            // (ADR-0007). Commit waits for the same shortening and
+            // (ADR-0003). Commit waits for the same shortening and
             // maintenance preparation every other accepted deliver receives.
             .pipelined => {},
             .bootstrap => route.callback = .bootstrap,

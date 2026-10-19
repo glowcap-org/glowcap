@@ -56,8 +56,8 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
   locator, so glowcap sends onion locators bare, except in a give to a peer it
   knows is glowcap. Goblins sessions and
   hosts on the default profile use `1.0`
-  ([ADR-0108](decisions/adr/ADR-0108-onion-netlayer.md),
-  [ADR-0118](decisions/adr/ADR-0118-onion-profile-by-knowledge.md)).
+  ([ADR-0042](decisions/adr/ADR-0042-onion-interoperability.md),
+  [ADR-0042](decisions/adr/ADR-0042-onion-interoperability.md)).
 - **CI does not test iroh hole-punching between separate NATs.** Opt-in checks
   cover discovery and relay use from one host. `discovery_no_relay` has no
   check because it needs a publishable direct address.
@@ -86,7 +86,7 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
   identity and actor graphs. To keep them shared, move blocking work out of
   the callback:
   - A Zig behavior defers its answer with a resolver vow
-    ([ADR-0102](decisions/adr/ADR-0102-off-turn-settlement.md)) and settles it
+    ([ADR-0014](decisions/adr/ADR-0014-actor-execution-and-lifetime.md)) and settles it
     later through `Vat.fulfillVow` or `Vat.breakVow` on the owning thread.
   - A byte-fed C program uses `glowcap_host_turn_defer` and its settle verbs.
   - A TypeScript or Python behavior that returns a promise defers
@@ -214,7 +214,7 @@ Limits that belong to the Rooms application are listed in [operating Rooms](../a
 - **The public API and ABI are not stable.** There are no release tags or
   compatibility guarantees. Pin a commit.
 - **A libc-linked shared archive stays mapped until its process exits.** It
-  pins itself when the loader maps it (ADR-0256), so an embedder's close of
+  pins itself when the loader maps it (ADR-0024), so an embedder's close of
   the library (Deno closes every FFI library at teardown) never unmaps code a
   detached `std.Io.Threaded` worker is still leaving. ELF installs check it,
   and macOS runs the same entry unchecked. A libc-free archive runs nothing
@@ -245,7 +245,7 @@ assets are not published.
   the Host to opt in too.
 - **Only the Node chooses among a route bundle's routes**
   ([multi-home peers](https://jimisaacs.github.io/glowcap/multihome/),
-  ADR-0125). The single-path dial planner and Host open refuse a bundle as a
+  ADR-0036). The single-path dial planner and Host open refuse a bundle as a
   physical session. A give keeps its route list only when both sessions
   negotiated it. Otherwise it falls back to the exporter's claimed location.
   New route advice reaches later gives only after one withdrawal succeeds.

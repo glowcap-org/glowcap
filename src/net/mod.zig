@@ -6,7 +6,7 @@
 //! body as one whole frame, and writes outbound frames through the same envelope.
 //! It is not part of the core. `net` and the driver adapters own `std.Io`.
 //!
-//! ## Bring your own transport (ADR-0030)
+//! ## Bring your own transport (ADR-0012)
 //!
 //! A stream transport gives glowcap a `*std.Io.Reader` and `*std.Io.Writer`.
 //! `pumpOver` uses that pair for one peer step, and the `FrameStream` family
@@ -49,7 +49,7 @@ pub const classifyApplyError = connection.classifyApplyError;
 pub const FrameStream = frame_stream.FrameStream;
 /// Where stream bytes wait when they have arrived but do not yet make a whole
 /// frame. Shared with the byte-fed host tier as `foundation.Spill`. At this tier
-/// it is the bounded overflow behind a read buffer (ADR-0041).
+/// it is the bounded overflow behind a read buffer (ADR-0012).
 pub const Spill = frame_stream.Spill;
 /// What a drained spill keeps here: nothing. See `frame_stream.spill_retain_bytes`.
 pub const spill_retain_bytes = frame_stream.spill_retain_bytes;
@@ -95,7 +95,7 @@ pub const tcp = @import("transport/tcp.zig");
 /// The `onion` netlayer, the one transport symbol the OCapN draft standardizes:
 /// the two headless byte helpers (SOCKS5 out, the Tor control protocol for
 /// hosting), the streams that carry them, and the resident that dials and accepts
-/// over the netlayer contract (ADR-0108). Reached through a Tor daemon the
+/// over the netlayer contract (ADR-0042). Reached through a Tor daemon the
 /// deployment runs. Glowcap starts none.
 pub const onion = @import("transport/onion/mod.zig");
 
@@ -115,8 +115,8 @@ pub const sync = @import("sync.zig");
 /// The cross-thread wake channel: a nonblocking socketpair a waiting thread
 /// polls (or arms a completion recv on) and any thread nudges. `WouldBlock` is
 /// explicit coalesced success. Every other write or drain fault is returned
-/// and first-failure latched by owners under ADR-0089. The off-turn settle
-/// mailbox rides it (ADR-0102). See `wake_channel.zig`.
+/// and first-failure latched by owners under ADR-0035. The off-turn settle
+/// mailbox rides it (ADR-0014). See `wake_channel.zig`.
 pub const wake_channel = @import("wake_channel.zig");
 pub const operation_owner = @import("operation_owner.zig");
 pub const OperationOwner = operation_owner.OperationOwner;
@@ -135,7 +135,7 @@ pub const Keepalive = socket.Keepalive;
 /// See `transport/inproc.zig`.
 pub const inproc = @import("transport/inproc.zig");
 
-/// `inproc` as a completion adapter (ADR-0193): bounded in-process pipes behind
+/// `inproc` as a completion adapter (ADR-0018): bounded in-process pipes behind
 /// the completion backend contract, beside the blocking resident above.
 pub const inproc_completion = @import("transport/inproc/completion.zig");
 pub const external_completion = @import("transport/external/completion.zig");
@@ -160,7 +160,7 @@ pub const websocket = @import("websocket.zig");
 /// Shared `std.Io` Reader/Writer scaffolding for byte-source residents
 /// (inproc, iroh). Pub because the out-of-graph iroh resident is its own
 /// module root under `transport/` and cannot `@import("../stream_shim.zig")`
-/// because that path sits outside its module directory (ADR-0040).
+/// because that path sits outside its module directory (ADR-0011).
 pub const stream_shim = @import("stream_shim.zig");
 
 /// The per-connection stream contract every stream resident realizes, as its
@@ -170,14 +170,14 @@ pub const stream_shim = @import("stream_shim.zig");
 /// netlayer yields. Providers compose related realizations into one slice.
 /// `net.tcp.Provider`, for example, owns plain, keyed, and sealed TCP.
 /// `driver.HostRuntime` realizes stream symbols through `StreamStack`
-/// instead (ADR-0193). `netlayer.zig` names who stands on this contract. The
+/// instead (ADR-0018). `netlayer.zig` names who stands on this contract. The
 /// OCapN concept itself, the locator and its `transport` symbol, lives in
 /// `model`. This is only its I/O realization.
 pub const netlayer = @import("netlayer.zig");
 pub const OperationOptions = netlayer.OperationOptions;
 pub const DialOrigin = netlayer.DialOrigin;
 
-/// The multiplexed-resident contract (ADR-0112): a transport that multiplexes
+/// The multiplexed-resident contract (ADR-0024): a transport that multiplexes
 /// its connections behind one readiness descriptor, the iroh and WebRTC
 /// shape, as a runtime vtable a `driver.HostRuntime` hosts beside its
 /// per-descriptor wires.
@@ -187,7 +187,7 @@ pub const MultiplexedDialRawStartOutcome = multiplexed_resident.RawDialStartOutc
 pub const MultiplexedDialRawFinishOutcome = multiplexed_resident.RawDialFinishOutcome;
 pub const MultiplexedExternalClaimRawOutcome = multiplexed_resident.RawExternalClaimOutcome;
 
-/// The aggregate readiness set (ADR-0112): every descriptor a poll-shaped
+/// The aggregate readiness set (ADR-0024): every descriptor a poll-shaped
 /// HostRuntime waits on, mirrored into one kernel set whose own fd an embedder
 /// parks on.
 pub const readiness = @import("readiness.zig");
@@ -293,7 +293,7 @@ fn emptyTcpBackendStatus(_: anytype) TcpBackendStatus {
 }
 
 /// The host platform backend wrapped with Zig onion dials and onion-service
-/// publication (ADR-0108). Construct `Backend`, move it into
+/// publication (ADR-0042). Construct `Backend`, move it into
 /// `OnionBackend.initOnion` with the deployment's Tor endpoints, then pass the
 /// result to `OnionLoop.initWithBackend`.
 pub const OnionBackend = if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())

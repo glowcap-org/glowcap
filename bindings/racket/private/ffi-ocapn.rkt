@@ -8,7 +8,7 @@
 ;; origination feeds. The wire itself rides the byte-fed host archive
 ;; (`ffi-host.rkt`); the Zig engine peer is not mirrored into C
 ;; surface with no Racket wrapper. This loader opens ONLY libglowcap_ocapn:
-;; the universal base usable alone (ADR-0059). The transport archives have
+;; the universal base usable alone (ADR-0022). The transport archives have
 ;; their own loaders (`ffi-tcp.rkt`, `ffi-inproc.rkt`, `ffi-iroh.rkt`), each
 ;; opening only its own symbol-disjoint archive, so requiring the core pulls
 ;; in no transport.

@@ -25,7 +25,7 @@ const binding_error_context_patterns = [_][]const u8{
     "(check -", // Racket: (check ERR-…)
 };
 
-/// CapTP embedder pump (ADR-0072 / Pass-1 spine gate): each binding keeps a
+/// CapTP embedder pump (ADR-0022 / Pass-1 spine gate): each binding keeps a
 /// named `pump` module for the conn byte path, mid-turn conn_release parking
 /// in the session close path, and the C reference example that compiles the
 /// same choreography. Grep-level: catches silent deletes, not wrong order.
@@ -181,7 +181,7 @@ pub fn checkBindingEmbedderPump(
         // Racket's close path releases through host/state.rkt's
         // `ffi-session-release!`, the one owner of the loop-vs-byte-fed
         // branch (`glowcap_driver_session_release` beside
-        // `glowcap_host_session_release`, ADR-0112); host/state.rkt is held to
+        // `glowcap_host_session_release`, ADR-0024); host/state.rkt is held to
         // both spellings below.
         .{ .path = "bindings/racket/private/session.rkt", .inside = "inside-turn?", .park = "host-park-release!", .release_path = "bindings/racket/private/session.rkt", .release = "ffi-session-release!" },
     };
@@ -221,7 +221,7 @@ pub fn checkBindingEmbedderPump(
         defer gpa.free(contents);
         for (row.needles) |needle| {
             if (std.mem.indexOf(u8, contents, needle) == null) {
-                try appendViolation(gpa, violations, "{s}: missing `{s}` — the session-release branch (ADR-0112)", .{ row.path, needle });
+                try appendViolation(gpa, violations, "{s}: missing `{s}` — the session-release branch (ADR-0024)", .{ row.path, needle });
             }
         }
     }
@@ -248,11 +248,11 @@ pub fn checkBindingEmbedderPump(
         }
     }
 
-    // Zig-facing shared drain (ADR-0072 fifth amendment), authority for the
+    // Zig-facing shared drain (ADR-0022), authority for the
     // one-loop switch tests rewire onto; must not silently disappear.
     const zig_pump = "src/c_abi/host/embedder_pump.zig";
     root.access(io, zig_pump, .{}) catch {
-        try appendViolation(gpa, violations, "{s}: file must exist — Zig embedder_pump (ADR-0072 fifth)", .{zig_pump});
+        try appendViolation(gpa, violations, "{s}: file must exist — Zig embedder_pump (ADR-0022 fifth)", .{zig_pump});
         return;
     };
     const zig_pump_contents = root.readFileAlloc(io, zig_pump, gpa, .limited(1 << 20)) catch |err| {
@@ -267,7 +267,7 @@ pub fn checkBindingEmbedderPump(
     }
 
     // The dlopen binding action modules drain via glowcap_host_pump_drain
-    // (ADR-0072 sixth). Ban hand-rolled glowcap_host_next_action pop loops in
+    // (ADR-0022 sixth). Ban hand-rolled glowcap_host_next_action pop loops in
     // those modules: the C symbol may still appear in FFI loaders and
     // comments outside action/.
     const action_mods = [_][]const u8{
@@ -290,7 +290,7 @@ pub fn checkBindingEmbedderPump(
     }
 
     // The TypeScript action module is the exception, by contract: it also runs
-    // under the wasm adapter (ADR-0070), whose single callback seam is the
+    // under the wasm adapter (ADR-0034), whose single callback seam is the
     // behavior trampoline, so a hooks-buffer drain cannot exist there. It
     // drains through the canonical glowcap_host_next_action pop instead (one
     // spine for dlopen and wasm) and must not mint a per-drain callback.
@@ -379,7 +379,7 @@ pub fn checkBindingEmbedderTrampoline(
         }
     }
 
-    // Local send/tell arms and ADR-0064 proxy factories live in trampoline
+    // Local send/tell arms and ADR-0016 proxy factories live in trampoline
     // (Pass 4c / 4e), not session.
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
         .{ .path = "bindings/ts/runtime/session/", .needle = "#sendLocal" },

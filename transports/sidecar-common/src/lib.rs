@@ -1,4 +1,4 @@
-//! Runtime plumbing shared by the Rust transport sidecars (ADR-0055, ADR-0089).
+//! Runtime plumbing shared by the Rust transport sidecars (ADR-0021, ADR-0035).
 //!
 //! Each sidecar wraps an async crate behind a synchronous C ABI, and three
 //! pieces of that shape are the same whichever crate sits behind it:

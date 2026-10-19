@@ -1,4 +1,4 @@
-//! `driver.HostRuntime` lifecycle over a multiplexed resident (ADR-0112):
+//! `driver.HostRuntime` lifecycle over a multiplexed resident (ADR-0024):
 //! close and cancellation own their teardown consequences, external adoption
 //! commits its pending-open owner, listener setup and profiles admit
 //! exactly one owner, and a failed remote-key contract retires its dial.

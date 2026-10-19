@@ -154,7 +154,7 @@ pub const Network = struct {
         // `listenerClose` waits for the pin to drop before freeing the listener,
         // so the `enqueue` below never races a destroyed mutex or pending list.
         // No endpoint registered at this designator is the in-process
-        // refused-partner case (ADR-0081): the peer is not listening.
+        // refused-partner case (ADR-0030): the peer is not listening.
         const listener = self.acquire(designator) orelse return error.ConnectionRefused;
         defer self.releaseDial(listener);
 

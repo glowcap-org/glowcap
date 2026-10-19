@@ -5,14 +5,14 @@ sources:
   - resource: /src/ocapn/session/id_route.zig
   - resource: /src/ocapn/model/route_bundle.zig
   - resource: /src/ocapn/model/peer_locator.zig
-  - resource: /docs/decisions/adr/ADR-0125-identity-route-multihome.md
+  - resource: /docs/decisions/adr/ADR-0036-identity-and-multihome-routing.md
 ---
 
 # Multi-home routes `[glowcap-next]`
 
 These flows extend the single-location baseline of the OCapN Locators and
 Netlayers specifications
-([ADR-0125](../decisions/adr/ADR-0125-identity-route-multihome.md)). They run
+([ADR-0036](../decisions/adr/ADR-0036-identity-and-multihome-routing.md)). They run
 only after both peers negotiate `glowcap-next`, so a baseline or Goblins session
 never sees them. [Upstream watch](../upstream-watch.md) tracks the extension's
 standing.

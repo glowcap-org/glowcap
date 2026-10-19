@@ -1,6 +1,6 @@
 """Internal: the raw ``ctypes`` loader for ``libglowcap_net_transport_iroh``.
 
-The iroh companion library (``libglowcap_net_transport_iroh``, ADR-0055) is
+The iroh companion library (``libglowcap_net_transport_iroh``, ADR-0021) is
 optional (built only with cargo, ``zig build iroh-abi``), so it loads lazily on
 first ``_iroh()`` use and names how to produce it when absent rather than failing
 at import. It carries the ``glowcap_iroh_*`` family plus its own thread-local

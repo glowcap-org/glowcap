@@ -16,20 +16,20 @@ restored. The decision records below give the reasoning behind each part.
 
 | Decision record | Covers |
 | --- | --- |
-| [ADR-0153](../decisions/adr/ADR-0153-access-resource-core.md) | Resource and scope core |
-| [ADR-0154](../decisions/adr/ADR-0154-access-local-grant-lifecycle.md) | Local grant model |
-| [ADR-0155](../decisions/adr/ADR-0155-access-prepared-grant-writes.md) | Grant preparation and exact storage completion |
-| [ADR-0157](../decisions/adr/ADR-0157-access-storage-and-residency.md) | Storage and what stays in memory |
-| [ADR-0158](../decisions/adr/ADR-0158-access-resource-record-views.md) | Revision-checked resource views and the structural record codec |
-| [ADR-0166](../decisions/adr/ADR-0166-access-grant-records-and-plans.md) | Revision-checked grant records, bounded encoding, LMDB tests of atomic records |
-| [ADR-0167](../decisions/adr/ADR-0167-managed-owner-storage.md) | Durable owner headers and sparse indexes, bounded resumable reads, shared-transaction staging |
-| [ADR-0168](../decisions/adr/ADR-0168-durable-managed-capability-bindings.md) | Durable use and control descriptors, bounded opaque Zig operations |
-| [ADR-0169](../decisions/adr/ADR-0169-managed-host-turns.md) | Fixed-resource use and control endpoints through the durable Host attachment, ordinary publication restoration |
-| [ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md) | Fixed-resource derivation, hidden publication reservation, bounded retry receipts |
-| [ADR-0172](../decisions/adr/ADR-0172-explicit-disclosure-of-returned-capabilities.md) | Exact disclosure of stored reference fields |
-| [ADR-0173](../decisions/adr/ADR-0173-dependent-returned-capabilities-and-reference-edits.md) | Dependent local facets, transactional strong-field edits |
-| [ADR-0178](../decisions/adr/ADR-0178-managed-lifecycle-and-mutation-receipts.md) | Persistent resource lifecycle, child indexes, moves and leaf deletion, independent child controls, shared mutation receipts |
-| [ADR-0179](../decisions/adr/ADR-0179-scoped-change-retention-and-observation.md) | Bounded retained batches and observation |
+| [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) | Resource and scope core |
+| [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) | Local grant model |
+| [ADR-0047](../decisions/adr/ADR-0047-prepared-grant-mutations.md) | Grant preparation and exact storage completion |
+| [ADR-0048](../decisions/adr/ADR-0048-loam-persistence-foundation.md) | Storage and what stays in memory |
+| [ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) | Revision-checked resource views and the structural record codec |
+| [ADR-0047](../decisions/adr/ADR-0047-prepared-grant-mutations.md) | Revision-checked grant records, bounded encoding, LMDB tests of atomic records |
+| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Durable owner headers and sparse indexes, bounded resumable reads, shared-transaction staging |
+| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Durable use and control descriptors, bounded opaque Zig operations |
+| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Fixed-resource use and control endpoints through the durable Host attachment, ordinary publication restoration |
+| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Fixed-resource derivation, hidden publication reservation, bounded retry receipts |
+| [ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md) | Exact disclosure of stored reference fields |
+| [ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md) | Dependent local facets, transactional strong-field edits |
+| [ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) | Persistent resource lifecycle, child indexes, moves and leaf deletion, independent child controls, shared mutation receipts |
+| [ADR-0054](../decisions/adr/ADR-0054-scoped-change-observation.md) | Bounded retained batches and observation |
 
 The [managed access model](access-api.md) states the rules every call keeps,
 and
@@ -376,7 +376,7 @@ connecting to anyone.
 ## Observable access changes
 
 Use endpoints answer `describe-access()` with the scoped snapshot that
-[ADR-0171](../decisions/adr/ADR-0171-scoped-access-descriptions.md) defines.
+[ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) defines.
 It uses the same checks as a call and includes no owner revision or event
 cursor. [Observing managed access](access-observation.md) covers
 subscribing and catching up.
@@ -423,12 +423,12 @@ up within what the watcher may see, and opaque cursors.
 Grant changes are prepared as bounded changes, with room reserved in the tree
 and an exact result from storage. The owner's transaction ties
 fixed-resource content changes to the permission check
-([ADR-0169](../decisions/adr/ADR-0169-managed-host-turns.md)) and adds
+([ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)) and adds
 atomic sharing and bounded receipts
-([ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md)). One
+([ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)). One
 hosted call can also create a child or change other resources of the same
 owner, and the change batch it commits is the record of that operation
-([ADR-0227](../decisions/adr/ADR-0227-hosted-calls-create-share-and-change-several-resources.md)). Zig use and
+([ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md)). Zig use and
 control references enforce their grants and control limits through the same
 preparation. [Managed endpoints](access-endpoints.md) covers how to call them
 and how long they live.

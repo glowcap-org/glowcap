@@ -23,7 +23,7 @@
 //! under `std.testing.allocator` directly. A successful decode is re-encodable
 //! up to the codec's typed refusals, and when the re-encode succeeds, one
 //! further decode/encode crossing must reproduce the same bytes exactly (the
-//! ADR-0010 perspective flip is an involution, so two crossings are a fixed
+//! ADR-0006 perspective flip is an involution, so two crossings are a fixed
 //! point). That round trip belongs to the two message targets, and
 //! `handoffGiveOne` asserts totality only.
 //!
@@ -62,7 +62,7 @@ const runtimeSeed = corpus.runtimeSeed;
 
 /// Re-encoding a decoded message may refuse through the codec's typed refusals
 /// (e.g. a decoded `near` deliver target never re-enters the wire, the
-/// ADR-0010 perspective flip makes that pairing reachable from untrusted bytes,
+/// ADR-0006 perspective flip makes that pairing reachable from untrusted bytes,
 /// and `Unsupported*` names it). A refusal ends the property for this input.
 /// Only allocation failure is a real error.
 fn swallowRefusal(err: anyerror) anyerror!void {
@@ -146,7 +146,7 @@ fn syrupOne(_: void, smith: *std.testing.Smith) anyerror!void {
 ///
 /// One difference is outside the comparison, and it is worth
 /// naming because it is real. Syrup spells a reference to one of our own
-/// exports `<desc:export N>`, which ADR-0010 says carries no object-or-promise
+/// exports `<desc:export N>`, which ADR-0006 says carries no object-or-promise
 /// signal at all: the receiving session is the authority on its own export's
 /// kind, so Syrup always reads one back as an object. Cap'n Proto's form does
 /// carry the distinction, so it reads back what was sent. Feeding

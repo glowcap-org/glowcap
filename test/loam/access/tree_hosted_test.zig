@@ -1,7 +1,7 @@
 //! Hosted tree calls through a real CapTP caller: a receipt-backed call creates
 //! a child, a dependent facet shares a listed node, and one call moves a node
 //! between two others with every change in one batch. Authority is the managed
-//! access contract in ADR-0227.
+//! access contract in ADR-0046.
 const std = @import("std");
 const t = @import("tree_fixture.zig");
 const h = t.h;

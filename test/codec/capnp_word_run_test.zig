@@ -1,4 +1,4 @@
-//! The word-run form of a Cap'n Proto list (ADR-0243): a non-empty list of
+//! The word-run form of a Cap'n Proto list (ADR-0010): a non-empty list of
 //! integers crosses as one `List(Int64)` run that the view reads in place and
 //! a host reads as a typed slice, while every other list keeps its composite
 //! form. The malformed arms hold the run to the segment, refuse an empty run,

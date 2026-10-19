@@ -1,6 +1,6 @@
 //! Sole CapTP leaf table for argv (projected into the command tree), REPL, and MCP.
 //!
-//! ADR-0084: one CapTP verb registry. Argv help/completion/parse share this table
+//! ADR-0032: one CapTP verb registry. Argv help/completion/parse share this table
 //! through `cli/cmd/tree.zig`'s projection. Do not duplicate name/help/mcp/run.
 //! Front-applicable leaves/flags use `leafVisible` / `flagVisible` so help, Tab,
 //! and MCP schemas cannot disagree.

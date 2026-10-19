@@ -1,4 +1,4 @@
-//! Wire-delta GC accounting and structural well-formedness checks (ADR-0008),
+//! Wire-delta GC accounting and structural well-formedness checks (ADR-0004),
 //! as stateless free functions over the tables and messages they validate.
 //!
 //! These hold no session authority: each takes the table (or just a message)

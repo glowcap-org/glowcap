@@ -1,12 +1,12 @@
 #lang racket/base
 ;; A byte-transparent relay in Racket: the fourth-runtime reference for the
-;; ADR-0086 relay contract, proving the contract is language-neutral and not a
+;; ADR-0033 relay contract, proving the contract is language-neutral and not a
 ;; TypeScript shape with a doc wrapper.
 ;;
 ;; It carries the raw bytes of a keyed CapTP session between a browser peer's
 ;; WebSocket and a native host, without parsing them, so the keyed handshake and
 ;; session authority run end to end and the relay holds no capability. This is the
-;; same five-part shape ADR-0086 names, in Racket: the WebSocket adapter is
+;; same five-part shape ADR-0033 names, in Racket: the WebSocket adapter is
 ;; `rfc6455`, the pump is `relay-pump`, the byte channel is a TCP `byte-channel`
 ;; or the iroh binding's `dial-locator-for-relay`, the dial dispatcher is
 ;; `open-channel`, and the config comes from generated binding policy. The

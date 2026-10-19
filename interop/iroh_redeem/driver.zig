@@ -1,5 +1,5 @@
 //! Three-party redeem over iroh: a recipient's runtime dials the exporter by
-//! node id inside the call that receives the introduction (ADR-0057).
+//! node id inside the call that receives the introduction (ADR-0019).
 //!
 //!   E (exporter)   `driver.Server`, publishes the widget
 //!   G (gifter)     `driver.Server`, fetches E's widget and introduces it

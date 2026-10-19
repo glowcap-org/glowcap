@@ -1,4 +1,4 @@
-/* glowcap_iroh_sidecar.h, the C seam of the iroh netlayer sidecar (ADR-0055).
+/* glowcap_iroh_sidecar.h, the C seam of the iroh netlayer sidecar (ADR-0021).
  *
  * Hand-written. The implementation is transports/iroh/src/lib.rs (a Rust
  * staticlib over the iroh crate, emitting libglowcap_iroh_sidecar.a). The
@@ -51,7 +51,7 @@ extern "C" {
 #define GLOWCAP_IROH_REACH_DISCOVERY_NO_RELAY 2u
 #define GLOWCAP_IROH_REACH_LOCAL_DISCOVERY 3u
 
-/* The event-driven surface (ADR-0057). An endpoint serves many connections
+/* The event-driven surface (ADR-0019). An endpoint serves many connections
  * from one host thread: the loop polls one readiness fd, drains
  * (subject, events) records, and drives non-blocking byte I/O. WOULD_BLOCK is
  * the try_read/try_write sentinel, distinct from 0 (clean end of stream) and
@@ -196,7 +196,7 @@ glowcap_iroh_sidecar_conn *glowcap_iroh_sidecar_accept_timeout(
 /* Write the connection's QUIC-authenticated remote endpoint id, the 32-byte
  * Ed25519 public key TLS verified during the handshake, into `out_key32`
  * (caller-owned, at least 32 bytes). The transport-layer peer proof the
- * driver installs as pre-feed CapTP hello policy on accept paths (ADR-0097).
+ * driver installs as pre-feed CapTP hello policy on accept paths (ADR-0028).
  * Returns 0 on success, -1 on failure. Borrows the handle. */
 int32_t glowcap_iroh_sidecar_conn_remote_node_id(const glowcap_iroh_sidecar_conn *conn, uint8_t *out_key32);
 
@@ -229,7 +229,7 @@ void glowcap_iroh_sidecar_conn_close(glowcap_iroh_sidecar_conn *conn);
  * the caller's reactor thread. NULL is a no-op. The handle is invalid afterward. */
 void glowcap_iroh_sidecar_conn_free(glowcap_iroh_sidecar_conn *conn);
 
-/* ── The event-driven scale superset (ADR-0057) ──────────────────────────── */
+/* ── The event-driven scale superset (ADR-0019) ──────────────────────────── */
 
 /* The OS readiness fd for this endpoint's scale surface: the read end of a
  * self-pipe the sidecar nudges whenever a connection (or the acceptor) becomes

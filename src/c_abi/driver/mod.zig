@@ -1,4 +1,4 @@
-//! `libglowcap_driver` (ADR-0112): the driver archive. It exports only the
+//! `libglowcap_driver` (ADR-0024): the driver archive. It exports only the
 //! `glowcap_driver_*` loop family that owns the transport-to-host
 //! choreography every binding would otherwise re-implement: park on one readiness
 //! descriptor, step, drain one event queue.
@@ -30,7 +30,7 @@ const loop_sessions = @import("loop/sessions.zig");
 /// The annotated export inventory for the `glowcap_driver_*` family
 /// (the `glowcap_host_*` half keeps its own inventory in `c_abi_host`).
 pub const symbols = @import("symbols.zig");
-/// Foreign stream tables as completion-loop providers (ADR-0193).
+/// Foreign stream tables as completion-loop providers (ADR-0018).
 pub const stream_completion = @import("provider_registry/stream_completion.zig");
 
 pub const contract_layouts = [_]shared.archive_contract.Layout{

@@ -1,6 +1,6 @@
 //! The persistent map, driven against a plain one to see where they disagree.
 //!
-//! This map is a refcounted trie with structural sharing (ADR-0061). A `put`
+//! This map is a refcounted trie with structural sharing (ADR-0015). A `put`
 //! rebuilds the path to the changed leaf and hands every untouched subtree to
 //! the new version by bumping a count, so a node is shared by however many
 //! versions still name it and freed exactly when the last one lets go. That is

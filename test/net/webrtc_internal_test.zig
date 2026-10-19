@@ -470,7 +470,7 @@ test "the backend answers an offer, sends the answer under the exchange fd, and 
     try std.testing.expectEqual(@as(usize, 1), stub.set_remote_calls);
 
     // The adoption is applied on the loop thread. The row carries the
-    // offerer's key as the channel's authorized remote (ADR-0105).
+    // offerer's key as the channel's authorized remote (ADR-0028).
     var completions: [1]net.completion.Completion = undefined;
     _ = try backend.poll(&completions, 0);
     try std.testing.expectEqual(@as(usize, 1), backend.adopting.count());

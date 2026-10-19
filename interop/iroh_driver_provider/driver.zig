@@ -1,4 +1,4 @@
-//! The driver-provider seam proof (ADR-0112): the driver archive
+//! The driver-provider seam proof (ADR-0024): the driver archive
 //! (`libglowcap_driver`) carries a whole CapTP conversation over a real iroh
 //! endpoint it reaches only through the C multiplexed-transport table. Two iroh
 //! archives fill the same table and two driver loops adopt it: the server

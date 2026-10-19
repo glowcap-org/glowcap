@@ -1,6 +1,6 @@
 """Internal: the :class:`RemotePromise` a Session send returns: immediate
 progress, lazy result observation, promise pipelining, and ``index``/``untag``/``get``
-projection (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
+projection (ADR-0003 / ADR-0004). Also the shared fetch/enliven
 mint→await→classify path (``_await_minted`` / ``_fetch_like``), the far-send
 mint→``_promise_for`` path (``_send_far``), and RemotePromise construction.
 Session owns CapTP verb wrappers. Trampoline owns Host-reference send·tell
@@ -158,7 +158,7 @@ class PromiseState:
         """A send that could not be issued at all: a closed session, an
         argument that would not lower. It is a state rather than a raised
         exception because ``send`` must return its handle synchronously, so
-        pipelining can project at the answer before it settles (ADR-0050).
+        pipelining can project at the answer before it settles (ADR-0004).
         Raising instead put a synchronous failure channel on an awaitable, and
         a comprehension building sends raised before ``gather`` was ever
         entered, so ``return_exceptions`` could not help."""
@@ -192,7 +192,7 @@ class PromiseState:
 
 class RemotePromise(asyncio.Future):
     """The handle :meth:`Session.send` returns: the eventual result of one
-    eventual-send, and -- the point of promise pipelining (ADR-0007) -- a target
+    eventual-send, and -- the point of promise pipelining (ADR-0003) -- a target
     you can ``send`` to before it resolves.
 
     It is a real :class:`asyncio.Future`, so ``await session.send(...)``,
@@ -219,7 +219,7 @@ class RemotePromise(asyncio.Future):
     interpreting the Host-local vow number.
 
     The projection verbs :meth:`index` / :meth:`untag` / :meth:`get`
-    (ADR-0050/ADR-0052) pipeline an element, untag, or Struct-field access *at
+    (ADR-0004/ADR-0004) pipeline an element, untag, or Struct-field access *at
     the answer*, before it resolves: each returns a new :class:`RemotePromise`
     for the projected value.
     """
@@ -301,19 +301,19 @@ class RemotePromise(asyncio.Future):
         return self._project(op, key)
 
     def index(self, i: int) -> "RemotePromise":
-        """Pipeline an ``op:index`` for ``i`` at this answer (ADR-0050): a new
+        """Pipeline an ``op:index`` for ``i`` at this answer (ADR-0004): a new
         :class:`RemotePromise` for the List element of whatever this resolves
         to."""
         return self._project_op("index", int(i))
 
     def untag(self, tag: str) -> "RemotePromise":
-        """Pipeline an ``op:untag`` for ``tag`` at this answer (ADR-0052): a new
+        """Pipeline an ``op:untag`` for ``tag`` at this answer (ADR-0004): a new
         :class:`RemotePromise` for the payload of whatever this resolves to,
         which must be a Tagged record whose tag equals ``tag``."""
         return self._project_op("untag", tag)
 
     def get(self, field: str) -> "RemotePromise":
-        """Pipeline an ``op:get`` for ``field`` at this answer (ADR-0050): a new
+        """Pipeline an ``op:get`` for ``field`` at this answer (ADR-0004): a new
         :class:`RemotePromise` for the Struct field of whatever this resolves
         to."""
         return self._project_op("get", field)

@@ -6,7 +6,7 @@
 
 pub const Error = error{
     /// A caller-chosen mutable bootstrap name lies inside the reserved
-    /// durable swiss namespace (ADR-0098). Only the Host's durable mint may
+    /// durable swiss namespace (ADR-0007). Only the Host's durable mint may
     /// produce such names.
     ReservedDurableNamespace,
     MalformedMessage,
@@ -22,11 +22,11 @@ pub const Error = error{
     /// the one derived from the give's recipient key and this node's own
     /// session key. The receiving `Peer` owns one scalar replay guard, so these
     /// names are checked against the live session derivation rather than trusted
-    /// from the wire (ADR-0009).
+    /// from the wire (ADR-0039).
     InvalidHandoffSession,
     /// A wire-delta GC message (`op:gc-exports` / `op:gc-answers`) tried to
     /// decrement a refcount below zero, release an id the table never held,
-    /// or sum deltas past what any held count could cover. Per ADR-0008
+    /// or sum deltas past what any held count could cover. Per ADR-0004
     /// wire-delta reference counting this is a loud protocol error, never a
     /// silent clamp.
     GcUnderflow,
@@ -36,7 +36,7 @@ pub const Error = error{
     GcOverflow,
     /// A message arrived (or was sent) in a state that does not admit it:
     /// `op:start-session` outside `negotiating`, or non-handshake traffic
-    /// before the session reaches `open` (ADR-0006).
+    /// before the session reaches `open` (ADR-0002).
     UnexpectedMessage,
     /// A second `op:start-session` was observed on the same half of the
     /// handshake (already sent locally, or already received from the partner).
@@ -45,7 +45,7 @@ pub const Error = error{
     /// match this session's negotiated `model.CaptpVersion` version.
     CaptpVersionMismatch,
     /// A pipelined-call queue for one answer exceeded `SessionLimits.queue_cap`
-    /// (ADR-0007). A loud bound on a partner flooding calls against a promise it
+    /// (ADR-0003). A loud bound on a partner flooding calls against a promise it
     /// never resolves, never a silent drop.
     QueueCapExceeded,
     /// The inbound answer table exceeded `SessionLimits.max_inbound_answers`.
@@ -59,19 +59,19 @@ pub const Error = error{
     ListenerCapExceeded,
     /// One answer's `op:get` / `op:index` projection list exceeded
     /// `SessionLimits.max_listeners_per_target` (the same partner-driven
-    /// fan-out class as listeners, bounded by the same knob, ADR-0050).
+    /// fan-out class as listeners, bounded by the same knob, ADR-0004).
     ProjectionCapExceeded,
     /// The import table exceeded `SessionLimits.max_imports`. A loud bound on a
-    /// partner introducing unboundedly many imports (ADR-0025). Never a silent
+    /// partner introducing unboundedly many imports (ADR-0008). Never a silent
     /// drop. Projects to a `ResourceExhausted` abort.
     ImportCapExceeded,
     /// The deposited-gift owner (`engine.bootstrap.gifts.GiftRegistry`) exceeded
     /// its row or cumulative retained-byte `SessionLimits` cap, bounds against
-    /// deposit-without-withdraw and oversized retained payloads (ADR-0025).
+    /// deposit-without-withdraw and oversized retained payloads (ADR-0008).
     DepositedGiftCapExceeded,
     /// The parked-withdraw table exceeded `SessionLimits.max_pending_withdraws`
     /// the bound against a partner flooding `withdraw-gift`s whose deposits
-    /// never arrive (each parks until its gift is deposited, ADR-0100).
+    /// never arrive (each parks until its gift is deposited, ADR-0039).
     PendingWithdrawCapExceeded,
     /// An inbound argument tree nested deeper than
     /// `SessionLimits.max_nesting_depth`. The recursive validate / install walk
@@ -100,7 +100,7 @@ pub const Error = error{
     /// Syrup decoder's ascending-element byte refusal (projects to
     /// `protocol_error`), and on send pre-commit, before send-side export
     /// accounting records wire deltas. The send fold is at least as strict as the
-    /// encoders' byte-level refusal (ADR-0003): Equal-but-byte-distinct
+    /// encoders' byte-level refusal (ADR-0001): Equal-but-byte-distinct
     /// forms refuse only in validation, matching the inbound rule. The answer
     /// store holds the same rule before a settlement commits
     /// (`validateSentResolutionValue`).

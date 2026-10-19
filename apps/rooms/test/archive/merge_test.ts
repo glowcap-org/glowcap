@@ -1,4 +1,4 @@
-// The combined archive view's coalescing rule (ADR-0144): one coordinate key
+// The combined archive view's coalescing rule (ADR-0044): one coordinate key
 // shows one record, lifecycle state outranks, the write target breaks the
 // remaining tie, and no record ever leaves its recorder's source.
 

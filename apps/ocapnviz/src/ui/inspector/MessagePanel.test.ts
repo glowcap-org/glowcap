@@ -30,7 +30,7 @@ Deno.test("a recorded frame reaches the viewer whole", () => {
 });
 
 Deno.test("a frame's own codec wins over its session's", () => {
-	// The handshake case (ADR-0103): a Cap'n Proto session's
+	// The handshake case (ADR-0001): a Cap'n Proto session's
 	// `op:start-session` is Syrup, and spacing it in 8-byte words
 	// would draw word boundaries a byte grammar does not have.
 	const props = payloadProps(

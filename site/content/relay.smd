@@ -10,7 +10,7 @@ A browser cannot listen on or dial a raw TCP or QUIC connection. The relay is
 a small WebSocket service that carries a browser's
 [CapTP]($link.page('concepts')) bytes to a peer that can open a socket.
 The session's keys stay at the two ends
-([ADR-0086](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0086-byte-transparent-relay.md)).
+([ADR-0033](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0033-byte-transparent-relays.md)).
 
 # The relay only moves bytes
 
@@ -46,7 +46,7 @@ the relay and leaves an inbound socket held there. A second browser, holding an
 introduction that names that key, dials it, and the relay bridges the dialer to
 the held socket. The room that made the introduction carries no part of the
 session
-([ADR-0088](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
+([ADR-0034](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0034-browser-peers.md)).
 
 [One browser registers and waits. The other redeems an introduction by dialing that identity. The relay bridges the held socket to the dialer, and the keyed session runs end to end between the two browsers.]($image.siteAsset('diagram-relay-rendezvous.svg'))
 
@@ -68,7 +68,7 @@ apply backpressure, and reclaim idle sessions the same way.
 
 A `keyed-relay` locator names the waiting peer's key, and the dialing host
 reaches it through its configured relay URL
-([ADR-0088](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0088-fully-functioning-browser-peer.md)).
+([ADR-0034](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0034-browser-peers.md)).
 `noise-relay` uses the same path and seals the CapTP stream before it begins.
 `noise-tcp`, `keyed-tcp`, `webrtc`, and `inproc` peers never use the relay,
 and an `iroh` peer meets it only when a browser dials through it.

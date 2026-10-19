@@ -1,4 +1,4 @@
-//! Deferral and the wire-shaped callback (ADR-0102): a foreign-session
+//! Deferral and the wire-shaped callback (ADR-0014): a foreign-session
 //! reply breaks one vow, listen vows settle once and break with their
 //! session, a behavior defers onto a resolver vow and re-enters top-level,
 //! and the action-queue ceiling covers everything at once.
@@ -189,7 +189,7 @@ test "listen: an unsettled listen vow breaks when its session goes" {
     try server.releaseSession(pair.b);
 }
 
-/// A behavior that defers its answer onto a resolver vow (ADR-0102) and
+/// A behavior that defers its answer onto a resolver vow (ADR-0014) and
 /// parks the resolver id for the test body, the stand-in for a worker that
 /// completes off-turn.
 const Deferring = struct {
@@ -204,7 +204,7 @@ const Deferring = struct {
     }
 };
 
-test "core host: a behavior defers onto a resolver vow and the settle re-enters top-level (ADR-0102)" {
+test "core host: a behavior defers onto a resolver vow and the settle re-enters top-level (ADR-0014)" {
     const allocator = std.testing.allocator;
     var client = test_host.init(allocator, @as([32]u8, @splat(0x2a)), Host.Options.withFrameCap(frame_cap));
     defer client.deinit();

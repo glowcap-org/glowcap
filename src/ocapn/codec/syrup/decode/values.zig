@@ -242,7 +242,7 @@ fn readNeutralRecord(slab: ?*model.view.ValueSlab, bytes: []const u8, cursor: *u
 /// Closing the sequence settles its views for later readers. A sequence the
 /// room cannot hold drops its stack and cached children and stays wire-backed.
 /// Later children stay wire-backed too, since a backed reader parses them afresh. `ordered` refuses a set whose elements are
-/// out of canonical order (ADR-0003).
+/// out of canonical order (ADR-0001).
 fn readElements(
     slab: ?*model.view.ValueSlab,
     bytes: []const u8,
@@ -361,7 +361,7 @@ fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize) Err
 /// Read a top-level `[ … ]` argument list once, advancing `cursor` past the
 /// closing `]`. Finding the list's end already parses every element, so each
 /// parent slot is reserved before reading its children. Collections that fit
-/// remain cached for later readers (ADR-0231, ADR-0250). A list longer than
+/// remain cached for later readers (ADR-0063). A list longer than
 /// the room releases its cached children and comes back wire-backed, so the
 /// slab bounds memory and never the list.
 pub inline fn readArgumentList(slab: *model.view.ValueSlab, bytes: []const u8, cursor: *usize) Error!model.view.Args {
@@ -421,7 +421,7 @@ pub fn readNeutralResolution(slab: *model.view.ValueSlab, bytes: []const u8, cur
 }
 
 /// Decode a payload/target-position descriptor into a reference in the
-/// **receiver's** perspective (ADR-0010 perspective flip, matching Goblins's
+/// **receiver's** perspective (ADR-0006 perspective flip, matching Goblins's
 /// `incoming-post-unmarshall!`). The flip is a fixed wire-tag
 /// relabel, no table lookup, so the codec still owns no authority:
 ///

@@ -1,10 +1,10 @@
 //! The `op:start-session` handshake state, the session-owned half.
 //!
-//! Both peers exchange one `op:start-session` half (ADR-0006). The session
+//! Both peers exchange one `op:start-session` half (ADR-0002). The session
 //! records whether each half has been seen and what the partner's half
 //! carried, its session public key, its location designator, and the verbatim
 //! `<ocapn-peer ...>` location bytes a gifter later embeds in a
-//! `desc:handoff-give` (ADR-0009). Those are authoritative session state, so the
+//! `desc:handoff-give` (ADR-0039). Those are authoritative session state, so the
 //! fields live on `Session`. This file owns the operations over them and
 //! `Session` aliases each function as a method. Flipping `negotiating` to `open`
 //! also installs the fixed bootstrap export, the one fallible step, so a failed
@@ -56,7 +56,7 @@ pub fn partnerSessionKey(self: *const Session) ?[]const u8 {
 }
 
 /// Whether this partner is known to be glowcap by any signal: the dial- or
-/// mirror-minted knowledge (`Session.partner_known_glowcap`, ADR-0118), or a
+/// mirror-minted knowledge (`Session.partner_known_glowcap`, ADR-0042), or a
 /// hello that stated a non-baseline preference on any transport, only
 /// glowcap stamps the `glowcap/*` hints. The give path reads this for the
 /// recipient: a known-glowcap recipient keeps the exporter's profile-hinted
@@ -68,7 +68,7 @@ pub fn partnerKnownGlowcap(self: *const Session) bool {
 }
 
 /// Whether this side's configured preference asks for a non-baseline CapTP
-/// version or codec, ADR-0118's one opt-in, read where behavior would
+/// version or codec, ADR-0042's one opt-in, read where behavior would
 /// otherwise change for a peer that never asked for an upgrade (the onion
 /// accept's deferred hello). Features are not part of the
 /// test: every peer offers the full ignorable feature set by default, so
@@ -83,7 +83,7 @@ pub fn statesUpgradedProfile(self: *const Session) bool {
 /// sent, or null if that half has not been sent or carried no key. An exporter
 /// derives from it the session name an inbound `desc:handoff-receive` must
 /// carry, so a withdrawal cannot claim to belong to a session it is not part of
-/// (ADR-0009).
+/// (ADR-0039).
 pub fn localSessionKey(self: *const Session) ?[]const u8 {
     if (self.local_session_key.len == 0) return null;
     return self.local_session_key;
@@ -100,7 +100,7 @@ pub fn partnerDesignator(self: *const Session) ?[]const u8 {
 /// `op:start-session`, or null when the handshake half has not arrived with raw
 /// bytes (the decode path captures them, an owned-message apply path does not).
 /// A gifter embeds these as a `desc:handoff-give`'s exporter-location so a peer
-/// comparing locations matches byte-for-byte (ADR-0009).
+/// comparing locations matches byte-for-byte (ADR-0039).
 pub fn partnerLocatorRaw(self: *const Session) ?[]const u8 {
     if (self.partner_acceptable_location_raw.len == 0) return null;
     return self.partner_acceptable_location_raw;

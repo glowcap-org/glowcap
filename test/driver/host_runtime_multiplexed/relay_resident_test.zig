@@ -1,8 +1,8 @@
-//! The relay symbols on HostRuntime through completion residents (ADR-0202):
+//! The relay symbols on HostRuntime through completion residents (ADR-0018):
 //! the listening resident registers the Host's identity with a relay, and a
 //! dialing resident that names the key reaches it through the rendezvous.
 //! `noise-relay` rides the same socket, sealed by the Host on both halves
-//! (ADR-0107), so the relay forwards ciphertext and the dial proves the key.
+//! (ADR-0041), so the relay forwards ciphertext and the dial proves the key.
 
 const std = @import("std");
 const builtin = @import("builtin");

@@ -2,7 +2,7 @@
 // keyed CapTP session for a peer that cannot open a socket itself (a browser).
 //
 // The relay never parses frames and never holds a capability: the keyed
-// handshake and session authority ride through end to end (ADR-0086). `relayBytes`
+// handshake and session authority ride through end to end (ADR-0033). `relayBytes`
 // is the transport-agnostic pump; `webSocketRelay` adapts an upgraded WebSocket
 // (the browser's byte pipe) to it. A caller supplies the far-side dial (iroh's
 // `dialLocatorForRelay` in @glowcap/iroh, or a plain socket connect) and its own
@@ -23,7 +23,7 @@ export {
 // channel), one hardened copy each, shared by the reference relay and an
 // embedding app relay.
 export { denoIrohChannel, denoTcpChannel, type IrohReach } from "./deno_channels.ts";
-// The cold-dial rendezvous (ADR-0088): let a peer that cannot be dialed register
+// The cold-dial rendezvous (ADR-0034): let a peer that cannot be dialed register
 // its identity and be reached through the relay by another peer.
 export { Rendezvous } from "./rendezvous.ts";
 export { connector, installProvider, provider, type RelayOptions, type TlsTrust } from "./transport.ts";

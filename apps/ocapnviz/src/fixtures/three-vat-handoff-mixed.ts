@@ -68,7 +68,7 @@ import { payloadOf, wireFrames } from "./wire-frames.ts";
  * frames are Syrup. Every `op:start-session` is the baseline in both
  * its grammar and its version field, whatever the session goes on to
  * speak. Each peer states the profile it prefers in the hints of the
- * locator its hello carries (ADR-0103). Select a handshake message
+ * locator its hello carries (ADR-0001). Select a handshake message
  * and the payload viewer spaces it as bytes. Select the deposit and
  * it spaces the same session's traffic as the 64-bit words Cap'n
  * Proto is made of.
@@ -385,7 +385,7 @@ export const threeVatHandoffMixed = TimelineDocument.parse({
 			// Carol accepted this dial, so her end is hers to state and it
 			// is the `a` one. The `b` end carries the address Bob's hello
 			// claimed and no peer, because the `tcp` netlayer binds nothing
-			// about the far side of the socket to that address (ADR-0105).
+			// about the far side of the socket to that address (ADR-0028).
 			// The give Bob is about to present is what will.
 			//
 			// The address is the one Bob joined under, so the stage aims this

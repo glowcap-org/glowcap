@@ -1,4 +1,4 @@
-//! Addressability is an explicit grant (ADR-0074): a reserved export is
+//! Addressability is an explicit grant (ADR-0027): a reserved export is
 //! unaddressable until marshalled, a partner that releases everything loses
 //! addressability, caps are decided in validate so refusals commit nothing,
 //! and a position outside the session's range is refused at every door.
@@ -36,7 +36,7 @@ test "releaseUnsharedExport rolls back a freshly allocated export" {
     try std.testing.expect(s.hasExport(third));
 }
 
-test "a reserved export is unaddressable until its first marshal grants it (ADR-0074)" {
+test "a reserved export is unaddressable until its first marshal grants it (ADR-0027)" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
@@ -65,7 +65,7 @@ test "a reserved export is unaddressable until its first marshal grants it (ADR-
     try std.testing.expect(s.inboundAnswer(.from(11)) != null);
 }
 
-test "a partner that releases every wire reference loses addressability until re-granted (ADR-0074)" {
+test "a partner that releases every wire reference loses addressability until re-granted (ADR-0027)" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
@@ -100,7 +100,7 @@ test "a partner that releases every wire reference loses addressability until re
     try std.testing.expect(s.inboundAnswer(.from(11)) != null);
 }
 
-test "registerExport is an explicit grant: the position is addressable with no marshal (ADR-0074)" {
+test "registerExport is an explicit grant: the position is addressable with no marshal (ADR-0027)" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
@@ -116,7 +116,7 @@ test "registerExport is an explicit grant: the position is addressable with no m
     try std.testing.expect(s.inboundAnswer(.from(11)) != null);
 }
 
-test "import registration is bounded by max_imports (ADR-0025)" {
+test "import registration is bounded by max_imports (ADR-0008)" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .limits = .{ .max_imports = 2 },

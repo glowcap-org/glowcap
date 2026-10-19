@@ -37,7 +37,7 @@ fn names_host_key(transport: &str) -> bool {
 }
 
 /// Read `locator` against `session`. A durable identity the partner proved
-/// must name the same designator the locator claims (ADR-0097). An address
+/// must name the same designator the locator claims (ADR-0028). An address
 /// designator names a socket a key does not determine, so an unproved
 /// connection holds its own claim.
 fn claim(session: &Session, locator: &str) -> Result<Claim, String> {

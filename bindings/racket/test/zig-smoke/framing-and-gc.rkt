@@ -47,7 +47,7 @@
          "support.rkt"
          racket/tcp)
 
-;; ── Distributed GC (ADR-0063): every projected application occurrence ────────
+;; ── Distributed GC (ADR-0025): every projected application occurrence ────────
 ;; Fetch results, nested send replies, and nested delivered arguments are each
 ;; released explicitly. The relay observes both real wire directions before
 ;; teardown, so collector timing and a session-close sweep cannot satisfy the

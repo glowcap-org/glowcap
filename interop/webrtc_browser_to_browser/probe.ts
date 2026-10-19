@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-// One browser peer for the WebRTC browser-to-browser proof (ADR-0089).
+// One browser peer for the WebRTC browser-to-browser proof (ADR-0035).
 // Two browser tabs run this, one as `?role=offerer` and one as
 // `?role=answerer`. Each bundles `@glowcap/web` (the wasm Host). The offerer
 // opens a Runtime with the WebRTC connector and dials the answerer's bare

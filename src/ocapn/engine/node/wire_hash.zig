@@ -1,5 +1,5 @@
 //! The per-session wire-hash multipliers one `Node` hands its sessions
-//! (ADR-0218): a root derived from the node's identity seed, mixed with each
+//! (ADR-0037): a root derived from the node's identity seed, mixed with each
 //! peer handle so what a peer learns about its own tables says nothing about
 //! another session's.
 

@@ -1,4 +1,4 @@
-//! Single-writer flock for CapTP product identity/state (ADR-0084).
+//! Single-writer flock for CapTP product identity/state (ADR-0032).
 //!
 //! Product layout locks `$GLOWCAP_STATE/lock` (beside `…/identity`) for the
 //! process lifetime so two fronts cannot mint/rotate identity or clobber

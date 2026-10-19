@@ -1,4 +1,4 @@
-//! Foreign stream providers on a completion backend (ADR-0193, ADR-0202): a
+//! Foreign stream providers on a completion backend (ADR-0018): a
 //! HostRuntime listens through the C TCP provider's stream table on an
 //! external completion resident, a stream-netlayer client dials it, and a
 //! fetch and call settle across the provider's nonblocking reads and writes.

@@ -230,7 +230,7 @@ fn wireClosed(self: *HostRuntime, probe: anytype) bool {
     return wire.closed;
 }
 
-/// The off-turn settle mailbox (ADR-0102 stage 4), minted on the owning
+/// The off-turn settle mailbox (ADR-0014 stage 4), minted on the owning
 /// thread the first time it is asked for. Hand the returned pointer (and
 /// resolver ids) to worker threads. Their `post` calls wake this host's
 /// readiness wait and the settles apply here, on the owning thread. The

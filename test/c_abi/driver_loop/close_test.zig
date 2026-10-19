@@ -407,7 +407,7 @@ fn stepAFewTimes(loop: ?*cdrv.GlowcapDriverLoop, failed: *std.atomic.Value(bool)
     if (cdrv.glowcap_driver_detach_thread(loop) != c.GLOWCAP_OK) failed.store(true, .release);
 }
 
-test "detach_thread hands a set-up loop between threads at quiescent boundaries (ADR-0112)" {
+test "detach_thread hands a set-up loop between threads at quiescent boundaries (ADR-0024)" {
     const owned_loop = try newLoop(0x33);
     defer owned_loop.deinit();
     const loop = owned_loop.raw;

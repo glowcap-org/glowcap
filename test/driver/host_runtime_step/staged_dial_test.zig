@@ -1,4 +1,4 @@
-//! Staged dials and the close lifecycle (ADR-0112): the staged-open
+//! Staged dials and the close lifecycle (ADR-0024): the staged-open
 //! admission bound, a staged dial serving a fetch and keeping its claimed
 //! session through retirement, the step-clock handshake timeout, and every
 //! cancel/finish close arm, interruption, publication before close,

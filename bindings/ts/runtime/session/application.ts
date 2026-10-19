@@ -45,7 +45,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	}
 
 	/** Listen on a far capability this session holds (CapTP `op:listen`,
-	 * ADR-0095): the returned handle settles with the listen notification,
+	 * ADR-0003): the returned handle settles with the listen notification,
 	 * which may be any value, not only a capability. In 1.0, the target may be
 	 * a far promise or live far object; in glowcap-next, the target must be a
 	 * promise. A re-gifted promise routes to its exporter session
@@ -111,7 +111,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 		return ref;
 	}
 
-	/** Wrap `target` (local or far) in a revocable caretaker (ADR-0064).
+	/** Wrap `target` (local or far) in a revocable caretaker (ADR-0016).
 	 * Returns the proxy capability to hand a partner and a `revoke` lever;
 	 * every call through the proxy forwards to `target` until `revoke()`,
 	 * after which each breaks with `Revoked`. `target` may be a capability
@@ -121,7 +121,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 		return caretakerProxy((behavior) => this.spawn(behavior), target);
 	}
 
-	/** Wrap `target` (local or far) in an attenuator (ADR-0064): a proxy that
+	/** Wrap `target` (local or far) in an attenuator (ADR-0016): a proxy that
 	 * forwards only the calls whose verb is in `verbs` and breaks every other
 	 * with `Attenuated`. Returns the proxy capability to hand a partner. The
 	 * proxy is a plain spawned actor. */
@@ -135,7 +135,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * can `send` to. The canonical fetch lives in the library: one call
 	 * registers the bootstrap import, allocates the answer, and queues the
 	 * deliver; the host enrolls the fulfilled capability under a node-unique
-	 * token (ADR-0069) before the completion is queued, so a return re-gifts
+	 * token (ADR-0026) before the completion is queued, so a return re-gifts
 	 * the right home. Drives the inbound loop itself, so a `fetch` straight
 	 * after `connect` works without a separate `serve()` call. Rejects with
 	 * `VowBroken` when the partner breaks the fetch, and with `FetchFailed`
@@ -152,7 +152,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 		return ref;
 	}
 
-	/** Enliven a sturdyref against this session (ADR-0098): bring the
+	/** Enliven a sturdyref against this session (ADR-0007): bring the
 	 * durable `(peer, swissnum)` to life as a live `Ref`. `sturdyref` uses the
 	 * canonical persistent URI form, independent of this live session's CapTP
 	 * profile. The host verifies it against this session before
@@ -186,7 +186,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	 * capability; rejects with `VowBroken` on a partner break).
 	 *
 	 * `target` is a capability `Ref` *or* a `RemotePromise` from an earlier
-	 * send: passing the latter pipelines (ADR-0007). The call is addressed at
+	 * send: passing the latter pipelines (ADR-0003). The call is addressed at
 	 * the answer that send will resolve, so a dependent chain costs one round
 	 * trip instead of one per link. `args` may contain `Ref`s. A `Ref` this
 	 * session spawned runs in process; a partner's rides the wire, and a
@@ -203,7 +203,7 @@ export abstract class SessionApplication extends SessionLifecycle {
 	): RemotePromise {
 		// A send that cannot be issued comes back as a failed handle, not a
 		// throw. `send` must return synchronously so a caller can pipeline at
-		// the answer before it settles (ADR-0050), so it cannot be `async`,
+		// the answer before it settles (ADR-0004), so it cannot be `async`,
 		// but a promise-returning method whose failure arrives synchronously is
 		// a trap: the obvious `session.send(…).catch(…)` never sees it, and a
 		// caller who cleared a dead route in that handler kept using it.
@@ -377,9 +377,9 @@ export abstract class SessionApplication extends SessionLifecycle {
 		));
 	}
 
-	// ── Distributed GC (ADR-0063), opt-in and off by default ───────────────────
+	// ── Distributed GC (ADR-0025), opt-in and off by default ───────────────────
 
-	/** Opt this session into distributed GC (ADR-0063), off by default. Every
+	/** Opt this session into distributed GC (ADR-0025), off by default. Every
 	 * capability occurrence projected through {@link fetch}, a fulfilled far
 	 * operation, or a recursively nested delivered argument releases its Host
 	 * retain when the runtime reclaims its `Ref`. The Host routes any required

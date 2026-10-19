@@ -122,7 +122,7 @@ pub fn chain(
 
 /// Project a provider's dial failure onto the `DialError` retry axis. A
 /// primary cause name that is a `DialError` member is that classification, so
-/// a refused connect the provider named stays permanent under ADR-0082
+/// a refused connect the provider named stays permanent under ADR-0030
 /// `isTransient` even though it rides the I/O status code. Without such a
 /// name the status code decides, and an I/O fault is `ConnectionLost`.
 pub fn dialError(code: i32, cause_name: ?[]const u8) net.netlayer.DialError {

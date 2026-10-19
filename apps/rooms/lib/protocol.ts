@@ -347,7 +347,7 @@ export { HAND_ARCHIVE, HAND_ROOM, OFFER_ARCHIVE, OFFER_ROOM } from "./protocol_h
  * conventional spelling, such as `guest-2`. `"exact"` never changes the
  * requested spelling. The opaque registration ID identifies this live
  * registration without granting authority. The locator is for the directory's
- * own checks (and nick identity). After ADR-0109, gift exporter location comes
+ * own checks (and nick identity). After ADR-0028, gift exporter location comes
  * from the member's signed hello, not from stamping this argument. A second
  * `register` for the same nick replaces the prior intro when it comes from the
  * connection holding it. A new connection may replace that live claim with a
@@ -410,7 +410,7 @@ export { INTRODUCE, VOUCHER } from "./protocol_data.ts";
  * receives new authority rather than inheriting the prior holder's inbox. */
 export { OFFER_INBOX } from "./protocol_data.ts";
 
-/** WebRTC signaling, carried by the directory (ADR-0089).
+/** WebRTC signaling, carried by the directory (ADR-0035).
  *
  * A member reachable at a `webrtc` locator has no socket to dial. The channel
  * to it opens through an offer, answer, and candidate exchange, and the

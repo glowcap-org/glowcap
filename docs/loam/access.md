@@ -51,7 +51,7 @@ and control references the caller holds.
 Records in `access.records` decode without keeping the encoded input.
 `ChangeBatchRecord.decodeOwned` and `GrantRecord.decodeOwned` own their paths
 and resource lists, so release them with `deinit(allocator)`.
-[ADR-0166](../decisions/adr/ADR-0166-access-grant-records-and-plans.md)
+[ADR-0047](../decisions/adr/ADR-0047-prepared-grant-mutations.md)
 defines the limits and how long borrowed views live.
 
 ## Policy and interface support
@@ -73,7 +73,7 @@ refuses kinds it does not list.
 - `Policy.valueForKind` builds the terms for one kind. It returns data and
   allows nothing later.
 
-[ADR-0197](../decisions/adr/ADR-0197-scope-aware-permission-applicability.md)
+[ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md)
 records the limits and the alternatives.
 
 ## Durable owner operations
@@ -159,7 +159,7 @@ expects.
   grant record and 16 KiB of scratch for its resource list. An
   Append holds at most 52 KiB of path state, and adding a resource also
   allocates one child-list path of the same size.
-- A Read lends one grant record at a time (ADR-0230). A lookup while a record
+- A Read lends one grant record at a time (ADR-0047). A lookup while a record
   is on loan fails with `RecordHeld` in every build mode, and the loaned
   record carries what writing and observation need. Checks on loaded records
   call no allocator.
@@ -192,9 +192,9 @@ subtree, and their content. Updating ancestors' child lists and subtrees
 writes at most <!-- value ../../src/loam/access/records/change_batch_record.zig max_path -->65<!-- /value --> identities per path. Replacing content or a reference with an
 equal value finishes at once when no other participant is involved.
 
-[ADR-0167](../decisions/adr/ADR-0167-managed-owner-storage.md) defines this
+[ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) defines this
 storage, and
-[ADR-0179](../decisions/adr/ADR-0179-scoped-change-retention-and-observation.md)
+[ADR-0054](../decisions/adr/ADR-0054-scoped-change-observation.md)
 covers change history and [observing it](#observing-held-access).
 
 ## Resource moves, deletion and children
@@ -300,7 +300,7 @@ Memory:
 - Every commit makes old operations stale. After an unknown write, they refuse
   until recovery decides.
 
-[ADR-0168](../decisions/adr/ADR-0168-durable-managed-capability-bindings.md)
+[ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md)
 defines how references are restored. These Zig calls tie a permission check
 to its content change at the same revision, and the
 [managed endpoints](access-endpoints.md) do the same for hosted calls.
@@ -411,7 +411,7 @@ only the status. Control endpoints do not accept this method.
 
 The tagged `access:description` reply uses stable permission and constraint
 keys, laid out as
-[ADR-0171](../decisions/adr/ADR-0171-scoped-access-descriptions.md) defines. It
+[ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md) defines. It
 reveals no ancestor identity, other resources, owner revision, or unrelated
 event counter. Holding a description grants nothing, and each protected call
 checks current permissions.
@@ -510,7 +510,7 @@ Costs and limits:
 - Issuing uses the Zig Append's memory. The actor and durable name are
   allocated before the write is submitted and may be refused under pressure.
 
-[ADR-0170](../decisions/adr/ADR-0170-durable-facet-derivation.md) records
+[ADR-0052](../decisions/adr/ADR-0052-managed-owner-lifecycle.md) records
 these rules.
 
 ## Bounded owner cleanup
@@ -589,7 +589,7 @@ holds, and frees disconnected pages and payloads once nothing holds them.
 - Creating a new identity reserves at most four identity paths, and ordinary
   access reads reserve none.
 
-[ADR-0180](../decisions/adr/ADR-0180-bounded-managed-retirement.md) records
+[ADR-0050](../decisions/adr/ADR-0050-transactional-reclamation.md) records
 these rules, and the
 [Zig cleanup tests](../../test/loam/access/maintenance_test.zig),
 [LMDB reopen tests](../../test/loam/lmdb/maintenance_test.zig), and

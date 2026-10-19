@@ -1,4 +1,4 @@
-//! The Zig offerer the binding listen proofs accept (ADR-0232).
+//! The Zig offerer the binding listen proofs accept (ADR-0035).
 //!
 //! The one argument is the listener's key designator. This process is the
 //! offerer over the Zig sidecar: it dials that key with a keyed session over

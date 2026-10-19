@@ -1,7 +1,7 @@
 //! The WebRTC transport's public C ABI: a host-driven peer boundary for C, the
-//! peer-to-peer DataChannel sibling of the iroh QUIC companion (ADR-0089).
+//! peer-to-peer DataChannel sibling of the iroh QUIC companion (ADR-0035).
 //!
-//! This is a separate artifact from `libglowcap_ocapn` (ADR-0059): it links
+//! This is a separate artifact from `libglowcap_ocapn` (ADR-0022): it links
 //! the Rust webrtc sidecar, so folding it into the pure-Zig core would drag
 //! cargo into every consumer of the protocol library. The artifact
 //! (`libglowcap_net_transport_webrtc`) is a companion, not a superset. It
@@ -17,9 +17,9 @@
 //! netlayer created with `GlowcapWebrtcConfig.signaling` runs the exchange
 //! itself, calling the application to carry each offer, answer, and
 //! candidate. For the driver's dials it takes the answer back through
-//! `glowcap_webrtc_netlayer_provide_answer` (ADR-0226, `dial.zig`), and for
+//! `glowcap_webrtc_netlayer_provide_answer` (ADR-0035, `dial.zig`), and for
 //! the driver's listener it takes each inbound offer through
-//! `glowcap_webrtc_netlayer_provide_offer` (ADR-0232, `accept.zig`). An
+//! `glowcap_webrtc_netlayer_provide_offer` (ADR-0035, `accept.zig`). An
 //! application can instead drive the exchange by hand with the
 //! `glowcap_webrtc_peer_*` calls (`peer_signaling.zig`) and give the open
 //! peer to the driver through the provider's `claim_external`. Either way,
@@ -52,7 +52,7 @@ const peer_signaling = @import("peer_signaling.zig");
 
 // The shared C-ABI vocabulary leaf (codes, allocation policy, the per-thread
 // last-error slot), not the `c_abi` ocapn root, so this transport ABI pulls
-// none of libglowcap_ocapn's exported surface (ADR-0059 companion split).
+// none of libglowcap_ocapn's exported surface (ADR-0022 companion split).
 const c = @import("c_abi_shared");
 
 pub const contract_layouts = [_]c.archive_contract.Layout{
@@ -74,7 +74,7 @@ pub export fn glowcap_webrtc_archive_fingerprint() u64 {
 
 // The opaque context handle whose allocator the `_in` constructor twin uses,
 // so allocation policy is one axis spelled one way across every archive
-// (ADR-0059), the same twin `glowcap_tcp_netlayer_new_in` and its siblings hold.
+// (ADR-0022), the same twin `glowcap_tcp_netlayer_new_in` and its siblings hold.
 const GlowcapContext = c.GlowcapContext;
 
 pub const GlowcapWebrtcPeer = ownership.GlowcapWebrtcPeer;

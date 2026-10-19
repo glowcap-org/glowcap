@@ -4,7 +4,7 @@
    cannot drift from the implementation.
 
    The byte-fed host tier's public C ABI: a separate archive
-   (libglowcap_host) from libglowcap_ocapn (ADR-0059, ADR-0072). It is a
+   (libglowcap_host) from libglowcap_ocapn (ADR-0022). It is a
    companion, not a superset: it exports only the glowcap_host_* family and
    shares the value vocabulary (GlowcapFrame, GlowcapManagedFrame,
    GlowcapContext, GlowcapArgument, GlowcapReference, GlowcapLastAbort) and
@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 /* A GlowcapHost is the multi-session CapTP host for an embedder that
-   owns its own loop, sockets, and entropy (ADR-0072). The library owns every
+   owns its own loop, sockets, and entropy (ADR-0022). The library owns every
    decision (routing, three-party redeem, gift origination). The embedder
    moves transport packets: feed inbound packets with glowcap_host_session_feed_packet,
    write what glowcap_host_session_take_packet drains, and honor the action queue.
@@ -275,8 +275,8 @@ typedef struct GlowcapHostAction {
    next glowcap_host_next_action (glowcap_host_pump_drain pops internally). */
 typedef int32_t (*GlowcapHostPumpArmFn)(void *ctx, GlowcapHost *host,
     const GlowcapHostAction *action, uint32_t *out_progressed);
-/* Opt-in embedder hooks for glowcap_host_pump_drain (ADR-0072 fifth
-   amendment). NULL arm pointers skip that kind (no error, no progress).
+/* Opt-in embedder hooks for glowcap_host_pump_drain (ADR-0022).
+   NULL arm pointers skip that kind (no error, no progress).
    The pull-queue remains normative. This is a convenience wrapper's
    callback surface, not a replacement for glowcap_host_next_action. */
 typedef struct GlowcapHostPumpHooks {
@@ -305,7 +305,7 @@ uint64_t glowcap_host_archive_fingerprint(void);
    PROCESS: they are what makes each CapTP session sign with its own key, so an
    old handoff certificate cannot resolve against a session opened after a
    restart. A durable-only 32-byte seed is refused. CapTP session keys must not
-   silently reuse the identity seed (ADR-0097).
+   silently reuse the identity seed (ADR-0028).
 
    frame_cap sizes every session's maximum admissible frame; a
    nonzero verify_partner keeps partner-signature verification on (the secure
@@ -320,12 +320,12 @@ uint64_t glowcap_host_archive_fingerprint(void);
    GLOWCAP_CAPTP_V1_0 with GLOWCAP_CODEC_SYRUP remains the interop floor; callers
    may pass GLOWCAP_FEATURE_FULL on that same wire version, and the hello and
    settled session use only the v1.0-eligible subset.
-   local_turn_budget caps local-turn amplification per session (ADR-0076):
+   local_turn_budget caps local-turn amplification per session (ADR-0018):
    GLOWCAP_LOCAL_TURN_BUDGET_DEFAULT applies the Zig Host's finite default,
    GLOWCAP_LOCAL_TURN_BUDGET_UNBOUNDED turns the cap off, and any other value
    is the cap.
    release_on_drop is the Host-wide setting a binding reads when it projects a
-   far capability (ADR-0192): nonzero means the capability releases its Host
+   far capability (ADR-0025): nonzero means the capability releases its Host
    retain when the language's scope end for it is observed. A binding whose
    release rides a finalizer passes 0 and keeps its per-session opt-in. Read it
    with glowcap_host_release_on_drop and change it with
@@ -335,9 +335,9 @@ int32_t glowcap_host_new(const uint8_t *seed, size_t seed_len, size_t frame_cap,
 /* glowcap_host_new allocating every byte the host owns through context's host
    allocator (glowcap_context_new_with_allocator). */
 int32_t glowcap_host_new_in(GlowcapContext *context, const uint8_t *seed, size_t seed_len, size_t frame_cap, uint32_t verify_partner, uint32_t codec, uint32_t captp_version, uint32_t features, uint32_t local_turn_budget, uint32_t release_on_drop, GlowcapHost **out_host);
-/* Read the Host-wide release-on-drop setting (ADR-0192) into *out_enabled as 0 or 1. */
+/* Read the Host-wide release-on-drop setting (ADR-0025) into *out_enabled as 0 or 1. */
 int32_t glowcap_host_release_on_drop(GlowcapHost *host, uint32_t *out_enabled);
-/* Set the Host-wide release-on-drop setting (ADR-0192) for capabilities the
+/* Set the Host-wide release-on-drop setting (ADR-0025) for capabilities the
    Host projects after this call: nonzero turns it on. A binding whose release
    rides a finalizer leaves it off and keeps its per-session opt-in. */
 int32_t glowcap_host_set_release_on_drop(GlowcapHost *host, uint32_t enabled);
@@ -383,9 +383,9 @@ int32_t glowcap_host_release(GlowcapHost *host);
 /* Derive the canonical key designator (exactly 64 lowercase hex digits) from a
    32-byte Ed25519 durable identity seed, the public half of the first half of
    the 64-byte buffer glowcap_host_new takes. CapTP session signing keys come
-   from the second half (ADR-0097), not from this designator seed. Writes 64
+   from the second half (ADR-0028), not from this designator seed. Writes 64
    bytes into out (out_len must be at least 64). Used by a keyed-tcp listener
-   whose locator designator is this durable identity (ADR-0075). */
+   whose locator designator is this durable identity (ADR-0028). */
 int32_t glowcap_host_designator_from_seed(const uint8_t *seed, size_t seed_len, uint8_t *out, size_t out_len);
 /* Retain and select this host's complete acceptable location. The Host validates and deep-copies the borrowed locator view. Later dialed and accepted sessions sign this selection regardless of the transport carrying them. */
 int32_t glowcap_host_set_advertised_locator(GlowcapHost *host, const GlowcapLocatorView *locator);
@@ -445,9 +445,9 @@ int32_t glowcap_host_session_open_accepted(GlowcapHost *host, const uint8_t *tra
 #define GLOWCAP_DIAL_SHAPE_HOST_PORT 0
 /* GlowcapDialPlan.shape: peer-id open (node-id designator + addresses + reach, from the iroh locator scheme). */
 #define GLOWCAP_DIAL_SHAPE_PEER_ID 1
-/* GlowcapDialPlan.shape: signaling-mediated open (webrtc); no dialable address, the channel comes up through offer/answer/ICE (ADR-0089 phase 4). */
+/* GlowcapDialPlan.shape: signaling-mediated open (webrtc); no dialable address, the channel comes up through offer/answer/ICE (ADR-0035). */
 #define GLOWCAP_DIAL_SHAPE_SIGNALING 2
-/* GlowcapDialPlan.shape: rendezvous-bridged open (keyed-relay); no dialable address, the dialer opens the relay rendezvous leg its host is configured for (ADR-0088). */
+/* GlowcapDialPlan.shape: rendezvous-bridged open (keyed-relay); no dialable address, the dialer opens the relay rendezvous leg its host is configured for (ADR-0034). */
 #define GLOWCAP_DIAL_SHAPE_RENDEZVOUS 3
 /* GlowcapDialPlan.reach_kind (peer-id shape): the relay-less direct posture. */
 #define GLOWCAP_DIAL_REACH_DIRECT 0
@@ -600,7 +600,7 @@ int32_t glowcap_host_session_feed(GlowcapHostSession *session, const GlowcapFram
    non-canonical outer syntax is a codec error. */
 int32_t glowcap_host_session_feed_bytes(GlowcapHostSession *session, const uint8_t *bytes, size_t len);
 /* Feed one transport packet (borrowed for the call). Byte-stream transports pass
-   arbitrary chunks carrying ADR-0110's outer Syrup byte-string envelope;
+   arbitrary chunks carrying ADR-0012's outer Syrup byte-string envelope;
    message-framed transports pass one bare codec frame per packet. The Host
    transport profile owns that choice, so embedders do not branch on concrete
    transport names. A real empty message-framed packet is malformed because it is
@@ -641,8 +641,7 @@ int32_t glowcap_host_session_take_outbound(GlowcapHostSession *session, GlowcapM
    pressure subsides. See the one loop rule in the header preamble. Refused inside
    a callback. */
 int32_t glowcap_host_next_action(GlowcapHost *host, GlowcapHostAction *out_action);
-/* Opt-in convenience drain over glowcap_host_next_action (ADR-0072 fifth
-   amendment). Still pops through the pull-queue internally; does not replace
+/* Opt-in convenience drain over glowcap_host_next_action (ADR-0022). Still pops through the pull-queue internally; does not replace
    it. hooks may be NULL (every action is discarded). *out_acted is 1 when any
    arm reported progress (optional, may be NULL). *out_yielded is 1 when the
    finite Host scheduler requested another embedder turn (optional, may be NULL);
@@ -738,7 +737,7 @@ int32_t glowcap_host_remove_durable(GlowcapHost *host, const uint8_t *swiss, siz
    immediately re-gifts it routes to the right exporter. Refused inside a
    callback. */
 int32_t glowcap_host_session_fetch(GlowcapHostSession *session, const uint8_t *name, size_t name_len, uint64_t *out_vow);
-/* Enliven the complete canonical persistent sturdyref URI (ADR-0098), minting
+/* Enliven the complete canonical persistent sturdyref URI (ADR-0007), minting
    a host vow whose id lands in *out_vow; the live reference arrives as that
    vow's SETTLE action. The URI form is independent of the selected session's
    negotiated profile. Its transport and designator must match that session
@@ -746,7 +745,7 @@ int32_t glowcap_host_session_fetch(GlowcapHostSession *session, const uint8_t *n
    dedup-cache hit settles before this returns; a fresh enliven rides
    bootstrap-fetch. Refused inside a callback. */
 int32_t glowcap_host_session_enliven(GlowcapHostSession *session, const uint8_t *sturdyref_uri, size_t sturdyref_uri_len, uint64_t *out_vow);
-/* Select-or-dial enliven of a canonical persistent sturdyref URI (ADR-0098):
+/* Select-or-dial enliven of a canonical persistent sturdyref URI (ADR-0007):
    enliven it over a live session this host already dialed to that peer, or
    stage a dial and finish when you report it. The host vow id lands in
    *out_vow and its outcome arrives as that vow's SETTLE or FAIL action either
@@ -886,7 +885,7 @@ int32_t glowcap_host_turn_session(GlowcapHostTurn *turn, GlowcapHostSession **ou
    The written reply is BORROWED and valid until the next turn verb or drive on
    this host. The empty-verb contract is glowcap_host_session_send's. */
 int32_t glowcap_host_turn_forward(GlowcapHostTurn *turn, const GlowcapReference *target, const uint8_t *verb, size_t verb_len, const GlowcapArgument *args, size_t args_len, GlowcapArgument *out_reply);
-/* Atomically defer this turn's answer onto a fresh resolver vow (ADR-0102).
+/* Atomically defer this turn's answer onto a fresh resolver vow (ADR-0014).
    *out_resolver_id receives the one-shot settle authority used by
    glowcap_host_resolver_fulfill / _break. All rows and the forward listener are
    reserved before publication, so refusal leaves no live resolver and no

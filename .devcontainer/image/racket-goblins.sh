@@ -50,7 +50,7 @@ raco pkg install --auto --batch --no-setup \
     --checksum "${GOBLINS_CHECKSUM}" \
     "${GOBLINS_SOURCE}"
 
-# The Racket relay (bindings/racket/relay.rkt, ADR-0086) serves WebSockets over
+# The Racket relay (bindings/racket/relay.rkt, ADR-0033) serves WebSockets over
 # net/rfc6455; the pinned toolchain does not ship it, so add it for the
 # bindings-relay matrix's Racket row.
 raco pkg install --auto --batch --no-setup \

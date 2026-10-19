@@ -28,19 +28,19 @@ declaration under `src/`.
   listen, a resolution, and a deliver whose tree lists a reference, handoff,
   or set, because the session rewrites those slots in place and the Node may
   hold the tree while it stages a handoff. A deliver that lists nothing is
-  encoded before the call returns and copies nothing (ADR-0236), and one
+  encoded before the call returns and copies nothing (ADR-0064), and one
   whose values are lent as views leaves the same way through
-  `Peer.sendFreight` (ADR-0246). Deleting the clone scatters the same dupes
+  `Peer.sendFreight` (ADR-0064). Deleting the clone scatters the same dupes
   into every driver, one per hand-written locator and key copy.
 - **Borrowed reply retention**: `outbound.copying.answerTargetView`
-  (ADR-0249). A served Host reply with no capability stays a view through
+  (ADR-0063). A served Host reply with no capability stays a view through
   interception, then copies directly into the answer store. The store serves
   later listeners and pipelined operations after the turn and frame retire.
   The Host builds no temporary model containers for this reply. A near
   caller receiving explicit views materializes them in `callWithOrigin`
   before actor replacement, which also removes the need for a sever copy.
 - **Outbound tree inventory**: `session.inventory.ofMessage` and
-  `ofResolution` (ADR-0234). One walk at admission certifies a sent tree's
+  `ofResolution` (ADR-0064). One walk at admission certifies a sent tree's
   depth, struct keys, and retained bytes, and lists the slots that hold a
   reference, handoff, or set, so lowering, shortening, the Node's projection
   passes, reference certification, and export recording loop over the list
@@ -48,7 +48,7 @@ declaration under `src/`.
   inventoried tree that has such a slot, freed when admission ends, and a
   tree with none allocates nothing (`test/session/inventory_test.zig`).
   Freight, a tree lent as views, takes `Session.certifyFreight` instead
-  (ADR-0246): the same rules in one walk that lists nothing, because a
+  (ADR-0064): the same rules in one walk that lists nothing, because a
   reference in it is refused, and whose set fold borrows its elements.
 - **Owned inbound frame**: `ownedFrameFromView` in `Peer.recvBorrowed`. The
   **only** allocation a steady-state deliver to a live export costs, and the
@@ -59,25 +59,25 @@ declaration under `src/`.
   and freeing the row's queue at each drain cost a second allocation per
   turn (`test/engine/footprint_budget_test.zig` and the allocation budget
   hold both ends).
-  - The head also lends argument views behind the parse (ADR-0222,
-    ADR-0231): `head_argument_views` for a frame up to `small_frame_bytes`,
+  - The head also lends argument views behind the parse (ADR-0063,
+    ADR-0063): `head_argument_views` for a frame up to `small_frame_bytes`,
     then one per `head_view_bytes` of wire up to `head_views_cap`, so a
     deliver's argument tree is parsed once and validation, the Vat, and the
     Host's lift walk views: a handler's `actors.Delivery` reads the frame's
-    bytes where they lie (ADR-0237), and a Host handler's `driver.Args` does
+    bytes where they lie (ADR-0063), and a Host handler's `driver.Args` does
     too when validation counted no reference or handoff slot in the deliver,
     so the lift runs only for a deliver that carries a capability
-    (ADR-0241). `inbound_head_budget_bytes` pins the
+    (ADR-0063). `inbound_head_budget_bytes` pins the
     fixed head, the cap pins the views, and the cost is transient, freed
     with the frame. A Syrup list of integers is parsed into words in the
-    head's unused room instead (`ValueSlab.beginIntegers`, ADR-0248),
+    head's unused room instead (`ValueSlab.beginIntegers`, ADR-0063),
     committed only when every element fits `i64`, so it costs no view
     per element, no turn copy, and no allocation of its own. The same bytes
-    hold struct entries (ADR-0250). Typed claims spend their actual byte size,
+    hold struct entries (ADR-0063). Typed claims spend their actual byte size,
     and an overflowing Syrup collection releases its cached children before
     falling back to the wire. The head budget and allocation count stay fixed.
   - The block comes from the peer's allocator on every frame: keeping one
-    per peer measured no gain (ADR-0238).
+    per peer measured no gain (ADR-0063).
 - **Boxed parse**: the boxed arm of `events.Parse.decode`. A frame that reaches admission
   without the engine's head (`Peer.feedOwned` from a caller's own storage,
   an external frame, a pipelined rewrite the codec encoded) gets its parse
@@ -226,7 +226,7 @@ declaration under `src/`.
     no position array.
 - **Projection anchors**: `pipeline.respondToProjection`. One dupe of the field name
   or tag, because the projection outlives the view that carried it. `op:index`
-  dupes nothing. Bounded per answer by `max_listeners_per_target` (ADR-0050).
+  dupes nothing. Bounded per answer by `max_listeners_per_target` (ADR-0004).
 - **Local-delivery frame synthesis**: `pipeline.deliverDrainedCallLocally`. One
   synthesized frame, which the frame-based event model requires: a borrowed frame
   cannot carry a message that never arrived on the wire. Bounded by
@@ -246,7 +246,7 @@ declaration under `src/`.
   indexes per admitted cache row. No additional allocation or idle Session
   footprint. Dense removal repairs only relocated rows, bounded by the cache cap.
 - **Own-side position slabs**: `session.PositionSlab` under `ExportTable`
-  and `OutboundAnswerTable` (ADR-0254). One vector per table over the
+  and `OutboundAnswerTable` (ADR-0038). One vector per table over the
   positions this session mints, growing by half plus one slot as `reserve`
   needs and to the exact index on an explicit install. A freed slot is the
   next minted, and no row is hashed. Each slab keeps a free-list head and a
@@ -256,7 +256,7 @@ declaration under `src/`.
   (208), the vat's far listener key, and the Host's vow row (160). Pinned by
   `test/engine/footprint_budget_test.zig` and
   `test/session/position_slab_test.zig`.
-- **Resolver purpose on the export row**: `ExportRow.purpose` (ADR-0254).
+- **Resolver purpose on the export row**: `ExportRow.purpose` (ADR-0038).
   Every export row is 48 bytes, pinned in `export_table.zig`: the count, the
   32-byte purpose union (`.none` on an ordinary export), and the cell's
   binding, with the cell rebuilt from the index. A resolver export adds no
@@ -275,7 +275,7 @@ declaration under `src/`.
   linked V1.0 resolver's, a pending listener's, a stable shortening edge's), so
   a caller's release is bounded by `ImportTable.releasable` and the fire that
   later addresses the row finds it.
-- **Sturdyref enliven dedup**: `Session.notePendingEnliven` (ADR-0012). One
+- **Sturdyref enliven dedup**: `Session.notePendingEnliven` (ADR-0007). One
   swissnum dupe per in-flight row, moved into the resolved cache on fulfillment.
   A full resolved cache evicts before insertion. An in-flight row reserves both
   cache structures before committing the fetch, so allocation failure refuses
@@ -329,7 +329,7 @@ declaration under `src/`.
 - **Give-location dialable form**: `handoff_gifter.exporterLocationForRecipient`.
   One decode-and-re-encode per give whose *onion* exporter hello carried
   `glowcap/*` profile hints and whose recipient is not known to be glowcap
-  (ADR-0118). Every other give (every non-onion transport, every Goblins
+  (ADR-0042). Every other give (every non-onion transport, every Goblins
   exporter) takes the null path allocation-free and embeds the verbatim hello
   bytes its receiver's withdrawal keying matches. The derivation lives at the
   declaration.
@@ -357,7 +357,7 @@ declaration under `src/`.
   One string dupe on the unknown-name break path, because the diagnostic must
   outlive the resolving frame and `send` frees the resolution it rides in. The
   fulfill arm is POD and allocates nothing.
-- **Parked withdraw**: `Peer.pending_withdraws` (ADR-0100). One compact verified
+- **Parked withdraw**: `Peer.pending_withdraws` (ADR-0039). One compact verified
   claim per early `withdraw-gift`, retaining neither signature, exporter locator,
   receiving names, nor signed envelope. Bounded by `max_pending_withdraws` and
   the session's `max_frame_bytes`. Refusing the early withdraw instead would
@@ -467,7 +467,7 @@ declaration under `src/`.
   handler that owns its reply's bytes _transfers_ them instead of paying the
   sever, and `callWithOrigin` skips the sever only on pointer identity with that
   turn's own moves, so a reply borrowing any other state is still severed.
-- **State boxes**: `StateBox`, `releaseBox`, `ensureUnshared` (ADR-0060). One
+- **State boxes**: `StateBox`, `releaseBox`, `ensureUnshared` (ADR-0015). One
   refcounted heap block per actor, so `Vat.snapshot` shares boxes at zero bytes
   copied and a non-snapshotting actor pays one pointer indirection. Deleting the
   layer forces an eager O(total-mutable-bytes) snapshot copy.
@@ -495,11 +495,11 @@ declaration under `src/`.
 - **Dynamic turn break**: `Turn.breakWith` copies a queued call's diagnostic
   into the turn arena before foreign callback storage expires. `settleLocal`
   copies it into its depth-guarded settle arena before listener reentry.
-- **Actor roots**: one `u32` per row (ADR-0101). Each relationship holds one
+- **Actor roots**: one `u32` per row (ADR-0014). Each relationship holds one
   root, transferred at the seam that owns it. Root zero retires the row past any
   running frame and parks the box on the retirement capacity registration
   escrowed before the actor became visible.
-- **Persistent map nodes**: `collections.PersistentMap` (ADR-0061). O(log n)
+- **Persistent map nodes**: `collections.PersistentMap` (ADR-0015). O(log n)
   fresh nodes per write with refcounted structural sharing. An immutable trie is
   acyclic, so the count frees with no collector, and retains happen only after
   every allocation in a rebuild succeeds. Rebuilding whole makes `become`
@@ -543,7 +543,7 @@ the name stays here.
 - **Racket inbound `pin-immobile`**: every `feed_bytes` path pins the buffer
   into collector-immobile memory first. The tail lives in the core session, so no
   binding-side coalesce rides on top.
-- **Wasm linear-memory boundary**: `bindings/ts/web/adapter.ts` (ADR-0070).
+- **Wasm linear-memory boundary**: `bindings/ts/web/adapter.ts` (ADR-0034).
   JavaScript cannot lend wasm a view, so every buffer argument pays one copy in
   and each `outBuffers`-marked out-parameter one copy back. **Do not delete the
   memoized re-stage's resync as an optimization**. Staged copies retire two

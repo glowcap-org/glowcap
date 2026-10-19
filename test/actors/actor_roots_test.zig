@@ -1,4 +1,4 @@
-//! Actor roots and reclamation at the Vat tier (ADR-0101): the explicit root
+//! Actor roots and reclamation at the Vat tier (ADR-0014): the explicit root
 //! count on each actor row, the deferred retire that keeps a running turn and
 //! its borrowed reply safe, the typed refusal a queued turn takes when its
 //! target was reclaimed, and restore's intersect-never-resurrect rule. The
@@ -235,7 +235,7 @@ test "a queued turn whose target was reclaimed takes the typed NoSuchActor refus
     var broke = false;
     try vat.on(vow, .{ .ctx = &broke, .func = promise_capture.captureBroken });
 
-    // The queued turn holds no root (ADR-0101): the release wins the race and
+    // The queued turn holds no root (ADR-0014): the release wins the race and
     // the drained turn breaks typed instead of reaching freed state.
     vat.releaseActor(probe.local);
     try vat.drive();

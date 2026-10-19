@@ -225,7 +225,7 @@ export class IrohNetlayer {
 		}
 	}
 
-	// ── The event-driven loop surface (ADR-0057) ───────────────────────────────
+	// ── The event-driven loop surface (ADR-0019) ───────────────────────────────
 	// These back `IrohLoop`: the endpoint's one I/O model, serving many connections
 	// from one readiness fd the event loop parks on. The loop is armed when the
 	// netlayer is created, so these work immediately. The host (here `IrohLoop`)

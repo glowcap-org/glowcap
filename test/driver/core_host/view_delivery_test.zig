@@ -1,6 +1,6 @@
 //! A Value-shaped Host behavior reads a wire deliver as the frame's views
 //! when the deliver carries no capability, and as lifted values when it
-//! does (ADR-0241). The accessors answer the same on both backings.
+//! does (ADR-0063). The accessors answer the same on both backings.
 const std = @import("std");
 const glowcap = @import("glowcap");
 const core = glowcap.driver.core;

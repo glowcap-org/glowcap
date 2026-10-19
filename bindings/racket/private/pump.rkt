@@ -1,6 +1,6 @@
 #lang racket/base
 ;; Internal: the byte-fed embedder pump choreography over the host
-;; (libglowcap_host, ADR-0072 / ADR-0079).
+;; (libglowcap_host, ADR-0022 / ADR-0011).
 ;;
 ;; Owns the connection byte path the embedder contract leaves to the binding:
 ;; the keyed handshake, read raw bytes off the transport, hand them to the
@@ -295,7 +295,7 @@
 ;; was observed empty; every other result means the writer must refill after it
 ;; drains this bounded batch.
 (define (drain-outbound! c)
-  ;; A loop-owned host's wire belongs to the loop (ADR-0112): its steps
+  ;; A loop-owned host's wire belongs to the loop (ADR-0024): its steps
   ;; flush queued outbound themselves, and `take_outbound` must not compete
   ;; with them, so a loop-hosted session drains nothing here.
   ;; Breaks stay off across the whole drain: a frame `take_outbound` handed

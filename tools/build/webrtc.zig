@@ -1,4 +1,4 @@
-//! WebRTC DataChannel build steps (ADR-0089).
+//! WebRTC DataChannel build steps (ADR-0035).
 //!
 //! The Rust crate builds the probe binary and sidecar staticlib. Live steps stay
 //! outside `check` because they need cargo, deno, and a browser. Compile-only
@@ -53,7 +53,7 @@ pub const Registered = struct {
 /// `src/c_abi/net_transport/webrtc/mod.zig` with the injected `webrtc`
 /// resident alongside the shared vocabulary leaf, keeping
 /// `libglowcap_net_transport_webrtc` symbol-disjoint from `libglowcap_ocapn`
-/// (ADR-0089).
+/// (ADR-0035).
 pub fn abiModule(
     b: *std.Build,
     t: std.Build.ResolvedTarget,
@@ -69,7 +69,7 @@ pub fn abiModule(
     });
 }
 
-/// The WebRTC sidecar (ADR-0089). The hermetic compile-only objects
+/// The WebRTC sidecar (ADR-0035). The hermetic compile-only objects
 /// leave this off, so their externs stay unresolved and they need no cargo.
 /// The archive is the cargo step's output, so linking it orders the build.
 fn linkSidecar(
@@ -196,7 +196,7 @@ pub fn register(ctx: Context) Registered {
     const sidecar_target_dir = webrtc_probe_build.addPrefixedOutputDirectoryArg("--target-dir=", "target");
     webrtc_probe_build.has_side_effects = true;
     const sidecar_archive = sidecar_target_dir.path(b, "release/libglowcap_webrtc_sidecar.a");
-    const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and probe binary (ADR-0089, needs cargo)");
+    const webrtc_lib_step = b.step("webrtc-lib", "Build the WebRTC DataChannel netlayer sidecar staticlib and probe binary (ADR-0035, needs cargo)");
     webrtc_lib_step.dependOn(&webrtc_probe_build.step);
 
     const webrtc_datachannel_test = execution.addSystemCommand(b, .{ .browser_proof = 90 }, &.{
@@ -210,7 +210,7 @@ pub fn register(ctx: Context) Registered {
     webrtc_datachannel_test.setCwd(b.path("."));
     webrtc_datachannel_test.has_side_effects = true;
     webrtc_datachannel_test.step.dependOn(ctx.browser_preflight);
-    const webrtc_datachannel_test_step = b.step("webrtc-datachannel-test", "Prove a headless Chromium RTCDataChannel carries bytes both directions to a Rust webrtc-crate peer on loopback (ADR-0089, needs cargo + deno + a Playwright Chromium)");
+    const webrtc_datachannel_test_step = b.step("webrtc-datachannel-test", "Prove a headless Chromium RTCDataChannel carries bytes both directions to a Rust webrtc-crate peer on loopback (ADR-0035, needs cargo + deno + a Playwright Chromium)");
     webrtc_datachannel_test_step.dependOn(&webrtc_datachannel_test.step);
 
     // The phase-2 resident compiles as its own module over the same layer
@@ -218,7 +218,7 @@ pub fn register(ctx: Context) Registered {
     // when the sidecar staticlib links, so exporting it would drag the Rust
     // sidecar into every gate. A hermetic object build type-checks it under plain
     // `zig build check` with no cargo, catching resident rot the same way the
-    // iroh resident check does (ADR-0089).
+    // iroh resident check does (ADR-0035).
     const webrtc_resident_mod = b.createModule(.{
         .root_source_file = b.path("src/net/transport/webrtc.zig"),
         .target = target,
@@ -233,7 +233,7 @@ pub fn register(ctx: Context) Registered {
         .root_module = webrtc_resident_mod,
     });
     check_step.dependOn(&webrtc_resident_check.step);
-    b.step("webrtc-resident-check", "Type-check the WebRTC DataChannel netlayer resident (ADR-0089), compile-only, no cargo").dependOn(&webrtc_resident_check.step);
+    b.step("webrtc-resident-check", "Type-check the WebRTC DataChannel netlayer resident (ADR-0035), compile-only, no cargo").dependOn(&webrtc_resident_check.step);
 
     // The same resident published for a downstream package, with the sidecar
     // attached, so `glowcap.module("glowcap_webrtc")` is the `webrtc` import
@@ -293,35 +293,35 @@ pub fn register(ctx: Context) Registered {
     const live_drivers = [_]LiveDriver{
         .{
             .step_name = "webrtc-interop",
-            .description = "Live WebRTC: two Zig glowcap peers hold a keyed OCapN session over a real DataChannel (ADR-0089, needs cargo)",
+            .description = "Live WebRTC: two Zig glowcap peers hold a keyed OCapN session over a real DataChannel (ADR-0035, needs cargo)",
             .exe_name = "glowcap-webrtc-interop",
             .root_source = "interop/webrtc_interop/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
         .{
             .step_name = "webrtc-mesh",
-            .description = "Live WebRTC signaling mesh: two Zig peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (ADR-0089, needs cargo)",
+            .description = "Live WebRTC signaling mesh: two Zig peers bring up a DataChannel through an OCapN signaling hub, then hold a keyed session (ADR-0035, needs cargo)",
             .exe_name = "glowcap-webrtc-mesh",
             .root_source = "interop/webrtc_mesh/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
         .{
             .step_name = "webrtc-loop",
-            .description = "Live WebRTC scale: many concurrent DataChannels, each answered by the completion backend and served from one HostRuntime thread with the client's identity proved (ADR-0089, ADR-0202 and ADR-0232, needs cargo)",
+            .description = "Live WebRTC scale: many concurrent DataChannels, each answered by the completion backend and served from one HostRuntime thread with the client's identity proved (ADR-0035, ADR-0018 and ADR-0035, needs cargo)",
             .exe_name = "glowcap-webrtc-loop",
             .root_source = "interop/webrtc_loop/driver.zig",
             .imports = .{ .webrtc_common = true },
         },
         .{
             .step_name = "webrtc-redeem",
-            .description = "Live three-party handoff over WebRTC: a recipient Session redeems a bare webrtc give through its signaling authority, and every exporter's backend answers the offer itself (ADR-0089 and ADR-0232, needs cargo)",
+            .description = "Live three-party handoff over WebRTC: a recipient Session redeems a bare webrtc give through its signaling authority, and every exporter's backend answers the offer itself (ADR-0035, needs cargo)",
             .exe_name = "glowcap-webrtc-redeem",
             .root_source = "interop/webrtc_redeem/driver.zig",
             .imports = .{ .interop_harness = true },
         },
         .{
             .step_name = "webrtc-signaling-captp",
-            .description = "Live WebRTC signaling capability over CapTP: signaling opens the DataChannel, then the keyed session runs over it (ADR-0089, needs cargo)",
+            .description = "Live WebRTC signaling capability over CapTP: signaling opens the DataChannel, then the keyed session runs over it (ADR-0035, needs cargo)",
             .exe_name = "glowcap-webrtc-signaling-captp",
             .root_source = "interop/webrtc_signaling_captp/driver.zig",
             .imports = .{ .webrtc_common = true },
@@ -334,13 +334,13 @@ pub fn register(ctx: Context) Registered {
     // its sidecar-linked binary is installed by its own step.
     const webrtc_answerer_install = addStdioPeer(ctx, webrtc_resident_mod, webrtc_common_mod, sidecar_archive, .{
         .step_name = "webrtc-answerer",
-        .description = "Build the Zig answerer the webrtc-browser-peer proof and the binding dial proofs reach (ADR-0089, needs cargo)",
+        .description = "Build the Zig answerer the webrtc-browser-peer proof and the binding dial proofs reach (ADR-0035, needs cargo)",
         .exe_name = "glowcap-webrtc-answerer",
         .root_source = "interop/webrtc_browser_peer/answerer.zig",
     });
     const webrtc_offerer_install = addStdioPeer(ctx, webrtc_resident_mod, webrtc_common_mod, sidecar_archive, .{
         .step_name = "webrtc-offerer",
-        .description = "Build the Zig offerer the binding listen proofs accept (ADR-0232, needs cargo)",
+        .description = "Build the Zig offerer the binding listen proofs accept (ADR-0035, needs cargo)",
         .exe_name = "glowcap-webrtc-offerer",
         .root_source = "interop/webrtc_driver_provider/offerer.zig",
     });
@@ -348,13 +348,13 @@ pub fn register(ctx: Context) Registered {
     const browser_proofs = [_]BrowserProof{
         .{
             .step_name = "webrtc-browser-peer",
-            .description = "Prove a real headless Chromium runs @glowcap/web + @glowcap/webrtc: a DataChannel to the Zig answerer carries a keyed OCapN session (ADR-0089, needs cargo + deno + a Playwright Chromium)",
+            .description = "Prove a real headless Chromium runs @glowcap/web + @glowcap/webrtc: a DataChannel to the Zig answerer carries a keyed OCapN session (ADR-0035, needs cargo + deno + a Playwright Chromium)",
             .script = "interop/webrtc_browser_peer/browser_peer_test.ts",
             .needs_answerer = true,
         },
         .{
             .step_name = "webrtc-browser-to-browser",
-            .description = "Prove two real headless Chromium peers hold a keyed OCapN session over a direct WebRTC DataChannel, one dialing through the WebRTC connector and the other accepting through the WebRTC listener, the signaling host out of the byte path (ADR-0089, needs deno + a Playwright Chromium)",
+            .description = "Prove two real headless Chromium peers hold a keyed OCapN session over a direct WebRTC DataChannel, one dialing through the WebRTC connector and the other accepting through the WebRTC listener, the signaling host out of the byte path (ADR-0035, needs deno + a Playwright Chromium)",
             .script = "interop/webrtc_browser_to_browser/browser_to_browser_test.ts",
         },
     };
@@ -398,7 +398,7 @@ pub fn register(ctx: Context) Registered {
     }
 
     // libglowcap_net_transport_webrtc: the WebRTC transport's public C ABI
-    // companion (ADR-0089). Like the iroh companion it links the Rust
+    // companion (ADR-0035). Like the iroh companion it links the Rust
     // sidecar and exports only its own `glowcap_webrtc_*` family, sharing the
     // base ABI by layout, so it is a sibling of `check` (needs cargo). The
     // header generator and its staleness check are the root's
@@ -427,7 +427,7 @@ pub fn register(ctx: Context) Registered {
     common.checkArchiveTls(ctx.b, webrtc_abi_shared, &webrtc_abi_install.step);
     common.checkArchiveResident(ctx.b, webrtc_abi_shared, &webrtc_abi_install.step);
     const webrtc_abi_header_install = b.addInstallHeaderFile(b.path("include/glowcap_net_transport_webrtc.h"), "glowcap_net_transport_webrtc.h");
-    const webrtc_abi_step = b.step("webrtc-abi", "Build libglowcap_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0089, needs cargo)");
+    const webrtc_abi_step = b.step("webrtc-abi", "Build libglowcap_net_transport_webrtc, the WebRTC transport's public C ABI companion (ADR-0035, needs cargo)");
     webrtc_abi_step.dependOn(&webrtc_abi_install.step);
     webrtc_abi_step.dependOn(&webrtc_abi_header_install.step);
     if (target.result.ofmt == .elf) {

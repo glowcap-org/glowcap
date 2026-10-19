@@ -4,7 +4,7 @@
    cannot drift from the implementation.
 
    The onion transport's public C ABI: a separate archive
-   (libglowcap_net_transport_onion) from libglowcap_ocapn (ADR-0059). It is
+   (libglowcap_net_transport_onion) from libglowcap_ocapn (ADR-0022). It is
    a companion, not a superset: it exports only the glowcap_onion_* family
    and shares no core symbol with libglowcap_ocapn, so a consumer links
    BOTH archives and includes BOTH headers. The shared frame, peer, and
@@ -43,7 +43,7 @@ extern "C" {
    that service forwards to, so nothing here reports a proved peer. And an
    accepted circuit carries no client identity at all, because Tor tells a
    hidden service nothing about who dialed it, so a partner's claimed location
-   on this side is unverified. ADR-0108 derives both.
+   on this side is unverified. ADR-0042 derives both.
 
    Otherwise the shape is the TCP transport's (glowcap_net_transport_tcp.h):
    the host owns the peer, and this family shuttles whole frames. Every call

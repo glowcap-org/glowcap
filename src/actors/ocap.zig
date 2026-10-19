@@ -5,7 +5,7 @@
 //! reference the holder has, local *or* far. That is the point: handing a
 //! partner an attenuated or revocable view of a capability you imported over the
 //! wire is the core move of capability networking, and these make the two
-//! commonest shapes one call (ADR-0064). They compose, put a caretaker over an
+//! commonest shapes one call (ADR-0016). They compose, put a caretaker over an
 //! attenuator's proxy for a revocable, read-only view, because each is just an
 //! actor whose handle forwards (or refuses) and whose proxy is an ordinary
 //! `Ref` you delegate like any other.

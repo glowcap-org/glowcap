@@ -1,4 +1,4 @@
-//! In-tree command tree: parse, scoped help, completion metadata (ADR-0084).
+//! In-tree command tree: parse, scoped help, completion metadata (ADR-0032).
 const std = @import("std");
 const Ctx = @import("../ctx.zig").Ctx;
 const exit_codes = @import("../exit_codes.zig");

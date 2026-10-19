@@ -12,7 +12,7 @@ import { IROH_RELAY_DIAL_ALLOWANCE_MS } from "./relay_budget.ts";
 // The relay accepts this socket first and dials the far endpoint only after, so
 // from the browser's side that dial and the handshake are one serial wait on
 // one channel. A relay that stages its iroh dial through the driver loop spends
-// the runtime's `GLOWCAP_DISCOVERY_DIAL_*` retry budget (ADR-0193) before a
+// the runtime's `GLOWCAP_DISCOVERY_DIAL_*` retry budget (ADR-0018) before a
 // single byte moves, so the caller's handshake bound is widened by that budget
 // here. Otherwise a dial that is still working reads as
 // a silent partner.
@@ -51,7 +51,7 @@ export class IrohServer {
  * socket's behalf. A caller that asked for no bound still gets none.
  *
  * The session is told that the far end holds `nodeId`
- * (`Session.bindVerifiedChannelKey`, ADR-0105). The FFI arm reads that off
+ * (`Session.bindVerifiedChannelKey`, ADR-0028). The FFI arm reads that off
  * the QUIC connection it opened; here the relay opened it, and iroh completes a
  * dial only against the endpoint it was asked for, so the fact is the relay's
  * and this passes it on. It rests on the relay being the one the page was

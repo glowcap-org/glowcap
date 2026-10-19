@@ -134,7 +134,7 @@ def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
     # The local arm of `send`: run the hosted behavior on first observation
     # and settle from its result. A `Forward` to another object this side
     # hosts composes in process; a `Forward` to a far target defers onto
-    # session.send's wire reply (ADR-0064); a raise settles broken with the
+    # session.send's wire reply (ADR-0016); a raise settles broken with the
     # behavior's own words.
     async def begin():
         try:
@@ -359,7 +359,7 @@ def _turn_spawn(turn: int, ctx_id: int) -> int:
 
 
 def _caretaker_proxy(spawn, target: Ref) -> "Caretaker":
-    # ADR-0064 caretaker: spawn a proxy that forwards to `target` until
+    # ADR-0016 caretaker: spawn a proxy that forwards to `target` until
     # revoke(), then breaks every call Revoked.
     live = [True]
 
@@ -372,7 +372,7 @@ def _caretaker_proxy(spawn, target: Ref) -> "Caretaker":
 
 
 def _attenuate_proxy(spawn, target: Ref, verbs: list) -> Ref:
-    # ADR-0064 attenuator: spawn a proxy that forwards only allow-listed
+    # ADR-0016 attenuator: spawn a proxy that forwards only allow-listed
     # verbs and breaks every other call Attenuated.
     allowed = set(verbs)
 
@@ -513,7 +513,7 @@ def _publish_hosted(session, name: str, behavior) -> Ref:
 
 
 class Caretaker:
-    """A revocable caretaker over a capability (ADR-0064), returned by
+    """A revocable caretaker over a capability (ADR-0016), returned by
     :meth:`Session.caretaker`. Hand :attr:`proxy` to a partner. Call
     :meth:`revoke` to sever it, after which every call through the proxy breaks
     with ``Revoked``."""

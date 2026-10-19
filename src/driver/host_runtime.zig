@@ -1,4 +1,4 @@
-//! The owning host face (ADR-0090): a blocking, poll-multiplexed embedding of
+//! The owning host face (ADR-0018): a blocking, poll-multiplexed embedding of
 //! the sans-io `driver_core.Host`, the Zig sibling of the byte-fed pump
 //! every binding runs on its own event loop.
 //!
@@ -75,7 +75,7 @@ pub const HostRuntime = struct {
     turn_ms: ?i64 = null,
     /// The sans-io host, behind one stable pointer. `init` allocates it and
     /// `deinit` frees it, so this face stays the owner. The pointer shape is
-    /// what lets an embedding owner hold the core elsewhere (ADR-0112).
+    /// what lets an embedding owner hold the core elsewhere (ADR-0024).
     core: *driver_core.Host,
     /// One provider registry for dial and listen dispatch. Entries carry the
     /// Host-owned canonical symbol and a multiplexed-resident index. Concrete provider contexts remain borrowed
@@ -134,7 +134,7 @@ pub const HostRuntime = struct {
     /// Runtime cleanup, but terminality is Runtime policy and every later
     /// application operation observes this one sticky concrete cause.
     terminal_failure: ?OperationFailure = null,
-    /// The multiplexed runtimes this host dials and accepts through (ADR-0112).
+    /// The multiplexed runtimes this host dials and accepts through (ADR-0024).
     /// Each runtime handle is borrowed and
     /// its `ctx` and vtable must outlive registration.
     residents: std.ArrayListUnmanaged(RegisteredResident) = .empty,
@@ -169,7 +169,7 @@ pub const HostRuntime = struct {
     /// descriptor-conflict detection and `unwatchFd` have one lifecycle path
     /// whether or not a ready set mirrors them.
     listener_fds: std.ArrayListUnmanaged(i32) = .empty,
-    /// The off-turn settle mailbox (ADR-0102 stage 4), minted on first
+    /// The off-turn settle mailbox (ADR-0014 stage 4), minted on first
     /// request. Its wake fd rides every readiness wait beside the wires.
     mailbox: ?*settle_mailbox.SettleMailbox = null,
     /// Which resident the next readiness wait polls first. A poll reports the
@@ -188,13 +188,13 @@ pub const HostRuntime = struct {
     /// Which face drives this runtime, chosen once at construction through
     /// `Options.drive` and never changed. The blocking Zig face waits
     /// through `net.waitAnyReadable` and observes vows in-process through
-    /// captures. The stepped face (ADR-0112) carries the aggregate readiness
+    /// captures. The stepped face (ADR-0024) carries the aggregate readiness
     /// set an embedder parks on and the two recipients it publishes through.
     /// Every site that services one face names the other's arm as empty, so
     /// the code says which half is unreachable in Zig.
     drive: Drive,
     /// Session opens advancing across pump iterations instead of blocking one
-    /// (ADR-0112): embedder dials, redeem dials, and accepts share the same
+    /// (ADR-0024): embedder dials, redeem dials, and accepts share the same
     /// handshake lifecycle. Heap rows stay stable when an outcome callback
     /// stages another open during the sweep. Admission lives separately
     /// because blocking opens consume the same bound without owning a row.
@@ -260,7 +260,7 @@ pub const HostRuntime = struct {
         }
     };
 
-    /// The stepped face's state (ADR-0112). All three are installed together,
+    /// The stepped face's state (ADR-0024). All three are installed together,
     /// before any wire exists, so none is optional here: every resident
     /// readiness fd, mailbox wake fd, and watched extra fd is
     /// mirrored into `ready_set` from the moment it appears, every wire

@@ -228,7 +228,7 @@ async fn a_mid_turn_driving_verb_breaks_its_own_answer() {
 // A behavior that drops its own captured `Session` mid-turn requests the
 // shared cancel policy without freeing the `Box<ActorCell>` whose behavior
 // frame is still on the stack. The cancel takes effect when the turn returns
-// (ADR-0114), so the turn's own reply stands and later calls see the close.
+// (ADR-0030), so the turn's own reply stands and later calls see the close.
 #[tokio::test]
 async fn a_behavior_closing_its_own_connection_mid_local_send_parks_the_release() {
 	let local = LocalSet::new();

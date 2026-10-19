@@ -112,7 +112,7 @@ pub fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) 
         // the same feed turn.
         if (session.isTerminating()) return true;
         // Onion accepts defer their hello until the initiator's profile arrives
-        // (ADR-0118); other transports have already sent theirs.
+        // (ADR-0042); other transports have already sent theirs.
         if (session.role == .accepted and
             !session.served.port.peer.session_state.handshake_local_sent)
         {

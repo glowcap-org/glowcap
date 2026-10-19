@@ -19,7 +19,7 @@ const outbound = @import("../outbound.zig");
 
 const Peer = engine.Peer;
 
-/// One inbound `withdraw-gift` parked until its gift is deposited (ADR-0100).
+/// One inbound `withdraw-gift` parked until its gift is deposited (ADR-0039).
 /// Owns `receive`. Freed when the withdrawal settles or at Peer teardown.
 pub const PendingWithdraw = struct {
     receive: bootstrap.PendingReceive,

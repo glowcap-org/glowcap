@@ -189,7 +189,7 @@ fn drainNodeAction(self: *Host) !bool {
 }
 
 /// Move the peeked Node action off the shared queue into `recipient`'s parked
-/// row (ADR-0145): the recipient's outbound pressure is that partner's flow
+/// row (ADR-0017): the recipient's outbound pressure is that partner's flow
 /// control, and the queue behind it belongs to other sessions. Every fallible
 /// step precedes the take, including the queue seat the action returns to, so
 /// a refusal here leaves the action at the queue head and this pass ends on
@@ -251,7 +251,7 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !ActionOutcome {
             // Unparseable gives never reach a dial action (acceptGive fails
             // them). Pre-flight reuses an already-open Host session the Node
             // identity cache may have missed (earlier app dial, accepted
-            // inbound hello). ADR-0012 session-pair uniqueness would refuse a
+            // inbound hello). ADR-0007 session-pair uniqueness would refuse a
             // duplicate dial and break the redeem.
             const view = self.node.pendingDial(d.pending, d.route_index) orelse return .done;
             const locator = view.locator;
@@ -419,7 +419,7 @@ pub fn retireTransportClosed(self: *Host, session: *HostSession, reason: []const
     return retireQuietly(self, session, reason);
 }
 
-/// Retire a session whose sealed channel refused (ADR-0107): a handshake or
+/// Retire a session whose sealed channel refused (ADR-0041): a handshake or
 /// record that did not verify. There may be no CapTP session at all yet, and
 /// after one opens no plaintext byte may follow the failure, so no `op:abort`
 /// is manufactured in either case. The embedder is told to close the transport
@@ -512,7 +512,7 @@ pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, messag
     const hold = self.callback_latch.hold();
     defer hold.release();
     // Drop uniqueness-index rows immediately so a condemned session cannot
-    // squat dial / partner-key slots while its abort drains (ADR-0012).
+    // squat dial / partner-key slots while its abort drains (ADR-0007).
     self.unindexSession(session);
     // Encode the terminal frame and close the Peer in one operation. If encode
     // fails, close explicitly: authority retirement cannot depend on whether

@@ -45,7 +45,7 @@ pub const Error = error{
     /// `op:start-session` event for the keyed path to verify.
     MissingStartSessionEvent,
     /// The partner's `acceptable_location_sig` failed to verify against the
-    /// claimed `session_pubkey` over the canonical signed bytes (ADR-0006).
+    /// claimed `session_pubkey` over the canonical signed bytes (ADR-0002).
     /// Keyed path only.
     InvalidStartSessionSignature,
     /// The two offers share no codec, negotiation produced no session
@@ -221,7 +221,7 @@ fn pairedWithLimitsInternal(
 
 /// Construct a paired pair and drive the handshake with real Ed25519 material
 /// derived from the two caller-supplied seeds. Each side signs the
-/// canonical `<my-location $acceptable-location>` bytes (ADR-0006). As each
+/// canonical `<my-location $acceptable-location>` bytes (ADR-0002). As each
 /// peer's inbound `op:start-session` event is drained, the partner signature it
 /// carries is verified against the *decoded* frame view (zero-copy), so what
 /// gets checked is the real round-trip from encoding through the wire to
@@ -232,7 +232,7 @@ pub fn pairedWithKeys(
     p1_seed: [crypto.seed_bytes]u8,
     p2_seed: [crypto.seed_bytes]u8,
 ) !Pair {
-    // Keyed handshake is the authenticated `"1.0"` interop path (ADR-0006,
+    // Keyed handshake is the authenticated `"1.0"` interop path (ADR-0002,
     // the one live Goblins interop rides): `v1_0` + Syrup. glowcap CapNP
     // keyed pairs go through `pairedWithOffers`
     // + `sendKeyedStartSession`.

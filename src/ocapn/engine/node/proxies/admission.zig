@@ -111,7 +111,7 @@ pub const Prepared = struct {
         self.commitAs(node, false);
     }
 
-    /// Commit for a send inside an open provisional window (ADR-0194), and
+    /// Commit for a send inside an open provisional window (ADR-0058), and
     /// append one receipt per recipient so the window's outcome can keep or
     /// withdraw it. `receipts` has room for every recipient.
     pub fn commitProvisional(

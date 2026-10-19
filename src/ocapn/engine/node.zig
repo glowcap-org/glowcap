@@ -1,4 +1,4 @@
-//! `Node`: the sans-io cross-session handoff router (ADR-0066 / ADR-0079).
+//! `Node`: the sans-io cross-session handoff router (ADR-0026 / ADR-0011).
 //!
 //! A `Node` is the **router half** of Goblins' `mycapn`: the tables distinct from
 //! a per-partner CapTP session. The multi-session CapTP **endpoint** (identity +
@@ -7,11 +7,11 @@
 //! acceptable location,
 //! the set of `engine.Peer`s it routes between (keyed by an integer `peer_handle`),
 //! a live-session directory that lets a recipient-session withdraw reach the
-//! gifter session's `GiftRegistry` (ADR-0100), and the two routing
+//! gifter session's `GiftRegistry` (ADR-0039), and the two routing
 //! tables that make three-party handoff transparent: `redeemed` routes to
 //! exporter sessions that host handed-off capabilities, while
 //! `foreign_imports` routes fetched capabilities to their home sessions and
-//! real wire references (ADR-0069). Both are keyed by the typed, Node-local
+//! real wire references (ADR-0026). Both are keyed by the typed, Node-local
 //! identity carried in `Reference.routed`, never a synthetic wire position.
 //!
 //! It is **sans-io**: it owns no sockets and no event loop. The embedder keeps
@@ -21,7 +21,7 @@
 //! `peer_handle` or owned bytes, so the router is pure data, which is why it
 //! lives here in the sync, no-I/O engine core (not the I/O-bearing driver layer)
 //! instead of being reimplemented per binding, and why the sans-io
-//! `libglowcap_ocapn` archive can project it (ADR-0066). The vat (turn loop,
+//! `libglowcap_ocapn` archive can project it (ADR-0026). The vat (turn loop,
 //! promise resolution, behavior dispatch) stays above the node. The standard
 //! `driver_core.Host` owns one beside the Node, while embedders still own the
 //! scheduler and transport policy above this core boundary.
@@ -71,7 +71,7 @@ const Route = peer_routes.Route;
 
 const PeerSlot = peer_membership.Slot;
 
-/// How a session's own signing key is obtained (ADR-0097).
+/// How a session's own signing key is obtained (ADR-0028).
 ///
 /// A `desc:handoff-give` names the gifter-exporter *session*, and its
 /// signature must therefore be made by that session's key. The node holds one
@@ -98,7 +98,7 @@ pub const Node = struct {
     };
 
     /// Max third parties one introducing-session proxy row will introduce to a
-    /// single home promise (ADR-0009).
+    /// single home promise (ADR-0039).
     ///
     /// The recipient side drives this count, it asks, and the application
     /// answers each time with the same foreign promise, while the *home* side
@@ -119,7 +119,7 @@ pub const Node = struct {
     /// session identity through `sessionSecret`. `SecretKey.seed` recovers the
     /// 32 bytes it was built from, so they are not stored twice.
     secret: crypto.SecretKey,
-    /// The root of every session's wire-hash multiplier (ADR-0218), derived
+    /// The root of every session's wire-hash multiplier (ADR-0037), derived
     /// from the identity seed under its own domain. Handed to each session
     /// at registration beside its export range, so no posture carries it.
     wire_hash_secret: u64,
@@ -141,7 +141,7 @@ pub const Node = struct {
     /// its out-of-order deposit exists. Node-wide, so it costs no bytes per
     /// registered Peer.
     gifter_session_resolver: ?engine.bootstrap.gifts.GifterSessionResolver = null,
-    /// How a session's own signing key is obtained (ADR-0097). A handoff
+    /// How a session's own signing key is obtained (ADR-0028). A handoff
     /// record names a session, so the layer above supplies that session's key.
     /// A standalone Node falls back to its durable key.
     session_secret_resolver: ?SessionSecretResolver = null,
@@ -194,7 +194,7 @@ pub const Node = struct {
     /// the explicit
     /// `Reference.routed` arm, never a synthetic wire import.
     redeemed: std.AutoHashMapUnmanaged(model.CapabilityRouteId, Route) = .empty,
-    /// A fetched far import enrolled under a node-unique route id (ADR-0069), so two
+    /// A fetched far import enrolled under a node-unique route id (ADR-0026), so two
     /// imports at the same wire position on different CapTP sessions never collide.
     /// The `Route` names the home session and the real `far(position)` to
     /// address there, the same shape a redeemed route uses. Sends route through
@@ -202,7 +202,7 @@ pub const Node = struct {
     /// `removePeer`. Ids are drawn from the shared `next_route_id` counter, so a
     /// given id is in `redeemed` or here, never both.
     foreign_imports: std.AutoHashMapUnmanaged(model.CapabilityRouteId, Route) = .empty,
-    /// Latches true the first time this node mints a capability route (ADR-0069),
+    /// Latches true the first time this node mints a capability route (ADR-0026),
     /// and stays true thereafter. It is the gate each registered peer reads before
     /// walking an outbound message to lower routes (`Peer.node_services`): a node that
     /// never fetches a foreign capability leaves it false, so every send skips the
@@ -232,7 +232,7 @@ pub const Node = struct {
     /// Reserved host effects and their borrowed drain, inline in the Node.
     actions: node_actions.State = .{},
     /// Introducing-session foreign-promise proxies keyed by home wire import
-    /// (ADR-0009). Rows are only inserted once the home `op:listen` is armed.
+    /// (ADR-0039). Rows are only inserted once the home `op:listen` is armed.
     promise_proxies: proxy_topology.Proxies = .empty,
     /// Home listener export → home-wire key, for O(1) fire dispatch.
     proxy_by_listener: proxy_topology.ByListener = .empty,
@@ -324,7 +324,7 @@ pub const Node = struct {
     }
 
     /// Install the seam that answers "what key does this session sign with"
-    /// (ADR-0097). The Host installs it once. A standalone node without one
+    /// (ADR-0028). The Host installs it once. A standalone node without one
     /// signs with its durable key.
     pub fn setSessionSecretResolver(self: *Node, resolver: SessionSecretResolver) void {
         self.session_secret_resolver = resolver;
@@ -349,7 +349,7 @@ pub const Node = struct {
 
     /// The key `peer_handle`'s session signs handoff records with: the session's
     /// own where a resolver knows it, else the node's durable key. The one
-    /// place that fallback is expressed, so ADR-0097's fresh-key switch has a
+    /// place that fallback is expressed, so ADR-0028's fresh-key switch has a
     /// single seam rather than a search for `secretKey()` call sites.
     fn sessionSecret(self: *const Node, peer_handle: PeerHandle) ?crypto.SecretKey {
         const resolver = self.session_secret_resolver orelse return self.secretKey();

@@ -397,7 +397,7 @@ shows no population-dependent dispatch cost and does not explain Rooms latency.
 Linux aarch64 ReleaseFast counts used `-- --collection-only`, a fixed rooted
 chain of 1,024 records, 256 unreachable records and the Volatile backend.
 Both runs measured Loam as of `bff23df19`. The changed source adds the
-[cycle-owned custody journal](../../docs/decisions/adr/ADR-0189-loam-collection-custody-admission.md),
+[cycle-owned custody journal](../../docs/decisions/adr/ADR-0050-transactional-reclamation.md),
 which landed in `5f164b992`. Neither run measures LMDB or elapsed time.
 
 | Held roots | Work limit | Commits, before / after | Submitted IDs, before / after | Root key hash bytes, before / after | Preparation allocations, before / after |

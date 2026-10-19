@@ -342,7 +342,7 @@ more between runs, so only the echo row is a claim.
 increasing connection counts. The server and load generator are separate
 processes with 32 shards each. Each server shard is a `HostRuntime` serving
 TCP through a completion resident
-([ADR-0202](../docs/decisions/adr/ADR-0202-stream-transports-join-hostruntime-as-a-completion-resident.md)).
+([ADR-0018](../docs/decisions/adr/ADR-0018-one-host-io-runtime.md)).
 Every client signs its own session and fetches a published capability before
 the barrier opens, and all sessions stay open while RSS is sampled.
 

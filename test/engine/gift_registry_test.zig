@@ -345,7 +345,7 @@ test "a re-deposit after withdrawal re-arms the gift" {
     try std.testing.expect(!registry.giftLive("gift-1"));
 }
 
-test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
+test "deposited gifts are bounded by max_deposited_gifts (ADR-0008)" {
     const allocator = std.testing.allocator;
     var registry: GiftRegistry = .{};
     defer registry.deinit(allocator, null);

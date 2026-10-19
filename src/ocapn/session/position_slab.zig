@@ -6,7 +6,7 @@
 //! the vector grows only as far as the positions open at once. A
 //! partner-chosen position (an import, an inbound answer) never comes here:
 //! an untrusted peer could name `1 << 63`, so those tables hash under a
-//! secret (ADR-0223). ADR-0254 settles the shape and the stamped identity a
+//! secret (ADR-0037). ADR-0038 settles the shape and the stamped identity a
 //! reader keeps across a position's reuse.
 //!
 //! A reused position is a new row. A holder that keeps a position past its

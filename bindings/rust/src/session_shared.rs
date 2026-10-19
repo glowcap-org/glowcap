@@ -62,7 +62,7 @@ impl TryFrom<&Argument> for Ref {
 	}
 }
 
-/// A revocable caretaker over a capability (ADR-0064), returned by
+/// A revocable caretaker over a capability (ADR-0016), returned by
 /// [`crate::Session::caretaker`]. Hand [`proxy`](Caretaker::proxy) to a partner. Call
 /// [`revoke`](Caretaker::revoke) to sever it, after which every call through the
 /// proxy breaks with `Revoked`.
@@ -104,7 +104,7 @@ pub(crate) struct SessionShared {
 	pub(super) channel_close: RefCell<Option<Box<dyn crate::ChannelClose>>>,
 	pub(super) channel_close_started: Cell<bool>,
 	pub(super) channel_retiring: Cell<bool>,
-	// The driver loop that owns this session's wire and its release (ADR-0112),
+	// The driver loop that owns this session's wire and its release (ADR-0024),
 	// or `None` for a byte-fed session this binding pumps itself. A loop-backed
 	// session has no byte pump: the loop reads, feeds, and flushes inside its
 	// steps, and `glowcap_driver_session_release` is its one release verb.
@@ -199,7 +199,7 @@ impl SessionShared {
 		shared
 	}
 
-	/// The loop-backed shell (ADR-0112): a real `GlowcapHostSession` the FFI
+	/// The loop-backed shell (ADR-0024): a real `GlowcapHostSession` the FFI
 	/// loop minted (dial, accept, or an internal redeem), with no byte halves:
 	/// the loop owns the wire, the pumping, and the release. Registered in the
 	/// host's session directory like any other shell, so the loop's
@@ -494,7 +494,7 @@ impl SessionShared {
 		self.host.schedule_kick()
 	}
 
-	// ── Distributed GC (ADR-0063), on by default and set per Host ──────────────
+	// ── Distributed GC (ADR-0025), on by default and set per Host ──────────────
 
 	// Drain the parked GC releases: see [`crate::gc::drain`].
 	pub(crate) fn drain_gc(&self) -> Result<()> {

@@ -494,7 +494,7 @@
 
 ;; ── Sturdyref enliven: durable (peer, swissnum) brought to life, then cached ──
 ;; The swissnum keys the bootstrap fetch, so a host publish under that name
-;; answers the enliven (ADR-0012). The client enlivens a sturdyref, calls the
+;; answers the enliven (ADR-0007). The client enlivens a sturdyref, calls the
 ;; live capability, then enlivens the same swissnum again and gets the cached
 ;; reference with no new wire fetch.
 (define en-server (listen "127.0.0.1" 0))
@@ -554,7 +554,7 @@
 (define en-listened (session-await en-session en-observation))
 (expect (ref? en-listened) "listen: the vow settles naming the capability")
 
-;; Host-level select-or-dial enliven (ADR-0098). SELECT: the sturdyref names
+;; Host-level select-or-dial enliven (ADR-0007). SELECT: the sturdyref names
 ;; a peer this host already dialed, so the enliven rides `en-session` and the
 ;; capability answers there.
 (define hs-cap

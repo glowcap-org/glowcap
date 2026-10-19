@@ -1,5 +1,5 @@
-//! What Syrup decode does with room lent for the argument tree (ADR-0222,
-//! ADR-0231): a sequence that fits is parsed once into the views, nested
+//! What Syrup decode does with room lent for the argument tree (ADR-0063,
+//! ADR-0063): a sequence that fits is parsed once into the views, nested
 //! sequences included, a longer one drops what it pushed and stays
 //! wire-backed, and a malformed element is refused the same way either way.
 //! The views and the wire backing read the same message.

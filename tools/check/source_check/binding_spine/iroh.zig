@@ -10,7 +10,7 @@ const fileContains = util.fileContains;
 const containsAsSymbol = util.containsAsSymbol;
 const extractBraceBlock = util.extractBraceBlock;
 
-/// Apex for ADR-0076 iroh convergence: CapTP fan-out must not re-grow inside
+/// Apex for ADR-0018 iroh convergence: CapTP fan-out must not re-grow inside
 /// the iroh resident. The resident supplies the netlayer + completion
 /// `Backend` only, serving is `driver.HostRuntime` + Host. A reintroduced
 /// `LoopHost` / `driver_core` / `actors` import fails the gate instead of

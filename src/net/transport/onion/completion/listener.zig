@@ -7,7 +7,7 @@
 //! undetached-service lifetime rule, so closing the listener withdraws the
 //! service. One backend publishes one service.
 //!
-//! The publish conversation is a pending setup (ADR-0193): `open` binds the
+//! The publish conversation is a pending setup (ADR-0018): `open` binds the
 //! inner listener and starts the control dial, and the conversation advances
 //! one stage per completion on the adapter's own poll turns. It never blocks
 //! the loop. `pending` reports an unfinished setup, `submitReady` completes

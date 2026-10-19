@@ -1,7 +1,7 @@
 //! The iroh transport's public C ABI, a host-driven netlayer boundary for C,
 //! the encrypted-QUIC sibling of the blocking TCP endpoints.
 //!
-//! This is a *separate artifact* from `libglowcap_ocapn` (ADR-0055): it links the
+//! This is a *separate artifact* from `libglowcap_ocapn` (ADR-0021): it links the
 //! Rust iroh sidecar, so folding it into the pure-Zig core would drag cargo
 //! into every consumer of the protocol library. The artifact
 //! (`libglowcap_net_transport_iroh`) is a *companion*, not a superset: it imports only the
@@ -12,7 +12,7 @@
 //! shared types by layout, exactly as a C program including both headers does.
 //! The core archives never import this file and stay cargo-free.
 //!
-//! There is one I/O model (ADR-0057): an event-driven readiness loop, armed at
+//! There is one I/O model (ADR-0019): an event-driven readiness loop, armed at
 //! construction, that serves many connections from one host thread. The netlayer
 //! hands back a single OS readiness fd (`glowcap_iroh_netlayer_readiness_fd`) the
 //! host parks on with its own poller. When it signals,
@@ -31,7 +31,7 @@
 //! endpoint resolves the partner by id alone.
 //!
 //! Those same calls are the raw byte channel a byte-transparent relay needs for
-//! an iroh leg (ADR-0086). One leg composes `glowcap_iroh_netlayer_new`, its
+//! an iroh leg (ADR-0033). One leg composes `glowcap_iroh_netlayer_new`, its
 //! `readiness_fd` and `drain_ready`, the `_start_connect` /
 //! `_finish_connect` lifecycle, `glowcap_iroh_conn_try_read` /
 //! `glowcap_iroh_conn_try_write`, then `glowcap_iroh_conn_release` and
@@ -66,7 +66,7 @@ const provider = @import("provider.zig");
 // `c_abi` root. Importing the leaf gives this transport ABI the same frame and
 // context types `glowcap_ocapn.h` declares, with its own compiled copy of the helpers
 // and last-error slot, and pulls *none* of libglowcap_ocapn's exported `glowcap_*`
-// surface. That is the companion split (ADR-0055): `libglowcap_net_transport_iroh` carries
+// surface. That is the companion split (ADR-0021): `libglowcap_net_transport_iroh` carries
 // only the `glowcap_iroh_*` family and shares core types by layout, exactly as
 // a C consumer that includes both `glowcap_ocapn.h` and `glowcap_net_transport_iroh.h` does.
 const c = @import("c_abi_shared");

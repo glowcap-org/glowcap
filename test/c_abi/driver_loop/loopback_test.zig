@@ -1,4 +1,4 @@
-//! The headline loopback (ADR-0112): two stepping loops carry listen, dial,
+//! The headline loopback (ADR-0024): two stepping loops carry listen, dial,
 //! fetch, settle, and hangup over real TCP. One thread can step both ends of
 //! a nonblocking handshake. Session handles outlive driver close until
 //! explicit release. Callbacks may not re-enter a session release.
@@ -134,7 +134,7 @@ fn serverBody(shared: *ServerShared) !void {
     try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cdrv.glowcap_driver_next_event(loop, &event));
 }
 
-test "two stepping loops carry listen, dial, fetch, settle, and hangup over loopback TCP (ADR-0112)" {
+test "two stepping loops carry listen, dial, fetch, settle, and hangup over loopback TCP (ADR-0024)" {
     var shared = ServerShared{};
     const server_thread = try std.Thread.spawn(.{}, serverMain, .{&shared});
     var joined = false;
@@ -211,7 +211,7 @@ test "two stepping loops carry listen, dial, fetch, settle, and hangup over loop
     try std.testing.expectEqual(c.GLOWCAP_ERR_WOULD_BLOCK, cdrv.glowcap_driver_next_event(client, &event));
 }
 
-test "two loops stepped by one thread dial each other: the nonblocking handshake advances across steps (ADR-0112)" {
+test "two loops stepped by one thread dial each other: the nonblocking handshake advances across steps (ADR-0024)" {
     const owned_server = try newLoop(0x44);
     defer owned_server.deinit();
     const server = owned_server.raw;

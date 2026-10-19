@@ -5,6 +5,11 @@ The maintainer builds it with AI coding assistants, authors every commit,
 directs the work, and is answerable for what lands. There is no earlier,
 human-only codebase. The first commit is from June 2026.
 
+The prerelease Git history and decision records were consolidated before
+publication. Commits preserve development checkpoints rather than every
+intermediate edit. Historical measurements retain the revision identifiers
+recorded when they ran.
+
 `Co-Authored-By: Claude` and `Co-authored-by: Cursor` trailers support this
 account but do not complete it, because different tools emit different
 trailers and some emit none.

@@ -1,4 +1,4 @@
-//! Owning-tier actor reclamation (ADR-0101): releasing the last application
+//! Owning-tier actor reclamation (ADR-0014): releasing the last application
 //! handle of a spawned capability reclaims its actor while the session stays
 //! open, before Host teardown, and the `Hosting` adapter forwards the
 //! behavior's state deinit so the reclaim is observable. The Vat-tier root

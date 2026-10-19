@@ -1,4 +1,4 @@
-// @glowcap/web: the browser entry for the glowcap runtime (ADR-0070).
+// @glowcap/web: the browser entry for the glowcap runtime (ADR-0034).
 //
 // A browser tab becomes a real OCapN peer: the same sans-io protocol core the
 // FFI archives link, compiled to wasm32 (`zig build wasm-driver` →
@@ -71,7 +71,7 @@ export interface WebInitOptions extends WebRuntimeOptions {
 	 * Without it, dialing an FFI-only locator refuses. Cold-dialing a
 	 * `keyed-relay` peer is not configured here: its locator carries the relay
 	 * route in its `rendezvous-relay` hint, which the `@glowcap/relay`
-	 * connector follows (ADR-0088). */
+	 * connector follows (ADR-0034). */
 	relayUrl?: (locator: string) => string;
 }
 
@@ -94,7 +94,7 @@ const injected_adapter_key = Symbol.for("glowcap.runtime.adapter");
 export type { WsUrl } from "./adapter.ts";
 export { IROH_RELAY_DIAL_ALLOWANCE_MS } from "./relay_budget.ts";
 // The WebSocket byte channel and the rendezvous accept half are runtime-neutral
-// runtime surface (ADR-0088); re-exported here so a page keeps one import. The
+// runtime surface (ADR-0034); re-exported here so a page keeps one import. The
 // redeeming (dialing) side follows the locator's `rendezvous-relay` hint
 // through the `@glowcap/relay` connector, so one mechanism carries every cold
 // dial.
@@ -304,7 +304,7 @@ function browserConnectors(
 					IROH_RELAY_DIAL_ALLOWANCE_MS,
 				),
 			),
-			// An onion service id is an address, not an identity (ADR-0108), so
+			// An onion service id is an address, not an identity (ADR-0042), so
 			// the relayed channel proves no key and the session reports what the
 			// partner claims about itself.
 			new runtimeApi.Connector([TRANSPORT_ONION], viaRelay(() => null)),

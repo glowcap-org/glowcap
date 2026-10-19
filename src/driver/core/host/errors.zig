@@ -13,7 +13,7 @@ pub const HostError = error{
     OutOfMemory,
     /// The Host has crossed its close admission barrier. Existing protocol
     /// work may still be driven to its terminal barrier, but no application
-    /// operation or session open may begin after this point (ADR-0114).
+    /// operation or session open may begin after this point (ADR-0030).
     HostClosing,
     /// This session is finishing or terminating and no longer admits application
     /// operations, while protocol progress remains legal during finish.
@@ -22,7 +22,7 @@ pub const HostError = error{
     /// compact control word. The attempted operation has not committed any
     /// effect. Settle existing work and retry.
     SessionOperationLimitReached,
-    /// The session lost the crossed-hellos tiebreak (ADR-0030) and is
+    /// The session lost the crossed-hellos tiebreak (ADR-0012) and is
     /// condemned: its typed abort is queued for the embedder to drain, and no
     /// further verb may ride it.
     SessionCondemned,
@@ -46,18 +46,18 @@ pub const HostError = error{
     NoSuchResolver,
     /// A session-scoped vow verb (a listener, a pipelined send or
     /// projection, `vowSession`) was called on a resolver vow, which belongs
-    /// to no session (ADR-0102): its whole surface is the turn-scoped
+    /// to no session (ADR-0014): its whole surface is the turn-scoped
     /// forward and the resolver settle verbs.
     SessionlessVow,
     /// A turn-scoped forward-to-vow named a wire vow. A wire answer belongs to
     /// the session that minted it and settles through that session's own
-    /// machinery. Only a local resolver vow (ADR-0102) can carry a deferred
+    /// machinery. Only a local resolver vow (ADR-0014) can carry a deferred
     /// answer.
     NotALocalVow,
     /// A send argument is a capability foreign to the session the send rides,
     /// which would mis-encode the reference for that partner, or a capability
     /// appeared in a resolver settle, whose plain-data contract has no session
-    /// to home one (ADR-0102). The verb is refused whole.
+    /// to home one (ADR-0014). The verb is refused whole.
     ForeignArgument,
     /// `deferTurn` was given a turn or session not owned by this Host, or a
     /// turn whose Vat/Port/ingress provenance disagrees with that session.
@@ -77,20 +77,20 @@ pub const HostError = error{
     /// there is no verified identity to report rather than an unchecked one.
     PartnerUnverified,
     /// A locator on a key-designator transport named a durable key this host
-    /// does not hold (ADR-0105). A peer cannot publish another node's identity.
+    /// does not hold (ADR-0028). A peer cannot publish another node's identity.
     UnheldIdentity,
     /// No acceptable location has been selected. Dial targets do not supply
     /// this host's route. Adapters must publish one explicitly before opening a
-    /// session (ADR-0109).
+    /// session (ADR-0028).
     MissingAdvertisedLocator,
-    /// A CapTP session for this partner is already enrolled (ADR-0012):
+    /// A CapTP session for this partner is already enrolled (ADR-0007):
     /// dial-to-dial by our dial target, or by a durable peer identity that a
     /// matching channel proof authenticated. A partner's locator claim alone
     /// never enters the durable-peer index. Identity-routed pending dials may
     /// pass a concrete-route match only when the existing session has not
     /// authenticated the demanded key. Crossed hellos may still open an
     /// accepted session while a dial is in flight. Authenticated pairs then
-    /// keep at most one non-condemned session (ADR-0068).
+    /// keep at most one non-condemned session (ADR-0026).
     SessionPairExists,
     /// One live import position was observed under both reference kinds. The
     /// first lift established its canonical Host identity. Accepting the

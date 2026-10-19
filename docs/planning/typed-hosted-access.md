@@ -48,11 +48,11 @@ held capability. The typed client must keep that distinction visible rather
 than reuse that type's name in the same namespace.
 
 The [managed access model](../loam/access-api.md) remains the authority.
-[ADR-0185](../decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)
+[ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
 records foreign ownership and recovery.
-[ADR-0187](../decisions/adr/ADR-0187-held-scope-management-vocabulary.md)
+[ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
 records held-scope management, and
-[ADR-0227](../decisions/adr/ADR-0227-hosted-calls-create-share-and-change-several-resources.md)
+[ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md)
 records bounded tree calls. Extend these contracts where needed instead of
 reintroducing mechanisms from the earlier pseudocode.
 

@@ -85,7 +85,7 @@ pub const uri = @import("uri.zig");
 /// the strings cannot drift across the I/O ban. See `transport`.
 pub const transport = @import("transport.zig");
 
-/// One peer identity plus ordered dial paths. Handoff fallback and ADR-0125
+/// One peer identity plus ordered dial paths. Handoff fallback and ADR-0036
 /// id route-bundle locators use this owner rather than parsing URI lists at
 /// their own seams.
 pub const route_bundle = @import("route_bundle.zig");
@@ -116,12 +116,12 @@ pub const Preference = negotiated.Preference;
 /// wire/ABI boundary with `ExportPosition.from` / `.int` and friends.
 pub const ExportPosition = position.ExportPosition;
 pub const ImportPosition = position.ImportPosition;
-/// An id this node minted for a routed capability (ADR-0069). This is a
-/// separate namespace from every wire import position (ADR-0091).
+/// An id this node minted for a routed capability (ADR-0026). This is a
+/// separate namespace from every wire import position (ADR-0038).
 pub const CapabilityRouteId = position.CapabilityRouteId;
 pub const AnswerPosition = position.AnswerPosition;
-/// An answer the session synthesized for a V1.0 resolver-only call (ADR-0010)
-/// and the explicit inbound-answer name sum (ADR-0091).
+/// An answer the session synthesized for a V1.0 resolver-only call (ADR-0006)
+/// and the explicit inbound-answer name sum (ADR-0038).
 pub const VirtualAnswer = position.VirtualAnswer;
 pub const AnswerName = position.AnswerName;
 
@@ -312,7 +312,7 @@ pub const Argument = union(enum) {
     /// (`equality.structsEqualDepth`). A struct may round-trip into a different
     /// key order and stay Equal. Note: OCapN Undefined is the `.void` arm above,
     /// the `<void>` record Goblins uses for the unspecified value. OCapN Null has
-    /// no settled wire encoding and is refused at decode (ADR-0046).
+    /// no settled wire encoding and is refused at decode (ADR-0005).
     @"struct": []const StructEntry,
 };
 
@@ -478,7 +478,7 @@ pub const GcAnswer = struct {
 };
 
 /// The three-party handoff payloads (`handoff`): the gifter's signed give and
-/// the recipient's redemption of it (ADR-0009).
+/// the recipient's redemption of it (ADR-0039).
 pub const HandoffGive = handoff_types.HandoffGive;
 pub const HandoffReceive = handoff_types.HandoffReceive;
 pub const Handoff = handoff_types.Handoff;

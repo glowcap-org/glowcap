@@ -2,7 +2,7 @@
 //! `test/net/fuzz_test.zig`: a drawn input becomes a geometry and a frame
 //! list, the stream is fed in the pieces the plan names, and the oracle
 //! asserts every frame comes back whole, in order, once, with the spill
-//! bounded the way ADR-0041 promises.
+//! bounded the way ADR-0012 promises.
 
 const std = @import("std");
 const glowcap = @import("glowcap");

@@ -1,5 +1,5 @@
 """Live iroh scale proof for the Python binding: many concurrent connections
-served from one readiness loop (ADR-0057), the Python sibling of the Zig
+served from one readiness loop (ADR-0019), the Python sibling of the Zig
 ``zig build iroh-loop`` gate.
 
 The iroh netlayer has one I/O model — an event-driven readiness loop. This gate

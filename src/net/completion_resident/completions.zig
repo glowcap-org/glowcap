@@ -123,7 +123,7 @@ pub fn Machine(comptime Self: type) type {
             // one submit. A receive re-arm waits until a park. That is safe
             // because nothing can arrive for a re-armed receive until the
             // kernel has the request, and the runtime always calls
-            // `beforeWait` before it parks (ADR-0213, ADR-0220).
+            // `beforeWait` before it parks (ADR-0060).
             for (self.send_queue.items) |id| {
                 const conn = self.conns.getPtr(id) orelse continue;
                 if (!conn.send_queued) continue;

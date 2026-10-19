@@ -93,7 +93,7 @@ takes effect.
 - A cycle that follows a finished one starts with the roots. After an
   interrupted one, it first clears the old tracing rows in separate batches.
 
-[ADR-0189](../decisions/adr/ADR-0189-loam-collection-custody-admission.md)
+[ADR-0050](../decisions/adr/ADR-0050-transactional-reclamation.md)
 records these rules, and the
 [cost measurements](../../bench/loam/README.md#collection-cost) separate
 root work from tracing and commit counts.

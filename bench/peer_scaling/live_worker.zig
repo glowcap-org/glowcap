@@ -3,7 +3,7 @@
 //! The coordinator keeps server and load-side RSS distinct by spawning one
 //! process for each half, and neither gives a connection a thread of its own.
 //! The server half runs the product path: `driver.HostRuntime` shards serving
-//! TCP through a completion resident (ADR-0202). The load half drives raw
+//! TCP through a completion resident (ADR-0018). The load half drives raw
 //! `engine.Peer`s from `completion.Loop`s, because it measures nothing but must
 //! cost as little as possible. Server shards stay live until the coordinator
 //! samples them, while every client proves a signed handshake and bootstrap

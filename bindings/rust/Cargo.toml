@@ -29,7 +29,7 @@ all = { level = "deny", priority = -1 }
 undocumented_unsafe_blocks = "deny"
 
 [features]
-# The feature set mirrors glowcap's à-la-carte C ABI archives (ADR-0059): the
+# The feature set mirrors glowcap's à-la-carte C ABI archives (ADR-0022): the
 # core OCapN peer is always present, and each transport feature links exactly its
 # companion archive and compiles its module (`build.rs` emits one
 # `cargo:rustc-link-lib` per enabled feature). A consumer pays — in linked
@@ -63,14 +63,14 @@ browser = ["async", "dep:wasm-bindgen", "dep:js-sys", "dep:web-sys"]
 # Opt-in iroh transport. Links the iroh public C ABI companion library
 # (`libglowcap_net_transport_iroh`, built by `zig build iroh-abi`, needs cargo) *alongside*
 # the static core archive, it exports only `glowcap_iroh_*`, so core symbols still
-# come from `libglowcap_ocapn` (ADR-0055). Compiles `pub mod iroh` and adds
+# come from `libglowcap_ocapn` (ADR-0021). Compiles `pub mod iroh` and adds
 # `iroh::listen` / `iroh::Server` over the encrypted-QUIC sidecar
 # bridge (`connect(locator)` routes iroh dials). Implies `async` (the driver it rides).
 iroh = ["async"]
 # Opt-in WebRTC transport. Links the WebRTC public C ABI companion library
 # (`libglowcap_net_transport_webrtc`, built by `zig build webrtc-abi`, needs
 # cargo) alongside the static core archive; it exports only `glowcap_webrtc_*`,
-# so core symbols still come from `libglowcap_ocapn` (ADR-0089). Compiles
+# so core symbols still come from `libglowcap_ocapn` (ADR-0035). Compiles
 # `pub mod webrtc`: the raw multiplexed-readiness and peer try-I/O family, plus
 # `webrtc::provider`, which dials through the generic driver with the
 # application's signaling. Implies `async` (the driver it rides).
@@ -103,7 +103,7 @@ js-sys = { version = "0.3", optional = true }
 # dep web-sys: WebSocket and WebRTC browser APIs for the WebAssembly build.
 web-sys = { version = "0.3", optional = true, features = ["Url", "WebSocket", "BinaryType", "RtcDataChannel", "RtcDataChannelState", "RtcDataChannelType", "Event", "MessageEvent", "CloseEvent", "RtcPeerConnection", "RtcPeerConnectionState", "RtcConfiguration", "RtcPeerConnectionIceEvent", "RtcIceCandidate", "RtcIceCandidateInit", "RtcDataChannelEvent", "RtcSessionDescriptionInit", "RtcSdpType"] }
 
-# build.rs parses the package-shipped c-abi-resolve.json (ADR-0077).
+# build.rs parses the package-shipped c-abi-resolve.json (ADR-0023).
 [build-dependencies]
 # dep serde: Reads `c-abi-resolve.json` in `build.rs`.
 serde = { version = "1", features = ["derive"] }
@@ -152,13 +152,13 @@ path = "../../interop/goblins_interop/rust_handoff_client.rs"
 required-features = ["async", "tcp"]
 
 # Live iroh scale proof: many concurrent connections served from one readiness
-# loop (ADR-0057), the Rust sibling of `zig build iroh-loop`. Run via
+# loop (ADR-0019), the Rust sibling of `zig build iroh-loop`. Run via
 # `zig build rust-iroh-loop` (needs cargo + the iroh ABI library).
 [[example]]
 name = "iroh_loop"
 required-features = ["iroh"]
 
-# Live three-party handoff over iroh in one process (ADR-0009), the Rust sibling
+# Live three-party handoff over iroh in one process (ADR-0039), the Rust sibling
 # of `zig build demo-rooms-dm-iroh`. Run via `zig build rust-iroh-handoff` (needs
 # cargo + the iroh ABI library).
 [[example]]
@@ -180,7 +180,7 @@ required-features = ["iroh"]
 name = "iroh_redeem_posture"
 required-features = ["iroh"]
 
-# Keyed-relay rendezvous cold-dial proof (ADR-0088): dials a registered
+# Keyed-relay rendezvous cold-dial proof (ADR-0034): dials a registered
 # non-listening peer through the reference relay's rendezvous bridge. Run via
 # `zig build rust-keyed-relay-rendezvous` (the harness supplies relay + peer).
 [[example]]
@@ -194,7 +194,7 @@ required-features = ["relay"]
 name = "noise_relay_listen"
 required-features = ["relay"]
 
-# Keyed-tcp restart proof (ADR-0075): happy path, squatter refusal, same-seed
+# Keyed-tcp restart proof (ADR-0028): happy path, squatter refusal, same-seed
 # fresh-port restart. Run via `zig build rust-keyed-tcp-restart`.
 [[example]]
 name = "keyed_tcp_restart"

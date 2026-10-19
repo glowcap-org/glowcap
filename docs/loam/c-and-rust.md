@@ -26,7 +26,7 @@ explains the terms.
 Loam's Zig code decides who may do what, the order of transactions, and what a
 retried request returns. Your C or Rust code supplies the content's behavior
 and runs the storage work, as
-[ADR-0185](../decisions/adr/ADR-0185-loam-c-and-rust-resource-lifecycle.md)
+[ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
 records. The content behind one resource can span a bounded graph of pages.
 Creating, sharing, and moving resources inside a tree
 ([Zig hosting](access-endpoints.md#calls-that-change-several-resources)) and
@@ -174,7 +174,7 @@ never `WOULD_BLOCK`.
 
 C programs manage access by calling the endpoint with ordinary Host
 arguments, with no extra C functions.
-[ADR-0187](../decisions/adr/ADR-0187-held-scope-management-vocabulary.md)
+[ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
 defines these forms.
 
 - A scope is the symbol `object` for the endpoint's resource alone or
@@ -278,7 +278,7 @@ Content keeps its link to its managed resource as a protected first strong
 edge. Application indices skip it, and `field_count` counts only application
 fields, but schema edge limits include it. Content without that link is
 refused at call time, so recreate the store.
-[ADR-0188](../decisions/adr/ADR-0188-managed-content-reference-fields.md)
+[ADR-0056](../decisions/adr/ADR-0056-loam-foreign-and-browser-execution.md)
 records these rules.
 
 A C reference declaration borrows its token only during the callback, and URI
@@ -378,7 +378,7 @@ Rules for adding the results together:
 - A graph bound covers the old and new graph together. Page counts leave out
   the root, payload totals include it, and capability field counts leave out
   the resource link and page links.
-  [ADR-0199](../decisions/adr/ADR-0199-retained-resource-content-graphs.md)
+  [ADR-0057](../decisions/adr/ADR-0057-retained-content-pages.md)
   records how graph memory is owned and counted.
 - `InvocationBounds` uses `ValueBounds`, which counts every value, each
   struct key, the total copied bytes, and every capability. Argument bounds
@@ -467,7 +467,7 @@ holds.
   are refused on this path.
 - `ReadScopeBounds::size_bound` gives the memory it needs.
 
-[ADR-0206](../decisions/adr/ADR-0206-recursive-read-interfaces-retain-source-admission.md)
+[ADR-0053](../decisions/adr/ADR-0053-returned-capability-authority.md)
 records how long these capabilities live and how retries work.
 
 ### C callbacks and registration
@@ -515,7 +515,7 @@ the permissions it supports alone and for children added later.
 - Kinds add 384 bytes plus a count inside the policy, with no allocation. The
   largest owner policy fits the <!-- value ../../src/loam/access/records/owner_record.zig max_encoded_bytes bytes -->4 KiB<!-- /value --> owner record.
 
-[ADR-0197](../decisions/adr/ADR-0197-scope-aware-permission-applicability.md)
+[ADR-0046](../decisions/adr/ADR-0046-resource-scopes-and-permissions.md)
 covers mixed selections and how scopes contain each other. General operations
 on resource trees are available from Zig only.
 

@@ -138,7 +138,7 @@ pub fn Machine(
 
         pub fn finishConnected(self: *Self, slot: usize, c: *Conn) void {
             // No per-connection read buffer is allocated: reads borrow from the
-            // backend's shared pool, completion by completion (ADR-0054).
+            // backend's shared pool, completion by completion (ADR-0019).
 
             // Opt-in keepalive is a backend operation because adapters may use
             // synthetic descriptors. Socket-backed adapters project to their
@@ -208,7 +208,7 @@ pub fn Machine(
         /// holds, when the backend proves one. Socket backends carry no
         /// lower-layer identity and answer null. This is the channel's far
         /// end, never necessarily the CapTP partner: a byte-transparent relay
-        /// makes those two different parties (ADR-0105).
+        /// makes those two different parties (ADR-0028).
         pub fn verifiedChannelKey(self: *Self, slot: usize) ?[32]u8 {
             affinity.assertOwnerOrUnclaimed(self);
             const c = Lifecycle.liveConn(self, slot) orelse return null;

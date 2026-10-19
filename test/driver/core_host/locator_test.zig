@@ -393,7 +393,7 @@ test "core host onion advertisement stays hintless and an onion accept defers it
 
     // The accept sends no hello yet: on onion alone it waits for the
     // initiator's, which is the only thing that can say whether the partner
-    // is glowcap and so which preference the answer may state (ADR-0118).
+    // is glowcap and so which preference the answer may state (ADR-0042).
     const accepted = try host.openAcceptedAdvertised(model.transport.onion);
     defer host.releaseSession(accepted) catch unreachable;
     try std.testing.expect((try accepted.takeOutbound()) == null);
@@ -401,7 +401,7 @@ test "core host onion advertisement stays hintless and an onion accept defers it
 
 test "core host with the default profile answers an onion accept eagerly and bare" {
     const allocator = std.testing.allocator;
-    // No upgraded profile configured: the deferred hello is ADR-0118's one
+    // No upgraded profile configured: the deferred hello is ADR-0042's one
     // behavior change for a host that never asked for an upgrade, so this
     // host's onion accept says its bare hello at open, exactly as before the
     // mechanism existed, content and ordering both.

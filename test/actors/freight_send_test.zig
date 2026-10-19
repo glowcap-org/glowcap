@@ -1,5 +1,5 @@
 //! A Port sends a delivery lent as views to a far target as freight
-//! (ADR-0246): the verb rides the same stack spine as an owned send, the
+//! (ADR-0064): the verb rides the same stack spine as an owned send, the
 //! wire frame is the only allocation, and a sequence whose walk and length
 //! disagree is refused before anything reaches the peer.
 

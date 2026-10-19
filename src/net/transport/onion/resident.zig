@@ -1,4 +1,4 @@
-//! The `onion` netlayer resident: dial and accept over the ADR-0043 contract.
+//! The `onion` netlayer resident: dial and accept over the ADR-0019 contract.
 //!
 //! Neither half is a new kind of socket. A dial is a stream to the local Tor's
 //! SOCKS endpoint with a handshake in front of it, and an accept is a stream Tor
@@ -8,7 +8,7 @@
 //! The designator is an address, not a key. A version 3 service id encodes an
 //! Ed25519 public key and Tor does prove the far end holds it, but what it proves
 //! belongs to the rendezvous service rather than to the CapTP peer: the peer is
-//! whoever holds the local endpoint that service forwards to. ADR-0108 argues
+//! whoever holds the local endpoint that service forwards to. ADR-0042 argues
 //! this at length. The consequence here is that the resident declares the default
 //! `address` scheme and asserts no channel key.
 //!
@@ -146,9 +146,9 @@ fn residentDial(
 /// where to dial, so a hint carries nothing this transport needs, and refusing a
 /// hinted locator would turn a partner's harmless extra field into a failed
 /// dial, including the glowcap-hinted form of an onion address, whose profile
-/// hints are read one tier up as partner knowledge (ADR-0118). What glowcap
+/// hints are read one tier up as partner knowledge (ADR-0042). What glowcap
 /// itself *emits on the wire* carries no hints, which is a separate rule and
-/// the one the pinned Goblins requires (ADR-0108).
+/// the one the pinned Goblins requires (ADR-0042).
 pub fn dial(
     io: std.Io,
     peer: *engine.Peer,
@@ -206,7 +206,7 @@ pub fn dialFrameStream(
     );
 }
 
-/// Project a local-socket fault onto the dial retry axis (ADR-0081). Reaching
+/// Project a local-socket fault onto the dial retry axis (ADR-0030). Reaching
 /// Tor is a local connect, so a refusal here means the daemon is not listening
 /// where configuration said, not that the far peer refused.
 fn classifyConnect(err: Endpoint.ConnectError) netlayer.DialError {
@@ -403,7 +403,7 @@ pub const Listener = struct {
     fn accept(self: *Listener, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
         // What arrives is a local connection from Tor, carrying no client
         // identity: Tor tells a hidden service nothing about who dialed it. The
-        // partner's claimed location is therefore unverified, which ADR-0108
+        // partner's claimed location is therefore unverified, which ADR-0042
         // records as a finding rather than a secret.
         self.gate.lock(self.io);
         defer self.gate.unlock(self.io);

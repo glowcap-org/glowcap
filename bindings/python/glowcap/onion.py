@@ -25,7 +25,7 @@ and cannot host, which :meth:`OnionNetlayer.listen` reports rather than pretendi
         print(f"ocapn://{listener.service_id}.onion")
         conn = listener.accept()
 
-Two limits are worth reading before relying on this, and both are ADR-0108
+Two limits are worth reading before relying on this, and both are ADR-0042
 decisions rather than implementation details. A service id is an *address, not an
 identity*: Tor proves the far end of the circuit holds the key the address encodes,
 but the CapTP peer is whoever holds the local endpoint that service forwards to.

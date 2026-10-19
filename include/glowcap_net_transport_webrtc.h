@@ -5,7 +5,7 @@
 
    The WebRTC transport's public C ABI: a separate artifact
    (libglowcap_net_transport_webrtc) that links a Rust WebRTC library
-   (ADR-0089). It is a companion, not a superset: it exports only the
+   (ADR-0035). It is a companion, not a superset: it exports only the
    glowcap_webrtc_* family and shares no core symbol with libglowcap_ocapn,
    so a consumer links BOTH archives and includes BOTH headers. The
    shared frame, peer, and context vocabulary lives in glowcap_ocapn.h

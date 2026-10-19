@@ -71,7 +71,7 @@ pub fn retainAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
 
 /// Publish and select this node's complete acceptable location. The node
 /// retains snapshots for other transports so deployment policy can select
-/// a different route later (ADR-0109).
+/// a different route later (ADR-0028).
 pub fn setAdvertisedLocator(self: *Host, locator: model.PeerLocator) !void {
     var hint_storage: engine.Peer.HelloHints = .{};
     defer hint_storage.deinit(self.allocator);

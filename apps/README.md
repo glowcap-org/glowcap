@@ -53,5 +53,5 @@ runtimes. Individual app guides list their exceptions and extra requirements.
 | [`examples/`](../examples/) | Small single-file walkthroughs |
 | [`tools/`](../tools/) | Maintainer build checks, code generators, and operator scripts |
 
-See [ADR-0085](../docs/decisions/adr/ADR-0085-repository-product-and-devtool-layout.md)
+See [ADR-0032](../docs/decisions/adr/ADR-0032-cli-and-product-boundaries.md)
 for the layout decision.

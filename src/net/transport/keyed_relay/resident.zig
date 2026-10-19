@@ -1,6 +1,6 @@
 //! The relay transport's blocking resident: RFC 6455 WebSocket client legs
 //! over TCP sockets, so a Zig peer dials, and is dialed through, a relay's
-//! rendezvous (ADR-0088). The resident owns both byte-channel profiles:
+//! rendezvous (ADR-0034). The resident owns both byte-channel profiles:
 //! clear `keyed-relay` and Host-sealed `noise-relay`.
 //!
 //! A `keyed-relay` locator names a peer by its Ed25519 key designator and may
@@ -36,7 +36,7 @@
 //! shared buffer. Only split headers, control frames, upgrade residue, and a
 //! coalesced next-frame tail copy into a bounded per-connection spill, whose
 //! burst capacity is released after drain. Each blocking connection pins one
-//! `RelayStream` (the ADR-0043 stable-address pin) carrying the socket
+//! `RelayStream` (the ADR-0019 stable-address pin) carrying the socket
 //! reader/writer stores. That is an application-tier cost, not the loop tier's.
 //!
 //! The scale path is the sibling `completion.zig` adapter, which wraps

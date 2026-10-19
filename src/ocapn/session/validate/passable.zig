@@ -144,7 +144,7 @@ pub const IntroducedImports = struct {
 /// first marshal is what grants it), while a partner may only name an export
 /// it holds a wire reference to. A reserved-but-ungranted position is refused
 /// with the same `InvalidReference` as a nonexistent one, so a partner probing
-/// positions cannot learn that a reservation exists (ADR-0074).
+/// positions cannot learn that a reservation exists (ADR-0027).
 pub const Perspective = enum { sent, received };
 
 /// How the one reference validator treats a `far`. Everything else about a
@@ -155,7 +155,7 @@ pub const Perspective = enum { sent, received };
 pub const FarPolicy = enum {
     /// The `far` names an import we must already hold: a deliver/listen target,
     /// a projection receiver, or any reference we put on the wire ourselves.
-    /// The bootstrap import (0) is implicitly held (ADR-0006). An unheld `far`
+    /// The bootstrap import (0) is implicitly held (ADR-0002). An unheld `far`
     /// here names a capability that does not exist for this session.
     held_import,
     /// The `far` is a fresh introduction, the partner handing us a new
@@ -223,7 +223,7 @@ pub fn validateListenListener(
     }
 }
 
-/// The one reference-position validator. Post perspective-flip (ADR-0010) a
+/// The one reference-position validator. Post perspective-flip (ADR-0006) a
 /// decoded `near` names one of our exports. The `near` arm varies by
 /// `perspective` and the `far` arm by `far_policy`. Dual-shape over the
 /// borrowed view reference and the owned `model.Reference`, like the argument
@@ -340,7 +340,7 @@ pub inline fn validateInboundArgument(
 }
 
 /// Refuse a send-side struct carrying two entries with the same key, the
-/// validate-time twin of the codecs' canonical-order refusals (ADR-0003).
+/// validate-time twin of the codecs' canonical-order refusals (ADR-0001).
 /// Sorts a shallow copy of the borrowed key slices so a repeat is an adjacent
 /// pair. Small structs stay on the stack, a spill is freed here. Dual-shape:
 /// `entries` is an owned slice or a borrowed `model.view.StructEntries`,
@@ -513,7 +513,7 @@ fn certifySentArgument(self: *Session, arg: model.Argument, comptime ref_check: 
         .set => |items| {
             // A duplicate set element refuses here, pre-commit, symmetric with
             // the inbound fold. The encoders refuse byte-equal duplicates too
-            // (ADR-0003), but only at encode time in `step`, after
+            // (ADR-0001), but only at encode time in `step`, after
             // send-side export accounting committed wire-delta retains for a frame
             // that never ships, the same all-or-nothing breach the depth
             // bound closes. This fold runs after shortening, which can fold

@@ -75,7 +75,7 @@ class _PublicationMixin(HostMixinBase):
     async def enliven(
         self, sturdyref: str, *, captp_version: "Optional[str]" = None
     ) -> "Ref":
-        """Enliven a complete sturdyref without naming a session (ADR-0098):
+        """Enliven a complete sturdyref without naming a session (ADR-0007):
         the host enlivens it over a live session it already dialed to that
         peer, or dials one itself through this host's own DIAL action and
         finishes when the dial reports. :meth:`Session.enliven` is the
@@ -201,7 +201,7 @@ class _PublicationMixin(HostMixinBase):
     def designator(self) -> str:
         """The canonical key designator (64 lowercase hex digits) for this
         node's identity seed: what a keyed-tcp locator names as its
-        designator (ADR-0075)."""
+        designator (ADR-0028)."""
         out = (ctypes.c_ubyte * 64)()
         buf, ptr = _byte_buf(self._seed)
         _check_host(_host.glowcap_host_designator_from_seed(ptr, 32, out, 64))
@@ -212,7 +212,7 @@ class _PublicationMixin(HostMixinBase):
 
         Fetch lazily projects the actor onto a session. A deposited gift keeps
         that exact actor when a recipient later withdraws over its own exporter
-        session (ADR-0009)."""
+        session (ADR-0039)."""
         # A Host publication is bound to no single session: its forwards always go
         # through the host, and a turn it runs belongs to whichever session
         # the deliver arrived on.
@@ -289,7 +289,7 @@ class _PublicationMixin(HostMixinBase):
     ) -> str:
         """Publish ``behavior`` under a freshly minted durable swiss name and
         return that name: the swiss to place in a sturdyref beside this
-        host's own locator (ADR-0098).
+        host's own locator (ADR-0007).
 
         The name is unpredictable, never reassigned, structurally disjoint
         from every mutable alias, and removable only through
@@ -347,7 +347,7 @@ class _PublicationMixin(HostMixinBase):
         _unregister_global_behavior(ctx)
 
     def remove_durable(self, swiss: str) -> bool:
-        """Remove a minted durable publication (ADR-0098).
+        """Remove a minted durable publication (ADR-0007).
 
         After removal the sturdyref misses, while issued refs and deposited
         gifts keep the actor. Returns ``False`` when no such durable
@@ -377,7 +377,7 @@ class _PublicationMixin(HostMixinBase):
         """The live :class:`Session` homing remote ``ref``, or ``None`` for a
         local, stale, foreign-Host, or closed-session capability.
 
-        The answer is deterministic (ADR-0088): the reply's own token carries
+        The answer is deterministic (ADR-0034): the reply's own token carries
         which session it lives in, so :meth:`Session.send_redeeming` resolves
         the exact exporter session it should host its back-channel on. There is
         no capture window and no dependence on which dial finished first, so it
@@ -403,7 +403,7 @@ class _PublicationMixin(HostMixinBase):
         # session this binding does not hold, which reads as no route.
         found = self._sessions.get(out_value) if out_value else None
         if found is None and out_value and self._driver_loop is not None:
-            # A loop-owned Host redeems inside its own steps (ADR-0112), so
+            # A loop-owned Host redeems inside its own steps (ADR-0024), so
             # the exporter session it dialed exists with no wrapper yet. Wrap
             # it lazily, the constructor registers it, so a repeat lookup
             # returns this same object, and the loop stays its release

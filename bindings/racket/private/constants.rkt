@@ -14,7 +14,7 @@
          provenance<-abi
          lifecycle-closed?)
 
-;; The ADR-0097 provenance symbol for one reflected ABI value.
+;; The ADR-0028 provenance symbol for one reflected ABI value.
 ;;
 ;; It lives beside the constants it reads because two surfaces report the
 ;; same fact about the same partner (a session's partner identity

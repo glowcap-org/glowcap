@@ -73,7 +73,7 @@ pub fn step(self: *Peer) !events.StepOutcome {
     // So it waits for the next message and leaves in the same frame, which
     // saves one kernel send per call. When the embedder is about to park, it
     // calls `flushAnswerReleases` and the releases go alone, so a quiet
-    // session still sends them (ADR-0214).
+    // session still sends them (ADR-0060).
     if (outbound_drain.holdsAnswerReleases(self) and !self.session_state.hasImportRelease()) return .idle;
     if (self.pending_send.peek() != null) {
         outbound_drain.stepPending(self) catch |err| {

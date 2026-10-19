@@ -1,5 +1,5 @@
 """Internal: the raw ``ctypes`` mirror of the ``glowcap_host_*`` byte-fed
-host family (ADR-0072), loaded from ``libglowcap_host``.
+host family (ADR-0022), loaded from ``libglowcap_host``.
 
 Nothing here is public. The driver is a separate archive and exports only
 ``glowcap_driver_*``. It adopts a Host created through this family. The Host
@@ -105,7 +105,7 @@ class _PartnerIdentity(ctypes.Structure):
         ("locator_record", ctypes.c_void_p),
         ("locator_record_len", ctypes.c_size_t),
         # How the durable identity in `designator` was authenticated, one of
-        # the DURABLE_PROVENANCE_* constants (ADR-0097).
+        # the DURABLE_PROVENANCE_* constants (ADR-0028).
         ("provenance", ctypes.c_uint32),
     ]
 

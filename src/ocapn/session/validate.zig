@@ -114,7 +114,7 @@ fn validateStartSession(
 
 /// CapTP preference encoded in start-session location hints. Absent names mean
 /// the baseline, and so does a version or codec token this build does not
-/// write, such as another build's `next` (ADR-0252): negotiation then settles
+/// write, such as another build's `next` (ADR-0001): negotiation then settles
 /// that axis on what both peers speak. Duplicate names, a non-string value, or
 /// an unreadable token is `MalformedMessage`. Session owns this parse so hello
 /// validation, apply, and advertised-profile checks cannot drift.
@@ -243,7 +243,7 @@ pub fn validateSend(self: *Session, message: model.Message, inventory: session.I
             try listen_claims.validate(self, listen);
         },
         // `op:get` / `op:index` / `op:untag` name a receiver like a deliver
-        // target: it must be something we hold (ADR-0050).
+        // target: it must be something we hold (ADR-0004).
         .get => |get| {
             if (self.captp_version == .next) return error.UnexpectedMessage;
             try checkOutboundAnswerPosition(self, get.answer);
@@ -357,7 +357,7 @@ fn checkOutboundAnswerPosition(self: *const Session, answer: model.AnswerPositio
 /// resolve with no abort recorded.
 ///
 /// Every kind that installs an inbound answer calls this: the deliver that
-/// carries one, and the three projection ops (ADR-0050), which name an answer
+/// carries one, and the three projection ops (ADR-0004), which name an answer
 /// of their own and install a row as a deliver does.
 fn checkInboundAnswerPosition(self: *Session, answer: model.AnswerPosition) Error!void {
     if (self.inbound_answers.contains(.fromWire(answer))) return error.UnexpectedMessage;

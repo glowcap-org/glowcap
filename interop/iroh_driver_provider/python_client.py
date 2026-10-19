@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Python driver-provider parity proof (ADR-0112): the binding's byte-fed
+"""The Python driver-provider parity proof (ADR-0024): the binding's byte-fed
 iroh surface serves while its driver-loop surface dials the same live
 endpoint through the common provider ABI — both halves in one process,
 one asyncio thread.

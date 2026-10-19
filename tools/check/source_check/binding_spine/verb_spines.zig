@@ -171,7 +171,7 @@ pub fn checkBindingRustConnSpine(
     }
 }
 
-/// Binding spine Pass 3b: each binding keeps a named `gc` module for ADR-0063
+/// Binding spine Pass 3b: each binding keeps a named `gc` module for ADR-0025
 /// distributed GC (opt-in track + drain). Grep-level.
 /// `bindings/proofs/verb_spine/`'s `gc-released` scene covers the opt-in verb
 /// and the deterministic release path through `glowcap_host_ref_release`: a

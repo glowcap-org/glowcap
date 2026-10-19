@@ -175,9 +175,9 @@ restart. Run the example with `zig build examples`.
 | [Research](loam/research/memory-persistence.md) | The prior-art survey, the [persistence reuse review](loam/research/persistence-reuse.md), and the measurement program. |
 
 The decision records behind these guides start at
-[ADR-0162](decisions/adr/ADR-0162-loam-record-transactions-and-lmdb.md) for
+[ADR-0048](decisions/adr/ADR-0048-loam-persistence-foundation.md) for
 records and LMDB and
-[ADR-0163](decisions/adr/ADR-0163-record-backed-sleepy-actors.md) for
+[ADR-0049](decisions/adr/ADR-0049-record-backed-hosting.md) for
 sleepy actors.
 
 ## Durable actors

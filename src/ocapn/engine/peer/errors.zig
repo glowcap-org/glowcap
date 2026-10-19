@@ -12,7 +12,7 @@ pub const Error = error{
     InvalidStartSessionSignature,
     /// The partner selected a durable identity different from the one this
     /// dial demanded. An address route makes no durable claim and is weighed
-    /// by the channel realizer instead (ADR-0105, ADR-0109).
+    /// by the channel realizer instead (ADR-0028).
     PartnerDesignatorMismatch,
     /// The partner selected an extension transport whose designation semantics
     /// are unknown to this node.

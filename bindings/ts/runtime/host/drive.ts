@@ -1,5 +1,5 @@
 // The CapTP host: multi-session CapTP product over the byte-fed host archive
-// (libglowcap_host, ADR-0072). Goblins' `mycapn` is two roles: the product maps
+// (libglowcap_host, ADR-0022). Goblins' `mycapn` is two roles: the product maps
 // to this `Host`, the router tables map to `engine.Node` that the host owns, and never
 // a single-type equation. The `GlowcapHost` owns every decision: the retained
 // identity, live-session directory, routing, transparent three-party
@@ -204,7 +204,7 @@ export abstract class HostDrive extends HostApplication {
 	 * into this same drain. Binding-internal. */
 	kickActions(): Promise<void> {
 		if (this._driverLoop != null) {
-			// The driver loop is the one drain on an adopted Host (ADR-0112):
+			// The driver loop is the one drain on an adopted Host (ADR-0024):
 			// the kick becomes a scheduled loop step, which runs the parked
 			// releases and the GC drain at its own head. Inside a turn it must
 			// defer past the enclosing feed; outside one, join that deferred step

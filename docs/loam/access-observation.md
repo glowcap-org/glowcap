@@ -105,7 +105,7 @@ Loam tags each grant and resource with its revision and its place in the
 commit order. The cursor encrypts only the position and digest that matter
 to this receiver, using Zig's AES-128-SIV with the receiver's identity as
 associated data, so raw revisions and owner counters never appear on the
-wire. [ADR-0179](../decisions/adr/ADR-0179-scoped-change-retention-and-observation.md)
+wire. [ADR-0054](../decisions/adr/ADR-0054-scoped-change-observation.md)
 covers how long history is kept, privacy, and replay.
 
 Limits on bindings, cache, leases, retentions, call memory, incoming calls,

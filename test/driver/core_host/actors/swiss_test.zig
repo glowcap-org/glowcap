@@ -48,7 +48,7 @@ const keyedDesignator = harness.keyedDesignator;
 const TraceLog = harness.TraceLog;
 
 test "core host: durable and mutable swiss namespaces are disjoint, and a removed durable name misses across restart" {
-    // ADR-0098 evidence item 5. The reserved prefix is the cross-restart
+    // ADR-0007 evidence item 5. The reserved prefix is the cross-restart
     // invariant: mutable binds refuse it structurally, the durable mint
     // produces only names inside it, removal reclaims the row, and a fresh
     // Host (the restart) misses, no tombstone anywhere.

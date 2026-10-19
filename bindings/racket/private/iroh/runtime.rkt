@@ -5,7 +5,7 @@
 ;; provider, and server surface. This module owns the readiness loop and raw
 ;; byte-channel endpoint; it contains no application-facing selection policy.
 ;;
-;; Mirrors the à-la-carte archive split (ADR-0059): `glowcap.rkt` is the core
+;; Mirrors the à-la-carte archive split (ADR-0022): `glowcap.rkt` is the core
 ;; (libglowcap_ocapn). Each transport is a composable module:
 ;; `glowcap-tcp.rkt`, `glowcap-inproc.rkt`, and this one. This module is
 ;; libglowcap_net_transport_iroh's binding, the optional encrypted-QUIC netlayer.
@@ -67,7 +67,7 @@
     ;; reference; shutting it down would invalidate the provider driver owns.
     (iroh-netlayer-release-construction! netlayer)))
 
-;; ── the iroh readiness loop (ADR-0057) ────────────────────────────────────────
+;; ── the iroh readiness loop (ADR-0019) ────────────────────────────────────────
 ;; The Racket sibling of the Deno binding's `IrohLoop`, the Python binding's
 ;; `_IrohLoop`, and Zig's `driver.HostRuntime` over `iroh.MultiplexedAdapter`:
 ;; one green thread multiplexes
@@ -381,7 +381,7 @@
 ;; endpoint and bring the connection up under host `m` rather than a fresh
 ;; host, so the redeemed capability and any further handoff it triggers share
 ;; the recipient's one identity, handoff router, and connection table
-;; (ADR-0009/ADR-0100), the iroh sibling of `dial-exporter`'s TCP arm.
+;; (ADR-0039/ADR-0039), the iroh sibling of `dial-exporter`'s TCP arm.
 ;; The core's `dial-exporter` loads it lazily for an iroh give. The keyed
 ;; handshake is the host's (`establish-dialed-locator-session` signs it under
 ;; the host identity and drives it byte-fed over this transport), and
@@ -389,11 +389,11 @@
 ;; bound covers only the handshake over an established QUIC connection, never
 ;; the dial-by-id resolution before it, which is one transport attempt finished
 ;; before the handshake starts. A dial staged through the driver loop retries
-;; transient faults on the runtime's GLOWCAP-DISCOVERY-DIAL-* budget (ADR-0193).
+;; transient faults on the runtime's GLOWCAP-DISCOVERY-DIAL-* budget (ADR-0018).
 ;; ── raw byte channels ────────────────────────────────────────────────────────
 ;; An iroh connection with nothing running over it: raw bytes in, raw bytes out,
 ;; and no CapTP handshake. Two consumers need exactly that. A byte-transparent
-;; relay pipes the bytes between its legs and keys nothing itself (ADR-0086),
+;; relay pipes the bytes between its legs and keys nothing itself (ADR-0033),
 ;; and a foreign CapTP (a Spritely Goblins vat running its own protocol over a
 ;; netlayer written for it) frames those bytes its own way. Neither wants the
 ;; FFI driver listener to bring up CapTP on its behalf.

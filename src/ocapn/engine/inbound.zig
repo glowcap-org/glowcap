@@ -88,7 +88,7 @@ pub fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
     };
     const wire_profile = self.inboundProfile();
     // The body is parsed once, where the surfaced event carries it, and its
-    // argument list into the frame's own head (ADR-0222).
+    // argument list into the frame's own head (ADR-0063).
     const parse = events.Parse.decode(self.allocator, &frame_in, self.inboundCodec(), wire_profile) catch |err| {
         var frame = frame_in;
         frame.deinit();
@@ -114,7 +114,7 @@ fn checkPartnerDurableClaim(self: *Peer, ss: model.view.StartSession) !void {
         // claim to compare with the key this dial named. An address route is a
         // legitimate proxy or ingress; authenticated realizers prove the
         // channel separately, while raw keyed transports trust their netlayer
-        // to have honored the dial target (ADR-0109).
+        // to have honored the dial target (ADR-0028).
         const scheme = (if (self.node_services) |services|
             services.designatorScheme(ss.acceptable_location.transport)
         else if (model.transport.parseKnown(ss.acceptable_location.transport)) |known|
@@ -217,7 +217,7 @@ fn applyPlainOwnedFrame(
         if (self.verify_partner_handshake) {
             try engine.verifyPartnerStartSession(self.allocator, recorded_body.start_session);
         }
-        // What this side demands of the partner's durable claim (ADR-0105),
+        // What this side demands of the partner's durable claim (ADR-0028),
         // at this same pre-open chokepoint: one byte-fed `feed` can carry the
         // start-session and later frames in a single chunk, and a post-open
         // check would let those frames apply under the wrong identity before
@@ -226,8 +226,7 @@ fn applyPlainOwnedFrame(
     }
 
     // An inbound `op:listen` against one of our pending inbound answers
-    // registers the listener so the resolution fires it (ADR-0007 §
-    // op:listen). Installed before the event/`recordRecv` so a refusal
+    // registers the listener so the resolution fires it (ADR-0003). Installed before the event/`recordRecv` so a refusal
     // leaves nothing surfaced. Non-promise targets and listens on unknown
     // answers fall through to ordinary recv handling.
     if (decoded_body.* == .listen) {
@@ -253,7 +252,7 @@ fn applyPlainOwnedFrame(
     };
     appended = false;
 
-    // op:get / op:index / op:untag responder (ADR-0050): apply above
+    // op:get / op:index / op:untag responder (ADR-0004): apply above
     // installed the projected answer; anchor the projection on the
     // receiver. The view's field/tag bytes borrow the frame, so the owned
     // dupe happens here, while the borrow is still valid.

@@ -69,7 +69,7 @@ async fn run_unit(conn: &Session, root: &Ref) -> Result<(), String> {
 	}
 }
 
-// The same four verbs as `run_unit`, but pipelined (ADR-0007, questioner half):
+// The same four verbs as `run_unit`, but pipelined (ADR-0003, questioner half):
 // `assign`/`complete`/`status` are addressed at the answer `create` will resolve
 // to through a `&RemotePromise` target. `assign` and `complete` are one-way;
 // only `status` allocates an answer and is awaited. The unit costs one round

@@ -25,7 +25,7 @@ identity and scale stop.
   peers. On `noise-tcp`, `noise-relay`, iroh, WebRTC, and onion the channel is
   sealed end to end, so they see ciphertext. On the two Noise transports an
   altered record closes the session
-  ([ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)). On
+  ([ADR-0041](decisions/adr/ADR-0041-sealed-byte-channels.md)). On
   `tcp`, `keyed-tcp`, and `keyed-relay` they read and can alter every frame,
   and the signed hello proves only the session key.
 - **A peer that speaks CapTP.** Holds a real session and sends any message the
@@ -52,7 +52,7 @@ identity and scale stop.
 - **Durable identity keys.** The Ed25519 key a peer is known by. glowcap keeps
   no key store: the program supplies the seed and keeps the secret. A sealed
   channel proves possession of the dialed key, converted for Noise
-  ([ADR-0107](decisions/adr/ADR-0107-sealed-byte-channel.md)).
+  ([ADR-0041](decisions/adr/ADR-0041-sealed-byte-channels.md)).
 - **Session keys.** The per-session Ed25519 key each hello signs, and the
   Noise transport keys split at the end of a handshake. Both die with the
   session.
@@ -65,13 +65,13 @@ identity and scale stop.
   the discovery waiters compare the same way, so a near miss costs what a far
   miss costs. The host that published a sturdyref
   decides which peer may redeem it
-  ([ADR-0098](decisions/adr/ADR-0098-sturdyref-peer-authority.md)).
+  ([ADR-0007](decisions/adr/ADR-0007-sturdyrefs-and-publication.md)).
 - **The export, import, and answer tables.** Every reference a peer holds is a
   row in these, and session state alone decides whether a row exists. A codec
   only decodes positions. A table keyed by positions the
   peer chooses hashes them under a per-session secret, so chosen collisions
   cannot turn a lookup into a scan
-  ([ADR-0218](decisions/adr/ADR-0218-a-table-keyed-by-the-peer-hashes-under-a-session-secret.md)).
+  ([ADR-0037](decisions/adr/ADR-0037-peer-chosen-table-keys.md)).
 - **The process.** Its memory, its descriptors, and the thread that runs every
   turn. glowcap ends the process only for its own broken invariants. Bad
   input, I/O failure, resource pressure, and a callback's refusal return

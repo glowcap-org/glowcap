@@ -5,7 +5,7 @@
 //! canonicalize targets that arrived through different sessions or network
 //! paths. Which codec carried the same representation does not matter.
 //!
-//! The case that really earns its keep is `Reference.far`. ADR-0012's
+//! The case that really earns its keep is `Reference.far`. ADR-0007's
 //! session-pair-uniqueness posture means same-session equality is on
 //! `(import_position, kind)`. Cross-session uniqueness is Host enrollment
 //! (`SessionPairExists` / partner-key index), not a collapse of far-ref
@@ -41,7 +41,7 @@ const unbounded_visits = std.math.maxInt(usize);
 
 /// Are these two references structurally equal? Different variants are never
 /// equal. Within a variant we go field by field, and that includes the `near` /
-/// `far` wire kind (per ADR-0010, a reference carries its wire tag).
+/// `far` wire kind (per ADR-0006, a reference carries its wire tag).
 pub fn referencesStructurallyEqual(a: model.Reference, b: model.Reference) bool {
     return argumentsEqual(.{ .reference = a }, .{ .reference = b });
 }

@@ -22,7 +22,7 @@ const hexToOwned = harness.hexToOwned;
 
 fn expectBodyByteRoundTrip(profile: model.CaptpVersion, message: model.Message) !void {
     const allocator = std.testing.allocator;
-    // The codec flips reference perspective on every wire crossing (ADR-0010),
+    // The codec flips reference perspective on every wire crossing (ADR-0006),
     // so a single encode→decode→encode is NOT byte-stable: a payload `Near`
     // becomes `<desc:import-object>` becomes a decoded `Far`, which re-encodes as
     // `<desc:export>`. Two crossings restore the original perspective (the flip

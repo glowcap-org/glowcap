@@ -250,7 +250,7 @@ fn unsettledPromiseOf(self: *Host, target: capability.Ref) !?capability.PromiseI
 
 /// A far send of values that carry no capability leaves as freight: the
 /// values back a view sequence the engine certifies, then encodes without
-/// lowering an owned tree (ADR-0246). A local target
+/// lowering an owned tree (ADR-0064). A local target
 /// and a tree with a capability take the owned path, which lowers each
 /// capability under the session.
 fn freightOf(routed: routing.RoutedSend, verb: []const u8, values: []const value_mod.Value) ?actors.Delivery {

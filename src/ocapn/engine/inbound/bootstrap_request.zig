@@ -1,5 +1,5 @@
 //! Answer the bootstrap request an accepted deliver carried, once authority
-//! has recorded the deliver itself (ADR-0006 responder half).
+//! has recorded the deliver itself (ADR-0002 responder half).
 
 const engine = @import("../mod.zig");
 const Peer = engine.Peer;

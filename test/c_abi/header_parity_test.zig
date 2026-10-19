@@ -11,7 +11,7 @@
 //! function it is supposed to equal. The shared vocabulary (frame/context types,
 //! codes) is declared once in `glowcap_ocapn.h`, which the transport headers
 //! include, so struct and constant parity is checked against the `c_abi` (ocapn)
-//! source. Each transport module's functions are checked separately (ADR-0059).
+//! source. Each transport module's functions are checked separately (ADR-0022).
 
 const std = @import("std");
 const glowcap = @import("glowcap");

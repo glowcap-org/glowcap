@@ -8,7 +8,7 @@ const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
 /// A dial target and an authenticated far end are separate facts. Only code
-/// that realized the connection may state the latter (ADR-0105, ADR-0109).
+/// that realized the connection may state the latter (ADR-0028).
 ///
 /// `engine.Peer.bindVerifiedChannelKey` says what the code that realized the
 /// connection verified about the byte channel's far end. It is made by
@@ -135,7 +135,7 @@ pub fn checkDurablePinWriters(
             try appendViolation(
                 gpa,
                 violations,
-                "{s}: missing `{s}`. The ADR-0105 durable-pin verb moved or was renamed, so update `checkDurablePinWriters` in tools/check/source_check/captp_product/pins.zig with it",
+                "{s}: missing `{s}`. The ADR-0028 durable-pin verb moved or was renamed, so update `checkDurablePinWriters` in tools/check/source_check/captp_product/pins.zig with it",
                 .{ verb.declared_in, verb.declaration },
             );
         }
@@ -185,7 +185,7 @@ pub fn checkDurablePinWriters(
                 try appendViolation(
                     gpa,
                     violations,
-                    "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0105), and that layer is the one where {s}",
+                    "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0028), and that layer is the one where {s}",
                     .{ entry.name, verb.call, verb.standing },
                 );
             }
@@ -229,7 +229,7 @@ pub fn checkDurablePinWriters(
                 try appendViolation(
                     gpa,
                     violations,
-                    "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0105), and that layer is the one where {s}. Either this file has that standing and belongs in `verbs` in tools/check/source_check/captp_product/pins.zig, or it should be naming the identity it dialed instead (`demandPartnerDurableKey`), or reading through `demandedPartnerKey` / `verifiedChannelKey` / `partnerDurableProvenance`.",
+                    "{s}: names `{s}`, but that fact is only one layer's to state (ADR-0028), and that layer is the one where {s}. Either this file has that standing and belongs in `verbs` in tools/check/source_check/captp_product/pins.zig, or it should be naming the identity it dialed instead (`demandPartnerDurableKey`), or reading through `demandedPartnerKey` / `verifiedChannelKey` / `partnerDurableProvenance`.",
                     .{ path, verb.call, verb.standing },
                 );
             }

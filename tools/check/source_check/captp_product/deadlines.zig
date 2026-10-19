@@ -7,7 +7,7 @@ const util = @import("../util.zig");
 const appendViolation = util.appendViolation;
 const expectFileContains = util.expectFileContains;
 
-/// Product CLI CapTP waits must be finite (ADR-0081). An `.unbounded` budget
+/// Product CLI CapTP waits must be finite (ADR-0030). An `.unbounded` budget
 /// parks forever on a silent peer, the hang that wedged `cli-test` and left
 /// zombie test binaries back when unbounded was a silent default.
 pub fn checkCliCaptpDeadlines(

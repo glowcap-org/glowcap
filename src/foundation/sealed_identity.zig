@@ -1,4 +1,4 @@
-//! Identity binding for ADR-0107's Noise channel.
+//! Identity binding for ADR-0041's Noise channel.
 //!
 //! Noise authenticates X25519 static keys. Glowcap names peers with Ed25519,
 //! so the handshake payload proves the exact Ed25519 encoding, role, initial

@@ -33,7 +33,7 @@ const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAlloca
 const deliver_syrup = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// The codec-neutral model equivalent: a `far` reference (sender's import 7)
-/// that decodes (ADR-0010 flip) on the receiving side to a `near` (our export
+/// that decodes (ADR-0006 flip) on the receiving side to a `near` (our export
 /// 7), no answer (fire-and-forget). The Cap'n Proto encoder can encode this.
 /// The Syrup encoder refuses `.near` targets, so Syrup uses the literal wire
 /// form above.

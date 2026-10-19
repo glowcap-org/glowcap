@@ -22,7 +22,7 @@ import { observationsOf } from "../engine/temporal/recording-access.ts";
 import type { TimelineEvent } from "../engine/timeline.ts";
 
 /** An Ed25519 public key in canonical hex, how every key netlayer spells a
- *  designator (ADR-0075). */
+ *  designator (ADR-0028). */
 const KEY_DESIGNATOR = /^[0-9a-f]{64}$/;
 
 /** Every netlayer glowcap ships, with how it spells a designator. A claim that

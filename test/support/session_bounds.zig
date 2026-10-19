@@ -48,7 +48,7 @@ pub fn checkDeclared(state: *const session.Session) !void {
 
     // The fan-out caps, which are the ones a partner leans on hardest: one
     // `op:listen` per slot and one pipelined call per queue slot, both against a
-    // single answer. Projections share the listener cap (ADR-0050).
+    // single answer. Projections share the listener cap (ADR-0004).
     var walk = PerAnswer{ .caps = caps };
     session.inspect.forEachInboundAnswer(state, &walk, PerAnswer.check);
     session.inspect.forEachOutboundAnswer(state, &walk, PerAnswer.check);

@@ -521,7 +521,7 @@ beside the identity seed that already grants the whole session. It never
 enters a managed workspace, snapshot, or export, and it is dropped once no
 room still names its scope. A browser's local workspace forgets it on reload,
 and a workspace adopted into a peer brings the bridge settings without the
-password. Either way the member answers the bridge once more (ADR-0141).
+password. Either way the member answers the bridge once more (ADR-0045).
 
 ### Attachments and shares
 
@@ -562,7 +562,7 @@ match each answer to its send, but a retry is still unsafe. An upload is
 reused without a second read only when its source cannot change, it was
 acknowledged, and the media cache took it. A streaming source or a full cache
 means an ordinary read.
-[ADR-0160](../../docs/decisions/adr/ADR-0160-rooms-retained-delivery.md)
+[ADR-0044](../../docs/decisions/adr/ADR-0044-member-owned-archives.md)
 records the contract and its measured costs.
 
 ### Keeping a room

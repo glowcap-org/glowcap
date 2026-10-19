@@ -2,10 +2,10 @@
 //!
 //! The offerer dials through the driver and the answerer listens through it.
 //! `glowcap_driver_dial` names the answerer's key and the offerer's provider
-//! runs the dial (ADR-0226). `glowcap_driver_listen` opens the answerer's
+//! runs the dial (ADR-0035). `glowcap_driver_listen` opens the answerer's
 //! listener, this program hands the offer in with
 //! `glowcap_webrtc_netlayer_provide_offer`, and the answerer's provider runs
-//! the accept (ADR-0232). The program only carries the texts the two
+//! the accept (ADR-0035). The program only carries the texts the two
 //! signaling tables in `signaling.zig` produce. After that
 //! `glowcap_driver_step` is the only progress: no WebRTC try-I/O is called.
 //! A second dial, to a key nobody answers, is still in flight when the

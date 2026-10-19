@@ -66,7 +66,7 @@ pub fn stepSession(self: *HostRuntime, session: *driver_core.HostSession, timeou
     return if (fed > 0) .{ .received = fed } else .idle;
 }
 
-/// One host-wide pump step (ADR-0112): apply the settle mailbox, drain actions,
+/// One host-wide pump step (ADR-0024): apply the settle mailbox, drain actions,
 /// wait up to `timeout_ms` for any ready source, service it, and drain again.
 /// Null means the wait ended with nothing to service. `.idle` means a source
 /// was serviced without a counted frame. A resident feed reports through its
@@ -250,7 +250,7 @@ pub fn spinForRecords(self: *HostRuntime, start: usize, timeout_ms: *i32) ?usize
     const residents = self.residents.items.len;
     // Spin for a short window checking for work before asking the kernel to
     // put this thread to sleep. Waking a sleeping thread costs more than the
-    // spin when a reply is expected within microseconds (ADR-0215). The spin
+    // spin when a reply is expected within microseconds (ADR-0060). The spin
     // is opt-in and keeps a core busy, so it pays off only for quick replies.
     var window_ns: i64 = @intCast(@min(self.opts.busy_poll_ns, std.math.maxInt(i64)));
     if (timeout_ms.* >= 0) window_ns = @min(window_ns, @as(i64, timeout_ms.*) * std.time.ns_per_ms);
