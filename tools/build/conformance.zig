@@ -166,7 +166,7 @@ pub fn register(
     // `check` because a soft-green extract is a footgun.
     const c_abi_extract = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/c-abi/c-abi-extract-matrix.sh" });
     c_abi_extract.setCwd(b.path("."));
-    const c_abi_extract_check_step = b.step("c-abi-extract-check", "Hermetic C-ABI extract hygiene matrix: refuse archive path escape/symlink, accept clean lib/ (ADR-0023)");
+    const c_abi_extract_check_step = b.step("c-abi-extract-check", "In-tree C-ABI extract hygiene matrix: refuse archive path escape/symlink, accept clean lib/ (ADR-0023)");
     c_abi_extract_check_step.dependOn(&c_abi_extract.step);
     check_step.dependOn(c_abi_extract_check_step);
 }

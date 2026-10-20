@@ -5,7 +5,7 @@ const Gates = @import("../gates.zig").Registered;
 const Engine = @import("crash.zig").Engine;
 
 pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, core: *std.Build.Module, engines: []const Engine, gates: Gates) void {
-    const step = b.step("loam-io-fault-test", "Fail Linux writes, syncs and reads, and cut data files short, on both disk engines");
+    const step = b.step("loam-io-fault-test", "Fail Linux writes, syncs and reads, and cut data files short, on both disk engines (needs python3)");
     // The syscall interposer is Linux-specific. An explicitly requested step
     // on another target fails compilation instead of reporting empty success.
     if (target.result.os.tag == .linux) gates.runtime_gate.add(step);

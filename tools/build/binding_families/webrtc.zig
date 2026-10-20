@@ -22,7 +22,7 @@ pub const webrtc_driver_provider_clients = [_]BindingClientRow{
     },
     .{
         .step_name = "rust-webrtc-driver-provider",
-        .description = "Live Rust WebRTC: the Rust binding dials the Zig answerer (ADR-0035), accepts the Zig offerer, and dials from a listening Host (ADR-0035), all through the C provider with its own signaling, after its hermetic adapter tests (needs cargo)",
+        .description = "Live Rust WebRTC: the Rust binding dials the Zig answerer (ADR-0035), accepts the Zig offerer, and dials from a listening Host (ADR-0035), all through the C provider with its own signaling, after its in-tree adapter tests (needs cargo)",
         .argv = &.{ "cargo", "test", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "webrtc", "webrtc::tests", "--", "--include-ignored", "--nocapture" },
         .posture = .{ .deterministic = 30 },
     },

@@ -82,10 +82,10 @@ pub fn add(b: *std.Build, in: Inputs) void {
     });
     const run_source = execution.addZigTest(b, source_tests, .unit_test);
     in.check.dependOn(&run_source.step);
-    const cli_test = b.step("cli-test", "Run hermetic glowcap CLI registry + session/capture tests");
+    const cli_test = b.step("cli-test", "Run the in-tree glowcap CLI registry and session/capture tests");
     cli_test.dependOn(&run_registry.step);
     cli_test.dependOn(&run_source.step);
-    b.step("cli", "Alias for cli-test: hermetic glowcap CLI goldens")
+    b.step("cli", "Alias for cli-test: the in-tree glowcap CLI goldens")
         .dependOn(cli_test);
 }
 

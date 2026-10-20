@@ -41,7 +41,6 @@ const ps_license_manifests = @import("source_check/project_shape/license_manifes
 const ps_registries = @import("source_check/project_shape/registries.zig");
 const ps_examples = @import("source_check/project_shape/examples.zig");
 const ps_steps = @import("source_check/project_shape/steps.zig");
-const ps_gate_membership = @import("source_check/project_shape/steps/gate_membership.zig");
 const ps_execution_deadlines = @import("source_check/project_shape/execution_deadlines.zig");
 const ps_zig_module_surface = @import("source_check/project_shape/zig_module_surface.zig");
 const ps_budgets = @import("source_check/project_shape/budgets.zig");
@@ -264,7 +263,6 @@ pub fn check(
     try bs_webrtc.checkSignalAndIceCaps(io, gpa, root, &violations);
     try cp_skills.checkApplicationSurfaceVerbs(io, gpa, root, &violations);
     try cp_cli_ux.checkDriverRootShadow(io, gpa, root, &violations);
-    try ps_gate_membership.check(io, gpa, root, &violations);
     try cp_skills.checkGlowcapCliSkillAuthority(io, gpa, root, &violations);
     try cp_skills.checkGlowcapMcpSkillAuthority(io, gpa, root, &violations);
     try cp_skills.checkGriddleSkillTruth(io, gpa, root, &violations);
@@ -403,7 +401,6 @@ test {
     _ = ps_formatting;
     _ = ps_npm_pins;
     _ = ps_steps;
-    _ = ps_gate_membership;
     _ = ps_execution_deadlines;
     _ = ps_zig_module_surface;
     _ = ps_dependency_doc;

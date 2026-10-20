@@ -1,20 +1,17 @@
 #!/usr/bin/env -S deno run --allow-all
 /// <reference lib="dom" />
 /**
- * Capture the Rooms product images used by the website.
+ * Capture the Rooms product images the website shows.
  *
- * Start the web peer with every operator capability and a state directory,
- * its output captured to a file, and the IRC server against its directory:
+ * `zig build site-captures` runs this from the repository root after the
+ * Rooms product and the browser assets are built, and `zig build site`
+ * depends on it, so the pictures are a build output and never a tracked
+ * file. The script starts its own web peer with every operator capability
+ * on free loopback ports and a temporary state directory, and the IRC
+ * server against that peer's directory, so it needs nothing running
+ * beforehand. To iterate on one capture, run it the same way:
  *
- *   GLOWCAP_ROOMS_STATE=/tmp/rooms-capture-state \
- *     zig build rooms-web -Dtransport=tcp -- 8080 9098 --diagnostics --admin-listeners --operator --peering --irc \
- *     > /tmp/rooms-web-capture.log 2>&1
- *   zig build rooms-irc-server -- --directory=127.0.0.1:9098 --port=6667
- *
- * then run:
- *
- *   deno run --allow-all site/scripts/capture-rooms.ts --state=/tmp/rooms-capture-state \
- *     --server-log=/tmp/rooms-web-capture.log
+ *   deno run --allow-all site/scripts/capture-rooms.ts --out=site/assets
  *
  * The capture drives isolated browser peers through the shipped page: a
  * person and the four-bot roster a rooms team runs at its default cap, one
@@ -28,7 +25,7 @@
  * mocked. Only the lines are scripted. Every capture is written twice, as
  * `<name>-dark.webp` and `<name>-light.webp` as lossless WebP, so a page can
  * show the face that matches its own theme without banding the UI gradients.
- * The images land under `site/assets/`:
+ * The images land under `--out`, `site/assets/` by default:
  *
  *   rooms-session-*.webp           the first-run choice of where session state lives
  *   rooms-join-*.webp              the join card, pointed at the directory that served the page
@@ -38,21 +35,15 @@
  *   rooms-irc-transcript.txt      what that IRC client sent and received, verbatim
  *   rooms-operations-*.webp        the directory pane under /ops, held by capability
  *   rooms-session-attached-*.webp  a second browser attached to the first one's session
- *
- * Without `--state` the operations capture is skipped, and without an IRC server
- * on the IRC port the IRC capture is skipped. Each says so on stderr.
  */
 import { type BrowserContext, chromium, type Page } from "playwright";
-import { pinToLatest, plainRun, shot as capture, still } from "./capture.ts";
+import { startIrcServer } from "../../apps/rooms/test/irc/server_process.ts";
+import { reapOwned } from "../../apps/rooms/test/support/children.ts";
+import { freePort } from "../../apps/rooms/test/support/ports.ts";
+import { spawnWeb } from "../../apps/rooms/test/support/web_front.ts";
+import { awaitLocator, outDirArg, pinToLatest, plainRun, shot as capture, still } from "./capture.ts";
 
-const positional = Deno.args.filter((arg) => !arg.startsWith("--"));
-const flag = (name: string): string | undefined =>
-	Deno.args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
-const url = positional[0] ?? "http://127.0.0.1:8080/";
-const outDir = positional[1] ?? "site/assets";
-const stateDir = flag("state");
-const serverLog = flag("server-log");
-const ircPort = Number(flag("irc-port") ?? "6667");
+const outDir = outDirArg();
 const shot = (page: Page, name: string, within?: string) => capture(page, outDir, name, within);
 
 /** A team room, named the way the rooms-team skill mints one. */
@@ -153,6 +144,39 @@ class IrcClient {
 	}
 }
 
+/** The web peer this capture serves itself from, with every operator
+ * capability minted into a state directory of its own. Everything it prints
+ * is kept, because the complete `ROOMS-*` capability lines it announces at
+ * boot are what the operations capture pastes into Holdings. */
+const http = freePort();
+const roomPort = freePort();
+const url = `http://127.0.0.1:${http}/`;
+const state = await Deno.makeTempDir({ prefix: "rooms-capture-state-" });
+const web = spawnWeb({
+	env: { GLOWCAP_ROOMS_STATE: state },
+	args: [
+		"--transport=tcp",
+		String(http),
+		String(roomPort),
+		"--diagnostics",
+		"--admin-listeners",
+		"--operator",
+		"--peering",
+		"--irc",
+	],
+	stdout: "piped",
+	stderr: "piped",
+});
+let printed = "";
+for (const stream of [web.stdout, web.stderr]) {
+	(async () => {
+		for await (const chunk of stream.pipeThrough(new TextDecoderStream())) printed += chunk;
+	})().catch(() => {});
+}
+await awaitLocator(http, "the web peer");
+const irc = await startIrcServer(`127.0.0.1:${roomPort}`);
+const ircPort = irc.port;
+
 const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
 const contexts: BrowserContext[] = [];
 try {
@@ -241,54 +265,41 @@ try {
 
 	// An IRC client enters the same room through the IRC server: the registration
 	// an ordinary client sends, a JOIN, a line, and what came back.
-	let irc: IrcClient | undefined;
-	try {
-		irc = await IrcClient.connect(ircPort);
-	} catch (error) {
-		console.error(
-			`capture-rooms: no IRC server on 127.0.0.1:${ircPort}, skipping the rooms-irc captures (${error})`,
-		);
-	}
-	if (irc) {
-		await irc.send(`NICK ${ircNick}`);
-		await irc.send(`USER ${ircNick} 0 * :Ada, from an IRC client`);
-		await irc.until(/ 001 /);
-		await irc.until(/ 376 /);
-		await irc.send(`JOIN #${room}`);
-		await irc.until(/ 366 /);
+	{
+		const ada = await IrcClient.connect(ircPort);
+		await ada.send(`NICK ${ircNick}`);
+		await ada.send(`USER ${ircNick} 0 * :Ada, from an IRC client`);
+		await ada.until(/ 001 /);
+		await ada.until(/ 376 /);
+		await ada.send(`JOIN #${room}`);
+		await ada.until(/ 366 /);
 		await mira.locator(`#members li:has(.name:text-is("${ircNick}"))`).waitFor({ timeout: 30_000 });
 		const fromIrc = "Reading along from an IRC client. Same room, no browser.";
-		await irc.send(`PRIVMSG #${room} :${fromIrc}`);
+		await ada.send(`PRIVMSG #${room} :${fromIrc}`);
 		await mira.locator(".bubble", { hasText: fromIrc }).last().waitFor({ timeout: 30_000 });
 		const toIrc = `@${ircNick} welcome. The IRC server holds your seat, and the room sees an ordinary member.`;
 		await say(mira, toIrc);
-		await irc.until(new RegExp(`PRIVMSG #${room} :.*welcome`));
+		await ada.until(new RegExp(`PRIVMSG #${room} :.*welcome`));
 		// The IRC arrival is the last few rows, so a shorter window keeps the
 		// capture on the join notice, the line, and the reply beside the roster.
 		await mira.setViewportSize({ width: viewport.width, height: 640 });
 		await pinToLatest(mira);
 		await shot(mira, "rooms-irc");
 		await mira.setViewportSize(viewport);
-		await irc.send("QUIT :done");
-		irc.close();
-		await Deno.writeTextFile(`${outDir}/rooms-irc-transcript.txt`, irc.transcript.join("\n") + "\n");
+		await ada.send("QUIT :done");
+		ada.close();
+		await Deno.writeTextFile(`${outDir}/rooms-irc-transcript.txt`, ada.transcript.join("\n") + "\n");
 	}
 
 	// The operator capabilities: the complete `ROOMS-*` lines the server
 	// prints go into Holdings, the same lines the field tells a reader to
 	// enter, and the directory pane opens under /ops.
-	if (stateDir == null || serverLog == null) {
-		console.error(
-			"capture-rooms: the rooms-operations captures need --state=<dir> and --server-log=<path>",
+	{
+		const lines = printed.split("\n").map((line) => line.trim()).filter((line) =>
+			/^ROOMS-[A-Z-]+ ocapn:\/\/\S+$/.test(line)
 		);
-	} else {
-		const lines = (await Deno.readTextFile(serverLog))
-			.split("\n")
-			.filter((line) => /^ROOMS-[A-Z-]+ ocapn:\/\/\S+$/.test(line.trim()));
 		if (lines.length === 0) {
-			throw new Error(
-				`capture-rooms: ${serverLog} prints no ROOMS-* capability lines; start the server with the operator flags and capture its output`,
-			);
+			throw new Error("capture-rooms: the web peer printed no ROOMS-* capability lines at boot");
 		}
 		await mira.click("#settingsBtn");
 		await mira.waitForSelector("#settingsTitle");
@@ -365,4 +376,7 @@ try {
 } finally {
 	for (const context of contexts.reverse()) await context.close();
 	await browser.close();
+	await irc.close();
+	await reapOwned();
+	await Deno.remove(state, { recursive: true }).catch(() => {}); // tolerant: a scratch directory the next run never reads
 }

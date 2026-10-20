@@ -47,6 +47,6 @@ pub fn register(b: *std.Build) void {
     // because the wrapper has to be proven before the sequence under it.
     const timeout_runner_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/run-with-timeout-test.sh" });
     timeout_runner_test.has_side_effects = true;
-    const timeout_runner_step = b.step("timeout-runner-test", "Black-box the CI deadline wrapper: exit codes, relayed signal, no survivors");
+    const timeout_runner_step = b.step("timeout-runner-test", "Black-box the CI deadline wrapper: exit codes, relayed signal, no survivors (needs python3)");
     timeout_runner_step.dependOn(&timeout_runner_test.step);
 }

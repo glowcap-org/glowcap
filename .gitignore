@@ -14,9 +14,11 @@ site/public/
 # The site's brand mark, bundled from the rooms shader mark by `zig build
 # site` (site/brand_mark.ts is the source). Generated, never committed.
 site/assets/mark.js
-# The IRC exchange site/scripts/capture-rooms.ts records while it captures;
-# the IRC page quotes the exchange inline, so the file is reproducible
-# scratch beside the pictures. Generated, never committed.
+# The Rooms pictures the site shows, captured from the shipped page by
+# `zig build site-captures` (site/scripts/capture-rooms*.ts drive it), and
+# the IRC exchange recorded while capturing, which the IRC page quotes
+# inline. Generated, never committed.
+site/assets/rooms-*.webp
 site/assets/rooms-irc-transcript.txt
 bindings/rust/Cargo.lock
 bindings/rust/target/

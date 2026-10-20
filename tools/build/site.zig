@@ -39,6 +39,11 @@ pub const Registered = struct {
     python_examples_check: *std.Build.Step,
     rust_examples_check: *std.Build.Step,
     racket_examples_check: *std.Build.Step,
+    /// The Zine render and the local preview, returned so the root can make
+    /// both wait for the Rooms captures the pages embed, which the Rooms
+    /// subject registers after this one.
+    render: *std.Build.Step,
+    preview: *std.Build.Step,
 };
 
 pub fn register(ctx: Context) Registered {
@@ -113,6 +118,9 @@ pub fn register(ctx: Context) Registered {
         "site/examples/listen",
         "site/examples/onion",
     }) |dir_path| {
+        // Configure output is cached, so the entries read here are a
+        // configure input: a snippet added or removed reruns this walk.
+        b.dependOnDirectoryContents(b.path(dir_path));
         var dir = snippets_root.openDir(snippets_io, dir_path, .{ .iterate = true }) catch |err|
             std.debug.panic("site snippets {s}: {s}", .{ dir_path, @errorName(err) });
         defer dir.close(snippets_io);
@@ -127,6 +135,7 @@ pub fn register(ctx: Context) Registered {
                 std.mem.eql(u8, entry.name, "webrtc.zig") or
                 std.mem.endsWith(u8, entry.name, "-relay.zig"))) continue;
             const path = b.fmt("{s}/{s}", .{ dir_path, entry.name });
+            b.dependOnFileContents(b.path(path));
             const body = snippets_root.readFileAlloc(snippets_io, path, b.allocator, .limited(1 << 20)) catch |err|
                 std.debug.panic("site snippet {s}: {s}", .{ path, @errorName(err) });
             if (std.mem.indexOf(u8, body, "PLANNED:") != null) continue;
@@ -160,15 +169,15 @@ pub fn register(ctx: Context) Registered {
     site_ts_examples_check.dependOn(&site_ts_check.step);
     check_step.dependOn(site_ts_examples_check);
 
-    const site_python_examples_check = b.step("site-python-examples-check", "Type-check the authoritative Python transport site examples");
+    const site_python_examples_check = b.step("site-python-examples-check", "Type-check the authoritative Python transport site examples (needs python3 + uv)");
     const site_python_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "python" });
     site_python_examples_check.dependOn(&site_python_check.step);
 
-    const site_rust_examples_check = b.step("site-rust-examples-check", "Type-check the authoritative Rust transport site examples");
+    const site_rust_examples_check = b.step("site-rust-examples-check", "Type-check the authoritative Rust transport site examples (needs python3 + cargo)");
     const site_rust_check = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "rust" });
     site_rust_examples_check.dependOn(&site_rust_check.step);
 
-    const site_racket_examples_check = b.step("site-racket-examples-check", "Compile the authoritative Racket transport site examples");
+    const site_racket_examples_check = b.step("site-racket-examples-check", "Compile the authoritative Racket transport site examples (needs python3 + racket)");
     const site_racket_check = common.addRootedSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/site_binding_examples.py", "racket" });
     site_racket_examples_check.dependOn(&site_racket_check.step);
 
@@ -293,7 +302,7 @@ pub fn register(ctx: Context) Registered {
     site_render_check.has_side_effects = true;
     site_render_check.step.dependOn(&autodoc_access.step);
     site_render_check.step.dependOn(ctx.browser_preflight);
-    const site_render_check_step = b.step("site-render-check", "Render every built site page at four widths in the pinned Chromium (fails on console errors, horizontal overflow, or widows)");
+    const site_render_check_step = b.step("site-render-check", "Render every built site page at four widths in the pinned Chromium (fails on console errors, horizontal overflow, or widows) (needs deno + the image-baked browser)");
     site_render_check_step.dependOn(&site_render_check.step);
 
     // Press the code-tabs on every built page and prove the example switches.
@@ -308,7 +317,7 @@ pub fn register(ctx: Context) Registered {
     site_tabs_check.has_side_effects = true;
     site_tabs_check.step.dependOn(&autodoc_access.step);
     site_tabs_check.step.dependOn(ctx.browser_preflight);
-    const site_tabs_check_step = b.step("site-tabs-check", "Press the code-tabs on every built site page in the pinned Chromium and prove each tab opens its own panel");
+    const site_tabs_check_step = b.step("site-tabs-check", "Press the code-tabs on every built site page in the pinned Chromium and prove each tab opens its own panel (needs deno + the image-baked browser)");
     site_tabs_check_step.dependOn(&site_tabs_check.step);
 
     // `docs-serve` is the normal local preview: Zine's development server
@@ -342,7 +351,7 @@ pub fn register(ctx: Context) Registered {
     serve_site.has_side_effects = true;
     serve_site.step.dependOn(site_examples_write_step);
     serve_site.step.dependOn(&brand_mark_write.step);
-    const docs_serve_step = b.step("docs-serve", "Serve the documentation site locally with Zine's development server (regenerates site example tabs; watches site/examples while running)");
+    const docs_serve_step = b.step("docs-serve", "Serve the documentation site with Zine's development server and print its address (binds 0.0.0.0 in the devcontainer; regenerates site example tabs on start and while site/examples changes; captures the Rooms pictures first only when site/assets has none, so run site-captures to refresh them)");
     docs_serve_step.dependOn(&serve_site.step);
 
     return .{
@@ -350,5 +359,7 @@ pub fn register(ctx: Context) Registered {
         .python_examples_check = site_python_examples_check,
         .rust_examples_check = site_rust_examples_check,
         .racket_examples_check = site_racket_examples_check,
+        .render = &render_site.step,
+        .preview = &serve_site.step,
     };
 }

@@ -38,6 +38,7 @@ pub const Context = struct {
 
 pub const Registered = struct {
     check_step: *std.Build.Step,
+    source_check_step: *std.Build.Step,
     runtime_gate: *execution.RuntimeGate,
     test_filter: ?[]const u8,
     /// The wasm module's install step. Every serve path and browser proof
@@ -325,7 +326,7 @@ pub fn register(ctx: Context) Registered {
         .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
     });
     const run_memcheck = execution.addZigTest(b, memcheck_tests, .{ .memcheck = 900 });
-    b.step("test-memcheck", "Run the protocol core and actors tests under valgrind, built for the baseline CPU").dependOn(&run_memcheck.step);
+    b.step("test-memcheck", "Run the protocol core and actors tests under valgrind, built for the baseline CPU (-Dtest-filter narrows it)").dependOn(&run_memcheck.step);
     // ── Mutation fuzzing ─────────────────────────────────────────────────────
     // Outside `check`: a search with no natural end does not
     // belong in a gate that has to finish. What `check` does carry is the
@@ -604,6 +605,7 @@ pub fn register(ctx: Context) Registered {
 
     return .{
         .check_step = check_step,
+        .source_check_step = source_check_step,
         .runtime_gate = runtime_gate,
         .test_filter = test_filter,
         .wasm_install = &wasm_driver_install.step,

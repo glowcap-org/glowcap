@@ -33,6 +33,8 @@ const ocapnviz_steps_build = @import("tools/build/ocapnviz_steps.zig");
 const release_build = @import("tools/build/release.zig");
 const bindings_steps_build = @import("tools/build/bindings_steps.zig");
 const relay_matrix_build = @import("tools/build/relay_matrix.zig");
+const browser_preflight_build = @import("tools/build/browser_preflight.zig");
+const build_steps_doc = @import("tools/build/build_steps_doc.zig");
 
 const glowcapExecutable = build_common.glowcapExecutable;
 const addGlowcapRun = build_common.addGlowcapRun;
@@ -380,23 +382,11 @@ pub fn build(b: *std.Build) void {
     // preview) registers as one subject from tools/build/site.zig; the
     // language-check handles come back for the `bindings` aggregate.
 
-    // ── Browser proofs: one prepare step for all of them ─────────────────────
-    // Every step that drives a real headless Chromium depends on this. In the
-    // devcontainer the script prepares the checkout's exact pinned browsers
-    // through the managed-tool lifecycle (tools.sh ensure playwright); a warm
-    // run is a structural readiness check. On a host build it checks the local
-    // Playwright environment instead. Preparation owns its own bounded
-    // deadline, sized from the measured cold download (the shared cache makes
-    // it a once-per-machine cost): a failed preparation is a setup failure,
-    // never a skipped test or a longer scenario deadline.
-    const browser_preflight = execution.addSystemCommand(b, .build_tool, &.{
-        "python3", "tools/run-with-timeout.py",           "--kill-after", "2s", "600s",
-        "bash",    "tools/check/playwright-preflight.sh",
-    });
-    browser_preflight.setCwd(b.path("."));
-    browser_preflight.has_side_effects = true;
+    // Every step that drives a real headless Chromium depends on this one
+    // preparation (tools/build/browser_preflight.zig).
+    const browser_preflight = browser_preflight_build.register(b);
 
-    mark_build.register(b, &browser_preflight.step);
+    mark_build.register(b, browser_preflight);
 
     const site_reg = site_build.register(.{
         .b = b,
@@ -406,7 +396,7 @@ pub fn build(b: *std.Build) void {
         .model_mod = host_mods[layerIndex("model")],
         .check_step = check_step,
         .pin_port = pin_port,
-        .browser_preflight = &browser_preflight.step,
+        .browser_preflight = browser_preflight,
     });
     mbedtls_build.addSiteRelayExamples(
         b,
@@ -506,7 +496,7 @@ pub fn build(b: *std.Build) void {
         .interop_harness_mod = interop_harness_mod,
         .check_step = check_step,
         .site_zig_examples_check = site_reg.zig_examples_check,
-        .browser_preflight = &browser_preflight.step,
+        .browser_preflight = browser_preflight,
         .wasm_driver_install = wasm_driver_install_step,
     });
     const webrtc_resident_mod = webrtc_reg.resident_mod;
@@ -570,7 +560,7 @@ pub fn build(b: *std.Build) void {
         .demo_usage_mod = demo_usage_mod,
         .check_step = check_step,
         .runtime_gate = runtime_gate,
-        .browser_preflight = &browser_preflight.step,
+        .browser_preflight = browser_preflight,
         .wasm_driver_install = wasm_driver_install_step,
         .wasm_archives = gates.wasm_archives,
         .iroh_abi_step = iroh_abi_step,
@@ -598,6 +588,10 @@ pub fn build(b: *std.Build) void {
         .pin_port = pin_port,
         .attach = attach,
     });
+    // The site's Rooms pictures are captured from the shipped page: the
+    // render always waits for a fresh capture, the preview only for a first.
+    site_reg.render.dependOn(rooms.site_captures);
+    if (!rooms_build.picturesPresent(b)) site_reg.preview.dependOn(rooms.site_captures);
     const rooms_services_install = rooms.services_install;
     release_build.register(b, target, optimize, abi_version, iroh_abi_step, check_step, .{
         .static_archives = release_static_archives.items,
@@ -611,7 +605,7 @@ pub fn build(b: *std.Build) void {
 
     // The cross-runtime relay matrix and the live Goblins relay/rooms proofs
     // register from tools/build/relay_matrix.zig.
-    relay_matrix_build.register(b, pin_port, wasm_driver_install_step, &browser_preflight.step, iroh_abi_step, rooms_services_install);
+    relay_matrix_build.register(b, pin_port, wasm_driver_install_step, browser_preflight, iroh_abi_step, rooms_services_install);
 
     cli_build.add(b, .{
         .target = target,
@@ -635,7 +629,7 @@ pub fn build(b: *std.Build) void {
     bindings_steps_build.registerChecks(b, check_step, &onion_archive.dynamic_install.step, rooms.browser_application, bindings_reg);
 
     // The ocapnviz visualizer's steps register from tools/build/ocapnviz_steps.zig.
-    ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, &browser_preflight.step, rooms_services_install);
+    ocapnviz_steps_build.register(b, check_step, runtime_gate, wasm_driver_install_step, browser_preflight, rooms_services_install);
 
     // Finalize graph-level runtime policing after every registrar has had a
     // chance to add members to `check`.
@@ -646,4 +640,7 @@ pub fn build(b: *std.Build) void {
     // install step. The project correctness gate remains `zig build check`.
     const build_step = b.step("build", "Build and install the glowcap C ABI archives");
     build_step.dependOn(b.getInstallStep());
+
+    // The step inventory reads the whole graph, so it registers last.
+    build_steps_doc.register(b, gates.source_check_step);
 }

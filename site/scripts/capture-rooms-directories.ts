@@ -4,13 +4,14 @@
  * Capture the Rooms image of one session holding rooms on three directories,
  * with a direct conversation open to a member of each.
  *
- * The script starts its own three directories from the installed runtimes,
- * each a web front over plain TCP on free loopback ports, so it needs no
- * server running beforehand. Prepare the runtimes and the browser assets
- * once, then run it from the repository root:
+ * `zig build site-captures` runs this from the repository root after the
+ * Rooms product and the browser assets are built, and `zig build site`
+ * depends on it, so the pictures are a build output and never a tracked
+ * file. The script starts its own three directories from the installed
+ * runtimes, each a web front over plain TCP on free loopback ports, so it
+ * needs nothing running beforehand. To iterate on it, run it the same way:
  *
- *   zig build rooms-web-dm-foreign
- *   deno run --allow-all site/scripts/capture-rooms-directories.ts [<out-dir>]
+ *   deno run --allow-all site/scripts/capture-rooms-directories.ts --out=site/assets
  *
  * Four isolated browser peers drive the shipped page. mira's page is served
  * by the first directory, and she joins a room there, then a room on each of
@@ -20,7 +21,7 @@
  * mira's page may dial the other two directories, and only because its relay
  * is told their room ports. Nothing links the directories to each other. No
  * product state or screenshot markup is mocked. Only the lines are scripted.
- * The images land under `site/assets/` unless another directory is given:
+ * The images land under `--out`, `site/assets/` by default:
  *
  *   rooms-directories-*.webp        three rooms on three directories and a direct line from each
  *   rooms-directories-phone-*.webp  the same session shared to a phone, every directory included
@@ -31,9 +32,9 @@ import { freePort } from "../../apps/rooms/test/support/ports.ts";
 import { reapOwned } from "../../apps/rooms/test/support/children.ts";
 import { establishLocalSession } from "../../apps/rooms/test/support/session_setup.ts";
 import { directOpened, openDmTo, reachDirectoryOnCard } from "../../apps/rooms/test/page/harness.ts";
-import { pinToLatest, plainRun, shot, still } from "./capture.ts";
+import { awaitLocator, outDirArg, pinToLatest, plainRun, shot, still } from "./capture.ts";
 
-const outDir = Deno.args.find((arg) => !arg.startsWith("--")) ?? "site/assets";
+const outDir = outDirArg();
 
 /** One directory: a web front serving the page, over a room server of its own. */
 interface Directory {
@@ -64,18 +65,7 @@ function serve(dir: Directory, reaches: Directory[] = []): void {
 }
 
 /** A directory is up once its page answers with its room locator. */
-async function ready(dir: Directory): Promise<void> {
-	for (let i = 0; i < 1200; i++) {
-		try {
-			const res = await fetch(`http://127.0.0.1:${dir.http}/locator`);
-			if (res.status === 200 && (await res.text()).trim().length > 0) return;
-		} catch {
-			// not up yet
-		}
-		await new Promise((settle) => setTimeout(settle, 50));
-	}
-	throw new Error(`the directory serving ${dir.name} never answered with a locator`);
-}
+const ready = (dir: Directory): Promise<void> => awaitLocator(dir.http, `the directory serving ${dir.name}`);
 
 const home = directory("workshop", "ren");
 const zines = directory("zine-swap", "oskar");

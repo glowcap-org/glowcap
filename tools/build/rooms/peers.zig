@@ -24,13 +24,13 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     compile.step.dependOn(&browser_compile.step);
     const chat_install = b.addInstallFileWithDir(b.path("apps/rooms/rust/target/release/rooms-chat"), .prefix, "libexec/rooms-chat");
     chat_install.step.dependOn(&compile.step);
-    b.step("rooms-chat-build", "Build and install the interactive Rooms client").dependOn(&chat_install.step);
+    b.step("rooms-chat-build", "Build and install the interactive Rooms client (needs cargo)").dependOn(&chat_install.step);
     const chat_run = execution.addSystemCommand(b, .service, &.{"env"});
     chat_run.addFileArg(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-chat" } });
     chat_run.setCwd(b.path("."));
     chat_run.addPassthruArgs();
     chat_run.step.dependOn(&chat_install.step);
-    b.step("rooms-chat", "Chat interactively; pass -- <locator> <room> <nick>").dependOn(&chat_run.step);
+    b.step("rooms-chat", "Chat interactively; pass -- <locator> <room> <nick> (needs cargo)").dependOn(&chat_run.step);
     const install = b.addInstallFileWithDir(b.path("apps/rooms/rust/target/release/rooms-archive"), .prefix, "libexec/rooms-archive");
     install.step.dependOn(&compile.step);
     install.step.dependOn(&chat_install.step);
@@ -181,7 +181,7 @@ pub fn register(b: *std.Build, runtime_gate: *execution.RuntimeGate, iroh_abi: *
     agent_run.setCwd(b.path("."));
     agent_run.step.dependOn(&session_install.step);
     agent_run.step.dependOn(&server_install.step);
-    const agent_test = b.step("rooms-agent-test", "Exercise the Rooms agent skill across rooms, DMs, restart and acknowledgement");
+    const agent_test = b.step("rooms-agent-test", "Exercise the Rooms agent skill across rooms, DMs, restart and acknowledgement (needs cargo + python3)");
     agent_test.dependOn(&agent_run.step);
     runtime_gate.add(agent_test);
     return .{ .installed = &install.step, .browser_installed = &proof_server.step, .web_build = web_build };

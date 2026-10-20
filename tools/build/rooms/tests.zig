@@ -175,7 +175,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     // UI imports include the generated production Rust application surface.
     cache.step.dependOn(ctx.wasm_install);
 
-    const server_step = b.step("rooms-server-test", "Run the hermetic Rooms server and UI contract tests (needs cargo + deno)");
+    const server_step = b.step("rooms-server-test", "Run the in-tree Rooms server and UI contract tests (needs cargo + deno)");
     const web_tooling = common.addRootedSystemCommand(ctx.b, .{ .deterministic = 30 }, &.{
         "deno", "task", "--config", "apps/rooms/web/deno.json", "check",
     });

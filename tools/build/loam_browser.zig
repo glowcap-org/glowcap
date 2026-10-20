@@ -16,10 +16,10 @@ pub fn register(b: *std.Build, gates: Gates) void {
     lint.step.dependOn(&compile.step);
     const glue = common.addRootedSystemCommand(b, .build_tool, &.{ "wasm-bindgen", "bindings/rust/target/loam-browser/wasm32-unknown-unknown/release/loam_browser_proof.wasm", "--target", "web", "--out-dir", "zig-out/wasm/loam-browser" });
     glue.step.dependOn(&lint.step);
-    b.step("loam-browser-build", "Build the Loam Rust browser consumer and check its compiled Wasm contract").dependOn(&glue.step);
+    b.step("loam-browser-build", "Build the Loam Rust browser consumer and check its compiled Wasm contract (needs cargo + wasm-bindgen)").dependOn(&glue.step);
     const proof = common.addRootedSystemCommand(b, .{ .browser_proof = 45 }, &.{ "deno", "run", "--allow-all", "bindings/proofs/loam_browser/check.mjs" });
     proof.step.dependOn(&glue.step);
     const cache = common.addRootedSystemCommand(b, .build_tool, &.{ "deno", "cache", "bindings/proofs/loam_browser/check.mjs" });
     proof.step.dependOn(&cache.step);
-    b.step("loam-browser-test", "Prove Loam atomic browser storage, ownership, cancellation, sharing and cold restoration after page reload").dependOn(&proof.step);
+    b.step("loam-browser-test", "Prove Loam atomic browser storage, ownership, cancellation, sharing and cold restoration after page reload (needs deno + Playwright)").dependOn(&proof.step);
 }

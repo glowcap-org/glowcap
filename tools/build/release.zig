@@ -41,7 +41,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
 }
 
 fn productPreset(b: *std.Build, target: std.Build.ResolvedTarget) void {
-    const step = b.step("rooms-release", "Prepare the complete host product with ReleaseSafe and baseline CPU settings for installation or Linux deployment");
+    const step = b.step("rooms-release", "Prepare the complete host product with ReleaseSafe and baseline CPU settings for installation or Linux deployment (needs cargo + deno + wasm-bindgen)");
     if (hostTargetFailure(b, target)) |reason| {
         step.dependOn(&b.addFail(reason).step);
         return;

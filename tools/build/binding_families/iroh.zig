@@ -79,26 +79,26 @@ pub const iroh_handoff_clients = [_]BindingClientRow{
 pub const iroh_redeem_clients = [_]BindingClientRow{
     .{
         .step_name = "deno-iroh-redeem-posture",
-        .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Deno binding (needs cargo + deno)",
+        .description = "In-tree configured-redeem-posture proof for a hint-less iroh give: the Deno binding (needs cargo + deno)",
         .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "bindings/proofs/iroh_redeem_posture/deno_client.ts" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "python-iroh-redeem-posture",
-        .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Python binding (needs cargo + python3)",
+        .description = "In-tree configured-redeem-posture proof for a hint-less iroh give: the Python binding (needs cargo + python3)",
         .argv = &.{ "python3", "bindings/proofs/iroh_redeem_posture/python_client.py" },
         .posture = .{ .deterministic = 30 },
     },
     .{
         .step_name = "rust-iroh-redeem-posture",
-        .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Rust binding (needs cargo)",
+        .description = "In-tree configured-redeem-posture proof for a hint-less iroh give: the Rust binding (needs cargo)",
         .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_redeem_posture" },
         .posture = .{ .deterministic = 30 },
         .dashdash_before_args = true,
     },
     .{
         .step_name = "racket-iroh-redeem-posture",
-        .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Racket binding (needs cargo + racket)",
+        .description = "In-tree configured-redeem-posture proof for a hint-less iroh give: the Racket binding (needs cargo + racket)",
         .argv = &.{ "racket", "-y", "bindings/proofs/iroh_redeem_posture/racket_client.rkt" },
         .posture = .{ .deterministic = 30 },
     },

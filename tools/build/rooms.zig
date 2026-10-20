@@ -72,10 +72,37 @@ const WebProof = struct {
     needs_archive: bool = false,
     /// The proof attaches browsers to the installed session process.
     needs_session: bool = false,
+    /// The proof starts the installed IRC server against its own directory.
+    needs_irc_server: bool = false,
     /// The proof holds the page to a wall-clock budget. A budget measured while
     /// the rest of the family competes for the same cores measures the
     /// contention, so `rooms-web-proofs` runs it after every other proof.
     measures_time: bool = false,
+};
+
+/// Whether `site/assets` holds Rooms pictures from an earlier capture. The
+/// site render always captures afresh; the local preview captures only when
+/// nothing is there, so starting it costs a capture once, not every time.
+/// The directory's entries are a configure input, so a capture or a removal
+/// reruns the configure phase that asks.
+pub fn picturesPresent(b: *std.Build) bool {
+    const assets = "site/assets";
+    b.dependOnDirectoryContents(b.path(assets));
+    var dir = b.root.root_dir.handle.openDir(b.graph.io, assets, .{ .iterate = true }) catch return false;
+    defer dir.close(b.graph.io);
+    var entries = dir.iterate();
+    while (entries.next(b.graph.io) catch return false) |entry| {
+        if (std.mem.startsWith(u8, entry.name, "rooms-") and std.mem.endsWith(u8, entry.name, ".webp")) return true;
+    }
+    return false;
+}
+
+/// The website's Rooms captures: each a Deno script driving the shipped page
+/// through browser peers it starts itself, run with a proof's wiring and
+/// containment, and written as pictures rather than asserted.
+const site_captures = [_]WebProof{
+    .{ .step_name = "site-captures-rooms", .description = "Capture the team room, direct line, IRC, operations, and shared-session pictures (needs cargo + deno + a Playwright Chromium)", .source = "site/scripts/capture-rooms.ts", .wrapper_deadline_seconds = 600, .needs_irc_server = true },
+    .{ .step_name = "site-captures-directories", .description = "Capture the three-directory session and its phone pictures (needs cargo + deno + a Playwright Chromium)", .source = "site/scripts/capture-rooms-directories.ts", .wrapper_deadline_seconds = 600 },
 };
 
 /// One host direct-message demo: a Deno scenario over the installed
@@ -92,6 +119,10 @@ const DmDemo = struct {
 pub const Registered = struct {
     services_install: *std.Build.Step,
     web_proofs: *std.Build.Step,
+    /// The website's Rooms pictures, captured from the shipped page into
+    /// `site/assets` by `site-captures`. The site render and preview depend
+    /// on it, so no picture is ever a tracked file.
+    site_captures: *std.Build.Step,
     /// The generated browser module and its type declarations, which the
     /// repository's TypeScript check imports.
     browser_application: *std.Build.Step,
@@ -517,7 +548,23 @@ pub fn register(ctx: Context) Registered {
         web_proofs_step.dependOn(&run.step);
     }
 
-    return .{ .services_install = archive_install, .web_proofs = web_proofs_step, .browser_application = browser_application };
+    // The website's product pictures: the same wiring as a browser proof,
+    // writing WebP captures into the site's asset directory, where Zine
+    // reads them and `.gitignore` keeps them out of the tree.
+    const site_captures_step = b.step("site-captures", "Capture the Rooms pictures the website shows into site/assets from the shipped page (needs cargo + deno + a Playwright Chromium)");
+    for (site_captures) |proof| {
+        const run = webProofRun(ctx, proof, archive_install, peers.web_build, browser_assets);
+        run.addArg("--out=site/assets");
+        b.step(proof.step_name, proof.description).dependOn(&run.step);
+        site_captures_step.dependOn(&run.step);
+    }
+
+    return .{
+        .services_install = archive_install,
+        .web_proofs = web_proofs_step,
+        .site_captures = site_captures_step,
+        .browser_application = browser_application,
+    };
 }
 
 /// One browser proof's run, wired to everything the shipped page needs.
@@ -531,6 +578,10 @@ fn webProofRun(ctx: Context, proof: WebProof, archive_install: *std.Build.Step, 
     }
     if (proof.needs_session) {
         run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-session" } }, .{ .prefix = "GLOWCAP_ROOMS_SESSION_BIN=", .make_absolute = true });
+        run.step.dependOn(archive_install);
+    }
+    if (proof.needs_irc_server) {
+        run.addFileArg2(.{ .relative = .{ .base = .install_prefix, .sub_path = "libexec/rooms-irc-server" } }, .{ .prefix = "GLOWCAP_ROOMS_IRC_SERVER_BIN=", .make_absolute = true });
         run.step.dependOn(archive_install);
     }
     {

@@ -37,7 +37,7 @@ pub fn register(
     ocapnviz_test.addArgs(&.{ "bash", "tools/check/ocapnviz-test.sh" });
     ocapnviz_test.step.dependOn(rooms_services_install);
     ocapnviz_test.step.dependOn(&ocapnviz_build_check.step);
-    const ocapnviz_test_step = b.step("ocapnviz-test", "Run the ocapnviz visualizer's own test suite (needs deno, part of runtime-check)");
+    const ocapnviz_test_step = b.step("ocapnviz-test", "Run the ocapnviz visualizer's own test suite (needs deno)");
     ocapnviz_test_step.dependOn(&ocapnviz_test.step);
     check_step.dependOn(&ocapnviz_build_check.step);
     runtime_gate.add(ocapnviz_test_step);

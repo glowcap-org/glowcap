@@ -45,7 +45,7 @@ pub fn register(
     // stronger and holds the wall-clock ceiling while it is at it. The
     // ceilings sit roughly an order of magnitude over the measured figures,
     // so only a structural regression, never machine noise, crosses one.
-    const perf_check_step = b.step("perf-check", "Gate ReleaseFast wall-clock cost: warm inbound dispatch and the outbound answered-send path against the ceilings in the bench files, plus the gc-storm linearity ratio (runs under check)");
+    const perf_check_step = b.step("perf-check", "Gate ReleaseFast wall-clock cost: warm inbound dispatch and the outbound answered-send path against the ceilings in the bench files, plus the gc-storm linearity ratio");
     check_step.dependOn(perf_check_step);
     const benches = [_]struct {
         step_name: []const u8,
@@ -108,7 +108,7 @@ pub fn register(
             const module = b.createModule(profiles.moduleOptions(b, bench.path));
             module.addImport("glowcap", profiles.module("glowcap"));
             const profiled = b.addExecutable(.{ .name = b.fmt("{s}-profile", .{bench.name}), .root_module = module });
-            b.step(step_name, b.fmt("Profile {s} under callgrind: self cost per file and function for each marked phase", .{bench.step_name})).dependOn(profile_build.addRun(b, profiles, profiled));
+            b.step(step_name, b.fmt("Profile {s} under callgrind: self cost per file and function for each marked phase (needs valgrind)", .{bench.step_name})).dependOn(profile_build.addRun(b, profiles, profiled));
         }
 
         if (bench.gate_on_check) {

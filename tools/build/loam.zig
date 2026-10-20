@@ -35,7 +35,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
         .sqlite = sqlite_build.create(b, profiles.target, profile_build.Profiles.optimize, profiles.module("loam_core"), profiled_custody, false),
     };
     const profiled = benchExecutable(b, "loam-profile", profiles.moduleOptions(b, "bench/loam_bench.zig"), profiles.module("glowcap"), profiled_engines);
-    b.step("profile-loam", "Profile bench-loam under callgrind: self cost per file and function for each marked phase, taking bench-loam's filters after --").dependOn(profile_build.addRun(b, profiles, profiled));
+    b.step("profile-loam", "Profile bench-loam under callgrind: self cost per file and function for each marked phase, taking bench-loam's filters after -- (needs valgrind)").dependOn(profile_build.addRun(b, profiles, profiled));
     portableCheck(b, optimize, gates);
     return engines;
 }

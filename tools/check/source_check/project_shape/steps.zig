@@ -29,17 +29,12 @@ const fixed_command_docs = [_][]const u8{
 
 /// Command-invoking CI surfaces. These are workflow YAML and shell, not
 /// Markdown, so the whole file is command context, and one invocation may
-/// name several steps (`zig build fmt-check arch-check …`). Scanned forward
-/// only: a `zig build <step>` here must name a real step and a `bash <script>`
-/// must resolve, but a CI invocation is not discoverability documentation, so
-/// it never satisfies the reverse every-step-is-documented direction.
+/// name several steps (`zig build fmt-check arch-check …`): a `zig build
+/// <step>` here must name a real step and a `bash <script>` must resolve.
+/// That every step has a row in `docs/build-steps.md` is held by
+/// `gen-build-steps-check`, which reads the build graph itself.
 const ci_command_dirs = [_][]const u8{".github/workflows"};
 const ci_command_files = [_][]const u8{"ci/gates.sh"};
-
-/// The one doc that lists every step. Other docs may cite a step, and each
-/// citation must name a real step, but only this index satisfies the reverse
-/// every-step-is-documented direction.
-const step_index_doc = "docs/build-steps.md";
 
 /// Appends each command-context region of a Markdown document to `out`: every
 /// line inside a fenced code block, and the text of every inline backtick span
@@ -70,20 +65,15 @@ fn collectCommandRegions(gpa: std.mem.Allocator, contents: []const u8, out: *std
 }
 
 /// Scans one command-context region (a fenced line or an inline backtick span)
-/// for `zig build <step>` and `bash <script>` citations, recording each step in
-/// the documented set and flagging any that does not resolve.
+/// for `zig build <step>` and `bash <script>` citations, flagging any that
+/// does not resolve.
 const CommandScan = struct {
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     steps: *const std.StringHashMap(void),
-    documented: *std.StringHashMap(void),
-    documented_arena: std.mem.Allocator,
     path: []const u8,
-    /// CI invocations resolve forward only. They are not documentation, so
-    /// they never feed the reverse every-step-is-documented direction.
-    record_documented: bool = true,
     /// A CI `zig build a b c` names several steps in one invocation, docs
     /// cite one step per span, so token consumption stays single there.
     multi_step: bool = false,
@@ -103,9 +93,6 @@ const CommandScan = struct {
                 if (documented_step.len == 0) break;
                 if (std.mem.startsWith(u8, documented_step, "-")) break;
 
-                if (self.record_documented) {
-                    try self.documented.put(try self.documented_arena.dupe(u8, documented_step), {});
-                }
                 if (!self.steps.contains(documented_step)) {
                     try appendViolation(self.gpa, self.violations, "{s}: documents `zig build {s}`, but build.zig has no step named `{s}`", .{
                         self.path,
@@ -174,15 +161,6 @@ pub fn checkDocumentedBuildSteps(
     try collectCommandDocsUnder(io, gpa, docs_arena.allocator(), root, &command_docs, violations, ".agents", ".md");
     try collectCommandDocsUnder(io, gpa, docs_arena.allocator(), root, &command_docs, violations, "site/content", ".smd");
 
-    // Every `zig build <token>` token found across the corpus. Used both
-    // forward (each documented token must name a real step) and in reverse
-    // (each real step must be listed in the step index). Keys are duped into an
-    // arena because each doc's `contents` is freed before the next iteration.
-    var documented_arena = std.heap.ArenaAllocator.init(gpa);
-    defer documented_arena.deinit();
-    var documented = std.StringHashMap(void).init(gpa);
-    defer documented.deinit();
-
     for (command_docs.items) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for build-command check with {s}", .{ path, @errorName(err) });
@@ -196,10 +174,7 @@ pub fn checkDocumentedBuildSteps(
             .root = root,
             .violations = violations,
             .steps = &steps,
-            .documented = &documented,
-            .documented_arena = documented_arena.allocator(),
             .path = path,
-            .record_documented = std.mem.eql(u8, path, step_index_doc),
         };
 
         // A `zig build`/`bash` citation is a command claim only inside command
@@ -233,24 +208,10 @@ pub fn checkDocumentedBuildSteps(
             .root = root,
             .violations = violations,
             .steps = &steps,
-            .documented = &documented,
-            .documented_arena = documented_arena.allocator(),
             .path = path,
-            .record_documented = false,
             .multi_step = true,
         };
         try scan.region(contents);
-    }
-
-    // Reverse direction: every build.zig step must be listed as
-    // `zig build <name>` in the step index, so a new step cannot ship
-    // undiscoverable. `build` is the implicit default alias and is exempt.
-    var it = steps.keyIterator();
-    while (it.next()) |name| {
-        if (std.mem.eql(u8, name.*, "build")) continue;
-        if (!documented.contains(name.*)) {
-            try appendViolation(gpa, violations, "build.zig: step `{s}` is not listed as `zig build {s}` in {s}", .{ name.*, name.*, step_index_doc });
-        }
     }
 }
 

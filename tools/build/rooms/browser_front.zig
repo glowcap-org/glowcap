@@ -62,7 +62,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     product.step.dependOn(ctx.iroh_abi_step);
     const resources = staging.installResources(b, "product");
     resources.step.dependOn(&product.step);
-    const rooms_build = b.step("rooms-build", "Install the complete glowcap product and stage its deployment tree: CLI, Rooms runtimes, browser assets and skills");
+    const rooms_build = b.step("rooms-build", "Install the complete glowcap product and stage its deployment tree: CLI, Rooms runtimes, browser assets and skills (needs cargo + deno + wasm-bindgen)");
     rooms_build.dependOn(&resources.step);
     const install_proof = common.addInstalledSystemRun(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/glowcap_release.py", "--installed" });
     install_proof.addDirectoryArg2(.{ .relative = .{ .base = .install_prefix } }, .{ .make_absolute = true });
@@ -72,7 +72,7 @@ pub fn register(ctx: Context) *std.Build.Step {
     install_test.dependOn(&install_proof.step);
     ctx.runtime_gate.add(install_test);
 
-    const host_test = b.step("glowcap-host-test", "Prove verified host installation and Docker deployment commands without a daemon");
+    const host_test = b.step("glowcap-host-test", "Prove verified host installation and Docker deployment commands without a daemon (needs python3)");
     // Installation verifies the complete product inventory; deployment owns
     // its command scenarios. Suite growth must not consume another's deadline.
     inline for (.{ "--installation", "--deployment" }) |mode| {

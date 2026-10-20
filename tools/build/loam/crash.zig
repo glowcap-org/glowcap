@@ -46,7 +46,7 @@ pub fn register(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.b
     };
     const runs: Run = .{ .b = b, .target = target, .optimize = optimize, .core = core, .engines = engines };
 
-    const storage_step = b.step("loam-storage-crash-test", "Kill Loam writers before commit and after commit before local installation, on every disk engine");
+    const storage_step = b.step("loam-storage-crash-test", "Kill Loam writers before commit and after commit before local installation, on every disk engine (needs python3)");
     runs.add(storage_step, "storage", .{ .source = "test/loam_storage_crash.zig", .deadline = 20 });
     gates.runtime_gate.add(storage_step);
 

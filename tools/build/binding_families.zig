@@ -414,7 +414,7 @@ const binding_families = [_]BindingFamily{
     },
     .{
         .aggregate_name = "bindings-goblins-listen",
-        .aggregate_desc = "Live listener conversation: a real Goblins vat dials and calls Deno, Python, Rust, and Racket binding hosts",
+        .aggregate_desc = "Live listener conversation: a real Goblins vat dials and calls Deno, Python, Rust, and Racket binding hosts (needs deno + racket + goblins + the runtimes)",
         .needs_iroh_abi = false,
         .rows = &goblins_listen_clients,
     },
@@ -451,7 +451,7 @@ const binding_families = [_]BindingFamily{
     },
     .{
         .aggregate_name = "bindings-iroh-redeem-posture",
-        .aggregate_desc = "Per-binding hermetic proof that a configured redeem posture governs a hint-less iroh give, every binding (needs cargo + the runtimes)",
+        .aggregate_desc = "Per-binding in-tree proof that a configured redeem posture governs a hint-less iroh give, every binding (needs cargo + the runtimes)",
         .needs_iroh_abi = true,
         .rows = &iroh_rows.iroh_redeem_clients,
     },
@@ -484,7 +484,7 @@ const binding_families = [_]BindingFamily{
     },
     .{
         .aggregate_name = "bindings-wss-relay",
-        .aggregate_desc = "Per-binding WSS relay success and exact TLS refusal projection through one local CA fixture",
+        .aggregate_desc = "Per-binding WSS relay success and exact TLS refusal projection through one local CA fixture (needs deno + uv + cargo + racket)",
         .needs_iroh_abi = false,
         .rows = &wss_relay_clients,
     },

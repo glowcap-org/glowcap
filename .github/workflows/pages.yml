@@ -1,7 +1,7 @@
 # Build the documentation site and deploy it only after the full `check`
-# workflow succeeds. The site build needs only the pinned Zig (the site
-# sub-build fetches Zine itself), installed through the devcontainer's
-# checksummed installer — no devcontainer image build.
+# workflow succeeds. The site build captures the Rooms pictures from the
+# shipped page, so it runs in the devcontainer, which owns cargo, Deno, and
+# the Playwright browser, the same way `check` runs the gates.
 name: pages
 
 on:
@@ -33,11 +33,12 @@ jobs:
       actions: read
       contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.DEPLOY_SHA }}
+          submodules: recursive
           persist-credentials: false
 
       - name: Read the Python pin
@@ -58,13 +59,20 @@ jobs:
           test "$DEPLOY_SHA" = "$current"
           python3 tools/check/require-main-check.py "$DEPLOY_SHA"
 
-      - name: Install the pinned Zig
+      # The CI action resolves Compose before it runs initializeCommand, so use
+      # the same checkout configurator as a contributor and prepare the two
+      # managed external networks it names.
+      - name: Prepare the devcontainer's external networks
         run: |
-          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
-          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+          bash .devcontainer/bin/configure.sh
+          docker network create glowcap-rooms-net 2>/dev/null || true
+          docker network create glowcap-dev-main-egress 2>/dev/null || true
 
-      - name: Build the site
-        run: zig build site
+      - name: Build the site in the devcontainer
+        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
+        with:
+          push: never
+          runCmd: zig build site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

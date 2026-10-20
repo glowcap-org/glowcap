@@ -11,6 +11,27 @@ import type { Page } from "playwright";
  * each time. */
 export const still = { reducedMotion: "reduce" } as const;
 
+/** Where a capture script writes its pictures: `--out=<dir>`, or `site/assets`
+ * where Zine reads them. `zig build site-captures` passes the flag. */
+export const outDirArg = (): string =>
+	Deno.args.find((arg) => arg.startsWith("--out="))?.slice("--out=".length) ?? "site/assets";
+
+/** Wait until a web peer this script started answers its page's locator on
+ * loopback port `http`. A peer that never answers inside a minute fails the
+ * capture with `what` named. */
+export async function awaitLocator(http: number, what: string): Promise<void> {
+	for (let i = 0; i < 1200; i++) {
+		try {
+			const res = await fetch(`http://127.0.0.1:${http}/locator`);
+			if (res.status === 200 && (await res.text()).trim().length > 0) return;
+		} catch {
+			// not up yet
+		}
+		await new Promise((settle) => setTimeout(settle, 50));
+	}
+	throw new Error(`${what} never answered with a locator`);
+}
+
 /** How much of the mycelium a capture keeps, by theme. Moving, the threads
  * read as depth. Held still at full strength, they read as scratches over the
  * UI. Dark threads on paper fade sooner than light ones on the night ground. */
