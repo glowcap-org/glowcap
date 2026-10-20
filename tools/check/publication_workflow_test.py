@@ -270,7 +270,10 @@ print(os.environ['EVIDENCE_RESPONSE'])
             for step in ("check", "runtime-check", "goblins-interop", "ocapn-conformance-next"):
                 self.assertTrue(any(call[:2] == ["zig", "build"] and step in call for call in invoked), step)
 
-    def test_protection_matches_premerge_checks(self):
+    def test_protection_is_signed_linear_and_checked_on_push(self):
+        # main moves only by fast-forward from dev, so the checks a candidate
+        # needs are the ones a push to dev already ran on that commit.
+        push_to_dev = {"event_name": "push", "ref": "refs/heads/dev"}
         for branch in ("main", "dev"):
             policy = json.loads((ROOT / f".github/rulesets/{branch}.json").read_text())
             self.assertEqual(policy["target"], "branch")
@@ -278,28 +281,21 @@ print(os.environ['EVIDENCE_RESPONSE'])
             self.assertEqual(policy["bypass_actors"], [])
             self.assertEqual(policy["conditions"]["ref_name"], {"include": [f"refs/heads/{branch}"], "exclude": []})
             rules = {rule["type"]: rule.get("parameters", {}) for rule in policy["rules"]}
-            self.assertIn("non_fast_forward", rules)
-            self.assertIn("deletion", rules)
+            linear_signed = {"non_fast_forward", "deletion", "required_linear_history", "required_signatures"}
             if branch == "dev":
-                self.assertEqual(set(rules), {"non_fast_forward", "deletion"})
+                self.assertEqual(set(rules), linear_signed)
                 continue
-            review = rules["pull_request"]
-            self.assertEqual(review["allowed_merge_methods"], ["merge"])
-            self.assertEqual(review["required_approving_review_count"], 0)
-            self.assertFalse(review["require_code_owner_review"])
-            self.assertFalse(review["require_last_push_approval"])
-            self.assertTrue(review["required_review_thread_resolution"])
+            self.assertEqual(set(rules), linear_signed | {"required_status_checks"})
             checks = rules["required_status_checks"]
             self.assertTrue(checks["strict_required_status_checks_policy"])
             conditions = jobs(".github/workflows/check.yml")
             for check in checks["required_status_checks"]:
                 self.assertGreater(check["integration_id"], 0)
                 self.assertIn(check["context"], conditions)
-                self.assertTrue(selected(conditions[check["context"]][0],
-                                         {"event_name": "pull_request", "base_ref": "main"}))
+                self.assertTrue(selected(conditions[check["context"]][0], push_to_dev))
             self.assertEqual({check["context"] for check in checks["required_status_checks"]},
                              {name for name, (condition, _) in conditions.items()
-                              if selected(condition, {"event_name": "pull_request", "base_ref": "main"})})
+                              if selected(condition, push_to_dev)})
 
     def test_pages_requires_trusted_push_or_manual_main(self):
         condition = jobs(".github/workflows/pages.yml")["build"][0]

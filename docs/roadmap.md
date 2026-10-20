@@ -64,6 +64,13 @@ The first-publication steps in the
 account actions. These checks follow that publication or a release decision,
 and the engineering work above does not depend on them.
 
+- **Evidence that travels with the change.** Each run of `ci/gates.sh`
+  writes a record, a clean run notes it on the commit, and the integrator
+  signs what lands on `dev`. A landing check still has to refuse a `dev`
+  commit with no record for its tree. The record still needs a signed
+  attestation form, so a release ships as an evidence bundle, and a ledger
+  page generated from the records. Change stacks on Jujutsu and a community
+  front door on Rooms follow. [Plan to plan](planning/plan-to-plan.md).
 - **Public release evidence.** Before an invite or release, run the exact
   release commit through the checks and macOS jobs, then verify the repository,
   badge, and run are visible without authentication. Maintainer action
@@ -162,6 +169,6 @@ Each row is done when its evidence sentence is true. Then delete the row.
 - **Admission and accountability.** A front-door pattern for applications:
   check a cheap pass before any session, exchange one proof for a scoped,
   budgeted, revocable facet, and follow responsibility across delegation
-  hops. [What about identity?](https://jimisaacs.github.io/glowcap/identity/)
+  hops. [What about identity?](https://glowcap.org/identity/)
   explains the model. It waits on a maintainer decision
   ([plan to plan](planning/plan-to-plan.md)).

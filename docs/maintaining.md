@@ -1,6 +1,6 @@
 ---
 type: static
-description: Reviewing and integrating changes locally, then promoting checked commits for publication.
+description: Reviewing and integrating changes locally as signed commits, then fast-forwarding main to a checked one.
 sources:
   - resource: /.github/workflows/check.yml
   - resource: /.github/workflows/pages.yml
@@ -32,7 +32,13 @@ Synchronization can change the diff. Review it and rerun affected checks if
 it does, then integrate.
 
 The integrator advances local `dev` without checking it out or moving another
-worktree. With authorization to publish accepted changes, run:
+worktree. It makes one commit from the branch's tree and signs it with the
+maintainer's SSH key, verified against the allowed-signers file, so every
+commit on `dev` carries the maintainer's signature even when an agent wrote
+the draft commits. Without a reachable key it refuses and moves nothing. An
+evidence note on the branch commit moves onto the signed one.
+
+With authorization to publish accepted changes, run:
 
 ```sh
 git push origin refs/heads/dev:refs/heads/dev
@@ -51,94 +57,107 @@ permissions, and release tooling before approving a fork workflow to run.
 
 Request changes for correctness, security, necessary coverage, or a documented
 constraint. Explain why and mark optional suggestions. Keep unrelated cleanup
-separate. Preserve contributor authorship. Close out-of-scope work with a reason.
+separate. Close out-of-scope work with a reason.
 
-Review the latest diff and check results after revisions. When merging with
-`gh pr merge`, use `--match-head-commit` with the reviewed head SHA so a later
-push cannot silently replace the accepted candidate.
+An accepted contribution lands through the worktree integrator, never through
+the merge button, so `dev` keeps one signed commit per change. Fetch the
+reviewed head into a branch of its own and add a worktree on it:
+
+```sh
+git fetch origin "refs/pull/${number:?}/head:refs/heads/review/${number}"
+git worktree add ".local/worktrees/review-${number}" "review/${number}"
+```
+
+Run the integrator from that worktree, then push `dev` as above.
+
+The landed commit keeps the contributor as author when every commit on the
+branch is theirs, and the maintainer's signature says who vouched for it.
+Close the pull request naming the landed commit, because GitHub cannot match
+a re-signed commit to the branch it came from.
 
 ## Synchronizing hosted and local work
 
-The worktree integrator updates local `dev`. GitHub updates the hosted branch
-when a contribution merges. Keep these two writers in order:
+The worktree integrator is the only writer of `dev`, and `main` moves only by
+fast-forward from a commit on `dev`. The hosted and local copies of both
+branches can still drift when a push is interrupted or a second machine
+integrates. Adopt the hosted tips before resuming local integration: in the
+integration repository, ensure neither `main` nor `dev` is checked out in any
+worktree, then run:
 
-1. Pause local integration while accepting a hosted contribution. Agents can
-   keep editing their own branches. Publish accepted local changes with
-   `git push origin dev` before merging the hosted pull request.
-2. Review and merge the pull request against `dev`, retaining its contributor
-   commits. A normal merge commit preserves their authorship and ancestry.
-3. Adopt the hosted tips before resuming local integration. In the integration
-   repository, ensure neither `main` nor `dev` is checked out in any worktree,
-   then run:
-
-   ```sh
-   git fetch --atomic origin refs/heads/main:refs/heads/main refs/heads/dev:refs/heads/dev
-   ```
+```sh
+git fetch --atomic origin refs/heads/main:refs/heads/main refs/heads/dev:refs/heads/dev
+```
 
 This fetch requires fast-forward updates and changes both refs together or
-neither. It refuses a checked-out target.
-
-If a push or fetch refuses divergent history, preserve both tips and reconcile
-them on a separate branch with the affected checks. Never force either shared
-branch to make synchronization pass.
-
-Resume integration after reconciliation. Each clean worktree synchronizes its
-own branch with the refreshed shared tips before integrating. Never rebase a
-branch while someone is editing it.
+neither. It refuses a checked-out target, so when the primary checkout holds
+`main`, fetch `dev` alone that way and fast-forward `main` in its checkout
+with `git merge --ff-only origin/main` after a plain fetch. If a push or
+fetch refuses divergent
+history, preserve both tips and reconcile them on a separate branch with the
+affected checks. Never force either shared branch to make synchronization
+pass. Each clean worktree then synchronizes its own branch with the refreshed
+shared tips before integrating, and nobody rebases a branch someone is editing.
 
 `zig build infrastructure-check` exercises this procedure in disposable
 repositories, including divergent and checked-out branches.
 
-## Promoting a reviewed candidate
+## Promoting to main
 
-Select a coherent increment from `dev` and publish a fixed snapshot for review
-against `main`. Other work can continue on `dev`. Keep promotions small so each
-can be reviewed as a whole.
-
-From the integration repository, choose a fresh promotion branch name and
-publish the exact candidate:
+`main` is a fast-forward of `dev`, so the commit the checks ran on is the
+commit that publishes: the same hash, signature, and evidence note. Choose a
+coherent increment, confirm it is on `dev` with a green push run, then move
+`main` to it:
 
 ```sh
 candidate=$(git rev-parse refs/heads/dev)
-git push --force-with-lease=refs/heads/promote/topic: origin "$candidate:refs/heads/promote/topic"
-gh pr create --base main --head promote/topic --web
+git merge-base --is-ancestor "$candidate" refs/heads/dev
+gh run list --commit "$candidate" --workflow check.yml
+git push origin "$candidate:refs/heads/main"
+git merge --ff-only "$candidate"
 ```
 
-The lease permits a new branch or a retry of the same candidate. It refuses to
-replace an existing review with a different commit.
+The push goes first so the remote's rules judge the candidate, and the merge
+then moves local `main` in the checkout that holds it. A refused push leaves
+both where they were.
 
-Review the complete diff against `main`, resolve review threads, and wait for
-the required checks on the latest candidate. Any source or base change needs
-the affected checks again. Merge promotions with a merge commit so the reviewed
-`dev` commits remain ancestors of `main`. Squashing or rebasing a promotion
-would discard that relationship and complicate later worktree integration.
+The main ruleset accepts only a fast-forward of signed commits whose required
+checks passed, so the remote rejects a merge, a squash, a rewrite, or a
+candidate without a green `gates` and `macos-runtime` run. Nothing is
+squashed or merged on the way, because either would replace the checked
+commit with one no check ran on.
 
-After review and successful checks, merge that same candidate:
+The site is published at `glowcap.org`. The site build installs a `CNAME`
+file naming that domain at the output root, so the Pages artifact carries it.
+The DNS records and the verified domain live in GitHub's settings.
 
-```sh
-gh pr merge promote/topic --merge --match-head-commit "${candidate:?Set candidate to the reviewed commit SHA}"
-```
-
-Adopt the resulting hosted tips through the synchronization procedure above.
-
-Only the maintainer merges into `main`. Pages and tagged releases each run
+Only the maintainer moves `main`. Pages and tagged releases each run
 `tools/check/require-main-check.py`, which requires a successful `check.yml`
 push run on `main` for the exact commit being published.
-Passing `dev` or pull-request checks does not authorize publication.
+Passing `dev` checks alone does not authorize publication.
+
+Every run of `ci/gates.sh` writes an evidence record to
+`zig-out/evidence/<commit>.json`: the commit, the hash of the working tree
+the gates ran on, whether that tree is the commit's, the submodule revisions, the toolchain pins' digests, the host,
+and every gate with its exit status and duration. The checks workflow keeps
+the record as the `evidence-<commit>` artifact on success and failure alike,
+and a run on a clean checkout also attaches it to the commit as a git note
+under `refs/notes/evidence`. A green run whose record step fails exits 70,
+because a check without its record is not evidence. A branch push leaves
+notes behind, so publish them with `git push origin refs/notes/evidence`.
 
 ## Repository protection
 
 The versioned [main ruleset](../.github/rulesets/main.json) and
 [dev ruleset](../.github/rulesets/dev.json) define the settings to activate and
-verify on GitHub. Committing these files does not enable protection.
-Once activated, `main` requires a pull request, resolved conversations, current
-GitHub Actions checks, and a
-merge commit. `dev` allows fast-forward pushes from local integration. Both
-block force pushes and deletion without bypasses.
+verify on GitHub. Committing these files does not enable protection. Once
+activated, both branches take only signed commits in a linear history, and
+neither can be force-pushed or deleted. `main` also requires the `gates` and
+`macos-runtime` checks to have passed on the pushed commit. There is no
+bypass, so the maintainer's own push answers to the same rules.
 
-No second approving review is required. Authors cannot approve their own pull
-requests, and automated review is not a second human. Require human approval
-in the ruleset and its file once another responsible reviewer is available.
+GitHub verifies a signature only against a signing key on the maintainer's
+account, so upload the public key as a signing key before activating the
+rulesets.
 
 To activate protection, inspect existing rulesets, then
 [import the missing rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/managing-rulesets-for-a-repository#importing-a-ruleset)
@@ -146,10 +165,10 @@ under **Settings**, **Rulesets**. Review each imported rule before creating it.
 For later changes, update the existing ruleset and its versioned file together
 rather than creating a duplicate.
 
-Confirm on GitHub that an unchecked candidate cannot merge and a checked
-candidate can. Keep fork workflows on GitHub-hosted runners with a read-only
-token and no repository secrets. Review unfamiliar contributors' workflows
-before approving their execution.
+Confirm on GitHub that an unsigned or unchecked push to `main` is refused and
+a checked fast-forward is accepted. Keep fork workflows on GitHub-hosted
+runners with a read-only token and no repository secrets. Review unfamiliar
+contributors' workflows before approving their execution.
 
 ## Relay TLS maintenance
 

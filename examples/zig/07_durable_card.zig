@@ -9,7 +9,7 @@
 //! plain function from that record and a call to a reply. Loam decides what to
 //! read and write, `call` below plays the storage worker that does it, and the
 //! reply arrives only after the write commits. The
-//! [Loam page](https://jimisaacs.github.io/glowcap/loam/) explains the model.
+//! [Loam page](https://glowcap.org/loam/) explains the model.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 

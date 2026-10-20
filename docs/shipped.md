@@ -78,7 +78,7 @@ listening, and events, over a Host it has adopted.
   enlivening on a session shares one import.
 - **Multi-home peers.** An `id` locator names a peer's durable key and lists routes that must prove it. Redeem races
   two proved routes in order and keeps the first. `alt-locators` are weaker fallbacks tried one at a time.
-  [Multi-home peers](https://jimisaacs.github.io/glowcap/multihome/) explains the design, and
+  [Multi-home peers](https://glowcap.org/multihome/) explains the design, and
   [known limitations](boundaries.md#protocol-and-interop) gives the rules.
 - **Distributed garbage collection.** Zig and all four bindings release Goblins objects independently and
   observe Goblins reclaim them. Rust releases on drop by default, set on the Host. TypeScript, Python, and Racket

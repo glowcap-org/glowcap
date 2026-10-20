@@ -78,7 +78,7 @@ export const helpAbout: readonly { title: string; said: string; link?: HelpLink 
  * Rooms is made from or to read its code. */
 export const helpAboutCredit: LinkedText = [
 	"Rooms is built with ",
-	{ text: "glowcap", href: "https://jimisaacs.github.io/glowcap/" },
+	{ text: "glowcap", href: "https://glowcap.org/" },
 	", an OCapN library. Both are open source, and the code is on ",
 	{ text: "GitHub", href: "https://github.com/jimisaacs/glowcap" },
 	".",

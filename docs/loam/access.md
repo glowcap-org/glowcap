@@ -32,7 +32,7 @@ records, in the same transactions as the content it protects.
 
 Every use is checked against the whole chain of grants above it at the time
 of use, so revoking a grant cuts off everything shared from it. The
-[website's Loam page](https://jimisaacs.github.io/glowcap/loam/#sharing-with-people)
+[website's Loam page](https://glowcap.org/loam/#sharing-with-people)
 draws this.
 
 `access.core.GrantView` checks a grant against the grants above it as they

@@ -14,6 +14,7 @@ const dependencies_build = @import("dependencies.zig");
 const doc_values_build = @import("doc_values.zig");
 const doc_impact_build = @import("doc_impact.zig");
 const frame_identity = @import("frame_identity.zig");
+const infrastructure_build = @import("infrastructure.zig");
 
 const transportAbiModule = common.transportAbiModule;
 const layer_table = root.layer_table;
@@ -451,47 +452,8 @@ pub fn register(ctx: Context) Registered {
     const devcontainer_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/env-sync.sh" });
     devcontainer_contracts.has_side_effects = true;
     source_check_step.dependOn(&devcontainer_contracts.step);
-    // Static path and pin parity belong in source-check. Executable container
-    // and worktree behavior has its own gate so a focused source edit does not
-    // clone repositories or rewrite temporary Git histories.
-    const infrastructure_check_step = b.step("infrastructure-check", "Run devcontainer, worktree, and agent hook behavior checks (needs bash, git, python3, jq, rustfmt, and deno)");
-    const build_front_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/build-front.sh" });
-    build_front_behaviour.has_side_effects = true;
-    const devcontainer_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/host-invariants.sh" });
-    devcontainer_behaviour.has_side_effects = true;
-    // The managed-tool lifecycle proof needs flock and GNU coreutils, so it
-    // runs in the Linux devcontainer; on other hosts it prints a visible skip
-    // and exits 0 (see the file's header).
-    const tool_runtime_behaviour = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", ".devcontainer/test/tool-runtime.sh" });
-    tool_runtime_behaviour.has_side_effects = true;
-    devcontainer_behaviour.step.dependOn(&build_front_behaviour.step);
-    infrastructure_check_step.dependOn(&devcontainer_behaviour.step);
-    infrastructure_check_step.dependOn(&tool_runtime_behaviour.step);
-    const worktree_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/worktree-integration-test.sh" });
-    worktree_integration_contracts.has_side_effects = true;
-    worktree_integration_contracts.step.dependOn(&devcontainer_behaviour.step);
-    infrastructure_check_step.dependOn(&worktree_integration_contracts.step);
-    const agent_hooks_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/agent_hooks_test.py" });
-    agent_hooks_test.has_side_effects = true;
-    infrastructure_check_step.dependOn(&agent_hooks_test.step);
-    const publication_workflow_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "python3", "tools/check/publication_workflow_test.py" });
-    publication_workflow_contracts.has_side_effects = true;
-    infrastructure_check_step.dependOn(&publication_workflow_contracts.step);
-    const publication_integration_contracts = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/check/publication-integration-test.sh" });
-    publication_integration_contracts.has_side_effects = true;
-    infrastructure_check_step.dependOn(&publication_integration_contracts.step);
     check_step.dependOn(source_check_step);
-
-    // The deadline wrapper every CI gate runs under, held by its behaviour
-    // rather than by its source text: a check that greps the file for
-    // `return 124` proves the string is present, not that a timed-out child
-    // reports 124. Not a member of `check`. It spends seconds on real deadline
-    // waits, and `ci/gates.sh` already runs it first because the wrapper has to
-    // be proven before the sequence that runs under it.
-    const timeout_runner_test = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{ "bash", "tools/run-with-timeout-test.sh" });
-    timeout_runner_test.has_side_effects = true;
-    const timeout_runner_step = b.step("timeout-runner-test", "Black-box the CI deadline wrapper: exit codes, relayed signal, no survivors");
-    timeout_runner_step.dependOn(&timeout_runner_test.step);
+    infrastructure_build.register(b);
 
     // Cross-compile gate: type-check the whole library for macOS (and a 64-bit
     // Darwin) so the kqueue completion backend, which a Linux host build never

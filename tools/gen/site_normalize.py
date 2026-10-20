@@ -271,10 +271,10 @@ def siteConfig(repo_root: Path) -> tuple[str, str]:
     config = (repo_root / "site" / "zine.ziggy").read_text(encoding="utf-8")
     title = re.search(r'\.title\s*=\s*"([^"]+)"', config)
     host = re.search(r'\.host_url\s*=\s*"([^"]+)"', config)
-    prefix = re.search(r'\.url_path_prefix\s*=\s*"([^"]+)"', config)
+    prefix = re.search(r'\.url_path_prefix\s*=\s*"([^"]*)"', config)
     if title is None or host is None or prefix is None:
         raise SystemExit("site_normalize: site/zine.ziggy no longer names title, host_url, and url_path_prefix")
-    return title.group(1), f"{host.group(1)}/{prefix.group(1)}"
+    return title.group(1), "/".join(part for part in (host.group(1), prefix.group(1)) if part)
 
 
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)

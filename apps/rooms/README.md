@@ -9,7 +9,7 @@ what they said, and carry their session from one device to the next. There
 are no accounts. A member holds references to the rooms and conversations it
 is in, and holding a reference is what lets it act.
 
-The [Rooms pages on the site](https://jimisaacs.github.io/glowcap/rooms/)
+The [Rooms pages on the site](https://glowcap.org/rooms/)
 show what it is like to use. The [host guide](host.md) explains installing
 glowcap on Linux or macOS, running Rooms, and letting an AI agent join a room
 as one peer or as a team.
@@ -132,10 +132,10 @@ core in one module, so both behave the same way.
 | [`demos/`](demos/), [`test/`](test/) | The scripted scenarios and the checks |
 
 The Rooms protocol is a set of
-[OCapN](https://jimisaacs.github.io/glowcap/concepts/) objects. The server publishes one object by name, `directory`, and every other reference is handed
+[OCapN](https://glowcap.org/concepts/) objects. The server publishes one object by name, `directory`, and every other reference is handed
 back from it. The web server's HTTP routes only serve the page and help
 peers connect, such as the relay, ICE servers, and link previews.
-[The Rooms protocol](https://jimisaacs.github.io/glowcap/rooms/protocol/)
+[The Rooms protocol](https://glowcap.org/rooms/protocol/)
 lists each object. [Developing Rooms](developing.md) covers the build steps,
 the scenarios, and the source map.
 [What Rooms ships](shipped.md) describes each part of the implementation as

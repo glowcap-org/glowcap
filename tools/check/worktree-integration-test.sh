@@ -12,7 +12,14 @@ tree=${scratch}/tree1
 git init -q -b main "${repo}"
 git -C "${repo}" config user.name "glowcap test"
 git -C "${repo}" config user.email "test@glowcap.invalid"
+# Dev takes only commits the integrator signs, so the fixture owns a signing
+# key and the allowed-signers file that verifies it.
+ssh-keygen -q -t ed25519 -N '' -C "test@glowcap.invalid" -f "${scratch}/signing-key"
+printf 'test@glowcap.invalid namespaces="git" %s\n' "$(cut -d' ' -f1,2 "${scratch}/signing-key.pub")" >"${scratch}/allowed_signers"
 git -C "${repo}" config commit.gpgsign false
+git -C "${repo}" config gpg.format ssh
+git -C "${repo}" config user.signingkey "${scratch}/signing-key"
+git -C "${repo}" config gpg.ssh.allowedSignersFile "${scratch}/allowed_signers"
 printf 'base\n' >"${repo}/base"
 git -C "${repo}" add base
 git -C "${repo}" commit -qm base
@@ -25,6 +32,9 @@ git -C "${repo}" worktree add -qb feature-work "${tree}" main
 printf 'agent\n' >"${tree}/agent"
 git -C "${tree}" add agent
 git -C "${tree}" commit -qm agent
+# The record ci/gates.sh attached to this commit must reach dev through the
+# rebase and the signed commit that lands.
+git -C "${tree}" notes --ref=refs/notes/evidence add -m '{"outcome":"passed"}' feature-work
 
 # Another worktree has integrated one commit into dev, and a second commit will
 # land in the compare-and-swap window below.
@@ -96,6 +106,8 @@ fi
 feature_tip=$(git -C "${tree}" rev-parse feature-work)
 dev_tip=$(git -C "${tree}" rev-parse dev)
 [[ ${feature_tip} == "${dev_tip}" ]]
+git -C "${tree}" verify-commit dev 2>/dev/null
+[[ $(git -C "${tree}" notes --ref=refs/notes/evidence show dev) == '{"outcome":"passed"}' ]]
 [[ $(git -C "${tree}" branch --show-current) == feature-work ]]
 [[ $(git -C "${tree}" rev-parse main) == "${advanced_main}" ]]
 git -C "${tree}" merge-base --is-ancestor "${race_tip}" dev
@@ -160,13 +172,15 @@ squash=$(git -C "${tree}" rev-parse dev)
 [[ $(git -C "${tree}" rev-parse "${squash}^{tree}") == $(git -C "${tree}" rev-parse "${small_tip}^{tree}") ]]
 [[ $(git -C "${tree}" rev-parse feature-work) == "${squash}" ]]
 [[ $(git -C "${tree}" log -1 --format=%B "${squash}") == $'Add the small files\n\n- small-one\n- small-two' ]]
+git -C "${tree}" verify-commit "${squash}" 2>/dev/null
 [[ -z $(git -C "${tree}" status --porcelain) ]]
 feature_tip=${squash}
 
-# A single commit publishes as written, so a subject has nothing to name.
+# A single commit publishes as written, so a subject has nothing to name. Its
+# author stays the author, and the integrator is the committer who signed.
 printf 'single\n' >"${tree}/single"
 git -C "${tree}" add single
-git -C "${tree}" commit -qm single
+git -C "${tree}" -c user.name="draft author" -c user.email=draft@glowcap.invalid commit -qm single
 if (cd "${tree}" && "${integrate}" -m "Rename") >/dev/null 2>&1; then
 	echo "worktree-integration-test: renamed a single commit" >&2
 	exit 1
@@ -174,7 +188,29 @@ fi
 (cd "${tree}" && "${integrate}" >/dev/null)
 feature_tip=$(git -C "${tree}" rev-parse feature-work)
 [[ $(git -C "${tree}" rev-parse dev) == "${feature_tip}" ]]
-[[ $(git -C "${tree}" log -1 --format=%s dev) == single ]]
+[[ $(git -C "${tree}" log -1 --format=%B dev) == single ]]
+[[ $(git -C "${tree}" log -1 --format='%an <%ae> %cn' dev) == 'draft author <draft@glowcap.invalid> glowcap test' ]]
+git -C "${tree}" verify-commit dev 2>/dev/null
+
+# Without a reachable signing key nothing lands: dev and the branch's own
+# commit stay where they were, and the refusal names the remedy.
+printf 'unsigned\n' >"${tree}/unsigned"
+git -C "${tree}" add unsigned
+git -C "${tree}" commit -qm unsigned
+unsigned_tip=$(git -C "${tree}" rev-parse feature-work)
+before_dev=$(git -C "${tree}" rev-parse dev)
+git -C "${repo}" config user.signingkey "${scratch}/no-such-key"
+if (cd "${tree}" && "${integrate}") >"${scratch}/unsigned.log" 2>&1; then
+	echo "worktree-integration-test: published without a signature" >&2
+	exit 1
+fi
+grep -Fq 'signed at integration' "${scratch}/unsigned.log"
+[[ $(git -C "${tree}" rev-parse dev) == "${before_dev}" ]]
+[[ $(git -C "${tree}" rev-parse feature-work) == "${unsigned_tip}" ]]
+git -C "${repo}" config user.signingkey "${scratch}/signing-key"
+(cd "${tree}" && "${integrate}" >/dev/null)
+feature_tip=$(git -C "${tree}" rev-parse feature-work)
+[[ $(git -C "${tree}" rev-parse dev) == "${feature_tip}" ]]
 
 # Two worktrees took the same decision record number from the dev each saw.
 # The rebase merges both files, and publish refuses the duplicate on the

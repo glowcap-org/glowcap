@@ -106,18 +106,24 @@ feedback.
 
 The maintainer reviews the diff and checks before accepting it. Keep
 follow-up changes on the same branch so the discussion and checks stay together.
+An accepted change lands on `dev` as one commit signed by the maintainer that
+keeps you as its author, and the pull request closes naming that commit.
 
-AI-assisted contributions are welcome when the submitter understands and takes
-responsibility for the change. Disclose material assistance in the pull request.
-[PROVENANCE.md](PROVENANCE.md#upstream-policies) lists upstream projects whose
-policies restrict AI-assisted work. Participation follows the
-[Code of Conduct](CODE_OF_CONDUCT.md).
+AI assistance is welcome on the terms the maintainer works under: the person
+who submits a change can explain every line of it, answers for it in review,
+and says in the pull request what an assistant did. A change its submitter
+cannot explain is not ready. The maintainer signs each commit on `dev` at
+integration, so the signature on a landed commit names who vouched for it.
+[PROVENANCE.md](PROVENANCE.md) records how the project itself is built and
+lists upstream projects whose policies restrict AI-assisted work.
+Participation follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Continuous integration
 
 For pull requests, the configured workflow runs Debug and ReleaseSafe Zig tests,
-source and documentation checks, and formatting. Pull requests targeting `main` and pushes
-to `main` or `dev` also run [`ci/gates.sh`](ci/gates.sh) and the macOS checks.
+source and documentation checks, and formatting. Pushes to `main` or `dev`
+also run [`ci/gates.sh`](ci/gates.sh) and the macOS checks. `main` is a
+fast-forward of `dev`, so a published commit is one those runs checked.
 A nightly run searches longer with the mutation fuzzer.
 
 Coding-agent installation has a [separate workflow](.github/workflows/agent-tools.yml)

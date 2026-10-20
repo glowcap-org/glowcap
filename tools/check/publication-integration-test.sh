@@ -3,6 +3,8 @@
 # No GitHub credentials, network service, or working repository refs are used.
 set -euo pipefail
 
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+integrate=${root}/.agents/skills/work/bin/glowcap-integrate
 scratch=$(mktemp -d)
 trap 'rm -rf "${scratch}"' EXIT
 repo=${scratch}/local
@@ -13,16 +15,27 @@ git init -qb maintenance "${repo}"
 git -C "${repo}" config user.name "glowcap test"
 git -C "${repo}" config user.email "test@glowcap.invalid"
 git -C "${repo}" config commit.gpgsign false
+# The integrator signs what lands on dev, so the maintainer's fixture owns a
+# key and the allowed-signers file that verifies it.
+ssh-keygen -q -t ed25519 -N '' -C "test@glowcap.invalid" -f "${scratch}/signing-key"
+printf 'test@glowcap.invalid namespaces="git" %s\n' "$(cut -d' ' -f1,2 "${scratch}/signing-key.pub")" >"${scratch}/allowed_signers"
+git -C "${repo}" config gpg.format ssh
+git -C "${repo}" config user.signingkey "${scratch}/signing-key"
+git -C "${repo}" config gpg.ssh.allowedSignersFile "${scratch}/allowed_signers"
 printf 'base\n' >"${repo}/base"
 git -C "${repo}" add base
 git -C "${repo}" commit -qm base
 git -C "${repo}" branch main
 git -C "${repo}" branch dev
 git init -q --bare "${origin}"
+# The hosted rulesets refuse anything but a fast-forward; the bare origin
+# stands in for them.
+git --git-dir="${origin}" config receive.denyNonFastForwards true
 git -C "${repo}" remote add origin "${origin}"
 git -C "${repo}" push -q origin main dev
 
-# The forge accepts an outside contribution, preserving its author and commit.
+# An outside contribution arrives as a branch. It lands on dev through the
+# integrator from a review worktree: one signed commit that keeps its author.
 git clone -q --branch dev "${origin}" "${forge}"
 git -C "${forge}" config user.name "outside contributor"
 git -C "${forge}" config user.email "contributor@glowcap.invalid"
@@ -31,21 +44,18 @@ git -C "${forge}" switch -qc incoming
 printf 'contribution\n' >"${forge}/contribution"
 git -C "${forge}" add contribution
 git -C "${forge}" commit -qm contribution
-contribution=$(git -C "${forge}" rev-parse HEAD)
-git -C "${forge}" switch -q dev
-git -C "${forge}" merge --no-ff -qm 'Accept contribution' incoming
-git -C "${forge}" push -q origin dev
+git -C "${forge}" push -q origin incoming
+git -C "${repo}" fetch -q origin refs/heads/incoming:refs/heads/review/incoming
+git -C "${repo}" worktree add -q "${scratch}/review" review/incoming
+(cd "${scratch}/review" && "${integrate}" >/dev/null)
+contribution=$(git -C "${repo}" rev-parse refs/heads/dev)
+[[ $(git -C "${repo}" show -s --format='%ae %ce' "${contribution}") == 'contributor@glowcap.invalid test@glowcap.invalid' ]]
+git -C "${repo}" verify-commit "${contribution}" 2>/dev/null
+git -C "${repo}" push -q origin dev
 
-# Adopt hosted changes without checking out or rewriting either shared branch.
-git -C "${repo}" fetch -q --atomic origin refs/heads/main:refs/heads/main refs/heads/dev:refs/heads/dev
-git -C "${repo}" merge-base --is-ancestor "${contribution}" dev
-[[ $(git -C "${repo}" show -s --format=%ae "${contribution}") == contributor@glowcap.invalid ]]
-
-# A promotion names a fixed commit even while the local integration line moves.
-candidate=$(git -C "${repo}" rev-parse refs/heads/dev)
-git -C "${repo}" push -q --force-with-lease=refs/heads/promote/test: origin "${candidate}:refs/heads/promote/test"
-# Retrying after an interrupted PR creation leaves the same candidate intact.
-git -C "${repo}" push -q --force-with-lease=refs/heads/promote/test: origin "${candidate}:refs/heads/promote/test"
+# main is a fast-forward of dev: the candidate publishes under its own hash
+# while dev moves on.
+candidate=${contribution}
 git -C "${repo}" switch -qc work dev
 printf 'next\n' >"${repo}/next"
 git -C "${repo}" add next
@@ -54,21 +64,25 @@ next=$(git -C "${repo}" rev-parse HEAD)
 git -C "${repo}" update-ref refs/heads/dev "${next}" "${candidate}"
 git -C "${repo}" switch -q maintenance
 git -C "${repo}" push -q origin dev
-if git -C "${repo}" push -q --force-with-lease=refs/heads/promote/test: origin "${next}:refs/heads/promote/test" >"${scratch}/snapshot-refusal.log" 2>&1; then
-    echo "publication-integration-test: replaced an existing promotion candidate" >&2
+git -C "${repo}" merge-base --is-ancestor "${candidate}" refs/heads/dev
+git -C "${repo}" push -q origin "${candidate}:refs/heads/main"
+[[ $(git --git-dir="${origin}" rev-parse refs/heads/main) == "${candidate}" ]]
+git -C "${repo}" fetch -q --atomic origin refs/heads/main:refs/heads/main refs/heads/dev:refs/heads/dev
+[[ $(git -C "${repo}" rev-parse main) == "${candidate}" ]]
+[[ $(git -C "${repo}" rev-parse dev) == "${next}" ]]
+
+# A commit that does not descend from main is refused, so main never takes a
+# merge, a squash, or a rewrite of what the checks ran on.
+git -C "${forge}" fetch -q origin
+git -C "${forge}" switch -qc stray "${candidate}^"
+printf 'stray\n' >"${forge}/stray"
+git -C "${forge}" add stray
+git -C "${forge}" commit -qm stray
+if git -C "${forge}" push -q origin stray:main >"${scratch}/stray-refusal.log" 2>&1; then
+    echo "publication-integration-test: main took a commit that is not a fast-forward" >&2
     exit 1
 fi
-[[ $(git --git-dir="${origin}" rev-parse refs/heads/promote/test) == "${candidate}" ]]
-
-# A normal promotion merge preserves the reviewed commits as ancestors.
-git -C "${forge}" fetch -q origin
-git -C "${forge}" switch -qc main origin/main
-git -C "${forge}" merge --no-ff -qm 'Promote candidate' origin/promote/test
-git -C "${forge}" push -q origin main
-git -C "${repo}" fetch -q --atomic origin refs/heads/main:refs/heads/main refs/heads/dev:refs/heads/dev
-git -C "${repo}" merge-base --is-ancestor "${candidate}" main
-[[ $(git -C "${repo}" rev-parse dev) == "${next}" ]]
-[[ $(git -C "${repo}" rev-parse main^2) == "${candidate}" ]]
+[[ $(git --git-dir="${origin}" rev-parse refs/heads/main) == "${candidate}" ]]
 
 # Even an up-to-date fetch must refuse a checked-out integration target.
 git -C "${repo}" switch -q dev

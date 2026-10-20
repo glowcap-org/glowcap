@@ -41,6 +41,12 @@ pub fn build(b: *std.Build) void {
     mark.addDirectoryArg2(site_source_root, .{ .make_absolute = true });
     mark.has_side_effects = true;
     mark.step.dependOn(&render.step);
+    // GitHub Pages reads the custom domain from this file at the output root,
+    // so the domain travels with the artifact rather than living only in a
+    // settings page.
+    const cname = b.addInstallFile(b.path("CNAME"), "site/CNAME");
+    cname.step.dependOn(&render.step);
+    site_step.dependOn(&cname.step);
     site_step.dependOn(&mark.step);
 
     const serve = zine.serve(b, .{});

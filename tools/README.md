@@ -11,6 +11,7 @@ scripts live here, and correctness scenarios live in top-level
 | [`gen/`](gen/) | Header and binding generators, shared verify/emit harness |
 | [`profile/`](profile/) | The callgrind part reader and report behind the `profile-*` steps: self cost per file and function for each phase a bench marks, and the callers of the leaf functions at the top |
 | [`ab/`](ab/) | The runner behind `bench-ab`: one bench alternated between an archived base revision and this tree, its `key=number` rows read into medians and ratios |
+| [`evidence/`](evidence/) | The evidence record `ci/gates.sh` writes for every run: commit, checkout state, submodule revisions, toolchain pins, host, and each gate's exit and duration |
 | [`c-abi/`](c-abi/) | Operator scripts and JSON fixtures for C-ABI resolve |
 | [`fuzz/`](fuzz/) | Fuzz driver and the patched Zig test runner described in [`PROVENANCE.md`](../PROVENANCE.md) |
 | [`wasm/`](wasm/) | Deno checks for the browser binding's wasm32 Host (layout descriptor, import set) |

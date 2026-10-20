@@ -10,7 +10,7 @@ sources:
 
 Start here if object-capability security is new to you and you want a short
 glossary. For the guided explanation with diagrams, read [Why
-OCapN](https://jimisaacs.github.io/glowcap/why/). If the terms already feel
+OCapN](https://glowcap.org/why/). If the terms already feel
 familiar, go to the [quick start](../README.md#quick-start).
 
 ## A capability is a reference with authority
@@ -35,7 +35,7 @@ These are ordinary object-reference patterns. CapTP carries them across a
 network.
 
 A capability decides what its holder may do, not who the holder is.
-[What about identity?](https://jimisaacs.github.io/glowcap/identity/) covers how a service tells people
+[What about identity?](https://glowcap.org/identity/) covers how a service tells people
 from bots and hands each one its own key.
 
 ## CapTP carries references between programs

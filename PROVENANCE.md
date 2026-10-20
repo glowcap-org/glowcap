@@ -1,8 +1,8 @@
 # How glowcap is built
 
 glowcap began as the capability-secure substrate for an agent orchestrator.
-The maintainer builds it with AI coding assistants, authors every commit,
-directs the work, and is answerable for what lands. There is no earlier,
+The maintainer builds it with AI coding assistants, signs every commit that
+lands, directs the work, and is answerable for the result. There is no earlier,
 human-only codebase. The first commit is from June 2026.
 
 The prerelease Git history and decision records were consolidated before
@@ -47,9 +47,11 @@ from an agent-produced packet.
 
 ## Responsibility and licensing
 
-The maintainer uses glowcap and stands behind the repository. The author field
-records who accepted responsibility for what landed. It is not evidence of
-independent review, and it creates no exception to another project's policy.
+The maintainer uses glowcap and stands behind the repository. The author
+field records who wrote a change, and the maintainer's signature on every
+`dev` and `main` commit records who accepted responsibility for landing it.
+Neither is evidence of independent review, and neither creates an exception
+to another project's policy.
 
 glowcap-authored work is available under [Apache-2.0](LICENSE-APACHE). This does
 not settle broader copyright questions about generated code. Third-party files

@@ -13,7 +13,7 @@ programs hand each other references to objects and call methods on them across
 a network, under the same rules as a local call: a peer can use the references
 it was given and cannot forge others. If capabilities are new to you,
 [`docs/capabilities.md`](docs/capabilities.md) starts from zero, and
-[What about identity?](https://jimisaacs.github.io/glowcap/identity/) covers where people, bots,
+[What about identity?](https://glowcap.org/identity/) covers where people, bots,
 and AI agents fit.
 
 <br clear="left" />
@@ -34,7 +34,7 @@ format.
 For an encrypted session, use [iroh](https://www.iroh.computer/), which is
 QUIC with peer discovery, or `noise-tcp`, which is TCP that proves you reached
 the key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor onion services.
-[Choosing a transport](https://jimisaacs.github.io/glowcap/transports/choosing/)
+[Choosing a transport](https://glowcap.org/transports/choosing/)
 lists the rest. Plain `tcp` is a testing transport, cleartext with no identity
 proof.
 
@@ -101,7 +101,7 @@ switch (settled) {
 ```
 
 `fetch` asks the peer's bootstrap object for a name that side published.
-[Start building](https://jimisaacs.github.io/glowcap/start/) shows the
+[Start building](https://glowcap.org/start/) shows the
 listening side of this exchange and the same program in other languages.
 
 ### The command line and Rooms
@@ -162,7 +162,7 @@ then [make a change](CONTRIBUTING.md#make-a-change) and open a pull request.
 
 ## Documentation
 
-The [website](https://jimisaacs.github.io/glowcap/) is the primary guide. For
+The [website](https://glowcap.org/) is the primary guide. For
 a live preview of the hand-written pages, run `zig build docs-serve` and open
 the address it prints. `zig build site` builds the whole site under
 `zig-out/site/`, including the API reference.

@@ -66,7 +66,7 @@ zig build test -Dtest-layer=engine,driver # compile and run only these test laye
 zig build test-memcheck        # the protocol core and actors tests once more under valgrind, built for the baseline CPU; -Dtest-filter narrows it
 zig build arch-check           # the layer boundaries: module edges, the no-I/O core, and file coverage
 zig build source-check         # static cross-file source, documentation, generated-mirror, and scaffolding contracts
-zig build infrastructure-check # devcontainer, worktree and publication integration, agent edit hooks, and CI event selection
+zig build infrastructure-check # devcontainer, worktree and publication integration, agent edit hooks, CI event selection, and the evidence record
 zig build toolchain-check      # every program and toolchain target `check` declares is installed here, and no member uses an undeclared program
 zig build loam-core-wasm-check # compile portable Loam calls for 32-bit Wasm without LMDB; part of check
 zig build loam-abi-test        # C resource creation, ownership, portable transaction evaluation and uncertain storage recovery; part of check

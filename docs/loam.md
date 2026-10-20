@@ -11,7 +11,7 @@ sources:
 # Loam storage and durable actors
 
 Loam is glowcap's storage layer for objects that must outlive their process.
-The [Loam page](https://jimisaacs.github.io/glowcap/loam/) on the website has
+The [Loam page](https://glowcap.org/loam/) on the website has
 diagrams. This guide is for Zig. Programs in C or Rust, including Rust in a
 browser, use a smaller part of Loam, covered in the
 [C/Rust guide](loam/c-and-rust.md) and the [browser guide](loam/browser.md).

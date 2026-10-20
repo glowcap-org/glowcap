@@ -66,20 +66,24 @@ refuse_duplicate_adr_ids() {
 # compare-and-swap is contention, not permission to overwrite; observe the new
 # tips and retry. This command never moves either shared ref except for the
 # final compare-and-swap of `dev` in publish mode.
+# The record ci/gates.sh attaches to a checked commit (docs/maintaining.md)
+# follows the commit through every rewrite below.
+evidence_ref=refs/notes/evidence
+
 absorbed_main=
 for attempt in {1..16}; do
 	main_tip=$(git rev-parse refs/heads/main)
 	if [[ ${absorbed_main} != "${main_tip}" ]]; then
 		if ! git merge-base --is-ancestor "${main_tip}" HEAD; then
 			echo "glowcap-integrate: rebasing ${branch} onto main ${main_tip}"
-			git rebase --no-update-refs "${main_tip}"
+			git -c notes.rewriteRef="${evidence_ref}" rebase --no-update-refs "${main_tip}"
 		fi
 		absorbed_main=${main_tip}
 	fi
 	dev_tip=$(git rev-parse refs/heads/dev)
 	if ! git merge-base --is-ancestor "${dev_tip}" HEAD; then
 		echo "glowcap-integrate: rebasing ${branch} onto dev ${dev_tip}"
-		git rebase --no-update-refs "${dev_tip}"
+		git -c notes.rewriteRef="${evidence_ref}" rebase --no-update-refs "${dev_tip}"
 		continue
 	fi
 	if [[ ${mode} == sync ]]; then
@@ -94,8 +98,10 @@ for attempt in {1..16}; do
 		echo "glowcap-integrate: main changed during integration; retrying (${attempt}/16)" >&2
 		continue
 	fi
-	# The worktree keeps its small commits. Dev takes one commit per change: a
-	# single commit as written, several only as one squash named by -m.
+	# The worktree keeps its small commits as drafts. Dev takes one commit per
+	# change, made and signed here: a single commit keeps its message, several
+	# squash under one named by -m. The integrator's signature is what dev
+	# holds, so a worktree commit needs none.
 	# The branch's own commits are those neither dev nor main already holds;
 	# main's commits that dev lacks ride below them and land unsquashed.
 	refuse_duplicate_adr_ids
@@ -106,7 +112,6 @@ for attempt in {1..16}; do
 	if [[ $(git rev-list --count --right-only --cherry-pick "${main_tip}...${base}" "^${dev_tip}") -ne 0 ]]; then
 		die "${branch} interleaves its own commits with main's; rebase them on top and retry"
 	fi
-	publish=${head}
 	if [[ ${own} -gt 1 ]]; then
 		if [[ -z ${subject} ]]; then
 			git log --reverse --format='  %s' "${base}..${head}" >&2
@@ -116,15 +121,35 @@ for attempt in {1..16}; do
 			printf '%s\n\n' "${subject}"
 			git log --reverse --format='- %s' "${base}..${head}"
 		)
-		publish=$(git commit-tree "${head}^{tree}" -p "${base}" -m "${message}")
 	elif [[ -n ${subject} ]]; then
 		die "one commit publishes as written; drop -m"
+	else
+		message=$(git log -1 --format=%B "${head}")
 	fi
+	# The author field records who wrote the change and the signature who
+	# vouched for it. One author across the branch's commits stays the author;
+	# several fall to the integrator, whose message lists them.
+	author_env=()
+	authors=$(git log --format='%an%x09%ae' "${base}..${head}" | sort -u)
+	if [[ $(printf '%s\n' "${authors}" | wc -l) -eq 1 ]]; then
+		author_env=(
+			"GIT_AUTHOR_NAME=${authors%%$'\t'*}"
+			"GIT_AUTHOR_EMAIL=${authors##*$'\t'}"
+			"GIT_AUTHOR_DATE=$(git log -1 --format=%aD "${head}")"
+		)
+	fi
+	publish=$(env "${author_env[@]}" git commit-tree -S "${head}^{tree}" -p "${base}" -m "${message}") ||
+		die "dev takes only commits signed at integration; make the signing key reachable (forward the agent that holds it) and retry"
+	git verify-commit "${publish}" 2>/dev/null ||
+		die "the signature on the integrated commit does not verify; name the key in gpg.ssh.allowedSignersFile and retry"
 	require_unchecked_dev
 	if git update-ref refs/heads/dev "${publish}" "${dev_tip}" 2>/dev/null; then
-		# The squash has the branch's exact tree, so moving the branch onto it
-		# leaves every file in place.
-		[[ ${publish} == "${head}" ]] || git reset -q --keep "${publish}"
+		# The signed commit has the branch's exact tree, so moving the branch
+		# onto it leaves every file in place, and it keeps the branch's record.
+		git reset -q --keep "${publish}"
+		if git notes --ref="${evidence_ref}" show "${head}" >/dev/null 2>&1; then
+			git notes --ref="${evidence_ref}" copy -f "${head}" "${publish}"
+		fi
 		echo "glowcap-integrate: merged ${branch} into dev at ${publish}"
 		exit 0
 	fi

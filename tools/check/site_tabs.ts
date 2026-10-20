@@ -46,8 +46,6 @@ const types: Record<string, string> = {
 const server = Deno.serve({ port: 0, onListen: () => {} }, async (req) => {
 	const url = new URL(req.url);
 	let path = decodeURIComponent(url.pathname);
-	if (!path.startsWith("/glowcap/")) return new Response("not found", { status: 404 });
-	path = path.slice("/glowcap".length);
 	if (path.endsWith("/")) path += "index.html";
 	try {
 		const body = await Deno.readFile(siteRoot + path);
@@ -63,7 +61,7 @@ const base = `http://127.0.0.1:${server.addr.port}`;
 const pages: string[] = [];
 async function walk(dir: string, rel: string): Promise<void> {
 	for await (const entry of Deno.readDir(dir)) {
-		if (!entry.isDirectory && entry.name === "index.html") pages.push(`/glowcap${rel}/`);
+		if (!entry.isDirectory && entry.name === "index.html") pages.push(`${rel}/`);
 		if (entry.isDirectory) await walk(`${dir}/${entry.name}`, `${rel}/${entry.name}`);
 	}
 }

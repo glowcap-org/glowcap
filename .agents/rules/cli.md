@@ -117,10 +117,13 @@ commit for another agent's handoff includes integration into local `dev`.
   trailers in history stay.
 - Commit small on the worktree, because `dev` takes one commit per change.
   Start with `.agents/skills/work/bin/glowcap-integrate --sync`. Publish
-  without `--sync`: it rebases onto `main` and `dev`, squashes several commits
-  into one named by `-m "<subject>"`, and compare-and-swaps `dev`. It refuses
-  a decision record id the rebased tree holds twice, because another tree may
-  have taken the number you took: renumber yours and retry.
+  without `--sync`: it rebases onto `main` and `dev`, makes one commit from
+  the branch's tree (several commits squash under `-m "<subject>"`), signs it
+  with the maintainer's key, and compare-and-swaps `dev`. Without a reachable
+  signing key it refuses and moves nothing, so a worktree commit needs no
+  signature of its own. It refuses a decision record id the rebased tree
+  holds twice, because another tree may have taken the number you took:
+  renumber yours and retry.
 
 Live CapTP from a session uses the product fronts: the
 [glowcap-cli](../skills/glowcap-cli/SKILL.md),

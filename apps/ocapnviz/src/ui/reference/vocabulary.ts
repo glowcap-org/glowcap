@@ -159,7 +159,7 @@ export const TRANSPORT_ROWS: Record<TransportOption, TransportRow> = {
 };
 
 /** Where the reasoning behind the verdicts lives. */
-export const TRANSPORTS_PAGE_URL = "https://jimisaacs.github.io/glowcap/transports/choosing/";
+export const TRANSPORTS_PAGE_URL = "https://glowcap.org/transports/choosing/";
 export const TRANSPORTS_PAGE_NOTE = "The project's choosing-a-transport page carries the assessment behind " +
 	"these verdicts: when to reach for each netlayer, how far it can be " +
 	"trusted, and what the path proves. The rows here are the same claims, " +

@@ -41,7 +41,9 @@ gate() {
       command=(zig build --test-timeout 30s "${@:3}")
     fi
   fi
+  local began=$SECONDS
   python3 tools/run-with-timeout.py --kill-after 30s "$GATE_TIMEOUT" "${command[@]}" || rc=$?
+  printf '%s\t%s\t%s\n' "$rc" "$((SECONDS - began))" "${command[*]}" >>"$EVIDENCE_ROWS"
   if [ "$rc" -ne 0 ]; then
     # Name the gate on every failure, not only on a wedge. A gate's own output
     # is the tool's, and a tool that fails for an environment reason says
@@ -63,6 +65,28 @@ gate() {
 
 # Sourcing for the test above stops here; everything below is the sequence.
 if [ -n "${GATES_SOURCE_ONLY:-}" ]; then return 0; fi
+
+# Every gate above appends its exit and duration here, and the exit trap turns
+# the rows into the evidence record (tools/evidence/record.py) however the
+# sequence ends. A green sequence whose record step fails exits 70: a check
+# without its record is not evidence.
+EVIDENCE_ROWS=$(mktemp)
+EVIDENCE_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+finish() {
+  local rc=$?
+  local outcome=failed
+  [ "$rc" -eq 0 ] && outcome=passed
+  local record_rc=0
+  python3 tools/evidence/record.py --gates "$EVIDENCE_ROWS" \
+    --started "$EVIDENCE_STARTED" --outcome "$outcome" --note || record_rc=$?
+  if [ "$record_rc" -ne 0 ]; then
+    echo "ci/gates.sh: the evidence record step failed (exit $record_rc), see above" >&2
+    [ "$rc" -eq 0 ] && rc=70
+  fi
+  rm -f -- "$EVIDENCE_ROWS"
+  exit "$rc"
+}
+trap finish EXIT
 
 gate bash .devcontainer/hooks/post-create.sh
 # Coding-agent downloads run in .github/workflows/agent-tools.yml. Product

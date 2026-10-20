@@ -4,9 +4,10 @@
 },
 .site = .simple(.{
     .title = "glowcap",
-    // GitHub Pages host used for canonical and sitemap URLs.
-    .host_url = "https://jimisaacs.github.io",
-    .url_path_prefix = "glowcap",
+    // The published origin, used for canonical and sitemap URLs. GitHub Pages
+    // serves it from the CNAME file the site build installs at the output root.
+    .host_url = "https://glowcap.org",
+    .url_path_prefix = "",
     .content_dir_path = "content",
     .layouts_dir_path = "layouts",
     .assets_dir_path = "assets",

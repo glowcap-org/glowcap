@@ -43,7 +43,7 @@ runs over testing TCP. Onion conformance remains a separate baseline check.
 - **A proved peer is a computer, not a person.** A transport proves which
   key answered. Checking who a person is, and telling one person from many
   bots, belongs to the application
-  ([What about identity?](https://jimisaacs.github.io/glowcap/identity/)).
+  ([What about identity?](https://glowcap.org/identity/)).
 - **`inproc` is a test transport.** Its unbounded pipes block the reading
   thread, so it is not a production or load-test substitute.
 - **`onion` has no scale tests.** Live checks need `tor` and network access,
@@ -244,7 +244,7 @@ assets are not published.
   `glowcap-next` with `multi_location`, and a Host-level `id` sturdyref needs
   the Host to opt in too.
 - **Only the Node chooses among a route bundle's routes**
-  ([multi-home peers](https://jimisaacs.github.io/glowcap/multihome/),
+  ([multi-home peers](https://glowcap.org/multihome/),
   ADR-0036). The single-path dial planner and Host open refuse a bundle as a
   physical session. A give keeps its route list only when both sessions
   negotiated it. Otherwise it falls back to the exporter's claimed location.

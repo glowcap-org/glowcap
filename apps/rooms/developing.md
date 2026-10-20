@@ -346,7 +346,7 @@ standing, keyed by its recorder source, conversation generation, and record id.
 write authority can only be removed. The browser store, the archive service, and the session
 service all implement it.
 
-The site's [protocol page](https://jimisaacs.github.io/glowcap/rooms/protocol/)
+The site's [protocol page](https://glowcap.org/rooms/protocol/)
 walks through each object with its lifetime. `lib/protocol.ts` is the
 specification a person reads. `tools/gen/rooms_protocol.zig` declares the
 wire grammar once and `zig build gen-rooms-protocol` writes the application

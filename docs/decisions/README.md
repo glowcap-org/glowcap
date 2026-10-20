@@ -112,6 +112,10 @@ record's id, filename and status. The prerelease consolidation is disclosed in
 - [ADR-0064 Borrowed outbound encoding](adr/ADR-0064-borrowed-outbound-encoding.md)
 - [ADR-0065 Next-profile operations](adr/ADR-0065-next-profile-operations.md)
 
+### Maintainer workflow
+
+- [ADR-0067 Evidence-bearing integration](adr/ADR-0067-evidence-bearing-integration.md)
+
 ### Proposed
 
 - [ADR-0066 Proposed TypeScript runtime](adr/ADR-0066-proposed-typescript-runtime.md)

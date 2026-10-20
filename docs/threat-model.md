@@ -13,7 +13,7 @@ sources:
 
 glowcap sits between a program and peers it does not trust.
 [SECURITY.md](../SECURITY.md) says what counts as a vulnerability and how to
-report one. The [transports page](https://jimisaacs.github.io/glowcap/transports/)
+report one. The [transports page](https://glowcap.org/transports/)
 says what proves who answered on each transport (OCapN calls one a netlayer),
 and
 [known limitations](boundaries.md#transports-and-peer-identity) says where
@@ -37,7 +37,7 @@ identity and scale stop.
   the reference names: a deeper value than the host allows, a settle from the
   wrong thread, a capability smuggled through a plain-data channel. An AI
   agent misled by text it read acts as this adversary, even when its owner
-  means well ([What about identity?](https://jimisaacs.github.io/glowcap/identity/)).
+  means well ([What about identity?](https://glowcap.org/identity/)).
 - **A flood of connections.** Many sockets opened and left half-open, or many
   sessions each sending as fast as the pipe allows, to exhaust descriptors,
   memory, or the one thread an ordinary session needs.
@@ -190,7 +190,7 @@ says when it runs. "Refusal proved by" is the test that pins the refusal.
   long a call may take are the program's to decide, above the library.
 - **A person's identity, and the front door.** glowcap proves which key a
   peer holds. Who gets a key, and what proof the door asks for, is the
-  application's ([What about identity?](https://jimisaacs.github.io/glowcap/identity/)).
+  application's ([What about identity?](https://glowcap.org/identity/)).
 - **An agent talked into using its key.** A narrow capability limits what a
   misled agent can reach. Whether the agent uses it well is up to the agent
   and its owner.
