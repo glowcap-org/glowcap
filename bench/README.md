@@ -137,4 +137,6 @@ exec zig build -Doptimize=ReleaseFast bench-peer-scaling -- --live --live-max=50
 
 Record baseline and loaded RSS for each process, completed session count,
 barrier duration, backend, and machine configuration. Same-machine capacity
-and amortized handshake time do not measure WAN latency.
+and amortized handshake time do not measure WAN latency. The generated
+[live-session report](https://glowcap.org/performance/#live-sessions) contains
+completed capacity runs and separate session-opening timings.

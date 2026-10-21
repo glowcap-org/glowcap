@@ -6,7 +6,10 @@ default-members = ["application", "glowcap", "runtime", "platform", "services", 
 resolver = "3"
 
 [workspace.package]
-version = "0.0.0"
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
+version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
@@ -20,7 +23,7 @@ serde_json = { version = "=1.0.154", default-features = false, features = ["allo
 hmac = { version = "=0.13.0", default-features = false }
 # dep sha2: SHA-256 for tokens and content history.
 sha2 = { version = "=0.11.1", default-features = false }
-glowcap = { package = "glowcap-rust-dogfood", path = "../../../bindings/rust", default-features = false, features = ["async"] }
+glowcap = { package = "glowcap", path = "../../../bindings/rust", default-features = false, features = ["async"] }
 # dep tokio: The async runtime for the Rooms server, sessions and services.
 tokio = { version = "=1.53.2", default-features = false, features = ["rt", "macros", "sync", "time"] }
 # dep url: Parses links in messages and link previews.

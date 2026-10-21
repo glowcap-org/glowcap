@@ -1,6 +1,6 @@
 //! Every test file the suite runs. `zig build test -Dtest-layer=engine,driver`
-//! compiles only those layers' files while iterating. The bare step and
-//! every gate compile all of them.
+//! compiles only those layers' files while iterating. The bare step compiles
+//! all layers. CI partitions the shipped-mode compile and checks full coverage.
 
 const std = @import("std");
 const selection = @import("test_layers");
@@ -231,12 +231,12 @@ comptime {
             _ = @import("driver/host_runtime_multiplexed/completion_resident_test.zig");
             _ = @import("driver/host_runtime_multiplexed/provider_test.zig");
             _ = @import("driver/session_wire_fault_test.zig");
+            _ = @import("driver/host_runtime_step/dial_retry_test.zig");
         }
         if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
             _ = @import("driver/host_runtime_step/serve_test.zig");
         _ = @import("driver/host_runtime_step/flood_test.zig");
         _ = @import("driver/host_runtime_step/refused_partner_release_test.zig");
-        _ = @import("driver/host_runtime_step/dial_retry_test.zig");
         _ = @import("driver/host_runtime_step/staged_dial_test.zig");
         _ = @import("driver/host_runtime_step/wake_test.zig");
         _ = @import("driver/host_runtime_multiplexed/external_resident_test.zig");

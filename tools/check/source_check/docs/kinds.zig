@@ -308,7 +308,7 @@ pub fn names(gpa: std.mem.Allocator, doc: []const u8, text: []const u8, path: []
 }
 
 fn repoUrl(target: []const u8) ?[]const u8 {
-    const repo = "https://github.com/jimisaacs/glowcap/";
+    const repo = "https://github.com/glowcap-org/glowcap/";
     if (!std.mem.startsWith(u8, target, repo)) return null;
     const rest = target[repo.len..];
     for ([_][]const u8{ "blob/main/", "tree/main/" }) |prefix| {
@@ -376,7 +376,7 @@ test "an OKF header declares the rest" {
 
 test "a doc without a header names what it links and spans" {
     const gpa = std.testing.allocator;
-    const text = "See [the gate](../../tools/check/source_check.zig#L3), `src/loam/` and [deploy](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md).";
+    const text = "See [the gate](../../tools/check/source_check.zig#L3), `src/loam/` and [deploy](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md).";
     try std.testing.expect(try names(gpa, ".agents/rules/x.md", text, "tools/check/source_check.zig"));
     try std.testing.expect(try names(gpa, ".agents/rules/x.md", text, "src/loam/core/mod.zig"));
     try std.testing.expect(try names(gpa, ".agents/rules/x.md", text, "apps/rooms/web/deploy/README.md"));

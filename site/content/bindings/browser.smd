@@ -151,5 +151,5 @@ dialed there by its key, through the `@glowcap/relay` connector.
 
 The [TypeScript page]($link.page('bindings/ts')) covers the full API, except
 `listen`, which needs a socket. The
-[`@glowcap/web` README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/web/README.md)
+[`@glowcap/web` README](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/web/README.md)
 covers installing the package and serving the wasm.

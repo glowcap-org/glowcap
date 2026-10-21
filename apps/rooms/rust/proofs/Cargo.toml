@@ -1,4 +1,7 @@
 [package]
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 name = "rooms-contract-proofs"
 version.workspace = true
 edition.workspace = true
@@ -42,7 +45,7 @@ web-sys = { workspace = true, optional = true, features = ["WebSocket", "RtcData
 gloo-timers = { workspace = true, features = ["futures"], optional = true }
 tokio = { workspace = true, features = ["io-util"], optional = true }
 futures-util = { workspace = true, features = ["alloc"], optional = true }
-glowcap = { package = "glowcap-rust-dogfood", path = "../../../../bindings/rust", default-features = false }
+glowcap = { package = "glowcap", path = "../../../../bindings/rust", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 glowcap = { workspace = true, features = ["loam"] }

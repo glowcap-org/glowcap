@@ -18,7 +18,7 @@ pub fn main(init: std.process.Init) !void {
     const mode = std.mem.span(args[1]);
     const path = std.mem.span(args[2]);
     const creating = std.mem.eql(u8, mode, "create");
-    var db = try Sqlite.open(path, .{ .capacity_bytes = capacity, .mode = if (creating) .{ .create = id } else .{ .open = id } });
+    var db = try Sqlite.open(path, .{ .capacity_bytes = capacity, .opening = .{ .id = id, .mode = if (creating) .create else .open } });
     defer db.close() catch unreachable;
     if (creating) return fill(&db);
     if (std.mem.startsWith(u8, mode, "verify-")) return verify(&db, std.mem.eql(u8, mode, "verify-new"), init.io, path);

@@ -7,6 +7,7 @@
 ;; the tree that is not listed in compile-omit-paths / conditional-omit-paths;
 ;; keep that contract path out of those omit lists.
 (define collection 'multi)
+(define version "0.1.0")
 (define license 'Apache-2.0)
 (define deps '("base" "rfc6455"))
 (define build-deps '())

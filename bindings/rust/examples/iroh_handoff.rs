@@ -29,8 +29,8 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use glowcap_rust_dogfood::iroh::Reachability;
-use glowcap_rust_dogfood::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, iroh};
+use glowcap::iroh::Reachability;
+use glowcap::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, iroh};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -62,7 +62,7 @@ async fn run() -> Result<(), Fail> {
 	// Wait for the gifter endpoint's direct addresses so its `uri()` is dialable
 	// under the relay-less Direct posture.
 	let (gifter_id, _) = dialable(&gifter).await?;
-	let exporter_locator = glowcap_rust_dogfood::iroh::locator(&exporter_id, Some(&exporter_addrs));
+	let exporter_locator = glowcap::iroh::locator(&exporter_id, Some(&exporter_addrs));
 	let gifter_runtime = Runtime::open(
 		RuntimeConfig::providers([iroh::provider(iroh::Config::new(Reachability::Direct))]).adopt_host(&gifter_host),
 	)
@@ -158,7 +158,7 @@ fn greeter() -> impl FnMut(&str, &[Argument]) -> Result<Argument, String> {
 // An iroh endpoint reports its direct addresses asynchronously after bind, so
 // wait for at least one before reading the dialable id+addresses, a give with no
 // direct-addresses hint is not dialable under the relay-less Direct posture.
-async fn dialable(server: &glowcap_rust_dogfood::iroh::Server) -> Result<(String, String), Fail> {
+async fn dialable(server: &glowcap::iroh::Server) -> Result<(String, String), Fail> {
 	for _ in 0..1000 {
 		if let Some(addrs) = server.direct_addresses()? {
 			return Ok((server.node_id().to_string(), addrs));

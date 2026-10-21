@@ -6,7 +6,23 @@ const view = model.view;
 const dispatch = glowcap.ocapn.codec.dispatch;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 
-test "struct slab: mixed containers preserve values at every capacity" {
+test "struct slab: syrup 1.0 preserves mixed values at every capacity" {
+    try mixedAtEveryCapacity(.syrup, .v1_0);
+}
+
+test "struct slab: syrup next preserves mixed values at every capacity" {
+    try mixedAtEveryCapacity(.syrup, .next);
+}
+
+test "struct slab: capnp 1.0 preserves mixed values at every capacity" {
+    try mixedAtEveryCapacity(.capnp, .v1_0);
+}
+
+test "struct slab: capnp next preserves mixed values at every capacity" {
+    try mixedAtEveryCapacity(.capnp, .next);
+}
+
+fn mixedAtEveryCapacity(codec: model.CodecId, profile: model.CaptpVersion) !void {
     const numbers = [_]model.Argument{ .{ .integer = -1 }, .{ .integer = 2 }, .{ .integer = 3 } };
     const inner = [_]model.StructEntry{
         .{ .key = "a", .value = .{ .list = &numbers } },
@@ -26,27 +42,23 @@ test "struct slab: mixed containers preserve values at every capacity" {
         .target = .{ .far = model.FarRef.object(7) },
         .args = &args,
     } };
-    for ([_]model.CodecId{ .syrup, .capnp }) |codec| {
-        for ([_]model.CaptpVersion{ .v1_0, .next }) |profile| {
-            var frame = try dispatch.encodeMessageForProfile(codec, std.testing.allocator, profile, message);
-            defer frame.deinit();
-            const plain = try (try dispatch.decodeBodyForProfile(codec, profile, frame.view())).toOwned(std.testing.allocator);
-            defer model.freeMessage(std.testing.allocator, plain);
-            var storage: [64]view.Argument = undefined;
-            const storage_bytes = std.mem.sliceAsBytes(&storage);
-            for (0..storage_bytes.len + 1) |capacity| {
-                var slab = view.ValueSlab.init(storage_bytes[0..capacity]);
-                var body: view.Body = undefined;
-                try dispatch.decodeBodyInto(codec, profile, frame.view(), &slab, &body);
-                try std.testing.expectEqual(capacity - capacity % @alignOf(view.Argument), slab.open);
-                try std.testing.expect(slab.used <= slab.open);
-                if (capacity == storage_bytes.len)
-                    try std.testing.expect((try body.deliver.args.at(1)).@"struct".backingViews() != null);
-                const owned = try body.toOwned(std.testing.allocator);
-                defer model.freeMessage(std.testing.allocator, owned);
-                try std.testing.expect(messagesEqual(plain, owned));
-            }
-        }
+    var frame = try dispatch.encodeMessageForProfile(codec, std.testing.allocator, profile, message);
+    defer frame.deinit();
+    const plain = try (try dispatch.decodeBodyForProfile(codec, profile, frame.view())).toOwned(std.testing.allocator);
+    defer model.freeMessage(std.testing.allocator, plain);
+    var storage: [64]view.Argument = undefined;
+    const storage_bytes = std.mem.sliceAsBytes(&storage);
+    for (0..storage_bytes.len + 1) |capacity| {
+        var slab = view.ValueSlab.init(storage_bytes[0..capacity]);
+        var body: view.Body = undefined;
+        try dispatch.decodeBodyInto(codec, profile, frame.view(), &slab, &body);
+        try std.testing.expectEqual(capacity - capacity % @alignOf(view.Argument), slab.open);
+        try std.testing.expect(slab.used <= slab.open);
+        if (capacity == storage_bytes.len)
+            try std.testing.expect((try body.deliver.args.at(1)).@"struct".backingViews() != null);
+        const owned = try body.toOwned(std.testing.allocator);
+        defer model.freeMessage(std.testing.allocator, owned);
+        try std.testing.expect(messagesEqual(plain, owned));
     }
 }
 

@@ -13,3 +13,5 @@
 !apps/rooms/rust/Cargo.lock
 # The per-host env file is compose input on the host, never image input.
 .devcontainer/.env
+# Resolved consumer configuration is never a toolchain build input.
+.devcontainer/.ci

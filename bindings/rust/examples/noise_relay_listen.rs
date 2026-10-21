@@ -4,7 +4,7 @@
 //! (via `zig build rust-noise-relay-listen`), which appends
 //! `<relayUrl> <registerUrl>` and dials the printed locator.
 
-use glowcap_rust_dogfood::{Argument, PendingWork, relay};
+use glowcap::{Argument, PendingWork, relay};
 use tokio::task::LocalSet;
 
 fn greeter(verb: &str, args: &[Argument]) -> Result<Argument, String> {

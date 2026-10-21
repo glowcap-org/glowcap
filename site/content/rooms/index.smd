@@ -59,7 +59,7 @@ or delete it. Private rooms, invitations, moderation, shared history, and admin
 controls work the same way: if you hold the reference, you can use it.
 
 The repository's
-[Rooms overview](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/README.md)
+[Rooms overview](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/README.md)
 and its guides carry every build command, flag, and limit.
 
 # Direct messages skip the room

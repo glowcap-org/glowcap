@@ -9,7 +9,7 @@
 Most applications use `driver.Session` and a transport. The modules below
 matter when you need to host many sessions, supply an event loop, add a codec,
 or drive the protocol without I/O. The diagram above is the map, and
-[architecture](https://github.com/jimisaacs/glowcap/blob/main/docs/architecture.md)
+[architecture](https://github.com/glowcap-org/glowcap/blob/main/docs/architecture.md)
 is the full account.
 
 # Choose the right level

@@ -21,9 +21,9 @@
 
 use std::rc::Rc;
 
-use glowcap_rust_dogfood::iroh::Reachability;
-use glowcap_rust_dogfood::iroh::Stream;
-use glowcap_rust_dogfood::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh};
+use glowcap::iroh::Reachability;
+use glowcap::iroh::Stream;
+use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh};
 use tokio::io::AsyncWriteExt;
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
@@ -149,7 +149,7 @@ fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
 // local-discovery book resolves it), fetch the greeter, and call it
 // `CALLS_PER_CONN` times, checking every reply.
 async fn client_once(server_id: String) -> Result<(), Fail> {
-	let locator = glowcap_rust_dogfood::iroh::locator(&server_id, None);
+	let locator = glowcap::iroh::locator(&server_id, None);
 	let runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
 		Reachability::LocalDiscovery,
 	))]))

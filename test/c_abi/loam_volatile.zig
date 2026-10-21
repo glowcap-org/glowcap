@@ -83,6 +83,7 @@ const Race = struct {
     /// Reads that found their record, which proves the readers raced the
     /// commits on the rows themselves and not only on the metadata check.
     found: std.atomic.Value(usize) = .init(0),
+    observed_revision: std.atomic.Value(u64) = .init(0),
     broken: std.atomic.Value(bool) = .init(false),
 
     fn id(self: *const Race, sequence: u64) loam.ObjectId {
@@ -99,6 +100,7 @@ const Race = struct {
                 .found => |found| {
                     if (found.length == 0) self.broken.store(true, .release);
                     _ = self.found.fetchAdd(1, .monotonic);
+                    _ = self.observed_revision.fetchMax(ticket.revision, .release);
                 },
                 // A record the commits have not reached yet. status-allow: pending state or quoted runtime label
                 .missing => {},
@@ -106,6 +108,7 @@ const Race = struct {
                 .failed => |err| if (err != error.StaleCompletion) self.broken.store(true, .release),
             }
             sequence = sequence % @max(ticket.revision, 1) + 1;
+            std.Thread.yield() catch {};
         }
     }
 };
@@ -123,27 +126,42 @@ test "Loam C in-memory engine serves reads while the Host thread commits" {
         .serialized = &serialized,
         .ticket = .{ .store = store_id, .incarnation = serialized.metadata.incarnation, .sequence = 0, .revision = 0 },
     };
-    var readers: [4]std.Thread = undefined;
-    for (&readers) |*thread| thread.* = try std.Thread.spawn(.{}, Race.read, .{&race});
-
     var failed = false;
-    var sequence: u64 = 1;
-    while (sequence <= commits) : (sequence += 1) {
-        const record: loam.Record = .{ .id = race.id(sequence), .revision = sequence, .schema = 7, .rooted = true, .payload = "payload" };
-        const bytes = try record.encodeAlloc(allocator, record_limits, &schemas);
-        defer allocator.free(bytes);
-        const change = [_]loam.Mutation{.{ .id = record.id, .expected = null, .bytes = bytes }};
-        const outcome = serialized.commit(.{
-            .ticket = .{ .store = store_id, .incarnation = race.ticket.incarnation, .sequence = sequence, .revision = sequence - 1 },
-            .changes = &change,
-            .limits = record_limits,
-            .schemas = &schemas,
-        });
-        if (outcome != .committed) failed = true;
-        race.revision.store(sequence, .release);
+    {
+        var readers: [4]std.Thread = undefined;
+        var started: usize = 0;
+        defer {
+            race.done.store(true, .release);
+            for (readers[0..started]) |thread| thread.join();
+        }
+        for (&readers) |*thread| {
+            thread.* = try std.Thread.spawn(.{}, Race.read, .{&race});
+            started += 1;
+        }
+        var sequence: u64 = 1;
+        while (sequence <= commits) : (sequence += 1) {
+            const record: loam.Record = .{ .id = race.id(sequence), .revision = sequence, .schema = 7, .rooted = true, .payload = "payload" };
+            const bytes = try record.encodeAlloc(allocator, record_limits, &schemas);
+            defer allocator.free(bytes);
+            const change = [_]loam.Mutation{.{ .id = record.id, .expected = null, .bytes = bytes }};
+            const outcome = serialized.commit(.{
+                .ticket = .{ .store = store_id, .incarnation = race.ticket.incarnation, .sequence = sequence, .revision = sequence - 1 },
+                .changes = &change,
+                .limits = record_limits,
+                .schemas = &schemas,
+            });
+            if (outcome != .committed) {
+                failed = true;
+                break;
+            }
+            race.revision.store(sequence, .release);
+            // Each commit must meet a reader, even when all threads share one CPU.
+            while (race.observed_revision.load(.acquire) < sequence and !race.broken.load(.acquire)) {
+                std.Thread.yield() catch {};
+            }
+            if (race.broken.load(.acquire)) break;
+        }
     }
-    race.done.store(true, .release);
-    for (readers) |thread| thread.join();
 
     try std.testing.expect(!failed);
     try std.testing.expect(!race.broken.load(.acquire));

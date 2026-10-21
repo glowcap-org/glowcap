@@ -1,7 +1,14 @@
 // A trace viewer receives records through an inbox capability. The WebSocket
 // carries CapTP bytes. The advertised route alone grants no trace access.
 
-import { designatorHostPort, Host, parseSturdyRef, Session, webSocketChannel } from "@glowcap/runtime";
+import {
+	type Channel,
+	designatorHostPort,
+	Host,
+	openWebSocketChannel,
+	parseSturdyRef,
+	Session,
+} from "@glowcap/runtime";
 import { traceCapUrl } from "./trace_publish.ts";
 import { answerWithin } from "./deadline.ts";
 
@@ -64,25 +71,15 @@ export async function connectTraceViewer(
 	apply: (record: TraceRecord) => void,
 ): Promise<{ closed: Promise<void>; close(): Promise<void> }> {
 	const locator = parseSturdyRef(sturdyref, "v1_0").locator;
-	const socket = new WebSocket(traceUrlOf(sturdyref));
-	await answerWithin(
-		new Promise<void>((resolve, reject) => {
-			socket.onopen = () => resolve();
-			socket.onerror = () => reject(new Error("the live timeline endpoint would not accept a viewer"));
-		}),
-		"the live trace socket",
-		SUBSCRIBE_MS,
-	).catch((error) => {
-		socket.close();
-		throw error;
-	});
 	const host = new Host(); // rooms-profile-exempt: a viewer is production ocapnviz's v1.0 peer.
+	let channel: Channel | undefined;
 	let session: Session | undefined;
 	let serving: Promise<void> | undefined;
 	const close = async () => {
 		const failures: unknown[] = [];
 		try {
-			await session?.close();
+			if (session) await session.close();
+			else await channel?.close();
 		} catch (error) {
 			failures.push(error);
 		}
@@ -96,15 +93,17 @@ export async function connectTraceViewer(
 		} catch (error) {
 			failures.push(error);
 		}
-		socket.close();
 		if (failures.length !== 0) throw new AggregateError(failures, "closing the trace viewer failed");
 	};
 	try {
+		// Adopt the byte channel inside onopen, before an immediate greeting
+		// can arrive. The shared opener also owns failed or cancelled opens.
+		channel = await openWebSocketChannel(traceUrlOf(sturdyref), undefined, AbortSignal.timeout(SUBSCRIBE_MS));
 		session = await answerWithin(
 			Session.establishDialedLocator(
 				host,
 				locator,
-				webSocketChannel(socket),
+				channel,
 			),
 			"the live trace handshake",
 			SUBSCRIBE_MS,
@@ -137,7 +136,6 @@ export async function connectTraceViewer(
 			close,
 		};
 	} catch (error) {
-		socket.close();
 		try {
 			await close();
 		} catch (cleanup) {

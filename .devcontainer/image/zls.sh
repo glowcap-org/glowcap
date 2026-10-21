@@ -17,7 +17,8 @@ glowcap_fetch_verified "${url}" "${tmp}/${tarball}" "${ZLS_SOURCE_SHA256}"
 tar -xzf "${tmp}/${tarball}" --strip-components=1 -C "${tmp}"
 (
     cd "${tmp}"
-    zig build -Doptimize=ReleaseSafe -Dversion-string="${ZLS_VERSION}"
+    # Published image layers run on other CPUs of this architecture too.
+    zig build -Doptimize=ReleaseSafe -Dcpu=baseline -Dversion-string="${ZLS_VERSION}"
 )
 install -m 0755 "${tmp}/zig-out/bin/zls" /usr/local/bin/zls
 zls --version

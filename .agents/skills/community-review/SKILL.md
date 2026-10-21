@@ -62,7 +62,7 @@ and passable edges, and [`SECURITY.md`](../../../SECURITY.md) invariants.
 - [`conformance/ocapn-spec/`](../../../conformance/ocapn-spec/)
 - [`test/oracle/`](../../../test/oracle/)
 - [`docs/boundaries.md`](../../../docs/boundaries.md), [`docs/shipped.md`](../../../docs/shipped.md)
-- ADRs 0003, 0006, 0008, 0009/0056, 0012, 0046, 0083 under
+- ADRs 0001, 0002, 0003, 0004, 0006, 0007, 0008, 0025, 0028, 0030, 0039 under
   [`docs/decisions/adr/`](../../../docs/decisions/adr/)
 - Public OCapN entry points already cited in-repo, such as
   [github.com/ocapn/ocapn](https://github.com/ocapn/ocapn)
@@ -85,7 +85,7 @@ and listen claims, and an actor layer above CapTP that does not redefine CapTP.
 - [`conformance/goblins-peer/`](../../../conformance/goblins-peer/)
 - Live gate inventory in `docs/shipped.md` and `build.zig` (`goblins-interop`,
   `goblins-handoff`, binding variants)
-- ADRs 0003, 0035, 0056, 0063, and the boundaries on Null, untag, iroh, and
+- ADRs 0003, 0004, 0007, 0036, 0039, 0042, and the boundaries on Null, untag, iroh, and
   bootstrap
 - Public Spritely / Goblins resources already cited in-repo
 

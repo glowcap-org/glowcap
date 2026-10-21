@@ -62,7 +62,7 @@ if [[ ${selection} == local ]] || { glowcap_in_devcontainer && [[ -z "${GLOWCAP_
 fi
 
 container_id=""
-container_name="${GLOWCAP_DEV_CONTAINER:-glowcap-$(glowcap_devcontainer_worktree_name "${repo_root}/.devcontainer")}"
+container_name="${GLOWCAP_DEV_CONTAINER:-}"
 if [[ ${run_locally} == false ]]; then
     if command -v docker >/dev/null 2>&1 && { [[ ${selection} != auto ]] || [[ $(uname -s) == Linux ]]; }; then
         if [[ -n ${GLOWCAP_DEV_CONTAINER:-} ]]; then
@@ -91,7 +91,7 @@ if [[ ${run_locally} == false ]]; then
         run_locally=true
         execution_root=${repo_root}
     elif [[ -z ${container_id} ]]; then
-        echo "glowcap-dev: no running devcontainer for ${repo_root}; expected ${container_name}" >&2
+        echo "glowcap-dev: no running devcontainer for ${repo_root}; expected ${container_name:-a container labeled for this checkout}" >&2
         exit 1
     fi
 fi
@@ -148,6 +148,14 @@ if [[ ${1:-} == zig && ${2:-} == build ]]; then
                 ;;
         esac
     done
+    case "${arg:-}" in
+        docs-serve | rooms-dev | rooms-web | rooms-server)
+            echo "glowcap-dev: preparing ${arg}; the service has not started yet. Wait for its listening address." >&2
+            if [[ ${arg} != docs-serve ]]; then
+                echo "glowcap-dev: a cold Rooms build downloads dependencies and compiles Zig and Rust; browser commands also prepare WebAssembly and UI assets. This can take several minutes. Later runs reuse build caches." >&2
+            fi
+            ;;
+    esac
     if [[ ${service_build} == false ]]; then
         set -- "${execution_root}/.devcontainer/bin/build-lease" "$@"
     fi

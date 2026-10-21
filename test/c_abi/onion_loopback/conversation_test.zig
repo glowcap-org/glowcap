@@ -254,6 +254,7 @@ test "c-abi onion accept: a forwarded circuit carries a session" {
     const target = daemon.lastForwardTarget();
     try std.testing.expect(std.mem.startsWith(u8, target, "127.0.0.1:"));
     var client = try io.concurrent(dialForwardTarget, .{ io, allocator, target });
+    defer client.cancel(io) catch {}; // best-effort: join on a server failure; await reports success-path faults
 
     var args: Loopback.ServerArgs = .{
         .listener = listener_ptr,
@@ -294,6 +295,10 @@ fn dialForwardTarget(io: std.Io, allocator: std.mem.Allocator, target: []const u
     try fetch_pump.handshakeToOpen(&peer, &conn, startSession("client"));
     const reference = try fetch_pump.settleFetch(allocator, &peer, &conn, "thermostat");
     model.freeReference(allocator, reference);
+    // Finish the byte stream in both directions before close. Discarding
+    // unread peer bytes at close can send a reset instead of a clean EOF.
+    try stream.shutdown(io, .send);
+    _ = try reader.interface.discardRemaining();
 }
 
 test "c-abi onion listen queries its out-parameter lengths without a buffer" {

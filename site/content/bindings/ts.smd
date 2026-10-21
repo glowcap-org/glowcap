@@ -8,7 +8,7 @@
 
 The TypeScript binding runs on Deno, Bun, and the browser from one source tree.
 `@glowcap/runtime`
-([`mod.ts`](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/runtime/mod.ts))
+([`mod.ts`](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/runtime/mod.ts))
 gives Deno the `Session` and `Host` API over the glowcap C ABI. Bun's synchronous FFI
 cannot host the C driver loop, so under Bun the binding covers the synchronous
 Host and locator calls but not dial or listen.
@@ -282,4 +282,4 @@ directly through an introduction, publish it on a `Host`: `server.host` from
 and [Concepts]($link.page('concepts')) explains the handoff.
 
 The complete API lives in the
-[TypeScript binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/ts/README.md).
+[TypeScript binding README](https://github.com/glowcap-org/glowcap/blob/main/bindings/ts/README.md).

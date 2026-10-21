@@ -10,7 +10,7 @@
 //! positional call, then a repeat `enliven` of the same swiss-num. Needs
 //! `racket` plus `goblins` on PATH, `zig build rust-goblins-interop`.
 
-use glowcap_rust_dogfood::{Argument, ConnectOptions, Runtime, RuntimeConfig, format_locator_uri, tcp};
+use glowcap::{Argument, ConnectOptions, Runtime, RuntimeConfig, format_locator_uri, tcp};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -123,6 +123,6 @@ async fn converse(sturdyref_path: String, port: u16) -> Result<(), Fail> {
 	println!("rust-goblins-interop: Goblins reclaimed the released object with the session open");
 
 	println!("rust-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins");
-	session.close(glowcap_rust_dogfood::PendingWork::Cancel).await?;
+	session.close(glowcap::PendingWork::Cancel).await?;
 	Ok(())
 }

@@ -39,11 +39,8 @@ pub const Registered = struct {
     python_examples_check: *std.Build.Step,
     rust_examples_check: *std.Build.Step,
     racket_examples_check: *std.Build.Step,
-    /// The Zine render and the local preview, returned so the root can make
-    /// both wait for the Rooms captures the pages embed, which the Rooms
-    /// subject registers after this one.
+    /// The Zine render waits for the Rooms captures registered by the root.
     render: *std.Build.Step,
-    preview: *std.Build.Step,
 };
 
 pub fn register(ctx: Context) Registered {
@@ -360,6 +357,5 @@ pub fn register(ctx: Context) Registered {
         .rust_examples_check = site_rust_examples_check,
         .racket_examples_check = site_racket_examples_check,
         .render = &render_site.step,
-        .preview = &serve_site.step,
     };
 }

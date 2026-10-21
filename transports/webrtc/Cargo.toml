@@ -9,6 +9,9 @@
 # every machine. The direct dependencies are pinned exactly below so an
 # intentional bump is visible here, not only in the lockfile.
 [package]
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
 name = "glowcap-webrtc"
 version = "0.1.0"
 edition = "2024"

@@ -129,7 +129,10 @@ def working_tree() -> str:
     """Hash the working tree as git would commit it, without touching the index."""
     index = git("rev-parse", "--git-path", "index")
     with tempfile.NamedTemporaryFile(prefix="evidence-index-") as scratch:
-        shutil.copyfile(index, scratch.name)
+        # Git uses the index timestamp to detect same-size edits whose stat
+        # data still matches (racy-clean entries). A newer copy timestamp
+        # would suppress that content check on coarse-timestamp filesystems.
+        shutil.copy2(index, scratch.name)
         env = dict(os.environ, GIT_INDEX_FILE=scratch.name)
         git("add", "-A", "--", ".", env=env)
         return git("write-tree", env=env)

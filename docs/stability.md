@@ -50,7 +50,7 @@ implementation. A live Goblins session tests protocol interop and says nothing
 about API stability.
 
 These results hold only when the
-[checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
+[checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
 is green for the commit you are evaluating. No row freezes an API or ABI.
 
 ## Which checks recur

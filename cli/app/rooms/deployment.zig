@@ -140,7 +140,7 @@ fn perform(ctx: *Ctx, parsed: *types.Parsed, comptime verb: Verb) !void {
             try std.fs.path.join(gpa, &.{ root, "zig-out/product" })
         else
             absolute_build;
-        const default_image = try std.fmt.allocPrint(gpa, "ghcr.io/jimisaacs/glowcap-rooms:v{d}.{d}.{d}", .{
+        const default_image = try std.fmt.allocPrint(gpa, "ghcr.io/glowcap-org/glowcap-rooms:v{d}.{d}.{d}", .{
             version.version_major, version.version_minor, version.version_patch,
         });
         log.writeMsg(ctx.io, "Preparing deployment image and configuration. Services and volumes have not been changed.\n");

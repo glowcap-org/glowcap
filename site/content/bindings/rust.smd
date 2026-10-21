@@ -8,7 +8,7 @@
 
 The Rust binding gives you typed `Runtime`, `Session`, `Reference`, and
 `Argument` over the glowcap archives
-([`lib.rs`](https://github.com/jimisaacs/glowcap/blob/main/bindings/rust/src/lib.rs)).
+([`lib.rs`](https://github.com/glowcap-org/glowcap/blob/main/bindings/rust/src/lib.rs)).
 The round-trip below leads with iroh. Enable the `iroh` Cargo feature for that
 tab. Start from the
 [checkout instructions]($link.page('bindings')).
@@ -275,7 +275,7 @@ To let a third peer reach an actor directly through an introduction, call
 [Concepts]($link.page('concepts')) covers pipelining and attenuation.
 
 The complete API lives in the
-[Rust binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/rust/README.md),
+[Rust binding README](https://github.com/glowcap-org/glowcap/blob/main/bindings/rust/README.md),
 and the
-[rooms chat client](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/clients/rust/client.rs)
+[rooms chat client](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/clients/rust/client.rs)
 shows the binding in a complete application.

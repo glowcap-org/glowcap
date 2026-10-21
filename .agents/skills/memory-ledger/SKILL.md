@@ -47,6 +47,8 @@ declaration under `src/`.
   instead of walking the tree again. The list is one allocation per
   inventoried tree that has such a slot, freed when admission ends, and a
   tree with none allocates nothing (`test/session/inventory_test.zig`).
+  `PreparedDepositGift` retains that same inventory through commit or
+  abandonment, so the infallible commit never allocates a replacement walk.
   Freight, a tree lent as views, takes `Session.certifyFreight` instead
   (ADR-0064): the same rules in one walk that lists nothing, because a
   reference in it is refused, and whose set fold borrows its elements.

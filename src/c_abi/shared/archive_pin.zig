@@ -26,16 +26,16 @@ const emits_entry = builtin.output_mode == .Lib and builtin.link_mode == .dynami
 comptime {
     if (emits_entry) @export(&entry, .{
         .name = "glowcap_archive_pin_entry",
-        .section = switch (builtin.object_format) {
-            .elf => ".init_array",
-            .macho => "__DATA,__mod_init_func",
-            else => unreachable,
-        },
         .visibility = .hidden,
     });
 }
 
-const entry: *const fn () callconv(.c) void = &pinResident;
+// The native x86 backend supports declaration sections, not ExportOptions.section.
+const entry: *const fn () callconv(.c) void linksection(switch (builtin.object_format) {
+    .elf => ".init_array",
+    .macho => "__DATA,__mod_init_func",
+    else => unreachable,
+}) = &pinResident;
 
 /// `Dl_info`, shared by glibc, musl, and macOS.
 const DlInfo = extern struct {

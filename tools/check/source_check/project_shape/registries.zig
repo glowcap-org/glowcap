@@ -292,7 +292,7 @@ pub fn checkGeneratedStateIgnores(
 /// following a dead link on the page that argues the project is careful, which
 /// is the worst possible place to be sloppy. Change this constant and the check
 /// below names every straggler.
-const repo_url = "https://github.com/jimisaacs/glowcap";
+const repo_url = "https://github.com/glowcap-org/glowcap";
 
 /// Forge-specific deep-link syntax, which does not survive a move. Forgejo and
 /// Gitea spell a path into a branch `/src/branch/main/x`; GitHub spells it

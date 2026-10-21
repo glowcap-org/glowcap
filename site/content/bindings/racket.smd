@@ -8,7 +8,7 @@
 
 The Racket binding gives you a `Runtime` and `session` API shaped like
 [Spritely Goblins](https://spritely.institute/goblins/), with Racket values
-([`glowcap.rkt`](https://github.com/jimisaacs/glowcap/blob/main/bindings/racket/glowcap.rkt)).
+([`glowcap.rkt`](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/glowcap.rkt)).
 The transport modules are `glowcap-iroh.rkt`, `glowcap-onion.rkt`,
 `glowcap-relay.rkt`, `glowcap-tcp.rkt`, `glowcap-webrtc.rkt`, and
 `glowcap-inproc.rkt`. The
@@ -258,7 +258,7 @@ runs a callback when the vow (Goblins's word for a promise) settles.
 [Concepts]($link.page('concepts')) covers the CapTP ideas.
 
 The complete API lives in the
-[Racket binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/racket/README.md).
+[Racket binding README](https://github.com/glowcap-org/glowcap/blob/main/bindings/racket/README.md).
 Because Racket keeps Goblins's verbs, the
-[rooms chat client](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/clients/racket/room-client.rkt)
+[rooms chat client](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/clients/racket/room-client.rkt)
 reads almost like Goblins code.

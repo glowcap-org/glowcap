@@ -53,7 +53,7 @@ costs.
   independent <!-- value ../../../../src/net/completion/loop/configuration.zig default_outbound_high_water_bytes bytes -->64 KiB<!-- /value --> default is replaceable without changing admission or pool
   sizing.
 - **Completion-adapter transport staging**: iroh `enqueue_outbound` and
-  keyed-relay `queueFrame` (ADRs 0057 and 0088). The Loop's submitted send is
+  keyed-relay `queueFrame`. The Loop's submitted send is
   a borrow, while both foreign async engines must own bytes past the call.
   - iroh copies the admitted prefix into one queue whose queued plus in-flight
     bytes share `NB_BUFFER_BOUND`.

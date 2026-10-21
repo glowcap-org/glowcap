@@ -280,10 +280,6 @@ pub fn installArchive(
     const archive = common.installArchive(b, "glowcap_net_transport_relay", module, version);
     if (target.result.ofmt == .elf) {
         archive.dynamic.version_script = b.path("tools/build/exports/relay.map");
-        // The self-hosted linker does not enforce version scripts. LLVM/lld
-        // holds the same export boundary as the iroh and WebRTC companions.
-        archive.dynamic.use_llvm = true;
-        archive.dynamic.use_lld = true;
     }
     return archive;
 }

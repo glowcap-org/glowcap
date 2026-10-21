@@ -27,9 +27,10 @@ fail() {
 expect_ok() {
     local label="$1"
     shift
-    local output
-    if ! output="$("$@" 2>&1)"; then
-        fail "${label}: \`$*\` failed: ${output}"
+    local output rc=0
+    output="$("$@" 2>&1)" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        fail "${label}: \`$*\` failed (exit ${rc}): ${output}"
     fi
 }
 
@@ -37,9 +38,10 @@ expect_contains() {
     local label="$1"
     local needle="$2"
     shift 2
-    local output
-    if ! output="$("$@" 2>&1)"; then
-        fail "${label}: \`$*\` failed: ${output}"
+    local output rc=0
+    output="$("$@" 2>&1)" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        fail "${label}: \`$*\` failed (exit ${rc}): ${output}"
         return 0
     fi
     if [[ "${output}" != *"${needle}"* ]]; then
@@ -51,9 +53,10 @@ expect_equals() {
     local label="$1"
     local wanted="$2"
     shift 2
-    local output
-    if ! output="$("$@" 2>&1)"; then
-        fail "${label}: \`$*\` failed: ${output}"
+    local output rc=0
+    output="$("$@" 2>&1)" || rc=$?
+    if [[ "${rc}" -ne 0 ]]; then
+        fail "${label}: \`$*\` failed (exit ${rc}): ${output}"
         return 0
     fi
     if [[ "${output}" != "${wanted}" ]]; then

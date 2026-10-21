@@ -27,10 +27,10 @@ glowcap apps rooms deployment up
 For a tag, digest, or existing local image:
 
 ```sh
-glowcap apps rooms deployment up --image ghcr.io/jimisaacs/glowcap-rooms:vVERSION
+glowcap apps rooms deployment up --image ghcr.io/glowcap-org/glowcap-rooms:vVERSION
 ```
 
-An installed executable defaults to `ghcr.io/jimisaacs/glowcap-rooms:vVERSION`, with the version from the installed
+An installed executable defaults to `ghcr.io/glowcap-org/glowcap-rooms:vVERSION`, with the version from the installed
 CLI. The first `up` resolves the image to an immutable ID, writes the managed Compose file, creates the network, waits
 for service health, and prints the directory and shared-session capabilities. These are the secret `ocapn://` links that grant access
 ([operator capabilities](../../operating.md#operator-capabilities)). Open `http://127.0.0.1:8080`. The

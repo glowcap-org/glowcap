@@ -1,7 +1,8 @@
 # How glowcap is built
 
-The maintainer builds glowcap with AI coding assistants, signs every commit
-that lands, directs the work, and is answerable for the result.
+Glowcap LLC maintains glowcap with AI coding assistants. Its maintainer
+directs the work, signs every commit that lands, and is answerable for the
+result.
 
 Each commit is a development checkpoint rather than every intermediate edit.
 Commits carry no per-tool trailers, because tools differ in what they emit
@@ -44,7 +45,7 @@ field records who wrote a change, and the maintainer's signature on every
 Neither is evidence of independent review, and neither creates an exception
 to another project's policy.
 
-glowcap-authored work is available under [Apache-2.0](LICENSE-APACHE). This does
+glowcap-authored work is licensed under [Apache-2.0](LICENSE-APACHE). This does
 not settle broader copyright questions about generated code. Third-party files
 keep their original terms.
 

@@ -2,7 +2,7 @@
 # built first with `zig build -Doptimize=ReleaseSafe release-pack glowcap-pack
 # -Dcpu=baseline`. Each native Linux runner then builds and exercises its image
 # from that exact product archive. A matching version tag on an exact commit
-# that passed main-push checks authorizes publication of every tarball, one combined
+# that passed full main checks authorizes publication of every tarball, one combined
 # SHA256SUMS, and the two-platform Rooms image. workflow_dispatch builds, tests,
 # and uploads archives and Docker image artifacts only — it publishes
 # nothing. Versioning is `abi_version` in
@@ -39,7 +39,9 @@ jobs:
 
       - name: Read the product version
         id: version
-        run: echo "value=$(jq -er '.abi_version' bindings/c-abi-resolve.json)" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(jq -er '.abi_version | select(test("^0\\.[0-9]+\\.[0-9]+$"))' bindings/c-abi-resolve.json)"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Require the ABI version tag
         if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -191,7 +193,7 @@ jobs:
         env:
           VERSION: ${{ needs.contract.outputs.version }}
           IMAGE_ARCH: ${{ matrix.image_arch }}
-          IMAGE: ghcr.io/jimisaacs/glowcap-rooms
+          IMAGE: ghcr.io/glowcap-org/glowcap-rooms
         run: |
           mkdir image-artifact
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
@@ -215,7 +217,7 @@ jobs:
         env:
           VERSION: ${{ needs.contract.outputs.version }}
           IMAGE_ARCH: ${{ matrix.image_arch }}
-          IMAGE: ghcr.io/jimisaacs/glowcap-rooms
+          IMAGE: ghcr.io/glowcap-org/glowcap-rooms
         run: |
           docker image load --input "image-artifact/glowcap-rooms-v$VERSION-$IMAGE_ARCH.docker.tar"
           python3 tools/check/glowcap_release_image.py "$IMAGE:v$VERSION-$IMAGE_ARCH" "$IMAGE_ARCH"
@@ -259,7 +261,7 @@ jobs:
       - name: Publish the versioned multi-platform Rooms image
         env:
           GH_TOKEN: ${{ github.token }}
-          IMAGE: ghcr.io/jimisaacs/glowcap-rooms
+          IMAGE: ghcr.io/glowcap-org/glowcap-rooms
           VERSION: ${{ needs.contract.outputs.version }}
         run: |
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
@@ -291,7 +293,9 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "glowcap and Rooms $GITHUB_REF_NAME" \
+            --title "glowcap $GITHUB_REF_NAME alpha" \
+            --prerelease \
+            --latest=false \
             --verify-tag \
-            --notes "Per-platform glowcap product installations (CLI, Rooms runtimes, browser assets, and individual/team skills) and separate C SDK archives. Read the tagged [project provenance](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/PROVENANCE.md). Verify SHA256SUMS, then verify the GitHub artifact attestation with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`glowcap_abi_version\`." \
+            --notes "Apache-2.0 alpha software. APIs, ABIs, and storage formats may change before 1.0. Includes OCapN/CapTP networking and Loam transactional storage and durable actors. Per-platform glowcap product installations (CLI, Rooms runtimes, browser assets, and individual/team skills) and separate C SDK archives. Read the tagged [project provenance](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/PROVENANCE.md). Verify SHA256SUMS, then verify the GitHub artifact attestation with \`gh attestation verify --repo $GITHUB_REPOSITORY <archive>\`. The ABI version is reported by \`glowcap_abi_version\`." \
             release-assets/*

@@ -51,7 +51,7 @@ class RecordTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.repo = Path(self.temporary.name) / "repo"
+        self.repo = Path(self.temporary.name).resolve() / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-q", "-b", "main")
         (self.repo / ".devcontainer").mkdir()
@@ -97,7 +97,17 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(json.loads(note), body)
 
     def test_dirty_checkout_is_named_and_gets_no_note(self) -> None:
-        (self.repo / "a.txt").write_text("two\n")
+        # A same-size edit can share Git's cached timestamp on a coarse
+        # filesystem. Keep the source index racy so Git must inspect bytes.
+        git(self.repo, "config", "core.trustctime", "false")
+        git(self.repo, "config", "core.checkStat", "minimal")
+        tracked = self.repo / "a.txt"
+        stamp = tracked.stat().st_mtime_ns - 2_000_000_000
+        os.utime(tracked, ns=(stamp, stamp))
+        git(self.repo, "add", "a.txt")
+        os.utime(self.repo / ".git/index", ns=(stamp, stamp))
+        tracked.write_text("two\n")
+        os.utime(tracked, ns=(stamp, stamp))
         result = self.record("--note")
         self.assertEqual(result.returncode, 0, result.stderr)
         path = Path(result.stdout.strip())

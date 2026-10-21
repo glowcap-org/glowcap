@@ -1,4 +1,7 @@
 [package]
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 name = "rooms-application"
 version.workspace = true
 edition.workspace = true

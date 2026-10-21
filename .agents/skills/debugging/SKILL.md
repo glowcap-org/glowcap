@@ -21,6 +21,12 @@ the assertion each destroy it.
 
 ## Many failures at once
 
+When CI repeatedly stops at a different gate, collect the unvisited gate
+inventory locally before amending again. A sequential runner hides later
+failures; use a scratch runner that records each result and continues, then
+rerun the changed or unresolved paths. CI should confirm the repair, not
+discover its next known gate.
+
 When several proofs fail, take the whole inventory in one concurrent run (the
 Rooms browser family runs in parallel, per `apps/rooms/developing.md`), then
 group failures by first error before fixing any, since one cause often owns a

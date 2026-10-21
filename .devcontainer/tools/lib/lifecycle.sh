@@ -305,7 +305,8 @@ glowcap_tools_install() {
 
     # The download may spawn long children; they must not inherit the lock
     # descriptor, or an orphaned child would hold the lock after a kill.
-    glowcap_tools_dispatch "${tool}" download "${version}" "${staging}/install" "${policy}" 9>&- || rc=1
+    # Installation cannot consume input intended for the eventual tool.
+    glowcap_tools_dispatch "${tool}" download "${version}" "${staging}/install" "${policy}" </dev/null >&2 9>&- || rc=1
     if [[ "${rc}" -eq 0 && -n "${GLOWCAP_TOOLS_EXPECTED_SHA}" && -n "${GLOWCAP_TOOLS_OBSERVED_SHA}" &&
         "${GLOWCAP_TOOLS_EXPECTED_SHA}" != "${GLOWCAP_TOOLS_OBSERVED_SHA}" ]]; then
         echo "tools: ${tool}: downloaded bytes do not match the expected digest for ${version}" >&2

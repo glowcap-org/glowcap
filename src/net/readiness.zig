@@ -216,10 +216,11 @@ pub const ReadySet = struct {
                 return err;
             };
         }
-        try self.drainQueuedEvents();
+        try self.refresh();
     }
 
-    fn drainQueuedEvents(self: *const ReadySet) DrainError!void {
+    /// Refresh queued hints after member I/O without consuming a new wake.
+    pub fn refresh(self: *const ReadySet) DrainError!void {
         if (!is_darwin) return;
         var events: [32]DarwinKevent = undefined;
         var timeout = DarwinTimespec{ .tv_sec = 0, .tv_nsec = 0 };

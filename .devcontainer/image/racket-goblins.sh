@@ -14,7 +14,8 @@ trap 'rm -rf "${tmp}"' EXIT
 mapfile -t racket_asset < <(racket_tarball_and_sha256)
 tarball="${racket_asset[0]}"
 sha256="${racket_asset[1]}"
-url="https://download.racket-lang.org/releases/${RACKET_VERSION}/installers/${tarball}"
+# Select an official mirror directly; TLS and the pinned digest both apply.
+url="https://users.cs.utah.edu/plt/installers/${RACKET_VERSION}/${tarball}"
 
 glowcap_fetch_verified "${url}" "${tmp}/${tarball}" "${sha256}"
 

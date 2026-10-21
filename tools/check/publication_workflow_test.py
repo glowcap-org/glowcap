@@ -18,8 +18,12 @@ import sys
 import subprocess
 import tempfile
 import textwrap
+import tomllib
 import unittest
 from unittest import mock
+
+from ci_image_test import ImageTest
+from ci_plan_test import PLAN, PlanTest  # unittest collects the coverage-selection contracts.
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +53,8 @@ def selected(expression, github):
     expression = expression.replace("&&", " and ").replace("||", " or ")
 
     def evaluate(node):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "always" and not node.args and not node.keywords:
+            return True
         if isinstance(node, ast.Constant) and isinstance(node.value, (str, bool)):
             return node.value
         if isinstance(node, ast.Name) and node.id == "github":
@@ -61,33 +67,159 @@ def selected(expression, github):
                 return all(values)
             if isinstance(node.op, ast.Or):
                 return any(values)
-        if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
+        if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], (ast.Eq, ast.NotEq)):
             left, right = evaluate(node.left), evaluate(node.comparators[0])
             if isinstance(left, str) and isinstance(right, str):
-                return left.casefold() == right.casefold()
-            return left == right
+                left, right = left.casefold(), right.casefold()
+            equal = left == right
+            return equal if isinstance(node.ops[0], ast.Eq) else not equal
         raise AssertionError(f"unsupported CI predicate: {ast.dump(node)}")
 
     return bool(evaluate(ast.parse(expression, mode="eval").body))
 
 
 class PublicationWorkflow(unittest.TestCase):
+    def test_package_metadata_matches_the_pre_one_release(self):
+        version = json.loads((ROOT / "bindings/c-abi-resolve.json").read_text())["abi_version"]
+        self.assertRegex(version, r"^0\.[0-9]+\.[0-9]+$")
+        manifest = (ROOT / "build.zig.zon").read_text()
+        self.assertIn(f'.version = "{version}"', manifest)
+        paths = subprocess.check_output(
+            ["git", "ls-files", "*Cargo.toml", "*deno.json", "bindings/python/pyproject.toml"],
+            cwd=ROOT, text=True).splitlines()
+        for path in paths:
+            with self.subTest(path=path):
+                source = (ROOT / path).read_text()
+                if path.endswith("deno.json"):
+                    # These are JSONC. Read scalar metadata without interpreting comments.
+                    declared = re.search(r'^\s*"version":\s*"([^"]+)"', source, re.M)
+                    if declared:
+                        self.assertEqual(declared[1], version)
+                    self.assertRegex(source, r'"license":\s*"Apache-2\.0"')
+                    continue
+                data = tomllib.loads(source)
+                package = data.get("package", data.get("project", data.get("workspace", {}).get("package")))
+                self.assertIsNotNone(package)
+                for field, expected in (("version", version), ("license", "Apache-2.0")):
+                    actual = package[field]
+                    self.assertTrue(actual == expected or actual == {"workspace": True}, (field, actual))
+                urls = package.get("urls", package)
+                for field, expected in (("repository", "https://github.com/glowcap-org/glowcap"),
+                                        ("homepage", "https://glowcap.org"),
+                                        ("documentation", "https://glowcap.org")):
+                    actual = {key.lower(): value for key, value in urls.items()}[field]
+                    self.assertTrue(actual == expected or actual == {"workspace": True}, (path, field, actual))
+        for path, section in (("bindings/rust/Cargo.toml", "package"),
+                              ("bindings/python/pyproject.toml", "project")):
+            self.assertEqual(tomllib.loads((ROOT / path).read_text())[section]["name"], "glowcap")
+        distribution = tomllib.loads((ROOT / "bindings/python/pyproject.toml").read_text())["project"]["name"]
+        generated = f"bindings/python/{distribution.replace('-', '_')}.egg-info/PKG-INFO"
+        ignored = subprocess.run(["git", "check-ignore", "--no-index", "-v", generated],
+                                 cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(ignored.returncode, 0, f"generated packaging metadata must be ignored: {generated}")
+        source, _, pattern = ignored.stdout.split("\t", 1)[0].split(":", 2)
+        self.assertEqual(source, ".gitignore")
+        self.assertFalse(pattern.startswith("!"))
+        racket = (ROOT / "bindings/racket/info.rkt").read_text()
+        self.assertIn(f'(define version "{version}")', racket)
+        self.assertIn("(define license 'Apache-2.0)", racket)
+
+    def test_dependency_acquisition_retries_without_running_tests(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            stub = directory / "zig"
+            stub.write_text("#!/usr/bin/env python3\n" + textwrap.dedent("""\
+                import os, pathlib, sys
+                log = pathlib.Path(os.environ['FETCH_LOG'])
+                attempts = log.read_text().splitlines() if log.exists() else []
+                with log.open('a') as output:
+                    output.write(' '.join(sys.argv[1:]) + '\\n')
+                codes = os.environ['FETCH_CODES'].split(',')
+                sys.exit(int(codes[min(len(attempts), len(codes) - 1)]))
+                """))
+            stub.chmod(0o755)
+            log = directory / "attempts"
+            environment = dict(os.environ, PATH=f"{directory}:{os.environ['PATH']}",
+                               FETCH_LOG=str(log), ZIG_FETCH_RETRY_DELAY="0")
+            for codes, status, attempts in [("0", 0, 1), ("1,0", 0, 2),
+                                            ("1,1,0", 0, 3), ("7", 7, 3),
+                                            ("130", 130, 1), ("143", 143, 1)]:
+                log.unlink(missing_ok=True)
+                result = subprocess.run(['bash', str(ROOT / 'ci/fetch-zig.sh')],
+                                        cwd=directory, env=dict(environment, FETCH_CODES=codes),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(log.read_text().splitlines(), ['build --fetch=all'] * attempts)
+            log.unlink()
+            result = subprocess.run(['bash', str(ROOT / 'ci/fetch-zig.sh')],
+                                    env=dict(environment, ZIG_FETCH_RETRY_DELAY='invalid'),
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(log.exists())
+        for name, (_, body) in jobs('.github/workflows/check.yml').items():
+            if name not in ('gates', 'plan'):
+                self.assertIn('bash ci/fetch-zig.sh', body, name)
+
+    def test_release_version_and_publication_stay_pre_one(self):
+        source = (ROOT / ".github/workflows/release.yml").read_text()
+
+        def command(name):
+            step = re.search(rf"^      - name: {re.escape(name)}\n((?: {{8}}[^\n]*\n|\n)*)", source, re.M)
+            self.assertIsNotNone(step, name)
+            block = re.search(r"^        run: \|\n((?: {10}[^\n]*\n|\n)*)", step[1], re.M)
+            self.assertIsNotNone(block, name)
+            return textwrap.dedent(block[1])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            (directory / "bindings").mkdir()
+            output = directory / "output"
+            environment = dict(os.environ, GITHUB_OUTPUT=str(output))
+            for version, accepted in [("0.1.0", True), ("0.2.3", True),
+                                      ("1.0.0", False), ("1.0.0-alpha.1", False),
+                                      ("10.0.0", False), ("garbage", False)]:
+                with self.subTest(version=version):
+                    (directory / "bindings/c-abi-resolve.json").write_text(
+                        json.dumps({"abi_version": version}))
+                    output.write_text("")
+                    result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
+                                             command("Read the product version")],
+                                            cwd=directory, env=environment, capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, accepted, result.stderr)
+                    self.assertEqual(output.read_text(), f"value={version}\n" if accepted else "")
+            gh = directory / "gh"
+            gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$GITHUB_OUTPUT"\n')
+            gh.chmod(0o755)
+            environment.update(PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
+                               GITHUB_REF_NAME="v0.1.0", GITHUB_REPOSITORY="owner/project")
+            result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c",
+                                     command("Create the release with archives")],
+                                    cwd=directory, env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            arguments = output.read_text().splitlines()
+            self.assertIn("--prerelease", arguments)
+            self.assertIn("--latest=false", arguments)
+            self.assertIn("glowcap v0.1.0 alpha", arguments)
+
     def evidence(self, runs, commit="a" * 40, repository="owner/project", status=0, raw=None,
-                 command=None, current="a" * 40):
+                 command=None, current="a" * 40, job_records=None):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             gh = directory / "gh"
             gh.write_text("""#!/usr/bin/env python3
 import json, os, sys
-with open(os.environ['EVIDENCE_CALL'], 'w') as output:
-    json.dump(sys.argv[1:], output)
+with open(os.environ['EVIDENCE_CALL'], 'a') as output:
+    output.write(json.dumps(sys.argv[1:]) + '\\n')
 if int(os.environ['EVIDENCE_STATUS']):
     print('Actions API unavailable', file=sys.stderr)
     sys.exit(int(os.environ['EVIDENCE_STATUS']))
 if any('/git/ref/heads/main' in argument for argument in sys.argv):
     print(os.environ['EVIDENCE_CURRENT'])
     sys.exit(0)
-print(os.environ['EVIDENCE_RESPONSE'])
+if any('/jobs?' in argument for argument in sys.argv):
+    print(os.environ['EVIDENCE_JOBS'])
+else:
+    print(os.environ['EVIDENCE_RESPONSE'])
 """)
             gh.chmod(0o755)
             call = directory / "call.json"
@@ -95,22 +227,26 @@ print(os.environ['EVIDENCE_RESPONSE'])
                                GITHUB_REPOSITORY=repository, EVIDENCE_CALL=str(call),
                                EVIDENCE_STATUS=str(status), EVIDENCE_CURRENT=current,
                                DEPLOY_SHA=commit, GITHUB_SHA=commit, GH_TOKEN="test-token",
-                               EVIDENCE_RESPONSE=raw if raw is not None else json.dumps({"workflow_runs": runs}))
+                               EVIDENCE_RESPONSE=raw if raw is not None else json.dumps({"workflow_runs": runs}),
+                               EVIDENCE_JOBS=json.dumps({"jobs": job_records if job_records is not None else [
+                                   {"name": name, "status": "completed", "conclusion": "success"}
+                                   for name in ("gates", "macos-runtime")]}))
             arguments = ([sys.executable, str(ROOT / "tools/check/require-main-check.py"), commit]
                          if command is None else ["bash", "-e", "-o", "pipefail", "-c", command])
             result = subprocess.run(arguments, cwd=directory if command is None else ROOT,
                                     env=environment, capture_output=True, text=True)
-            return result, json.loads(call.read_text()) if call.exists() else None
+            self.api_calls = [json.loads(line) for line in call.read_text().splitlines()] if call.exists() else []
+            return result, self.api_calls[0] if self.api_calls else None
 
     def test_publication_requires_main_push_evidence(self):
-        run = {"head_sha": "a" * 40, "head_branch": "main", "event": "push",
+        run = {"id": 42, "run_attempt": 1, "head_sha": "a" * 40, "head_branch": "main", "event": "push",
                "status": "completed", "conclusion": "success",
                "head_repository": {"full_name": "owner/project"},
                "html_url": "https://example.invalid/main-run"}
         result, call = self.evidence([run])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), run["html_url"])
-        for value in ("branch=main", "event=push", "status=completed", "head_sha=" + "a" * 40):
+        for value in ("branch=main", "status=completed", "head_sha=" + "a" * 40):
             self.assertIn(value, call)
         for key, value in [("head_sha", "b" * 40), ("head_branch", "dev"),
                            ("event", "pull_request"), ("status", "in_progress"),
@@ -122,6 +258,32 @@ print(os.environ['EVIDENCE_RESPONSE'])
                 self.assertEqual(refused.stdout, "")
         empty, _ = self.evidence([])
         self.assertEqual(empty.returncode, 1)
+
+    def test_manual_recovery_requires_both_successful_gate_jobs(self):
+        run = {"id": 42, "run_attempt": 2, "head_sha": "a" * 40,
+               "head_branch": "main", "event": "workflow_dispatch",
+               "status": "completed", "conclusion": "success",
+               "head_repository": {"full_name": "owner/project"},
+               "html_url": "https://example.invalid/manual-run"}
+        accepted, _ = self.evidence([run])
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertIn("repos/owner/project/actions/runs/42/attempts/2/jobs?per_page=100", self.api_calls[1])
+        for event in ("push", "workflow_dispatch"):
+            for conclusion in ("skipped", "failure", "cancelled", None):
+                records = [{"name": "gates", "status": "completed", "conclusion": "success"},
+                           {"name": "macos-runtime", "status": "completed", "conclusion": conclusion}]
+                refused, _ = self.evidence([dict(run, event=event)], job_records=records)
+                self.assertEqual(refused.returncode, 1, refused.stderr)
+            refused, _ = self.evidence([dict(run, event=event)], job_records=[
+                {"name": "scheduled-fuzz", "status": "completed", "conclusion": "success"}])
+            self.assertEqual(refused.returncode, 1, refused.stderr)
+        for records in ([{"name": "dev-gates", "status": "completed", "conclusion": "success"},
+                         {"name": "macos-runtime", "status": "completed", "conclusion": "success"}],
+                        [], [None, {"name": {}}, {"name": "gates", "status": "in_progress", "conclusion": "success"}]):
+            refused, _ = self.evidence([run], job_records=records)
+            self.assertEqual(refused.returncode, 1, refused.stderr)
+        refused, _ = self.evidence([dict(run, event="schedule")])
+        self.assertEqual(refused.returncode, 1)
 
     def test_evidence_errors_remain_failures(self):
         failed, _ = self.evidence([], status=7)
@@ -156,7 +318,7 @@ print(os.environ['EVIDENCE_RESPONSE'])
             self.assertLessEqual(lookup.call_args.kwargs["timeout"], 30)
 
     def test_workflow_steps_enforce_publication_evidence(self):
-        run = {"head_sha": "a" * 40, "head_branch": "main", "event": "push",
+        run = {"id": 42, "run_attempt": 1, "head_sha": "a" * 40, "head_branch": "main", "event": "push",
                "status": "completed", "conclusion": "success",
                "head_repository": {"full_name": "owner/project"},
                "html_url": "https://example.invalid/main-run"}
@@ -207,16 +369,26 @@ print(os.environ['EVIDENCE_RESPONSE'])
     def test_check_events(self):
         conditions = jobs(".github/workflows/check.yml")
         for event, base, expected in [
-            ("push", "", (False, True, True, False)),
-            ("pull_request", "dev", (True, False, False, False)),
+            ("push", "", (True, True, True, False)),
+            ("pull_request", "dev", (True, True, True, False)),
             ("pull_request", "main", (True, True, True, False)),
-            ("schedule", "", (False, False, False, True)),
-            ("workflow_dispatch", "", (False, False, False, True)),
+            ("schedule", "", (True, True, True, True)),
+            ("workflow_dispatch", "", (True, True, True, False)),
         ]:
-            context = {"event_name": event, "base_ref": base}
-            names = ("pull-request", "gates", "macos-runtime", "scheduled-fuzz")
+            context = {"event_name": event, "base_ref": base, "event": {"inputs": {"suite": "check"}}}
+            names = ("plan", "gates", "macos-runtime", "scheduled-fuzz")
             with self.subTest(event=event, base=base):
                 self.assertEqual(tuple(selected(conditions[name][0], context) for name in names), expected)
+
+    def test_manual_fuzz_keeps_its_separate_selection(self):
+        source = (ROOT / ".github/workflows/check.yml").read_text()
+        group = re.search(r"(?m)^  group: (.+)$", source)[1]
+        self.assertIn("${{ github.event.inputs.suite || 'check' }}", group)
+        conditions = jobs(".github/workflows/check.yml")
+        context = {"event_name": "workflow_dispatch", "event": {"inputs": {"suite": "fuzz"}}}
+        names = ("plan", "gates", "macos-runtime", "scheduled-fuzz")
+        self.assertEqual(tuple(selected(conditions[name][0], context) for name in names),
+                         (False, False, False, True))
 
     def test_pr_execution_is_unprivileged(self):
         source = (ROOT / ".github/workflows/check.yml").read_text()
@@ -224,19 +396,59 @@ print(os.environ['EVIDENCE_RESPONSE'])
         self.assertNotIn("pull_request_target:", source)
         self.assertIn("\npermissions:\n  contents: read\n", source)
         self.assertNotIn("secrets.", source)
-        for name in ("pull-request", "gates", "macos-runtime"):
+        for name in ("plan", "linux", "gates", "macos-runtime"):
             body = jobs(".github/workflows/check.yml")[name][1]
             with self.subTest(job=name):
                 self.assertNotIn("permissions:", body)
                 self.assertNotIn("self-hosted", body)
                 self.assertNotRegex(body, r"(?m)^\s+ref:")
                 checkout = re.search(r"^      - uses: actions/checkout@[^\n]+\n((?: {8}[^\n]*\n|\n)*)", body, re.M)
+                if name == "gates":
+                    self.assertIsNone(checkout)
+                    continue
                 self.assertIsNotNone(checkout)
                 self.assertRegex(checkout[1], r"(?m)^          persist-credentials: false$")
 
+    def test_image_preparation_privileges_and_consumer_dependency(self):
+        workflow = (ROOT / '.github/workflows/devcontainer-image.yml').read_text()
+        self.assertIn('  workflow_call:', workflow)
+        self.assertNotIn('  push:', workflow)
+        conditions = jobs('.github/workflows/devcontainer-image.yml')
+        for event, ref, trusted in [('push', 'refs/heads/dev', True),
+                                    ('push', 'refs/heads/main', True),
+                                    ('pull_request', 'refs/heads/dev', False),
+                                    ('pull_request', 'refs/pull/7/merge', False),
+                                    ('workflow_dispatch', 'refs/heads/topic', False)]:
+            context = {'event_name': event, 'ref': ref}
+            self.assertEqual(selected(conditions['trusted'][0], context), trusted)
+            self.assertEqual(selected(conditions['readonly'][0], context), not trusted)
+        self.assertIn('packages: write', conditions['trusted'][1])
+        self.assertIn('packages: read', conditions['readonly'][1])
+        self.assertNotIn('packages: write', conditions['readonly'][1])
+        consumer = jobs('.github/workflows/check.yml')['linux'][1]
+        self.assertIn('needs: [plan, image]', consumer)
+        self.assertNotIn('devcontainers/ci@', consumer)
+        self.assertNotIn('cacheFrom:', consumer)
+        self.assertNotIn('--remote-env ZIG_LOCAL_PKG_DIR=', consumer)
+        self.assertIn('needs.image.outputs.image', consumer)
+        self.assertIn('needs.image.outputs.archive', consumer)
+
+    def test_other_consumers_share_readonly_image_startup(self):
+        for name in ('pages', 'agent-tools'):
+            workflow = (ROOT / f'.github/workflows/{name}.yml').read_text()
+            with self.subTest(workflow=name):
+                self.assertNotIn('devcontainers/ci@', workflow)
+                self.assertIn('packages: read', workflow)
+                self.assertNotIn('packages: write', workflow)
+                self.assertIn('run: python3 .devcontainer/ci/image.py prepare\n', workflow)
+                self.assertNotIn('--publish', workflow)
+                self.assertIn('IMAGE: ${{ steps.image.outputs.image }}', workflow)
+                self.assertIn('run: python3 .devcontainer/ci/image.py start "$IMAGE"', workflow)
+                self.assertIn('--config .devcontainer/.ci/devcontainer.json', workflow)
+
     def test_agent_download_failure_does_not_block_product_checks(self):
         workflow = (ROOT / ".github/workflows/agent-tools.yml").read_text()
-        command = re.search(r"(?m)^          runCmd: (.+)$", workflow)
+        command = re.search(r"(?m)^        run: devcontainer exec --workspace-folder \. --config \.devcontainer/\.ci/devcontainer\.json (python3 .+)$", workflow)
         self.assertIsNotNone(command)
         self.assertIn("\npermissions:\n  contents: read\n", workflow)
         self.assertNotIn("secrets.", workflow)
@@ -249,14 +461,19 @@ print(os.environ['EVIDENCE_RESPONSE'])
             recorder = directory / "python3"
             recorder.write_text(f"#!{sys.executable}\n" + textwrap.dedent("""\
                 import json, os, sys
-                command = sys.argv[5:]
+                if sys.argv[1] == 'tools/evidence/record.py':
+                    from pathlib import Path
+                    rows = Path(sys.argv[sys.argv.index('--gates') + 1]).read_text()
+                    Path(os.environ['GATE_RECORD']).write_text(json.dumps({'args': sys.argv[2:], 'rows': rows}))
+                    sys.exit(int(os.environ.get('RECORD_FAILURE', '0')))
+                command = sys.argv[7:] if '--heartbeat' in sys.argv else sys.argv[5:]
                 with open(os.environ['GATE_CALLS'], 'a') as output:
                     output.write(json.dumps(command) + '\\n')
-                sys.exit(37 if '.devcontainer/test/tool-install.sh' in command else 0)
+                sys.exit(37 if '.devcontainer/test/tool-install.sh' in command or os.environ.get('GATE_FAIL') in command else 0)
                 """))
             recorder.chmod(0o755)
             environment = dict(os.environ, PATH=f"{directory}{os.pathsep}{os.environ['PATH']}",
-                               GATE_CALLS=str(calls))
+                               GATE_CALLS=str(calls), GATE_RECORD=str(directory / "record.json"))
             environment.pop("GATES_SOURCE_ONLY", None)
             agent = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", command[1]],
                                    cwd=ROOT, env=environment, capture_output=True, text=True)
@@ -269,10 +486,95 @@ print(os.environ['EVIDENCE_RESPONSE'])
             self.assertFalse(any('.devcontainer/test/tool-install.sh' in call for call in invoked))
             for step in ("check", "runtime-check", "goblins-interop", "ocapn-conformance-next"):
                 self.assertTrue(any(call[:2] == ["zig", "build"] and step in call for call in invoked), step)
+            workflow = (ROOT / '.github/workflows/check.yml').read_text()
+            lanes, full = PLAN.select('workflow_dispatch', 'refs/heads/dev', {}, [])
+            self.assertTrue(full)
+            phase_steps = re.findall(
+                r"if: matrix.lane == '([^']+)'( && needs.plan.outputs.full == 'true')?\n        run: devcontainer exec --workspace-folder \. --config \.devcontainer/\.ci/devcontainer\.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh ([a-z]+)", workflow)
+            phases = [phase for lane in lanes for condition, _, phase in phase_steps if condition == lane]
+            self.assertEqual(len(phases), len(set(phases)))
+            combined = []
+            record_path = directory / 'record.json'
+            for phase in phases:
+                calls.unlink()
+                result = subprocess.run(['bash', 'ci/gates.sh', phase], cwd=ROOT, env=environment,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                commands = [json.loads(line) for line in calls.read_text().splitlines()]
+                self.assertTrue(commands, phase)
+                combined.extend(commands)
+                record = json.loads(record_path.read_text())
+                self.assertIn('zig-out/evidence/' + phase, record['args'])
+                self.assertNotIn('--note', record['args'])
+                self.assertEqual(len(record['rows'].splitlines()), len(commands))
+            self.assertEqual(combined, invoked, 'CI phases must cover the full local sequence exactly once')
+            reduced, full = PLAN.select('push', 'refs/heads/dev', {}, ['README.md'])
+            self.assertFalse(full)
+            reduced_phases = [phase for lane, full_only, phase in phase_steps
+                              if lane in reduced and not full_only]
+            self.assertEqual(reduced_phases, ['infrastructure', 'core', 'shipped', 'smoke'])
+            for arguments in (['unknown'], ['core', 'browser']):
+                calls.unlink(missing_ok=True)
+                record_path.unlink()
+                result = subprocess.run(['bash', 'ci/gates.sh', *arguments], cwd=ROOT, env=environment,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 2)
+                self.assertFalse(calls.exists())
+                self.assertFalse(record_path.exists())
+                record_path.write_text('{}')
+            # A phase stops at its first failure and records it. Recorder failure
+            # must not hide a failed gate, or turn a successful phase green.
+            for gate_failure, record_failure, expected in [('check', '0', 37), ('check', '9', 37), ('', '9', 70)]:
+                result = subprocess.run(['bash', 'ci/gates.sh', 'core'], cwd=ROOT,
+                                        env=dict(environment, GATE_FAIL=gate_failure, RECORD_FAILURE=record_failure),
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+                rows = json.loads(record_path.read_text())['rows'].splitlines()
+                if gate_failure:
+                    self.assertEqual(len(rows), 1)
+                    self.assertTrue(rows[0].startswith('37\t'))
+
+    def test_shipped_mode_partitions_cover_every_layer_once(self):
+        source = (ROOT / 'test/all_test.zig').read_text()
+        declared = re.search(r'const Layer = enum \{([^}]+)\}', source)[1]
+        layers = [name.strip() for name in declared.split(',') if name.strip()]
+        gates = (ROOT / 'ci/gates.sh').read_text()
+        shipped = re.search(r'^phase shipped\n(.*?)(?=^phase |\Z)', gates, re.M | re.S)[1]
+        commands = re.findall(r'^gate zig build test -Doptimize=ReleaseSafe(.*)$', shipped, re.M)
+        selected_layers = []
+        for command in commands:
+            selection = re.fullmatch(r' -Dtest-layer=([a-z_,]+)', command)
+            self.assertIsNotNone(selection, 'ship-mode tests must bound compiler memory by layer')
+            selected_layers.extend(selection[1].split(','))
+        self.assertCountEqual(selected_layers, layers)
+
+    def test_parallel_checks_cannot_pass_with_a_missing_lane(self):
+        conditions = jobs('.github/workflows/check.yml')
+        aggregate = conditions['gates'][1]
+        self.assertIn('    needs: [plan, image, linux]\n', aggregate)
+        self.assertIn('always()', conditions['gates'][0])
+        self.assertIn('RESULT: ${{ needs.linux.result }}', aggregate)
+        command = re.search(r'^        run: (.+)$', aggregate, re.M)[1]
+        for result in ('success', 'failure', 'cancelled', 'skipped', ''):
+            ran = subprocess.run(['bash', '-e', '-c', command], env=dict(os.environ, RESULT=result, PLAN='success', IMAGE='success'))
+            self.assertEqual(ran.returncode == 0, result == 'success')
+        for plan in ('failure', 'cancelled', 'skipped', ''):
+            ran = subprocess.run(['bash', '-e', '-c', command],
+                                 env=dict(os.environ, RESULT='success', PLAN=plan, IMAGE='success'))
+            self.assertNotEqual(ran.returncode, 0)
+        for result in ('failure', 'cancelled', 'skipped', ''):
+            ran = subprocess.run(['bash', '-e', '-c', command],
+                                 env=dict(os.environ, RESULT='success', PLAN='success', IMAGE=result))
+            self.assertNotEqual(ran.returncode, 0)
+        linux = conditions['linux'][1]
+        self.assertIn('fail-fast: false', linux)
+        self.assertIn('lane: ${{ fromJSON(needs.plan.outputs.lanes) }}', linux)
+        self.assertIn('evidence-${{ github.sha }}-${{ matrix.lane }}', linux)
+        self.assertEqual(conditions['linux'][0], conditions['gates'][0].removeprefix('always() && (').removesuffix(')').strip())
 
     def test_protection_is_signed_linear_and_checked_on_push(self):
         # main moves only by fast-forward from dev, so the checks a candidate
-        # needs are the ones a push to dev already ran on that commit.
+        # needs come from full validation on that exact dev commit.
         push_to_dev = {"event_name": "push", "ref": "refs/heads/dev"}
         for branch in ("main", "dev"):
             policy = json.loads((ROOT / f".github/rulesets/{branch}.json").read_text())
@@ -294,13 +596,16 @@ print(os.environ['EVIDENCE_RESPONSE'])
                 self.assertIn(check["context"], conditions)
                 self.assertTrue(selected(conditions[check["context"]][0], push_to_dev))
             self.assertEqual({check["context"] for check in checks["required_status_checks"]},
-                             {name for name, (condition, _) in conditions.items()
-                              if selected(condition, push_to_dev)})
+                             {"gates", "macos-runtime"})
+            self.assertIn("name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}",
+                          conditions["gates"][1])
 
     def test_pages_requires_trusted_push_or_manual_main(self):
         condition = jobs(".github/workflows/pages.yml")["build"][0]
         for event, origin, conclusion, expected in [
             ("push", "owner/project", "success", True),
+            ("workflow_dispatch", "owner/project", "success", True),
+            ("schedule", "owner/project", "success", False),
             ("pull_request", "owner/project", "success", False),
             ("push", "fork/project", "success", False),
             ("push", "owner/project", "failure", False),
@@ -319,7 +624,8 @@ print(os.environ['EVIDENCE_RESPONSE'])
 if __name__ == "__main__":
     output = io.StringIO()
     result = unittest.TextTestRunner(stream=output).run(
-        unittest.defaultTestLoader.loadTestsFromTestCase(PublicationWorkflow))
+        unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(case)
+                           for case in (PublicationWorkflow, PlanTest, ImageTest)))
     if not result.wasSuccessful():
         sys.stderr.write(output.getvalue())
     sys.exit(0 if result.wasSuccessful() else 1)

@@ -19,6 +19,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 scratch="$(mktemp -d)"
+scratch="$(cd "${scratch}" && pwd -P)"
 lease_owner_pid=""
 lease_waiter_pid=""
 cleanup() {
@@ -54,12 +55,12 @@ printf '%s\n' \
     'printf "%s|%s\\n" "$PWD" "$*"' > "${scratch}/bin/zig"
 chmod 755 "${scratch}/bin/docker" "${scratch}/bin/local-probe" "${scratch}/bin/zig"
 
-host_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" /bin/true)"
+host_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" true)"
 [[ "${host_exec}" == *"--workdir /workspaces/glowcap abc123 setsid --wait sh -c "* ]]
-[[ "${host_exec}" == *" /bin/true" ]]
+[[ "${host_exec}" == *" true" ]]
 [[ "${host_exec}" == *"--env CARGO_BUILD_BUILD_DIR=/home/vscode/.cache/glowcap-dev-zig-work/cargo/{workspace-path-hash}"* ]]
 [[ "${host_exec}" == *"--env CARGO_BUILD_JOBS=4"* ]]
-inherited_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container CARGO_BUILD_JOBS=7 "${front}" /bin/true)"
+inherited_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container CARGO_BUILD_JOBS=7 "${front}" true)"
 [[ "${inherited_exec}" == *"--env CARGO_BUILD_JOBS=7"* && "${inherited_exec}" != *"--env CARGO_BUILD_JOBS=4"* ]]
 
 # The native linker finds the active compiler's bundled LLD independently of
@@ -95,9 +96,13 @@ ln -s "${container_dir}/lib" "${mutable_root}/.devcontainer/lib"
 cp "${container_dir}/pins.sh" "${mutable_root}/.devcontainer/pins.sh"
 mutable_front="${mutable_root}/.devcontainer/bin/run.sh"
 cp "${container_dir}/bin/run.sh" "${mutable_front}"
+# Local execution must also work before configuring a devcontainer.
+unconfigured_local=$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR='' GLOWCAP_DEV_CONTAINER='' \
+    bash "${mutable_front}" --local local-probe unconfigured)
+[[ ${unconfigured_local} == "$(cd "${mutable_root}" && pwd -P)|unconfigured" ]]
 ready="${scratch}/front-ready"
 PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container FAKE_DOCKER_READY="${ready}" \
-    bash "${mutable_front}" /bin/true >"${scratch}/mutable-log" 2>&1 &
+    bash "${mutable_front}" true >"${scratch}/mutable-log" 2>&1 &
 mutable_pid=$!
 for _ in {1..100}; do
     [[ -f ${ready} ]] && break
@@ -118,7 +123,7 @@ fi
 # Stopping a front with no terminal signals the command's container process
 # group instead of leaving it running.
 docker_log="${scratch}/docker-log"
-(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container FAKE_DOCKER_HANG=1 FAKE_DOCKER_LOG="${docker_log}" exec "${front}" /bin/true </dev/null) &
+(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container FAKE_DOCKER_HANG=1 FAKE_DOCKER_LOG="${docker_log}" exec "${front}" true </dev/null) &
 front_pid=$!
 sleep 1
 kill -TERM "${front_pid}"
@@ -145,12 +150,18 @@ override_local="$(cd / && PATH="${scratch}/bin:${PATH}" "${front}" --local --env
 [[ "${override_local}" == 'two words=$literal' ]]
 for invalid in 'missing-assignment' '1INVALID=value' '=value'; do
     override_status=0
-    "${front}" --env "${invalid}" /bin/true >"${scratch}/override-log" 2>&1 || override_status=$?
+    "${front}" --env "${invalid}" true >"${scratch}/override-log" 2>&1 || override_status=$?
     [[ ${override_status} -eq 2 ]]
 done
 override_status=0
 "${front}" --env >"${scratch}/override-log" 2>&1 || override_status=$?
 [[ ${override_status} -eq 2 ]]
+# Preparation is visible before a service build, without claiming readiness.
+service_notice="$(PATH="${scratch}/bin:${PATH}" "${front}" --local zig build rooms-dev 2>&1)"
+[[ "${service_notice}" == *"preparing rooms-dev; the service has not started yet"* ]]
+[[ "${service_notice}" == *"Later runs reuse build caches"* ]]
+[[ "${service_notice}" == *"rooms-dev"* ]]
+
 service_status=0
 if service_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" zig build docs-serve 2>&1)"; then
     echo "test/build-front: glowcap-dev accepted a host-side service without a terminal" >&2
@@ -165,8 +176,8 @@ local_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${
 [[ "${local_exec}" == "${repo_root}|one two" ]]
 local_build_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" GLOWCAP_BUILD_LEASE_FILE="${scratch}/local-build.lock" "${front}" zig build test)"
 [[ "${local_build_exec}" == "${repo_root}|build --cache-poison --test-timeout 30s test" ]]
-forced_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" GLOWCAP_DEV_CONTAINER=test-container "${front}" /bin/true)"
-[[ "${forced_container_exec}" == *"--workdir /workspaces/glowcap abc123 setsid --wait sh -c "*" /bin/true" ]]
+forced_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEVCONTAINER_DIR="${container_dir}" GLOWCAP_DEV_CONTAINER=test-container "${front}" true)"
+[[ "${forced_container_exec}" == *"--workdir /workspaces/glowcap abc123 setsid --wait sh -c "*" true" ]]
 
 if [[ $(uname -s) == Linux ]]; then
     auto_container_exec="$(cd / && PATH="${scratch}/bin:${PATH}" GLOWCAP_DEV_CONTAINER=test-container "${front}" --auto zig build rooms-build)"
@@ -334,7 +345,7 @@ launcher_output=$(printf 'existing\n' | FAKE_BUILD_FAIL=1 GLOWCAP_CHECKOUT_ROOT=
 [[ ${launcher_output} == 'second:apps rooms deployment up:existing' ]]
 
 lease_file="${scratch}/build.lock"
-GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" /bin/true
+GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" true
 GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" \
     python3 -c 'import time; time.sleep(30)' &
 lease_owner_pid=$!
@@ -350,7 +361,7 @@ for _ in {1..100}; do
 done
 grep -F "pid: ${lease_owner_pid}" "${lease_file}" >/dev/null
 lease_output="${scratch}/lease-output"
-if GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" /bin/true >"${lease_output}" 2>&1; then
+if GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" true >"${lease_output}" 2>&1; then
     echo "test/build-front: build lease ignored an active owner" >&2
     exit 1
 else
@@ -363,7 +374,7 @@ grep -F "command: python3 -c 'import time; time.sleep(30)'" "${lease_output}" >/
 grep -F "inspect that build, then retry" "${lease_output}" >/dev/null
 
 if GLOWCAP_BUILD_LEASE_FILE="${lease_file}" GLOWCAP_BUILD_LEASE_TIMEOUT=0.05 \
-    "${lease_runner}" /bin/true >"${lease_output}" 2>&1; then
+    "${lease_runner}" true >"${lease_output}" 2>&1; then
     echo "test/build-front: timed build lease wait ignored an active owner" >&2
     exit 1
 else
@@ -376,7 +387,7 @@ grep -F "still owns the lease after 0.05s" "${lease_output}" >/dev/null
 kill "${lease_owner_pid}"
 wait "${lease_owner_pid}" 2>/dev/null || true
 lease_owner_pid=""
-GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" /bin/true
+GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" true
 
 lease_release="${scratch}/lease-release"
 GLOWCAP_BUILD_LEASE_FILE="${lease_file}" "${lease_runner}" \
@@ -388,7 +399,7 @@ for _ in {1..100}; do
 done
 grep -F "pid: ${lease_owner_pid}" "${lease_file}" >/dev/null
 GLOWCAP_BUILD_LEASE_FILE="${lease_file}" GLOWCAP_BUILD_LEASE_TIMEOUT=5 \
-    "${lease_runner}" /bin/true >"${lease_output}" 2>&1 &
+    "${lease_runner}" true >"${lease_output}" 2>&1 &
 lease_waiter_pid=$!
 for _ in {1..100}; do
     grep -F "waiting up to 5s" "${lease_output}" >/dev/null 2>&1 && break
@@ -416,7 +427,7 @@ grep -F "command required" "${lease_output}" >/dev/null
 
 lease_status=0
 if GLOWCAP_BUILD_LEASE_FILE="${lease_file}" GLOWCAP_BUILD_LEASE_TIMEOUT=forever \
-    "${lease_runner}" /bin/true >"${lease_output}" 2>&1; then
+    "${lease_runner}" true >"${lease_output}" 2>&1; then
     echo "test/build-front: build lease accepted an invalid wait timeout" >&2
     exit 1
 else

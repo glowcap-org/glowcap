@@ -16,6 +16,38 @@ The machine-readable contract is
 [`c-abi-resolve.json`](c-abi-resolve.json), as decided in
 [ADR-0023](../docs/decisions/adr/ADR-0023-binding-archive-resolution.md).
 
+## Package ownership
+
+Glowcap LLC maintains the project at
+[glowcap-org/glowcap](https://github.com/glowcap-org/glowcap), with documentation
+at [glowcap.org](https://glowcap.org). Packages use Apache-2.0 and version
+0.1.0, with alpha stability. Registry ownership must be established separately
+from GitHub organization membership.
+
+| Registry | Intended identity | Preparation before publication |
+| --- | --- | --- |
+| crates.io | `glowcap` | Keep `publish = false` until the C archives and packaged crate work outside a checkout. |
+| PyPI | `glowcap` | Build and test the wheel with the hosted C archives. The Python import is also `glowcap`. |
+| JSR | `@glowcap/*` | Create the `glowcap` scope and connect its packages to the corporate repository. |
+| npm | `@glowcap/*` | Register the `glowcap` organization separately. Direct npm packages need their own tested packaging. |
+| GHCR | `glowcap-org/glowcap/devcontainer`, `glowcap-org/glowcap-rooms` | Confirm organization package permissions for the image workflows. |
+
+These are intended identities, not a record of completed registrations. Local
+manifests and registry lookup results do not reserve names. JSR's npm
+compatibility does not grant ownership of an npm scope.
+
+The corporate administrator should:
+
+1. Create the JSR scope through [JSR's publishing setup](https://jsr.io/docs/publishing-packages), then link packages to the repository for CI publishing.
+2. Create the npm organization following [npm's scope guide](https://docs.npmjs.com/about-organization-scopes-and-packages/), and grant maintainers access.
+3. Set up [PyPI organization ownership](https://docs.pypi.org/organization-accounts/) and project publishing credentials for the working package.
+4. Publish the verified Rust crate through [Cargo's publication procedure](https://doc.rust-lang.org/cargo/reference/publishing.html), then add the company's actual maintainer team as an owner.
+
+Publish functional packages after the archive checks below pass. Do not upload
+empty placeholders to claim names. Keep `releases_published` false until the
+hosted archives are verified, and retain the Rust publication guard until a
+clean consumer install succeeds.
+
 ## Finding the archives
 
 Every binding uses the same order:

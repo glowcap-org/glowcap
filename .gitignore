@@ -48,7 +48,7 @@ transports/sidecar-common/target/
 **/*.pyc
 # The Python binding lock is committed: relay and rendezvous proofs run its
 # optional WebSocket dependency with `uv --locked`.
-bindings/python/glowcap_python.egg-info/
+bindings/python/*.egg-info/
 # Deno lockfiles are committed beside each config. Direct versions are exact,
 # and the frozen transitive graph is part of reproducible checks and bundles.
 # Racket bytecode: compiling a Racket source (bench-langs precompiles its
@@ -129,3 +129,6 @@ apps/ocapnviz/node_modules/
 apps/ocapnviz/.vite/
 apps/ocapnviz/vite.config.ts.timestamp-*.mjs
 bindings/proofs/loam_browser/rust/Cargo.lock
+
+# Resolved CI-only configuration for the prepared image.
+.devcontainer/.ci/

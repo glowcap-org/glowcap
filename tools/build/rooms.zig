@@ -80,23 +80,6 @@ const WebProof = struct {
     measures_time: bool = false,
 };
 
-/// Whether `site/assets` holds Rooms pictures from an earlier capture. The status-allow: event or source ordering
-/// site render always captures afresh; the local preview captures only when
-/// nothing is there, so starting it costs a capture once, not every time.
-/// The directory's entries are a configure input, so a capture or a removal
-/// reruns the configure phase that asks.
-pub fn picturesPresent(b: *std.Build) bool {
-    const assets = "site/assets";
-    b.dependOnDirectoryContents(b.path(assets));
-    var dir = b.root.root_dir.handle.openDir(b.graph.io, assets, .{ .iterate = true }) catch return false;
-    defer dir.close(b.graph.io);
-    var entries = dir.iterate();
-    while (entries.next(b.graph.io) catch return false) |entry| {
-        if (std.mem.startsWith(u8, entry.name, "rooms-") and std.mem.endsWith(u8, entry.name, ".webp")) return true;
-    }
-    return false;
-}
-
 /// The website's Rooms captures: each a Deno script driving the shipped page
 /// through browser peers it starts itself, run with a proof's wiring and
 /// containment, and written as pictures rather than asserted.

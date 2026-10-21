@@ -19,7 +19,7 @@
 //! Needs `racket` plus the `goblins` collection on PATH. Run via
 //! `zig build rust-goblins-handoff`.
 
-use glowcap_rust_dogfood::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, tcp};
+use glowcap::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, tcp};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -96,6 +96,6 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 		"rust-goblins-handoff OK: the Rust binding redeemed a three-party handoff from live Goblins \
          and called the exporter directly"
 	);
-	session.close(glowcap_rust_dogfood::PendingWork::Cancel).await?;
+	session.close(glowcap::PendingWork::Cancel).await?;
 	Ok(())
 }

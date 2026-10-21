@@ -1,6 +1,6 @@
 {
 	"abi_version": "0.1.0",
-	"default_release_base_url": "https://github.com/jimisaacs/glowcap/releases/download",
+	"default_release_base_url": "https://github.com/glowcap-org/glowcap/releases/download",
 	"tarball_template": "glowcap-c-v{version}-{target}.tar.gz",
 	"release_tag_template": "v{version}",
 	"cache_layout": "{cache_base}/{version}/{target}/lib",

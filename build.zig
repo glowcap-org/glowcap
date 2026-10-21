@@ -589,9 +589,9 @@ pub fn build(b: *std.Build) void {
         .attach = attach,
     });
     // The site's Rooms pictures are captured from the shipped page: the
-    // render always waits for a fresh capture, the preview only for a first.
+    // render always waits for a fresh capture. The preview launcher owns its
+    // cold-start capture so local output files never change the build graph.
     site_reg.render.dependOn(rooms.site_captures);
-    if (!rooms_build.picturesPresent(b)) site_reg.preview.dependOn(rooms.site_captures);
     const rooms_services_install = rooms.services_install;
     release_build.register(b, target, optimize, abi_version, iroh_abi_step, check_step, .{
         .static_archives = release_static_archives.items,

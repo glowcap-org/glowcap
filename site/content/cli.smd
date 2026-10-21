@@ -9,7 +9,7 @@
 Call a capability from your shell, host a peer, inspect a live session in the
 REPL, or expose CapTP tools over MCP (Model Context Protocol, which AI
 assistants use to call tools), with the same [Host]($link.page('modules')) and
-transports as the library. The [CLI guide](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md)
+transports as the library. The [CLI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md)
 is the complete reference.
 
 ```sh
@@ -64,7 +64,7 @@ glowcap --json ocapn call "$LOC" greeter greet world
 inside, or pass a locator to dial first. In a terminal it shows the session's
 exports, imports, and answers beside the prompt as you type. Type `guide` for
 a staged walkthrough. The
-[CLI guide](https://github.com/jimisaacs/glowcap/blob/main/docs/cli.md) has
+[CLI guide](https://github.com/glowcap-org/glowcap/blob/main/docs/cli.md) has
 recipes for the REPL and for `probe`, which needs a live listener to dial.
 
 ```sh

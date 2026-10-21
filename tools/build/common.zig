@@ -243,6 +243,14 @@ pub const InstalledArchive = struct {
     dynamic_install: *std.Build.Step.InstallArtifact,
 };
 
+/// ELF export visibility and version scripts require LLVM/lld. The native
+/// x86 backend leaks hidden exports and does not enforce version scripts.
+pub fn configureSharedArchive(artifact: *std.Build.Step.Compile) void {
+    if (artifact.root_module.resolved_target.?.result.ofmt != .elf) return;
+    artifact.use_llvm = true;
+    artifact.use_lld = true;
+}
+
 pub fn installArchive(
     b: *std.Build,
     name: []const u8,
@@ -262,6 +270,7 @@ pub fn installArchive(
         .root_module = root_module,
         .version = version,
     });
+    configureSharedArchive(shared_lib);
     const dynamic_install = b.addInstallArtifact(shared_lib, .{});
     checkArchiveTls(b, shared_lib, &dynamic_install.step);
     checkArchiveResident(b, shared_lib, &dynamic_install.step);

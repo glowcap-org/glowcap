@@ -89,7 +89,7 @@ names on disk, and restores an object when a peer fetches its name.
 > account, where the number alone is the access.
 
 The
-[sturdyref diagrams](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
+[sturdyref diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
 go deeper. [Transports]($link.page('transports')) explains what a locator can
 name, and a [multi-home locator]($link.page('multihome')) carries several
 transports under one key.
@@ -103,9 +103,9 @@ settles, with no extra round trip.
 
 Ask a task board for a column, then ask that column for a card, and both
 questions cross the network in one flight. Chapter 06,
-[pipeline and attenuate](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/06_pipeline_and_attenuate.zig),
+[pipeline and attenuate](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/06_pipeline_and_attenuate.zig),
 runs that, and the
-[promises and pipelining](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/03-promises-and-pipelining.md)
+[promises and pipelining](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/03-promises-and-pipelining.md)
 diagrams draw it.
 
 # Three-party handoff
@@ -130,9 +130,9 @@ waiting on settles as the introduced capability. In the Rooms chat,
 live reference to the other member.
 
 Chapter 02,
-[introduce and redeem](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig),
+[introduce and redeem](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig),
 runs the whole exchange, and the
-[handoffs](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/06-handoffs.md)
+[handoffs](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/06-handoffs.md)
 diagrams draw it.
 
 # Agreeing on a version and codec
@@ -175,10 +175,10 @@ finalizers that run on their own schedule, so you turn it on per session. It
 covers fetch results, fulfilled far answers, and capabilities nested inside
 delivered arguments. When it is off, table entries stay until the session
 ends. The
-[GC](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/05-gc.md)
+[GC](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/05-gc.md)
 diagrams draw it.
 
 The
-[diagram catalog](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/README.md)
+[diagram catalog](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/README.md)
 shows the protocol flows in full. To write a client, go to
 [Start building]($link.page('start')).

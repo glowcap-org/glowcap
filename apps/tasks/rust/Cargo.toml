@@ -1,6 +1,9 @@
 [package]
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
 name = "tasks-client"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
@@ -18,6 +21,6 @@ path = "client.rs"
 # Keep the archive set explicit: this client composes the tokio driver with the
 # TCP provider and pays for no unrelated transport archive.
 [dependencies]
-glowcap = { path = "../../../bindings/rust", package = "glowcap-rust-dogfood", default-features = false, features = ["async", "tcp"] }
+glowcap = { path = "../../../bindings/rust", package = "glowcap", default-features = false, features = ["async", "tcp"] }
 # dep tokio: The async runtime for the Rust Tasks client.
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

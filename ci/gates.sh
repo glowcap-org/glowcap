@@ -2,6 +2,8 @@
 # The CI gate sequence, forge-neutral: the same commands a contributor runs.
 # The checks workflow (.github/workflows/check.yml) runs this inside the
 # committed devcontainer image. The sequence itself names no forge.
+# With no argument, run every phase in order. A phase argument selects only
+# that phase for the parallel CI jobs; each writes separate evidence.
 # The script runs the isolated, runtime, infrastructure, and outside-authority
 # gates in order. The wider sibling inventory in docs/build-steps.md stays
 # excluded until its CI cost earns recurring execution.
@@ -13,7 +15,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # Each unit or process proof owns its focused deadline. This wider deadline
 # contains a build-graph, setup, or cleanup wedge that falls outside those
 # boundaries. It names the gate and leaves no child behind. Override it with
-# GATE_TIMEOUT when measuring a slower runner.
+# GATE_TIMEOUT when measuring a slower runner. The aggregate check also
+# compiles the cold Zig and Rust graph, which exceeds 20m on hosted runners.
+# CHECK_TIMEOUT controls that build allowance; per-test limits stay unchanged.
+CHECK_TIMEOUT="${CHECK_TIMEOUT:-${GATE_TIMEOUT:-40m}}"
 GATE_TIMEOUT="${GATE_TIMEOUT:-20m}"
 
 # Whether an exit code means "the deadline killed it" rather than "it failed".
@@ -25,8 +30,17 @@ wedged_rc() {
   [ "$1" -eq 124 ] || [ "$1" -eq 137 ]
 }
 
+# Keep the literal gate inventory below authoritative for both local runs and CI.
+phase() { current_phase=$1; }
+
 gate() {
-  local rc=0
+  if [ "${selected_phase:-all}" != all ] && [ "$selected_phase" != "${current_phase:-}" ]; then
+    return 0
+  fi
+  local rc=0 timeout=$GATE_TIMEOUT
+  if [ "${1:-}" = zig ] && [ "${2:-}" = build ] && [ "${3:-}" = check ]; then
+    timeout=$CHECK_TIMEOUT
+  fi
   local -a command=("$@")
   if [ "${1:-}" = zig ] && [ "${2:-}" = build ]; then
     local has_test_timeout=false arg
@@ -42,7 +56,8 @@ gate() {
     fi
   fi
   local began=$SECONDS
-  python3 tools/run-with-timeout.py --kill-after 30s "$GATE_TIMEOUT" "${command[@]}" || rc=$?
+  printf 'ci/gates.sh: starting: %s\n' "${command[*]}" >&2
+  python3 tools/run-with-timeout.py --kill-after 30s --heartbeat 60s "$timeout" "${command[@]}" || rc=$?
   printf '%s\t%s\t%s\n' "$rc" "$((SECONDS - began))" "${command[*]}" >>"$EVIDENCE_ROWS"
   if [ "$rc" -ne 0 ]; then
     # Name the gate on every failure, not only on a wedge. A gate's own output
@@ -52,7 +67,7 @@ gate() {
     # identify.
     echo "ci/gates.sh: gate failed (exit $rc): ${command[*]}" >&2
     if wedged_rc "$rc"; then
-      echo "  It exceeded $GATE_TIMEOUT and was killed." >&2
+      echo "  It exceeded $timeout and was killed." >&2
       echo "  Inspect the named gate's last output and any process still holding its port before retrying." >&2
     elif [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
       echo "  The command could not be run at all (not found, or not executable)." >&2
@@ -61,10 +76,18 @@ gate() {
     fi
     exit "$rc"
   fi
+  printf 'ci/gates.sh: passed (%ss): %s\n' "$((SECONDS - began))" "${command[*]}" >&2
 }
 
 # Sourcing for the test above stops here; everything below is the sequence.
 if [ -n "${GATES_SOURCE_ONLY:-}" ]; then return 0; fi
+
+selected_phase=${1:-all}
+if [ "$#" -gt 1 ]; then echo "ci/gates.sh: expected at most one phase" >&2; exit 2; fi
+case "$selected_phase" in
+  all|infrastructure|core|shipped|smoke|fuzz|sidecars|bindings|browser|interop|transports) ;;
+  *) echo "ci/gates.sh: unknown phase: $selected_phase" >&2; exit 2 ;;
+esac
 
 # Every gate above appends its exit and duration here, and the exit trap turns
 # the rows into the evidence record (tools/evidence/record.py) however the
@@ -77,8 +100,12 @@ finish() {
   local outcome=failed
   [ "$rc" -eq 0 ] && outcome=passed
   local record_rc=0
+  local -a destination=(--note)
+  if [ "$selected_phase" != all ]; then
+    destination=(--out "zig-out/evidence/$selected_phase")
+  fi
   python3 tools/evidence/record.py --gates "$EVIDENCE_ROWS" \
-    --started "$EVIDENCE_STARTED" --outcome "$outcome" --note || record_rc=$?
+    --started "$EVIDENCE_STARTED" --outcome "$outcome" "${destination[@]}" || record_rc=$?
   if [ "$record_rc" -ne 0 ]; then
     echo "ci/gates.sh: the evidence record step failed (exit $record_rc), see above" >&2
     [ "$rc" -eq 0 ] && rc=70
@@ -88,6 +115,7 @@ finish() {
 }
 trap finish EXIT
 
+phase infrastructure
 gate bash .devcontainer/hooks/post-create.sh
 # Coding-agent downloads run in .github/workflows/agent-tools.yml. Product
 # validation needs the toolchain, not an available coding-agent vendor.
@@ -97,6 +125,7 @@ gate bash .devcontainer/hooks/post-create.sh
 gate bash tools/run-with-timeout-test.sh
 
 gate zig build infrastructure-check
+phase core
 gate zig build check
 gate zig build test-memcheck
 gate zig build runtime-check
@@ -105,6 +134,19 @@ gate zig build runtime-check
 # release by checksum and run both pollable and completion carriers through the
 # real local certificate/refusal/close/resource matrix here.
 gate zig build relay-tls-build
+phase shipped
+# Bound optimizer memory without dropping a test layer. The workflow contract
+# checks this partition against the Layer enum in test/all_test.zig.
+gate zig build test -Doptimize=ReleaseSafe -Dtest-layer=loam,root,foundation,codec,model
+gate zig build test -Doptimize=ReleaseSafe -Dtest-layer=engine,session,actors,c_abi
+gate zig build test -Doptimize=ReleaseSafe -Dtest-layer=driver,net
+phase smoke
+# Representative browser and outside-authority proofs run on every change.
+gate zig build wasm-driver-test
+gate zig build wasm-abi-layout-check
+gate zig build wasm-import-check
+gate zig build web-peer-test
+gate zig build goblins-interop
 # Bounded mutation fuzzing over every surface that takes bytes somebody else
 # chose. It stays out of `zig build check` because it spawns a nested
 # `zig build`, and check's steps run in parallel over one cache — two builders
@@ -119,6 +161,7 @@ gate zig build relay-tls-build
 # What CI owes is that every target still builds and searches clean; depth is what a
 # local or nightly run with a larger -Dfuzz-runs is for, and the escapes each
 # target was validated against are recorded in its own header either way.
+phase fuzz
 gate zig build fuzz -Dfuzz-runs=25K
 # The Rust sidecars' own unit tests. The shared crate proves a private-runtime
 # call survives an ambient Tokio runtime and that the release barrier keeps a
@@ -127,11 +170,13 @@ gate zig build fuzz -Dfuzz-runs=25K
 # making a fast sender wait rather than growing without limit. cargo is already
 # on the path for the iroh steps below, so this adds crate builds and not a
 # dependency.
+phase sidecars
 gate zig build sidecar-common-test
 gate zig build iroh-sidecar-test
 gate zig build webrtc-sidecar-test
 # Host adoption of many DataChannels on one loop thread, and three-party redeem
 # over a bare webrtc designator through the configured signaling authority.
+phase bindings
 gate zig build webrtc-loop
 gate zig build webrtc-redeem
 gate zig build bindings-fmt-check
@@ -152,20 +197,7 @@ gate zig build zig-keyed-relay-register
 gate zig build bindings-iroh-handoff
 gate zig build bindings-iroh-redeem-posture
 gate zig build racket-test
-# The browser binding's behavioral proof: two wasm32 Hosts complete a keyed
-# handshake driven from JavaScript. The wasm *build* is in `check` (via
-# cross-check), but the runtime convergence only runs here (needs deno).
-gate zig build wasm-driver-test
-# The browser binding's layout descriptor is well formed and agrees with the
-# host `abi.ts` mirror on struct shape (needs deno).
-gate zig build wasm-abi-layout-check
-# The browser binding imports exactly the behavior-dispatch and hosted-lifetime
-# seams, and nothing else (needs deno).
-gate zig build wasm-import-check
-# A real Chromium page registers its Wasm Host over local WSS/noise-relay; the
-# installed Zig CLI cold-dials, fetches and calls it, while the relay audits
-# that the CapTP canary never appeared outside the Noise channel.
-gate zig build web-peer-test
+phase browser
 # Shared storage changes must preserve the Rust/Wasm consumer's IndexedDB
 # transactions, cold restoration and capability custody in a real browser.
 gate zig build loam-browser-test
@@ -173,7 +205,7 @@ gate zig build rooms-rust-browser-test
 # The production Rooms page is a peer, and every supported browser journey is
 # release evidence rather than an opt-in demo.
 gate zig build rooms-web-proofs
-gate zig build goblins-interop
+phase interop
 # The smallest outside-authority Rooms proof: a real Goblins vat and a Rooms
 # glowcap member exchange room traffic while the server records the Goblins
 # session on syrup/v1_0 and the glowcap session on capnp/next. This needs no
@@ -238,6 +270,7 @@ gate zig build fixture-gen-check
 gate zig build ocapn-findings-check
 gate zig build ocapn-conformance-next
 gate zig build goblins-glowcap-pair-gift
+phase transports
 gate zig build iroh-interop
 # The provider seam (ADR-0024) in every FFI runtime: the C driver, the
 # Python binding, and the Rust binding each install an iroh provider package

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from glowcap import FEATURE_FULL, Host, GlowcapError, Tagged, enable_trace, tcp
+from glowcap import FEATURE_FULL, FEATURE_MULTI_LOCATION, Host, GlowcapError, Tagged, enable_trace, tcp
 from glowcap._constants import ERR_INVALID_ARGUMENT
 
 from smoke.runtime import tcp_connect
@@ -146,10 +146,13 @@ async def unawaited_break_stays_silent() -> None:
 
 async def projections_reach_a_field() -> None:
     """Projection vows remain pipelineable and preserve a late source await."""
+    # Structural projection operations belong to v1.0; multi-location does not.
+    expected_features = FEATURE_FULL & ~FEATURE_MULTI_LOCATION
+    serve_task = None
     server = await tcp.listen(
         "127.0.0.1",
         0,
-        host=Host(profile="glowcap", features="full"),
+        host=Host(codec="capnp", captp_version="v1_0", features="full"),
     )
     published = asyncio.Event()
     release_make = asyncio.Event()
@@ -166,9 +169,9 @@ async def projections_reach_a_field() -> None:
 
         async def serve_one() -> None:
             async for session in server:
-                assert session.profile.captp_version == "next"
+                assert session.profile.captp_version == "v1_0"
                 assert session.profile.codec == "capnp"
-                assert session.profile.features == FEATURE_FULL
+                assert session.profile.features == expected_features, (session.profile.features, expected_features)
 
                 def root(verb, args):
                     nonlocal make_pending
@@ -194,12 +197,12 @@ async def projections_reach_a_field() -> None:
         serve_task = asyncio.ensure_future(serve_one())
         session = await tcp_connect(
             tcp.locator("127.0.0.1", server.port),
-            host=Host(profile="glowcap", features="full"),
+            host=Host(codec="capnp", captp_version="v1_0", features="full"),
             codec="capnp",
         )
-        assert session.profile.captp_version == "next"
+        assert session.profile.captp_version == "v1_0"
         assert session.profile.codec == "capnp"
-        assert session.profile.features == FEATURE_FULL
+        assert session.profile.features == expected_features, (session.profile.features, expected_features)
         session.serve()
         await asyncio.wait_for(published.wait(), timeout=5)
         root_ref = await session.fetch("root")
@@ -215,4 +218,9 @@ async def projections_reach_a_field() -> None:
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         uninstall_trace()
-        await server.close()
+        try:
+            await server.close()
+        finally:
+            if serve_task is not None:
+                serve_task.cancel()
+                await asyncio.gather(serve_task, return_exceptions=True)

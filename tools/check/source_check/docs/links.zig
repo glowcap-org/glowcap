@@ -138,7 +138,7 @@ fn missingAnchor(
     try appendViolation(gpa, violations, "{s}:{d}: Markdown link `{s}` names no heading or anchor in `{s}`; link a heading that exists, or update the link with the heading", .{ path, line_no, raw_target, resolved });
 }
 
-/// A `github.com/jimisaacs/glowcap/blob/main/<path>` link is a claim the path
+/// A `github.com/glowcap-org/glowcap/blob/main/<path>` link is a claim the path
 /// exists in this tree, and it is the one external-link class a network-free
 /// check can hold: a rename that leaves the link behind 404s every page that
 /// carries it, and no compiler or renderer notices. Walk the owned prose
@@ -200,7 +200,7 @@ fn checkRepoBlobLinksUnder(
     }
 }
 
-const blob_link_prefix = "github.com/jimisaacs/glowcap/";
+const blob_link_prefix = "github.com/glowcap-org/glowcap/";
 
 fn checkRepoBlobLinksInFile(
     io: std.Io,

@@ -412,16 +412,11 @@ pub fn register(ctx: Context) Registered {
         .root_module = webrtc_abi_link_mod,
         .version = ctx.abi_version,
     });
+    common.configureSharedArchive(webrtc_abi_shared);
     if (target.result.ofmt == .elf) {
         // Keep the Rust sidecar and its runtime private to this artifact. The
         // public companion surface is the generated glowcap_webrtc_* family.
         webrtc_abi_shared.version_script = ctx.b.path("tools/build/exports/webrtc.map");
-        // The self-hosted backend accepts --version-script but does not honor
-        // it; see the sibling note in tools/build/iroh.zig. The boundary holds
-        // in every mode, so this archive always compiles and links through
-        // LLVM/lld.
-        webrtc_abi_shared.use_llvm = true;
-        webrtc_abi_shared.use_lld = true;
     }
     const webrtc_abi_install = b.addInstallArtifact(webrtc_abi_shared, .{});
     common.checkArchiveTls(ctx.b, webrtc_abi_shared, &webrtc_abi_install.step);

@@ -1,19 +1,29 @@
 ---
-.title = "Object-capability RPC for OCapN, in Zig",
-.description = "glowcap is a Zig library for OCapN and CapTP: object-capability RPC where holding a reference is the permission to use it.",
+.title = "Capability networking and durable state in Zig",
+.description = "OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library, Apache-2.0, 0.1.0 alpha.",
 .date = .date("2026-06-12T00:00:00"),
 .layout = "index.shtml",
 .draft = false,
 ---
 
-glowcap is a [Zig](https://ziglang.org/) library for
-[OCapN](https://github.com/ocapn/ocapn). Two programs hand each other
-references to objects and call them across a network, under the same rule as a
-local call: a peer can use the references it was given and cannot forge others.
+glowcap is a low-level [Zig](https://ziglang.org/) library for capability-based
+communication and durable application state. It combines
+[OCapN](https://github.com/ocapn/ocapn) and CapTP networking with
+[Loam]($link.page('loam')), its transactional storage and durable actor system.
+Applications control memory, I/O, and scheduling.
+
+**0.1.0 alpha · Apache-2.0.** APIs, ABIs, and storage formats can change before
+1.0. Read [Project & status]($link.page('project')) before depending on it.
+
+Peers exchange references to objects and call them across a network. Loam
+stores the objects' state and relationships, wakes actors on demand, and
+provides durable names peers can use after a restart. The design targets low
+overhead, with explicit ownership and checked allocation and copy budgets.
+[Performance]($link.page('performance')) reports measurements and their limits.
 
 glowcap is built with AI coding assistants. The maintainer directs the work
 and is answerable for what lands.
-[PROVENANCE.md](https://github.com/jimisaacs/glowcap/blob/main/PROVENANCE.md)
+[PROVENANCE.md](https://github.com/glowcap-org/glowcap/blob/main/PROVENANCE.md)
 records how.
 
 If capabilities are new to you, [Why OCapN]($link.page('why')) compares them

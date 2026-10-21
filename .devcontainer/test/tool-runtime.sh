@@ -154,6 +154,7 @@ printf '%s\n' "stub-a-${version} args:\$* env:\${STUB_A_EXEC_ENV:-unset}"
 case "\${1-}" in
     exit-42) exit 42 ;;
     stderr-probe) printf '%s\n' "tool-stderr-line" >&2 ;;
+    stdin-probe) IFS= read -r input; printf 'input:%s\\n' "\${input}" ;;
     sleep-30) exec sleep 30 ;;
     pwd) exec pwd ;;
 esac
@@ -312,9 +313,10 @@ stub_dir() {
 # Case 1: cold invocation installs only the requested tool; warm invocation
 # is silent and runs no installer or verify work, even after a seed change.
 # ---------------------------------------------------------------------------
-out="$(tools_env stub-a run-one 2>"${scratch}/err1")"
+out="$(printf 'tool input\n' | tools_env stub-a stdin-probe 2>"${scratch}/err1")"
 err="$(cat "${scratch}/err1")"
-expect_contains "cold run installs and runs the seed" "stub-a-1.0.0 args:run-one" "${out}"
+expect_contains "cold run installs and runs the seed" "stub-a-1.0.0 args:stdin-probe" "${out}"
+expect_contains "installation preserves the tool input" "input:tool input" "${out}"
 expect_contains "cold run names first use" "first use" "${err}"
 expect_contains "installer output stays on stderr" "installer-output-on-stderr" "${err}"
 expect_contains "installer reads closed stdin to EOF" "installer-read: eof" "${err}"

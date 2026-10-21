@@ -32,8 +32,8 @@
 
 use std::rc::Rc;
 
-use glowcap_rust_dogfood::iroh::Reachability;
-use glowcap_rust_dogfood::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, iroh};
+use glowcap::iroh::Reachability;
+use glowcap::{Argument, ConnectOptions, PendingWork, Ref, Runtime, RuntimeConfig, iroh};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -74,7 +74,7 @@ async fn run() -> Result<(), Fail> {
 	);
 	let gifter_host = gifter.host();
 	let gifter_id = gifter.node_id().to_string();
-	let exporter_locator = glowcap_rust_dogfood::iroh::locator(&exporter_id, None);
+	let exporter_locator = glowcap::iroh::locator(&exporter_id, None);
 	let gifter_runtime = Runtime::open(
 		RuntimeConfig::providers([iroh::provider(iroh::Config::new(Reachability::LocalDiscovery))])
 			.adopt_host(&gifter_host),
@@ -102,7 +102,7 @@ async fn run() -> Result<(), Fail> {
 	println!("rust-iroh-redeem-posture: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: configures its redeem posture, then redeems the hint-less give ─
-	let gifter_locator = glowcap_rust_dogfood::iroh::locator(&gifter_id, None);
+	let gifter_locator = glowcap::iroh::locator(&gifter_id, None);
 	let recipient_runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
 		Reachability::LocalDiscovery,
 	))]))

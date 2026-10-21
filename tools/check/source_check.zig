@@ -167,6 +167,7 @@ pub fn check(
     try agents_catalog.checkAgentsRouting(io, gpa, root, &violations);
     try docs_links.checkMarkdownLinks(io, gpa, root, &violations);
     try docs_links.checkRepoBlobLinks(io, gpa, root, &violations);
+    try docs_adr.checkAdrCitations(io, gpa, root, &violations, root_path);
     try docs_adr.checkAdrFrontmatter(io, gpa, root, &violations);
     try docs_adr.checkAdrRelations(io, gpa, root, &violations);
     try docs_adr.checkAdrEvidenceLinks(io, gpa, root, &violations);
@@ -388,6 +389,7 @@ test {
     _ = c_abi_resolve_ports;
     _ = c_abi_resolve_cases;
     _ = cp_node_actions;
+    _ = docs_adr;
     _ = docs_links;
     _ = docs_site;
     _ = docs_maps;

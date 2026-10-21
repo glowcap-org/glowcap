@@ -365,5 +365,5 @@ member, and the exchange bypasses the room.
 - [Start building]($link.page('start')) walks a client line by line in Zig
   and links the C ABI and every binding.
 - The glossary in
-  [capabilities](https://github.com/jimisaacs/glowcap/blob/main/docs/capabilities.md)
+  [capabilities](https://github.com/glowcap-org/glowcap/blob/main/docs/capabilities.md)
   gives every term here a one-line definition.

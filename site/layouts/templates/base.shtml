@@ -70,7 +70,7 @@
 			<nav class="top-nav" aria-label="Site">
 				<a href="$site.page('rooms').link()">Rooms</a>
 				<a href="$site.page('reference').link()">API reference</a>
-				<a href="https://github.com/jimisaacs/glowcap">Source</a>
+				<a href="https://github.com/glowcap-org/glowcap">Source</a>
 				<button type="button" id="themeToggle" class="theme-toggle" title="Switch between light and syrup" aria-label="Switch between the light and syrup themes">
 					<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"/></svg>
 					<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.1M12 19.3v2.1M4.3 4.3l1.5 1.5M18.2 18.2l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.3 19.7l1.5-1.5M18.2 5.8l1.5-1.5"/></svg>
@@ -156,7 +156,7 @@
 						<span class="icon-mark" aria-hidden="true"><i class="mark-piece mark-rim"></i><i class="mark-piece mark-flesh"></i><i class="mark-piece mark-shade"></i><i class="mark-piece mark-windows"></i></span>
 						<span class="wordmark"><span>glowcap</span></span>
 					</a>
-					<p>An object-capability RPC library for OCapN, written in Zig. Two programs hand each other references to live objects, and holding one is what lets you call it.</p>
+					<p>OCapN and CapTP networking with Loam transactional storage and durable actors. A low-level Zig library with explicit control over memory, I/O, and scheduling.</p>
 				</div>
 				<nav aria-label="Learn">
 					<h2>Learn</h2>
@@ -177,12 +177,13 @@
 					<h2>Project</h2>
 					<a href="$site.page('project').link()">Project &amp; status</a>
 					<a href="$site.page('stability').link()">What you can depend on</a>
-					<a href="https://github.com/jimisaacs/glowcap/blob/main/SECURITY.md">Security policy</a>
-					<a href="https://github.com/jimisaacs/glowcap">Source</a>
-					<a href="https://github.com/jimisaacs/glowcap/actions/workflows/check.yml">Checks</a>
+					<a href="https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md">Security policy</a>
+					<a href="https://github.com/glowcap-org/glowcap">Source</a>
+					<a href="https://github.com/glowcap-org/glowcap/actions/workflows/check.yml">Checks</a>
+					<a href="https://github.com/sponsors/glowcap-org">Sponsor</a>
 				</nav>
 			</div>
-			<p class="footer-legal">glowcap-authored work is Apache-2.0.</p>
+			<p class="footer-legal">Copyright 2026 Glowcap LLC. glowcap 0.1.0 alpha. Apache-2.0.</p>
 		</footer>
 		<!-- These enhancements are separate script elements on purpose. In one
 		     block a throw anywhere takes out everything after it, and the theme

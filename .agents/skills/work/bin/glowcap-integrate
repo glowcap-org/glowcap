@@ -43,11 +43,25 @@ require_unchecked_dev() {
 	local worktrees
 	worktrees=$(git worktree list --porcelain) || die "cannot inspect worktree branches"
 	if grep -Fxq 'branch refs/heads/dev' <<<"${worktrees}"; then
-		die "dev is checked out; switch that checkout off dev before publishing so its index and files cannot become stale"
+		"${1:-die}" "dev is checked out; switch that checkout off dev before publishing so its index and files cannot become stale"
 	fi
 }
 
 require_unchecked_dev
+
+input_head=$(git rev-parse HEAD)
+
+refuse_publication() {
+	# Rebasing prepares publication but must not consume a refused input.
+	# Refuse to rewind if another writer changed this worktree meanwhile.
+	if [[ $(git symbolic-ref --quiet HEAD) != "${branch_ref}" ||
+		$(git rev-parse HEAD) != "${head}" ||
+		-n $(git status --porcelain --untracked-files=normal) ]]; then
+		die "publication refused; worktree changed during preparation, so its rebased state was preserved: $*"
+	fi
+	git reset -q --keep "${input_head}" || die "publication refused; could not restore the input worktree: $*"
+	die "$*"
+}
 
 # Two worktrees can each take the next decision record number from the dev
 # they observed. The rebase below merges both files cleanly, so the duplicate
@@ -57,7 +71,7 @@ refuse_duplicate_adr_ids() {
 	[[ ${mode} == publish ]] || return 0
 	local duplicates
 	duplicates=$(git ls-tree --name-only HEAD docs/decisions/adr/ | sed -nE 's|^docs/decisions/adr/(ADR-[0-9]+)-.*|\1|p' | sort | uniq -d)
-	[[ -z ${duplicates} ]] || die "decision record id taken twice on the rebased tree: ${duplicates//$'\n'/, }; renumber yours to the next free id and retry"
+	[[ -z ${duplicates} ]] || refuse_publication "decision record id taken twice on the rebased tree: ${duplicates//$'\n'/, }; renumber yours to the next free id and retry"
 }
 
 # `main` and `dev` can advance between any two commands because every worktree
@@ -104,25 +118,25 @@ for attempt in {1..16}; do
 	# holds, so a worktree commit needs none.
 	# The branch's own commits are those neither dev nor main already holds;
 	# main's commits that dev lacks ride below them and land unsquashed.
-	refuse_duplicate_adr_ids
 	head=$(git rev-parse HEAD)
+	refuse_duplicate_adr_ids
 	own=$(git rev-list --count --right-only --cherry-pick "${main_tip}...${head}" "^${dev_tip}")
-	[[ ${own} -gt 0 ]] || die "${branch} has no commits of its own beyond dev"
+	[[ ${own} -gt 0 ]] || refuse_publication "${branch} has no commits of its own beyond dev"
 	base=$(git rev-parse "${head}~${own}")
 	if [[ $(git rev-list --count --right-only --cherry-pick "${main_tip}...${base}" "^${dev_tip}") -ne 0 ]]; then
-		die "${branch} interleaves its own commits with main's; rebase them on top and retry"
+		refuse_publication "${branch} interleaves its own commits with main's; rebase them on top and retry"
 	fi
 	if [[ ${own} -gt 1 ]]; then
 		if [[ -z ${subject} ]]; then
 			git log --reverse --format='  %s' "${base}..${head}" >&2
-			die "${own} commits since dev; name the squashed change with -m <subject>"
+			refuse_publication "${own} commits since dev; name the squashed change with -m <subject>"
 		fi
 		message=$(
 			printf '%s\n\n' "${subject}"
 			git log --reverse --format='- %s' "${base}..${head}"
 		)
 	elif [[ -n ${subject} ]]; then
-		die "one commit publishes as written; drop -m"
+		refuse_publication "one commit publishes as written; drop -m"
 	else
 		message=$(git log -1 --format=%B "${head}")
 	fi
@@ -139,10 +153,10 @@ for attempt in {1..16}; do
 		)
 	fi
 	publish=$(env "${author_env[@]}" git commit-tree -S "${head}^{tree}" -p "${base}" -m "${message}") ||
-		die "dev takes only commits signed at integration; make the signing key reachable (forward the agent that holds it) and retry"
+		refuse_publication "dev takes only commits signed at integration; make the signing key reachable (forward the agent that holds it) and retry"
 	git verify-commit "${publish}" 2>/dev/null ||
-		die "the signature on the integrated commit does not verify; name the key in gpg.ssh.allowedSignersFile and retry"
-	require_unchecked_dev
+		refuse_publication "the signature on the integrated commit does not verify; name the key in gpg.ssh.allowedSignersFile and retry"
+	require_unchecked_dev refuse_publication
 	if git update-ref refs/heads/dev "${publish}" "${dev_tip}" 2>/dev/null; then
 		# The signed commit has the branch's exact tree, so moving the branch
 		# onto it leaves every file in place, and it keeps the branch's record.

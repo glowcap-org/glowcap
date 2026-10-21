@@ -12,6 +12,7 @@ import { INVALID_ARGUMENT } from "@glowcap/abi";
 import {
 	enableTrace,
 	FEATURE_FULL,
+	FEATURE_MULTI_LOCATION,
 	GlowcapError,
 	Host,
 	PStruct,
@@ -315,9 +316,11 @@ export async function run(managed: Runtime): Promise<void> {
 	// *late* (after a sibling projection already pumped the loop) still settles
 	// from the recorded outcome.
 	{
-		const nextHost = () => new Host(undefined, { codec: "capnp", captpVersion: "next", features: "full" });
-		await using serverHost = nextHost();
-		await using clientHost = nextHost();
+		// Structural projection operations belong to v1.0; multi-location does not.
+		const expectedFeatures = FEATURE_FULL & ~FEATURE_MULTI_LOCATION;
+		const projectionHost = () => new Host(undefined, { codec: "capnp", captpVersion: "v1_0", features: "full" });
+		await using serverHost = projectionHost();
+		await using clientHost = projectionHost();
 		let makePending = false;
 		let releaseMake: (() => void) | undefined;
 		let pipelineSentResolve!: () => void;
@@ -346,9 +349,9 @@ export async function run(managed: Runtime): Promise<void> {
 
 		async function host(): Promise<void> {
 			for await (const session of server) {
-				assert(session.profile.captpVersion === "next", "accepted session reports glowcap-next");
+				assert(session.profile.captpVersion === "v1_0", "accepted session reports v1.0");
 				assert(session.profile.codec === "capnp", "accepted session reports Cap'n Proto");
-				assert(session.profile.features === FEATURE_FULL, "accepted session reports the full feature set");
+				assert(session.profile.features === expectedFeatures, "accepted session reports the v1.0 feature set");
 				session.serve().catch(() => {});
 				break;
 			}
@@ -361,9 +364,9 @@ export async function run(managed: Runtime): Promise<void> {
 
 		async function client(): Promise<void> {
 			const session = await clientRuntime.connect(tcp.locator("127.0.0.1", port));
-			assert(session.profile.captpVersion === "next", "dialed session reports glowcap-next");
+			assert(session.profile.captpVersion === "v1_0", "dialed session reports v1.0");
 			assert(session.profile.codec === "capnp", "dialed session reports Cap'n Proto");
-			assert(session.profile.features === FEATURE_FULL, "dialed session reports the full feature set");
+			assert(session.profile.features === expectedFeatures, "dialed session reports the v1.0 feature set");
 			session.serve().catch(() => {});
 			const root = await session.fetch("root");
 			// None of these await a prior reply: the projections ride the unresolved

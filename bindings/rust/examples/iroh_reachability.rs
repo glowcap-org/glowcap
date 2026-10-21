@@ -21,8 +21,8 @@
 
 use std::rc::Rc;
 
-use glowcap_rust_dogfood::iroh::Reachability;
-use glowcap_rust_dogfood::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh};
+use glowcap::iroh::Reachability;
+use glowcap::{Argument, ConnectOptions, PendingWork, Runtime, RuntimeConfig, Session, iroh};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -57,7 +57,7 @@ async fn run() -> Result<(), Fail> {
 	);
 
 	// ── Client: dial by node id ALONE, empty hints, over real n0 discovery ──────
-	let locator = glowcap_rust_dogfood::iroh::locator(&server_id, None);
+	let locator = glowcap::iroh::locator(&server_id, None);
 	let runtime = Runtime::open(RuntimeConfig::providers([iroh::provider(iroh::Config::new(
 		Reachability::Discovery,
 	))]))
@@ -104,8 +104,8 @@ async fn run() -> Result<(), Fail> {
 /// serve tasks so the proof can fail on a served session's outcome instead of
 /// reading a refused admission as a stall.
 fn accept_loop(
-	server: Rc<glowcap_rust_dogfood::iroh::Server>,
-) -> tokio::task::JoinHandle<Vec<tokio::task::JoinHandle<glowcap_rust_dogfood::Result<()>>>> {
+	server: Rc<glowcap::iroh::Server>,
+) -> tokio::task::JoinHandle<Vec<tokio::task::JoinHandle<glowcap::Result<()>>>> {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
 		let mut serving = Vec::new();

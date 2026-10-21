@@ -458,21 +458,24 @@ pub fn Resident(comptime Backend: type, comptime Policy: type) type {
             defer self.pump();
             const conn = self.conns.getPtr(id) orelse return .complete;
             if (conn.close == .closing) return .complete;
+            // Readiness backends perform sends when polled, not when submitted.
+            // Keep the socket open until every admitted byte has completed.
+            conn.send_queued = false;
+            self.startSend(id, conn);
+            self.submitQueued();
+            self.pump();
+            if (conn.write_failure == null and
+                (conn.sending or conn.front.items.len != conn.sent or conn.back.items.len != 0))
+            {
+                conn.owes_writable = true;
+                return .pending;
+            }
             if (conn.recv == .holding) {
                 const held = conn.recv.holding.comp;
                 conn.recv = .idle;
                 self.forgetStarved(id);
                 self.recycle(held);
             } else self.forgetStarved(id);
-            // A batch flushed before the close leaves ahead of the shutdown.
-            // `shutdownFd` acts at once, so the send goes to the kernel here
-            // rather than at `beforeWait`, where it would find the socket
-            // shut and the partner would see no `op:abort` before the close.
-            if (conn.send_queued) {
-                conn.send_queued = false;
-                self.startSend(id, conn);
-                self.submitQueued();
-            }
             conn.close = .closing;
             self.backend.shutdownFd(conn.fd);
             var outcome: resident_mod.TeardownOutcome = .complete;

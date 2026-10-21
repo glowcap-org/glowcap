@@ -109,7 +109,7 @@ runs the same product command, supervised by Docker:
 glowcap apps rooms deployment up
 ```
 
-See the [deployment guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md)
+See the [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
 for choosing an image, building from source, persistent state, and public
 hosting.
 
@@ -279,7 +279,7 @@ The output goes under `zig-out/glowcap-release/`.
   outside the checkout.
 - On a Linux host, `./glowcap apps rooms deployment up` prepares the current
   source with `rooms-release` and builds its Docker image from `zig-out/product`. The
-  [deployment guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md)
+  [deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md)
   covers persistent configuration and choosing an image.
 - `rooms-release` prepares the complete host product with ReleaseSafe and
   baseline CPU settings. Docker requires a Linux product.

@@ -308,7 +308,7 @@ glowcap covers the keys on this page and none of the identity checks.
 - An encrypted connection checks that the computer that answered holds the
   key you dialed.
 - A server caps how many connections can be opening at once.
-  [Known limitations](https://github.com/jimisaacs/glowcap/blob/main/docs/boundaries.md)
+  [Known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md)
   lists where these protections stop.
 - [Loam]($link.page('loam')), glowcap's storage layer, offers managed access.
   It hands out keys that can be switched off and never grow stronger when

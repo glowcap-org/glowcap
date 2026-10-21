@@ -63,8 +63,11 @@ export async function fillSettled(tab: Page, selector: string, value: string): P
 
 /** Type `text` into the composer and send it. */
 export async function say(tab: Page, text: string): Promise<void> {
-	await tab.fill("#line", text);
-	await tab.press("#line", "Enter");
+	// Resizing can leave the conversation inert until its layout commits.
+	// Playwright fill reports success there without delivering an input event.
+	const composer = tab.locator("#line:not(:disabled):not([inert] *)");
+	await composer.fill(text);
+	await composer.press("Enter");
 }
 
 /** A line's edit authority proves receipt settlement. Quiet progress does not. */

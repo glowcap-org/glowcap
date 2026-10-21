@@ -6,7 +6,7 @@
 
 use std::rc::Rc;
 
-use glowcap_rust_dogfood::{Argument, ConnectOptions, Locator, Runtime, RuntimeConfig, tcp};
+use glowcap::{Argument, ConnectOptions, Locator, Runtime, RuntimeConfig, tcp};
 use tokio::sync::oneshot;
 use tokio::task::LocalSet;
 

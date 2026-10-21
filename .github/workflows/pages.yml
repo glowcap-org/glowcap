@@ -25,13 +25,15 @@ jobs:
   build:
     if: >-
       (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.event == 'push' &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch') &&
        github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_repository.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     permissions:
       actions: read
       contents: read
+      packages: read
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -59,20 +61,28 @@ jobs:
           test "$DEPLOY_SHA" = "$current"
           python3 tools/check/require-main-check.py "$DEPLOY_SHA"
 
-      # The CI action resolves Compose before it runs initializeCommand, so use
-      # the same checkout configurator as a contributor and prepare the two
-      # managed external networks it names.
-      - name: Prepare the devcontainer's external networks
-        run: |
-          bash .devcontainer/bin/configure.sh
-          docker network create glowcap-rooms-net 2>/dev/null || true
-          docker network create glowcap-dev-main-egress 2>/dev/null || true
+      - name: Reclaim disk space for the toolchain image
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+
+      - name: Install the pinned Dev Containers CLI
+        run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
+
+      - name: Authenticate to the image cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Resolve or build the toolchain image
+        id: image
+        run: python3 .devcontainer/ci/image.py prepare
+
+      - name: Start the prepared devcontainer
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: python3 .devcontainer/ci/image.py start "$IMAGE"
 
       - name: Build the site in the devcontainer
-        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
-        with:
-          push: never
-          runCmd: zig build site
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json zig build site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

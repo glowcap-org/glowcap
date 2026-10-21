@@ -5,7 +5,7 @@ between peers. A vulnerability in its wire path or session state machine can
 affect every product built on top of it, so security reports take precedence
 over other work here.
 
-glowcap has had no independent security review. It is prerelease software that
+glowcap has had no independent security review. It is 0.1.0 alpha software that
 has not been hardened or run in production. The conformance and
 interoperability checks test protocol behavior and say nothing about
 hardening.
@@ -31,8 +31,7 @@ privately through a GitHub security advisory or email
 - The invariant you believe is broken.
 - A protocol scenario, trace, or written argument that reproduces the problem.
 
-This is a one-person project, so acknowledgement is best-effort within seven
-days. Reports of broken protocol invariants take priority.
+Glowcap LLC aims to acknowledge reports within seven days. Reports of broken protocol invariants take priority.
 
 ## What counts as a security issue
 

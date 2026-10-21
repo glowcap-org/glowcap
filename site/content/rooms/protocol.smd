@@ -243,13 +243,13 @@ program: it can sit in a room and answer a direct message without any change
 to Goblins, because Rooms uses only OCapN.
 
 The readable specification, with the reasoning behind every verb, is
-[`protocol.ts`](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol.ts)
+[`protocol.ts`](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/lib/protocol.ts)
 for the directory, rooms, seats, lines, files, and introductions. Other files
 cover
-[handover](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_handover.ts),
-[IRC](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_irc.ts),
+[handover](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/lib/protocol_handover.ts),
+[IRC](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/lib/protocol_irc.ts),
 and the
-[admin objects](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/lib/protocol_operator.ts).
+[admin objects](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/lib/protocol_operator.ts).
 `zig build gen-rooms-protocol` generates the core verbs into each client.
 [How Rooms works]($link.page('rooms/architecture')) shows how the code that
 speaks it is divided.

@@ -51,7 +51,11 @@ export class ManagedProjection {
 	#cancelled: readonly string[] = [];
 	#active: string | null | undefined;
 	#localSelection: ManagedRoomsSession["navigation"]["choice"];
-	readonly #identities = new Map<string, { conversation: string; inbox?: string; endedSeat?: string }>();
+	// Scalar seat keys borrow accepted intent through conversation retirement.
+	readonly #identities = new Map<
+		string,
+		{ conversation: string; inbox?: string; seat?: string; endedSeat?: string }
+	>();
 	readonly #announcedShares = new Set<string>();
 	readonly #operationSelections = new Map<OpsCap, string | null>();
 	readonly #presentedCommits = new WeakSet<ManagedOperation>();
@@ -214,17 +218,21 @@ export class ManagedProjection {
 			let existing = presented.get(row.id) ?? null;
 			const identity = presentationIdentity(row);
 			const previous = this.#identities.get(row.id);
+			const seat = row.kind === "room" ? row.seat : undefined;
+			const replaced = previous != null && previous.inbox !== row.inbox;
+			const endedSeat = replaced ? previous.seat : previous?.endedSeat;
 			if (existing != null && previous?.conversation !== identity) {
 				selectionReplaced ||= existing.key === selected?.key;
 				store.forgetConv(projection, existing.key);
 				this.#session.drafts.retire(row.id);
 				existing = null;
 			}
-			if (previous?.conversation !== identity || previous.inbox !== row.inbox) {
+			if (previous?.conversation !== identity || replaced || previous.seat !== seat) {
 				this.#identities.set(row.id, {
 					conversation: identity,
 					inbox: row.inbox,
-					endedSeat: previous?.endedSeat,
+					seat,
+					endedSeat,
 				});
 			}
 			const conversation = existing ??
@@ -268,14 +276,13 @@ export class ManagedProjection {
 				}
 				// A snapshot can skip the interval between two installed callbacks.
 				// Their line numbers still belong to different memberships.
-				const replaced = previous?.inbox != null && previous.inbox !== row.inbox;
 				if ((row.seat == null || replaced) && conversation.membership === "joined") {
 					this.#endMembership(conversation, managedText.membershipEnded);
 					this.#files.markLost(managedText.membershipEnded, conversation.dir);
 				}
-				// The accepted seat owns readiness. Inbox traffic can arrive before
-				// its installation snapshot, and replacement can skip an outage.
-				if (row.seat != null && row.seat !== previous?.endedSeat) {
+				// Callback replacement can precede seat adoption. Retained seat
+				// authority does not make that replacement membership ready.
+				if (row.seat != null && row.seat !== endedSeat) {
 					this.#joinMembership(conversation);
 				}
 			}

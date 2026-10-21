@@ -28,7 +28,7 @@ glowcap is a [Zig](https://ziglang.org/) package. Add a pinned checkout to
 your build:
 
 ```sh
-zig fetch --save git+https://github.com/jimisaacs/glowcap#COMMIT_SHA
+zig fetch --save git+https://github.com/glowcap-org/glowcap#COMMIT_SHA
 ```
 
 Replace `COMMIT_SHA` with the revision you want to pin.
@@ -614,7 +614,7 @@ actions the Host produces, and writes out the resulting frames. Every
 capability is a `GlowcapReference`, an opaque handle that belongs to the Host
 rather than to any one session. The ABI uses fixed-width return codes,
 `ptr + len` views, and explicit release.
-[Consuming glowcap from C](https://github.com/jimisaacs/glowcap/blob/main/docs/consuming-from-c.md)
+[Consuming glowcap from C](https://github.com/glowcap-org/glowcap/blob/main/docs/consuming-from-c.md)
 covers building, ownership, and a first program.
 
 # In Rust, TypeScript, Python, or Racket

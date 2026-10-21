@@ -9,7 +9,7 @@
 Every glowcap session uses a small vocabulary from the
 [OCapN specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications).
 [Concepts]($link.page('concepts')) explains how the parts work together, and the
-[protocol diagrams](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/README.md)
+[protocol diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/README.md)
 draw the flows.
 
 The operation and descriptor names below are checked against the Syrup codec.

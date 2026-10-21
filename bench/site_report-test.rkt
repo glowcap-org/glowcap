@@ -184,13 +184,27 @@
     (test-case "markers"
       ;; Every region main splices has its marker on the page it names, and
       ;; a page carries no marker main would leave stale.
-      (define own '("stamp" "glance" "codec" "peer-scaling" "frame-view" "langs" "iroh" "loam"))
+      (define own '("stamp" "glance" "codec" "peer-scaling" "sessions" "frame-view" "langs" "iroh" "loam"))
       (define compared '("stamp" "capnp-rpc" "goblins" "snapshot"))
       (for ([page (list PERF COMPARED)] [names (list own compared)])
         (define text (file->string page))
         (for ([name (in-list names)])
           (check-true (string? (splice page text name "x")) (format "~a lacks bench:~a" page name)))
         (check-equal? (length (regexp-match* #px"<!-- bench:" text)) (length names) page)))
+    (test-case "live sessions require complete and consistent evidence"
+      (define output
+        (apply string-append
+          (for/list ([n '(1000 10000 50000 100000 500000)])
+            (format "peer_scaling phase2 n=~a ok=true live=~a shards=32 server_rss_kb_before=100 server_rss_kb_after=200 server_rss_delta_kb=100 client_rss_kb=300 elapsed_ms=1000\n" n n))))
+      (check-equal? (length (parse-live output)) 5)
+      (define opens (hash "tcp:session-open" (hash 'p50 1000 'p99 3000 'mean 2000)
+                          "noise-tcp:session-open" (hash 'p50 2000 'p99 4000 'mean 3000)))
+      (define rendered (sessions-region (parse-live output) opens html-table "stamp"))
+      (check-true (regexp-match? #px"500,000" rendered))
+      (check-true (regexp-match? #px"noise-tcp" rendered))
+      (check-exn exn:fail? (lambda () (sessions-region (parse-live output) (hash) html-table "stamp")))
+      (check-exn exn:fail? (lambda () (parse-live "")))
+      (check-exn exn:fail? (lambda () (parse-live (regexp-replace "live=500000" output "live=499999")))))
     (test-case "langs"
       (define rows (parse-langs-md langs-md))
       ;; Three data rows; the header separator (`| --- | ...`) must not parse.

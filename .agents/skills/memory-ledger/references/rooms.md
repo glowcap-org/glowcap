@@ -102,9 +102,10 @@ at each declaration. This inventory names managed session execution costs.
   authority and are bounded by admitted intent and existing presentation.
   `bench-rooms-projection` measures visits. The projection cost scenario rejects
   conversation rescans and repeated line-custody walks. The existing
-  per-conversation identity map also borrows the last explicitly ended seat key
-  until conversation retirement, preventing a stale snapshot from restoring it
-  without another capability wrapper or copied payload.
+  per-conversation identity map borrows the observed seat and the seat retired
+  by an ended notice or callback replacement until conversation retirement.
+  These scalar keys prevent premature readiness without another capability
+  wrapper or copied payload.
 
 - **Archive conversation chronology**: `index::context::Contexts` holds one
   tree node and shared Entry root per retained record, bounded by index capacity.

@@ -11,3 +11,8 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[project.urls]
+Repository = "https://github.com/glowcap-org/glowcap"
+Homepage = "https://glowcap.org"
+Documentation = "https://glowcap.org"

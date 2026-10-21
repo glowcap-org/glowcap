@@ -8,7 +8,7 @@
 
 The Python binding gives you `Session` and `Host` with Python values over
 `ctypes`
-([`glowcap`](https://github.com/jimisaacs/glowcap/blob/main/bindings/python/glowcap)).
+([`glowcap`](https://github.com/glowcap-org/glowcap/blob/main/bindings/python/glowcap)).
 `Runtime.open` holds one Host and the transports you install, and
 `runtime.connect` picks the one that matches the locator. The transport modules
 include `glowcap.iroh`, `glowcap.onion`, `glowcap.relay`, and
@@ -232,7 +232,7 @@ reach an actor directly through an introduction
 from `server.host`.
 
 The complete API lives in the
-[Python binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/python/README.md),
+[Python binding README](https://github.com/glowcap-org/glowcap/blob/main/bindings/python/README.md),
 and the
-[rooms chat client](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/clients/python/room_client.py)
+[rooms chat client](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/clients/python/room_client.py)
 shows the rest.

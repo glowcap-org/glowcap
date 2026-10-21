@@ -371,7 +371,9 @@
 ;; surfaces as a tagged/struct arg; index and untag are the
 ;; cross-binding-comparable pair, so they are what this dogfood asserts,
 ;; matching Python.)
-(define pj-server (listen "127.0.0.1" 0 #:codec 'capnp #:captp-version 'next #:features 'full))
+;; Structural projection operations belong to v1.0; multi-location does not.
+(define pj-features (bitwise-and FEATURE-FULL (bitwise-not FEATURE-MULTI-LOCATION)))
+(define pj-server (listen "127.0.0.1" 0 #:codec 'capnp #:captp-version 'v1_0 #:features 'full))
 (define pj-ready (make-semaphore 0))
 (define pj-release (make-semaphore 0))
 (define pj-resolver-ready (make-semaphore 0))
@@ -391,12 +393,12 @@
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pj-ch e))])
        (define hsession (accept pj-server))
        (define hprofile (session-profile hsession))
-       (expect (equal? (settled-profile-captp-version hprofile) 'next)
-               "projections: accepted session reports glowcap-next")
+       (expect (equal? (settled-profile-captp-version hprofile) 'v1_0)
+               "projections: accepted session reports v1.0")
        (expect (equal? (settled-profile-codec hprofile) 'capnp)
                "projections: accepted session reports Cap'n Proto")
-       (expect (= (settled-profile-features hprofile) FEATURE-FULL)
-               "projections: accepted session reports the full feature set")
+       (expect (= (settled-profile-features hprofile) pj-features)
+               "projections: accepted session reports the v1.0 feature set")
        (session-publish hsession "root"
                      (lambda (bcom)
                        (methods
@@ -422,15 +424,15 @@
 
 (define pj-session (open-test-session (tcp-locator "127.0.0.1" (server-port pj-server))
                             #:codec 'capnp
-                            #:captp-version 'next
+                            #:captp-version 'v1_0
                             #:features 'full))
 (define pj-profile (session-profile pj-session))
-(expect (equal? (settled-profile-captp-version pj-profile) 'next)
-        "projections: dialed session reports glowcap-next")
+(expect (equal? (settled-profile-captp-version pj-profile) 'v1_0)
+        "projections: dialed session reports v1.0")
 (expect (equal? (settled-profile-codec pj-profile) 'capnp)
         "projections: dialed session reports Cap'n Proto")
-(expect (= (settled-profile-features pj-profile) FEATURE-FULL)
-        "projections: dialed session reports the full feature set")
+(expect (= (settled-profile-features pj-profile) pj-features)
+        "projections: dialed session reports the v1.0 feature set")
 (semaphore-wait pj-ready)
 (define pj-root (session-fetch pj-session "root"))
 ;; Neither projection waits for make's reply: they ride the unresolved make

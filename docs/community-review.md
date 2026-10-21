@@ -86,7 +86,7 @@ that proves it.
 
 A **yes** in the CI column means the step appears in `ci/gates.sh`, scheduled
 after a push to `main` or `dev`. It does not establish that the step passed.
-The [checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
+The [checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
 must succeed for the commit under review. `zig build source-check`
 derives this column from the script, so a removed step cannot remain marked as
 a recurring check.

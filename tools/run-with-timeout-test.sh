@@ -51,6 +51,16 @@ case "$deadline_said" in
 *) bad "a fired deadline was silent (got: $deadline_said)" ;;
 esac
 
+heartbeat_output="$scratch/heartbeat"
+heartbeat_rc=0
+python3 "$RWT" --heartbeat 0.02s --kill-after 0.1s 0.15s sh -c 'sleep 30' >"$heartbeat_output" 2>&1 || heartbeat_rc=$?
+if [ "$heartbeat_rc" -eq 124 ] && grep -q 'still running' "$heartbeat_output" && grep -q 'deadline and was stopped' "$heartbeat_output"; then
+	ok "heartbeat reports activity without extending the deadline"
+else
+	bad "heartbeat lost progress or deadline status (got $heartbeat_rc)"
+fi
+expect_code 3 "heartbeat preserves child failure" python3 "$RWT" --heartbeat 0.01s 5s sh -c 'sleep 0.05; exit 3'
+
 quiet_output=$(python3 "$RWT" --quiet-success 5s sh -c 'echo hidden-out; echo hidden-error >&2' 2>&1)
 if [ -z "$quiet_output" ]; then
 	ok "quiet success suppresses child output"
@@ -105,9 +115,64 @@ else
 	ok "no child outlives the wrapper"
 fi
 
+# A leader exiting on TERM must not hide a descendant that ignores it.
+# Exercise both deadline expiry and external cancellation against that group.
+if python3 - "$RWT" "$scratch" <<'PYTEST'
+import os, pathlib, signal, subprocess, sys, time
+
+for mode in ("deadline", "cancel"):
+    marker = pathlib.Path(sys.argv[2]) / ("descendant-" + mode)
+    child = (
+        "import os,pathlib,signal,time; "
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        f"marker=pathlib.Path({str(marker)!r}); "
+        "marker.with_suffix('.ready').write_text(str(os.getpid())); "
+        "marker.with_suffix('.ready').replace(marker); time.sleep(30)"
+    )
+    parent = f"import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(30)"
+    wrapper = subprocess.Popen(
+        [sys.executable, sys.argv[1], "--kill-after", "0.2s",
+         "2s" if mode == "deadline" else "20s", sys.executable, "-c", parent],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    descendant = None
+    try:
+        ready = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < ready:
+            time.sleep(0.01)
+        descendant = int(marker.read_text())
+        if mode == "cancel":
+            wrapper.send_signal(signal.SIGTERM)
+        assert wrapper.wait(timeout=5) == (124 if mode == "deadline" else 143)
+        # An orphan is reaped by init, so allow that observation to catch up.
+        reaped = time.monotonic() + 2
+        while True:
+            try:
+                os.kill(descendant, 0)
+            except ProcessLookupError:
+                break
+            assert time.monotonic() < reaped, f"descendant survived {mode}"
+            time.sleep(0.01)
+    finally:
+        if wrapper.poll() is None:
+            wrapper.kill()
+            wrapper.wait()
+        if descendant is not None:
+            try:
+                os.kill(descendant, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+PYTEST
+then
+	ok "deadline and cancellation stop descendants after their leader exits"
+else
+	bad "a descendant outlived its terminated process group"
+fi
+
 # The other half of the contract: the sequence that reads these codes must
 # actually classify them. Sourced, so this exercises the real function rather
 # than looking for its text, a literal can survive in a branch nobody takes.
+EVIDENCE_ROWS="$scratch/gates.tsv"
 # shellcheck disable=SC1091
 GATES_SOURCE_ONLY=1 . ci/gates.sh
 for code in 124 137; do
@@ -127,6 +192,7 @@ mkdir -p "$fake_bin"
 cat >"$fake_bin/zig" <<'FAKE_ZIG'
 #!/bin/sh
 printf '%s\n' "$@" >"$GLOWCAP_TEST_ZIG_ARGS"
+sleep "${GLOWCAP_TEST_DELAY:-0}"
 FAKE_ZIG
 chmod +x "$fake_bin/zig"
 GLOWCAP_TEST_ZIG_ARGS="$fake_args" PATH="$fake_bin:$PATH" GATE_TIMEOUT=5s gate zig build test
@@ -140,6 +206,22 @@ if [ "$(grep -c -- '--test-timeout' "$fake_args")" -eq 1 ] && grep -qx 7s "$fake
 	ok "ci preserves one explicit per-test timeout"
 else
 	bad "ci duplicated or replaced the explicit per-test timeout"
+fi
+# Only the cold aggregate build gets its longer budget; ordinary gates keep
+# theirs. Both still receive the same per-test deadline above.
+GLOWCAP_TEST_ZIG_ARGS="$fake_args" GLOWCAP_TEST_DELAY=0.2 PATH="$fake_bin:$PATH" GATE_TIMEOUT=0.1s CHECK_TIMEOUT=2s gate zig build check
+ok "ci gives the cold check its separate build allowance"
+ordinary_rc=0
+(GLOWCAP_TEST_ZIG_ARGS="$fake_args" GLOWCAP_TEST_DELAY=0.2 PATH="$fake_bin:$PATH" GATE_TIMEOUT=0.1s CHECK_TIMEOUT=2s gate zig build test) >/dev/null 2>&1 || ordinary_rc=$?
+if [ "$ordinary_rc" -eq 124 ]; then
+	ok "ci retains the ordinary gate deadline"
+else
+	bad "ci widened the ordinary gate deadline (got $ordinary_rc)"
+fi
+if [ "$(wc -l < "$EVIDENCE_ROWS" | tr -d ' ')" -eq 4 ]; then
+	ok "ci records all exercised gates"
+else
+	bad "ci did not record all exercised gates"
 fi
 if [ "$fail" -ne 0 ]; then
 	echo "run-with-timeout-test: FAILED" >&2

@@ -281,6 +281,10 @@ pub fn publishResidentRecords(self: *HostRuntime) void {
         .blocking => return,
         .stepped => |*stepped| &stepped.ready_set,
     };
+    rs.refresh() catch |err| {
+        self.noteTerminalFailure(err);
+        return;
+    };
     for (self.residents.items) |registered| {
         if (!registered.resident.readyPending()) continue;
         rs.postWake() catch |err| self.noteTerminalFailure(err);

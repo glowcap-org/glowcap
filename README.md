@@ -4,17 +4,23 @@
 
 [![Zig](https://img.shields.io/badge/language-Zig-f7a41d.svg)](https://ziglang.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
-[![checks](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml/badge.svg)](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
+[![checks](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml/badge.svg)](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
 
-glowcap is a Zig implementation of [OCapN](https://github.com/ocapn/ocapn), the
-object-capability network protocol from
-[Spritely Institute](https://spritely.institute/) and the OCapN community. Two
-programs hand each other references to objects and call methods on them across
-a network, under the same rules as a local call: a peer can use the references
-it was given and cannot forge others. If capabilities are new to you,
-[`docs/capabilities.md`](docs/capabilities.md) starts from zero, and
-[What about identity?](https://glowcap.org/identity/) covers where people, bots,
-and AI agents fit.
+glowcap is a low-level Zig library for capability-based communication and
+durable application state. It combines [OCapN](https://github.com/ocapn/ocapn)
+and CapTP networking with [Loam](docs/loam.md), its transactional storage and
+durable actor system. Applications control memory, I/O, and scheduling.
+
+**0.1.0 alpha · Apache-2.0.** Public APIs, ABIs, and storage formats can
+change before 1.0. glowcap has not received an independent security audit.
+Read [what ships](docs/shipped.md) and the [known limitations](docs/boundaries.md)
+before depending on it.
+
+A capability is a reference that gives its holder access to an object.
+OCapN lets programs pass those references and call methods across a network.
+Loam stores object state and relationships, wakes actors on demand, and
+provides durable names that peers can use after a restart. If capabilities
+are new to you, [the introduction](docs/capabilities.md) explains the model.
 
 <br clear="left" />
 
@@ -38,19 +44,22 @@ the key you dialed. Spritely Goblins, as it ships, talks to glowcap over Tor oni
 lists the rest. Plain `tcp` is a testing transport, cleartext with no identity
 proof.
 
-[Loam](docs/loam.md) keeps an application's state in atomic records, on SQLite
-or LMDB, or in memory. An actor can sleep in a record and wake when a message arrives,
-and the references peers hold to it stay valid in between. Loam can also track
-who has access to what and revoke it.
+Loam keeps application state in atomic records backed by SQLite, LMDB, or
+memory. Its storage core requests work from a caller-owned worker, without
+starting threads or an event loop. Durable actors can sleep outside memory,
+and transactions save their state before a reply is sent. Loam also models
+access, delegation, and revocation.
 
-There are no releases or compatibility guarantees. Pin a commit, and read
-[what ships](docs/shipped.md) and the [known limitations](docs/boundaries.md)
-before depending on it.
+The architecture is designed for low overhead: explicit ownership, borrowed
+views, bounded state, and allocation and copy budgets checked by the build.
+[Performance measurements](https://glowcap.org/performance/) report protocol,
+transport, binding, and Loam costs with their workloads and methods.
+Pin a commit while evaluating the alpha.
 
 ## Quick start
 
 ```sh
-zig fetch --save git+https://github.com/jimisaacs/glowcap#COMMIT_SHA
+zig fetch --save git+https://github.com/glowcap-org/glowcap#COMMIT_SHA
 ```
 
 Replace `COMMIT_SHA` with the revision you want to pin. In your `build.zig`:
@@ -183,8 +192,19 @@ flow, and the [decision records](docs/decisions/README.md) explain why each
 design was chosen.
 [SECURITY.md](SECURITY.md) explains how to report a vulnerability.
 
+## Corporate sponsorship
+
+Glowcap LLC maintains glowcap. [Sponsor Glowcap LLC through GitHub Sponsors](https://github.com/sponsors/glowcap-org)
+to support development of capability networking, Loam transactional storage,
+and durable actors in Zig.
+
+Corporate sponsorship funds implementation, interoperability testing,
+performance measurement, documentation, and maintenance.
+
 ## License
 
-Glowcap-authored work is licensed under [Apache-2.0](LICENSE-APACHE). Third-party files keep their
-original terms. The [third-party notices](LICENSE-THIRD-PARTY) record their scope
-and licenses. Contributions are accepted under glowcap's Apache-2.0 terms.
+Copyright 2026 Glowcap LLC
+
+Glowcap-authored work is licensed under [Apache-2.0](LICENSE-APACHE).
+Third-party files keep their original terms. The
+[third-party notices](LICENSE-THIRD-PARTY) record their scope and licenses. Contributions are accepted under glowcap's Apache-2.0 terms.

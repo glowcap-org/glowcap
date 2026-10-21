@@ -32,7 +32,7 @@ pub fn checkCAbiResolvePorts(
         "glowcap-c-abi-fetch/",
         "glowcap-c-abi-cache",
         "glowcap-c-v{version}-{target}.tar.gz",
-        "https://github.com/jimisaacs/glowcap/releases/download",
+        "https://github.com/glowcap-org/glowcap/releases/download",
     };
     for (binding_loaders) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {

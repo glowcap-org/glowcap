@@ -110,6 +110,6 @@ original problem and anything that went wrong while cleaning up.
 The tests open real IRC and glowcap connections and run both directions
 against a real [Spritely Goblins](https://spritely.institute/)
 program, including a direct message it answers. The
-[IRC README](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/irc/README.md)
+[IRC README](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/irc/README.md)
 lists every flag, the ways to deploy it, how IRC maps onto Rooms, and the
 limits.

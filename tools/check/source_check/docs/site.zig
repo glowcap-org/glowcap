@@ -15,7 +15,8 @@ const paths = @import("paths.zig");
 /// that is a sibling step; this gate holds the same references in the hermetic
 /// `check`. A `$link.page('id')` resolves to `site/content/id.smd` or
 /// `site/content/id/index.smd`; a `$image.siteAsset('name')` resolves to
-/// `site/assets/name`. (Absolute `https://` links carry their own Markdown
+/// `site/assets/name` or the capture output manifest. Rendering verifies the
+/// generated files themselves. (Absolute `https://` links carry their own Markdown
 /// `](url)` form and are not this gate's concern.)
 pub fn checkSiteContentLinks(
     io: std.Io,
@@ -23,6 +24,17 @@ pub fn checkSiteContentLinks(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
+    const manifest = "site/scripts/capture-assets.json";
+    const bytes = root.readFileAlloc(io, manifest, gpa, .limited(1 << 16)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: cannot read capture outputs ({s})", .{ manifest, @errorName(err) });
+        return;
+    };
+    defer gpa.free(bytes);
+    const generated = std.json.parseFromSlice([]const []const u8, gpa, bytes, .{}) catch |err| {
+        try appendViolation(gpa, violations, "{s}: invalid capture outputs ({s})", .{ manifest, @errorName(err) });
+        return;
+    };
+    defer generated.deinit();
     var dir = root.openDir(io, "site/content", .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "site/content: failed to open for site link check with {s}", .{@errorName(err)});
         return;
@@ -36,7 +48,7 @@ pub fn checkSiteContentLinks(
         if (!std.mem.endsWith(u8, entry.path, ".smd")) continue;
         const path = try std.fmt.allocPrint(gpa, "site/content/{s}", .{entry.path});
         defer gpa.free(path);
-        try checkSiteContentLinksInFile(io, gpa, root, violations, path);
+        try checkSiteContentLinksInFile(io, gpa, root, violations, path, generated.value);
     }
 }
 
@@ -93,6 +105,7 @@ fn checkSiteContentLinksInFile(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
     path: []const u8,
+    generated: []const []const u8,
 ) !void {
     const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for site link check with {s}", .{ path, @errorName(err) });
@@ -145,7 +158,10 @@ fn checkSiteContentLinksInFile(
 
         const asset = try std.fmt.allocPrint(gpa, "site/assets/{s}", .{name});
         defer gpa.free(asset);
-        if (!paths.fileExists(io, root, asset)) {
+        const is_generated = for (generated) |output| {
+            if (std.mem.eql(u8, name, output)) break true;
+        } else false;
+        if (!is_generated and !paths.fileExists(io, root, asset)) {
             try appendViolation(gpa, violations, "{s}: $image.siteAsset('{s}') resolves to missing `{s}`", .{ path, name, asset });
         }
     }
@@ -595,4 +611,30 @@ fn frontmatterField(body: []const u8, needle: []const u8) ?[]const u8 {
     const rest = front[at + needle.len ..];
     const close = std.mem.indexOfScalar(u8, rest, '"') orelse return null;
     return rest[0..close];
+}
+
+test "site assets accept declared capture outputs but refuse missing undeclared files" {
+    const io = std.testing.io;
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(io, "site/content");
+    try tmp.dir.createDirPath(io, "site/scripts");
+    try tmp.dir.createDirPath(io, "site/assets");
+    try tmp.dir.writeFile(io, .{ .sub_path = "site/scripts/capture-assets.json", .data = "[\"rooms-known-dark.webp\"]" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "site/assets/static.webp", .data = "present" });
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "site/content/index.smd",
+        .data = "$image.siteAsset('rooms-known-dark.webp')\n" ++
+            "$image.siteAsset('rooms-typo-dark.webp')\n" ++
+            "$image.siteAsset('static.webp')\n",
+    });
+    var violations: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (violations.items) |violation| gpa.free(violation);
+        violations.deinit(gpa);
+    }
+    try checkSiteContentLinks(io, gpa, tmp.dir, &violations);
+    try std.testing.expectEqual(@as(usize, 1), violations.items.len);
+    try std.testing.expect(std.mem.indexOf(u8, violations.items[0], "rooms-typo-dark.webp") != null);
 }

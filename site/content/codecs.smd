@@ -57,5 +57,5 @@ Either codec can hand the session a temporary view of a message. glowcap copies
 into owned memory only when it must keep that message after decode finishes.
 [Concepts]($link.page('concepts')) explains how peers
 negotiate the CapTP version and codec. The
-[architecture doc](https://github.com/jimisaacs/glowcap/blob/main/docs/architecture.md)
+[architecture doc](https://github.com/glowcap-org/glowcap/blob/main/docs/architecture.md)
 shows where a Zig program can plug in another codec.

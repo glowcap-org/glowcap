@@ -287,8 +287,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "glowcap-rust-dogfood"
-version = "0.0.0"
+name = "glowcap"
+version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "gloo-timers",
@@ -786,7 +786,7 @@ dependencies = [
 
 [[package]]
 name = "rooms-application"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "hmac",
  "markdown",
@@ -798,10 +798,10 @@ dependencies = [
 
 [[package]]
 name = "rooms-browser"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "gloo-timers",
- "glowcap-rust-dogfood",
+ "glowcap",
  "js-sys",
  "rooms-application",
  "rooms-glowcap",
@@ -817,11 +817,11 @@ dependencies = [
 
 [[package]]
 name = "rooms-contract-proofs"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "futures-util",
  "gloo-timers",
- "glowcap-rust-dogfood",
+ "glowcap",
  "js-sys",
  "rooms-application",
  "rooms-browser",
@@ -838,9 +838,9 @@ dependencies = [
 
 [[package]]
 name = "rooms-glowcap"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
- "glowcap-rust-dogfood",
+ "glowcap",
  "rooms-application",
  "serde",
  "serde_json",
@@ -848,12 +848,12 @@ dependencies = [
 
 [[package]]
 name = "rooms-platform"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "futures-util",
  "getrandom 0.4.3",
- "glowcap-rust-dogfood",
+ "glowcap",
  "rooms-application",
  "rooms-glowcap",
  "rooms-runtime",
@@ -867,11 +867,11 @@ dependencies = [
 
 [[package]]
 name = "rooms-product"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bytes",
  "futures-util",
- "glowcap-rust-dogfood",
+ "glowcap",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -892,9 +892,9 @@ dependencies = [
 
 [[package]]
 name = "rooms-runtime"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
- "glowcap-rust-dogfood",
+ "glowcap",
  "rooms-application",
  "rooms-glowcap",
  "serde",
@@ -905,13 +905,13 @@ dependencies = [
 
 [[package]]
 name = "rooms-services"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "base64",
  "bytes",
  "encoding_rs",
  "futures-util",
- "glowcap-rust-dogfood",
+ "glowcap",
  "html5ever",
  "http-body-util",
  "hyper",

@@ -15,10 +15,10 @@
 ;;
 ;; Parsers and renderers are pure and exercised by site_report-test.rkt; only
 ;; `main` runs benches and writes the file.
-(require racket/string racket/list racket/format racket/system racket/port racket/file "site_chart.rkt")
+(require racket/string racket/list racket/format racket/system racket/port racket/file "site_chart.rkt" "site_sessions.rkt")
 
 (provide parse-codec parse-frameview parse-peer parse-goblins-md parse-snapshot parse-goblins-snapshot parse-iroh
-         parse-langs-md parse-loam
+         parse-langs-md parse-loam parse-live sessions-region
          svg-bars legend html-table thousands splice PERF COMPARED
          codec-region peer-region frameview-region goblins-region snapshot-region iroh-region langs-region loam-region
          capnp-rpc-region glance-region)
@@ -540,8 +540,8 @@
   (define racket-v
     (let ([m (regexp-match #px"v([0-9.]+) \\[(\\w+)\\]" (sh1 "racket --version"))])
       (if m (format "Racket v~a ~a" (list-ref m 1) (string-upcase (list-ref m 2))) "Racket")))
-  (format "<p class=\"bench-stamp\">Every figure on this page comes from one run of commit <code>~a</code> on ~a: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, and the <code>glowcap</code> archives built by Zig ~a in ReleaseFast. <code>zig build bench-site-report</code> repeats it.</p>"
-          (sh1 "git rev-parse --short=9 HEAD") (sh1 "date +%Y-%m-%d") (sh1 "uname -sm") (sh1 "nproc") gib
+  (format "<p class=\"bench-stamp\">Benchmark snapshot of source <code>~a</code> on ~a: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, and the <code>glowcap</code> archives built by Zig ~a in ReleaseFast. <code>zig build bench-site-report</code> repeats it.</p>"
+          (sh1 "git describe --always --dirty --abbrev=9") (sh1 "date +%Y-%m-%d") (sh1 "uname -sm") (sh1 "nproc") gib
           racket-v goblins-v (sh1 "zig version")))
 
 ;; Replace the body of the `=html` block tagged with the bench marker in
@@ -563,11 +563,13 @@
   ;; Every tool a bench needs, checked before the first bench, so a missing one
   ;; fails in a second instead of after twenty minutes of runs. A container
   ;; older than the Dockerfile is the usual cause, and rebuilding it is the fix.
-  (for ([tool '("cargo" "capnp" "g++" "pkg-config")])
+  (for ([tool '("cargo" "capnp" "g++" "pkg-config" "python3" "unshare" "ip")])
     (unless (find-executable-path tool)
       (error 'site-report "~a is not on PATH; rebuild the devcontainer (.devcontainer/bin/up.sh --rebuild)" tool)))
   (unless (system "pkg-config --exists capnp-rpc")
     (error 'site-report "the capnp-rpc library is missing; rebuild the devcontainer (.devcontainer/bin/up.sh --rebuild)"))
+  (unless (system "unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up'")
+    (error 'site-report "live-session reporting needs an isolated network namespace and descriptor limit 524288"))
   (printf "running benches in ReleaseFast (this takes a few minutes)...\n") (flush-output)
   ;; Goblins first: fail fast on the CapTP step before burning ReleaseFast
   ;; minutes on the Zig benches. Retries for CapTP flakes are inside bench-goblins.
@@ -578,6 +580,10 @@
   (define codec (parse-codec (run "zig build bench-codec -Doptimize=ReleaseFast 2>&1")))
   (define fv (parse-frameview (run "zig build bench-frame-view -Doptimize=ReleaseFast 2>&1")))
   (define peer (parse-peer (run "zig build bench-peer-scaling -Doptimize=ReleaseFast 2>&1")))
+  (define live (parse-live (run "python3 tools/run-with-timeout.py --kill-after 5s --heartbeat 30s 10m unshare -Urn sh -eu -c 'ulimit -n 524288; ip link set lo up; exec zig build bench-peer-scaling -Doptimize=ReleaseFast -- --live --live-max=500000' 2>&1")))
+  (define opens (parse-iroh (string-append
+    (run "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=tcp --row=session-open 2>&1")
+    (run "zig build bench-iroh -Doptimize=ReleaseFast -- --transport=noise-tcp --row=session-open 2>&1"))))
   (define snap-p (parse-snapshot (run "zig build bench-snapshot -Doptimize=ReleaseFast 2>&1")))
   (define snap-g (parse-goblins-snapshot (run "racket bench/goblins/snapshot.rkt 2>&1")))
   (define iroh (parse-iroh (run "zig build bench-iroh -Doptimize=ReleaseFast 2>&1")))
@@ -600,6 +606,7 @@
                           (cons "glance" (glance-region codec fv peer iroh langs loam))
                           (cons "codec" (codec-region codec))
                           (cons "peer-scaling" (peer-region peer))
+                          (cons "sessions" (sessions-region live opens html-table stamp))
                           (cons "frame-view" (frameview-region fv))
                           (cons "langs" (langs-region langs))
                           (cons "iroh" (iroh-region iroh))

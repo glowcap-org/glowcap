@@ -34,7 +34,7 @@ The example settings expose the page only on the host's loopback address. To
 share it, put an HTTPS reverse proxy or a private network in front of it. That
 proxy does not guard the room server, which people reach over iroh with its
 own authentication. The
-[deployment guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/web/deploy/README.md) covers images, where state lives,
+[deployment guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/web/deploy/README.md) covers images, where state lives,
 and your own Compose settings. Its `docker-compose.yml` lists the environment
 variables.
 
@@ -88,7 +88,7 @@ it. Every device that opens the link sees the same rooms, conversations, and
 drafts.
 
 Management is separate. Its link is kept in the service's state directory,
-and the [operating guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/operating.md#the-session-service) says where. Hold
+and the [operating guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/operating.md#the-session-service) says where. Hold
 that link in **Session access** to create access for a person or device,
 change its permissions, pause it, or revoke it. The new link grants
 only the use you select, and you can share a separately limited management
@@ -151,7 +151,7 @@ when a member publishes their own trace, with the **Live trace** toggle under
 many bytes, never the messages themselves.
 
 The full
-[operating guide](https://github.com/jimisaacs/glowcap/blob/main/apps/rooms/operating.md)
+[operating guide](https://github.com/glowcap-org/glowcap/blob/main/apps/rooms/operating.md)
 covers each flag, the saved files, the IRC forms, and
 how to set up the live view.
 

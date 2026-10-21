@@ -3,12 +3,14 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "glowcap-python"
+name = "glowcap"
+authors = [{name = "Glowcap LLC"}]
 version = "0.1.0"
 description = "Python ctypes binding for the glowcap C ABI archives (codec-neutral CapTP core for OCapN)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
+classifiers = ["Development Status :: 3 - Alpha"]
 # Stdlib ctypes only, no third-party runtime dependencies. The one optional
 # extra is the keyed-relay rendezvous dial's WebSocket client (ADR-0034),
 # imported lazily at dial time and refused with a typed error when absent.
@@ -31,3 +33,8 @@ include = ["glowcap*"]
 [tool.setuptools.package-data]
 # Ship the PEP 561 marker so type checkers read the inline annotations.
 glowcap = ["py.typed", "c-abi-resolve.json"]
+
+[project.urls]
+Repository = "https://github.com/glowcap-org/glowcap"
+Homepage = "https://glowcap.org"
+Documentation = "https://glowcap.org"

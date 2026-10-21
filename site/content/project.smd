@@ -6,10 +6,18 @@
 .draft = false,
 ---
 
-glowcap is unreleased. Its public APIs can change, it has not received a
-security audit, and it should not carry data you cannot afford to lose.
-[SECURITY.md](https://github.com/jimisaacs/glowcap/blob/main/SECURITY.md)
+Glowcap LLC, an Ohio limited liability company, maintains glowcap.
+The canonical source is [glowcap-org/glowcap](https://github.com/glowcap-org/glowcap).
+
+glowcap 0.1.0 is alpha software, licensed under Apache-2.0. It provides
+capability-based networking and Loam transactional storage and durable actors.
+Public APIs, ABIs, and storage formats can change before 1.0. It has not
+received a security audit, and it should not carry data you cannot afford to lose.
+[SECURITY.md](https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md)
 defines the security posture and the private reporting process.
+
+CapTP `1.0` names a wire protocol supported by glowcap. The software version
+is `0.1.0` alpha.
 
 # Where to go next
 
@@ -26,10 +34,16 @@ defines the security posture and the private reporting process.
 # Project records
 
 The repository keeps the detailed project record: [what
-ships](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md), [known
-limitations](https://github.com/jimisaacs/glowcap/blob/main/docs/boundaries.md),
-the [steps toward 1.0](https://github.com/jimisaacs/glowcap/blob/main/docs/ladder.md),
-and the [remaining work](https://github.com/jimisaacs/glowcap/blob/main/docs/roadmap.md).
-The [vision](https://github.com/jimisaacs/glowcap/blob/main/docs/vision.md)
+ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md), [known
+limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md),
+the [steps toward 1.0](https://github.com/glowcap-org/glowcap/blob/main/docs/ladder.md),
+and the [remaining work](https://github.com/glowcap-org/glowcap/blob/main/docs/roadmap.md).
+The [vision](https://github.com/glowcap-org/glowcap/blob/main/docs/vision.md)
 defines what 1.0 is aiming for. Accepted and superseded choices are recorded in the
-[decision index](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/README.md).
+[decision index](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/README.md).
+
+# Sponsorship
+
+[Sponsor Glowcap LLC](https://github.com/sponsors/glowcap-org) to support
+implementation, interoperability testing, performance measurement, and
+maintenance of glowcap and Loam.

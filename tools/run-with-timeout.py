@@ -19,6 +19,9 @@ Unlike GNU, a fired deadline says so on stderr, after any replayed output. A
 build step that runs many of these at once otherwise shows a stopped child as
 a bare failure, indistinguishable from one that failed on its own.
 
+`--heartbeat <duration>` reports elapsed time while the child is running.
+It does not extend the deadline or imply that the child is making progress.
+
 `--quiet-success` spools the child's combined output to a temporary file. A
 failure replays it exactly. A successful check emits nothing.
 
@@ -37,10 +40,12 @@ import argparse
 import math
 import os
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 
 def duration(value: str) -> float:
@@ -67,16 +72,26 @@ def signal_group(process: subprocess.Popen[bytes], sig: int) -> None:
 def escalate(process: subprocess.Popen[bytes], kill_after: float | None) -> None:
     """Wait for the already-signalled group, escalating to SIGKILL only when a
     grace period was asked for. Without one this waits, exactly as GNU timeout
-    does. A caller wanting a bound passes `--kill-after`. Either way the child
-    is reaped before the caller returns, so nothing is left running."""
+    does. A caller wanting a bound on the whole group passes `--kill-after`.
+    Either way the immediate child is reaped before the caller returns."""
     if kill_after is None:
         process.wait()
         return
+    deadline = time.monotonic() + kill_after
     try:
         process.wait(timeout=kill_after)
     except subprocess.TimeoutExpired:
-        signal_group(process, signal.SIGKILL)
-        process.wait()
+        pass
+    # The group leader can exit before descendants that ignored the signal.
+    # Its wait status does not prove that the process group has drained.
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+    signal_group(process, signal.SIGKILL)
+    process.wait()
 
 
 def shell_code(returncode: int) -> int:
@@ -94,6 +109,7 @@ def main() -> int:
         action="store_true",
         help="replay combined child output only when the command fails",
     )
+    parser.add_argument("--heartbeat", type=duration, default=0)
     parser.add_argument("timeout", type=duration)
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -171,7 +187,19 @@ def main() -> int:
     signal.pthread_sigmask(signal.SIG_UNBLOCK, relayed)
 
     try:
-        return finish(shell_code(process.wait(timeout=args.timeout)))
+        started = time.monotonic()
+        deadline = started + args.timeout
+        while True:
+            remaining = max(0, deadline - time.monotonic())
+            interval = min(remaining, args.heartbeat) if args.heartbeat else remaining
+            try:
+                return finish(shell_code(process.wait(timeout=interval)))
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= deadline:
+                    raise
+                print(f"run-with-timeout: {shlex.join(command)} still running "
+                      f"({time.monotonic() - started:.0f}s elapsed, "
+                      f"{args.timeout:g}s deadline)", file=sys.stderr, flush=True)
     except subprocess.TimeoutExpired:
         signal_group(process, signal.SIGTERM)
         escalate(process, args.kill_after)

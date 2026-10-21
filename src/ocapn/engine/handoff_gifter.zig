@@ -256,6 +256,9 @@ pub fn buildSignedGive(
 /// commit relies on no intervening exporter mutation after preparation.
 pub const PreparedDepositGift = struct {
     message: model.Message,
+    /// Preparation owns the tree inventory through commit or abandonment.
+    /// Rebuilding it at commit would allocate after the recipient owns its give.
+    inventory: session.Inventory,
     /// The deliver encoded at preparation (ADR-0064). Commit queues it and
     /// frees the tree, which recording reads one last time.
     row: outbound.Encoded,
@@ -264,6 +267,7 @@ pub const PreparedDepositGift = struct {
     pub fn abandon(self: *PreparedDepositGift, peer: *Peer) void {
         peer.cancelPendingReservation(self.reservation);
         self.row.deinit(peer);
+        self.inventory.deinit(peer.allocator);
         model.freeMessage(peer.allocator, self.message);
         self.* = undefined;
     }
@@ -273,8 +277,9 @@ pub const PreparedDepositGift = struct {
         // reserved every fallible exporter-table and queue resource it needs.
         // `queueOriginatedGive` excludes an aliased recipient peer, so its
         // recipient commit cannot mutate this session between those two points.
-        peer.session_state.recordSend(self.message) catch unreachable;
+        peer.session_state.applyValidatedSend(self.message, self.inventory, null) catch unreachable;
         peer.pushPendingAssume(self.reservation, .{ .encoded = self.row });
+        self.inventory.deinit(peer.allocator);
         model.freeMessage(peer.allocator, self.message);
         self.* = undefined;
     }
@@ -293,7 +298,7 @@ pub fn prepareDepositGiftInBatch(
     } });
     errdefer model.freeMessage(peer.allocator, message);
     const inventory = try peer.inventoryMessage(message);
-    defer inventory.deinit(peer.allocator);
+    errdefer inventory.deinit(peer.allocator);
 
     if (peer.node_services) |services| {
         if (services.loweringActive()) try lower.lowerMessage(services, &message, inventory);
@@ -316,6 +321,7 @@ pub fn prepareDepositGiftInBatch(
     };
     return .{
         .message = message,
+        .inventory = inventory,
         .row = row,
         .reservation = try batch.reserve(.{ .encoded = row }),
     };

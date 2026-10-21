@@ -10,7 +10,7 @@
 //! carries the receive to the exporter and feeds it as many times as it
 //! likes: verbatim, with a few bytes of the certificate flipped, or with a
 //! few bytes of its signature flipped and everything else intact. Each feed
-//! is a fresh request, under its own answer position, the way a peer that
+//! is a fresh request, with its own answer position and resolver, the way a peer that
 //! kept a certificate would resend it. The exporter's replies reach the
 //! recipient only for the first feed, since a reply to a request the
 //! recipient never made would close the session from its side and end the
@@ -97,6 +97,9 @@ pub const Trio = struct {
     /// the recipient chose is also the answer position the next feed takes.
     feeds: u8 = 0,
     answer_base: u8,
+    resolver_start: usize,
+    resolver_end: usize,
+    resolver_base: u64,
     withdrawn: bool = false,
     attacked: bool = false,
 
@@ -201,6 +204,11 @@ pub const Trio = struct {
         if (answer.len < 3 or answer[0] != ']' or answer[2] != '+') return error.NoAnswerPosition;
         self.answer_base = answer[1];
         if (self.answer_base < '0' or self.answer_base + max_steps > '9' + 1) return error.NoAnswerPosition;
+        const resolver_label = "<18'desc:import-object";
+        self.resolver_start = (std.mem.indexOfPos(u8, self.withdraw, self.envelope_end, resolver_label) orelse return error.NoResolver) + resolver_label.len;
+        self.resolver_end = std.mem.indexOfScalarPos(u8, self.withdraw, self.resolver_start, '+') orelse return error.NoResolver;
+        self.resolver_base = try std.fmt.parseInt(u64, self.withdraw[self.resolver_start..self.resolver_end], 10);
+        if (self.resolver_base > std.math.maxInt(u64) - max_steps) return error.NoResolver;
     }
 
     /// Whether the gift still waits at the exporter, in the registry of the
@@ -227,17 +235,26 @@ pub const Trio = struct {
     }
 
     /// Feed one copy of the stopped frame to the exporter the way a socket
-    /// read would, under the next answer position, then let the network
+    /// read would, under the next answer position and resolver, then let the network
     /// settle.
     fn feedToExporter(self: *Trio, copy: []u8) !void {
         copy[self.envelope_end + 1] = self.answer_base + self.feeds;
+        // A fresh question also needs a fresh resolver capability. A refused
+        // certificate can leave its answer pending; reusing its resolver then
+        // violates the protocol before the next certificate is examined.
+        var resolver_buf: [20]u8 = undefined;
+        const resolver = try std.fmt.bufPrint(&resolver_buf, "{d}", .{self.resolver_base + self.feeds});
         self.feeds += 1;
         var prefix_buf: [stream_framing.prefix_buffer_bytes]u8 = undefined;
-        const prefix = stream_framing.renderPrefix(&prefix_buf, copy.len);
-        const stream_bytes = try self.gpa.alloc(u8, prefix.len + copy.len);
+        const frame_len = copy.len - (self.resolver_end - self.resolver_start) + resolver.len;
+        const prefix = stream_framing.renderPrefix(&prefix_buf, frame_len);
+        const stream_bytes = try self.gpa.alloc(u8, prefix.len + frame_len);
         defer self.gpa.free(stream_bytes);
         @memcpy(stream_bytes[0..prefix.len], prefix);
-        @memcpy(stream_bytes[prefix.len..], copy);
+        const resolver_at = prefix.len + self.resolver_start;
+        @memcpy(stream_bytes[prefix.len..resolver_at], copy[0..self.resolver_start]);
+        @memcpy(stream_bytes[resolver_at..][0..resolver.len], resolver);
+        @memcpy(stream_bytes[resolver_at + resolver.len ..], copy[self.resolver_end..]);
         self.exporter.feedBytes(self.r_to_e.b, stream_bytes) catch |err| switch (err) {
             error.OutOfMemory => return err,
             // A refusal retires the session, which the properties below read.

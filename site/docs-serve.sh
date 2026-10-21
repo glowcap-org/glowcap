@@ -65,8 +65,17 @@ if [ "${has_port}" = false ]; then
     echo "docs-serve: port ${port} is already in use; pass -Dport=N or stop the process holding it" >&2
     exit 1
   fi
-  echo "docs-serve: using http://127.0.0.1:${port}/glowcap/" >&2
+  echo "docs-serve: preview will use http://127.0.0.1:${port}/glowcap/ after preparation" >&2
   set -- "$@" "-Dport=${port}"
+fi
+
+# Keep the build graph identical on clean and warm checkouts. The preview
+# owns this runtime cache decision, while a site build always captures afresh.
+if ! compgen -G 'site/assets/rooms-*.webp' >/dev/null; then
+  echo "docs-serve: no Rooms screenshots cached; building Rooms and capturing browser scenes before serving. A cold build can take several minutes." >&2
+  started=$SECONDS
+  "${zig}" build site-captures || exit $?
+  echo "docs-serve: screenshots prepared in $((SECONDS - started))s; starting the site build" >&2
 fi
 
 # Fingerprint of every input `gen-site-examples` reads. Content checksum, not

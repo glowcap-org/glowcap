@@ -11,6 +11,9 @@
 # runs this crate's own tests with `--locked`, and the tokio pin below is the
 # one both sidecars carry.
 [package]
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
 name = "glowcap-sidecar-common"
 version = "0.1.0"
 edition = "2024"

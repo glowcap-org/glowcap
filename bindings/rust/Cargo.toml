@@ -1,6 +1,12 @@
 [package]
-name = "glowcap-rust-dogfood"
-version = "0.0.0"
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
+name = "glowcap"
+authors = ["Glowcap LLC"]
+description = "Capability networking and Loam durable state through the glowcap C ABI."
+readme = "README.md"
+version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false

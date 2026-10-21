@@ -19,6 +19,17 @@ the worktree integrator. Hosted pull requests and protected promotion to
 to be available. The [roadmap](roadmap.md#open-obligations-from-retired-plans)
 owns activation and outstanding hosted verification.
 
+## Release status
+
+glowcap 0.1.0 is an Apache-2.0 alpha. A public repository or a tagged archive
+does not promise API, ABI, or storage compatibility. Release publication
+accepts only `0.x.y` versions and marks each GitHub release as a prerelease,
+without assigning it the latest stable release label. A stable release
+requires a deliberate change to this policy and its workflow checks.
+
+Registry identities and the corporate registration steps live in
+[binding packaging](../bindings/PACKAGING.md#package-ownership).
+
 ## Integrating locally
 
 When hosted review is unavailable, review the local diff and run the checks
@@ -105,7 +116,15 @@ repositories, including divergent and checked-out branches.
 
 `main` is a fast-forward of `dev`, so the commit the checks ran on is the
 commit that publishes: the same hash, signature, and evidence note. Choose a
-coherent increment, confirm it is on `dev` with a green push run, then move
+coherent increment on `dev` and request full validation:
+
+```sh
+gh workflow run check.yml --ref dev -f suite=check
+```
+
+Wait for `gates` and `macos-runtime` to pass on the candidate hash. A green
+`dev-gates` result covers development checks and does not qualify promotion.
+If `dev` advances during validation, validate the new candidate before moving
 `main` to it:
 
 ```sh
@@ -133,8 +152,21 @@ and the domain verification in the maintainer's GitHub account settings.
 
 Only the maintainer moves `main`. Pages and tagged releases each run
 `tools/check/require-main-check.py`, which requires a successful `check.yml`
-push run on `main` for the exact commit being published.
-Passing `dev` checks alone does not authorize publication.
+run on `main` for the exact commit being published. Both `gates` and
+`macos-runtime` must complete successfully in the same run attempt.
+Passing `dev` checks or the long fuzz search alone does not authorize publication.
+
+If a push has no check run, including the first publication of a repository,
+start full validation explicitly:
+
+```sh
+gh workflow run check.yml --ref main -f suite=check
+```
+
+Wait for both required jobs to pass. Their successful workflow triggers Pages
+automatically. To retry a failed deployment of that checked commit, run
+`gh workflow run pages.yml --ref main`. A manual `check` defaults to full
+validation. Select `suite=fuzz` for the separate long fuzz search.
 
 Every run of `ci/gates.sh` writes an evidence record to
 `zig-out/evidence/<commit>.json`: the commit, the hash of the working tree

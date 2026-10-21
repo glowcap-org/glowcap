@@ -1,6 +1,6 @@
 //! Rust row of the live Goblins-listener matrix.
 
-use glowcap_rust_dogfood::{Argument, PendingWork, tcp};
+use glowcap::{Argument, PendingWork, tcp};
 
 const ACTOR_SWISS: &str = "glowcapActorSwissnumABCDEFGH1234";
 

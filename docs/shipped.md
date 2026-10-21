@@ -6,6 +6,9 @@ sources: []
 
 # What ships
 
+glowcap's software version is **0.1.0 alpha**. CapTP `1.0` names the wire
+protocol it speaks, independently of the project's release status.
+
 Everything on this page is implemented in this repository, and
 [What you can depend on](stability.md) says how each part is checked. glowcap speaks signed CapTP 1.0 over Syrup to
 outside implementations, and most of its regular checks against
@@ -77,7 +80,9 @@ listening, and events, over a Host it has adopted.
   whole peer locator before any traffic and refuses a mismatched peer or an accepted plain-TCP assertion. Repeated
   enlivening on a session shares one import.
 - **Multi-home peers.** An `id` locator names a peer's durable key and lists routes that must prove it. Redeem races
-  two proved routes in order and keeps the first. `alt-locators` are weaker fallbacks tried one at a time.
+  two proved routes in order and keeps the first. An `id` locator requires `glowcap-next` with
+  `multi_location`, and a Host-level `id` sturdyref also requires Host opt-in.
+  `alt-locators` are weaker fallbacks tried one at a time.
   [Multi-home peers](https://glowcap.org/multihome/) explains the design, and
   [known limitations](boundaries.md#protocol-and-interop) gives the rules.
 - **Distributed garbage collection.** Zig and all four bindings release Goblins objects independently and

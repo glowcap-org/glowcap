@@ -26,7 +26,7 @@ the [Rooms section]($link.page('rooms')) covers the rest.
 # Learn the Zig API
 
 Start the walk at
-[01_connect_and_serve.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/01_connect_and_serve.zig).
+[01_connect_and_serve.zig](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/01_connect_and_serve.zig).
 It shows both ends of one session: listen, publish, connect, fetch, and call,
 over Noise TCP, which proves the listener's key to the dialer.
 
@@ -36,16 +36,16 @@ zig build examples
 
 Three later chapters isolate the moves that are easiest to miss:
 
-- [02_introduce_and_redeem.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig)
+- [02_introduce_and_redeem.zig](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/02_introduce_and_redeem.zig)
   hands a capability to a third peer and leaves the introducer behind.
-- [06_pipeline_and_attenuate.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/06_pipeline_and_attenuate.zig)
+- [06_pipeline_and_attenuate.zig](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/06_pipeline_and_attenuate.zig)
   calls through an unresolved promise and wraps a capability with a smaller
   interface.
-- [07_durable_card.zig](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/07_durable_card.zig)
+- [07_durable_card.zig](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/07_durable_card.zig)
   keeps a card in [Loam]($link.page('loam')), restarts everything, and finds
   the card's state still there.
 
-The [complete example guide](https://github.com/jimisaacs/glowcap/blob/main/examples/README.md)
+The [complete example guide](https://github.com/glowcap-org/glowcap/blob/main/examples/README.md)
 continues down through actors, bootstrap lookup, the raw engine, and the
 buffer-explicit and many-session helpers.
 [Concepts]($link.page('concepts')) explains handoff and pipelining, and
@@ -54,16 +54,16 @@ uses.
 
 # Use it from C
 
-[host_embedder_pump.c](https://github.com/jimisaacs/glowcap/blob/main/examples/c/host_embedder_pump.c)
+[host_embedder_pump.c](https://github.com/glowcap-org/glowcap/blob/main/examples/c/host_embedder_pump.c)
 is the first C program to read. It drives two byte-fed `GlowcapHost` instances
 through the C CapTP application API. Continue with
-[the C guide](https://github.com/jimisaacs/glowcap/blob/main/docs/consuming-from-c.md)
+[the C guide](https://github.com/glowcap-org/glowcap/blob/main/docs/consuming-from-c.md)
 for linking, ownership, the host allocator, and transport composition.
 
 # Try another application
 
 Tasks, tools, and accountability are smaller applications that run across
 several languages. The
-[application list](https://github.com/jimisaacs/glowcap/blob/main/apps/README.md)
+[application list](https://github.com/glowcap-org/glowcap/blob/main/apps/README.md)
 says what each one shows and how to run it. They double as binding examples,
 and the [bindings overview]($link.page('bindings')) points to each language.

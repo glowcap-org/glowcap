@@ -9,7 +9,7 @@
 # Shared worktree-name grammar: lowercase letters and digits, starts with a
 # letter, at most 12 characters. The .env reader and enter.sh both use this.
 glowcap_devcontainer_validate_worktree_name() {
-    local value="$1"
+    local LC_ALL=C value="$1"
     local what="${2:-GLOWCAP_WORKTREE}"
     case "${value}" in
         [a-z]* ) ;;
@@ -34,7 +34,7 @@ glowcap_devcontainer_validate_worktree_name() {
 # Keep it target-safe and readable: tmux gives ':' and '.' special meaning,
 # while a compact lowercase label remains unambiguous in session listings.
 glowcap_devcontainer_validate_session_designator() {
-    local value="$1"
+    local LC_ALL=C value="$1"
     case "${value}" in
         [a-z]* ) ;;
         *)
@@ -76,7 +76,7 @@ glowcap_devcontainer_tmux_session_name() {
 }
 
 glowcap_devcontainer_validate_network_name() {
-    local value="$1"
+    local LC_ALL=C value="$1"
     local what="${2:-Docker network name}"
     case "${value}" in
         [A-Za-z0-9]* ) ;;

@@ -26,7 +26,7 @@ pub fn main(init: std.process.Init) !void {
     }
     const creating = std.mem.eql(u8, mode, "create");
     const changed_cwd = std.mem.eql(u8, mode, "changed-cwd");
-    var db = try Lmdb.open(if (changed_cwd) "." else path, .{ .mode = if (creating) .{ .create = f.id } else .{ .open = f.id }, .max_readers = 1 });
+    var db = try Lmdb.open(if (changed_cwd) "." else path, .{ .opening = .{ .id = f.id, .mode = if (creating) .create else .open }, .max_readers = 1 });
     defer db.close() catch unreachable;
     if (creating) {
         _ = try f.seed(init.gpa, &db);

@@ -4,6 +4,7 @@
  * the site is framed, themed, and encoded the same way. `capture-rooms.ts`
  * and `capture-rooms-directories.ts` are the callers.
  */
+import captureAssets from "./capture-assets.json" with { type: "json" };
 import type { Page } from "playwright";
 
 /** Browser context options every capture shares. Reduced motion stops the
@@ -68,6 +69,11 @@ export async function settle(page: Page, theme: "dark" | "light" = "dark"): Prom
  * `outDir`, as `<name>-dark.webp` and `<name>-light.webp`.
  */
 export async function shot(page: Page, outDir: string, name: string, within?: string): Promise<void> {
+	for (const theme of ["dark", "light"]) {
+		if (!captureAssets.includes(`${name}-${theme}.webp`)) {
+			throw new Error(`Undeclared site capture: ${name}-${theme}.webp`);
+		}
+	}
 	let clip: { x: number; y: number; width: number; height: number } | undefined;
 	if (within) {
 		clip = await page.evaluate((selector) => {

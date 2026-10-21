@@ -19,7 +19,9 @@ covers the server's grants and services, and the
 
 ## Build steps
 
-Every Rooms command is a `zig build` step:
+Every Rooms command is a `zig build` step. Builds finish before services start.
+The [startup guide](../../CONTRIBUTING.md#preview-startup) explains cold builds,
+cached launches, and when a delay needs investigation.
 
 | Command | Does | Needs |
 | --- | --- | --- |

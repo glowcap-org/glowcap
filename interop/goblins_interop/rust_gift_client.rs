@@ -24,7 +24,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use glowcap_rust_dogfood::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session, tcp};
+use glowcap::{Argument, ConnectOptions, Ref, Runtime, RuntimeConfig, Session, tcp};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 
@@ -212,7 +212,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	println!(
 		"rust-goblins-gift OK: two nested binding values became distinct gives that live Goblins redeemed and called directly"
 	);
-	to_bob.close(glowcap_rust_dogfood::PendingWork::Cancel).await?;
+	to_bob.close(glowcap::PendingWork::Cancel).await?;
 	Ok(())
 }
 

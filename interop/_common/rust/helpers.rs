@@ -26,7 +26,7 @@ pub fn ignore_port_args() -> Result<(), Fail> {
 /// accepted handle without serving it leaves published objects reachable in
 /// name but unable to answer.
 #[cfg(feature = "iroh")]
-pub fn serve_iroh_sessions(server: Rc<glowcap_rust_dogfood::iroh::Server>) {
+pub fn serve_iroh_sessions(server: Rc<glowcap::iroh::Server>) {
 	tokio::task::spawn_local(async move {
 		while let Ok(session) = server.accept().await {
 			tokio::task::spawn_local(async move {

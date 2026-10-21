@@ -186,7 +186,7 @@ fn require_archive() -> Result<()> {
 /// A connection cannot outlive the netlayer that produced it:
 ///
 /// ```compile_fail
-/// use glowcap_rust_dogfood::{Codec, tcp::Netlayer};
+/// use glowcap::{Codec, tcp::Netlayer};
 /// let _conn = {
 ///     let netlayer = Netlayer::new(Default::default()).unwrap();
 ///     netlayer.connect("127.0.0.1", 1, None, Codec::Syrup, 4096).unwrap()

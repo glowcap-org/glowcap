@@ -49,7 +49,7 @@ pub fn register(b: *std.Build, check_step: *std.Build.Step, runtime_gate: *execu
     }) |scenario| {
         inline for (.{ "sqlite", "lmdb" }) |engine| {
             const maximum = execution.addSystemCommand(b, .{ .deterministic = 30 }, &.{
-                "cargo", "test", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "--lib", "--", "--exact", maximum_foreign_prefix ++ scenario ++ "_on_" ++ engine,
+                "cargo", "test", "--quiet", "--locked", "--manifest-path", "apps/rooms/rust/Cargo.toml", "--lib", "--", "--exact", maximum_foreign_prefix ++ scenario ++ "_on_" ++ engine,
             });
             // An exact selector must execute its witness, including after a rename.
             execution.expectStdOutMatch(maximum, "test result: ok. 1 passed;");

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "worktree-integration-test: line %s failed: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 integrate=${root}/.agents/skills/work/bin/glowcap-integrate
@@ -159,7 +160,7 @@ for name in small-one small-two; do
 done
 small_tip=$(git -C "${tree}" rev-parse feature-work)
 before_dev=$(git -C "${tree}" rev-parse dev)
-if (cd "${tree}" && "${integrate}") >"${scratch}/unnamed.log" 2>&1; then
+if (cd "${tree}" && GIT_COMMITTER_DATE='2001-01-01T00:00:00Z' "${integrate}") >"${scratch}/unnamed.log" 2>&1; then
 	echo "worktree-integration-test: published several commits without a subject" >&2
 	exit 1
 fi
@@ -181,10 +182,13 @@ feature_tip=${squash}
 printf 'single\n' >"${tree}/single"
 git -C "${tree}" add single
 git -C "${tree}" -c user.name="draft author" -c user.email=draft@glowcap.invalid commit -qm single
-if (cd "${tree}" && "${integrate}" -m "Rename") >/dev/null 2>&1; then
+single_tip=$(git -C "${tree}" rev-parse HEAD)
+if (cd "${tree}" && GIT_COMMITTER_DATE='2001-01-01T00:00:00Z' "${integrate}" -m "Rename") >/dev/null 2>&1; then
 	echo "worktree-integration-test: renamed a single commit" >&2
 	exit 1
 fi
+[[ $(git -C "${tree}" rev-parse HEAD) == "${single_tip}" ]]
+[[ -z $(git -C "${tree}" status --porcelain) ]]
 (cd "${tree}" && "${integrate}" >/dev/null)
 feature_tip=$(git -C "${tree}" rev-parse feature-work)
 [[ $(git -C "${tree}" rev-parse dev) == "${feature_tip}" ]]
@@ -198,16 +202,34 @@ printf 'unsigned\n' >"${tree}/unsigned"
 git -C "${tree}" add unsigned
 git -C "${tree}" commit -qm unsigned
 unsigned_tip=$(git -C "${tree}" rev-parse feature-work)
+unsigned_tree=$(git -C "${tree}" write-tree)
 before_dev=$(git -C "${tree}" rev-parse dev)
 git -C "${repo}" config user.signingkey "${scratch}/no-such-key"
-if (cd "${tree}" && "${integrate}") >"${scratch}/unsigned.log" 2>&1; then
+# A rebase must change commit identities even on a fast machine. Refusing a
+# signature after rebasing must restore the input, not depend on clock timing.
+if (cd "${tree}" && GIT_COMMITTER_DATE='2001-01-01T00:00:00Z' "${integrate}") >"${scratch}/unsigned.log" 2>&1; then
 	echo "worktree-integration-test: published without a signature" >&2
 	exit 1
 fi
 grep -Fq 'signed at integration' "${scratch}/unsigned.log"
 [[ $(git -C "${tree}" rev-parse dev) == "${before_dev}" ]]
 [[ $(git -C "${tree}" rev-parse feature-work) == "${unsigned_tip}" ]]
+[[ $(git -C "${tree}" write-tree) == "${unsigned_tree}" ]]
+[[ -z $(git -C "${tree}" status --porcelain) ]]
 git -C "${repo}" config user.signingkey "${scratch}/signing-key"
+# Signing can succeed while verification refuses the key. This also leaves
+# the original clean input and shared branch intact.
+git -C "${repo}" config gpg.ssh.allowedSignersFile "${scratch}/no-trusted-signers"
+if (cd "${tree}" && GIT_COMMITTER_DATE='2001-01-01T00:00:00Z' "${integrate}") >"${scratch}/unverified.log" 2>&1; then
+	echo "worktree-integration-test: published an unverified signature" >&2
+	exit 1
+fi
+grep -Fq 'signature on the integrated commit does not verify' "${scratch}/unverified.log"
+[[ $(git -C "${tree}" rev-parse dev) == "${before_dev}" ]]
+[[ $(git -C "${tree}" rev-parse feature-work) == "${unsigned_tip}" ]]
+[[ $(git -C "${tree}" write-tree) == "${unsigned_tree}" ]]
+[[ -z $(git -C "${tree}" status --porcelain) ]]
+git -C "${repo}" config gpg.ssh.allowedSignersFile "${scratch}/allowed_signers"
 (cd "${tree}" && "${integrate}" >/dev/null)
 feature_tip=$(git -C "${tree}" rev-parse feature-work)
 [[ $(git -C "${tree}" rev-parse dev) == "${feature_tip}" ]]
@@ -227,12 +249,15 @@ printf 'mine\n' >"${tree}/docs/decisions/adr/ADR-0003-mine.md"
 git -C "${tree}" add docs/decisions/adr/ADR-0003-mine.md
 git -C "${tree}" commit -qm mine-adr
 before_dev=$(git -C "${tree}" rev-parse dev)
-if (cd "${tree}" && "${integrate}") >"${scratch}/duplicate.log" 2>&1; then
+duplicate_tip=$(git -C "${tree}" rev-parse HEAD)
+if (cd "${tree}" && GIT_COMMITTER_DATE='2001-01-01T00:00:00Z' "${integrate}") >"${scratch}/duplicate.log" 2>&1; then
 	echo "worktree-integration-test: published a duplicate decision record id" >&2
 	exit 1
 fi
 grep -Fq 'decision record id taken twice on the rebased tree: ADR-0003' "${scratch}/duplicate.log"
 [[ $(git -C "${tree}" rev-parse dev) == "${before_dev}" ]]
+[[ $(git -C "${tree}" rev-parse HEAD) == "${duplicate_tip}" ]]
+[[ -z $(git -C "${tree}" status --porcelain) ]]
 (cd "${tree}" && "${integrate}" --sync >/dev/null)
 git -C "${tree}" mv docs/decisions/adr/ADR-0003-mine.md docs/decisions/adr/ADR-0004-mine.md
 git -C "${tree}" commit -qm renumber-adr

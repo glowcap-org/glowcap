@@ -1,0 +1,41 @@
+name: Prepare the CI image
+description: Resolve a toolchain image or build it once for this workflow run.
+outputs:
+  image:
+    description: Immutable registry digest or local image ID.
+    value: ${{ steps.prepare.outputs.image }}
+  archive:
+    description: Whether consumers need the run-scoped image artifact.
+    value: ${{ steps.prepare.outputs.archive }}
+runs:
+  using: composite
+  steps:
+    - name: Reclaim disk space for the toolchain image
+      shell: bash
+      run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+    - name: Install the pinned Dev Containers CLI
+      shell: bash
+      run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
+    - name: Authenticate to the image registry
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+    - name: Resolve or build the toolchain image once
+      id: prepare
+      env:
+        PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') }}
+      shell: bash
+      run: |
+        args=()
+        if [ "$PUBLISH" = true ]; then args+=(--publish); fi
+        python3 .devcontainer/ci/image.py prepare "${args[@]}"
+    - name: Share an unpublished PR image within this run
+      if: steps.prepare.outputs.archive == 'true'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: devcontainer-image
+        path: ${{ runner.temp }}/devcontainer.tar
+        compression-level: 1
+        retention-days: 1
+        if-no-files-found: error

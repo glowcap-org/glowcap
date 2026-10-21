@@ -98,7 +98,7 @@ listener, and stored references keep working. On a Host that has opted into
    a time, in their listed order.
 
 The
-[multi-home route diagrams](https://github.com/jimisaacs/glowcap/blob/main/docs/protocol-diagrams/08-multihome-routes.md)
+[multi-home route diagrams](https://github.com/glowcap-org/glowcap/blob/main/docs/protocol-diagrams/08-multihome-routes.md)
 draw each of these flows.
 
 # Rooms uses it
@@ -122,7 +122,7 @@ OCapN does not specify multi-homing. Its meeting notes discuss ideas from
 locators that name several netlayers (OCapN's word for a transport) to a vat id
 that does not depend on any transport. Everything described here is built and
 checked
-([ADR-0036](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0036-identity-and-multihome-routing.md)).
+([ADR-0036](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0036-identity-and-multihome-routing.md)).
 The wire format is a `glowcap-next` extension, so peers that do not negotiate
 it never see these route hints. [What you can depend on]($link.page('stability'))
 lists the checks.

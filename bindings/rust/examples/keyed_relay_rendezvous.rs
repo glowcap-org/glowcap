@@ -7,7 +7,7 @@
 //! Run via `zig build rust-keyed-relay-rendezvous` (the harness passes
 //! `<locator>` after `--`).
 
-use glowcap_rust_dogfood::{
+use glowcap::{
 	Argument, CarrierPhase, ConnectOptions, Locator, PendingWork, Runtime, RuntimeConfig, parse_locator, relay,
 };
 use tokio::task::LocalSet;

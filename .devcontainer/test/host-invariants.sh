@@ -20,6 +20,7 @@ done < <(glowcap_devcontainer_compose_variables)
 unset glowcap_compose_variable
 
 scratch="$(mktemp -d)"
+scratch="$(cd "${scratch}" && pwd -P)"
 cleanup() {
     rm -rf -- "${scratch}"
 }
@@ -519,7 +520,7 @@ while IFS=: read -r variable base; do
     fi
     grep -q '8080 is reserved' "${scratch}/reserved-port.log"
     [[ "$(glowcap_devcontainer_env_value "${reserved_env}" "${variable}")" == 08080 ]]
-done
+done <<< "$(glowcap_devcontainer_port_rows)"
 [[ "$(glowcap_devcontainer_primary_checkout "${linked}")" == "${primary}" ]]
 
 if glowcap_devcontainer_validate_worktree "${linked}/.devcontainer" main >/dev/null 2>&1; then

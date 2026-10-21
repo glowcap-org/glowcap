@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Report a security issue privately
-    url: https://github.com/jimisaacs/glowcap/blob/main/SECURITY.md
+    url: https://github.com/glowcap-org/glowcap/blob/main/SECURITY.md
     about: Use the private reporting routes in the security policy.

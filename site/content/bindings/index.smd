@@ -19,7 +19,7 @@ them.
 # One contract, each language's idioms
 
 A `Session` is one connection to a peer, with the operations in the
-[bindings contract](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md),
+[bindings contract](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md),
 such as `fetch`, `send`, `publish`, and `serve`.
 A `Host` manages many sessions and the introductions between them
 ([modules]($link.page('modules'))). A `Ref` is a capability in hand: pass it as
@@ -50,10 +50,10 @@ eventual sends that queue and return a promise
 The packages and archives live in a glowcap checkout. Pin a commit, run
 `zig build`, and use the binding in that tree. Set `GLOWCAP_LIB_DIR` to load the
 archives from another directory. The
-[packaging notes](https://github.com/jimisaacs/glowcap/blob/main/bindings/PACKAGING.md)
+[packaging notes](https://github.com/glowcap-org/glowcap/blob/main/bindings/PACKAGING.md)
 give the full search order.
 
-The [binding README](https://github.com/jimisaacs/glowcap/blob/main/bindings/README.md)
+The [binding README](https://github.com/glowcap-org/glowcap/blob/main/bindings/README.md)
 has the path for each language. Compose
 [iroh]($link.page('transports/iroh')),
 [onion]($link.page('transports/onion')),

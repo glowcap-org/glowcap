@@ -362,6 +362,16 @@ fn emitLayout(
     comptime T: type,
     comptime note: []const u8,
 ) !void {
+    comptime {
+        var owners: usize = 0;
+        for (wasm_manifest) |row| {
+            if (row.ffi_mirror and std.mem.eql(u8, row.prefix, prefix)) owners += 1;
+        }
+        for (ffi_only_layouts) |native| {
+            if (std.mem.eql(u8, native, prefix)) owners += 1;
+        }
+        if (owners != 1) @compileError(prefix ++ " must belong to exactly one Wasm or FFI-only layout manifest");
+    }
     try out.print(gpa, "// {s}\n", .{note});
     try out.print(gpa, "export const {s}_SIZE = {d};\n", .{ prefix, @sizeOf(T) });
     inline for (@typeInfo(T).@"struct".field_names) |field_name| {
@@ -398,6 +408,9 @@ const ffi_only_layouts = [_][]const u8{
     "WEBRTC_READY_EVENT",
     "IROH_CONFIG",
     "WEBRTC_CONFIG",
+    "WEBRTC_STRING_VIEW",
+    "WEBRTC_ICE_SERVER",
+    "WEBRTC_SIGNALING",
 };
 
 /// The target-independent constants, emitted into the `@glowcap/abi` package.

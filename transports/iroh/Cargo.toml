@@ -8,6 +8,9 @@
 # direct dependencies are pinned exactly below as well, so an intentional bump
 # is visible here, not only in the lockfile.
 [package]
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
 name = "glowcap-iroh"
 version = "0.1.0"
 edition = "2024"

@@ -26,15 +26,15 @@ endpoint proves the transport stack, not agreement with another CapTP
 implementation.
 
 These results count only when the
-[checks workflow](https://github.com/jimisaacs/glowcap/actions/workflows/check.yml)
+[checks workflow](https://github.com/glowcap-org/glowcap/actions/workflows/check.yml)
 is green for the commit you are evaluating. The
-[repository stability page](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)
+[repository stability page](https://github.com/glowcap-org/glowcap/blob/main/docs/stability.md)
 has the full table, including what each check does not prove.
-[Community review](https://github.com/jimisaacs/glowcap/blob/main/docs/community-review.md)
+[Community review](https://github.com/glowcap-org/glowcap/blob/main/docs/community-review.md)
 is the outside-peer brief.
 
 Use [Choosing a transport]($link.page('transports/choosing')) for deployment
 tradeoffs and [Performance]($link.page('performance')) for measured costs. The
 repository keeps the complete [feature
-inventory](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md) and
-[known limitations](https://github.com/jimisaacs/glowcap/blob/main/docs/boundaries.md).
+inventory](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md) and
+[known limitations](https://github.com/glowcap-org/glowcap/blob/main/docs/boundaries.md).

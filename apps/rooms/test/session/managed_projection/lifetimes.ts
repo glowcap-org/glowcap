@@ -263,3 +263,38 @@ Deno.test("room traffic cannot enable the composer before the accepted seat, and
 		f.close();
 	}
 });
+
+Deno.test("a replacement callback waits for its own seat without discarding retained authority", () => {
+	const row = room();
+	row.seat = "retained-seat";
+	row.inbox = "initial-inbox";
+	const f = fixture(row);
+	try {
+		const membership = () => {
+			const current = f.selected();
+			assert(current.type === "room", "room remains selected");
+			return current.membership;
+		};
+		assertEquals(membership(), "joined");
+		row.inbox = "replacement-inbox";
+		f.apply();
+		assertEquals(membership(), "unavailable");
+		assertEquals(row.seat, "retained-seat");
+		f.apply();
+		assertEquals(membership(), "unavailable");
+		f.projection.activity({
+			cursor: "early-line",
+			gap: false,
+			event: {
+				target: { kind: "room", id: row.id },
+				notice: { kind: "line", from: "bo", text: "before seat adoption" },
+			},
+		});
+		assertEquals(membership(), "unavailable");
+		row.seat = "replacement-seat";
+		f.apply();
+		assertEquals(membership(), "joined");
+	} finally {
+		f.close();
+	}
+});

@@ -126,7 +126,7 @@ not use it.
 - [Performance]($link.page('performance').ref('persistent-actors-in-loam'))
   charts call latency, memory and restart time from one machine.
 - Recovery is tested by killing the process mid-write, not by cutting power.
-  The [table of checks](https://github.com/jimisaacs/glowcap/blob/main/docs/stability.md)
+  The [table of checks](https://github.com/glowcap-org/glowcap/blob/main/docs/stability.md)
   lists every Loam check.
 - Loam's full API is in Zig. C and Rust get a narrower subset through
   `libglowcap_loam` and Rust's `loam` feature: create a resource, share it
@@ -135,32 +135,32 @@ not use it.
   feature stores to IndexedDB. TypeScript, Python, and Racket have no Loam
   API.
 
-[What ships](https://github.com/jimisaacs/glowcap/blob/main/docs/shipped.md#resource-models)
+[What ships](https://github.com/glowcap-org/glowcap/blob/main/docs/shipped.md#resource-models)
 tracks what is built.
 
 # Further reading
 
 Chapter 07,
-[durable card](https://github.com/jimisaacs/glowcap/blob/main/examples/zig/07_durable_card.zig),
+[durable card](https://github.com/glowcap-org/glowcap/blob/main/examples/zig/07_durable_card.zig),
 runs this page's restart as one short program: it moves a card, shuts
 everything down, and reopens the store to find the move still there.
 
-1. [Loam guide](https://github.com/jimisaacs/glowcap/blob/main/docs/loam.md):
+1. [Loam guide](https://github.com/glowcap-org/glowcap/blob/main/docs/loam.md):
    the model, a walkthrough of chapter 07, the words used throughout, and how
    durable actors run.
-2. [Stores, transactions and reads](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/store.md):
+2. [Stores, transactions and reads](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/store.md):
    commits, the cache, and recovering a write whose outcome is unknown.
-3. [Durable names](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/publications.md):
+3. [Durable names](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/publications.md):
    how a sturdyref finds its actor after a restart.
-4. [Durable capability fields](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/references.md):
+4. [Durable capability fields](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/references.md):
    saving references to other actors and to objects on other machines.
-5. [Collection](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/collection.md):
+5. [Collection](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/collection.md):
    deleting unreachable records in small batches while the program runs.
-6. [SQLite operations](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/sqlite.md)
-   and [LMDB operations](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/lmdb.md):
+6. [SQLite operations](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/sqlite.md)
+   and [LMDB operations](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/lmdb.md):
    sizing, growing, and compacting the store on disk.
-7. [Managed access](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/access.md):
+7. [Managed access](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/access.md):
    grants, use and control references, revocation, and safe retries.
-8. [C and Rust](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/c-and-rust.md)
-   and [the browser](https://github.com/jimisaacs/glowcap/blob/main/docs/loam/browser.md):
+8. [C and Rust](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/c-and-rust.md)
+   and [the browser](https://github.com/glowcap-org/glowcap/blob/main/docs/loam/browser.md):
    the same resources from other languages.

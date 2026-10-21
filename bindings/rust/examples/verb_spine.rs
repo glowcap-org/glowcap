@@ -26,7 +26,7 @@ use std::panic::AssertUnwindSafe;
 use std::rc::Rc;
 use std::time::Duration;
 
-use glowcap_rust_dogfood::{
+use glowcap::{
 	Argument, ConnectOptions, Error, PendingWork, Ref, RemotePromise, Runtime, RuntimeConfig, Session, parse_locator,
 	tcp,
 };

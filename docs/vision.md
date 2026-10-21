@@ -48,9 +48,9 @@ The goal is 500,000 live CapTP sessions on one node, however an application
 runs glowcap.
 
 Per-session memory checks and allocation budgets hold the design to that
-target, and [benchmarks](../bench/README.md) record the measured runs and their
-scope. Serving that many connections is the job of the event loop and the
-operating system. The core's job is to stay small: no oversized session state,
+target, and the [performance report](https://glowcap.org/performance/#live-sessions) records
+measured runs and their scope. Serving that many connections is the job of
+the event loop and the operating system. The core's job is to stay small: no oversized session state,
 hidden allocation, or unnecessary copies.
 
 ## What applications see

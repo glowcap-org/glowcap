@@ -253,7 +253,7 @@ no-relay form needs a publicly reachable direct address.
 
 iroh's QUIC stack is Rust, so glowcap ships it as a separate static library,
 `libglowcap_net_transport_iroh`
-([ADR-0021](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0021-iroh-transport-sidecar.md)).
+([ADR-0021](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0021-iroh-transport-sidecar.md)).
 The base archives stay pure Zig, and building this one requires `cargo`. Every
 language keeps it optional:
 
@@ -272,7 +272,7 @@ differs.
 A session from `connect` runs its own runtime on the calling thread. To serve
 many sessions from one thread, a single [Host]($link.page('modules')), which runs many sessions, watches one descriptor that
 signals when any iroh connection is ready
-([ADR-0019](https://github.com/jimisaacs/glowcap/blob/main/docs/decisions/adr/ADR-0019-pooled-completion-io.md)).
+([ADR-0019](https://github.com/glowcap-org/glowcap/blob/main/docs/decisions/adr/ADR-0019-pooled-completion-io.md)).
 [Performance]($link.page('performance')) measures both paths. iroh's own memory is
 not part of glowcap's core session footprint.
 

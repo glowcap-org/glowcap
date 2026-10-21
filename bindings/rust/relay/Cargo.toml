@@ -3,6 +3,9 @@
 # socket is already byte-level and kernel-backpressured); its WebSocket server is
 # tokio-tungstenite, reusing the tokio the iroh sidecar already pulls in.
 [package]
+repository = "https://github.com/glowcap-org/glowcap"
+homepage = "https://glowcap.org"
+documentation = "https://glowcap.org"
 name = "glowcap-relay"
 version = "0.1.0"
 edition = "2024"
@@ -24,7 +27,7 @@ path = "src/main.rs"
 # through the glowcap Rust binding. The default TCP-only relay stays standalone
 # (no glowcap dependency, no C-ABI linking), so `rust-relay-test` needs no
 # archives; `rust-relay-iroh-test` builds with `--features iroh`.
-iroh = ["dep:glowcap-rust-dogfood"]
+iroh = ["dep:glowcap"]
 
 [dependencies]
 # dep tokio: The async runtime for the relay server.
@@ -33,7 +36,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-uti
 tokio-tungstenite = "0.30"
 # dep futures-util: Sink helpers for the relay's WebSockets.
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-glowcap-rust-dogfood = { path = "..", features = ["iroh", "async"], optional = true }
+glowcap = { path = "..", features = ["iroh", "async"], optional = true }
 
 [profile.release]
 opt-level = 2

@@ -85,6 +85,8 @@ const support_actors = @import("../support/actors.zig");
 /// caught cannot come back quietly. `zig build fuzz` prints what to add when it
 /// finds one.
 const regression_seeds = [_][]const u8{
+    // Repeated XOR mutations can restore the original authenticated record.
+    @embedFile("fuzz_regressions/regression_seeds-sealed-cancelled-flips.bin"),
     // The sealed regime's damaged arm, three flips in a record's body: the
     // search found the session's CapTP state still open after the channel
     // refused, which is the host's retirement rather than a close.
@@ -166,11 +168,12 @@ fn feedDamaged(smith: *std.testing.Smith, host: *Host, session: *HostSession, fr
 
     // Zero flips is a valid frame arriving out of turn, which is its own case.
     var flips = smith.valueRangeAtMost(u8, 0, 4);
-    const changed = flips > 0;
     while (flips > 0) : (flips -= 1) {
         const at = smith.valueRangeAtMost(u16, 0, @intCast(bytes.len - 1));
         damaged[at] ^= smith.valueRangeAtMost(u8, 1, 255);
     }
+    // XOR mutations can cancel; judge the resulting bytes, not the draw count.
+    const changed = !std.mem.eql(u8, bytes, damaged[0..bytes.len]);
     switch (wire) {
         .stream => {
             var stream_bytes: [max_input + glowcap.foundation.stream_framing.prefix_buffer_bytes]u8 = undefined;
@@ -367,6 +370,10 @@ const handoff = @import("fuzz/handoff.zig");
 /// `regression_seeds` above because a saved program means nothing to the
 /// byte-feeding target and saved bytes mean nothing to the program.
 const handoff_regression_seeds = [_][]const u8{
+    // A pending refusal retains its resolver; the next question needs a fresh one.
+    @embedFile("fuzz_regressions/handoff_regression_seeds-reused-resolver.bin"),
+    // Commit must reuse the prepared inventory when allocation fails.
+    @embedFile("fuzz_regressions/handoff_regression_seeds-prepared-inventory.bin"),
     // Two flips of the same bit, which is the verbatim receive again: the
     // program once judged it as damaged.
     handoffSeed(&.{&.{ handoff.act_damaged, 2, 0, 1, 0, 1, 0, 1 }}),

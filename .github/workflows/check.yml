@@ -1,14 +1,9 @@
-# Every pull request gets Zig tests and source checks. PRs targeting main and
-# main/dev pushes run the full gate sequence via ci/gates.sh, plus the
-# host-side infrastructure and runtime checks on macOS. A nightly schedule
-# runs the mutation fuzzer a hundred times longer than a push does. The sequence itself is
-# forge-neutral, so this file is the only thing that would change if glowcap
-# moved.
+# Development runs select affected lanes. Full validation runs for main,
+# main PRs, CI/build changes, nightly, and manual suite=check. Only full runs
+# report the required gates context. Nightly also runs deep fuzzing.
 # Topology: CONTRIBUTING.md "Continuous integration".
 #
-# The devcontainer image is rebuilt from scratch on every run (push: never,
-# no registry cache) — a named recurring cost, accepted until image caching
-# earns its registry surface.
+# One preparation job resolves or builds the toolchain before Linux fans out.
 name: check
 
 on:
@@ -18,81 +13,210 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Full validation or the long fuzz search
+        type: choice
+        required: true
+        default: check
+        options: [check, fuzz]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.inputs.suite || 'check' }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
-  pull-request:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  plan:
+    if: >-
+      github.event_name == 'push' || github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lanes: ${{ steps.select.outputs.lanes }}
+      full: ${{ steps.select.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
+          fetch-depth: 0
           persist-credentials: false
+      - name: Select validation coverage
+        id: select
+        run: python3 ci/plan.py
 
-      - name: Install the pinned Zig
-        run: |
-          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
-          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+  image:
+    needs: plan
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/devcontainer-image.yml
 
-      - name: Run the Zig test suite
-        run: zig build test --test-timeout 30s --summary all
-
-      - name: Run the Zig test suite in the shipped optimize mode
-        run: zig build test -Doptimize=ReleaseSafe --test-timeout 30s --summary all
-
-      - name: Check source, documentation, and Zig formatting
-        run: zig build source-check fmt-check --test-timeout 30s --summary all
-
-  gates:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.base_ref == 'main')
-    runs-on: ubuntu-latest
+  linux:
+    needs: [plan, image]
+    name: linux (${{ matrix.lane }})
+    if: >-
+      github.event_name == 'push' || github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(needs.plan.outputs.lanes) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           persist-credentials: false
 
-      # The CI action resolves Compose before it runs initializeCommand, so use
-      # the same checkout configurator as a contributor and prepare the two
-      # managed external networks it names.
-      - name: Prepare the devcontainer's external networks
+      # These SDKs belong to the disposable hosted runner. Product tools are
+      # supplied by the devcontainer, so they only consume build disk here.
+      - name: Reclaim disk space for container builds
         run: |
-          bash .devcontainer/bin/configure.sh
-          docker network create glowcap-rooms-net 2>/dev/null || true
-          docker network create glowcap-dev-main-egress 2>/dev/null || true
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup
+          df -h /
 
-      - name: Run the gates in the devcontainer
-        uses: devcontainers/ci@513af61f4de4f75d37e4438f184ba4358f0fc1ca # v0.3
+      # Only download stores are shared between runs. Test results, build
+      # outputs, installed tools, and credentials are never restored.
+      - name: Restore dependency downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          push: never
-          runCmd: bash ci/gates.sh
+          path: |
+            ~/.cache/glowcap/ci/zig-pkg
+            ~/.cache/glowcap/cargo/registry
+            ~/.cache/glowcap/cargo/git
+            ~/.cache/glowcap/tool/deno/remote
+            ~/.cache/glowcap/tool/deno/npm
+            ~/.cache/glowcap/tool/uv
+          key: downloads-${{ runner.os }}-${{ runner.arch }}-${{ matrix.lane }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh', '**/Cargo.lock', '**/deno.lock', '**/uv.lock') }}
+          restore-keys: downloads-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the pinned Dev Containers CLI
+        run: npm install -g "@devcontainers/cli@$(cat .devcontainer/ci/cli-version)"
+
+      - name: Authenticate to the image registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Download the unpublished PR image
+        if: needs.image.outputs.archive == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: devcontainer-image
+          path: ${{ runner.temp }}
+
+      - name: Start the prepared devcontainer
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+        run: python3 .devcontainer/ci/image.py start "$IMAGE"
+
+      - name: Fetch pinned Zig dependencies
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json bash ci/fetch-zig.sh
+
+      - name: Infrastructure and timeout checks
+        if: matrix.lane == 'core'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh infrastructure
+
+      - name: Core, memory, runtime, and TLS checks
+        if: matrix.lane == 'core'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh core
+
+      - name: ReleaseSafe tests in bounded compile groups
+        if: matrix.lane == 'core'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh shipped
+
+      - name: Browser and interoperability smoke checks
+        if: matrix.lane == 'core'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh smoke
+
+      - name: Bounded mutation fuzzing
+        if: matrix.lane == 'core' && needs.plan.outputs.full == 'true'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh fuzz
+
+      - name: Rust sidecar tests
+        if: matrix.lane == 'bindings'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh sidecars
+
+      - name: Bindings and cross-language scenarios
+        if: matrix.lane == 'bindings'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh bindings
+
+      - name: Wasm and browser scenarios
+        if: matrix.lane == 'browser'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh browser
+
+      - name: Goblins and OCapN interoperability
+        if: matrix.lane == 'interop'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh interop
+
+      - name: Iroh providers and relay matrices
+        if: matrix.lane == 'interop'
+        run: devcontainer exec --workspace-folder . --config .devcontainer/.ci/devcontainer.json --remote-env CARGO_INCREMENTAL=0 bash ci/gates.sh transports
 
       # The evidence record is the run's product: what ran, on what, and how
       # each gate ended. It is kept on failure too, since a red run's record
-      # is what names the gate that failed.
+      # is what names the gate that failed. A superseded run can be cancelled
+      # before the recorder starts, so cancellation has no required artifact.
       - name: Keep the evidence record
-        if: always()
+        if: ${{ !cancelled() && hashFiles('zig-out/evidence/**/*.json') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: evidence-${{ github.sha }}
-          path: zig-out/evidence/*.json
+          name: evidence-${{ github.sha }}-${{ matrix.lane }}
+          path: zig-out/evidence/**/*.json
           if-no-files-found: error
 
-  # The push gates search each fuzz target for 25K runs. This lane searches a
-  # hundred times longer, on main, and fails on a find; a find is replayed
+      - name: Summarize gate results
+        if: ${{ !cancelled() }}
+        run: |
+          df -h /
+          docker system df
+          python3 - <<'PYTHON'
+          import glob, json, os
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('| Gate | Result | Seconds |\n| --- | --- | ---: |\n')
+              for path in sorted(glob.glob('zig-out/evidence/**/*.json', recursive=True)):
+                  record = json.load(open(path))
+                  for gate in record['gates']:
+                      result = 'passed' if gate['exit'] == 0 else f"failed ({gate['exit']})"
+                      output.write(f"| `{gate['command']}` | {result} | {gate['seconds']} |\n")
+          PYTHON
+
+  # Keep the branch-protection context stable. Missing, skipped, cancelled,
+  # or failed matrix work must never produce a successful aggregate.
+  gates:
+    name: ${{ needs.plan.outputs.full == 'true' && 'gates' || 'dev-gates' }}
+    needs: [plan, image, linux]
+    if: >-
+      always() && (
+      github.event_name == 'push' || github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every Linux lane to pass
+        env:
+          IMAGE: ${{ needs.image.result }}
+          RESULT: ${{ needs.linux.result }}
+          PLAN: ${{ needs.plan.result }}
+        run: test "$PLAN" = success && test "$IMAGE" = success && test "$RESULT" = success
+
+  # Full validation searches each fuzz target for 25K runs. This lane searches a
+  # ten times longer, on main, and fails on a find; a find is replayed
   # into the layer's regression corpus by hand.
   scheduled-fuzz:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'fuzz')
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -105,11 +229,23 @@ jobs:
           ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
 
-      - name: Search every fuzz target a hundred times longer than a push
-        run: zig build fuzz -Dfuzz-runs=2500K --summary all
+      - name: Restore Zig package downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: zig-pkg
+          key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
+
+      - name: Fetch pinned Zig dependencies
+        run: bash ci/fetch-zig.sh
+
+      - name: Deep mutation fuzzing
+        run: zig build fuzz -Dfuzz-runs=250K --summary all
 
   macos-runtime:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.base_ref == 'main')
+    if: >-
+      github.event_name == 'push' || github.event_name == 'pull_request' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.suite == 'check')
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -122,6 +258,25 @@ jobs:
         run: |
           ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/image/zig.sh
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+
+      - name: Restore Zig package downloads
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: zig-pkg
+          key: zig-packages-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('build.zig.zon', '.devcontainer/pins.sh', '.devcontainer/checksums.sh') }}
+
+      - name: Fetch pinned Zig dependencies
+        run: bash ci/fetch-zig.sh
+
+      - name: Read the pinned Deno version
+        id: deno
+        run: |
+          source .devcontainer/pins.sh
+          echo "version=$DENO_VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: ${{ steps.deno.outputs.version }}
 
       - name: Check host-side infrastructure on macOS
         run: zig build infrastructure-check --test-timeout 30s --summary all

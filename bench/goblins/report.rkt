@@ -121,7 +121,7 @@
    "# glowcap vs Spritely Goblins — benchmark\n\n"
    (format "Mode **~a** · latency n=~a · throughput n=~a · connections=~a. One shared Racket application per substrate, over real loopback TCP.\n\n"
            mode lat-n tput-n conns)
-   "> These numbers come from a single machine on a single run. They are not a leaderboard — reproduce them with `zig build bench-goblins`, and read the [methodology](https://github.com/jimisaacs/glowcap/blob/main/bench/goblins/METHODOLOGY.md) for the caveats (sequential driving, no pipelining, coarse per-connection memory).\n\n"
+   "> These numbers come from a single machine on a single run. They are not a leaderboard — reproduce them with `zig build bench-goblins`, and read the [methodology](https://github.com/glowcap-org/glowcap/blob/main/bench/goblins/METHODOLOGY.md) for the caveats (sequential driving, no pipelining, coarse per-connection memory).\n\n"
    "## Results\n\n"
    (md-table suites results)
    "\n## Latency — p50, milliseconds (lower is better)\n\n"

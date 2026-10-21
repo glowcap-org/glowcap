@@ -42,7 +42,7 @@ futures compat layer.
 
 Each figure is the median (p50) of 3,000 calls from the run the stamp at the top
 names. The
-[benchmarks README](https://github.com/jimisaacs/glowcap/blob/main/bench/README.md#against-capn-proto)
+[benchmarks README](https://github.com/glowcap-org/glowcap/blob/main/bench/README.md#against-capn-proto)
 holds the repeated-run figures, their spread, and the system calls and
 instructions behind one round trip.
 
@@ -117,7 +117,7 @@ backend module, timed head to head
 across several small applications. The actors run in the Racket binding's vat.
 It does not measure glowcap's Zig actor runtime or concurrent load.
 “glowcap + time-travel” enables snapshot support but does not take snapshots.
-The [benchmark methodology](https://github.com/jimisaacs/glowcap/blob/main/bench/goblins/METHODOLOGY.md)
+The [benchmark methodology](https://github.com/glowcap-org/glowcap/blob/main/bench/goblins/METHODOLOGY.md)
 explains what is held constant.
 
 ```=html
